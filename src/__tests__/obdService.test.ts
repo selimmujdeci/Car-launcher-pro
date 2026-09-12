@@ -37,6 +37,9 @@ vi.mock('../platform/nativePlugin', () => ({
     addListener:            vi.fn().mockResolvedValue({ remove: vi.fn() }),
     startBackgroundService: vi.fn().mockResolvedValue(undefined),
     stopBackgroundService:  vi.fn().mockResolvedValue(undefined),
+    // PR-1a testi: handshake başarısı → _lastHandshakeSuccessAt set (flaky-araç guard'ı).
+    // Mevcut testler connectOBD'yi resolve ETMEDİĞİ için performHandshake çağrılmaz (güvenli).
+    performHandshake:       vi.fn().mockResolvedValue({ raw09: '', raw0100: '' }),
   },
 }));
 
@@ -92,7 +95,7 @@ vi.mock('../core/runtime/AdaptiveRuntimeManager', () => ({
       loggingLevel:     'silent',
     })),
     subscribe:     vi.fn(() => () => {}),
-    reportFailure: vi.fn(),
+    reportFailure: vi.fn(), reportRecovery: vi.fn(),
   },
   AdaptiveRuntimeManager: { getInstance: vi.fn() },
 }));
@@ -108,7 +111,8 @@ vi.mock('../platform/crashLogger', () => ({
 import { Capacitor } from '@capacitor/core';
 import { CarLauncher } from '../platform/nativePlugin';
 import {
-  startOBD, stopOBD, onOBDData,
+  startOBD, stopOBD, onOBDData, getHandshakeDiagnostics, resetObdConnection,
+  getObdConnLifecycle,
   type OBDData,
 } from '../platform/obdService';
 
@@ -272,6 +276,146 @@ describe('obdService — native modu, connectOBD zaman aşımı', () => {
     // Otomotiv dürüstlüğü: native platformda hata sonrası sahte veri gösterilmez.
     expect(states).toContain('error');
     expect(states[states.length - 1]).toBe('error');
+  });
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   3b. ARAÇ-DEĞİŞİMİ KURTARMASI — öğrenilmiş protokol ısrarlı timeout → OTURUM BYPASS
+   (2026-07-14 saha: dongle Doblo→Trafic; önbellek protokol '7' yanlış → sonsuz
+   "Bağlanıyor…".)
+   OBD-OS-F0-2 GÜNCELLEMESİ: 2 ardışık timeout artık obd:lastProtocol'ü SİLMEZ —
+   yalnız bu oturumda bypass eder (ATSP0-otomatik). Timeout "protokol yanlış"ın kanıtı
+   değildir (yavaş KWP/ISO9141 de timeout üretir); silmek doğru protokolü kalıcı çöpe
+   atıyordu. Araç gerçekten değiştiyse ATSP0 doğrusunu bulur ve başarıdaki ATDPN yazımı
+   önbelleği kendiliğinden günceller.
+═══════════════════════════════════════════════════════════════ */
+
+describe('obdService — araç-değişimi: yanlış öğrenilmiş protokol kendini onarır', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
+    vi.mocked(CarLauncher.scanOBD).mockResolvedValue({
+      devices: [{ name: 'ELM327 BT', address: '00:11:22:33:44:55' }],
+    });
+    // Yanlış protokol → araç yanıt vermez → connectOBD asla resolve etmez (timeout).
+    vi.mocked(CarLauncher.connectOBD).mockImplementation(() => new Promise(() => {}));
+    // Önceki araçtan (Doblo) öğrenilmiş protokol '7' (CAN 29-bit) önbellekte.
+    localStorage.setItem('obd:lastProtocol', '7');
+  });
+  afterEach(() => {
+    stopOBD();
+    localStorage.removeItem('obd:lastProtocol');
+    vi.clearAllMocks();
+    vi.useRealTimers();
+  });
+
+  it('ilk denemeler protokol=7 zorlar; ısrarlı timeout sonrası KALICI KAYIT KORUNUR ama oturum ATSP0\'a düşer', async () => {
+    startOBD('00:11:22:33:44:55');
+    for (let i = 0; i < 6; i++) await Promise.resolve();
+
+    // İlk connectOBD çağrısı önbellek protokolünü (7) zorlamalı.
+    const firstProtocol = (vi.mocked(CarLauncher.connectOBD).mock.calls[0]?.[0] as { protocol?: string })?.protocol;
+    expect(firstProtocol).toBe('7');
+
+    // Bir connect denemesini sonuna kadar sür (primary + fallback timeout, fazlı flush).
+    const driveOneAttempt = async () => {
+      await vi.advanceTimersByTimeAsync(31_000);            // primary timeout
+      for (let i = 0; i < 5; i++) await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(31_000);            // fallback timeout
+      for (let i = 0; i < 6; i++) await Promise.resolve();
+    };
+
+    // Kullanıcı/modal retry döngüsü = stop + start (sahadaki "YENİDEN TARA"/oto-retry).
+    // Her deneme öğrenilmiş '7'yi zorlayıp timeout olur; 2 ardışık timeout eşiğinde
+    // araç-değişimi kurtarması öğrenilmiş protokolü BU OTURUMDA bypass eder → ATSP0.
+    await driveOneAttempt();                 // deneme 1 → timeout sayacı 1
+    stopOBD();
+    for (let i = 0; i < 3; i++) await Promise.resolve();
+    startOBD('00:11:22:33:44:55');           // retry
+    for (let i = 0; i < 6; i++) await Promise.resolve();
+    await driveOneAttempt();                 // deneme 2 → eşik → bypass
+
+    // KİLİT (F0-2): kalıcı kayıt KORUNUR — timeout, protokolün yanlış olduğunu KANITLAMAZ.
+    // Aynı araca dönülürse sonraki oturum yine aramasız '7' ile başlar.
+    expect(localStorage.getItem('obd:lastProtocol')).toBe('7');
+
+    // PR-1a KİLİT: handshake yaşam-döngüsü kanıtı GERÇEK akıştan yakalandı — root-cause
+    // motoru "protokol uyuşmazlığı"nı bu kanıtla üretebilir (uydurma değil).
+    const hd = getHandshakeDiagnostics();
+    expect(hd.outcome).toBe('fail');
+    expect(hd.protocolTried).toBe('7');          // önbellek protokolü zorlandı
+    expect(hd.protocolActive).toBeNull();        // ATDPN yanıtsız → uyuşmazlık sinyali
+    expect(hd.timeoutStage).toBe('connect');
+    expect(hd.reconnectReason).toBe('timeout');
+    expect(hd.reconnectHistory.some((r) => r.reason === 'timeout')).toBe(true);
+
+    // KİLİT (F0-2): bypass ETKİN — sonraki deneme öğrenilmiş '7'yi ARTIK ZORLAMAZ,
+    // ATSP0-otomatik'e düşer (sonsuz "Bağlanıyor…" takılması bu yolla kırılır).
+    vi.mocked(CarLauncher.connectOBD).mockClear();
+    stopOBD();
+    for (let i = 0; i < 3; i++) await Promise.resolve();
+    startOBD('00:11:22:33:44:55');           // deneme 3
+    for (let i = 0; i < 6; i++) await Promise.resolve();
+    const thirdProtocol = (vi.mocked(CarLauncher.connectOBD).mock.calls[0]?.[0] as { protocol?: string })?.protocol;
+    expect(thirdProtocol).toBeUndefined();   // ATSP0 (protocol alanı gönderilmez)
+  });
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   3c. FLAKY-ARAÇ KORUMASI — bu oturumda bağlanan protokol timeout'la SİLİNMEZ
+   (2026-07-14 Trafic/KWP: protokol 5 DOĞRU + ara sıra çalışıyor; flakiness'in
+   önbellek protokolü atmasını engelle — yoksa yavaş ATSP0-aramaya geri döner).
+═══════════════════════════════════════════════════════════════ */
+
+describe('obdService — flaky araç: bağlanan protokol timeout ile silinmez', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
+    vi.mocked(CarLauncher.scanOBD).mockResolvedValue({
+      devices: [{ name: 'ELM327 BT', address: '00:11:22:33:44:55' }],
+    });
+    localStorage.setItem('obd:lastProtocol', '5');   // öğrenilmiş KWP protokolü
+  });
+  afterEach(() => {
+    stopOBD();
+    localStorage.removeItem('obd:lastProtocol');
+    vi.clearAllMocks();
+    vi.useRealTimers();
+  });
+
+  it('önce başarılı bağlanır (lastSuccessAt set), sonra timeout\'lar protokolü SİLMEZ', async () => {
+    // 1) İlk bağlantı BAŞARILI → handshake .then → _lastHandshakeSuccessAt set + protokol 5.
+    vi.mocked(CarLauncher.connectOBD).mockResolvedValueOnce({ protocol: '5' });
+    startOBD('00:11:22:33:44:55');
+    for (let i = 0; i < 10; i++) { await Promise.resolve(); }
+    // Başarı işlendi → handshake diag outcome ok + lastSuccessAt dolu.
+    const hd1 = getHandshakeDiagnostics();
+    expect(hd1.lastSuccessAt).not.toBeNull();
+
+    // 2) Şimdi connectOBD askıda kalsın (flaky drop → timeout).
+    vi.mocked(CarLauncher.connectOBD).mockImplementation(() => new Promise(() => {}));
+
+    // 3) Retry döngüsü (stop+start) → öğrenilmiş 5 zorlanır → timeout'lar.
+    const driveOneAttempt = async () => {
+      await vi.advanceTimersByTimeAsync(31_000);
+      for (let i = 0; i < 5; i++) await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(31_000);
+      for (let i = 0; i < 6; i++) await Promise.resolve();
+    };
+    stopOBD();
+    for (let i = 0; i < 3; i++) await Promise.resolve();
+    startOBD('00:11:22:33:44:55');
+    for (let i = 0; i < 6; i++) await Promise.resolve();
+    await driveOneAttempt();
+    stopOBD();
+    for (let i = 0; i < 3; i++) await Promise.resolve();
+    startOBD('00:11:22:33:44:55');
+    for (let i = 0; i < 6; i++) await Promise.resolve();
+    await driveOneAttempt();
+
+    // KİLİT: protokol 5 bu oturumda bağlandığı için (lastSuccessAt) araç-değişimi
+    // silmesi ÇALIŞMAZ → obd:lastProtocol '5' KALIR (yavaş ATSP0-aramaya düşmez).
+    expect(localStorage.getItem('obd:lastProtocol')).toBe('5');
   });
 });
 
@@ -619,5 +763,193 @@ describe('obdService — Patch 3: protokol öğrenme', () => {
     for (let i = 0; i < 10; i++) await Promise.resolve();
     const thirdCall = vi.mocked(CarLauncher.connectOBD).mock.calls[0]?.[0] as { protocol?: string };
     expect(thirdCall.protocol).toBe('6');
+  });
+});
+
+
+/* ═══════════════════════════════════════════════════════════════
+   3d. ARAÇ DEĞİŞİMİ (aynı oturum) + TEK-ARAÇ KULLANICISI KORUMASI.
+
+   SAHA 1 (2026-07-15): dongle Trafic(KWP/5) → Doblo(CAN/7), uygulama AÇIK.
+     Eski: `_lastHandshakeSuccessAt != null` → bypass KOŞULSUZ engelli → protokol 5
+     sonsuza dek zorlanır → aynı MAC (_addressConnectedOnce) → deep-reconnect sonsuz
+     "Bağlanıyor…" → kullanıcı uygulamayı ÖLDÜRMEK zorunda.
+   SAHA 2 (kullanıcı sorusu): "devamlı aynı araçta kullanan için sıkıntı olmaz mı?"
+     Park halinde (kontak kapalı → dongle güçsüz) timeout'lar birikir; bunlar protokolün
+     yanlış olduğunun kanıtı DEĞİL (BT'ye hiç bağlanılamadı). Kalıcı bypass, her sabah
+     aracına binen kullanıcıyı yavaş ATSP0-aramasına mahkûm ederdi.
+
+   ÇÖZÜM: kademeli tolerans (bağlanıldıysa 3, yoksa 2) + TEK KULLANIMLIK bypass →
+   protokol denemeleri "learned → (eşikte) ATSP0 → learned …" diye dönüşümlü gider.
+   Araç değiştiyse tek ATSP0 denemesi yeter (bağlanır → ATDPN önbelleği tazeler);
+   araç aynıysa öğrenilmiş protokol KAYBOLMAZ.
+═══════════════════════════════════════════════════════════════ */
+
+describe('obdService — araç değişimi kurtarması, tek-araç kullanıcısını cezalandırmadan', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
+    vi.mocked(CarLauncher.scanOBD).mockResolvedValue({
+      devices: [{ name: 'ELM327 BT', address: '00:11:22:33:44:55' }],
+    });
+    localStorage.setItem('obd:lastProtocol', '5');   // Trafic'ten öğrenilen KWP
+  });
+  afterEach(() => {
+    stopOBD();
+    localStorage.removeItem('obd:lastProtocol');
+    vi.clearAllMocks();
+    vi.useRealTimers();
+  });
+
+  /** Bir bağlantı turu koşturur ve o turda connectOBD'ye verilen protokolü döndürür. */
+  const runAttempt = async (): Promise<string | undefined> => {
+    vi.mocked(CarLauncher.connectOBD).mockClear();
+    stopOBD();
+    for (let i = 0; i < 3; i++) await Promise.resolve();
+    startOBD('00:11:22:33:44:55');
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+    const arg = vi.mocked(CarLauncher.connectOBD).mock.calls[0]?.[0] as { protocol?: string } | undefined;
+    await vi.advanceTimersByTimeAsync(31_000);
+    for (let i = 0; i < 6; i++) await Promise.resolve();
+    return arg?.protocol;
+  };
+
+  it('başarıdan sonra ısrarlı timeout → ATSP0 DENENİR, ama öğrenilmiş protokol geri gelir', async () => {
+    // 1) Trafic'e başarılı bağlantı → lastSuccessAt dolar (flaky guard'ı devreye girer).
+    vi.mocked(CarLauncher.connectOBD).mockResolvedValueOnce({ protocol: '5' });
+    startOBD('00:11:22:33:44:55');
+    for (let i = 0; i < 10; i++) { await Promise.resolve(); }
+    expect(getHandshakeDiagnostics().lastSuccessAt).not.toBeNull();
+
+    // 2) Dongle başka araçta VEYA araç park (dongle güçsüz) → her deneme timeout.
+    vi.mocked(CarLauncher.connectOBD).mockImplementation(() => new Promise(() => {}));
+
+    const seen: (string | undefined)[] = [];
+    for (let i = 0; i < 8; i++) seen.push(await runAttempt());
+
+    // KİLİT 1 (araç değişimi kurtarması): ısrarlı timeout sonrası EN AZ BİR kez ATSP0
+    // denenir → yanlış protokole sonsuza dek asılı kalınmaz (uygulama sıfırlamaya gerek yok).
+    expect(seen).toContain(undefined);
+
+    // KİLİT 2 (tek-araç koruması): ATSP0 denemesi TEK KULLANIMLIK → öğrenilmiş protokol
+    // geri gelir. Kullanıcı sabah aracına gelince yine hızlı bağlanır.
+    expect(seen.filter((p) => p === '5').length).toBeGreaterThan(0);
+    // ATSP0 istisnadır, kural değil: denemelerin ÇOĞU hâlâ öğrenilmiş protokolle gider.
+    expect(seen.filter((p) => p === '5').length).toBeGreaterThan(seen.filter((p) => p === undefined).length);
+
+    // KİLİT 3 (F0-2 sözleşmesi): kalıcı kayıt hiçbir hâlde SİLİNMEZ.
+    expect(localStorage.getItem('obd:lastProtocol')).toBe('5');
+  });
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   3f. BAĞLANTIYI SIFIRLA (kullanıcı-tetikli) — "hiç bağlanılmamış gibi".
+
+   SAHA (2026-07-15, kullanıcı isteği): dongle yeni araca takılınca tarama ekranındaki
+   "Bağlantıyı Sıfırla" → sistem hiç bağlantı yokmuş gibi davranmalı → yeni araca bağlanır.
+   Eskiden bunun TEK yolu uygulamayı komple öldürmekti: `stopOBD()` soketi kapatır ama
+   OTURUM-İÇİ öğrenme/kimlik durumunu (lastSuccessAt / addressConnectedOnce / bypass /
+   protocolCycle) KORUR → yeni araca eski aracın protokolü zorlanmaya devam ederdi.
+
+   KULLANICI BEYANI EN GÜÇLÜ KANITTIR: sistem araç değişimini timeout biriktirerek
+   TAHMİN eder (~1 dk); kullanıcı BİLİR → tahmin eşiği beklenmez.
+═══════════════════════════════════════════════════════════════ */
+
+describe('obdService — resetObdConnection: hiç bağlanılmamış gibi başlar', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
+    vi.mocked(CarLauncher.scanOBD).mockResolvedValue({
+      devices: [{ name: 'ELM327 BT', address: '00:11:22:33:44:55' }],
+    });
+    localStorage.setItem('obd:lastProtocol', '5');   // eski araçtan (Trafic/KWP)
+  });
+  afterEach(() => {
+    stopOBD();
+    localStorage.removeItem('obd:lastProtocol');
+    vi.clearAllMocks();
+    vi.useRealTimers();
+  });
+
+  it('sıfırlama sonrası İLK deneme ATSP0 gider (eski aracın protokolü zorlanmaz)', async () => {
+    // 1) Eski araca bağlan → lastSuccessAt + addressConnectedOnce dolar.
+    vi.mocked(CarLauncher.connectOBD).mockResolvedValueOnce({ protocol: '5' });
+    startOBD('00:11:22:33:44:55');
+    for (let i = 0; i < 10; i++) { await Promise.resolve(); }
+    expect(getHandshakeDiagnostics().lastSuccessAt).not.toBeNull();
+
+    // 2) Kullanıcı dongle'ı yeni araca taktı → "Bağlantıyı Sıfırla".
+    // PR-OBD-CONN-1: artık Promise döner (native disconnect'i bekler); SENKRON etkiler
+    // (flag/handshake sıfırlama) yine anında geçerlidir → await gerekmeden kanıtlanır.
+    void resetObdConnection();
+
+    // Handshake kanıtı sıfırlanır (yeni araç → eski aracın el sıkışması geçersiz).
+    expect(getHandshakeDiagnostics().lastSuccessAt).toBeNull();
+
+    // 3) Yeni tur: protokol ZORLANMAZ → ATSP0-otomatik ile yeni araç bulunur.
+    vi.mocked(CarLauncher.connectOBD).mockClear();
+    vi.mocked(CarLauncher.connectOBD).mockImplementation(() => new Promise(() => {}));
+    startOBD('00:11:22:33:44:55');
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+    const arg = vi.mocked(CarLauncher.connectOBD).mock.calls[0]?.[0] as { protocol?: string } | undefined;
+    expect(arg?.protocol).toBeUndefined();
+
+    // 4) F0-2 sözleşmesi: kalıcı kayıt SİLİNMEZ — başarıdaki ATDPN üzerine yazar.
+    expect(localStorage.getItem('obd:lastProtocol')).toBe('5');
+  });
+});
+
+describe('obdService — PR-OBD-CONN-1: deterministik + gözlemlenebilir reset lifecycle', () => {
+  beforeEach(() => {
+    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
+    vi.mocked(CarLauncher.disconnectOBD).mockResolvedValue(undefined);
+  });
+  afterEach(() => {
+    stopOBD();
+    vi.clearAllMocks();
+  });
+
+  it('resetObdConnection Promise döner ve native disconnect TAMAMLANANA kadar bekler', async () => {
+    let disconnectResolved = false;
+    vi.mocked(CarLauncher.disconnectOBD).mockImplementation(
+      () => new Promise<void>((res) => { setTimeout(() => { disconnectResolved = true; res(); }, 0); }),
+    );
+    const before = getObdConnLifecycle().resetCompletedCount;
+    await resetObdConnection('user');
+    // resetCompleted YALNIZCA disconnect bittikten sonra artar → deterministik sıralama kanıtı.
+    expect(disconnectResolved).toBe(true);
+    expect(getObdConnLifecycle().resetCompletedCount).toBe(before + 1);
+  });
+
+  it('reset senkron etkisi ANINDA geçerli (await gerekmeden resetRequested + disconnectCalled artar)', () => {
+    const before = getObdConnLifecycle();
+    void resetObdConnection('user');   // await YOK
+    const after = getObdConnLifecycle();
+    expect(after.resetRequestedCount).toBe(before.resetRequestedCount + 1);
+    expect(after.disconnectCalledCount).toBe(before.disconnectCalledCount + 1);
+    expect(after.lastResetReason).toBe('user');
+    expect(after.lastResetAt).toBeGreaterThan(0);
+  });
+
+  it('startOBD reconnect talebini sayar (reconnectRequested artar)', () => {
+    const before = getObdConnLifecycle().reconnectRequestedCount;
+    startOBD('00:11:22:33:44:55');
+    expect(getObdConnLifecycle().reconnectRequestedCount).toBe(before + 1);
+  });
+
+  it('ardışık iki reset idempotent — sayaçlar tutarlı artar, crash yok', async () => {
+    const before = getObdConnLifecycle().resetRequestedCount;
+    await resetObdConnection('user');
+    await resetObdConnection('user');
+    expect(getObdConnLifecycle().resetRequestedCount).toBe(before + 2);
+    expect(getObdConnLifecycle().resetCompletedCount).toBeGreaterThanOrEqual(before + 2);
+  });
+
+  it('lifecycle snapshot PII taşımaz (yalnız sayaç/enum/zaman)', () => {
+    const snap = getObdConnLifecycle();
+    const keys = Object.keys(snap);
+    // adres/deviceName/mac gibi tanımlayıcı alan OLMAMALI.
+    expect(keys.some((k) => /address|mac|device|name|vin/i.test(k))).toBe(false);
+    expect(typeof snap.connectionState).toBe('string');
   });
 });

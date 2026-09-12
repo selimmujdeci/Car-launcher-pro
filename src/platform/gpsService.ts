@@ -1,12 +1,18 @@
 import { create } from 'zustand';
 import { logError } from './crashLogger';
+import { noteArrival, noteAccepted, noteRejected, resetGpsIntakeHealth } from './gps/gpsIntakeHealth';
 import { safeSetRaw } from '../utils/safeStorage';
 import { checkGeofence } from './geofenceService';
+import { GPS_FIX_STALE_MS } from './freshnessPolicy';
 import { runtimeManager } from '../core/runtime/AdaptiveRuntimeManager';
+import { CarLauncher } from './nativePlugin';
 import { useUnifiedVehicleStore } from './vehicleDataLayer/UnifiedVehicleStore';
 import { applyCompassSmoothing, computeBlendedHeading } from './gps/headingCore';
-import { applySpeedFilters, computeSpeedDelta, computeCourseDelta, pickRawSpeed } from './gps/speedCore';
+import { applySpeedFilters, computeSpeedDelta, computeCourseDelta, pickRawSpeed,
+         noiseFloorM, reconcileDopplerWithDisplacement,
+         DOPPLER_CHECK_MAX_DT_SEC, confirmMotion, MOTION_CONFIRM_KMH } from './gps/speedCore';
 import type { PrevPosition } from './gps/speedCore';
+import { _haversineMeters } from './gps/gpsMath';
 import { isJumpInvalid, calculateFusionRamp, DR_THRESHOLD_MS, DR_MIN_SPEED_MS } from './gps/fusionCore';
 import type { FusedPosition } from './gps/fusionCore';
 import {
@@ -16,9 +22,14 @@ import {
   LAST_KNOWN_KEY,
   GPS_FIRST_FIX_MS,
 } from './gps/gpsUtils';
+import {
+  appendFixAge, summarizeFixAge,
+  type FixAgeSample, type FixAgeSummary,
+} from './navigation/core/fixAgeLedger';
 import { getThermalLevel } from './thermalWatchdog';
 import { subscribeOrientationAbsolute, subscribeOrientation } from './sensors';
 import { hasCompassDemand, subscribeCompassDemand } from './gps/compassDemand';
+import { BACKGROUND_GPS_INTERVAL_MS, type GpsPowerMode } from './power/backgroundPowerModel';
 
 // Capacitor global tip tanımı — (window as any) yerine
 declare global {
@@ -29,6 +40,7 @@ declare global {
 
 // GPSLocation tipi vehicleDataLayer/types.ts'te tanımlıdır.
 import type { GPSLocation } from './vehicleDataLayer/types';
+import { createCanonicalStateEnvelope, type CanonicalStateEnvelope } from './state/canonicalStateEnvelope';
 export type { GPSLocation } from './vehicleDataLayer/types';
 
 interface GPSState {
@@ -53,6 +65,26 @@ const useGPSStore = create<GPSState>(() => ({
 
 // DEV-only: GPS durum override — null = gerçek GPS aktif
 let _gpsTestOverride: Partial<GPSState> | null = null;
+let _gpsGeneration = 0;
+let _lastLocationEnvelope: CanonicalStateEnvelope<GPSLocation | null> | null = null;
+let _lastAcceptedTimestamp = -Infinity;
+let _staleGenerationRejectCount = 0;
+let _outOfOrderRejectCount = 0;
+
+/**
+ * GPS ingress'in saf kabul kapısı. Generation callback'in ait olduğu canlı
+ * oturumu, timestamp ise yalnız o oturum içindeki observation sırasını korur.
+ * Yeni bir oturum eski timestamp tabanını devralmaz.
+ */
+export function isCurrentGPSObservation(
+  expectedGeneration: number,
+  currentGeneration: number,
+  timestamp: number,
+  lastAcceptedTimestamp: number,
+): boolean {
+  if (expectedGeneration !== currentGeneration) return false;
+  return !Number.isFinite(timestamp) || timestamp > lastAcceptedTimestamp;
+}
 
 // ── UnifiedVehicleStore mirror ──────────────────────────────────────────────
 // useGPSStore değişimlerini UnifiedVehicleStore'a yansıt.
@@ -70,8 +102,15 @@ useGPSStore.subscribe((state) => {
     error:       eff.error,
     unavailable: eff.unavailable,
     source:      eff.source,
+    locationEnvelope: _lastLocationEnvelope,
   });
 });
+
+/* ARCH-06/F1 — T0 sayaçlar (tek tamsayı artırımı) + konum hazırlık taşı.
+   Mevcut GPS kadans/throttle otoritesi AYNEN korunur; buraya hiçbir karar
+   eklenmedi (bkz. `bumpPerf` başlığı: hot-path'te tahsis/log/zaman YASAK). */
+import { bumpPerf } from './perf/perfCounters';
+import { markBootMilestone } from './bootTimingRecorder';
 
 let watchId: number | string | null = null;
 let _lastPositionPerf = 0; // performance.now() — clock-jump immune throttle
@@ -259,6 +298,8 @@ function _blendHeading(gpsBearing: number | null, speedMs: number): number | nul
 }
 
 // ── Speed from position delta ─────────────────────────────
+/** Bir önceki fix'te hız hareket eşiğinin üstünde miydi — `confirmMotion` girdisi. */
+let _prevSpeedAbove = false;
 let _prevForSpeed: PrevPosition | null = null;
 
 function _scheduleGPSReconnect(): void {
@@ -282,6 +323,15 @@ function _scheduleGPSReconnect(): void {
  */
 export async function startGPSTracking(): Promise<void> {
   if (watchId != null) return;
+  const generation = ++_gpsGeneration;
+  _lastAcceptedTimestamp = -Infinity;
+  // Native foreground-service events carry this opaque JS generation. A late
+  // event without the current binding is fail-closed at background ingress.
+  void CarLauncher.setBackgroundGpsGeneration({ gpsGeneration: generation }).catch(() => undefined);
+
+  // Kütük #401: alım sağlığı sayaçları OTURUM başına ölçülür — önceki oturumun
+  // red serisi yeni oturumun sağlığı gibi okunmasın.
+  resetGpsIntakeHealth();
 
   // 5 saniye içinde gerçek fix gelmezse fallback devreye girer
   _startFirstFixFallback();
@@ -293,11 +343,11 @@ export async function startGPSTracking(): Promise<void> {
   _applyCompassDemand();
 
   if (isNativePlatform()) {
-    await startNativeGPSTracking();
+    await startNativeGPSTracking(generation);
   } else {
     // Web/browser ortamı: navigator.geolocation ile dene
     if (navigator.geolocation) {
-      startWebGPSTracking();
+      startWebGPSTracking(generation);
     } else {
       useGPSStore.setState({ unavailable: true, source: null });
     }
@@ -307,7 +357,7 @@ export async function startGPSTracking(): Promise<void> {
 /**
  * Native (Capacitor) GPS tracking
  */
-async function startNativeGPSTracking(): Promise<void> {
+async function startNativeGPSTracking(generation: number): Promise<void> {
   try {
     const { Geolocation } = await import('@capacitor/geolocation');
 
@@ -340,18 +390,11 @@ async function startNativeGPSTracking(): Promise<void> {
     // Warm start: immediate fix before watchPosition fires (reduces GPS cold-start delay)
     try {
       const pos = await Geolocation.getCurrentPosition({ enableHighAccuracy: true, timeout: 10000 });
-      if (pos?.coords) handlePosition(pos.coords, pos.timestamp);
+      if (pos?.coords) handlePosition(pos.coords, pos.timestamp, generation);
     } catch { /* watchPosition will handle it */ }
 
     watchId = await Geolocation.watchPosition(
-      {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: Math.min(_gpsUpdateMs, 500), // en az 500ms taze veri
-        // Android: FusedLocationProvider update interval (ms) — RuntimeEngine'den gelir
-        // PERFORMANCE: 500ms | BALANCED: 1000ms | BASIC_JS: 2000ms | SAFE_MODE: 5000ms
-        ...({ minimumUpdateInterval: _gpsUpdateMs } as object),
-      } as Parameters<typeof Geolocation.watchPosition>[0],
+      _nativeWatchOptions(),
       (position, err) => {
         if (err) {
           _consecutiveErrors++;
@@ -364,21 +407,21 @@ async function startNativeGPSTracking(): Promise<void> {
         }
 
         if (position) {
-          handlePosition(position.coords, position.timestamp);
+          handlePosition(position.coords, position.timestamp, generation);
         }
       }
     );
   } catch (err) {
     logError('GPS:NativeFallback', err);
     watchId = null; // ensure clean state before web fallback
-    startWebGPSTracking();
+    startWebGPSTracking(generation);
   }
 }
 
 /**
  * Web (browser navigator.geolocation) GPS tracking
  */
-function startWebGPSTracking(): void {
+function startWebGPSTracking(generation = _gpsGeneration): void {
   if (watchId != null) return; // already tracking
   if (!navigator.geolocation) {
     useGPSStore.setState({ error: 'Geolocation not supported' });
@@ -388,7 +431,7 @@ function startWebGPSTracking(): void {
   try {
     const id = navigator.geolocation.watchPosition(
       (position) => {
-        handlePosition(position.coords, position.timestamp);
+        handlePosition(position.coords, position.timestamp, generation);
       },
       (err) => {
         _consecutiveErrors++;
@@ -412,6 +455,46 @@ function startWebGPSTracking(): void {
   }
 }
 
+/* ── GPS fix VARIŞ kanalı (heartbeat otoritesi) ───────────────────────────────
+ *
+ * SAHA KUSURU (2026-08-02, cihaz kayıtları 20:36–21:39): araç PARK hâlindeyken
+ * "HealthMonitor:GPS — No heartbeat for 20s/25s/85s" alarmları basıldı; aynı
+ * kayıtlarda `conn=connected polling=true` idi, yani GPS hattı SAĞLIKLIYDI.
+ *
+ * KÖK: GPS heartbeat'i `useUnifiedVehicleStore.location` REFERANS DEĞİŞİMİNDEN
+ * türetiliyordu (SystemHealthMonitor._setupPassiveMonitoring). Ama
+ * `UnifiedVehicleStore.updateGPSState` bilinçli bir **shallow-equal guard**
+ * taşır: lat/lng/speed aynıysa referansı DEĞİŞTİRMEZ (park hâlinde tüm
+ * subscriber'ları boşuna tetiklememek için — CPU/termal koruması, DOĞRU bir
+ * optimizasyon). Android FusedLocation park hâlinde aynı fix'i birebir tekrar
+ * verir → referans sabit kalır → hiç beat üretilmez → 20 sn sonra SAHTE alarm.
+ *
+ * Bu, OBD tarafında 2026-08-01'de zaten düzeltilmiş kusurun (DEĞİŞİM tabanlı
+ * heartbeat → VARIŞ tabanlı heartbeat, bkz. SystemHealthMonitor `onOBDData`)
+ * GPS'te atlanmış ikizidir.
+ *
+ * Bu kanal DEĞİŞİMİ değil VARIŞI yayar: hat canlıysa beat gelir, fix aynı olsa
+ * da. Yük yok — payload taşımaz, yalnız "canlı" sinyali.
+ */
+type FixArrivalListener = () => void;
+const _fixArrivalSubs = new Set<FixArrivalListener>();
+
+/**
+ * Her GEÇERLİ GPS fix varışında (değer değişmese de) çağrılır.
+ * Sağlık izleme içindir; konum verisi için `onGPSLocation` kullanılır.
+ * Cleanup fonksiyonu döner (Zero-Leak).
+ */
+export function onGPSFixArrival(fn: FixArrivalListener): () => void {
+  _fixArrivalSubs.add(fn);
+  return () => { _fixArrivalSubs.delete(fn); };
+}
+
+function _emitFixArrival(): void {
+  for (const fn of _fixArrivalSubs) {
+    try { fn(); } catch { /* fail-soft: bir abone patlarsa GPS hattı durmaz */ }
+  }
+}
+
 /**
  * Common handler for position updates from either platform
  */
@@ -425,13 +508,30 @@ interface CoordsLike {
   speed: number | null;
 }
 
-function handlePosition(coords: CoordsLike, timestamp: number): void {
+function handlePosition(coords: CoordsLike, timestamp: number, expectedGeneration = _gpsGeneration): void {
+  if (expectedGeneration !== _gpsGeneration) {
+    _staleGenerationRejectCount++;
+    return;
+  }
+  if (!isCurrentGPSObservation(expectedGeneration, _gpsGeneration, timestamp, _lastAcceptedTimestamp)) {
+    _outOfOrderRejectCount++;
+    return;
+  }
   const now     = Date.now();
   const perfNow = performance.now();
-  if (perfNow - _lastPositionPerf < _positionThrottleMs()) return;
+  // Kütük #401/#423: hattın SAĞLIĞI artık sayılıyor. "Fix geldi" ile "fix kabul
+  // edildi" ayrı sorulardır; sahada ikisi arasındaki fark 19,5 s bayatlık üretmişti.
+  noteArrival(now);
+  bumpPerf('gps.providerCallback');
+  if (perfNow - _lastPositionPerf < _positionThrottleMs()) {
+    noteRejected('THROTTLED', coords.accuracy);
+    bumpPerf('gps.fixThrottled');
+    return;
+  }
 
-  if (!isFinite(coords.latitude) || !isFinite(coords.longitude)) {
-    logError('GPS', new Error(`Invalid coords: ${coords.latitude},${coords.longitude}`));
+  if (!isFinite(coords.latitude) || !isFinite(coords.longitude) || !Number.isFinite(coords.accuracy)) {
+    noteRejected('INVALID_COORDS', null);
+    logError('GPS', new Error(`Invalid location sample: ${coords.latitude},${coords.longitude}, accuracy:${coords.accuracy}`));
     return;
   }
 
@@ -439,13 +539,26 @@ function handlePosition(coords: CoordsLike, timestamp: number): void {
   _hasValidFirstFix = true;
   _clearFirstFixTimer();
 
+  // VARIŞ heartbeat'i: hat canlı. JumpGuard/shallow-equal gibi AŞAĞIDAKİ hiçbir
+  // eleme bu sinyali susturmamalı — "fix geldi" ile "fix kabul edildi" ayrı
+  // sorulardır; sağlık izleme birincisini sorar.
+  _emitFixArrival();
+
   _lastPositionPerf  = perfNow;
   _consecutiveErrors = 0;
+  bumpPerf('gps.fixAccepted');
+  /* ARCH-06/F1 · NAV_LOCATION_AVAILABLE — navigasyonun kullanabileceği İLK
+     geçerli konum kanıtı. Damgayı ölçümün SAHİBİ atar; SystemBoot "navigasyon
+     hazır" diye VARSAYMAZ. GPS yoksa taş `null` KALIR (sahte hazırlık yok). */
+  markBootMilestone('NAV_LOCATION_AVAILABLE', 'gpsService:handlePosition:firstAcceptedFix');
 
   // ── Jump Guard: tünel çıkışı gürültülü ilk fix koruması ─────────────────
   const _drActiveNow = isDeadReckoningActive();
   const _prevLoc     = useGPSStore.getState().location;
   if (_prevLoc && isJumpInvalid(_prevLoc, coords)) {
+    // Kütük #423: sahada 30+ kez (accuracy 500–3 800 m) sessizce reddedildi.
+    // Red DOĞRU (çöp fix konumu bozar) ama artık SAYILIR ve LAB'da görünür.
+    noteRejected('JUMP_GUARD', coords.accuracy);
     console.warn(`[GPS] JumpGuard: atlama reddedildi (accuracy:${coords.accuracy.toFixed(0)}m)`);
     return;
   }
@@ -467,10 +580,54 @@ function handlePosition(coords: CoordsLike, timestamp: number): void {
   // computeSpeedDelta (dt<0.5 guard) hem computeCourseDelta (4m eşik) hiç üretemiyordu.
   const _fixTs = timestamp ?? now;
   if (!prevPos || _fixTs - prevPos.ts >= 500) {
-    _prevForSpeed = { lat: coords.latitude, lng: coords.longitude, ts: _fixTs };
+    /* Doğruluk da TAŞINIR: yer değiştirme iki ölçümün farkıdır, belirsizliği de
+       ikisinin birleşimidir (bkz. noiseFloorM). */
+    _prevForSpeed = {
+      lat: coords.latitude, lng: coords.longitude, ts: _fixTs,
+      accuracy: Number.isFinite(coords.accuracy) ? coords.accuracy : undefined,
+    };
   }
-  const deltaSpeed = computeSpeedDelta(coords.latitude, coords.longitude, _fixTs, prevPos);
-  const rawSpeed   = pickRawSpeed(gpsSpeed, deltaSpeed);
+  /* accuracy GEÇİLİR: konum belirsizliğinden küçük yer değiştirme hareket
+     sayılmaz (park hâlinde 116 km/h hayaletinin kökü — bkz. noiseFloorM). */
+  const deltaSpeed = computeSpeedDelta(
+    coords.latitude, coords.longitude, _fixTs, prevPos,
+    Number.isFinite(coords.accuracy) ? coords.accuracy : undefined,
+  );
+  /* Doppler'i YER DEĞİŞTİRME kanıtıyla çapraz doğrula: park hâlinde 58 km/h
+     hayaleti bu yoldan geliyordu (bkz. reconcileDopplerWithDisplacement). */
+  let _gpsSpeedChecked = gpsSpeed;
+  /** Yer değiştirme gürültü tabanını AŞTI mı — confirmMotion'ın kanıt girdisi. */
+  let _dispCorroborated = false;
+  /** Karşılaştırılacak önceki fix VAR mı — confirmMotion'ın kanıt kapısı. */
+  let _speedEvidence = false;
+  if (prevPos) {
+    const _dtSec = (_fixTs - prevPos.ts) / 1000;
+    if (_dtSec > 0 && _dtSec <= DOPPLER_CHECK_MAX_DT_SEC) {
+      const _dispM = _haversineMeters(prevPos.lat, prevPos.lng, coords.latitude, coords.longitude);
+      const _floor = noiseFloorM(
+        Number.isFinite(coords.accuracy) ? coords.accuracy : undefined,
+        prevPos.accuracy,
+      );
+      _speedEvidence    = true;
+      _dispCorroborated = _dispM > _floor;
+      _gpsSpeedChecked = reconcileDopplerWithDisplacement(gpsSpeed, _dispM, _dtSec, _floor);
+    } else if (_dtSec > DOPPLER_CHECK_MAX_DT_SEC) {
+      /* DOĞRULANAMAYAN DOPPLER GÜVENİLMEZ (fail-closed). Eskiden bu dal yoktu ve
+         pencere dışı fix'lerde ham Doppler doğrulanmadan geçiyordu — park hâlinde
+         55/61 km/h hayaletlerinin kaçış yolu buydu. Kanıtsız hız YAYINLANMAZ;
+         `undefined` bırakılır ve pickRawSpeed yedek yola bakar (o da uzun
+         aralıkta `undefined` döner → hız BİLİNMİYOR, sahte 0 değil). */
+      _gpsSpeedChecked = undefined;
+    }
+  }
+  let rawSpeed     = pickRawSpeed(_gpsSpeedChecked, deltaSpeed);
+  /* TEK FIX'LİK, YER DEĞİŞTİRMEYLE DOĞRULANMAMIŞ hareket iddiası REDDEDİLİR
+     (bkz. confirmMotion — cihazda 22.74 km/h hayaleti ölçüldü). */
+  const _rawClaimKmh = (rawSpeed ?? 0) * 3.6;
+  rawSpeed = confirmMotion(rawSpeed, _speedEvidence, _dispCorroborated, _prevSpeedAbove) ?? rawSpeed;
+  /* Süreklilik HAM İDDİADAN izlenir, teyit edilmiş çıktıdan DEĞİL: yoksa ilk
+     reddedilen iddia sonrasını da kilitler ve ikinci fix asla teyit edemez. */
+  _prevSpeedAbove = _rawClaimKmh > MOTION_CONFIRM_KMH;
 
   const dataAge     = Math.abs(now - (timestamp ?? now));
   const filteredSpeed = rawSpeed != null ? applySpeedFilters(rawSpeed, dataAge) : undefined;
@@ -499,10 +656,17 @@ function handlePosition(coords: CoordsLike, timestamp: number): void {
     }
   }
 
+  /* G1 (#527): fix damgası TEK yerde alınır — yaş MONOTONİK saatten hesaplanır
+     (`getLocationEvidence`), duvar saati yalnız gösterim/kayıt için taşınır.
+     Saat sıçraması yaşı bozamaz. */
+  _lastFixPerfMs = performance.now();
+  _lastFixWallMs = timestamp ?? now;
+  if (Number.isFinite(timestamp)) _lastAcceptedTimestamp = timestamp;
+
   const loc: GPSLocation = {
     latitude:  _fusedLat,
     longitude: _fusedLng,
-    accuracy:  Number.isFinite(coords.accuracy) ? coords.accuracy : 999,
+    accuracy:  coords.accuracy,
     altitude:  coords.altitude ?? undefined,
     heading:   heading ?? undefined,
     speed:     filteredSpeed, // ← filtreli hız (deadzone + EMA)
@@ -522,6 +686,15 @@ function handlePosition(coords: CoordsLike, timestamp: number): void {
   _saveLastKnown(loc);
 
   const source: GPSState['source'] = isNativePlatform() ? 'native' : 'web';
+  _lastLocationEnvelope = createCanonicalStateEnvelope({
+    value: loc, classification: 'OBSERVED', provenance: [source, 'gpsService.handlePosition'],
+    scope: { type: 'PROCESS', id: null }, epoch: _gpsGeneration, expectedEpoch: _gpsGeneration,
+    sessionId: String(_gpsGeneration), generation: _gpsGeneration, observedAt: timestamp ?? now,
+    nowMs: now, freshnessWindowMs: GPS_FIX_STALE_MS, liveEvidence: true,
+    sourceRef: `gps-provider:${source}`, evidenceRef: `gps:${_gpsGeneration}:${timestamp ?? now}`,
+  });
+
+  noteAccepted(now, loc.accuracy);
 
   useGPSStore.setState({
     location:   loc,
@@ -532,7 +705,88 @@ function handlePosition(coords: CoordsLike, timestamp: number): void {
   });
 }
 
+
+/* ── Arka plan güç modu (kütük: telefon pil sızıntısı 2026-08-20) ────────────
+ *
+ * Ölçüm: uygulama arka plandayken bu watch HIGH_ACCURACY @10 s ile 6 s 16 dk
+ * kesintisiz çalışıyordu (`dumpsys location`, 86.422 fix, araç hareketsiz).
+ * Native `CarLauncherForegroundService` park kısmasını zaten doğru yapıyordu;
+ * kaçak yalnız BU akıştaydı.
+ *
+ * SÖZLEŞME: mod değişimi konum verisini SIFIRLAMAZ (`stopGPSTracking` gibi
+ * `location: null` yazmaz) — yalnız watch seçeneklerini değiştirir. Kısık modda
+ * akış SÜRER (`enableHighAccuracy: false` → GNSS uyandırılmaz, ağ/pasif konum).
+ * Tek sahip `backgroundPowerGate`'tir; başka çağıran YOKTUR.
+ */
+let _gpsPowerMode: GpsPowerMode = 'high';
+
+type GeolocationWatchOptions =
+  Parameters<(typeof import('@capacitor/geolocation'))['Geolocation']['watchPosition']>[0];
+
+/** Aktif güç moduna göre Capacitor watch seçenekleri. */
+function _nativeWatchOptions(): GeolocationWatchOptions {
+  const low = _gpsPowerMode === 'low';
+  return {
+    enableHighAccuracy: !low,
+    // Capacitor Android bu değeri FusedLocationProvider aralığı olarak kullanır.
+    timeout:    low ? BACKGROUND_GPS_INTERVAL_MS : 10000,
+    maximumAge: low ? BACKGROUND_GPS_INTERVAL_MS : Math.min(_gpsUpdateMs, 500), // en az 500ms taze veri
+    // Android: FusedLocationProvider update interval (ms) — RuntimeEngine'den gelir
+    // PERFORMANCE: 500ms | BALANCED: 1000ms | BASIC_JS: 2000ms | SAFE_MODE: 5000ms
+    ...({ minimumUpdateInterval: low ? BACKGROUND_GPS_INTERVAL_MS : _gpsUpdateMs } as object),
+  } as GeolocationWatchOptions;
+}
+
+/** Şu anki JS konum akışı güç modu (tanı/test için salt-okunur). */
+export function getGpsPowerMode(): GpsPowerMode { return _gpsPowerMode; }
+
+/**
+ * JS konum akışının güç modunu uygular.
+ *
+ * İdempotent: aynı mod tekrar verilirse hiçbir donanım işlemi yapılmaz.
+ * Takip aktif değilse yalnız mod kaydedilir — sonraki `startGPSTracking`
+ * doğru seçeneklerle başlar. Fail-soft: yeniden kurma düşerse eski watch
+ * kapanmış olabileceğinden hata yutulmaz, `logError` ile kaydedilir ve
+ * mevcut yeniden-bağlanma yolu (`_scheduleGPSReconnect`) devreye girer.
+ */
+export async function applyGpsPowerMode(mode: GpsPowerMode): Promise<void> {
+  if (mode === _gpsPowerMode) return;
+  _gpsPowerMode = mode;
+
+  // Takip yoksa: mod kaydedildi, başlatma anında uygulanacak.
+  if (watchId == null || !_gpsTrackingOn) return;
+  // Web/demo ortamında Capacitor watch yok — seçenekler yalnız native yolda geçerli.
+  if (!isNativePlatform()) return;
+
+  try {
+    const { Geolocation } = await import('@capacitor/geolocation');
+    const previous = watchId;
+    watchId = null;                       // yeniden giriş koruması
+    try { await Geolocation.clearWatch({ id: String(previous) }); } catch { /* zaten kapalı */ }
+    watchId = await Geolocation.watchPosition(
+      _nativeWatchOptions(),
+      (position, err) => {
+        if (err) {
+          _consecutiveErrors++;
+          useGPSStore.setState({ error: err.message });
+          logError('GPS', err);
+          if (_consecutiveErrors >= MAX_GPS_ERRORS) _scheduleGPSReconnect();
+          return;
+        }
+        if (position) handlePosition(position.coords, position.timestamp, _gpsGeneration);
+      },
+    );
+  } catch (e) {
+    logError('GPS:PowerMode', e);
+    _scheduleGPSReconnect();              // watch kaybolduysa mevcut kurtarma yolu
+  }
+}
+
 export async function stopGPSTracking(): Promise<void> {
+  _gpsGeneration++;
+  _lastLocationEnvelope = null;
+  _lastAcceptedTimestamp = -Infinity;
+  void CarLauncher.setBackgroundGpsGeneration({ gpsGeneration: -1 }).catch(() => undefined);
   // Cancel any pending reconnect so it doesn't fire after stop
   if (_reconnectTimer) { clearTimeout(_reconnectTimer); _reconnectTimer = null; }
   _clearFirstFixTimer();
@@ -582,6 +836,26 @@ export function getGPSState(): GPSState {
     unavailable: s.gpsUnavailable,
     source:      s.gpsSource,
   };
+}
+
+/** ARCH-02/F2: VDL's read-only consumer-facing location evidence. */
+export function getGPSLocationEnvelope(): CanonicalStateEnvelope<GPSLocation | null> | null {
+  return useUnifiedVehicleStore.getState().gpsLocationEnvelope;
+}
+export function getGPSLocationTruthDiagnostics(): Readonly<{
+  generation: number;
+  staleGenerationRejectCount: number;
+  outOfOrderRejectCount: number;
+  rejectedCount: number;
+}> {
+  const staleGenerationRejectCount = _staleGenerationRejectCount;
+  const outOfOrderRejectCount = _outOfOrderRejectCount;
+  return Object.freeze({
+    generation: _gpsGeneration,
+    staleGenerationRejectCount,
+    outOfOrderRejectCount,
+    rejectedCount: staleGenerationRejectCount + outOfOrderRejectCount,
+  });
 }
 
 // ── React hooks — UnifiedVehicleStore'dan okur (tek kaynak) ─────────────────
@@ -651,17 +925,12 @@ export function getGPSSpeedKmh(): number | null {
 export function setGPSTestOverride(data: Partial<GPSState> | null): void {
   if (!import.meta.env.DEV) return;
   _gpsTestOverride = data;
-  // Mevcut GPS store'una override uygulayarak anında emit et
+  // VDL'ye doğrudan yazma: test override da normal source-evidence → VDL
+  // tek yönlü projeksiyonundan geçer.
   const current = useGPSStore.getState();
-  const eff     = data ? { ...current, ...data } : current;
-  useUnifiedVehicleStore.getState().updateGPSState({
-    location:    eff.location,
-    heading:     eff.heading,
-    isTracking:  eff.isTracking,
-    error:       eff.error,
-    unavailable: eff.unavailable,
-    source:      eff.source,
-  });
+  // Zustand aynı nesne referansını yazınca aboneleri çağırmaz; bu da override'ın
+  // canonical VDL projeksiyonuna hiç ulaşmamasına yol açardı.
+  useGPSStore.setState({ ...current });
 }
 
 /**
@@ -692,9 +961,15 @@ export function feedBackgroundLocation(data: {
   speed:    number;
   bearing:  number;
   accuracy: number;
+  observationTimestamp: number;
+  gpsGeneration: number;
 }): void {
   // Guard against null/undefined data from native background service
   if (!data) return;
+  if (!Number.isFinite(data.gpsGeneration) || !Number.isFinite(data.observationTimestamp)) {
+    _staleGenerationRejectCount++;
+    return;
+  }
   // Guard against malformed data from native background service
   if (!Number.isFinite(data.lat) || !Number.isFinite(data.lng)) {
     logError('GPS:Background', new Error(`Invalid coords: ${data.lat},${data.lng}`));
@@ -714,7 +989,8 @@ export function feedBackgroundLocation(data: {
       heading:   data.bearing,
       speed:     data.speed / 3.6, // km/h → m/s (GPS API standardı)
     },
-    Date.now(),
+    data.observationTimestamp,
+    data.gpsGeneration,
   );
 }
 
@@ -748,6 +1024,142 @@ interface DeadReckoningState {
 let _dr: DeadReckoningState | null    = null;
 let _drTimer: ReturnType<typeof setInterval> | null = null;
 let _lastGPSPerf = 0; // performance.now() — clock-jump immune
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * G1 · TEK KONUM KANIT OTORİTESİ (kütük #527 · kabul ölçütü #508)
+ *
+ * ── NEDEN (ölçüldü, 2026-08-11) ───────────────────────────────────────────
+ * Konum KAYNAĞI zaten tekti (`gpsService`), ama **fix YAŞI üç ayrı yerde ve
+ * İKİ FARKLI SAATLE** hesaplanıyordu:
+ *   · `navFieldBridge.ts`        → `Date.now() - location.timestamp`   (DUVAR)
+ *   · `navigationCoreSources.ts` → `performance.now() - fix.tsMs`      (MONOTONİK)
+ *   · `diagnosticSections.ts`    → `now - loc.timestamp`               (DUVAR)
+ * Aynı olgunun üç cevabı = #517 ailesi. Üstelik duvar saati NTP/RTC sıçramasında
+ * negatif ya da devasa yaş üretir; monotonik üretmez.
+ *
+ * ── KURAL ─────────────────────────────────────────────────────────────────
+ * Fix YAŞI **yalnız burada** ve **yalnız monotonik saatle** hesaplanır. Tüketici
+ * kendi çıkarmasını YAPMAZ; `getLocationEvidence()` çağırır.
+ *
+ * Duvar-saati karşılığı (`observedAtWallMs`) AYRI alanda taşınır — gösterim ve
+ * kayıt için gerekir, ama YAŞ ondan TÜRETİLMEZ.
+ * ════════════════════════════════════════════════════════════════════════ */
+
+/** Fix'in geldiği an — MONOTONİK. `0` = bu oturumda hiç fix gelmedi. */
+let _lastFixPerfMs = 0;
+/** Aynı fix'in duvar-saati karşılığı (gösterim/kayıt için). */
+let _lastFixWallMs = 0;
+
+/**
+ * G1 — konumun **kanıt** hâli: yaş · doğruluk · kaynak birlikte taşınır.
+ * Konum bir gösterge değil, karar girdisidir (vizyon §7.9 Katman 1).
+ */
+export interface LocationEvidence {
+  readonly lat: number | null;
+  readonly lng: number | null;
+  /** Metre. `null` = bilinmiyor (sahte 999 ÜRETİLMEZ burada). */
+  readonly accuracyM: number | null;
+  /**
+   * Fix'in yaşı (ms) — MONOTONİK saatten. `null` = hiç fix gelmedi.
+   * Saat sıçramasından ETKİLENMEZ; tüketici bunu yeniden hesaplamaz.
+   */
+  readonly fixAgeMs: number | null;
+  /** Fix'in duvar-saati anı (gösterim/kayıt). `null` = fix yok. */
+  readonly observedAtWallMs: number | null;
+  /** Konumu şu an KİM üretiyor. */
+  readonly source: 'GPS' | 'DEAD_RECKONING' | 'NONE';
+  /**
+   * Fix bayat mı — `LOCATION_STALE_MS` eşiğine göre. Bayatken ekran bunu
+   * GİZLEMEZ (vizyon §7.9 Katman 6: ekranda dürüstlük).
+   */
+  readonly stale: boolean;
+  readonly headingDeg: number | null;
+  readonly speedMs: number | null;
+}
+
+/**
+ * Konumun "bayat" sayıldığı eşik (ms).
+ *
+ * #508 kabul ölçütü `p50 < 3 s` ister; 3 saniye **hedef**tir, eşik ondan biraz
+ * geniş tutulur ki normal 1 Hz akışta bayatlık bayrağı titremesin. 5 s, 94 km/h'de
+ * ~130 m yol demektir — bunun ötesi kullanıcıya DÜRÜSTÇE söylenmelidir.
+ */
+export const LOCATION_STALE_MS = GPS_FIX_STALE_MS;
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * #537 · FIX YAŞI DAĞILIM DEFTERİ (GÖREV B — #508'İN KAPANIŞ ŞARTI)
+ *
+ * SAHA (2026-08-11): kopyada `fixAgeMs: 5237` — TEK ANLIK örnek. #508 ölçütü
+ * `p50 < 3 s ∧ p95 < 10 s` ister; tek örnekten p50 çıkmaz, dolayısıyla iki
+ * saha koşumu da kapanış üretemedi. Halka + saf yüzdelik hesabı bu boşluğu
+ * kapatır. Hesap `navigation/core/fixAgeLedger`te SAF olarak yapılır — bu
+ * modül yalnız örnek toplar ve okuma ucu verir.
+ * ════════════════════════════════════════════════════════════════════════ */
+
+let _fixAgeRing: readonly FixAgeSample[] = [];
+
+/**
+ * #537 — fix yaşı dağılımı okuma ucu (salt-okunur, senkron).
+ *
+ * ⚠️ Bu fonksiyon ÖRNEK ALMAZ (defteri kirletmez): örnek yalnız gerçek tüketici
+ * okumasında (`getLocationEvidence()`) alınır. LAB/kopya bu ucu çağırdığında
+ * dağılım DEĞİŞMEZ — gözlem, ölçtüğü şeyi bozmamalıdır.
+ *
+ * Eşik TEK OTORİTEDEN (`LOCATION_STALE_MS`) geçirilir; saf model kendi eşiğini
+ * taşımaz (kasa KİLİT 28 ilkesi).
+ */
+export function getFixAgeLedger(): {
+  readonly samples: readonly FixAgeSample[];
+  readonly summary: FixAgeSummary;
+} {
+  return {
+    samples: _fixAgeRing.slice(),
+    summary: summarizeFixAge(_fixAgeRing, LOCATION_STALE_MS),
+  };
+}
+
+/** Test/oturum sıfırlama — ürün kodu ÇAĞIRMAZ. */
+export function _resetFixAgeLedgerForTest(): void {
+  _fixAgeRing = [];
+}
+
+/**
+ * G1 — TEK konum kanıt otoritesi. Senkron, yan etkisiz.
+ *
+ * ⚠️ Bu fonksiyonun DIŞINDA fix yaşı hesaplamak YASAKTIR (kasa kilidi vardır).
+ */
+export function getLocationEvidence(): LocationEvidence {
+  const st = useGPSStore.getState();
+  const loc = st.location;
+  const nowPerf = performance.now();
+  const fixAgeMs = _lastFixPerfMs > 0
+    ? Math.max(0, Math.round(performance.now() - _lastFixPerfMs))
+    : null;
+  /* #537 GÖREV B: ÖLÇÜMÜ BURADA AL — #508 bir DAĞILIM ister ve sahada tek anlık
+     örnek geldi (`fixAgeMs: 5237`), dağılım YOKTU. Örnek noktası bilinçli olarak
+     tüketici okumasıdır: yeni timer KURULMAZ (Zero-Leak) ve ölçülen sayı, tam
+     olarak tüketicinin GÖRDÜĞÜ sayıdır. Örnekleme modeli özet içinde
+     (`samplingModel: 'CONSUMER_READ'`) ve okuma aralığı yüzdelikleriyle
+     DÜRÜSTÇE beyan edilir — düzgün zaman örneklemesi İDDİA EDİLMEZ. */
+  if (fixAgeMs !== null) {
+    try {
+      _fixAgeRing = appendFixAge(_fixAgeRing, { ageMs: fixAgeMs, atPerfMs: nowPerf });
+    } catch { /* defter arızası konum kanıtını DÜŞÜRMEZ (fail-soft gözlemci) */ }
+  }
+  const drActive = isDeadReckoningActive();   // #528: gerçek sahipten
+  return {
+    lat: loc ? loc.latitude : null,
+    lng: loc ? loc.longitude : null,
+    accuracyM: loc && Number.isFinite(loc.accuracy) ? loc.accuracy : null,
+    fixAgeMs,
+    observedAtWallMs: _lastFixWallMs > 0 ? _lastFixWallMs : null,
+    source: drActive ? 'DEAD_RECKONING' : (loc ? 'GPS' : 'NONE'),
+    /* Fix hiç yoksa "bayat" DEĞİL "yok"tur — ikisi ayrı durumdur. */
+    stale: fixAgeMs !== null && fixAgeMs > LOCATION_STALE_MS,
+    headingDeg: loc && Number.isFinite(loc.heading ?? NaN) ? (loc.heading ?? null) : null,
+    speedMs: loc && Number.isFinite(loc.speed ?? NaN) ? (loc.speed ?? null) : null,
+  };
+}
 let _drLocUnsub: (() => void) | null = null;
 // Tüm DR guard cleanup (silenceChecker + _drLocUnsub) — HMR ve çoklu çağrı koruması
 let _drGuardCleanup: (() => void) | null = null;
@@ -758,10 +1170,31 @@ function _stopDeadReckoning(): void {
 }
 
 function _startDeadReckoning(): void {
-  // DR Centralization (Packet 4 Hardening): yerel konum projeksiyonu devre dışı.
-  // Tüm sistem VehicleCompute.worker.ts'den gelen füzyonlanmış konumu tüketir.
-  // startDeadReckoningGuard() GPS sessizliğini izlemeye devam eder; ancak
-  // bu fonksiyon hiçbir zaman setInterval başlatmaz → isDeadReckoningActive() = false.
+  /* Bu fonksiyon BİLİNÇLİ OLARAK BOŞTUR: yerel konum projeksiyonu burada
+     yapılmaz. DR'ın gerçek sahibi `navigation/navigationSessionRuntime`tir
+     (`drOwner: 'NAV_SESSION_RUNTIME'`) — rota geometrisi boyunca ilerletir,
+     araç hızını (`resolveDrSpeed`) önceliklendirir ve güven düşünce durur.
+
+     ⚠️ DÜZELTME (#528, 2026-08-11): buradaki eski yorum *"tüm sistem
+     VehicleCompute.worker'dan gelen füzyonlanmış konumu tüketir"* diyordu —
+     bu İDDİA ÖLÇÜMLE ÇÜRÜTÜLDÜ: worker'ın giden mesajları arasında konum
+     YOKTUR (yalnız `GPS_FAILURE` kalite uyarısı). Yanlış yorum, DR'ın nerede
+     olduğunu arayan herkesi yanlış dosyaya gönderiyordu. */
+}
+
+/* ── DR CANLILIK SİNYALİ (#528) ────────────────────────────────────────────
+ * `isDeadReckoningActive()` bu modülün kendi (ölü) DR'ına bakıyordu ve HER
+ * ZAMAN `false` dönüyordu; oysa DR fiilen çalışıyordu. Gerçek sahip durumunu
+ * buraya PUSH eder — ters import (gpsService → navigationSessionRuntime)
+ * döngü yaratacağı için yön bilinçlidir. */
+let _drActiveExternal = false;
+
+/**
+ * DR sahibinin canlılık bildirimi. Yalnız `navigationSessionRuntime` çağırır.
+ * @param active `true` = DR şu an ilerlemeyi sürüyor (`DR_ACTIVE`).
+ */
+export function noteDeadReckoningState(active: boolean): void {
+  _drActiveExternal = active === true;
 }
 
 /**
@@ -836,7 +1269,10 @@ export function startDeadReckoningGuard(): () => void {
  * NavigationHUD bu flag ile "Tünel modu" göstergesi açabilir.
  */
 export function isDeadReckoningActive(): boolean {
-  return _dr?.active === true;
+  /* #528: GERÇEK sahip `navigationSessionRuntime`tir; bu modülün kendi `_dr`
+     durumu ölüdür (yukarıdaki `_startDeadReckoning` boştur). İkisi de sorulur
+     ki gelecekte yerel yol canlanırsa sinyal yine doğru kalsın. */
+  return _drActiveExternal || _dr?.active === true;
 }
 
 /* ── HMR cleanup — dev modda Hot Reload'da watchId sızıntısını önle ─ */

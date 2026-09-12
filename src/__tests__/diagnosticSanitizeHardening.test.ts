@@ -47,7 +47,7 @@ vi.mock('../platform/obdService', () => ({
 
 vi.mock('../platform/obd/ObdHealthMonitor', () => ({
   getObdHealth: () => ({
-    connectionQuality: 41, lastPacketAgeMs: 320, reconnectPressure: 0.62,
+    connectionQuality: 41, lastPacketAgeMs: 320, isStale: false, reconnectPressure: 0.62,
     sensorReliability: { speed: 0.9, rpm: 0.88, engineTemp: 0.71 },
   }),
 }));

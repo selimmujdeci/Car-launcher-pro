@@ -4,7 +4,7 @@
 
 Kabul edildi (commit `04d0ef2` — "feat(obd): add BLE GATT transport support").
 **Durum: SAHA TESTİ BEKLİYOR** — kod hazır, gerçek araç + adaptörde doğrulanmadı
-(`PROJECT_STATE.md`, `HANDOFF.md` §5).
+(`docs/archive/PROJECT_STATE.md`, `docs/archive/HANDOFF.md` §5).
 
 ## Context
 
@@ -51,7 +51,7 @@ denemesine göre döndürülür: `PROTOCOL_CYCLE = [undefined, '6', '5', '4', '3
 - (!) Tüm zincir **cihazda doğrulanmadı**; "düzeltildi" hipotezi (Car Scanner
   bağlanıyor ama biz bağlanmıyoruz → protokol zorlamasıydı) saha testinde teyit edilmeli.
 - **BLE OBD için derleme-zamanı feature flag YOK** — transport runtime'da seçilir
-  (`_lastKnownTransport`). Bkz. `docs/FEATURE_FLAGS.md`.
+  (`_lastKnownTransport`). Bkz. `docs/operations/FEATURE_FLAGS.md`.
 
 ## Links & affected files
 
@@ -59,4 +59,4 @@ denemesine göre döndürülür: `PROTOCOL_CYCLE = [undefined, '6', '5', '4', '3
 - `android/app/src/main/java/com/cockpitos/pro/obd/BleObdManager.java:151-164`
 - `android/app/src/main/java/com/cockpitos/pro/obd/OBDManager.java:32, 56, 127-163`
 - `src/platform/obdService.ts:109-126` (transport persist), `:606-609` (PROTOCOL_CYCLE)
-- `ARCHITECTURE_DATAFLOW.md` §2 (OBD / BLE mimarisi)
+- `docs/architecture/ARCHITECTURE_DATAFLOW.md` §2 (OBD / BLE mimarisi)

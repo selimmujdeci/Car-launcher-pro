@@ -1,0 +1,15 @@
+# ESRI GÖRÜNTÜSÜ REPOYA GİRMEZ — bu bir lisans kararıdır, yer tasarrufu değil.
+#
+# Esri World Imagery karoları ve onlardan üretilen ekran görüntüleri üçüncü
+# taraf içeriktir; yeniden dağıtım hakkı bu ürün için KANITLANMAMIŞTIR.
+# `mapDataLicense` kapısının kendisine uyguladığımız kural burada da geçerlidir:
+# hak kanıtlanamıyorsa FAIL-CLOSED — ticari ürünün deposuna gömülmez.
+#
+# Bu artefaktlar `mosaic-provenance.json` içindeki URL ve SHA-256 değerleriyle
+# TAM OLARAK yeniden üretilebilir:
+#   node build-sheet.mjs && node render-sheet.mjs
+tiles/
+tiles-r2/
+*.png
+*.html
+*.jpg

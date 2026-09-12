@@ -1,4 +1,8 @@
 import { create } from 'zustand';
+import { DEVELOPER_FEATURES_ENABLED } from './developerFeatures';
+/* ARCH-06/F5 — DEVTOOLS sınıfı: baskının İLK kademesinde feda edilir.
+   Kullanıcı bu halkaları GÖRMEZ; bedava geri gelir (yeniden dolar). */
+import { registerMemoryParticipant } from '../memoryWatchdog';
 
 const RING_MAX = 500;
 
@@ -215,9 +219,9 @@ export const _incGps = (ts: number) => {
   useDebugStore.getState().updatePerf({ gpsLastTs: ts });
 };
 
-// 1-second Hz sampling tick — only active when flag is on
-const _DEBUG_ACTIVE =
-  import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEBUG_PANEL === 'true';
+// 1-second Hz sampling tick — only active when flag is on.
+// Karar TEK OTORİTEDEN gelir (yeniden hesaplanmaz) — bkz. developerFeatures.ts.
+const _DEBUG_ACTIVE = DEVELOPER_FEATURES_ENABLED;
 
 if (_DEBUG_ACTIVE) {
   setInterval(() => {
@@ -231,3 +235,24 @@ if (_DEBUG_ACTIVE) {
     _cnt.gps = 0;
   }, 1000);
 }
+
+
+/* ── ARCH-06/F5 · bellek baskısı katılımcısı ──────────────────────────────
+   Halkalar zaten SABİT tavanlıdır (`ringPush`), yani sınırsız büyümezler.
+   Yine de baskının ilk kademesinde boşaltılırlar: geliştirici geçmişi,
+   kullanıcının gördüğü hiçbir şeyi etkilemez ve en ucuz kazançtır. */
+registerMemoryParticipant({
+  id: 'debug.rings',
+  owner: 'debug/debugStore',
+  participantClass: 'DEVTOOLS',
+  estimatedBytes: () => null,   // halka bayt boyutu ölçülmüyor → null
+  evictable: true,
+  rebuildCost: 'FREE',
+  onTrim: () => {
+    try {
+      const st = useDebugStore.getState();
+      st.clearCanRaw(); st.clearObdTraffic();
+      st.clearReverseLog(); st.clearErrorLog();
+    } catch { /* fail-soft */ }
+  },
+});

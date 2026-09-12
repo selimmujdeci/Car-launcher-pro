@@ -22,6 +22,8 @@ import {
   projectDeadReckon,
   resolveDrSpeed,
   DR_MAX_DT_SEC,
+  DR_CONFIDENT_SEC,
+  drIsEstimated,
   DR_METERS_PER_DEG,
   type NavPoint,
 } from '../utils/interpolation';
@@ -155,28 +157,39 @@ describe('projectDeadReckon — heading yön doğruluğu', () => {
   });
 });
 
-/* ── 5. dtSec clamp — drift üst sınırı ───────────────────────────────── */
+/* ── 5. dtSec clamp — NAV-1: tünelde donmaz, 60s cap ─────────────────── */
 
-describe('projectDeadReckon — dtSec clamp (max 5s)', () => {
-  it('60s verildiğinde 5s gibi davranır (clamp)', () => {
+describe('projectDeadReckon — NAV-1 tünel devamlılığı (cap 60s)', () => {
+  it('5s SONRA da ilerlemeye DEVAM eder (tünelde DONMAZ — eski 5s clamp bug\'ı)', () => {
     const last = makeLastKnown({ heading: 0 });
     const speedKmh = 36; // 10 m/s
-
-    const out60 = projectDeadReckon(last, speedKmh, 60_000); // 60 s istek
-    const out5  = projectDeadReckon(last, speedKmh, DR_MAX_DT_SEC * 1000); // 5 s
-
-    // 60s ve 5s aynı sonucu vermeli (clamp)
-    expect(out60.lat).toBeCloseTo(out5.lat, 12);
-    expect(out60.lng).toBeCloseTo(out5.lng, 12);
+    const out5  = projectDeadReckon(last, speedKmh, 5_000);
+    const out30 = projectDeadReckon(last, speedKmh, 30_000);
+    // 30s projeksiyonu 5s'ten DAHA İLERİDE olmalı (eskiden clamp'le AYNI kalıyordu = donma).
+    expect(haversineMeters(last, out30)).toBeGreaterThan(haversineMeters(last, out5) + 100);
   });
 
-  it('drift üst sınırını AŞMAZ: 60s @ 10m/s → en fazla 50 m', () => {
+  it('30s @ 10m/s ≈ 300 m (gerçek projeksiyon, donuk değil)', () => {
     const last = makeLastKnown({ heading: 0 });
-    const out60 = projectDeadReckon(last, 36, 60_000); // 10 m/s
-    const dist = haversineMeters(last, out60);
-    // 10 m/s × 5 s = 50 m üst sınır
-    expect(dist).toBeCloseTo(50, 0);
-    expect(dist).toBeLessThanOrEqual(50.5);
+    const dist = haversineMeters(last, projectDeadReckon(last, 36, 30_000));
+    expect(dist).toBeCloseTo(300, 0); // 10 m/s × 30 s
+  });
+
+  it('drift üst sınırı 60. saniyede tavan yapar: 120s @ 10m/s = 60s @ 10m/s = 600 m', () => {
+    const last = makeLastKnown({ heading: 0 });
+    const out120 = projectDeadReckon(last, 36, 120_000); // clamp DR_MAX_DT_SEC=60
+    const out60  = projectDeadReckon(last, 36, DR_MAX_DT_SEC * 1000);
+    expect(out120.lat).toBeCloseTo(out60.lat, 12);
+    // 10 m/s × 60 s = 600 m tavan (haversine R≈6371km ile projeksiyon 111320 m/deg arası ~1m fark → ±5m tolerans).
+    expect(haversineMeters(last, out120)).toBeGreaterThan(595);
+    expect(haversineMeters(last, out120)).toBeLessThan(605);
+  });
+
+  it('drIsEstimated: ≤5s güvenilir (false), >5s tahmini (true)', () => {
+    expect(DR_CONFIDENT_SEC).toBe(5);
+    expect(drIsEstimated(0, 4_000)).toBe(false);  // 4s → güvenilir
+    expect(drIsEstimated(0, 5_000)).toBe(false);  // 5s sınır dahil → güvenilir
+    expect(drIsEstimated(0, 8_000)).toBe(true);   // 8s → tahmini
   });
 });
 

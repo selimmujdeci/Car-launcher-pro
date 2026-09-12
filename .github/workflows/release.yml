@@ -7,7 +7,7 @@
 #   3) dist zip'ini Release'e ekler.
 #
 # NOT: APK/AAB üretimi bilinçli olarak buraya DAHİL EDİLMEDİ — imzalama anahtarı
-#      ve Android SDK gerektirir; RELEASE_CHECKLIST.md + apk:safe ile ELLE alınır.
+#      ve Android SDK gerektirir; docs/operations/RELEASE_CHECKLIST.md + apk:safe ile ELLE alınır.
 #      İleride imza anahtarı secret'a eklenince ayrı bir job olarak açılabilir.
 # ─────────────────────────────────────────────────────────────────────────────
 name: Release

@@ -6,6 +6,14 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useNotificationStore } from '@/store/notificationStore';
 import { supabaseBrowser } from '@/lib/supabase';
 import { isSuperAdminToken } from '@/lib/superAdminClaim';
+import { requestCanonicalLogout } from
+  '@/security/accountCleanup/canonicalLogout';
+import {
+  beginAuthSessionOperation,
+  canApplyAuthSessionOperation,
+  canApplyCurrentAuthEvent,
+  finishAuthSessionOperation,
+} from '@/security/accountCleanup/authSessionGenerationGuard';
 
 /**
  * Süper Admin bölümü (Command Center · Tanı · Süper Admin) — admin SPA ayrı
@@ -42,6 +50,22 @@ const navItems = [
         <path d="M2 11h14v3a1 1 0 01-1 1H3a1 1 0 01-1-1v-3z" stroke="currentColor" strokeWidth="1.4"/>
         <circle cx="5.5" cy="11" r="1.5" stroke="currentColor" strokeWidth="1.4"/>
         <circle cx="12.5" cy="11" r="1.5" stroke="currentColor" strokeWidth="1.4"/>
+      </svg>
+    ),
+  },
+  {
+    // Filo: şirket kurma, üyelik, araç atama + çevrimdışı kuyruk/çakışma merkezi.
+    // Bireysel kullanıcıda da görünür — filo kurma yolu buradan başlar.
+    href: '/dashboard/fleet',
+    label: 'Filo',
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+        <path d="M1.5 11V8.5L3 6h5l1.5 2.5V11" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+        <path d="M1 11h9v2a.8.8 0 01-.8.8H1.8A.8.8 0 011 13v-2z" stroke="currentColor" strokeWidth="1.3"/>
+        <circle cx="3.2" cy="11" r="1.1" stroke="currentColor" strokeWidth="1.3"/>
+        <circle cx="7.8" cy="11" r="1.1" stroke="currentColor" strokeWidth="1.3"/>
+        <path d="M11 5.5h4.2L17 8v3h-6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+        <circle cx="13.8" cy="11" r="1.1" stroke="currentColor" strokeWidth="1.3"/>
       </svg>
     ),
   },
@@ -105,11 +129,18 @@ export default function Sidebar({ onClose }: SidebarProps) {
     if (!supabaseBrowser) return;
     let mounted = true;
 
-    void supabaseBrowser.auth.getSession().then(({ data }) => {
-      if (mounted) setIsSuperAdmin(isSuperAdminToken(data.session?.access_token));
-    });
+    const hydration = beginAuthSessionOperation();
+    if (hydration) {
+      void supabaseBrowser.auth.getSession().then(({ data }) => {
+        if (mounted && canApplyAuthSessionOperation(hydration)) {
+          setIsSuperAdmin(isSuperAdminToken(data.session?.access_token));
+        }
+      }).finally(() => finishAuthSessionOperation(hydration));
+    }
     const { data: sub } = supabaseBrowser.auth.onAuthStateChange((_event, session) => {
-      if (mounted) setIsSuperAdmin(isSuperAdminToken(session?.access_token));
+      if (mounted && canApplyCurrentAuthEvent()) {
+        setIsSuperAdmin(isSuperAdminToken(session?.access_token));
+      }
     });
 
     return () => {
@@ -119,27 +150,27 @@ export default function Sidebar({ onClose }: SidebarProps) {
   }, []);
 
   const handleLogout = async () => {
-    await fetch('/api/auth/logout', { method: 'POST' });
-    router.push('/login');
+    const result = await requestCanonicalLogout();
+    if (result.ok) router.push('/login');
   };
 
   const isActive = (href: string) =>
     href === '/dashboard' ? pathname === '/dashboard' : pathname.startsWith(href);
 
   return (
-    <aside className="w-60 flex-shrink-0 h-full bg-[#070e1c] border-r border-white/[0.06] flex flex-col">
+    <aside className="w-60 flex-shrink-0 h-full flex flex-col" style={{ background: 'var(--cn-bg-panel)', borderRight: '1px solid var(--cn-line)' }}>
       {/* Logo + mobile close button */}
-      <div className="h-16 flex items-center px-5 border-b border-white/[0.06] flex-shrink-0">
+      <div className="h-16 flex items-center px-5 border-b border-hair flex-shrink-0">
         <div className="flex items-center gap-2.5 flex-1 min-w-0">
-          <div className="w-7 h-7 rounded-lg bg-accent/20 border border-accent/30 flex items-center justify-center flex-shrink-0">
+          <div className="w-7 h-7 flex items-center justify-center flex-shrink-0" style={{ background: 'var(--cn-copper-bg)', border: '1px solid var(--cn-copper)', borderRadius: 2 }}>
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-              <path d="M7 1C4.791 1 3 2.791 3 5c0 2.917 4 7 4 7s4-4.083 4-7c0-2.209-1.791-4-4-4z" stroke="#3b82f6" strokeWidth="1.3"/>
-              <circle cx="7" cy="5" r="1.4" stroke="#3b82f6" strokeWidth="1.3"/>
+              <path d="M7 1C4.791 1 3 2.791 3 5c0 2.917 4 7 4 7s4-4.083 4-7c0-2.209-1.791-4-4-4z" stroke="var(--cn-copper)" strokeWidth="1.3"/>
+              <circle cx="7" cy="5" r="1.4" stroke="var(--cn-copper)" strokeWidth="1.3"/>
             </svg>
           </div>
           <div className="min-w-0">
-            <p className="text-xs font-semibold text-white leading-none">Caros</p>
-            <p className="text-[10px] text-accent leading-none mt-0.5">Pro Panel</p>
+            <p className="cn-display text-[13px] text-t1 leading-none">Caros</p>
+            <p className="cn-num text-[9px] leading-none mt-1 tracking-[0.18em] uppercase" style={{ color: 'var(--cn-copper)' }}>Kanıt Konsolu</p>
           </div>
         </div>
 
@@ -147,7 +178,7 @@ export default function Sidebar({ onClose }: SidebarProps) {
         {onClose && (
           <button
             onClick={onClose}
-            className="lg:hidden w-8 h-8 rounded-lg bg-white/[0.04] border border-white/[0.07] flex items-center justify-center text-white/40 hover:text-white hover:bg-white/[0.07] transition-all flex-shrink-0 ml-2"
+            className="lg:hidden w-8 h-8 cn-bezel flex items-center justify-center text-t3 hover:text-t1 transition-colors flex-shrink-0 ml-2"
           >
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
               <path d="M2 2l10 10M12 2L2 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
@@ -158,7 +189,7 @@ export default function Sidebar({ onClose }: SidebarProps) {
 
       {/* Nav */}
       <nav className="flex-1 px-3 py-4 flex flex-col gap-0.5 overflow-y-auto">
-        <p className="text-[9px] font-semibold tracking-widest text-white/20 uppercase px-2 mb-2">Menü</p>
+        <p className="cn-eyebrow px-2 mb-2">Menü</p>
         {navItems.map(({ href, label, icon, badge }) => {
           const active = isActive(href);
           return (
@@ -166,21 +197,23 @@ export default function Sidebar({ onClose }: SidebarProps) {
               key={href}
               href={href}
               onClick={onClose}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150 relative ${
-                active
-                  ? 'bg-accent/15 text-accent'
-                  : 'text-white/45 hover:text-white/80 hover:bg-white/[0.04]'
-              }`}
+              className="flex items-center gap-3 px-3 py-2.5 text-[13px] transition-colors relative"
+              style={{
+                borderRadius: 2,
+                color: active ? 'var(--cn-copper)' : 'var(--cn-text-2)',
+                background: active ? 'var(--cn-copper-bg)' : 'transparent',
+                borderLeft: `2px solid ${active ? 'var(--cn-copper)' : 'transparent'}`,
+              }}
             >
               <span className="flex-shrink-0">{icon}</span>
               <span>{label}</span>
               {badge && !active && unreadCount > 0 && (
-                <span className="ml-auto text-[10px] font-semibold bg-red-500/80 text-white rounded-full min-w-[16px] h-4 px-1 flex items-center justify-center flex-shrink-0">
+                <span className="ml-auto cn-num text-[10px] min-w-[16px] h-4 px-1 flex items-center justify-center flex-shrink-0" style={{ background: 'var(--cn-critical)', color: 'var(--cn-bg-void)', borderRadius: 2 }}>
                   {unreadCount > 99 ? '99+' : unreadCount}
                 </span>
               )}
               {active && (
-                <span className="ml-auto w-1 h-4 rounded-full bg-accent flex-shrink-0" />
+                <span aria-hidden className="ml-auto w-1 h-4 flex-shrink-0" style={{ background: 'var(--cn-copper)' }} />
               )}
             </Link>
           );
@@ -191,15 +224,14 @@ export default function Sidebar({ onClose }: SidebarProps) {
           (carospro.com/admin proxy) → aynı hesap/session, ikinci login yok. */}
       {isSuperAdmin && (
         <div className="px-3 pb-3 flex-shrink-0 space-y-0.5" data-testid="command-center-nav">
-          <p className="px-3 pt-1 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-white/25">
-            Süper Admin
-          </p>
+          <p className="cn-eyebrow px-3 pt-1 pb-1.5">Süper Admin</p>
 
           {/* Tanı — admin SPA tanı/incident paneli */}
           <a
             href={TANI_URL}
             onClick={onClose}
-            className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150 text-white/55 hover:text-white hover:bg-white/[0.06]"
+            className="flex items-center gap-3 px-3 py-2.5 text-[13px] text-t2 hover:text-t1 hover:bg-bezel transition-colors"
+            style={{ borderRadius: 2 }}
           >
             {/* Activity/pulse */}
             <svg width="18" height="18" viewBox="0 0 18 18" fill="none" className="flex-shrink-0">
@@ -212,7 +244,8 @@ export default function Sidebar({ onClose }: SidebarProps) {
           <a
             href={SUPERADMIN_URL}
             onClick={onClose}
-            className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150 text-white/55 hover:text-white hover:bg-white/[0.06]"
+            className="flex items-center gap-3 px-3 py-2.5 text-[13px] text-t2 hover:text-t1 hover:bg-bezel transition-colors"
+            style={{ borderRadius: 2 }}
           >
             {/* Users */}
             <svg width="18" height="18" viewBox="0 0 18 18" fill="none" className="flex-shrink-0">
@@ -227,7 +260,8 @@ export default function Sidebar({ onClose }: SidebarProps) {
           <a
             href={COMMAND_CENTER_URL}
             onClick={onClose}
-            className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150 text-red-400/70 hover:text-red-300 hover:bg-red-500/[0.08]"
+            className="flex items-center gap-3 px-3 py-2.5 text-[13px] transition-colors"
+            style={{ borderRadius: 2, color: 'var(--cn-critical)' }}
           >
             {/* ShieldCheck — mevcut inline-SVG diliyle (18px, stroke 1.4) */}
             <svg width="18" height="18" viewBox="0 0 18 18" fill="none" className="flex-shrink-0">
@@ -240,19 +274,20 @@ export default function Sidebar({ onClose }: SidebarProps) {
       )}
 
       {/* User + Logout */}
-      <div className="px-3 py-4 border-t border-white/[0.06] flex-shrink-0">
+      <div className="px-3 py-4 border-t border-hair flex-shrink-0">
         <div className="flex items-center gap-3 px-2 mb-3">
-          <div className="w-7 h-7 rounded-full bg-accent/25 border border-accent/30 flex items-center justify-center flex-shrink-0 text-xs font-semibold text-accent">
+          <div className="w-7 h-7 flex items-center justify-center flex-shrink-0 cn-num text-[11px]" style={{ background: 'var(--cn-copper-bg)', border: '1px solid var(--cn-copper)', color: 'var(--cn-copper)', borderRadius: 2 }}>
             A
           </div>
           <div className="min-w-0">
-            <p className="text-xs font-medium text-white/80 truncate">Admin</p>
-            <p className="text-[10px] text-white/30 truncate">Süper Admin</p>
+            <p className="text-[12px] text-t1 truncate">Admin</p>
+            <p className="cn-num text-[10px] text-t3 truncate">Süper Admin</p>
           </div>
         </div>
         <button
           onClick={handleLogout}
-          className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm text-white/35 hover:text-red-400 hover:bg-red-500/[0.08] transition-all duration-150 min-h-[44px]"
+          className="w-full flex items-center gap-2.5 px-3 py-2.5 text-[13px] text-t3 transition-colors min-h-[44px] hover:text-[var(--cn-critical)]"
+          style={{ borderRadius: 2 }}
         >
           <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
             <path d="M9 2H5a2 2 0 00-2 2v7a2 2 0 002 2h4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>

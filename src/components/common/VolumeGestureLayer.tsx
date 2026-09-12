@@ -19,7 +19,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Volume2, VolumeX } from 'lucide-react';
 import { useStore } from '../../store/useStore';
-import { setVolume } from '../../platform/systemSettingsService';
+import { setVolume, setInAppVolume } from '../../platform/systemSettingsService';
 
 // Şoför (sol) kenar bandı genişliği — ekran genişliğinin %18'i, 90–220px arası.
 const ZONE_RATIO = 0.18;
@@ -33,6 +33,12 @@ const FULL_RANGE_RATIO = 0.6;
 export function VolumeGestureLayer() {
   const storeVolume    = useStore((s) => s.settings.volume);
   const updateSettings = useStore((s) => s.updateSettings);
+  /* #556 — ses jestinin TEK otoritesi burasıdır; `GestureVolumeZone` mükerrer
+   * katman olduğu için kaldırıldı. Kullanıcının kenar tercihi ARTIK BURADA
+   * uygulanır: 'left' · 'right' · 'off'. Daha önce bu katman sol kenarı SABİT
+   * dinliyor ve ayarı yok sayıyordu; ayar yalnız kaldırılan katmanı etkilediği
+   * için "kapalı" seçeneği fiilen çalışmıyordu (jest yine sol kenarda vardı). */
+  const gestureSide    = useStore((s) => s.settings.gestureVolumeSide);
 
   // Jest sırasında gösterilecek ses % (null = gizli).
   const [overlayPct, setOverlayPct] = useState<number | null>(null);
@@ -45,9 +51,14 @@ export function VolumeGestureLayer() {
 
   // Açılışta kayıtlı ses düzeyini bir kez motorlara aktar — uygulama içi
   // oynatıcılar (YouTube IFrame / HTML5 stream) kullanıcının son seviyesinde başlasın.
+  //
+  // ⚠️ CİHAZ SESİNE DOKUNULMAZ (saha bulgusu 2026-07-31): burada `setVolume`
+  // kullanılıyordu ve o fonksiyon STREAM_MUSIC'i de yazdığı için CarOS her
+  // açılışta telefonun/aracın sesini kendi ayarına DÜŞÜRÜYORDU (15 → 2 olarak
+  // cihazda yeniden üretildi). Uygulamanın açılması bir ses komutu DEĞİLDİR;
+  // cihaz seviyesi yalnız kullanıcı AÇIKÇA değiştirince yazılır (jest/slider).
   useEffect(() => {
-    setVolume(volRef.current);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    setInAppVolume(volRef.current);
   }, []);
 
   // Jest AKTİF değilken store değerini canlı ref'e yansıt (slider'dan değişebilir).
@@ -56,11 +67,19 @@ export function VolumeGestureLayer() {
   }, [storeVolume]);
 
   useEffect(() => {
+    /* #556: kullanıcı jesti KAPATTIYSA hiçbir dinleyici kurulmaz — "kapalı"
+       gerçekten kapalı demektir (eskiden ayar bu katmanı hiç etkilemiyordu). */
+    if (gestureSide === 'off') return;
+
     const zoneWidth = () => Math.min(ZONE_MAX_PX, Math.max(ZONE_MIN_PX, window.innerWidth * ZONE_RATIO));
 
     const onDown = (e: PointerEvent) => {
-      // Yalnızca sol (şoför) kenar bandında başlayan hareketi izle.
-      if (e.clientX > zoneWidth()) { g.current.armed = false; return; }
+      // Yalnızca seçilen kenar bandında başlayan hareketi izle.
+      const w = zoneWidth();
+      const inZone = gestureSide === 'right'
+        ? e.clientX >= window.innerWidth - w
+        : e.clientX <= w;
+      if (!inZone) { g.current.armed = false; return; }
       g.current = { armed: true, active: false, startX: e.clientX, startY: e.clientY, startVol: volRef.current, pointerId: e.pointerId };
     };
 
@@ -117,7 +136,7 @@ export function VolumeGestureLayer() {
       window.removeEventListener('pointercancel', onUp,   optsCapPassive);
       if (hideTimer.current) clearTimeout(hideTimer.current);
     };
-  }, [updateSettings]);
+  }, [updateSettings, gestureSide]);
 
   if (overlayPct === null) return null;
 

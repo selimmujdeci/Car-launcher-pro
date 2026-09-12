@@ -61,72 +61,72 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ vehicle });
     }
 
-    // ── Supabase mode ──────────────────────────────────────────────
-    const upperCode = code.toUpperCase();
-    let vehicleId: string | null = null;
+    /* ── Supabase mode — TEK ATOMİK RPC ──────────────────────────────
+     * ESKİ AKIŞ (P1 kusuru): kod arama → `owner_id` update → `vehicle_pairings`
+     * upsert AYRI AYRI sorgulardı. (a) `vehicles.company_id` HİÇ yazılmıyordu →
+     * `push_vehicle_event` konum satırını atlıyor, araç ONLINE ama markersız
+     * kalıyordu; (b) ortada hata olursa YARIM pairing kalabiliyordu; (c) hiçbir
+     * üyelik/sahiplik kapısı yoktu (service-role tüm RLS'i bypass ediyor).
+     *
+     * Yeni akış tek transaction'dır: kod + TTL + tek kullanım + üyelik + sahiplik
+     * kapıları + bireysel limit + `owner_id`/`company_id`/`vehicle_pairings`
+     * yazımı hep birlikte olur ya da hiç olmaz.
+     *
+     * ⚠️ İstemciden company_id/owner_id/araç sayısı ALINMAZ — istek gövdesinde
+     * yalnız `code` okunur; şirket SUNUCUDA doğrulanmış üyelikten çözülür. */
+    const { data: paired, error: rpcErr } = await supabaseAdmin
+      .rpc('pair_vehicle_to_user', { p_code: code, p_user_id: userId });
 
-    const { data: tempCode, error: tempErr } = await supabaseAdmin
-      .from('vehicle_linking_codes')
-      .select('vehicle_id')
-      .eq('code', upperCode)
-      .gt('expires_at', new Date().toISOString())
-      .maybeSingle();
-
-    console.log('[link] code=%s userId=%s tempCode=%s tempErr=%s',
-      upperCode, userId, JSON.stringify(tempCode), tempErr?.message);
-
-    if (tempCode) {
-      vehicleId = tempCode.vehicle_id as string;
-      await supabaseAdmin.from('vehicle_linking_codes').delete().eq('vehicle_id', vehicleId);
-    } else {
-      const { data: byPermanent, error: permErr } = await supabaseAdmin
-        .from('vehicles')
-        .select('id')
-        .eq('pairing_code', upperCode)
-        .is('owner_id', null)
-        .maybeSingle();
-
-      console.log('[link] byPermanent=%s permErr=%s', JSON.stringify(byPermanent), permErr?.message);
-      if (byPermanent) vehicleId = (byPermanent as { id: string }).id;
-    }
-
-    if (!vehicleId) {
-      const msg = tempErr
-        ? `DB hatası: ${tempErr.message}`
-        : `Kod bulunamadı (${upperCode}) - geçersiz veya süresi dolmuş`;
-      return NextResponse.json({ error: msg }, { status: 400 });
-    }
-
-    // 3. Claim ownership
-    await supabaseAdmin
-      .from('vehicles')
-      .update({ owner_id: userId })
-      .eq('id', vehicleId);
-
-    // 4. Upsert vehicle_pairings
-    const { error: pairErr } = await supabaseAdmin
-      .from('vehicle_pairings')
-      .upsert({ user_id: userId, vehicle_id: vehicleId, role: 'owner' },
-               { onConflict: 'user_id,vehicle_id' });
-
-    if (pairErr) {
-      console.error('vehicle/link upsert:', pairErr);
+    if (rpcErr) {
+      const reason = rpcErr.message ?? '';
+      // Fail-closed eşlemesi: hiçbir dal "kısmi başarı" döndürmez.
+      if (reason.includes('individual_vehicle_limit_reached')) {
+        return NextResponse.json({
+          error: 'Bireysel hesapla en fazla 3 araç bağlayabilirsin. Daha fazlası için filo (şirket) üyeliğine geçmen gerekiyor.',
+          code:  'individual_vehicle_limit_reached',
+        }, { status: 403 });
+      }
+      if (reason.includes('vehicle_belongs_to_another_company')) {
+        return NextResponse.json({
+          error: 'Bu araç başka bir filoya bağlı. Araç devri için filo yöneticinizle iletişime geçin.',
+          code:  'vehicle_belongs_to_another_company',
+        }, { status: 409 });
+      }
+      if (reason.includes('vehicle_owned_by_another_user')) {
+        return NextResponse.json({
+          error: 'Bu araç başka bir kullanıcıya ait. Sahiplik değişikliği için araç devri gerekir.',
+          code:  'vehicle_owned_by_another_user',
+        }, { status: 409 });
+      }
+      if (reason.includes('invalid_or_expired_code') || reason.includes('invalid_code')) {
+        return NextResponse.json({
+          error: 'Kod geçersiz veya süresi dolmuş.',
+          code:  'invalid_or_expired_code',
+        }, { status: 400 });
+      }
+      if (reason.includes('unauthenticated')) {
+        return NextResponse.json({ error: 'Kimlik doğrulama gerekli.' }, { status: 401 });
+      }
+      console.error('vehicle/link rpc:', rpcErr.message);
       return NextResponse.json({ error: 'Bağlama kaydedilemedi.' }, { status: 500 });
     }
 
-    // 5. Return vehicle info
-    const { data: vehicle } = await supabaseAdmin
-      .from('vehicles')
-      .select('id, name, device_name, created_at')
-      .eq('id', vehicleId)
-      .maybeSingle();
+    const row = (paired ?? null) as {
+      vehicle_id?: string; name?: string; device_id?: string;
+      created_at?: string; company_id?: string | null; is_individual?: boolean;
+    } | null;
+
+    if (!row?.vehicle_id) {
+      return NextResponse.json({ error: 'Bağlama kaydedilemedi.' }, { status: 500 });
+    }
 
     return NextResponse.json({
       vehicle: {
-        id:         vehicleId,
-        name:       (vehicle as { name?: string } | null)?.name ?? 'Araç',
-        device_id:  (vehicle as { device_name?: string } | null)?.device_name,
-        created_at: (vehicle as { created_at?: string } | null)?.created_at ?? new Date().toISOString(),
+        id:         row.vehicle_id,
+        name:       row.name ?? 'Araç',
+        device_id:  row.device_id,
+        created_at: row.created_at ?? new Date().toISOString(),
+        company_id: row.company_id ?? null,
       },
     });
   } catch (err) {

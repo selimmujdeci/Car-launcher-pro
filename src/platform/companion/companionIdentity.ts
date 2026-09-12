@@ -14,6 +14,8 @@
  * Bkz: docs/COMPANION_AI_ARCHITECTURE.md §7 (ayar modeli), §2.5 (bulut sızması).
  */
 
+import type { DriverStyle } from './companionContext';
+
 /* ── Sabitler ───────────────────────────────────────────────── */
 
 export const COMPANION_TEXT_MAX_LEN = 24;
@@ -126,8 +128,10 @@ export function sanitizeWakePhrase(raw: unknown): string {
   return sanitizeCompanionText(raw, DEFAULT_WAKE_PHRASE);
 }
 
-/** Öğretilen wake örnekleri (Vosk çıktısı) — normalize, max 5, boşlar elenir. */
-export const WAKE_ENROLLMENT_MAX = 5;
+/** Öğretilen wake örnekleri — normalize, boşlar elenir. Max 8: yüksek varyanslı OOV
+ * özel kelime (ör. "asiste" → "asistan"/"sistem"/"nash üste git") birden fazla
+ * söyleyişte farklı çıktı verir; n-best + çoklu söyleyişin varyantları birikebilsin. */
+export const WAKE_ENROLLMENT_MAX = 8;
 export function sanitizeWakeEnrollment(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
   const out: string[] = [];
@@ -216,7 +220,17 @@ export function matchesWakeTranscript(transcript: string, wakeWords: readonly st
   for (const phrase of wakeWords) {
     const pWords = phrase.split(' ').filter(Boolean);
     if (pWords.length === 0) continue;
-    for (let i = 0; i + pWords.length <= tWords.length; i++) {
+    /* ⚠️ TEK KELİMELİK ÇIPLAK AD yalnız CÜMLE BAŞINDA wake sayılır
+     * (SAHA 2026-07-24: "Mavi her şeye kendi kendine uyanıyor").
+     * "mavi" günlük Türkçede sık geçer; cümlenin ORTASINDAKİ geçişler
+     * ("bu mavi araba çok güzel", "mavi ışık yanınca") uyandırma NİYETİ
+     * taşımaz — sürücü asistana seslenirken adı BAŞTA söyler.
+     * Çok kelimeli sözler ("hey mavi") zaten ayırt edici olduğu için bu
+     * kısıt onlara UYGULANMAZ; kullanıcının çıplak adla uyandırma
+     * yeteneği KORUNUR (yalnız cümle-içi yanlış tetik elenir). */
+    const bareSingleWord = pWords.length === 1;
+    const maxStart = bareSingleWord ? 0 : tWords.length - pWords.length;
+    for (let i = 0; i <= maxStart && i + pWords.length <= tWords.length; i++) {
       let ok = true;
       for (let j = 0; j < pWords.length; j++) {
         if (tWords[i + j] !== pWords[j]) { ok = false; break; }
@@ -265,6 +279,10 @@ export function wakeSimilarity(a: string, b: string): number {
 }
 
 // Eşikler saha ile ayarlanır: düşük = daha çok yanlış tetik, yüksek = uyanmama.
+// NOT (2026-07-24): bu tolerans YALNIZ `wakeMode === 'custom'` (sözlük-dışı özel
+// kelime) yolunda kullanılır — kullanıcının istediği ismi verebilmesi için
+// bilinçli olarak esnektir. Ad-tabanlı modlarda (name/hey_name/both) eşleşme
+// birebir kelime-sınırlıdır, buraya HİÇ girmez.
 const FUZZY_TYPED_THRESHOLD  = 0.72;  // yazılan cümle (telaffuz tahmini toleransı)
 const FUZZY_TYPED_MIN_LEN    = 4;     // <4 harf tek başına fonetik eşleşmez (yanlış tetik)
 const FUZZY_ENROLL_THRESHOLD = 0.82;  // öğretilen örnek = Vosk'un duyduğu → daha sıkı
@@ -347,6 +365,12 @@ export interface CompanionIdentity {
   wakePhrase:      string;
   /** Söyleyerek öğretilen wake örnekleri (Vosk çıktısı, normalize). */
   wakeEnrollment:  string[];
+  /**
+   * Driver DNA — CANLI sürüş stili. Bir AYAR DEĞİLDİR (persist edilmez): çağıran
+   * katman yolculuk sayaçlarından `classifyDriverStyle` ile türetip enjekte eder.
+   * `undefined` = stil BİLİNMİYOR (sınıflandırma yapılamadı) — "sakin" VARSAYILMAZ.
+   */
+  driverStyle?:    DriverStyle;
 }
 
 /** Ayarlardan okunan ham değerler (persist'ten bozuk gelebilir). */
@@ -385,6 +409,12 @@ function asWakeMode(raw: unknown): CompanionWakeMode {
 export function resolveCompanionIdentity(
   settings: CompanionSettingsInput,
   fallbackUserName?: string,
+  /**
+   * Driver DNA — canlı sürüş stili (opsiyonel). AYAR DEĞİLDİR, persist'ten
+   * OKUNMAZ: çağıran yolculuk sayaçlarından türetip verir. Verilmezse alan
+   * `undefined` kalır (stil bilinmiyor) — sahte "sakin" ÜRETİLMEZ.
+   */
+  driverStyle?: DriverStyle,
 ): CompanionIdentity {
   return {
     enabled:         settings.companionEnabled === true,
@@ -396,5 +426,6 @@ export function resolveCompanionIdentity(
     wakeMode:        asWakeMode(settings.companionWakeMode),
     wakePhrase:      sanitizeWakePhrase(settings.companionWakePhrase),
     wakeEnrollment:  sanitizeWakeEnrollment(settings.companionWakeEnrollment),
+    ...(driverStyle !== undefined ? { driverStyle } : {}),
   };
 }

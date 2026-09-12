@@ -12,12 +12,17 @@
  * saklanır. Sunucu yok — trafik doğrudan cihaz ↔ API arasında (BYOK).
  */
 
+import {
+  geminiChatEndpoint, DEFAULT_GEMINI_MODEL,
+  geminiThinkingConfig, noteGeminiThinkingRejectedIf400,
+} from './ai/gateway/models';
 import type { IntentType } from './intentEngine';
 import type { MaintenanceAssessment } from './vehicleMaintenanceService';
 import type { DTCCode } from './dtcService';
 import { buildPidRegistryIntegrityPromptBlock } from './ai/pidDescriptionGate';
 import { signalWithTimeout } from '../utils/abortCompat';
 import { recordAiNetFailure, recordAiNetSuccess } from './aiHealth';
+import { errorKindFromException } from './ai/aiOfflineReason';
 
 /* ── Types ─────────────────────────────────────────────────── */
 
@@ -39,12 +44,34 @@ export interface AIVoiceResult {
  *   Uzun metin yanıtları sürücünün dikkatini ekrana çeker.
  */
 export interface VehicleContext {
-  /** Anlık hız (km/h) */
-  speedKmh:    number;
-  /** Sürüş modu tespiti */
+  /**
+   * Anlık hız (km/h). **`null` = BİLİNMİYOR** — "0 km/h" DEĞİL (MAVI-M2).
+   * Kanıtı olmayan hız sıfır yazılmaz; tüketici `null`u ayrı ele almalıdır.
+   */
+  speedKmh:    number | null;
+  /** Sürüş modu — SUNUM etiketi (prompt/telemetri). Güvenlik kararı `motionState` iledir. */
   drivingMode: 'idle' | 'normal' | 'driving';
-  /** true ise yanıt ≤ 8 kelime, saf TTS formatı */
+  /** DOĞRULANMIŞ hareket. `true` ise yanıt ≤ 8 kelime, saf TTS formatı. */
   isDriving:   boolean;
+  /**
+   * MAVI-M2 · ÜÇ DURUMLU hareket hükmü — `unknown` asla `false`a indirgenmez.
+   * Riskli eylem kapıları `isDriving`e DEĞİL buna bakar ("veri yok" ≠ "araç duruyor").
+   * Alan YOKSA (eski çağıranlar: uzak komut yolu) sözleşme değişmez — çağıran
+   * geriye-uyumlu olarak `isDriving`e düşer. Kaynak: `assistant/maviVehicleContext`.
+   */
+  motionState?: 'moving' | 'stopped' | 'unknown';
+  /** Hareket hükmünün kanıt kaynağı (gözlemlenebilirlik). */
+  motionSource?: 'obd_speed' | 'gps_doppler' | 'none';
+  /** Geri vites. `undefined` = BİLİNMİYOR (canlı kaynak yok) — `false` varsayılmaz. */
+  reverseActive?: boolean;
+  /** Kontak. `undefined` = BİLİNMİYOR — açık/kapalı varsayılmaz. */
+  ignitionOn?: boolean;
+  /** Araç telemetrisi tazelik penceresi içinde mi (protokol kadansına göre). */
+  dataFresh?: boolean;
+  /** Son gerçek telemetri paketinin yaşı (ms). `null` = hiç veri gelmedi. */
+  lastPacketAgeMs?: number | null;
+  /** Bağlamın çözüldüğü an (ms) — request boyunca değişmezliğin damgası. */
+  resolvedAtMs?: number;
   /** Aktif DTC arıza kodları — AI teşhis bağlamı için (dtcService kanonik tipi). */
   activeDTCCodes?: DTCCode[];
   /** Bakım durumu — vehicleMaintenanceService'den gelen gerçek tip */
@@ -55,7 +82,7 @@ export interface VehicleContext {
 
 const INTENT_LIST = [
   'OPEN_NAVIGATION', 'NAVIGATE_ADDRESS', 'NAVIGATE_PLACE',
-  'FIND_NEARBY_GAS', 'FIND_NEARBY_PARKING',
+  'FIND_NEARBY_GAS', 'FIND_NEARBY_PARKING', 'FIND_NEARBY_REST_AREA',
   'OPEN_MUSIC', 'PLAY_MUSIC_SEARCH', 'PAUSE_MEDIA',
   'MEDIA_NEXT', 'MEDIA_PREV', 'VOLUME_UP', 'VOLUME_DOWN',
   'OPEN_PHONE', 'OPEN_SETTINGS', 'OPEN_FAVORITES',
@@ -85,7 +112,8 @@ JSON formatı:
 Örnekler:
 - "eve git" → {"intent":"OPEN_NAVIGATION","payload":{"destination":"home","targetApp":"maps"},"confidence":0.97,"feedback":"Eve gidiyoruz"}
 - "müziği aç" → {"intent":"OPEN_MUSIC","payload":{"targetApp":"spotify"},"confidence":0.95,"feedback":"Müzik başlatılıyor"}
-- "biraz yoruldum mola versem" → {"intent":"FIND_NEARBY_PARKING","payload":{},"confidence":0.82,"feedback":"Yakın dinlenme alanı aranıyor"}`;
+- "biraz yoruldum mola versem" → {"intent":"FIND_NEARBY_REST_AREA","payload":{},"confidence":0.82,"feedback":"Yakın dinlenme tesisi aranıyor"}
+- "araba park edecek yer bul" → {"intent":"FIND_NEARBY_PARKING","payload":{},"confidence":0.9,"feedback":"Yakın otopark aranıyor"}`;
 
 /**
  * Anlık araç bağlamını + DTC teşhis verisini system prompt'a enjekte eder.
@@ -98,12 +126,17 @@ function buildSystemPrompt(ctx?: VehicleContext): string {
 
   const contextLines: string[] = [];
   contextLines.push(`\n\n[ARAÇ BAĞLAMI]`);
-  contextLines.push(`Anlık hız: ${ctx.speedKmh} km/h`);
+  // MAVI-M2: hız BİLİNMİYORSA satır hiç yazılmaz — "null km/h"/"0 km/h" uydurulmaz.
+  contextLines.push(
+    typeof ctx.speedKmh === 'number' ? `Anlık hız: ${ctx.speedKmh} km/h` : `Anlık hız: bilinmiyor`,
+  );
   contextLines.push(`Sürüş modu: ${ctx.drivingMode}`);
 
   if (ctx.isDriving) {
     contextLines.push(
-      `SÜRÜŞ GÜVENLİĞİ KURALI: Araç hareket halinde (${ctx.speedKmh} km/h).`,
+      typeof ctx.speedKmh === 'number'
+        ? `SÜRÜŞ GÜVENLİĞİ KURALI: Araç hareket halinde (${ctx.speedKmh} km/h).`
+        : `SÜRÜŞ GÜVENLİĞİ KURALI: Araç hareket halinde.`,
       `"feedback" alanı ZORUNLU olarak ≤ 8 kelime, yalnızca sesli okunabilir formatta olmalı.`,
       `Ekranda gösterilecek uzun metin sürücünün dikkatini dağıtır — kesinlikle kısalt.`,
     );
@@ -152,7 +185,7 @@ function buildSystemPrompt(ctx?: VehicleContext): string {
 
 const VALID_INTENTS = new Set<string>([
   'OPEN_NAVIGATION', 'NAVIGATE_ADDRESS', 'NAVIGATE_PLACE',
-  'FIND_NEARBY_GAS', 'FIND_NEARBY_PARKING',
+  'FIND_NEARBY_GAS', 'FIND_NEARBY_PARKING', 'FIND_NEARBY_REST_AREA',
   'OPEN_MUSIC', 'PLAY_MUSIC_SEARCH', 'PAUSE_MEDIA',
   'MEDIA_NEXT', 'MEDIA_PREV', 'VOLUME_UP', 'VOLUME_DOWN',
   'OPEN_PHONE', 'OPEN_SETTINGS', 'OPEN_FAVORITES',
@@ -192,29 +225,36 @@ const GEMINI_ENDPOINT =
   // gemini-flash-latest: yeni "AQ." anahtarların ücretsiz katmanı sabit-adlı eski
   // modellerde (gemini-2.0-flash) anında 429 veriyor; flash-latest 200 dönüyor
   // (SAHA 2026-07-03: kullanıcı anahtarıyla iki model de canlı test edildi).
-  'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent';
+  geminiChatEndpoint();
 
 async function askGemini(text: string, apiKey: string, ctx?: VehicleContext): Promise<AIVoiceResult | null> {
-  const body = {
+  const mkBody = (): unknown => ({
     system_instruction: { parts: [{ text: buildSystemPrompt(ctx) }] },
     contents: [{ role: 'user', parts: [{ text }] }],
     generationConfig: {
       responseMimeType: 'application/json',
       temperature: 0.1,
       maxOutputTokens: 256,
-      // flash-latest DÜŞÜNEN model: bütçesiz istekte düşünme 256 token'ı yiyip
-      // MAX_TOKENS + markdown-sargılı yarım metin dönüyordu ("Geçersiz yanıt").
-      // Araç içi komutta gecikme > derinlik → düşünme kapalı (SAHA 2026-07-03).
-      thinkingConfig: { thinkingBudget: 0 },
+      // DÜŞÜNEN model: bütçesiz istekte düşünme 256 token'ı yiyip MAX_TOKENS +
+      // markdown-sargılı yarım metin dönüyordu ("Geçersiz yanıt"). Araç içi
+      // komutta gecikme > derinlik → düşünme kapalı (SAHA 2026-07-03).
+      // SAHA 2026-09-11: alanı REDDEDEN modellerde bu 400 üretiyordu → alan artık
+      // sahibine sorularak eklenir ve ret bir kez öğrenilince istek tekrarlanır.
+      ...geminiThinkingConfig(DEFAULT_GEMINI_MODEL),
     },
-  };
+  });
 
-  const resp = await fetch(GEMINI_ENDPOINT, {
+  const send = (): Promise<Response> => fetch(GEMINI_ENDPOINT, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-goog-api-key': apiKey },
-    body: JSON.stringify(body),
+    /* Gövde HER denemede yeniden kurulur: ret öğrenildiyse ikinci istek alansız
+       gider (sabit bir gövdeyi tekrar göndermek aynı 400'ü üretirdi). */
+    body: JSON.stringify(mkBody()),
     signal: signalWithTimeout(3000), // Chrome <103 WebView güvenli (abortCompat)
   });
+
+  let resp = await send();
+  if (await noteGeminiThinkingRejectedIf400(DEFAULT_GEMINI_MODEL, resp)) resp = await send();
 
   if (!resp.ok) return null;
 
@@ -359,9 +399,10 @@ export async function askAI(
     if (provider === 'groq')   result = await askGroq(text, key, ctx);
     if (result) recordAiNetSuccess(); // ağ sağlıklı — devre kesici sayacı sıfırla
     return result;
-  } catch {
-    // Network error, timeout, etc. — silent fallback
-    recordAiNetFailure(); // devre kesici art arda hatada AI yollarını kapatır
+  } catch (e) {
+    // Ağ hatası/timeout — yerel zincire düşülür. SESSİZ DEĞİL: sebep kodu +
+    // künye kaydedilir (SAHA 2026-07-22, "sessizce offline'a düşmek yasak").
+    recordAiNetFailure({ provider, exceptionType: errorKindFromException(e) });
     return null;
   }
 }

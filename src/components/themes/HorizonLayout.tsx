@@ -1,3 +1,5 @@
+import { isObdReadingLive } from '../../platform/vehicleStatusModel';
+import { isLowEndDevice } from '../../platform/headUnitCompat';
 import { memo, useState, lazy, Suspense, useEffect, useMemo, useRef, createContext, useContext } from 'react';
 import {
   Navigation, Music2, Mic, Settings, Car, Bell,
@@ -5,17 +7,22 @@ import {
   ChevronRight, CornerUpRight,
   Fuel, Phone, Cloud, AlertTriangle, Camera, Route, ShieldAlert, Shield, Tv2, Zap,
   LayoutGrid, Wind, Crosshair, Mountain, Gauge, Thermometer, Battery, Droplet,
+  FlaskConical,
 } from 'lucide-react';
+import { useCarosLabAllowed } from '../../hooks/useCarosLabAllowed';
+import { openCarosLab } from '../../platform/devtools/carosLabEntry';
 import { useStore } from '../../store/useStore';
 import { useDayNightAttr } from '../../hooks/useDayNightAttr';
 import { useMediaState, togglePlayPause, startMediaHub, stopMediaHub } from '../../platform/mediaService';
 import { next, previous, seek, resumeLastMedia, previewLastMedia } from '../../platform/media/carosMediaLayer';
-import { ensureYouTubeReady } from '../../platform/youtubeService';
+import { preloadYouTubeIfAffordable } from '../../platform/youtubeService';
 import { getPerformanceMode } from '../../platform/performanceMode';
 import { useOBDState } from '../../platform/obdService';
-import { useGPSLocation, resolveSpeedKmh } from '../../platform/gpsService';
+import { useGPSLocation } from '../../platform/gpsService';
+import { useDisplaySpeed, formatDisplaySpeed } from '../../hooks/useDisplaySpeed';
+import { useBatteryVoltage } from '../../hooks/useBatteryVoltage';
 import { useLivingThemeState } from '../../hooks/useLivingThemeState';
-import { useUnifiedVehicleStore } from '../../platform/vehicleDataLayer/UnifiedVehicleStore';
+import { useAmbientTemp } from '../../hooks/useCanonicalVehicleSignal';
 import { VehicleTellTales } from '../vehicle/VehicleTellTales';
 import { useEngineReadout } from '../../hooks/useEngineReadout';
 import { useClock, MONTHS_TR } from '../../hooks/useClock';
@@ -24,7 +31,9 @@ import { openDrawer } from '../../platform/drawerBus';
 import { openMusicDrawer } from '../../platform/mediaUi';
 import { StatusControls } from '../common/StatusControls';
 import { MiniMapWidget } from '../map/MiniMapWidget';
-import { useNavigation } from '../../platform/navigationService';
+import { TripMeterRow } from '../trip/TripMeterRow';
+import { useNavigation, readEtaStateSafe } from '../../platform/navigationService';
+import { decideEtaDisplay } from '../../platform/navigation/core/navigationHonestyModel';
 import { useRouteState } from '../../platform/routingService';
 import { useMapStore } from '../../platform/map/_mapState';
 import { setMapCenter, setMapHeading } from '../../platform/mapService';
@@ -32,6 +41,8 @@ import { type AppItem } from '../../data/apps';
 import type { SmartSnapshot } from '../../platform/smartEngine';
 import { MagicContextCard } from '../common/MagicContextCard';
 import { SUPPORTS_CSS_CLAMP, SUPPORTS_ASPECT_RATIO, cssClamp } from '../../utils/cssCompat';
+import { useLayoutIntent, useZoneWidths } from '../../store/useLayoutStore';
+import { solveLayout, normalizeIntent, HORIZON_MANIFEST, type Zone } from '../../platform/theme/layoutSolver';
 
 const VoiceAssistant = lazy(() => import('../modals/VoiceAssistant').then(m => ({ default: m.VoiceAssistant })));
 
@@ -83,7 +94,7 @@ const NIGHT_H: Pal = {
   // `--accent-rgb` yollarsa CANLI yansır.
   desk: 'var(--bg-primary, radial-gradient(150% 130% at 50% -15%, #17263f 0%, #111a2b 55%, #090e18 100%))',
   panel: 'var(--bg-card, #19233a)', panelHi: '#222e49', panelLo: '#0f141f',
-  inkCritical: '#F2F6FE', ink: 'var(--text-primary, #E2E8F3)', ink2: 'var(--text-secondary, #94A0B8)', ink3: '#556077',
+  inkCritical: '#F2F6FE', ink: 'var(--text-primary, #E2E8F3)', ink2: 'var(--text-secondary, #94A0B8)', ink3: 'var(--text-tertiary, #556077)',
   accent: 'var(--accent-primary, #F2871C)', accent2: '#FFB35C', accentDeep: '#B25F0C', accentGlow: 'rgba(var(--accent-rgb, 242,135,28), .42)', accentInk: '#1A0D02',
   edge: 'rgba(120,150,210,.14)', edgeHi: 'rgba(165,195,242,.20)',
   metal: 'linear-gradient(160deg,#283448 0%,#1a2336 55%,#111726 100%)',
@@ -99,7 +110,7 @@ const DAY_H: Pal = {
   night: false,
   desk: 'var(--bg-primary, radial-gradient(150% 130% at 50% -15%, #ece3d0 0%, #ddd2b9 55%, #cabd9f 100%))',
   panel: 'var(--bg-card, #F2ECDE)', panelHi: '#F8F3E9', panelLo: '#E2D8C4',
-  inkCritical: '#221C12', ink: 'var(--text-primary, #2E281C)', ink2: 'var(--text-secondary, #6C6250)', ink3: '#9A907A',
+  inkCritical: '#221C12', ink: 'var(--text-primary, #2E281C)', ink2: 'var(--text-secondary, #6C6250)', ink3: 'var(--text-tertiary, #9A907A)',
   accent: 'var(--accent-primary, #DA801A)', accent2: '#E89A3C', accentDeep: '#A85C0C', accentGlow: 'rgba(var(--accent-rgb, 218,128,26), .28)', accentInk: '#FFF6E9',
   edge: 'rgba(92,72,38,.20)', edgeHi: 'rgba(255,250,238,.7)',
   metal: 'linear-gradient(160deg,#d3c9b3 0%,#b8ac90 55%,#9c9075 100%)',
@@ -140,11 +151,12 @@ function panelStyle(p: Pal): React.CSSProperties {
     background: p.panel, border: `1px solid ${p.edge}`, boxShadow: `${p.elev}, ${p.bevel}`,
   };
 }
-const Panel = memo(function Panel({ children, style, className, onClick }: {
-  children: React.ReactNode; style?: React.CSSProperties; className?: string; onClick?: () => void;
+/* Tema Stüdyo kimliği:  KARARLI bileşen kimliğidir (themeComponentRegistry). */
+const Panel = memo(function Panel({ children, style, className, onClick, editId, editType = 'card' }: {
+  children: React.ReactNode; style?: React.CSSProperties; className?: string; onClick?: () => void; editId?: string; editType?: string;
 }) {
   const p = usePalH();
-  return <div className={className} onClick={onClick} style={{ ...panelStyle(p), ...style }}>{children}</div>;
+  return <div className={className} onClick={onClick} data-editable={editId} data-editable-type={editId ? editType : undefined} style={{ ...panelStyle(p), ...style }}>{children}</div>;
 });
 
 /* İmza vidası — yalnızca logo plakası + dock + pusula */
@@ -179,7 +191,11 @@ const HzTopBar = memo(function HzTopBar() {
   const p = usePalH();
   const use24Hour = useStore(s => s.settings.use24Hour);
   const { time, date } = useClock(use24Hour, false);
-  const ambient = useUnifiedVehicleStore(s => s.canAmbientTemp);
+  /* P0-OBD-03: doğrudan CAN alanı okuması KALDIRILDI. `canAmbientTemp` CAN'ı
+     olmayan (aftermarket ELM327'li) araçta kalıcı null'dır ve başlık sonsuza
+     dek '—' gösteriyordu — oysa PID 0x46 okunuyordu. Otorite tek yerde:
+     CAN → OBD → yok, ve YALNIZ taze (LIVE) ölçüm sayı olarak basılır. */
+  const ambient = useAmbientTemp();
   const gps = useGPSLocation();
   const n = useNotificationState();
   const alt = gps?.altitude;
@@ -187,7 +203,7 @@ const HzTopBar = memo(function HzTopBar() {
   const online = useLivingThemeState().conn === 'online';
 
   return (
-    <div className="relative flex items-center justify-between flex-shrink-0" style={{ height: HZ_TOPBAR_H, padding: '0 2px' }}>
+    <div data-editable="horizon.topbar" data-editable-type="header" className="relative flex items-center justify-between flex-shrink-0" style={{ height: HZ_TOPBAR_H, padding: '0 2px' }}>
       <div className="flex items-center">
         {/* Marka plakası — metal + imza vida */}
         <div className="flex items-center" style={{ gap: 13, padding: '8px 16px 8px 10px', borderRadius: 14, background: p.metal, border: `1px solid ${p.edgeHi}`, boxShadow: p.elev, position: 'relative' }}>
@@ -236,7 +252,7 @@ const HzTopBar = memo(function HzTopBar() {
 const HzDriveModeCard = memo(function HzDriveModeCard() {
   const p = usePalH();
   return (
-    <Panel style={{ padding: '13px 15px' }}>
+    <Panel editId="horizon.drivemode" style={{ padding: '13px 15px' }}>
       <div className="flex items-center justify-between"><HzLabel>Sürüş Modu</HzLabel><HzLabel>4WD · High</HzLabel></div>
       <div className="flex items-center" style={{ gap: 9, marginTop: 8 }}>
         <span style={{ width: 8, height: 8, borderRadius: '50%', background: p.ok, boxShadow: `0 0 8px ${p.ok}` }} />
@@ -249,15 +265,16 @@ const HzDriveModeCard = memo(function HzDriveModeCard() {
 /* ─── SOL: HIZ ───────────────────────────────────────────────────── */
 const HzSpeedCard = memo(function HzSpeedCard() {
   const p = usePalH();
-  const obd = useOBDState();
-  const gps = useGPSLocation();
-  const speed = Math.round(resolveSpeedKmh(gps, obd.speed ?? 0));
+  /* Gösterim TEK biçimleyiciden geçer — ham GPS hızı ondalıklıdır ve
+     yuvarlanmadan basılınca göstergeyi taşırır (saha 2026-08-12). */
+  const rawSpeed = useDisplaySpeed();
+  const speed = rawSpeed ?? 0;   // yalnız oran hesabı için
   const pct = Math.min(speed / 200, 1) * 100;
   return (
-    <Panel style={{ padding: '14px 15px', display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: 0 }}>
+    <Panel editId="horizon.speed" editType="gauge" style={{ padding: '14px 15px', display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: 0 }}>
       <HzLabel>Hız</HzLabel>
       <div className="flex items-baseline" style={{ gap: 8, marginTop: 6 }}>
-        <div style={{ fontWeight: 700, fontSize: 60, lineHeight: 0.85, color: p.inkCritical, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.03em' }}>{speed}</div>
+        <div style={{ fontWeight: 700, fontSize: 60, lineHeight: 0.85, color: p.inkCritical, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.03em' }}>{formatDisplaySpeed(rawSpeed)}</div>
         <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.18em', color: p.ink3 }}>KM/H</div>
       </div>
       <div style={{ height: 5, borderRadius: 999, background: p.panelLo, marginTop: 14, overflow: 'hidden' }}>
@@ -272,12 +289,16 @@ const HzRangeCard = memo(function HzRangeCard() {
   const p = usePalH();
   const obd = useOBDState();
   const eng = useEngineReadout();
-  const odometer = useUnifiedVehicleStore(s => s.odometer);
-  const lvl = obd.fuelLevel != null && obd.fuelLevel >= 0 ? obd.fuelLevel : eng.fuel;
-  const range = obd.estimatedRangeKm != null && obd.estimatedRangeKm >= 0 ? obd.estimatedRangeKm : null;
+  // Canlı kapısı: kurtarılmış CAN snapshot'ı (12 saate kadar bayat) source='real' damgalı
+  // geldiği için `fuelLevel >= 0` tek başına YETMEZ. CAN-bus yedeği (eng.fuel) KORUNUR —
+  // o ayrı ve MEŞRU bir canlı kaynaktır (K24/Hiworld), yalnız bayat OBD değeri elenir.
+  const live = isObdReadingLive(obd);
+  const lvl = live && obd.fuelLevel != null && obd.fuelLevel >= 0 ? obd.fuelLevel : eng.fuel;
+  // estimatedRangeKm bayat fuelLevel'den yeniden hesaplanıyor (setObdFuelConfig) → o da kapıya tabi.
+  const range = live && obd.estimatedRangeKm != null && obd.estimatedRangeKm >= 0 ? obd.estimatedRangeKm : null;
   const fpct = lvl != null ? Math.max(0, Math.min(lvl, 100)) : 0;
   return (
-    <Panel style={{ padding: '13px 15px' }}>
+    <Panel editId="horizon.range" style={{ padding: '13px 15px' }}>
       <div className="flex items-center justify-between"><HzLabel>Menzil</HzLabel><Fuel className="w-4 h-4" style={{ color: p.ink3 }} /></div>
       <div style={{ fontWeight: 700, fontSize: 23, marginTop: 3, color: p.ink, fontVariantNumeric: 'tabular-nums' }}>{range ?? '—'} <small style={{ fontSize: 13, color: p.ink3, fontWeight: 500 }}>km</small></div>
       <div className="flex items-center" style={{ gap: 7, marginTop: 7 }}>
@@ -287,14 +308,15 @@ const HzRangeCard = memo(function HzRangeCard() {
         </div>
         <span style={{ fontSize: 9, fontWeight: 700, color: p.ink3 }}>F</span>
       </div>
-      {/* Kilometre (odometre) — GPS, OBD'siz çalışır; aynı panelde ayrı etiketli okuma */}
-      <div className="flex items-center justify-between" style={{ marginTop: 9, paddingTop: 8, borderTop: `1px solid ${p.panelLo}` }}>
-        <div className="flex items-center" style={{ gap: 6 }}>
-          <Gauge className="w-4 h-4" style={{ color: p.ink3 }} />
-          <span style={{ fontWeight: 700, fontSize: 20, color: p.ink, fontVariantNumeric: 'tabular-nums' }}>{Math.round(odometer)} <small style={{ fontSize: 12, color: p.ink3, fontWeight: 500 }}>km</small></span>
-        </div>
-        <HzLabel>Kilometre</HzLabel>
-      </div>
+      {/* Yol Sayacı — RESETLENEBİLİR kullanıcı sayacı (kümülatif odometre farkı).
+          Eskiden burada ham kümülatif odometre ("Kilometre") vardı; sıfırlanamadığı
+          için pratikte hep 0 okunuyordu. */}
+      <TripMeterRow
+        palette={{ ink: p.ink, ink2: p.ink3, ink3: p.ink3, accent: p.accent, tile: p.panelLo, edge: p.panelLo }}
+        valueSize={20} unitSize={12} labelSize={10} iconSize={16} gap={6}
+        showTopBorder
+        style={{ marginTop: 9 }}
+      />
     </Panel>
   );
 });
@@ -306,7 +328,7 @@ const HzConsumptionCard = memo(function HzConsumptionCard({ onOpenSettings }: { 
   const l100 = (obd.fuelRemainingL != null && obd.fuelRemainingL > 0 && obd.estimatedRangeKm != null && obd.estimatedRangeKm > 0)
     ? (obd.fuelRemainingL / obd.estimatedRangeKm) * 100 : null;
   return (
-    <Panel style={{ padding: '13px 15px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }} onClick={onOpenSettings}>
+    <Panel editId="horizon.consumption" style={{ padding: '13px 15px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }} onClick={onOpenSettings}>
       <div>
         <HzLabel>Yakıt Tüketimi</HzLabel>
         <div style={{ fontWeight: 700, fontSize: 21, marginTop: 4, color: p.ink, fontVariantNumeric: 'tabular-nums' }}>{l100 != null ? l100.toFixed(1) : '—'} <small style={{ fontSize: 12, color: p.ink3, fontWeight: 500 }}>L/100km</small></div>
@@ -342,6 +364,8 @@ const HzMap = memo(function HzMap({ onOpenMap, fullMapOpen }: { onOpenMap: () =>
   // (SAHA 2026-07-04: rota yokken bile hep görünüyordu, sürücü aktif rota sanıyordu).
   const { isNavigating, distanceMeters, etaSeconds } = useNavigation();
   const route = useRouteState();
+  /* ETA gösterim kararı — sayı ÜRETMEZ, motorun hükmünü okur (P0-NAV-14). */
+  const etaDec = decideEtaDisplay(etaSeconds, readEtaStateSafe());
   const nextStep = isNavigating ? (route.steps[route.currentStepIndex + 1] ?? null) : null;
   const turnDist = isNavigating ? fmtTurnDist(route.distanceToNextTurnMeters) : null;
   const chip: React.CSSProperties = { background: p.panel, border: `1px solid ${p.edge}`, boxShadow: p.elev };
@@ -357,7 +381,7 @@ const HzMap = memo(function HzMap({ onOpenMap, fullMapOpen }: { onOpenMap: () =>
   const notchMask = `radial-gradient(circle at ${notchX} calc(100% + 25px), transparent 0 calc(${notchR} - 1px), #000 ${notchR})`;
   // minHeight 200: grid çökse bile harita konteyneri asla 0px olamaz (Duster vakası)
   return (
-    <Panel style={{ padding: 0, flex: 1, minWidth: 0, minHeight: 200, maskImage: notchMask, WebkitMaskImage: notchMask }} onClick={onOpenMap}>
+    <Panel editId="horizon.map" editType="map" style={{ padding: 0, flex: 1, minWidth: 0, minHeight: 200, maskImage: notchMask, WebkitMaskImage: notchMask }} onClick={onOpenMap}>
       <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, borderRadius: 17, overflow: 'hidden', cursor: 'pointer', background: terrain }}>
         {fullMapOpen
           ? <div className="w-full h-full flex items-center justify-center"><Navigation className="w-10 h-10" style={{ color: p.accent }} /></div>
@@ -408,14 +432,17 @@ const HzMap = memo(function HzMap({ onOpenMap, fullMapOpen }: { onOpenMap: () =>
           katmanıdır (MapLayerManager user-vehicle). */}
 
       {/* seyahat bilgisi — YALNIZ gerçek aktif rotada (kalan süre / kalan km / varış) */}
-      {isNavigating && etaSeconds != null && etaSeconds > 0 && (
+      {/* ETA — TEK OTORİTE KAPISI (P0-NAV-14). Eskiden yalnız `etaSeconds > 0`
+          sorulup süre ve VARIŞ SAATİ basılıyordu; motorun "güvenme" hükmü
+          okunmuyordu. Kapı artık `TripSummary` ile AYNI. */}
+      {isNavigating && etaDec.showNumber && etaDec.seconds !== null && (
         <div className="absolute" style={{ bottom: 15, left: 15, pointerEvents: 'auto' }}>
           <div className="flex items-center" style={{ borderRadius: 14, ...chip }}>
-            <HzTripCell k="Süre" v={fmtEta(etaSeconds)} />
+            <HzTripCell k="Süre" v={`${etaDec.approximate ? '~' : ''}${fmtEta(etaDec.seconds)}`} />
             <span style={{ width: 1, height: 28, background: p.edge }} />
             <HzTripCell k="KM" v={((distanceMeters ?? 0) / 1000).toFixed(1)} />
             <span style={{ width: 1, height: 28, background: p.edge }} />
-            <HzTripCell k="Varış" v={new Date(Date.now() + etaSeconds * 1000).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })} accent />
+            <HzTripCell k="Varış" v={new Date(Date.now() + etaDec.seconds * 1000).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })} accent />
           </div>
         </div>
       )}
@@ -441,10 +468,10 @@ const HzMediaCard = memo(function HzMediaCard() {
     startMediaHub();
     previewLastMedia();
     if (getPerformanceMode() === 'lite') {
-      const id = window.setTimeout(() => { void ensureYouTubeReady().catch(() => {}); }, 4000);
+      const id = window.setTimeout(() => { preloadYouTubeIfAffordable(); }, 4000);
       return () => { window.clearTimeout(id); stopMediaHub(); };
     }
-    void ensureYouTubeReady().catch(() => {});
+    preloadYouTubeIfAffordable();
     return () => stopMediaHub();
   }, []);
   const total = track.durationSec || 0;
@@ -481,7 +508,7 @@ const HzMediaCard = memo(function HzMediaCard() {
   };
   const shownPct = total > 0 ? (dragPct ?? pct) : pct;
   return (
-    <Panel style={{ padding: '13px 15px', display: 'flex', flexDirection: 'column', gap: 10, minHeight: 0 }}>
+    <Panel editId="horizon.media" editType="media" style={{ padding: '13px 15px', display: 'flex', flexDirection: 'column', gap: 10, minHeight: 0 }}>
       <div className="flex items-center" style={{ gap: 12 }}>
         <button onClick={() => openMusicDrawer()} className="hz-btn" style={{ width: 56, height: 56, borderRadius: 12, flexShrink: 0, border: `1px solid ${p.edge}`, overflow: 'hidden', background: p.metal, display: 'grid', placeItems: 'center', cursor: 'pointer', boxShadow: p.bevel }}>
           {track.albumArt ? <img src={track.albumArt} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <Music2 className="w-6 h-6" style={{ color: p.accent }} />}
@@ -560,12 +587,13 @@ function HzBar({ Icon, label, value, unit, fill, danger }: {
 const HzVehicleStatus = memo(function HzVehicleStatus({ onOpenSettings }: { onOpenSettings: () => void }) {
   const p = usePalH();
   const eng = useEngineReadout();
-  const volt = useUnifiedVehicleStore(s => s.canBatteryVolt);
+  const battery = useBatteryVoltage();   // kütük #427: CAN → OBD otoritesi
+  const volt = battery.volt;
   const motor = eng.engineTemp != null ? Math.round(eng.engineTemp) : null;
   const rpm = eng.rpm;
   const fuel = eng.fuel != null ? Math.round(eng.fuel) : null;
   return (
-    <Panel style={{ padding: '13px 15px', display: 'flex', flexDirection: 'column', minHeight: 0 }} onClick={onOpenSettings}>
+    <Panel editId="horizon.vehicle" style={{ padding: '13px 15px', display: 'flex', flexDirection: 'column', minHeight: 0 }} onClick={onOpenSettings}>
       <div className="flex items-center justify-between">
         <HzLabel>Araç Durumu</HzLabel>
         <div className="flex items-center" style={{ gap: 5 }}>
@@ -580,7 +608,7 @@ const HzVehicleStatus = memo(function HzVehicleStatus({ onOpenSettings }: { onOp
       </div>
       <div className="flex flex-col flex-shrink-0" style={{ gap: 7 }} onClick={e => e.stopPropagation()}>
         <HzBar Icon={Thermometer} label="Motor" value={motor != null ? `${motor}` : '—'} unit="°C" fill={motor != null ? (motor / 120) * 100 : 0} danger={motor != null && motor >= 105} />
-        <HzBar Icon={Battery} label="Akü" value={volt != null ? volt.toFixed(1) : '—'} unit="V" fill={volt != null ? ((volt - 11) / 4) * 100 : 0} />
+        <HzBar Icon={Battery} label="Akü" value={volt != null ? volt.toFixed(1) : '—'} unit="V" fill={volt != null ? ((volt - 11) / 4) * 100 : 0} danger={battery.isWarning} />
         <HzBar Icon={Droplet} label="Yakıt" value={fuel != null ? `${fuel}` : '—'} unit="%" fill={fuel ?? 0} danger={fuel != null && fuel <= 12} />
         <HzBar Icon={Gauge} label="Devir" value={rpm != null ? `${rpm}` : '—'} unit="" fill={rpm != null ? (rpm / 6000) * 100 : 0} />
       </div>
@@ -614,11 +642,19 @@ function HzDockBtn({ Icon, cap, active, onClick, badge }: {
 const HorizonClock = memo(function HorizonClock({ onClick }: { onClick: () => void }) {
   const p = usePalH();
   const use24Hour = useStore(s => s.settings.use24Hour);
+  /* DÜŞÜK-UÇ GPU KAPISI (#670) — Tesla/Expedition'da SAHADA ölçülüp düzeltilen
+     kusur bu temaya PORTLANMAMIŞTI. Zayıf GPU'da (Mali-400/PowerVR sınıfı)
+     saniye ibresi = her saniye re-render = tik başına ~60 ms tam boyama
+     (saha ölçümü; boşta jank'ın ana etkeni). Üstelik burada ibre
+     `filter: drop-shadow` taşıyor — filter compositor-only DEĞİLDİR, her
+     tikte tam repaint tetikler. Düşük cihazda saniye ibresi çizilmez ve saat
+     30 sn'de bir tazelenir (dakika hassasiyeti korunur). */
+  const lowEnd = isLowEndDevice();
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
-    const id = setInterval(() => setNow(new Date()), 1000);
+    const id = setInterval(() => setNow(new Date()), lowEnd ? 30_000 : 1000);
     return () => clearInterval(id);
-  }, []);
+  }, [lowEnd]);
   const m = now.getMinutes();
   const s = now.getSeconds();
   const hourDeg = (now.getHours() % 12) * 30 + m * 0.5;
@@ -685,7 +721,12 @@ const HorizonClock = memo(function HorizonClock({ onClick }: { onClick: () => vo
         <g style={{ transition: 'transform .2s ease' }}>
           <line x1="90" y1="90" x2="90" y2="56" stroke={ink} strokeWidth="3.4" strokeLinecap="round" transform={`rotate(${hourDeg} 90 90)`} />
           <line x1="90" y1="90" x2="90" y2="40" stroke={ink} strokeWidth="2.4" strokeLinecap="round" transform={`rotate(${minDeg} 90 90)`} />
-          <line x1="90" y1="98" x2="90" y2="36" strokeWidth="1.3" strokeLinecap="round" transform={`rotate(${secDeg} 90 90)`} style={{ stroke: p.accent, filter: `drop-shadow(0 0 3px ${p.accentGlow})` }} />
+          {/* Saniye ibresi düşük-uçta ÇİZİLMEZ (#670): 30 sn'de bir tazelenen
+              saatte zaten yanlış yeri gösterirdi, üstelik `drop-shadow` her
+              tikte tam repaint tetikliyordu. Akrep/yelkovan aynen kalır. */}
+          {!lowEnd && (
+            <line x1="90" y1="98" x2="90" y2="36" strokeWidth="1.3" strokeLinecap="round" transform={`rotate(${secDeg} 90 90)`} style={{ stroke: p.accent, filter: `drop-shadow(0 0 3px ${p.accentGlow})` }} />
+          )}
         </g>
         {/* merkez hub */}
         <circle cx="90" cy="90" r="5.5" fill={p.night ? '#15110a' : '#f7f1e4'} strokeWidth="2" style={{ stroke: p.accent }} />
@@ -739,9 +780,12 @@ const HzDock = memo(function HzDock({ onOpenMap, onOpenApps, onOpenSettings, onV
 }) {
   const p = usePalH();
   const n = useNotificationState();
+  /* CAROS LAB — AppGrid kartı ve DockBar kısayoluyla AYNI fail-closed kapı
+     (DEVELOPER_FEATURES_ENABLED); kapı kapalıyken hiç render edilmez. */
+  const carosLabAllowed = useCarosLabAllowed();
   return (
     <div style={{ position: 'relative', flex: '0 0 auto', height: HZ_DOCK_H }}>
-      <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, borderRadius: 17, background: p.metal, border: `1px solid ${p.edgeHi}`, boxShadow: `${p.elev}, ${p.bevel}`, display: 'flex', alignItems: 'stretch', padding: '0 10px' }}>
+      <div data-editable="horizon.dock" data-editable-type="dock" style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, borderRadius: 17, background: p.metal, border: `1px solid ${p.edgeHi}`, boxShadow: `${p.elev}, ${p.bevel}`, display: 'flex', alignItems: 'stretch', padding: '0 10px' }}>
         {/* imza vidaları — dock köşeleri */}
         <Bolt style={{ top: 8, left: 9 }} /><Bolt style={{ bottom: 8, left: 9 }} />
         <Bolt style={{ top: 8, right: 9 }} /><Bolt style={{ bottom: 8, right: 9 }} />
@@ -766,6 +810,9 @@ const HzDock = memo(function HzDock({ onOpenMap, onOpenApps, onOpenSettings, onV
           <HzDockBtn Icon={Shield}        cap="Güvenlik" onClick={() => openDrawer('security')} />
           <HzDockBtn Icon={Tv2}           cap="Eğlence"  onClick={() => openDrawer('entertainment')} />
           <HzDockBtn Icon={Zap}           cap="Sport"    onClick={() => openDrawer('sport')} />
+          {carosLabAllowed && (
+            <HzDockBtn Icon={FlaskConical} cap="CAROS LAB" onClick={() => { openCarosLab(); }} />
+          )}
         </HzDockScroll>
       </div>
       <HorizonClock onClick={onOpenApps} />
@@ -794,20 +841,89 @@ export const HorizonLayout = memo(function HorizonLayout(props: Props) {
   const dayNightMode = useDayNightAttr(); // kanonik (data-day-night) → kartlar+saat senkron
   const pal = dayNightMode === 'day' ? DAY_H : NIGHT_H;
 
+  /* ── YERLEŞİM MOTORU (#660) ────────────────────────────────────────────
+   * Horizon bugüne dek SABİT grid ile çiziliyordu ve Stüdyo bu temada
+   * yerleşim düzenlemeyi HİÇ göstermiyordu (dürüst davranıyordu: motor yoktu).
+   * Manifest ekranın BUGÜNKÜ yapısından çıkarıldı; varsayılan niyet aynı sırayı
+   * üretir → hiç dokunulmadığında görünüm birebir eskisi gibidir. */
+  const rawIntent = useLayoutIntent('horizon');
+  const intent = useMemo(() => normalizeIntent(rawIntent, HORIZON_MANIFEST), [rawIntent]);
+  const solved = useMemo(() => solveLayout(intent, HORIZON_MANIFEST), [intent]);
+  const zoneW = useZoneWidths('horizon');
+
+  /* Sütun genişlikleri çarpanla ölçeklenir; çarpan yoksa referans oranlar
+     (Sol %17,8 · Orta %51 · Sağ %25,8) BİREBİR korunur. */
+  const hzGridCols = useMemo(() => {
+    const sol = zoneW['left-rail'] ?? 1;
+    const sag = zoneW['right-rail'] ?? 1;
+    if (sol === 1 && sag === 1) return HZ_GRID_COLS;
+    const ol = (a: number, b: number, c: number, k: number) =>
+      SUPPORTS_CSS_CLAMP
+        ? `clamp(${Math.round(a * k)}px,${(b * k).toFixed(1)}vw,${Math.round(c * k)}px)`
+        : `minmax(${Math.round(a * k)}px,${Math.round(c * k)}px)`;
+    return `${ol(150, 17.8, 250, sol)} minmax(0,1fr) ${ol(230, 25.8, 360, sag)}`;
+  }, [zoneW]);
+
+  const renderHzCard = (id: string) => {
+    switch (id) {
+      case 'drivemode':   return <HzDriveModeCard />;
+      case 'speed':       return <HzSpeedCard />;
+      case 'range':       return <HzRangeCard />;
+      case 'consumption': return <HzConsumptionCard onOpenSettings={onOpenSettings} />;
+      case 'media':       return <HzMediaCard />;
+      case 'vehicle':     return <HzVehicleStatus onOpenSettings={onOpenSettings} />;
+      default:            return null;
+    }
+  };
+
+  /* Satır boyu: elle boyut varsa o; yoksa ekranın BUGÜNKÜ oranı korunur
+     (sol ray 'auto 1fr auto auto', sağ ray '0.93fr 1fr'). */
+  const HZ_DEFAULT_ROW: Record<string, string> = {
+    drivemode: 'auto', speed: 'minmax(0,1fr)', range: 'auto', consumption: 'auto',
+    media: 'minmax(0,0.93fr)', vehicle: 'minmax(0,1fr)',
+  };
+  const hzRowSize = (id: string): string => {
+    const gc = intent[id]?.growCustom;
+    if (gc != null) return `minmax(0, ${gc}fr)`;
+    return HZ_DEFAULT_ROW[id] ?? 'minmax(0,1fr)';
+  };
+  const hzGroupRow = (ids: string[]): string => {
+    const boylar = ids.map((id) => hzRowSize(id));
+    if (boylar.some((b) => !b.startsWith('minmax(0,'))) return 'auto';
+    const toplam = ids.reduce((acc, id) => acc + (intent[id]?.growCustom ?? 1), 0);
+    return `minmax(0, ${toplam}fr)`;
+  };
+  const hzRailRows = (zone: Zone) =>
+    solved[zone].groups.map((g) => hzGroupRow(g.map((it) => it.id))).join(' ') || 'minmax(0,1fr)';
+
+  /* Tek elemanlı grup da BURADAN geçer — çizimde ikinci kod yolu yok. */
+  const renderHzGroup = (g: { id: string }[], key: string) => {
+    if (g.length === 1) {
+      return <div key={key} style={{ minWidth: 0, minHeight: 0, display: 'grid' }}>{renderHzCard(g[0].id)}</div>;
+    }
+    return (
+      <div key={key} data-merged="true" style={{
+        minWidth: 0, minHeight: 0, display: 'grid', gap: 0,
+        gridTemplateRows: g.map((it) => hzRowSize(it.id)).join(' '),
+      }}>
+        {g.map((it) => (
+          <div key={it.id} style={{ minWidth: 0, minHeight: 0, display: 'grid' }}>{renderHzCard(it.id)}</div>
+        ))}
+      </div>
+    );
+  };
+
   return (
     <PalCtxH.Provider value={pal}>
-      <div className="relative w-full h-full overflow-hidden" style={{ background: pal.desk, transition: 'background .5s ease', color: pal.ink, display: 'flex', flexDirection: 'column', padding: 15, gap: 12 }}>
+      <div data-theme-surface="home" className="relative w-full h-full overflow-hidden" style={{ background: pal.desk, transition: 'background .5s ease', color: pal.ink, display: 'flex', flexDirection: 'column', padding: 15, gap: 12 }}>
         {voiceOpen && <Suspense fallback={null}><VoiceAssistant onClose={() => setVoiceOpen(false)} minimal /></Suspense>}
 
         <HzTopBar />
 
         {/* Kolon oranları referanstan: Sol 17.8% · Orta 51% (harita hero) · Sağ 25.8% */}
-        <div style={{ flex: '1 1 auto', minHeight: 0, display: 'grid', gridTemplateColumns: HZ_GRID_COLS, gap: 12 }}>
-          <div style={{ display: 'grid', gap: 11, minWidth: 0, minHeight: 0, gridTemplateRows: 'auto 1fr auto auto' }}>
-            <HzDriveModeCard />
-            <HzSpeedCard />
-            <HzRangeCard />
-            <HzConsumptionCard onOpenSettings={onOpenSettings} />
+        <div style={{ flex: '1 1 auto', minHeight: 0, display: 'grid', gridTemplateColumns: hzGridCols, gap: 12 }}>
+          <div style={{ display: 'grid', gap: 11, minWidth: 0, minHeight: 0, gridTemplateRows: hzRailRows('left-rail') }}>
+            {solved['left-rail'].groups.map((g, i) => renderHzGroup(g, g.map((x) => x.id).join('+') || String(i)))}
           </div>
 
           <div style={{ position: 'relative', minWidth: 0, minHeight: 0, display: 'flex' }}>
@@ -819,9 +935,8 @@ export const HorizonLayout = memo(function HorizonLayout(props: Props) {
             )}
           </div>
 
-          <div style={{ display: 'grid', gap: 11, minWidth: 0, minHeight: 0, gridTemplateRows: '0.93fr 1fr' }}>
-            <HzMediaCard />
-            <HzVehicleStatus onOpenSettings={onOpenSettings} />
+          <div style={{ display: 'grid', gap: 11, minWidth: 0, minHeight: 0, gridTemplateRows: hzRailRows('right-rail') }}>
+            {solved['right-rail'].groups.map((g, i) => renderHzGroup(g, g.map((x) => x.id).join('+') || String(i)))}
           </div>
         </div>
 

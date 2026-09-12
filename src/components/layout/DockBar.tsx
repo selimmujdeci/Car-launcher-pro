@@ -2,19 +2,25 @@ import { memo, useRef, useEffect } from 'react';
 import {
   LayoutGrid, SlidersHorizontal, Camera, Route, ShieldAlert,
   Bell, Music2, Phone, Cloud, Shield, Tv2, AlertTriangle,
-  Wrench, Zap, SplitSquareHorizontal, Wind, Mic,
+  Wrench, Zap, SplitSquareHorizontal, Wind, Mic, FlaskConical,
 } from 'lucide-react';
 import { useNotificationState } from '../../platform/notificationService';
 import { openDrawer } from '../../platform/drawerBus';
 import { openMusicDrawer } from '../../platform/mediaUi';
 import { useLivingThemeState } from '../../hooks/useLivingThemeState';
+import { useCarosLabAllowed } from '../../hooks/useCarosLabAllowed';
+import { openCarosLab } from '../../platform/devtools/carosLabEntry';
 import type { AppItem } from '../../data/apps';
 
 export type DrawerType =
   | 'none' | 'apps' | 'settings' | 'dashcam' | 'triplog' | 'dtc'
   | 'notifications' | 'weather' | 'sport' | 'security' | 'entertainment'
   | 'traffic' | 'music' | 'phone' | 'vehicle-reminder' | 'climate'
-  | 'super-admin';
+  | 'super-admin'
+  // CAROS LAB — geliştirici merkezi (FAZ A). Sesle açılamaz (screenRegistry'de YOK);
+  // dock kısayolu ve AppGrid kartı AYNI fail-closed kapının arkasındadır
+  // (DEVELOPER_FEATURES_ENABLED) → satış build'inde ikisi de render EDİLMEZ.
+  | 'caros-lab';
 
 interface Props {
   appMap: Record<string, AppItem>;
@@ -144,6 +150,10 @@ export const DockBar = memo(function DockBar({
   const n = useNotificationState();
   const scrollRef = useRef<HTMLDivElement>(null);
   const dockRef   = useRef<HTMLDivElement>(null);
+  /* CAROS LAB dock kısayolu — AppGrid kartıyla AYNI kapı (yeni entitlement YOK).
+     Kapı kapalıyken buton hiç render edilmez; `openCarosLab` ayrıca kendi
+     içinde tekrar kontrol eder (çift savunma). */
+  const carosLabAllowed = useCarosLabAllowed();
 
   // Living theme (Kanal A — paylaşılan --oem yüzeyi): araç durumu dock üst kenarında
   // STATİK ambient cue. Dock kalıcı → tüm temalarda görünür (Kanal B layout'larından
@@ -290,6 +300,22 @@ export const DockBar = memo(function DockBar({
         )}
         {onOpenSplit && (
           <Btn fn={onOpenSplit} label="Split" icon={<SplitSquareHorizontal size={22} />} />
+        )}
+
+        {/* CAROS LAB — geliştirici merkezi. AppGrid kartıyla AYNI fail-closed kapı
+            (DEVELOPER_FEATURES_ENABLED); satış build'inde bayrak derleme-zamanında
+            false olduğu için bu blok hiç render edilmez. Dock'un EN SONUNDA:
+            sürücü akışındaki kısayolların sırası değişmez. */}
+        {carosLabAllowed && (
+          <>
+            <Div />
+            <Btn
+              fn={() => { openCarosLab(); }}
+              label="CAROS LAB"
+              color="#22D3EE"
+              icon={<FlaskConical size={22} />}
+            />
+          </>
         )}
       </div>
     </div>

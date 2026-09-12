@@ -1,0 +1,577 @@
+{
+  "result": {
+    "type": "object",
+    "value": {
+      "field": {
+        "tWall": 1788675920462,
+        "tMono": 76536,
+        "nav": {
+          "status": "IDLE",
+          "isNavigating": false,
+          "isGuidanceActive": false,
+          "isRerouting": false,
+          "distanceM": null,
+          "etaS": null
+        },
+        "veh": {
+          "speedKmh": 0,
+          "headingDeg": 1.4,
+          "lat": 36.9175061,
+          "lon": 34.8621057,
+          "accuracyM": 3.514,
+          "fixAgeMs": 306
+        },
+        "match": {
+          "state": null,
+          "confidence": null,
+          "segIdx": null,
+          "lateralM": null,
+          "headingDeltaDeg": null,
+          "alongRemainingM": null,
+          "reasons": [],
+          "snappedLat": null,
+          "snappedLon": null
+        },
+        "offRoute": {
+          "state": "UNKNOWN",
+          "evidence": 0,
+          "required": 3,
+          "requiredMs": 1500,
+          "confirmedAtMs": null,
+          "reasons": [
+            "GPS_UNKNOWN"
+          ]
+        },
+        "route": {
+          "serverUsed": null,
+          "steps": 0,
+          "stepIdx": 0,
+          "nextManeuverM": 0,
+          "distSource": "UNKNOWN",
+          "totalM": 0,
+          "geometryPts": 0,
+          "anchorsResolved": 0,
+          "anchorsUnresolved": 0,
+          "validation": null,
+          "validationWarnIds": null,
+          "validationFailIds": null,
+          "lanesSteps": 0,
+          "roundaboutSteps": 0,
+          "roundaboutWithExit": 0
+        },
+        "req": {
+          "currentId": 0,
+          "committed": 0,
+          "staleRejected": 0,
+          "invalidRejected": 0,
+          "superseded": 0,
+          "failed": 0,
+          "suppressed": 0,
+          "detectToCommitMs": null,
+          "detectToFirstInstrMs": null,
+          "requestToResponseMs": null,
+          "offRouteDetectedAtMs": null
+        },
+        "provider": {
+          "localState": "UNKNOWN",
+          "probeCount": 0,
+          "skippedCount": 0,
+          "lastSource": "NONE",
+          "straightLineCount": 0,
+          "remoteFailures": 0
+        },
+        "corridorM": 95,
+        "fetchInFlight": false,
+        "ceh": {
+          "state": "NO_HORIZON_SOURCE",
+          "generation": 0,
+          "ambiguous": false,
+          "physicallyConfirmed": false,
+          "mppPresent": false,
+          "pathCount": 0,
+          "objectCount": 0,
+          "horizonAgeMs": null,
+          "mapAvailable": null,
+          "boundDomains": [],
+          "errorCount": 0
+        },
+        "graph": {
+          "state": "UNINITIALIZED",
+          "holders": 0,
+          "loadCount": 0,
+          "nodeCount": null,
+          "edgeCount": null,
+          "version": null,
+          "parseMs": null,
+          "adjacencyBuilt": false
+        },
+        "roadCorridor": {
+          "calls": 0,
+          "lastOutcome": null,
+          "lastCorridorOutcome": null,
+          "lastCorridorEdgeCount": null,
+          "lastCorridorNodeExpansions": null,
+          "lastCorridorTruncated": null,
+          "lastCandidateCount": null,
+          "lastObjectCount": null,
+          "lastDurationMs": null
+        },
+        "enforcement": {
+          "matchedToEdge": 0,
+          "ambiguousEdge": 0,
+          "noEdgeMatch": 0,
+          "outsideCoverage": 0,
+          "notMeasured": 0,
+          "onewayImplied": 0,
+          "unknownDirection": 0,
+          "lastOutcome": null
+        },
+        "shadow": {
+          "active": false,
+          "ticks": 0,
+          "errorCount": 0,
+          "comparable": 0,
+          "divergent": 0,
+          "divergenceRatio": null,
+          "cutoverState": "CLOSED",
+          "cutoverUnmet": [
+            "F4_FIELD_VALIDATION",
+            "SHADOW_SAMPLE_VOLUME",
+            "SHADOW_DIVERGENCE",
+            "AMBIGUITY_FAIL_CLOSED",
+            "REGRESSION_GUARDS",
+            "ATTRIBUTE_PORTS_BOUND"
+          ],
+          "guardianWouldEmitCount": 0,
+          "sideEffectCount": 0
+        },
+        "rationale": {
+          "decisions": 0,
+          "overrodeProviderFirst": 0,
+          "maxDurationPenaltyS": null,
+          "lastFactor": null,
+          "lastChosenIdx": null,
+          "lastDurationPenaltyS": null,
+          "lastAcceptedCount": null
+        },
+        "perf": {
+          "mapMatchP50Ms": null,
+          "mapMatchP95Ms": null,
+          "mapMatchMaxMs": null,
+          "progressP50Ms": null,
+          "progressP95Ms": null,
+          "progressMaxMs": null
+        }
+      },
+      "style": {
+        "name": "Vector (Automotive Day)",
+        "colors": [
+          {
+            "id": "background",
+            "paint": {
+              "background-color": "#f2efe6"
+            }
+          },
+          {
+            "id": "road-minor-casing",
+            "paint": {
+              "line-color": "#bdb6a6",
+              "line-width": [
+                "interpolate",
+                [
+                  "linear"
+                ],
+                [
+                  "zoom"
+                ],
+                14,
+                [
+                  "case",
+                  [
+                    "==",
+                    [
+                      "get",
+                      "ramp"
+                    ],
+                    1
+                  ],
+                  1.43,
+                  2.6
+                ],
+                16,
+                [
+                  "case",
+                  [
+                    "==",
+                    [
+                      "get",
+                      "ramp"
+                    ],
+                    1
+                  ],
+                  2.53,
+                  4.6
+                ],
+                18,
+                [
+                  "case",
+                  [
+                    "==",
+                    [
+                      "get",
+                      "ramp"
+                    ],
+                    1
+                  ],
+                  4.95,
+                  9
+                ]
+              ],
+              "line-opacity": 0.92
+            }
+          },
+          {
+            "id": "road-secondary-casing",
+            "paint": {
+              "line-color": "#b0a999",
+              "line-width": [
+                "interpolate",
+                [
+                  "linear"
+                ],
+                [
+                  "zoom"
+                ],
+                11,
+                [
+                  "case",
+                  [
+                    "==",
+                    [
+                      "get",
+                      "ramp"
+                    ],
+                    1
+                  ],
+                  0.88,
+                  1.6
+                ],
+                14,
+                [
+                  "case",
+                  [
+                    "==",
+                    [
+                      "get",
+                      "ramp"
+                    ],
+                    1
+                  ],
+                  2.86,
+                  5.2
+                ],
+                18,
+                [
+                  "case",
+                  [
+                    "==",
+                    [
+                      "get",
+                      "ramp"
+                    ],
+                    1
+                  ],
+                  7.15,
+                  13
+                ]
+              ],
+              "line-opacity": 0.92
+            }
+          },
+          {
+            "id": "road-primary-casing",
+            "paint": {
+              "line-color": "#a49d8e",
+              "line-width": [
+                "interpolate",
+                [
+                  "linear"
+                ],
+                [
+                  "zoom"
+                ],
+                8,
+                [
+                  "case",
+                  [
+                    "==",
+                    [
+                      "get",
+                      "ramp"
+                    ],
+                    1
+                  ],
+                  1.21,
+                  2.2
+                ],
+                14,
+                [
+                  "case",
+                  [
+                    "==",
+                    [
+                      "get",
+                      "ramp"
+                    ],
+                    1
+                  ],
+                  4.62,
+                  8.4
+                ],
+                18,
+                [
+                  "case",
+                  [
+                    "==",
+                    [
+                      "get",
+                      "ramp"
+                    ],
+                    1
+                  ],
+                  9.9,
+                  18
+                ]
+              ],
+              "line-opacity": 0.92
+            }
+          },
+          {
+            "id": "road-minor",
+            "paint": {
+              "line-color": "#f7f4ec",
+              "line-width": [
+                "interpolate",
+                [
+                  "linear"
+                ],
+                [
+                  "zoom"
+                ],
+                13,
+                [
+                  "case",
+                  [
+                    "==",
+                    [
+                      "get",
+                      "ramp"
+                    ],
+                    1
+                  ],
+                  0.5,
+                  0.9
+                ],
+                14,
+                [
+                  "case",
+                  [
+                    "==",
+                    [
+                      "get",
+                      "ramp"
+                    ],
+                    1
+                  ],
+                  1.21,
+                  2.2
+                ],
+                16,
+                [
+                  "case",
+                  [
+                    "==",
+                    [
+                      "get",
+                      "ramp"
+                    ],
+                    1
+                  ],
+                  2.2,
+                  4
+                ],
+                18,
+                [
+                  "case",
+                  [
+                    "==",
+                    [
+                      "get",
+                      "ramp"
+                    ],
+                    1
+                  ],
+                  4.07,
+                  7.4
+                ]
+              ],
+              "line-opacity": 0.92
+            }
+          },
+          {
+            "id": "road-secondary",
+            "paint": {
+              "line-color": "#faf8f1",
+              "line-width": [
+                "interpolate",
+                [
+                  "linear"
+                ],
+                [
+                  "zoom"
+                ],
+                9,
+                [
+                  "case",
+                  [
+                    "==",
+                    [
+                      "get",
+                      "ramp"
+                    ],
+                    1
+                  ],
+                  0.44,
+                  0.8
+                ],
+                12,
+                [
+                  "case",
+                  [
+                    "==",
+                    [
+                      "get",
+                      "ramp"
+                    ],
+                    1
+                  ],
+                  1.21,
+                  2.2
+                ],
+                14,
+                [
+                  "case",
+                  [
+                    "==",
+                    [
+                      "get",
+                      "ramp"
+                    ],
+                    1
+                  ],
+                  2.31,
+                  4.2
+                ],
+                18,
+                [
+                  "case",
+                  [
+                    "==",
+                    [
+                      "get",
+                      "ramp"
+                    ],
+                    1
+                  ],
+                  5.78,
+                  10.5
+                ]
+              ],
+              "line-opacity": 0.92
+            }
+          },
+          {
+            "id": "road-primary",
+            "paint": {
+              "line-color": "#fdfcf8",
+              "line-width": [
+                "interpolate",
+                [
+                  "linear"
+                ],
+                [
+                  "zoom"
+                ],
+                7,
+                [
+                  "case",
+                  [
+                    "==",
+                    [
+                      "get",
+                      "ramp"
+                    ],
+                    1
+                  ],
+                  0.5,
+                  0.9
+                ],
+                12,
+                [
+                  "case",
+                  [
+                    "==",
+                    [
+                      "get",
+                      "ramp"
+                    ],
+                    1
+                  ],
+                  1.76,
+                  3.2
+                ],
+                14,
+                [
+                  "case",
+                  [
+                    "==",
+                    [
+                      "get",
+                      "ramp"
+                    ],
+                    1
+                  ],
+                  3.52,
+                  6.4
+                ],
+                18,
+                [
+                  "case",
+                  [
+                    "==",
+                    [
+                      "get",
+                      "ramp"
+                    ],
+                    1
+                  ],
+                  8.25,
+                  15
+                ]
+              ],
+              "line-opacity": 0.92
+            }
+          }
+        ]
+      },
+      "proto": [
+        "setStyle",
+        "_updateStyle",
+        "_lazyInitEmptyStyle",
+        "_diffStyle",
+        "getStyle",
+        "isStyleLoaded"
+      ]
+    }
+  }
+}

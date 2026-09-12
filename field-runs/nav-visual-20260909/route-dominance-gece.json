@@ -1,0 +1,34 @@
+{
+  "zoom": 16.7,
+  "pitch": 44,
+  "night": true,
+  "rotaPikselYuzde": 2.03,
+  "parlakYolYuzde": 4.69,
+  "rotaL": 160.1,
+  "basemapL": 79.6,
+  "widths": {
+    "scale": 0.72,
+    "measured": true,
+    "core": {
+      "z12": 7,
+      "z18": 19.5
+    },
+    "casing": {
+      "z12": 8.5,
+      "z18": 23
+    },
+    "shadow": {
+      "z12": 9,
+      "z18": 25
+    },
+    "glow": {
+      "z12": 10,
+      "z18": 27.5
+    },
+    "flow": {
+      "z12": 3,
+      "z18": 8.5
+    },
+    "policyVersion": "RW-2026.08.13"
+  }
+}

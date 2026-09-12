@@ -5,9 +5,10 @@ import expeditionEmblem from '../../assets/expedition/emblem.png';
 import {
   Sun, Smartphone, Zap, Palette, Layout, Check, PenTool as Tool, Volume2,
   Wifi, HardDrive, RefreshCw, Database, Cloud, ArrowLeft, X,
-  Cpu, Shield, ShieldCheck, Gauge, Settings2, Lock,
-  Mic, Eye, EyeOff, CheckCircle, XCircle, Loader,
+  Cpu, Shield, ShieldCheck, Gauge, Settings2,
+  Mic, Loader,
   Grid3X3, Star, Users, ChevronRight, Info, MessageCircle, AlertTriangle, type LucideIcon,
+  Home, Fuel,
 } from 'lucide-react';
 import {
   sanitizeAssistantName, sanitizeUserCallsign, sanitizeWakePhrase,
@@ -18,13 +19,10 @@ import {
   type CompanionPersonality, type CompanionChattiness, type CompanionWakeMode,
 } from '../../platform/companion/companionIdentity';
 import { enrollWakeWord } from '../../platform/wakeWordService';
-import { testAIConnection, getEnvGeminiKey, getEnvHaikuKey, getEnvGroqKey, type AIProvider } from '../../platform/aiVoiceService';
-import { openInApp } from '../../platform/inAppBrowser';
+import { ApiCredentialsPanel } from './ApiCredentialsPanel';
 import { registerSettingsFocus } from '../../platform/settingsFocusBus';
-import { Clipboard } from '@capacitor/clipboard';
 import { isNative, bridge } from '../../platform/bridge';
 import { PrivacyPolicy } from './PrivacyPolicy';
-import { useEditStore } from '../../store/useEditStore';
 import { useStore, type VehicleType, type VehicleProfile } from '../../store/useStore';
 import { useShallow } from 'zustand/react/shallow';
 import { MUSIC_OPTIONS, type MusicOptionKey } from '../../data/apps';
@@ -34,10 +32,13 @@ import {
 } from '../../platform/performanceMode';
 import { setBrightness, setVolume, isSystemControlSupported } from '../../platform/systemSettingsService';
 import { MaintenancePanel } from '../obd/MaintenancePanel';
+import { FuelCalibrationPanel } from './FuelCalibrationPanel';
+import { VehicleClassSettings } from './VehicleClassSettings';
 import { ExpertModePanel } from './ExpertModePanel';
 import { OfflineDataPanel } from './OfflineDataPanel';
+import { HomeWorkAddressPanel } from './HomeWorkAddressPanel';
+import i18n from '../../i18n/config';
 import { MobileLinkWidget } from './MobileLinkWidget';
-import { KeyBeamPanel } from './KeyBeamPanel';
 import { OtaUpdateCard } from './OtaUpdateCard';
 import { SupportSnapshotCard } from './SupportSnapshotCard';
 import { DeviceDiagnosticCard } from './DeviceDiagnosticCard';
@@ -49,13 +50,16 @@ import {
 import { useLayoutSync } from '../../platform/themeLayoutEngine';
 import { useScreenSense } from '../../hooks/useScreenSense';
 import { setObdVehicleType } from '../../platform/obdService';
-import { useSensitiveKey } from '../../platform/sensitiveKeyStore';
 import { useSystemStore } from '../../store/useSystemStore';
-import {
-  getAGCEnabled, setAGCEnabled,
-  getDriverFocusEnabled, setDriverFocus,
-  getSvcEnabled, setSvcEnabled,
-} from '../../platform/audioService';
+/* MUSIC F6 — Ses yüzeyi artık GERÇEK DSP otoritesine bağlıdır.
+   ÖNCESİ: burada `audioService` (Web Audio) tabanlı üç anahtar vardı —
+   "Akıllı Ses Dengeleme", "Sürücü Odaklı Ses" ve "Hıza Bağlı Ses". Kanonik
+   oynatma yolu native ExoPlayer olduğundan (F0) ve Web Audio zincirine
+   üretimde HİÇBİR kaynak bağlanmadığından (`connectSource` çağrısı yok),
+   bu anahtarlar duyulabilir hiçbir şeyi değiştirmiyordu. Yeteneği olmayan
+   kontrol RENDER EDİLMEZ (CLAUDE.md · capability honesty). */
+import { AudioExperiencePanel } from '../media/AudioExperiencePanel';
+import type { DrivingMode } from '../media/nowPlayingModel';
 import { useDeviceStatus } from '../../platform/deviceApi';
 import { CarLauncher } from '../../platform/nativePlugin';
 import { getDeviceTier, type DeviceTier } from '../../platform/deviceCapabilities';
@@ -69,6 +73,8 @@ function PremiumSlider({ icon: Icon, label, value, onChange, colorA, colorB }: {
 }) {
   return (
     <div className="rounded-xl p-4 lux-noise amber-soft"
+      data-editable="settings.slider"
+      data-editable-type="card"
       style={{
         background: 'rgba(255,255,255,0.03)',
         border: '1px solid var(--oem-line, rgba(255,255,255,0.06))',
@@ -267,6 +273,8 @@ function ThemePanel() {
 function Panel({ children, className = '', accent }: { children: ReactNode; className?: string; accent?: string }) {
   return (
     <div className={`glass-card lux-panel lux-noise amber-soft cool-sheen overflow-hidden group transition-all duration-500 ${className}`}
+      data-editable="settings.panel"
+      data-editable-type="panel"
       style={{ padding: 0 }}>
       {accent && (
         <div className="lux-accent-top group-hover:opacity-100 transition-opacity" style={{ color: accent }} />
@@ -279,11 +287,13 @@ function Panel({ children, className = '', accent }: { children: ReactNode; clas
 /* ════════════════════════════════════════
    SECTION TITLE
 ════════════════════════════════════════ */
-function SectionTitle({ icon: Icon, title, sub, color = '#3b82f6' }: {
+function SectionTitle({ icon: Icon, title, sub, color = 'var(--oem-accent)' }: {
   icon: typeof Settings2; title: string; sub?: string; color?: string;
 }) {
   return (
-    <div className="flex items-center gap-4 mb-5">
+    <div className="flex items-center gap-4 mb-5"
+      data-editable="settings.section-title"
+      data-editable-type="header">
       <div className="lux-icon-box rounded-xl flex items-center justify-center flex-shrink-0"
         style={{ width: '2.5rem', height: '2.5rem', borderColor: `${color}35`, boxShadow: `0 0 14px ${color}20` }}>
         <Icon className="w-5 h-5" style={{ color, filter: `drop-shadow(0 0 8px ${color}80)` }} />
@@ -306,476 +316,15 @@ function SectionTitle({ icon: Icon, title, sub, color = '#3b82f6' }: {
 /* ════════════════════════════════════════
    AI VOICE PANEL
 ════════════════════════════════════════ */
+/* ════════════════════════════════════════
+   AI VOICE PANEL — birleşik kimlik bilgisi paneline devredildi.
+   Tüm anahtar yönetimi (Gemini · OpenRouter · Tavily · Groq · Haiku) artık
+   credentialRegistry tarafından sürülen TEK panelde: ApiCredentialsPanel.
+   Sağlayıcıya özel UI kodu KALMADI — yeni sağlayıcı eklemek bu dosyayı
+   DEĞİŞTİRMEZ (bkz. platform/ai/credentials/credentialRegistry.ts).
+════════════════════════════════════════ */
 const AIVoicePanel = memo(function AIVoicePanel() {
-  // Sağlayıcı seçici KALDIRILDI (3 numaralı görev — üç anahtar da her zaman
-  // görünür/kayıtlı): bu panel artık ayarlar store'undan aiVoiceProvider
-  // OKUMUYOR/YAZMIYOR — settings.aiVoiceProvider alanı yalnız voiceService'in
-  // geriye-uyum `provider` alanı için varlığını sürdürüyor (dokunulmadı).
-  const [geminiKey,  setGeminiKey]  = useSensitiveKey('geminiApiKey');
-  const [haikuKey,   setHaikuKey]   = useSensitiveKey('claudeHaikuApiKey');
-  const [groqKey,    setGroqKey]    = useSensitiveKey('groqApiKey');
-  const [tavilyKey,  setTavilyKey]  = useSensitiveKey('tavilyApiKey');
-  const [showGeminiKey, setShowGeminiKey] = useState(false);
-  const [showHaikuKey,  setShowHaikuKey]  = useState(false);
-  const [showGroqKey,   setShowGroqKey]   = useState(false);
-  const [showTavilyKey, setShowTavilyKey] = useState(false);
-  const [clipboardHint, setClipboardHint] = useState<string | null>(null);
-  const [waitingClip,   setWaitingClip]   = useState(false);
-  const [showKeyBeam,   setShowKeyBeam]   = useState(false);
-  const [showTavilyBeam, setShowTavilyBeam] = useState(false);
-  // Cihaz-içi API anahtarı yedeği durumu (Google'sız, uninstall'a dayanıklı).
-  // Yalnızca native'de anlamlı; web/demo modda gösterilmez.
-  const [deviceBackupStatus, setDeviceBackupStatus] = useState<{ writable: boolean; needsAllFiles: boolean } | null>(null);
-  const refreshDeviceBackupStatus = useCallback(() => {
-    if (!isNative) return;
-    CarLauncher.deviceKeyBackupStatus()
-      .then(setDeviceBackupStatus)
-      .catch(() => setDeviceBackupStatus(null));
-  }, []);
-  useEffect(() => { refreshDeviceBackupStatus(); }, [refreshDeviceBackupStatus]);
-  // Anahtar boğması YOK: normal kullanıcı YALNIZ Gemini anahtarıyla tam çalışır
-  // (sohbet + Google araması + yerel hava). Groq/Haiku/Tavily "Gelişmiş" altında
-  // KATLI durur; yalnız kota derdi olan / arama isteyen ileri kullanıcı açar.
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  // Dönen kullanıcı: daha önce yedek/arama anahtarı kaydettiyse panel otomatik açılsın
-  // (anahtar deposu async yüklenir → truthy olunca genişlet).
-  useEffect(() => {
-    if (groqKey || haikuKey || tavilyKey) setShowAdvanced(true);
-  }, [groqKey, haikuKey, tavilyKey]);
-
-  // Hibrit zincirde sağlayıcı başına ayrı test durumu — tek genel test butonu
-  // artık yanlış anahtarı test ediyormuş izlenimi verirdi (3 numaralı görev).
-  type TestState = { testing: boolean; result: { ok: boolean; message: string } | null };
-  const [geminiTest, setGeminiTest] = useState<TestState>({ testing: false, result: null });
-  const [groqTest,   setGroqTest]   = useState<TestState>({ testing: false, result: null });
-  const [haikuTest,  setHaikuTest]  = useState<TestState>({ testing: false, result: null });
-  const geminiTestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const groqTestTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const haikuTestTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const clipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Sesli "Gemini QR'ı aç" — SettingsPage bu paneli 'general' sekmesinde mount
-  // ettikten sonra settingsFocusBus 'gemini-qr' odağını buraya iletir; QR panelini
-  // genişletip görünür kılarız (geç mount → bus bekleyen odağı tekrar iletir).
-  const keyBeamBtnRef = useRef<HTMLButtonElement | null>(null);
-  useEffect(() => {
-    return registerSettingsFocus((section) => {
-      if (section !== 'gemini-qr') return;
-      setShowKeyBeam(true);
-      requestAnimationFrame(() => {
-        keyBeamBtnRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      });
-    });
-  }, []);
-
-  const envGeminiKey = getEnvGeminiKey();
-  const envHaikuKey  = getEnvHaikuKey();
-  const envGroqKey   = getEnvGroqKey();
-
-  /** Clipboard'u oku, key pattern'ine göre doğru alana otomatik kaydet.
-   *  Artık tek bir "seçili sağlayıcı" kavramı YOK — üç alan da her zaman
-   *  görünür, bu yüzden algılama yalnız pattern'e bakar (provider'a değil). */
-  const checkClipboard = useCallback(async () => {
-    try {
-      let text = '';
-      if (isNative) {
-        const { value } = await Clipboard.read();
-        text = value ?? '';
-      } else {
-        text = await navigator.clipboard.readText().catch(() => '');
-      }
-      text = text.trim();
-
-      // Gemini key formatları: eski `AIza...` + yeni `AQ.Ab8...` (2026 API key sistemi).
-      const isGeminiKey = /^(AIza[A-Za-z0-9_-]{35,}|AQ\.[A-Za-z0-9_.-]{20,})$/.test(text);
-      const isHaikuKey  = /^sk-ant-[A-Za-z0-9_-]{20,}$/.test(text);
-      const isGroqKey   = /^gsk_[A-Za-z0-9]{20,}$/.test(text);
-      const isTavilyKey = /^tvly-[A-Za-z0-9_-]{10,}$/.test(text);
-
-      if (isGeminiKey) {
-        void setGeminiKey(text);
-        setClipboardHint('Gemini key otomatik algılandı!');
-        setWaitingClip(false);
-      } else if (isHaikuKey) {
-        void setHaikuKey(text);
-        setShowAdvanced(true); // yedek beyin girildi → gelişmiş panel açık kalsın
-        setClipboardHint('Haiku key otomatik algılandı!');
-        setWaitingClip(false);
-      } else if (isTavilyKey) {
-        void setTavilyKey(text);
-        setShowAdvanced(true); // arama anahtarı girildi → gelişmiş panel açık kalsın
-        setClipboardHint('Tavily anahtarı algılandı — internet araması açık!');
-        setWaitingClip(false);
-      } else if (isGroqKey) {
-        void setGroqKey(text);
-        setShowAdvanced(true); // yedek beyin girildi → gelişmiş panel açık kalsın
-        setClipboardHint('Groq key otomatik algılandı!');
-        setWaitingClip(false);
-      }
-      if (clipTimerRef.current) clearTimeout(clipTimerRef.current);
-      clipTimerRef.current = setTimeout(() => setClipboardHint(null), 4000);
-    } catch { /* clipboard izni yok */ }
-  }, []);
-
-  /** Sayfa odağa döndüğünde clipboard kontrol et */
-  useEffect(() => {
-    if (!waitingClip) return;
-    const onFocus = () => checkClipboard();
-    const onVisibility = () => { if (document.visibilityState === 'visible') checkClipboard(); };
-    window.addEventListener('focus', onFocus);
-    document.addEventListener('visibilitychange', onVisibility);
-    return () => {
-      window.removeEventListener('focus', onFocus);
-      document.removeEventListener('visibilitychange', onVisibility);
-    };
-  }, [waitingClip, checkClipboard]);
-
-  /** Linke tıkla → browser aç + clipboard beklemeye başla */
-  const handleOpenKeyPage = useCallback((url: string) => {
-    openInApp(url);
-    setWaitingClip(true);
-    setClipboardHint('Key\'i kopyalayıp geri dönün — otomatik algılanacak');
-  }, []);
-
-  /** Bölüm başına bağlantı testi — kendi anahtarını test eder. */
-  const runTest = useCallback(async (
-    prov: AIProvider,
-    key: string,
-    envKey: string,
-    setState: React.Dispatch<React.SetStateAction<TestState>>,
-    timerRef: React.MutableRefObject<ReturnType<typeof setTimeout> | null>,
-  ) => {
-    const effectiveKey = key || envKey;
-    if (!effectiveKey) return;
-    setState({ testing: true, result: null });
-    const result = await testAIConnection(prov, effectiveKey);
-    setState({ testing: false, result });
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => setState((prev) => ({ ...prev, result: null })), 5000);
-  }, []);
-
-  useEffect(() => () => {
-    if (geminiTestTimerRef.current) clearTimeout(geminiTestTimerRef.current);
-    if (groqTestTimerRef.current)   clearTimeout(groqTestTimerRef.current);
-    if (haikuTestTimerRef.current)  clearTimeout(haikuTestTimerRef.current);
-    if (clipTimerRef.current) clearTimeout(clipTimerRef.current);
-  }, []);
-
-  /** Küçük, bölüm-içi test butonu + sonuç göstergesi. */
-  const TestRow = ({ state, onTest, disabled }: { state: TestState; onTest: () => void; disabled: boolean }) => (
-    <div className="flex items-center gap-2 mt-1">
-      <button
-        onClick={onTest}
-        disabled={state.testing || disabled}
-        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[11px] font-bold transition-all active:scale-95 disabled:opacity-40"
-        style={{ borderColor: 'rgba(255,255,255,0.15)', color: 'var(--oem-ink-2, rgba(255,255,255,0.6))' }}
-      >
-        {state.testing ? <Loader className="w-3.5 h-3.5 animate-spin" /> : <Mic className="w-3.5 h-3.5" />}
-        {state.testing ? 'Test ediliyor…' : 'Bağlantıyı Test Et'}
-      </button>
-      {state.result && (
-        <div className="flex items-center gap-1.5 text-[11px] font-medium">
-          {state.result.ok
-            ? <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
-            : <XCircle className="w-3.5 h-3.5 text-red-400" />
-          }
-          <span className={state.result.ok ? 'text-emerald-400' : 'text-red-400'}>{state.result.message}</span>
-        </div>
-      )}
-    </div>
-  );
-
-  return (
-    <div className="mt-8 pt-8 border-t border-white/10 flex flex-col gap-5">
-      <div className="flex items-center gap-2 mb-1">
-        <Mic className="w-4 h-4 text-purple-400" />
-        <span className="text-[10px] font-black uppercase tracking-[0.4em] text-purple-400/70">AI Sesli Asistan</span>
-        <span className="ml-auto text-[9px] px-2 py-0.5 rounded bg-purple-500/15 text-purple-400 border border-purple-500/20 font-mono">İnternet gerektirir</span>
-      </div>
-
-      {/* Rol rehberi — her anahtarın NE İŞE YARADIĞI düz Türkçe. Ticari ürün:
-          kullanıcı geliştirici değil, ne aldığını/niye aldığını anlamalı.
-          NOT: Gemini'nin KENDİ internet araması ücretsiz katmanda kısıtlı (429) →
-          arama için Tavily önerilir; bu banda yanlış "Gemini arar" iddiası KOYMA. */}
-      <div className="flex flex-col gap-2 p-3 rounded-xl bg-purple-500/10 border border-purple-500/20">
-        <div className="flex items-center gap-2">
-          <Info className="w-4 h-4 text-purple-300 flex-shrink-0" />
-          <span className="text-[11px] font-bold text-purple-200">Asistan senin ücretsiz anahtarlarınla çalışır. Hepsi ücretsiz alınır:</span>
-        </div>
-        <ul className="flex flex-col gap-1.5 pl-1 text-[11px] text-[color:var(--oem-ink-2)] leading-snug">
-          <li><span className="font-bold text-purple-300">Gemini</span> — asistanın <span className="text-[color:var(--oem-ink)]">beyni</span>: seni anlar, konuşur, komutları uygular. <span className="text-emerald-300 font-semibold">Gerekli.</span></li>
-          <li><span className="font-bold text-sky-300">Tavily</span> — <span className="text-[color:var(--oem-ink)]">internet araması</span>: haber, döviz, altın gibi güncel bilgi. <span className="text-sky-300 font-semibold">Önerilir.</span></li>
-          <li><span className="font-bold text-[#f7a072]">Groq / Haiku</span> — <span className="text-[color:var(--oem-ink)]">yedek beyin</span>: Gemini yoğun/kesik olduğunda asistan susmaz. <span className="text-[color:var(--oem-ink-3)]">İsteğe bağlı.</span></li>
-        </ul>
-        <p className="text-[10px] text-[color:var(--oem-ink-3)] leading-snug pl-1">
-          Hava durumu anahtar gerektirmez — cihazdan gelir.
-        </p>
-      </div>
-
-      {/* Cihaz-içi API anahtarı yedeği — Google'sız, uninstall'a dayanıklı */}
-      {isNative && deviceBackupStatus && (
-        <div className="flex items-center gap-2 px-3 py-2 rounded-xl text-[10px] font-medium border bg-[var(--oem-surface-2)] border-[var(--oem-line)] text-[color:var(--oem-ink-2)]">
-          {deviceBackupStatus.needsAllFiles ? (
-            <>
-              <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 text-amber-400" />
-              <span className="flex-1">Anahtarlar cihaza yedeklenmiyor — izin gerekli</span>
-              <button
-                onClick={() => { void CarLauncher.requestAllFilesAccess().then(refreshDeviceBackupStatus); }}
-                className="px-2.5 py-1 rounded-lg bg-amber-500/15 text-amber-300 border border-amber-500/30 font-bold hover:bg-amber-500/25 active:scale-[0.98] transition-all"
-              >
-                İzin ver
-              </button>
-            </>
-          ) : (
-            <>
-              <CheckCircle className="w-3.5 h-3.5 flex-shrink-0 text-emerald-400" />
-              <span>Anahtarlar cihaza yedekleniyor ✓ — uygulama silinse bile kaybolmaz</span>
-            </>
-          )}
-        </div>
-      )}
-
-      {/* Clipboard hint */}
-      {clipboardHint && (
-        <div className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium border ${
-          clipboardHint.includes('algılandı')
-            ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
-            : 'bg-blue-500/10 border-blue-500/30 text-blue-400'
-        }`}>
-          {clipboardHint.includes('algılandı')
-            ? <CheckCircle className="w-3.5 h-3.5 flex-shrink-0" />
-            : <Loader className="w-3.5 h-3.5 flex-shrink-0 animate-spin" />
-          }
-          {clipboardHint}
-        </div>
-      )}
-
-      {/* Gemini — asistanın beyni (GEREKLI) */}
-      <div className="flex flex-col gap-2">
-        <div className="flex items-center justify-between">
-          <span className="text-[10px] font-bold text-purple-300 uppercase tracking-wider">Gemini · Asistanın Beyni</span>
-          {envGeminiKey && !geminiKey
-            ? <span className="text-[9px] px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 font-mono">.env'den okunuyor</span>
-            : geminiKey
-            ? <span className="text-[9px] px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">Kayıtlı ✓</span>
-            : <span className="text-[9px] px-2 py-0.5 rounded bg-purple-500/20 text-purple-200 border border-purple-400/30">Gerekli</span>
-          }
-        </div>
-        <p className="text-[10px] text-[color:var(--oem-ink-3)] leading-snug -mt-1">
-          Bunu girince asistan konuşur, seni anlar ve komutları uygular. En az bu gerekli.
-        </p>
-        {/* Ücretsiz key al butonu */}
-        <button
-          onClick={() => handleOpenKeyPage('https://aistudio.google.com/apikey')}
-          className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl border border-blue-500/30 bg-blue-500/10 text-blue-400 text-sm font-bold hover:bg-blue-500/20 active:scale-[0.98] transition-all"
-        >
-          <span>🔑</span>
-          Ücretsiz Key Al — aistudio.google.com
-        </button>
-        {/* Telefonla QR ile getir */}
-        <button
-          ref={keyBeamBtnRef}
-          onClick={() => setShowKeyBeam((v) => !v)}
-          className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl border border-purple-500/30 bg-purple-500/10 text-purple-300 text-sm font-bold hover:bg-purple-500/20 active:scale-[0.98] transition-all"
-        >
-          <span>📱</span>
-          {showKeyBeam ? 'QR\'ı Gizle' : 'Telefonla Getir (QR)'}
-        </button>
-        {showKeyBeam && (
-          <KeyBeamPanel
-            keyKind="gemini"
-            onKeySaved={setGeminiKey}
-            onClose={() => setShowKeyBeam(false)}
-          />
-        )}
-        <p className="text-[10px] text-[color:var(--oem-ink-3)] text-center">Key'i kopyala → otomatik algılanacak</p>
-        <div className="relative">
-          <input
-            type={showGeminiKey ? 'text' : 'password'}
-            value={geminiKey}
-            onChange={(e) => { void setGeminiKey(e.target.value.trim()); }}
-            placeholder={envGeminiKey ? '● .env\'den otomatik' : 'AIza... / AQ... (manuel giriş)'}
-            className="w-full bg-[var(--oem-surface-2)] border border-[var(--oem-line)] rounded-xl px-3.5 py-2.5 text-[color:var(--oem-ink)] text-sm placeholder:text-[color:var(--oem-ink-3)] outline-none focus:border-[var(--oem-accent)] transition-all pr-10"
-          />
-          <button onClick={() => setShowGeminiKey((v) => !v)}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-[color:var(--oem-ink-3)] hover:text-[color:var(--oem-ink)]">
-            {showGeminiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-          </button>
-        </div>
-        <TestRow
-          state={geminiTest}
-          disabled={!geminiKey && !envGeminiKey}
-          onTest={() => void runTest('gemini', geminiKey, envGeminiKey, setGeminiTest, geminiTestTimerRef)}
-        />
-      </div>
-
-      {/* ── GELİŞMİŞ (opsiyonel yedek beyin) — varsayılan KATLI ──
-          Anahtar boğması yok: normal kullanıcı buraya hiç dokunmaz. Gemini kotası
-          bittiğinde asistanın konuşmaya devam etmesini isteyen açar. */}
-      <button
-        onClick={() => setShowAdvanced((v) => !v)}
-        className="flex items-center gap-2 mt-1 pt-3 border-t border-[var(--oem-line)] text-left"
-      >
-        <ChevronRight className={`w-4 h-4 text-[color:var(--oem-ink-3)] transition-transform ${showAdvanced ? 'rotate-90' : ''}`} />
-        <span className="text-[10px] font-bold text-[color:var(--oem-ink-3)] uppercase tracking-wider">Gelişmiş — yedek beyin ekle (opsiyonel)</span>
-        {(groqKey || haikuKey) && (
-          <span className="ml-auto text-[9px] px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">Etkin ✓</span>
-        )}
-      </button>
-
-      {showAdvanced && (
-      <div className="flex flex-col gap-5">
-      <p className="text-[10px] text-[color:var(--oem-ink-3)] leading-snug">
-        Zorunlu değil. <span className="text-[color:var(--oem-ink-2)] font-semibold">Groq/Haiku</span> = yedek beyin (Gemini kotası bitince asistan susmaz).
-        {' '}<span className="text-sky-300 font-semibold">Tavily</span> = internet araması: Gemini'nin kendi arama kotası çok küçük ve çabuk doluyor
-        (haber/döviz sorunca "bulamadım" dersen sebebi budur) — Tavily eklersen arama <span className="text-[color:var(--oem-ink-2)]">her zaman</span> çalışır. Hava zaten yerelden gelir.
-      </p>
-
-      {/* Yedek 1 — Groq */}
-      <div className="flex flex-col gap-2">
-        <div className="flex items-center justify-between">
-          <span className="text-[10px] font-bold text-[color:var(--oem-ink-3)] uppercase tracking-wider">Yedek 1 — Groq API Key</span>
-          {envGroqKey && !groqKey
-            ? <span className="text-[9px] px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 font-mono">.env'den okunuyor</span>
-            : groqKey
-            ? <span className="text-[9px] px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">Kayıtlı ✓</span>
-            : null
-          }
-        </div>
-        {/* Ücretsiz key al butonu */}
-        <button
-          onClick={() => handleOpenKeyPage('https://console.groq.com/keys')}
-          className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl border border-[#f55036]/30 bg-[#f55036]/10 text-[#f55036] text-sm font-bold hover:bg-[#f55036]/20 active:scale-[0.98] transition-all"
-        >
-          <span>🔑</span>
-          Ücretsiz Key Al — console.groq.com
-        </button>
-        <p className="text-[10px] text-[color:var(--oem-ink-3)] text-center">Key'i kopyala → otomatik algılanacak</p>
-        <div className="relative">
-          <input
-            type={showGroqKey ? 'text' : 'password'}
-            value={groqKey}
-            onChange={(e) => { void setGroqKey(e.target.value.trim()); }}
-            placeholder={envGroqKey ? '● .env\'den otomatik' : 'gsk_... (manuel giriş)'}
-            className="w-full bg-[var(--oem-surface-2)] border border-[var(--oem-line)] rounded-xl px-3.5 py-2.5 text-[color:var(--oem-ink)] text-sm placeholder:text-[color:var(--oem-ink-3)] outline-none focus:border-[var(--oem-accent)] transition-all pr-10"
-          />
-          <button onClick={() => setShowGroqKey((v) => !v)}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-[color:var(--oem-ink-3)] hover:text-[color:var(--oem-ink)]">
-            {showGroqKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-          </button>
-        </div>
-        <TestRow
-          state={groqTest}
-          disabled={!groqKey && !envGroqKey}
-          onTest={() => void runTest('groq', groqKey, envGroqKey, setGroqTest, groqTestTimerRef)}
-        />
-      </div>
-
-      {/* Yedek 2 — Haiku */}
-      <div className="flex flex-col gap-2 pt-3 border-t border-[var(--oem-line)]">
-        <div className="flex items-center justify-between">
-          <span className="text-[10px] font-bold text-[color:var(--oem-ink-3)] uppercase tracking-wider">Yedek 2 — Claude Haiku API Key</span>
-          {envHaikuKey && !haikuKey
-            ? <span className="text-[9px] px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 font-mono">.env'den okunuyor</span>
-            : haikuKey
-            ? <span className="text-[9px] px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">Kayıtlı ✓</span>
-            : null
-          }
-        </div>
-        {/* Key al butonu */}
-        <button
-          onClick={() => handleOpenKeyPage('https://console.anthropic.com/settings/keys')}
-          className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-400 text-sm font-bold hover:bg-amber-500/20 active:scale-[0.98] transition-all"
-        >
-          <span>🔑</span>
-          Key Al — console.anthropic.com
-        </button>
-        <p className="text-[10px] text-[color:var(--oem-ink-3)] text-center">Key'i kopyala → otomatik algılanacak</p>
-        <div className="relative">
-          <input
-            type={showHaikuKey ? 'text' : 'password'}
-            value={haikuKey}
-            onChange={(e) => { void setHaikuKey(e.target.value.trim()); }}
-            placeholder={envHaikuKey ? '● .env\'den otomatik' : 'sk-ant-... (manuel giriş)'}
-            className="w-full bg-[var(--oem-surface-2)] border border-[var(--oem-line)] rounded-xl px-3.5 py-2.5 text-[color:var(--oem-ink)] text-sm placeholder:text-[color:var(--oem-ink-3)] outline-none focus:border-[var(--oem-accent)] transition-all pr-10"
-          />
-          <button onClick={() => setShowHaikuKey((v) => !v)}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-[color:var(--oem-ink-3)] hover:text-[color:var(--oem-ink)]">
-            {showHaikuKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-          </button>
-        </div>
-        <TestRow
-          state={haikuTest}
-          disabled={!haikuKey && !envHaikuKey}
-          onTest={() => void runTest('haiku', haikuKey, envHaikuKey, setHaikuTest, haikuTestTimerRef)}
-        />
-      </div>
-
-      {/* İnternet Araması — Tavily. Gemini'nin google_search kotası çok küçük
-          (saha: 429 RESOURCE_EXHAUSTED → "bulamadım"); Tavily bağımsız + cömert
-          arama sağlar. Backend zincir: web kararında önce Gemini grounding, o
-          429/boş dönerse Tavily devreye girer → arama her zaman çalışır. */}
-      <div className="flex flex-col gap-2 pt-3 border-t border-[var(--oem-line)]">
-        <div className="flex items-center justify-between">
-          <span className="text-[10px] font-bold text-sky-300 uppercase tracking-wider">İnternet Araması — Tavily</span>
-          {tavilyKey
-            ? <span className="text-[9px] px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">Açık ✓</span>
-            : <span className="text-[9px] px-2 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/20">Önerilir</span>
-          }
-        </div>
-        <p className="text-[10px] text-[color:var(--oem-ink-3)] leading-snug">
-          Haber, döviz, altın gibi <span className="text-[color:var(--oem-ink-2)]">canlı bilgi</span> aramaları için. Gemini'nin kendi arama kotası
-          günde çok az; dolunca "bulamadım" der. Ücretsiz Tavily anahtarı (aylık ~1000 arama) eklersen arama kesintisiz çalışır.
-        </p>
-        <button
-          onClick={() => handleOpenKeyPage('https://app.tavily.com')}
-          className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl border border-sky-400/30 bg-sky-400/10 text-sky-300 text-sm font-bold hover:bg-sky-400/20 active:scale-[0.98] transition-all"
-        >
-          <span>🌐</span>
-          Ücretsiz Arama Key Al — app.tavily.com
-        </button>
-        {/* Telefonla QR ile getir — Gemini'deki akışın aynısı (KeyBeamPanel jenerik). */}
-        <button
-          onClick={() => setShowTavilyBeam((v) => !v)}
-          className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl border border-purple-500/30 bg-purple-500/10 text-purple-300 text-sm font-bold hover:bg-purple-500/20 active:scale-[0.98] transition-all"
-        >
-          <span>📱</span>
-          {showTavilyBeam ? 'QR\'ı Gizle' : 'Telefonla Getir (QR)'}
-        </button>
-        {showTavilyBeam && (
-          <KeyBeamPanel
-            keyKind="tavily"
-            onKeySaved={setTavilyKey}
-            onClose={() => setShowTavilyBeam(false)}
-          />
-        )}
-        <p className="text-[10px] text-[color:var(--oem-ink-3)] text-center">Key'i kopyala → otomatik algılanacak</p>
-        <div className="relative">
-          <input
-            type={showTavilyKey ? 'text' : 'password'}
-            value={tavilyKey}
-            onChange={(e) => { void setTavilyKey(e.target.value.trim()); }}
-            placeholder="tvly-... (manuel giriş)"
-            className="w-full bg-[var(--oem-surface-2)] border border-[var(--oem-line)] rounded-xl px-3.5 py-2.5 text-[color:var(--oem-ink)] text-sm placeholder:text-[color:var(--oem-ink-3)] outline-none focus:border-[var(--oem-accent)] transition-all pr-10"
-          />
-          <button onClick={() => setShowTavilyKey((v) => !v)}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-[color:var(--oem-ink-3)] hover:text-[color:var(--oem-ink)]">
-            {showTavilyKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-          </button>
-        </div>
-      </div>
-
-      </div>
-      )}
-
-      {/* Info box */}
-      <div className="p-3 rounded-xl bg-[var(--oem-surface-2)] border border-[var(--oem-line)] text-[10px] text-[color:var(--oem-ink-3)] leading-relaxed">
-        <span className="text-[color:var(--oem-ink-2)] font-bold">Nasıl çalışır?</span>
-        {' '}Offline parser tanıyamadığında (%50 altı güven) AI devreye girer. İnternet yoksa otomatik olarak offline modda çalışır.
-        {' '}<span className="text-[color:var(--oem-ink-3)]">API key cihazda şifrelenmiş olarak saklanır.</span>
-      </div>
-    </div>
-  );
+  return <ApiCredentialsPanel />;
 });
 
 /* ════════════════════════════════════════
@@ -823,14 +372,17 @@ const CompanionPanel = memo(function CompanionPanel() {
   const handleEnroll = useCallback(async () => {
     setEnrollState('recording');
     setEnrollHeard('');
-    const heard = await enrollWakeWord();          // Vosk'un DUYDUĞU (normalize)
-    if (!heard) { setEnrollState('fail'); return; }
+    // n-best (Vosk varyansı) + online'da bulut STT'nin doğru kelimesi — hepsi eklenir
+    // (doğru kelime başta). Tek örnek yerine çoklu hedef → OOV/uydurma kelime eşleşmesi
+    // çok daha güvenilir.
+    const heardList = await enrollWakeWord();
+    if (heardList.length === 0) { setEnrollState('fail'); return; }
     const next = sanitizeWakeEnrollment([
       ...(Array.isArray(settings.companionWakeEnrollment) ? settings.companionWakeEnrollment : []),
-      heard,
+      ...heardList,
     ]);
     updateSettings({ companionWakeEnrollment: next });
-    setEnrollHeard(heard);
+    setEnrollHeard(heardList[0]);
     setEnrollState('ok');
   }, [settings.companionWakeEnrollment, updateSettings]);
 
@@ -877,7 +429,10 @@ const CompanionPanel = memo(function CompanionPanel() {
       <PremiumToggle
         icon={MessageCircle}
         label="Yol Arkadaşım"
-        desc="Konuşan akıllı yolculuk asistanı — varsayılan kapalı"
+        /* MAVI-F1: bu şalter Mavi'yi AÇIP KAPATMAZ — kapalıyken de Mavi tam
+           yeteneklidir (komut, sohbet, araç soruları). Yalnız sohbet sıcaklığını,
+           yolculuk arkadaşlığını ve kendiliğinden konuşmayı yönetir. */
+        desc="Sohbet kişiliği ve kendiliğinden konuşma — kapalıyken Mavi yine tam yetenekli"
         value={settings.companionEnabled ?? false}
         onChange={(v) => updateSettings({ companionEnabled: v })}
         accent="#22d3ee"
@@ -959,15 +514,25 @@ const CompanionPanel = memo(function CompanionPanel() {
             </div>
           </div>
 
-          {/* Wake word — sözler asistan ADINDAN türetilir ("Mavi"/"Hey Mavi") */}
-          <PremiumToggle
-            icon={Mic}
-            label="Sesle Uyandırma"
-            desc={`"${suggestWakePhrase(settings.companionAssistantName)}" de, asistan uyansın`}
-            value={settings.companionWakeWordEnabled ?? false}
-            onChange={(v) => updateSettings({ companionWakeWordEnabled: v })}
-            accent="#a78bfa"
-          />
+        </div>
+      )}
+
+      {/* ── MAVI-F11 · SESLE UYANDIRMA — YOL ARKADAŞI'NDAN BAĞIMSIZ BÖLÜM ──
+          ESKİDEN bu bölümün TAMAMI `companionEnabled &&` koşulunun İÇİNDEydi:
+          Yol Arkadaşı kapatılınca kullanıcının AÇIK olarak işaretlediği wake
+          ayarı ekrandan KAYBOLUYOR ama depoda `true` kalıyordu → erişilemeyen
+          GİZLİ DURUM. Üstelik `wakeWordService` de presence'a bağlı olduğu için
+          ayar sessizce ETKİSİZDİ. F11 her iki bağı da kaldırdı: wake ayarı
+          presence'tan bağımsızdır ve HER ZAMAN erişilebilir. */}
+      <div className="mt-4 pt-4 border-t border-white/10 flex flex-col gap-3">
+        <PremiumToggle
+          icon={Mic}
+          label="Sesle Uyandırma"
+          desc={`"${suggestWakePhrase(settings.companionAssistantName)}" de, asistan uyansın — Yol Arkadaşı kapalıyken de çalışır`}
+          value={settings.companionWakeWordEnabled ?? false}
+          onChange={(v) => updateSettings({ companionWakeWordEnabled: v })}
+          accent="#a78bfa"
+        />
 
           {(settings.companionWakeWordEnabled ?? false) && (
             <div className="flex flex-col gap-3">
@@ -1063,13 +628,13 @@ const CompanionPanel = memo(function CompanionPanel() {
             </div>
           )}
 
-          {/* Gizlilik notu */}
-          <div className="p-3 rounded-xl bg-[var(--oem-surface-2)] border border-[var(--oem-line)] text-[10px] text-[color:var(--oem-ink-3)] leading-relaxed">
-            <span className="text-[color:var(--oem-ink-2)] font-bold">Gizlilik:</span>
-            {' '}Ses tanıma %100 cihaz içinde çalışır. Ad ve hitap bilgisi cihaz dışına gönderilmez.
-          </div>
+        {/* Gizlilik / mikrofon davranışı — her iki bölüm için de geçerlidir */}
+        <div className="p-3 rounded-xl bg-[var(--oem-surface-2)] border border-[var(--oem-line)] text-[10px] text-[color:var(--oem-ink-3)] leading-relaxed">
+          <span className="text-[color:var(--oem-ink-2)] font-bold">Gizlilik:</span>
+          {' '}Ses tanıma %100 cihaz içinde çalışır. Ad ve hitap bilgisi cihaz dışına gönderilmez.
+          {' '}Sesle uyandırma kapalıyken mikrofon yalnız butona basınca açılır.
         </div>
-      )}
+      </div>
     </div>
   );
 });
@@ -1327,10 +892,10 @@ function LiveStatsRow() {
   }, []);
 
   const stats = [
-    { label: 'YÜK', val: `${load}%`, color: '#3b82f6', Icon: Cpu },
+    { label: 'YÜK', val: `${load}%`, color: 'var(--oem-accent)', Icon: Cpu },
     { label: 'BAT', val: ready ? `%${battery}${charging ? '+' : ''}` : '—', color: '#f97316', Icon: Zap },
-    { label: 'RAM', val: ramMb > 0 ? (ramMb >= 1024 ? `${(ramMb / 1024).toFixed(1)}G` : `${ramMb}M`) : '—', color: '#10b981', Icon: HardDrive },
-    { label: 'NET', val: !online ? 'OFF' : netMs > 0 ? `${netMs}ms` : 'ON', color: '#8b5cf6', Icon: Gauge },
+    { label: 'RAM', val: ramMb > 0 ? (ramMb >= 1024 ? `${(ramMb / 1024).toFixed(1)}G` : `${ramMb}M`) : '—', color: 'var(--oem-good)', Icon: HardDrive },
+    { label: 'NET', val: !online ? 'OFF' : netMs > 0 ? `${netMs}ms` : 'ON', color: 'var(--oem-accent)', Icon: Gauge },
   ];
   return (
     <>
@@ -1358,7 +923,10 @@ function LiveStatsRow() {
 
 function SettingsHero({ eyebrow, title, sub }: { eyebrow: string; title: string; sub?: string }) {
   return (
-    <div className="flex items-end justify-between gap-6" style={{ marginBottom: 36 }}>
+    <div className="flex items-end justify-between gap-6"
+      data-editable="settings.hero"
+      data-editable-type="header"
+      style={{ marginBottom: 36 }}>
       <div style={{ maxWidth: 780 }}>
         <div className="text-[11px] font-black uppercase"
           style={{ letterSpacing: '0.20em', color: 'var(--oem-ink-2, rgba(240,235,224,0.74))' }}>
@@ -1397,6 +965,8 @@ function SettingTile({ icon, title, sub, control, accent, span = 1, onClick }: {
   return (
     <div
       onClick={onClick}
+      data-editable="settings.tile"
+      data-editable-type="card"
       style={{
         gridColumn: `span ${span}`,
         padding: '28px 30px',
@@ -1449,7 +1019,9 @@ function SettingTile({ icon, title, sub, control, accent, span = 1, onClick }: {
 
 function BigToggle({ value, onChange }: { value: boolean; onChange?: (v: boolean) => void }) {
   return (
-    <div className="flex items-center justify-between gap-4">
+    <div className="flex items-center justify-between gap-4"
+      data-editable="settings.toggle"
+      data-editable-type="card">
       <span
         className="font-bold uppercase"
         style={{
@@ -1466,23 +1038,21 @@ function BigToggle({ value, onChange }: { value: boolean; onChange?: (v: boolean
         onClick={() => onChange?.(!value)}
         style={{
           width: 60, height: 32, borderRadius: 999, position: 'relative',
-          border: '1px solid ' + (value ? 'var(--oem-line-warm, oklch(66% 0.10 55 / 0.42))' : 'var(--oem-line-strong, rgba(240,235,224,0.16))'),
-          background: value
-            ? 'linear-gradient(180deg, oklch(86% 0.10 70 / 0.55), oklch(60% 0.12 50 / 0.45))'
-            : 'rgba(255,255,255,0.06)',
-          boxShadow: value
-            ? '0 0 18px var(--oem-amber-glow, transparent), inset 0 1px 0 rgba(255,240,210,0.20)'
-            : 'inset 0 2px 5px rgba(0,0,0,0.35)',
+          // AÇIK/KAPALI net: ON = DOLU accent (her iki temada belirgin), OFF = gri yüzey + kenar.
+          border: '1px solid ' + (value ? 'var(--oem-accent, #f59e0b)' : 'var(--oem-line)'),
+          background: value ? 'var(--oem-accent, #f59e0b)' : 'var(--oem-surface-3)',
+          boxShadow: value ? 'inset 0 1px 2px rgba(0,0,0,0.15)' : 'inset 0 1px 3px rgba(0,0,0,0.12)',
           cursor: 'pointer',
           transition: 'background .2s ease, border-color .2s ease',
         }}>
         <span
           style={{
-            position: 'absolute', top: 4, left: value ? 32 : 4,
-            width: 22, height: 22, borderRadius: 999,
+            position: 'absolute', top: 3, left: value ? 31 : 3,
+            width: 24, height: 24, borderRadius: 999,
             background: '#ffffff',
+            border: '1px solid rgba(0,0,0,0.14)',   // açık track üstünde de görünür knob
             transition: 'left .2s ease',
-            boxShadow: '0 2px 6px rgba(0,0,0,0.45)',
+            boxShadow: '0 1px 4px rgba(0,0,0,0.30)',
           }} />
       </button>
     </div>
@@ -1499,6 +1069,13 @@ const OSS_LICENSES: { name: string; license: string }[] = [
   { name: 'Vosk Türkçe Dil Modeli',      license: 'Apache-2.0' },
   { name: 'MapLibre GL',                 license: 'BSD-3-Clause' },
   { name: 'OpenStreetMap harita verisi', license: 'ODbL' },
+  /* V-05: çevrimdışı rota grafiği (`public/maps/routing-graph.bin`) OSM'den
+     TÜRETİLMİŞTİR → ODbL atfı bu veri için de ZORUNLUDUR. Ayrı satır olarak
+     yazılır çünkü "harita verisi" ibaresi karo görüntüsünü çağrıştırır ve
+     türetilmiş veritabanını kapsadığı açık değildir. */
+  { name: 'OpenStreetMap çevrimdışı rota grafiği', license: 'ODbL' },
+  { name: 'OpenStreetMap çevrimdışı POI veritabanı', license: 'ODbL' },
+  { name: 'SQLite (sql.js)',             license: 'MIT / Public Domain' },
   { name: 'Capacitor',                   license: 'MIT' },
   { name: 'React',                       license: 'MIT' },
   { name: 'Zustand',                     license: 'MIT' },
@@ -1506,6 +1083,14 @@ const OSS_LICENSES: { name: string; license: string }[] = [
   { name: 'Lucide Icons',                license: 'ISC' },
   { name: 'usb-serial-for-android',      license: 'MIT' },
   { name: 'OVMS3 — Renault Zoe DID tanımları', license: 'MIT' },
+  /* Gömülü yazı tipleri (#655) — `public/fonts/`, self-hosted, ağ gerektirmez.
+     Hepsi SIL Open Font License 1.1; CLAUDE.md permissive listesinde ve ticari
+     dağıtıma uygundur. Atıf yükümlülüğü BURADAN karşılanır. */
+  { name: 'Inter — yazı tipi',           license: 'OFL-1.1' },
+  { name: 'Orbitron — yazı tipi',        license: 'OFL-1.1' },
+  { name: 'Rajdhani — yazı tipi',        license: 'OFL-1.1' },
+  { name: 'Exo 2 — yazı tipi',           license: 'OFL-1.1' },
+  { name: 'Share Tech Mono — yazı tipi', license: 'OFL-1.1' },
 ];
 
 function AboutTabContent() {
@@ -1541,7 +1126,7 @@ function AboutTabContent() {
         </div>
         <div className="mt-4 px-3 py-2.5 rounded-xl text-[11px] leading-relaxed"
           style={{ background: 'var(--oem-warn-soft)', border: '1px solid var(--oem-warn)', color: 'var(--oem-ink-2)' }}>
-          Harita verileri <span style={{ color: '#fbbf24', fontWeight: 800 }}>© OpenStreetMap katkıcıları</span> tarafından sağlanır (ODbL).
+          Harita verileri, çevrimdışı rota grafiği ve POI veritabanı <span style={{ color: '#fbbf24', fontWeight: 800 }}>© OpenStreetMap katkıcıları</span> tarafından sağlanır (ODbL).
           Tüm açık kaynak bileşenler izin verici (permissive) lisanslıdır ve ticari kullanıma uygundur.
         </div>
       </Panel>
@@ -1553,29 +1138,18 @@ function AboutTabContent() {
    TAB CONTENTS — Sound, Connect, Profiles (gerçek servislere bağlı)
 ════════════════════════════════════════ */
 
-function SoundTabContent() {
-  // Gerçek DSP durumu — audioService kalıcı saklar (safeStorage); sekme her
-  // açılışta yeniden mount olduğundan getter'lar güncel değeri verir.
-  const [agc,   setAgc]   = useState(() => getAGCEnabled());
-  const [focus, setFocus] = useState(() => getDriverFocusEnabled());
-  const [svc,   setSvc]   = useState(() => getSvcEnabled());
+function SoundTabContent({ drivingMode }: { drivingMode: DrivingMode }) {
+  /* F6: tek DSP otoritesinin projeksiyonu. Bu sekme kendi ses gerçeğini
+     tutmaz ve desteklenmeyen bir kontrolü "kapalı" diye çizmez. */
   return (
     <>
       <SettingsHero
         eyebrow="Ses"
         title="Kabin akustiği"
-        sub="Hoparlör sahnesi, ekolayzer, hıza göre ses ve uyarı tonları."
+        sub="Ekolayzer, hazır profiller, loudness ve denge — cihazın gerçekten desteklediği kadarı."
       />
       <div className="grid gap-4" style={{ gridTemplateColumns: '1fr', maxWidth: 720, margin: '0 auto' }}>
-        <SettingTile icon={Volume2} accent="amber" title="Akıllı Ses Dengeleme (AGC)"
-          sub="YouTube, Spotify gibi kaynaklar arasında ses eşitlenir."
-          control={<BigToggle value={agc} onChange={(v) => { setAgc(v); setAGCEnabled(v); }} />} />
-        <SettingTile icon={Mic} title="Sürücü Odaklı Ses"
-          sub="Ses sahnesi sürücü tarafına kaydırılır — Haas Effect (15ms)."
-          control={<BigToggle value={focus} onChange={(v) => { setFocus(v); setDriverFocus(v); }} />} />
-        <SettingTile icon={Settings2} title="Hıza Bağlı Ses"
-          sub="40 km/s üzerinde yol gürültüsünü dengelemek için ses otomatik artar."
-          control={<BigToggle value={svc} onChange={(v) => { setSvc(v); setSvcEnabled(v); }} />} />
+        <AudioExperiencePanel drivingMode={drivingMode} />
         <SettingTile icon={Volume2} title="Uyarı Tonları"
           sub="Şerit ihlali, hız limiti, kapı uyarıları için özelleştirilebilir tonlar."
           control={<div className="text-[13px] font-bold" style={{ color: 'var(--oem-ink-2, rgba(240,235,224,0.74))' }}>OEM Varsayılan</div>} />
@@ -1654,6 +1228,7 @@ function ProfilesTabContent() {
 
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState('');
+  const [pendingDel, setPendingDel] = useState<VehicleProfile | null>(null);
 
   const activate = useCallback((p: VehicleProfile) => {
     setActiveVehicleProfile(p.id);
@@ -1678,10 +1253,15 @@ function ProfilesTabContent() {
     setNewName(''); setAdding(false);
   }, [newName, settings.defaultMusic, addVehicleProfile]);
 
+  // In-app temalı onay (native window.confirm YOK — head-unit'te siyah/İngilizce
+  // OK-CANCEL dialog'u çıkarıyordu; gündüz/gece uyumlu modal ile değiştirildi).
   const del = useCallback((p: VehicleProfile) => {
-    if (typeof window !== 'undefined' && !window.confirm(`"${p.name}" profili silinsin mi?`)) return;
-    removeVehicleProfile(p.id);
-  }, [removeVehicleProfile]);
+    setPendingDel(p);
+  }, []);
+  const confirmDel = useCallback(() => {
+    if (pendingDel) removeVehicleProfile(pendingDel.id);
+    setPendingDel(null);
+  }, [pendingDel, removeVehicleProfile]);
 
   const full = profiles.length >= MAX_PROFILES;
 
@@ -1773,6 +1353,58 @@ function ProfilesTabContent() {
           />
         )}
       </div>
+
+      {/* Profil silme onayı — in-app temalı modal (native window.confirm YERİNE) */}
+      {pendingDel && (
+        <div
+          role="dialog" aria-modal="true" aria-label="Profil silme onayı"
+          onClick={() => setPendingDel(null)}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 10000,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            background: 'rgba(2,6,14,0.55)', backdropFilter: 'blur(4px)', padding: 20,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: '100%', maxWidth: 400, borderRadius: 20, overflow: 'hidden',
+              background: 'var(--oem-surface-0)', border: '1px solid var(--oem-line)',
+              boxShadow: '0 20px 60px rgba(0,0,0,0.35)',
+            }}
+          >
+            <div style={{ padding: '20px 22px 8px' }}>
+              <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--oem-ink)', marginBottom: 6 }}>
+                Profili sil
+              </div>
+              <div style={{ fontSize: 13, color: 'var(--oem-ink-2)', lineHeight: 1.5 }}>
+                <b style={{ color: 'var(--oem-ink)' }}>"{pendingDel.name}"</b> profili kalıcı olarak silinsin mi?
+              </div>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, padding: '12px 22px 18px' }}>
+              <button
+                onClick={() => setPendingDel(null)}
+                style={{
+                  padding: '9px 18px', borderRadius: 12, fontSize: 13, fontWeight: 700,
+                  background: 'var(--oem-surface-2)', color: 'var(--oem-ink)',
+                  border: '1px solid var(--oem-line)', cursor: 'pointer',
+                }}
+              >
+                Vazgeç
+              </button>
+              <button
+                onClick={confirmDel}
+                style={{
+                  padding: '9px 18px', borderRadius: 12, fontSize: 13, fontWeight: 800,
+                  background: '#dc2626', color: '#fff', border: '1px solid #dc2626', cursor: 'pointer',
+                }}
+              >
+                Sil
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
@@ -1780,13 +1412,18 @@ function ProfilesTabContent() {
 /* ════════════════════════════════════════
    MAIN COMPONENT
 ════════════════════════════════════════ */
-interface Props { onOpenMap?: () => void; onClose?: () => void; }
+interface Props {
+  onOpenMap?: () => void;
+  onClose?: () => void;
+  /** F6 · sürüş dikkat düzeyi — yalnız ses sekmesinin ETKİLEŞİMİNİ kısıtlar. */
+  drivingMode?: DrivingMode;
+}
 
 type Tab = 'general' | 'appearance' | 'performance' | 'maintenance' | 'sound' | 'connect' | 'profiles' | 'about';
 const TAB_IDS: Tab[] = ['general', 'appearance', 'performance', 'maintenance', 'sound', 'connect', 'profiles'];
 const TAB_STORAGE_KEY = 'caros.settings.tab';
 
-function SettingsPageInner({ onClose }: Props) {
+function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
   const { settings, updateSettings, updateVehicleProfile, setActiveVehicleProfile, addVehicleProfile, removeVehicleProfile } = useStore(
     useShallow((s) => ({
       settings: s.settings, updateSettings: s.updateSettings, updateVehicleProfile: s.updateVehicleProfile,
@@ -1816,15 +1453,8 @@ function SettingsPageInner({ onClose }: Props) {
   }, []);
   const [showPrivacy, setShowPrivacy] = useState(false);
   const [showOBDConnect, setShowOBDConnect] = useState(false);
-  const { locked: layoutLocked, toggleLock } = useEditStore();
   const [perfMode, setPerfMode]         = useState(() => getPerformanceMode());
   const [autoMode, setAutoMode]         = useState(() => isAutoModeEnabled());
-  const [agcOn,    setAgcOn]            = useState(() => getAGCEnabled());
-  const [focusOn,  setFocusOn]          = useState(() => getDriverFocusEnabled());
-  // Ses sekmesi de aynı DSP servisini yönetiyor — sekme dönüşünde bayat state'i tazele.
-  useEffect(() => {
-    if (tab === 'general') { setAgcOn(getAGCEnabled()); setFocusOn(getDriverFocusEnabled()); }
-  }, [tab]);
 
   // ── Gizli Mühendislik Erişimi ──────────────────────────────────────────────
   const [showSecureModal, setShowSecureModal] = useState(false);
@@ -1925,6 +1555,9 @@ function SettingsPageInner({ onClose }: Props) {
 
   return (
     <div
+      data-theme-surface="settings"
+      data-editable="settings-page"
+      data-editable-type="panel"
       className="flex-1 flex flex-col min-h-0 ultra-premium-root settings-page"
       data-theme-pack={settings.themePack}
       data-theme-style={settings.themeStyle}
@@ -1934,6 +1567,8 @@ function SettingsPageInner({ onClose }: Props) {
 
       {/* ═══ HEADER — 2 satır: üst (nav+stats), alt (sekmeler) ═══ */}
       <div className="flex-shrink-0 relative z-20"
+        data-editable="settings.header"
+        data-editable-type="header"
         style={{
           background: settings.dayNightMode === 'day' ? 'rgba(248,249,251,0.94)' : 'rgba(8,12,24,0.92)',
           backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)',
@@ -2012,6 +1647,8 @@ function SettingsPageInner({ onClose }: Props) {
                 <button
                   key={s.id}
                   onClick={() => setTab(s.id)}
+                  data-editable="settings.nav-item"
+                  data-editable-type="card"
                   style={{
                     width: '100%',
                     appearance: 'none',
@@ -2105,37 +1742,14 @@ function SettingsPageInner({ onClose }: Props) {
           {tab === 'general' && (
             <div className="flex flex-col gap-4 mx-auto w-full" style={{ maxWidth: 760 }}>
               {nativeControls && (
-                <Panel accent="#3b82f6">
-                  <SectionTitle icon={Settings2} title="Donanım Kontrolleri" sub="Sistem öncelikli ayarlar" color="#3b82f6" />
+                <Panel accent="var(--oem-accent)">
+                  <SectionTitle icon={Settings2} title="Donanım Kontrolleri" sub="Sistem öncelikli ayarlar" color="var(--oem-accent)" />
                   <div className="flex flex-col gap-6">
-                    <PremiumSlider icon={Sun}     label="Parlaklık Seviyesi" value={settings.brightness} onChange={handleBrightness} colorA="#f59e0b" colorB="#f97316" />
-                    <PremiumSlider icon={Volume2} label="Ses Düzeyi" value={settings.volume} onChange={handleVolume} colorA="#3b82f6" colorB="#06b6d4" />
+                    <PremiumSlider icon={Sun}     label="Parlaklık Seviyesi" value={settings.brightness} onChange={handleBrightness} colorA="var(--oem-warn)" colorB="#f97316" />
+                    <PremiumSlider icon={Volume2} label="Ses Düzeyi" value={settings.volume} onChange={handleVolume} colorA="var(--oem-accent)" colorB="var(--oem-accent-strong)" />
                   </div>
                 </Panel>
               )}
-
-              {/* ── Crystal Cabin DSP v3 ── */}
-              <Panel accent="#8b5cf6">
-                <SectionTitle icon={Volume2} title="Crystal Cabin DSP" sub="Otomotiv sınıfı ses işleme" color="#8b5cf6" />
-                <div className="flex flex-col gap-3">
-                  <PremiumToggle
-                    icon={Volume2}
-                    label="Akıllı Ses Dengeleme"
-                    desc="YouTube, Spotify gibi kaynaklar arasında ses eşitler (AGC)"
-                    value={agcOn}
-                    onChange={(v) => { setAgcOn(v); setAGCEnabled(v); }}
-                    accent="#8b5cf6"
-                  />
-                  <PremiumToggle
-                    icon={Cpu}
-                    label="Sürücü Odaklı Ses"
-                    desc="Ses sürücü tarafına odaklanır — Haas Effect (15ms)"
-                    value={focusOn}
-                    onChange={(v) => { setFocusOn(v); setDriverFocus(v); }}
-                    accent="#a78bfa"
-                  />
-                </div>
-              </Panel>
 
               <Panel accent="#60a5fa">
                 <SectionTitle icon={Wifi} title="Akıllı Servisler" sub="Bağlam duyarlı özellikler" color="#60a5fa" />
@@ -2158,6 +1772,14 @@ function SettingsPageInner({ onClose }: Props) {
               <Panel accent="#22d3ee">
                 <SectionTitle icon={HardDrive} title="Offline Konum Veritabanı" sub="Mahalle, benzinlik, hastane — internetsiz ara" color="#22d3ee" />
                 <OfflineDataPanel />
+              </Panel>
+
+              {/* ── Ev / İş Adresi (NAVIGATION-P0-1) ──
+                   Sesle "eve git"/"işe git" komutlarının gerçek rota üretebilmesi için
+                   TEK kayıt yüzeyi (addressBookService.setQuickAddress). */}
+              <Panel accent="#60a5fa">
+                <SectionTitle icon={Home} title={i18n.t('navigation.settings_title')} sub={i18n.t('navigation.settings_sub')} color="#60a5fa" />
+                <HomeWorkAddressPanel />
               </Panel>
 
               {/* ── Hotspot / İnternet Bağlantısı ── */}
@@ -2229,8 +1851,8 @@ function SettingsPageInner({ onClose }: Props) {
               <ThemePanel />
 
               <div className="grid grid-cols-1 gap-4">
-                <Panel accent="#06b6d4">
-                  <SectionTitle icon={Layout} title="Duvar Kağıdı Motoru" sub={`${WALLPAPERS.length - 1} premium tema · offline kullanılabilir`} color="#06b6d4" />
+                <Panel accent="var(--oem-accent-strong)">
+                  <SectionTitle icon={Layout} title="Duvar Kağıdı Motoru" sub={`${WALLPAPERS.length - 1} premium tema · offline kullanılabilir`} color="var(--oem-accent-strong)" />
                   <div className="grid grid-cols-4 gap-2.5">
                     {WALLPAPERS.map(w => {
                       const isActive = settings.wallpaper === w.url || (w.id === 'none' && (!settings.wallpaper || settings.wallpaper === 'none'));
@@ -2260,18 +1882,27 @@ function SettingsPageInner({ onClose }: Props) {
                   <p className="text-[9px] mt-2 leading-relaxed" style={{ color: 'var(--oem-ink-3, rgba(255,255,255,0.3))' }}>🌐 işaretli temalar internet bağlantısı gerektirir.</p>
                 </Panel>
 
-                <Panel accent="#a78bfa">
-                  <SectionTitle icon={Settings2} title="Kişiselleştirme" sub="Sürüş odaklı arayüz ayarları" color="#a78bfa" />
-                  <div className="flex flex-col gap-3">
-                    <PremiumToggle icon={Lock} label="Layout Lock" desc="Widget düzenleme modunu kilitle" value={layoutLocked} onChange={toggleLock} accent="#a78bfa" />
-                  </div>
-                </Panel>
+                {/* #597: yerleşim kilidi anahtarı KALDIRILDI — kilitlediği araç
+                    içi uzun-bas editör söküldü. Tema/yerleşim düzenleme artık
+                    yalnız Arabam Cebimde / Tema Stüdyo'da yapılır. Panelde başka
+                    ayar kalmadığı için panel bütünüyle kaldırıldı (boş kabuk
+                    YASAK). Kilit metni bilinçli olarak yazılmadı: kasa kilidi
+                    o kimliğin kaynakta yeniden doğmasını arıyor. */}
               </div>
             </>
           )}
 
           {tab === 'maintenance' && (
             <div className="flex flex-col gap-4">
+
+              {/* ── Ruhsat Sınıfı (uygulanabilir hız sınırını belirler) ── */}
+              <Panel accent="#60a5fa">
+                <div className="mb-3">
+                  <SectionTitle icon={Gauge} title="Ruhsat Sınıfı"
+                    sub="Hız sınırı kartı bu sınıfa göre hesaplanır" color="#60a5fa" />
+                </div>
+                <VehicleClassSettings />
+              </Panel>
 
               {/* ── Araç Profilleri ── */}
               <Panel accent="#60a5fa">
@@ -2320,7 +1951,7 @@ function SettingsPageInner({ onClose }: Props) {
                                 style={{ caretColor: '#60a5fa', color: 'var(--oem-ink, #fff)' }}
                               />
                               {isActive && (
-                                <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400 border border-blue-500/30 shrink-0">AKTİF</span>
+                                <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-[var(--oem-accent-soft)] text-[color:var(--oem-accent)] border border-[var(--oem-accent)] shrink-0">AKTİF</span>
                               )}
                             </div>
                             {/* Araç tipi seçici */}
@@ -2385,6 +2016,15 @@ function SettingsPageInner({ onClose }: Props) {
                 </div>
               </Panel>
 
+              {/* ── Yakıt Seviyesi Kalibrasyonu ──
+                  Saha 2026-08-04: depo FULL iken ECU `41 2F 99` (%60) döndü. Formül
+                  doğru, ARACIN şamandıra eğrisi 0–255'in tamamını kullanmıyor. Ölçek
+                  mekanizması obdService'te vardı ama yazma ucu HİÇ BAĞLANMAMIŞTI. */}
+              <Panel accent="#fbbf24">
+                <SectionTitle icon={Fuel} title="Yakıt Seviyesi Kalibrasyonu" sub="PID 0x2F şamandıra eğrisi — ham okuma ile gerçek seviyeyi eşitle" color="#fbbf24" />
+                <FuelCalibrationPanel />
+              </Panel>
+
               {/* ── OBD Sağlık Sistemi ── */}
               <Panel accent="#34d399">
                 <SectionTitle icon={Tool} title="Araç Sağlık Sistemi" sub="OBD-II telemetri ve servis takibi" color="#34d399" />
@@ -2398,8 +2038,8 @@ function SettingsPageInner({ onClose }: Props) {
                   Alt servisler (canDiag listener, EventRecorder) duruyor — UI'sız uyur. */}
 
               {/* ── Expert Mode (AI Safety Layer) ── */}
-              <Panel accent="#10b981">
-                <SectionTitle icon={ShieldCheck} title="CarOS Pro Expert Mode" sub="AI tabanlı otomotiv güvenlik katmanı ve mühürlü diagnostik" color="#10b981" />
+              <Panel accent="var(--oem-good)">
+                <SectionTitle icon={ShieldCheck} title="CarOS Pro Expert Mode" sub="AI tabanlı otomotiv güvenlik katmanı ve mühürlü diagnostik" color="var(--oem-good)" />
                 <ExpertModePanel />
               </Panel>
             </div>
@@ -2499,7 +2139,7 @@ function SettingsPageInner({ onClose }: Props) {
           )}
 
           {/* ── Phase 8 new tabs — Sound, Connect, Profiles ── */}
-          {tab === 'sound' && <SoundTabContent />}
+          {tab === 'sound' && <SoundTabContent drivingMode={drivingMode} />}
           {tab === 'connect' && <ConnectTabContent />}
           {tab === 'profiles' && <ProfilesTabContent />}
           {tab === 'about' && <AboutTabContent />}

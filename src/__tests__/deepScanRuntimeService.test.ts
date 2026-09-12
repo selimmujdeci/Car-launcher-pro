@@ -31,6 +31,7 @@ import {
   OFFLINE_PHASES,
   type DeepScanEvent,
 } from '../platform/deepScan/deepScanModel';
+import { createDeepScanIgnitionSource } from '../platform/deepScan/deepScanIgnitionSource';
 
 /** Geçerli 16-hane hex parmak izi. */
 const HASH = 'a1b2c3d4e5f60718';
@@ -781,5 +782,121 @@ describe('foundation güvencesi — yan etki ve wiring yok', () => {
     expect(isActivePhase('firmware_inventory')).toBe(true);
     expect(isActivePhase('capability_analysis')).toBe(false);
     expect(isActivePhase('report_generation')).toBe(false);
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * 31. prepare() — KONTAK KAPISI (fail-closed)
+ *
+ * Kilit: kontak `true` DEĞİLKEN (false VEYA null=bilinmiyor) hazırlık fazı
+ * `waiting_for_ignition`'da kalır ve araca hiçbir aktif sorgu üretilmez.
+ * ════════════════════════════════════════════════════════════════════════ */
+
+describe('prepare() — kontak doğrulama kapısı', () => {
+  it('çözümleyici null (BİLİNMİYOR) → waiting_for_ignition; aktif faz AÇILMAZ', () => {
+    const s = new DeepScanRuntimeService({ now: () => now, ignitionResolver: () => null });
+    s.startScan({ vehicleFingerprintHash: HASH, ignitionConfirmed: true });
+    expect(s.getSnapshot().status).toBe('preparing'); // başlangıçta kontak besliydi
+
+    s.prepare(); // çözümleyici "bilinmiyor" der → fail-closed geri düşer
+    expect(s.getSnapshot().status).toBe('waiting_for_ignition');
+    expect(s.getSnapshot().ignitionConfirmed).toBeNull(); // "kapalı" UYDURULMAZ
+
+    // Aktif fazlar ve keşif kayıtları REDDEDİLİR → ELM327/UDS sorgusu üretilmez.
+    for (const phase of ACTIVE_PHASES) {
+      s.updatePhase(phase);
+      expect(s.getSnapshot().phase).toBeNull();
+    }
+    s.recordEcuDiscovery({ ecuAddress: '7E8' });
+    s.recordPidDiscovery({ pidOrDid: '0C', ecuAddress: '7E8' });
+    expect(s.getSnapshot().discoveredEcuCount).toBe(0);
+    expect(s.getSnapshot().discoveredPidCount).toBe(0);
+    s.dispose();
+  });
+
+  it('çözümleyici false → waiting_for_ignition; true → preparing (kapı açılır)', () => {
+    let ign: boolean | null = false;
+    const s = new DeepScanRuntimeService({ now: () => now, ignitionResolver: () => ign });
+    s.startScan({ vehicleFingerprintHash: HASH });
+
+    expect(s.prepare().status).toBe('waiting_for_ignition');
+    expect(s.getSnapshot().ignitionConfirmed).toBe(false);
+
+    ign = true;
+    expect(s.prepare().status).toBe('preparing');
+    expect(s.getSnapshot().ignitionConfirmed).toBe(true);
+    // Kontak açıkken aktif faz artık kabul edilir.
+    s.updatePhase('ecu_discovery');
+    expect(s.getSnapshot().phase).toBe('ecu_discovery');
+    s.dispose();
+  });
+
+  it('çözümleyici THROW ederse null sayılır (fail-closed) ve servis çökmez', () => {
+    const s = new DeepScanRuntimeService({
+      now: () => now,
+      ignitionResolver: () => { throw new Error('kaynak patladı'); },
+    });
+    s.startScan({ vehicleFingerprintHash: HASH, ignitionConfirmed: true });
+    expect(() => s.prepare()).not.toThrow();
+    expect(s.getSnapshot().status).toBe('waiting_for_ignition');
+    expect(s.getSnapshot().ignitionConfirmed).toBeNull();
+    s.dispose();
+  });
+
+  it('çözümleyici YOKSA mevcut beslenmiş kontak geçerlidir (tahmin YAPILMAZ)', () => {
+    const s = makeService();
+    s.startScan({ vehicleFingerprintHash: HASH, ignitionConfirmed: true });
+    expect(s.prepare().status).toBe('preparing');
+
+    const blind = makeService();
+    blind.startScan({ vehicleFingerprintHash: HASH }); // kontak bilinmiyor
+    expect(blind.prepare().status).toBe('waiting_for_ignition');
+    s.dispose(); blind.dispose();
+  });
+
+  it('prepare() İDEMPOTENT; başlatılmamış/terminal serviste no-op', () => {
+    const idle = new DeepScanRuntimeService({ now: () => now, ignitionResolver: () => true });
+    expect(idle.prepare().status).toBe('idle');   // tarama başlatmaz
+
+    const s = new DeepScanRuntimeService({ now: () => now, ignitionResolver: () => true });
+    s.startScan({ vehicleFingerprintHash: HASH });
+    s.prepare(); s.prepare(); s.prepare();
+    expect(s.getSnapshot().status).toBe('preparing');
+    s.cancelScan();
+    expect(s.prepare().status).toBe('cancelled'); // terminal → dokunmaz
+    idle.dispose(); s.dispose();
+  });
+});
+
+/* deepScanIgnitionSource: aktif tarama kapısı fail-closed projeksiyonu.
+   `getConfirmedValue()` ÜÇ DURUMLU kalır (null ≠ false — kanıtsız bilgi üretilmez). */
+describe('deepScanIgnitionSource — isConfirmedForActiveScan (fail-closed projeksiyon)', () => {
+  it('null (bilinmiyor) ve false eşit derecede ENGELLER; yalnız true geçer', () => {
+    const src = createDeepScanIgnitionSource({ now: () => now });
+    expect(src.getConfirmedValue()).toBeNull();          // dürüst üç durum KORUNDU
+    expect(src.isConfirmedForActiveScan()).toBe(false);  // kapı fail-closed
+
+    src.submitEvidence({
+      source: 'can_ignition', value: false, confidence: 0.95, observedAt: now, authoritative: true,
+    });
+    expect(src.getConfirmedValue()).toBe(false);
+    expect(src.isConfirmedForActiveScan()).toBe(false);
+
+    src.submitEvidence({
+      source: 'can_ignition', value: true, confidence: 0.95, observedAt: now, authoritative: true,
+    });
+    expect(src.getConfirmedValue()).toBe(true);
+    expect(src.isConfirmedForActiveScan()).toBe(true);
+    src.dispose();
+  });
+
+  it('dispose sonrası güvenli no-op — kapı KAPALI kalır', () => {
+    const src = createDeepScanIgnitionSource({ now: () => now });
+    src.submitEvidence({
+      source: 'native_acc', value: true, confidence: 1, observedAt: now, authoritative: true,
+    });
+    expect(src.isConfirmedForActiveScan()).toBe(true);
+    src.dispose();
+    expect(() => src.isConfirmedForActiveScan()).not.toThrow();
   });
 });

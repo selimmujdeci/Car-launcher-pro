@@ -1,8 +1,19 @@
 import { create } from 'zustand';
 import { fetchVehicles } from '@/lib/vehicles.service';
 import { formatLastSeen } from '@/lib/utils';
+import { getLocalVehicle } from '@/lib/pairingService';
 import { TIMING, ALERT_THRESHOLDS } from '@/lib/constants';
+import {
+  buildVehicleFreshness,
+  markVehicleOffline,
+  applyFreshnessUpdate,
+} from '@/lib/fleet/vehicleTelemetryFreshness';
 import type { LiveVehicle, VehicleUpdate, ConnectionStatus } from '@/types/realtime';
+import {
+  captureCleanupGeneration,
+  isAccountAccessLocked,
+  isCleanupGenerationCurrent,
+} from '@/security/accountCleanup/cleanupLockdown';
 
 // ── Automotive grade: render throttle (20Hz cap) ─────────────────────────────
 // Module-level map — outside Zustand state to avoid triggering re-renders
@@ -35,12 +46,10 @@ function isValidSensorData(u: VehicleUpdate, existing: LiveVehicle): boolean {
 }
 
 // ── localStorage keys (must match pairingService.ts) ────────────────────────
-const LOCAL_KEYS = {
-  VEHICLE_ID:    'caros_pair_vehicle_id',
-  API_KEY:       'caros_pair_api_key',
-  VEHICLE_NAME:  'caros_pair_vehicle_name',
-  VEHICLE_PLATE: 'caros_pair_vehicle_plate',
-} as const;
+/* `caros_pair_*` anahtarlarının kopyası BURADAN KALDIRILDI (#632): okuma tek
+   otoritededir (`pairingService.getLocalVehicle`). İki ayrı kopya, biri
+   düzeltilip öteki eski kuralda kalınca sahada "eşleşti ama araç yok"
+   kusurunu üretmişti. */
 
 interface VehicleStoreState {
   vehicles: Record<string, LiveVehicle>;
@@ -60,6 +69,17 @@ interface VehicleStoreState {
   addVehicle: (vehicle: LiveVehicle) => void;
   /** Remove a vehicle by id (used after unlinking). */
   removeVehicle: (id: string) => void;
+  /**
+   * Araç kimliğini (plaka · isim · sürücü) yerelde tazeler — #661.
+   * YALNIZCA sunucu yazması BAŞARILI döndükten sonra çağrılır;
+   * bu fonksiyon kendi başına hiçbir şey KAYDETMEZ.
+   */
+  patchVehicleIdentity: (
+    id: string,
+    patch: { plate?: string | null; name?: string | null; driver?: string | null },
+  ) => void;
+  clearVehicleAuthority: () => void;
+  isVehicleAuthorityEmpty: () => boolean;
 }
 
 export const useVehicleStore = create<VehicleStoreState>((set, get) => ({
@@ -69,20 +89,41 @@ export const useVehicleStore = create<VehicleStoreState>((set, get) => ({
   error: null,
 
   initializeFromLocal: () => {
+    const generation = captureCleanupGeneration();
+    if (isAccountAccessLocked()) {
+      set({ vehicles: {}, connectionStatus: 'disconnected', loading: false, error: null });
+      return;
+    }
     try {
-      const id    = localStorage.getItem(LOCAL_KEYS.VEHICLE_ID);
-      const key   = localStorage.getItem(LOCAL_KEYS.API_KEY);
-      if (!id || !key) { set({ loading: false }); return; }
+      /* ── TEK OKUMA OTORİTESİ (#632) ────────────────────────────────────
+       * Burası eskiden `localStorage`ı KENDİ okuyordu ve `api_key` yoksa
+       * erken dönüyordu. Kanonik eşleştirme rotası ham anahtar DÖNDÜRMEDİĞİ
+       * için (eski rota döndürdüğü için kapatılmıştı) yeni akışla eşleşen
+       * araç burada SESSİZCE DÜŞÜYORDU: eşleştirme "başarılı" diyor, liste
+       * boş kalıyor, sayfa kullanıcıyı otomatik eşleştirme sekmesine geri
+       * atıyordu — kullanıcı bunu *"eşleşti diyor yine bu ekran çıkıyor"*
+       * diye tarif etti.
+       *
+       * Kusurun asıl sebebi İKİNCİ OTORİTEYDİ: aynı `caros_pair_*`
+       * anahtarlarını `pairingService.getLocalVehicle` ve burası ayrı ayrı
+       * okuyordu; biri düzeltilince öteki eski kuralla kaldı. Artık okuma
+       * TEK yerdedir. */
+      const local = getLocalVehicle();
+      if (!local) { set({ loading: false }); return; }
+      const id = local.id;
 
       const existing = get().vehicles[id];
       if (existing) return; // already loaded (Supabase may have beaten us)
 
       const vehicle: LiveVehicle = {
         id,
-        plate:         localStorage.getItem(LOCAL_KEYS.VEHICLE_PLATE) ?? id,
-        name:          localStorage.getItem(LOCAL_KEYS.VEHICLE_NAME)  ?? 'Araç',
+        plate:         local.plate,
+        name:          local.name,
         driver:        '—',
         status:        'offline',
+        /* ⚠️ Eski sayısal yüzey — yalnız geriye uyumluluk. Bu araç henüz
+           SUNUCUDAN OKUNMADI; hiçbir ölçüm yapılmadı. Gösterim `telemetry`
+           alanından yapılır ve orada her şey `NEVER_SEEN`'dir. */
         lat:           0,
         lng:           0,
         speed:         0,
@@ -93,15 +134,21 @@ export const useVehicleStore = create<VehicleStoreState>((set, get) => ({
         location:      '—',
         lastSeen:      '—',
         lastTimestamp: 0,
+        /* Yerelden kurulan araç: ölçüm YOK → "Veri yok" (0 DEĞİL). */
+        telemetry: buildVehicleFreshness({ now: Date.now(), row: null, readable: true }),
       };
+      if (!isCleanupGenerationCurrent(generation)) return;
       set({ vehicles: { [id]: vehicle }, loading: false });
     } catch { set({ loading: false }); }
   },
 
   initializeFromSupabase: async () => {
+    const generation = captureCleanupGeneration();
+    if (isAccountAccessLocked()) return;
     set({ loading: true, error: null });
     try {
       const vehicles = await fetchVehicles();
+      if (!isCleanupGenerationCurrent(generation)) return;
       // Supabase boş döndürdüğünde (auth yok / RLS) localStorage araçlarını silme
       if (vehicles.length === 0) {
         set({ loading: false });
@@ -113,6 +160,7 @@ export const useVehicleStore = create<VehicleStoreState>((set, get) => ({
       }
       set({ vehicles: map, loading: false });
     } catch (error) {
+      if (!isCleanupGenerationCurrent(generation)) return;
       set({
         loading: false,
         error: error instanceof Error ? error.message : 'Araçlar yüklenemedi.',
@@ -121,6 +169,7 @@ export const useVehicleStore = create<VehicleStoreState>((set, get) => ({
   },
 
   applyUpdate: (update: VehicleUpdate) => {
+    if (isAccountAccessLocked()) return;
     const { vehicleId, lat, lng, speed, fuel, engineTemp, rpm, timestamp } = update;
     const now = Date.now();
 
@@ -153,12 +202,22 @@ export const useVehicleStore = create<VehicleStoreState>((set, get) => ({
           status: isAlarm ? 'alarm' : 'online',
           lastSeen: formatLastSeen(timestamp),
           lastTimestamp: timestamp,
+          /* Canlı güncelleme geldi → gerçek katmanı da tazelenir.
+             `Number.isFinite` geçmeyen alan GÜNCELLENMEZ ve ÖNCEKİ gerçeği
+             (null dahil) korur — bilinmeyen 0'a çevrilmez. */
+          telemetry: applyFreshnessUpdate(
+            state.vehicles[vehicleId].telemetry,
+            { lat, lng, speed, fuel, engineTemp, rpm, timestamp },
+          ),
         },
       },
     }));
   },
 
-  setConnectionStatus: (status) => set({ connectionStatus: status }),
+  setConnectionStatus: (status) => {
+    if (isAccountAccessLocked()) return;
+    set({ connectionStatus: status });
+  },
 
   startWatchdog: () => {
     const PUSH_URL = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -173,12 +232,18 @@ export const useVehicleStore = create<VehicleStoreState>((set, get) => ({
 
         for (const [id, v] of Object.entries(next)) {
           if (v.status !== 'offline' && now - v.lastTimestamp > TIMING.OFFLINE_TIMEOUT_MS) {
+            /* ⚠️ ÖNCEDEN: `speed: 0, rpm: 0` yazılıyordu — araç çevrimdışına
+               düşünce UI "0 km/h · 0 rpm" gösteriyordu. Bu UYDURMA ölçümdür:
+               araç 90 km/h giderken bağlantı koptuysa hız 0 DEĞİL, BİLİNMİYOR.
+               Artık son ölçüm KORUNUR, durum `offline` olur ve gerçek katmanı
+               (`telemetry`) bunu "araç çevrimdışı" diye ETİKETLER. */
             next[id] = {
               ...v,
               status: 'offline',
-              speed: 0,
-              rpm: 0,
               lastSeen: formatLastSeen(v.lastTimestamp),
+              telemetry: v.telemetry
+                ? markVehicleOffline(v.telemetry)
+                : v.telemetry,
             };
             changed = true;
 
@@ -207,22 +272,61 @@ export const useVehicleStore = create<VehicleStoreState>((set, get) => ({
   getList: () => Object.values(get().vehicles),
 
   setVehicles: (vehicles: LiveVehicle[]) => {
+    if (isAccountAccessLocked()) return;
     const map: Record<string, LiveVehicle> = {};
     for (const v of vehicles) map[v.id] = v;
     set({ vehicles: map });
   },
 
   addVehicle: (vehicle: LiveVehicle) => {
+    if (isAccountAccessLocked()) return;
     set((state) => ({
       vehicles: { ...state.vehicles, [vehicle.id]: vehicle },
     }));
   },
 
   removeVehicle: (id: string) => {
+    if (isAccountAccessLocked()) return;
     set((state) => {
       const next = { ...state.vehicles };
       delete next[id];
       return { vehicles: next };
     });
+  },
+
+  patchVehicleIdentity: (id, patch) => {
+    if (isAccountAccessLocked()) return;
+    set((state) => {
+      const existing = state.vehicles[id];
+      if (!existing) return state;
+      return {
+        vehicles: {
+          ...state.vehicles,
+          [id]: {
+            ...existing,
+            plate:  patch.plate  !== undefined ? patch.plate  ?? '' : existing.plate,
+            name:   patch.name   !== undefined ? patch.name   ?? '' : existing.name,
+            driver: patch.driver !== undefined ? patch.driver ?? '—' : existing.driver,
+          },
+        },
+      };
+    });
+  },
+
+  clearVehicleAuthority: () => {
+    _lastRenderMs.clear();
+    set({
+      vehicles: {},
+      connectionStatus: 'disconnected',
+      loading: false,
+      error: null,
+    });
+  },
+
+  isVehicleAuthorityEmpty: () => {
+    const state = get();
+    return Object.keys(state.vehicles).length === 0 &&
+      state.connectionStatus === 'disconnected' &&
+      state.error === null;
   },
 }));

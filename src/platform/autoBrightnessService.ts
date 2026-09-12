@@ -14,7 +14,14 @@
  */
 
 import { useState, useEffect } from 'react';
-import { setBrightness } from './systemSettingsService';
+/* OTOMASYON parlaklık yolu — `setBrightness` (KULLANICI API'si) DEĞİL.
+   Cihazda ölçüldü (2026-09-06, Xiaomi 23090RA98I, Android Thermal Status 3 /
+   SKIN 52 °C): kullanıcı API'si termal kap ÜSTÜNDEKİ her talebi REDDEDER ve
+   toast gösterir. Bu servis 60 sn'de bir tick attığı için ekranı “Termal Koruma”
+   bildirimiyle dolduruyordu; ÜSTELİK tünel karartması ve kapanış onarımı
+   (`setBrightness(100)`) da SESSİZCE UYGULANMIYORDU (erken return).
+   `setBrightnessAuto` termal kapa sessizce clamp eder VE uygular. */
+import { setBrightnessAuto } from './systemSettingsService';
 import { onOBDData } from './obdService';
 import { runtimeManager } from '../core/runtime/AdaptiveRuntimeManager';
 
@@ -179,6 +186,37 @@ let _prevHeadlights:  boolean | null = null;
 /** Tünel modunda mı? OBD far sinyaline göre gündüz içi tünel geçişlerini tespit eder. */
 let _tunnelMode = false;
 
+/* ── Tünel durumu YAYINI (yeni dedektör DEĞİL — mevcut kararın dışa açılması) ──
+ *
+ * `_tunnelMode` bu modülde ZATEN doğru hesaplanıyordu (gündüz + far açık →
+ * giriş, far kapalı → çıkış) ama modül içinde kalıyor ve harita tarafından
+ * OKUNAMIYORDU. Aşağısı yeni bir tespit mantığı EKLEMEZ; yalnız var olan
+ * kararı dinleyicilere duyurur. Yeni timer/abonelik YOKTUR — yayın, mevcut OBD
+ * far callback'inin içinde gerçekleşir. */
+const _tunnelListeners = new Set<(active: boolean) => void>();
+
+/** Tek yazma noktası — durum GERÇEKTEN değişmedikçe yayın yapılmaz (idempotent). */
+function _setTunnelMode(active: boolean): void {
+  if (active === _tunnelMode) return;
+  _tunnelMode = active;
+  _tunnelListeners.forEach((fn) => {
+    try { fn(active); } catch { /* dinleyici hatası parlaklığı ASLA bozmaz */ }
+  });
+}
+
+/** Tünel modu şu an açık mı (salt okuma). */
+export function getTunnelMode(): boolean { return _tunnelMode; }
+
+/**
+ * Tünel durumu değişimini dinle. Dönen fonksiyon aboneliği söker (zero-leak).
+ * Abonelik anında MEVCUT durum bir kez yayınlanır (geç abone olan kaçırmasın).
+ */
+export function onTunnelModeChange(fn: (active: boolean) => void): () => void {
+  _tunnelListeners.add(fn);
+  try { fn(_tunnelMode); } catch { /* ilk yayın hatası aboneliği bozmaz */ }
+  return () => { _tunnelListeners.delete(fn); };
+}
+
 // ── RAF Reflow Optimizasyonu ──────────────────────────────────────────────
 //
 // Tema geçişleri (oled↔dark) ve sunlight-mode CSS sınıfı değişimleri DOM
@@ -243,7 +281,7 @@ function applyBrightness(): void {
       _setSunlightModeClass(isSunlight);
     });
 
-    setBrightness(bright);
+    setBrightnessAuto(bright);
     push({ phase, currentBrightness: bright });
   } catch { /* Never let a brightness tick crash the interval */ }
 }
@@ -270,9 +308,9 @@ export function notifyHeadlightChange(headlightsOn: boolean): void {
 
   if (headlightsOn && isDaytime && !_tunnelMode) {
     // Tünel girişi — anında karart
-    _tunnelMode = true;
+    _setTunnelMode(true);
     const tunnelBright = Math.min(100, Math.round(_state.minNight * 1.2));
-    setBrightness(tunnelBright);
+    setBrightnessAuto(tunnelBright);
     push({ currentBrightness: tunnelBright });
     // Tema + sunlight-mode değişimi RAF içinde — tünel girişinde harita donması önlenir
     const themeCallback = _state.autoTheme ? _onThemeChange : null;
@@ -284,7 +322,7 @@ export function notifyHeadlightChange(headlightsOn: boolean): void {
     });
   } else if (!headlightsOn && _tunnelMode) {
     // Tünel çıkışı — gündüz parlaklık eğrisini geri yükle
-    _tunnelMode = false;
+    _setTunnelMode(false);
     applyBrightness();
   }
 }
@@ -297,7 +335,9 @@ export function startAutoBrightness(opts: {
   onThemeChange?: (theme: 'dark' | 'oled') => void;
 }): void {
   _onThemeChange = opts.onThemeChange ?? null;
-  _tunnelMode    = false;
+  /* Yayınlı sıfırlama: servis yeniden başlarken haritada asılı kalmış bir
+     tünel örtüsü varsa KALKAR (bayat örtü = kalıcı gece haritası). */
+  _setTunnelMode(false);
   _prevHeadlights = null;
 
   const sunTimes = calcSunTimes(opts.lat, opts.lng, new Date());
@@ -333,10 +373,11 @@ export function stopAutoBrightness(): void {
   if (_rafId !== null) { cancelAnimationFrame(_rafId); _rafId = null; }
   _setSunlightModeClass(false);
   _prevHeadlights = null;
-  _tunnelMode     = false;
+  /* Servis dururken örtü de kalkar — aksi hâlde harita gece kilitli kalırdı. */
+  _setTunnelMode(false);
   if (_state.enabled) {
     // Stale brightness filter'ı temizle — aksi halde ekran karanlık kalır
-    setBrightness(100);
+    setBrightnessAuto(100);
   }
   push({ enabled: false });
 }

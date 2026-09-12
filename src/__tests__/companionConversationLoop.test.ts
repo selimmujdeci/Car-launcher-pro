@@ -27,6 +27,9 @@ const M = vi.hoisted(() => ({
   sttCalls: [] as Record<string, unknown>[],
   speak: vi.fn(),
   ttsEnd: null as (() => void) | null,
+  /** MAVI-F12: uçuştaki sözün durumu — barge-in hakeminin girdisi. */
+  ttsSpeaking: true,
+  ttsProtected: false,
   companionImpl: null as
     | ((raw: string, opts: Record<string, unknown>) => Promise<Record<string, unknown> | null>)
     | null,
@@ -58,7 +61,20 @@ vi.mock('../platform/nativePlugin', () => ({
     addListener: () => Promise.resolve({ remove: async () => {} }),
   },
 }));
-vi.mock('../platform/commandParser', () => ({ parseCommandFull: () => M.parseResult }));
+vi.mock('../platform/commandParser', () => ({ parseCommandFull: () => M.parseResult, matchDeterministicWholeInput: () => null, buildCommandGrammar: () => ['[unk]'] }));
+/* MUSIC F14 · "1c0" yerel müzik bypass'ı `result.command === null` iken F9'un
+   resolver'ını dener — bu test sahte zamanlayıcı (`vi.useFakeTimers`)
+   kullanır ve gerçek dinamik import zinciri o kurguyla GÜVENİLİR biçimde
+   etkileşmez (müzikle ilgisiz sohbet turlarında da tetiklenir). Mock, F9
+   modülünü BASİTLEŞTİRİR — davranış assersiyonu ZAYIFLATILMAZ, yalnız test
+   ortamı belirlenir. */
+vi.mock('../platform/media/intent/musicIntentResolver', () => ({ resolveMusicIntent: () => null }));
+vi.mock('../platform/media/intent/musicIntent', () => ({
+  QUEUE_KINDS: [], CONTEXTUAL_KINDS: [], COLLECTION_KINDS: [],
+}));
+vi.mock('../platform/media/intent/musicVoiceWiringTelemetry', () => ({
+  noteMusicVoiceBypassAttempt: () => {}, noteMusicVoiceBypassHit: () => {}, noteMusicVoiceBypassMiss: () => {},
+}));
 vi.mock('../platform/offlineConversationEngine', () => ({
   tryOfflineConversation: () => ({ handled: false, response: '' }),
 }));
@@ -69,8 +85,16 @@ vi.mock('../platform/ttsService', () => ({
   speakAlert: vi.fn(),
   ttsCancel: vi.fn(),
   registerTtsEndListener: (cb: () => void) => { M.ttsEnd = cb; return () => {}; },
+  /* MAVI-F12: `interruptAndListen` artık uçuştaki sözün DURUMUNU ve KANALINI
+     sorar (kesme hakemi). Taklit gerçek senaryoyu kurar: Mavi KONUŞUYOR ve
+     bu KORUNAN bir kanal DEĞİL → kullanıcı kesebilir. */
+  isTtsSpeaking: () => M.ttsSpeaking,
+  isProtectedSpeechInFlight: () => M.ttsProtected,
+  isMicCaptureOpenDuringSpeech: () => false,
 }));
-vi.mock('../platform/audioService', () => ({ duckMedia: vi.fn(), unduckMedia: vi.fn() }));
+vi.mock('../platform/media/authority/duckRequest', () => ({
+  requestDuck: () => ({ reason: 'MAVI', release: (): void => {} }),
+}));
 vi.mock('../platform/mediaService', () => ({
   getMediaState: () => ({ playing: false }),
   play: vi.fn(),
@@ -106,6 +130,8 @@ vi.mock('../platform/companion/companionChatProvider', () => ({
   tryCompanionBrain: (raw: string, opts: Record<string, unknown>) =>
     M.companionImpl ? M.companionImpl(raw, opts) : Promise.resolve(null),
   repairMusicQuery: async () => null,
+  // MAVI-F1: presence okuması (yalnız ÖLÇÜM alanı — akışı etkilemez).
+  currentPresenceMode: () => 'assistant' as const,
 }));
 
 import {
@@ -229,6 +255,25 @@ describe('barge-in (interruptAndListen)', () => {
 
     expect(M.sttCalls.length).toBe(before + 1);               // yeni STT açıldı (cevap kesildi)
     expect(_getVoiceStateForTest().status).toBe('listening'); // yeni tur dinlemede
+  });
+
+  it('🔒 MAVI-F12: KORUNAN ses (güvenlik/navigasyon) çalarken kesme MİKROFONU AÇMAZ', async () => {
+    /* Kullanıcının Mavi'yi kesebilmesi, güvenlik/tehlike/navigasyon kanalını
+       susturma yetkisi DEĞİLDİR (spec §20.2 · K1). Uyarı kısa sürer; kullanıcı
+       hemen ardından yine kesebilir — aşağıdaki ikinci yarı bunu kanıtlar. */
+    M.sttQueue = ['nasılsın'];
+    await speakTurn();
+    const before = M.sttCalls.length;
+
+    M.ttsProtected = true;                                    // güvenlik uyarısı uçuşta
+    interruptAndListen();
+    await vi.advanceTimersByTimeAsync(VOICE_TUNING.warmupMs + 100);
+    expect(M.sttCalls.length).toBe(before);                   // mikrofon AÇILMADI
+
+    M.ttsProtected = false;                                   // uyarı bitti
+    interruptAndListen();
+    await vi.advanceTimersByTimeAsync(VOICE_TUNING.warmupMs + 100);
+    expect(M.sttCalls.length).toBe(before + 1);               // kullanıcı yine kesebilir
   });
 
   it('DİNLERKEN no-op (aktif dinlemeyi kesip kendini yeniden açmaz)', async () => {
@@ -406,29 +451,38 @@ describe('birleşik beyin: müzik isteği ACTION olur, sohbet gasp edemez', () =
   });
 });
 
-/* ── 6. Geç cevap → "düşünüyorum" ara feedback'i ───────────── */
+/* ── 6. MAVI-F2 · YAVAŞ BEYİN DE FILLER ÜRETMEZ (I11) ───────────
+ *
+ * Bu grup ESKİDEN tam TERSİNİ kilitliyordu: "Gemini 1500 ms'yi aşarsa kısa ara
+ * feedback seslendirilir". O davranış bir kusurdu — cümle hiçbir bilgi taşımıyor,
+ * yalnız gecikmeyi örtüyordu ve tipik tur eşiği aştığı için neredeyse HER TURDA
+ * duyuluyordu. F2 mekanizmayı kaynaktan kaldırdı; kilit YENİ DOĞRU davranışa
+ * GÜNCELLENDİ (silinmedi): sohbet ne kadar yavaş olursa olsun kullanıcı yalnız
+ * GERÇEK cevabı duyar. */
 
-describe('gecikme geri bildirimi (1500ms eşiği — saha fix 2026-06-12)', () => {
-  it('Gemini 1500ms\'yi aşarsa kısa ara feedback seslendirilir, sonra asıl cevap', async () => {
+describe('MAVI-F2 · normal sohbette yapay ara söz YOKTUR', () => {
+  it('beyin 3 sn sürse bile ara söz YOK — yalnız gerçek cevap duyulur', async () => {
     M.companionImpl = () => new Promise((resolve) => {
       setTimeout(() => resolve(chatResult('Geç ama geldim.')), 3_000);
     });
     M.sttQueue = ['nasılsın'];
-    await speakTurn();                                               // 100ms pay — henüz feedback yok
+    await speakTurn();
     expect(M.speak.mock.calls.some(([t]) => THINKING_RE.test(String(t)))).toBe(false);
 
-    await vi.advanceTimersByTimeAsync(1_600);                        // 1500ms eşiği geçildi
-    expect(M.speak.mock.calls.some(([t]) => THINKING_RE.test(String(t)))).toBe(true);
+    await vi.advanceTimersByTimeAsync(1_600);                        // eski 1500 ms eşiği aşıldı
+    expect(M.speak.mock.calls.some(([t]) => THINKING_RE.test(String(t)))).toBe(false);
 
-    await vi.advanceTimersByTimeAsync(2_000);                        // Gemini cevabı geldi
+    await vi.advanceTimersByTimeAsync(2_000);                        // cevap geldi
     expect(M.speak).toHaveBeenCalledWith('Geç ama geldim.');
+    // Yavaş turda bile TEK bir gerçek cevap konuşulur — öncesinde hiçbir ara söz yok.
+    expect(M.speak.mock.calls.map(([t]) => String(t))).toEqual(['Geç ama geldim.']);
     expect(_getVoiceStateForTest().followUp).toBe(true);             // döngü yine kurulu
   });
 
-  it('Gemini hızlıysa (≤1500ms) ara feedback YOK — doğrudan cevap', async () => {
+  it('hızlı cevapta da ara söz YOK — doğrudan cevap', async () => {
     M.sttQueue = ['nasılsın'];
     await speakTurn();
-    await vi.advanceTimersByTimeAsync(2_000);                        // eşik geçse bile timer iptal edildi
+    await vi.advanceTimersByTimeAsync(2_000);
 
     expect(M.speak.mock.calls.some(([t]) => THINKING_RE.test(String(t)))).toBe(false);
     expect(M.speak).toHaveBeenCalledWith('İyiyim, sen nasılsın?');

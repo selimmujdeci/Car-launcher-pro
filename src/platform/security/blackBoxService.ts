@@ -41,8 +41,9 @@ import {
   safeRemoveRaw,
   listKeysWithPrefix,
 }                                  from '../../utils/safeStorage';
-import { onOBDData }               from '../obdService';
+import { onOBDData, getOBDDataSnapshot, getObdSessionHealth, getObdFreshWindowMs } from '../obdService';
 import { runtimeManager }          from '../../core/runtime/AdaptiveRuntimeManager';
+import type { WorkerLifecycleStatus } from '../../core/runtime/AdaptiveRuntimeManager';
 import { getThermalLevel }         from '../thermalWatchdog';
 import { onMemoryPressure }        from '../memoryWatchdog';
 import { getLastIntent }           from '../commandExecutor';
@@ -57,6 +58,29 @@ const CRASH_G_THRESHOLD = 6.0;   // G birimi — 6G gerçek darbe, 3.5G false-po
 const G_TO_MS2          = 9.80665;
 const CRASH_COOLDOWN_MS = 10_000;
 const CRASH_KEY_PREFIX  = 'crash-log-';
+
+/* ── Kaza kararı: HAREKET KANITI zorunlu (kütük #456) ──────────────────────
+ *
+ * SAHA 2026-08-06, cihaz depolaması: 15+ `crash-log-*` kaydı (~70 KB/adet),
+ * `peakG` değerleri 6,0-9,99 G. Otomobilde bu gerçek çarpışma demektir; oysa
+ * araç sağlam ve yolculuklar normal tamamlanmıştı → tetikleyici, telefonun
+ * ELLE SALLANMASIYDI. 6G eşiği tek başına aracı elden ayırt edemez.
+ *
+ * Kural: "kanıtsız bilgi üretilmez". Bir kaza kaydı, kaza OLDUĞUNU iddia eden
+ * bir belgedir; hareket kanıtı olmadan üretilmesi uydurma kanıttır. Bu yüzden
+ * darbe, yakın geçmişte ÖLÇÜLMÜŞ araç hareketiyle desteklenmelidir.
+ *
+ * Fail-soft ve dürüstlük: hız BİLİNMİYORSA (sensör yok/bağlantı kopuk) bu
+ * "araç duruyor" DEMEK DEĞİLDİR — ama "kaza oldu" da demek değildir. Kayıt
+ * üretilmez, olay SAYILIR (`getCrashDetectionHealth`) ki sahada körlük değil
+ * ölçülebilir bir büyüklük olarak görünsün. */
+const CRASH_MIN_SPEED_KMH    = 15;      // altında çarpışma kaydı üretilmez
+const CRASH_MOTION_WINDOW_MS = 10_000;  // hareket kanıtının tazelik penceresi
+
+/* Depolama tavanı: kayıtlar ~70 KB. Sahada 15+ kayıt × 70 KB birikmişti ve
+ * hiç budanmıyordu (CLAUDE.md: büyük blob'u localStorage'a yığmak yasak).
+ * En yeni N tutulur — kaza sonrası incelemede anlamlı olan en son olaydır. */
+const MAX_CRASH_RECORDS = 5;
 
 /* ══════════════════════════════════════════════════════════════════
    CRASH REPLAY BUFFER — 1Hz / 60 Entry Ring (Post-Mortem Analysis)
@@ -76,7 +100,12 @@ export interface BlackBoxSample {
     gear: number | null;   // sayısal vites pozisyonu, bilinmiyorsa null
     fuel: number | null;
   };
-  workers:  Record<string, 'active' | 'dead'>;
+  /**
+   * T2: worker yaşam-döngüsü durumu. Geriye dönük uyumlu — değerler hâlâ string,
+   * 'active' ve 'dead' aynı anlamı taşır; 'not_started'/'stopped' ise ESKİDEN
+   * yanlışlıkla 'dead' raporlanan durumları ayırır.
+   */
+  workers:  Record<string, WorkerLifecycleStatus>;
   env: {
     therm: number;           // ThermalLevel 0–3
     mem:   'OK' | 'MOD' | 'CRIT';
@@ -103,22 +132,77 @@ let _replayTimer:    ReturnType<typeof setInterval> | null = null;
 
 /* ── Replay: 1Hz örnekleyici ─────────────────────────────────── */
 
+/**
+ * T1: canonical OBD motor devri — kaza sonrası adli değer.
+ *
+ * ESKİ KUSUR (saha snapshot 2026-08-01): burada `useUnifiedVehicleStore.rpm`
+ * okunuyordu. O alana YALNIZ CAN extras yolu yazar (`CanExtrasPatch.rpm`);
+ * OBD hattı `updateVehicleState` üzerinden rpm GÖNDERMEZ (bkz. vehicleDataLayer/
+ * index.ts — "rpm: SAB kanalından gelir, index.ts'e STATE_UPDATE ile gelmez").
+ * Sonuç: RAW CAN'i olmayan araçlarda — yani hedef aftermarket filosunun tamamında —
+ * BlackBox motor devrini SONSUZA DEK `null` kaydediyordu (ham trafikte 410C1990 =
+ * 1636 rpm akarken bile).
+ *
+ * Otorite artık `obdService` anlık görüntüsüdür (UI store DEĞİL) ve üç kapıdan geçer:
+ *   1. Oturum tazeliği — `dataFresh` false ise BAYAT değer gerçekmiş gibi yazılmaz.
+ *   2. Paket yaşı      — aktif poll kadansından türeyen pencereyi aşarsa null.
+ *   3. Geçerlilik      — `-1` sentineli "desteklenmiyor/EV" demektir; 0 DEĞİLDİR.
+ * Hiçbir kapı sıfır üretmez; bilinmeyen DAİMA `null` kalır.
+ */
+function _canonicalObdRpm(): number | null {
+  try {
+    const health = getObdSessionHealth();
+    if (!health.dataFresh) return null;              // bayat oturum → eski değeri diriltme
+
+    const snap = getOBDDataSnapshot();
+    if (snap.connectionState !== 'connected') return null;
+
+    // Paket yaşı kapısı — freshWindow aktif poll kadansından türer (POWER_SAVE'de geniş).
+    const lastRx = typeof snap.lastSeenMs === 'number' ? snap.lastSeenMs : 0;
+    if (lastRx > 0) {
+      const age = Date.now() - lastRx;
+      if (age > getObdFreshWindowMs()) return null;
+    }
+
+    const rpm = snap.rpm;
+    // -1 = araç bu PID'i vermiyor / EV. Geçersiz veya negatif → BİLİNMİYOR (0 değil).
+    if (typeof rpm !== 'number' || !Number.isFinite(rpm) || rpm < 0) return null;
+    return rpm;
+  } catch {
+    return null;   // fail-closed: örnekleme asla uydurmaz
+  }
+}
+
+/** @internal T1 kilit testleri için — üretim kodu çağırmaz. */
+export function __testCanonicalObdRpm(): number | null {
+  return _canonicalObdRpm();
+}
+
 function _takeReplaySample(): void {
   try {
+    /* #555: taban aralık kapısı — aynı milisaniyede iki kayıt YAZILAMAZ.
+       Saat geriye sıçrarsa (`gap < 0`) kapı UYGULANMAZ: sıçrama yüzünden
+       kanıt kaybetmek, mükerrer kayıttan daha kötüdür. */
+    const nowMs = Date.now();
+    const gap = nowMs - _lastReplaySampleMs;
+    if (_lastReplaySampleMs > 0 && gap >= 0 && gap < REPLAY_MIN_GAP_MS) return;
+    _lastReplaySampleMs = nowMs;
+
     const vs = useVehicleStore.getState();
 
     // PRIVACY: lat/lng/location.address asla eklenmez
     const signals: BlackBoxSample['signals'] = {
       spd:  typeof vs.speed === 'number' ? vs.speed : null,
-      rpm:  typeof vs.rpm   === 'number' ? vs.rpm   : null,
+      rpm:  _canonicalObdRpm(),
+      // gear: CAN-only sinyal. RAW CAN yoksa BİLİNMİYOR kalır — OBD'den türetilmez.
       gear: vs.canGearPos ?? null,
       fuel: typeof vs.fuel  === 'number' ? vs.fuel  : null,
     };
 
-    const workersMap = runtimeManager.getWorkers();
-    const workers: Record<string, 'active' | 'dead'> = {};
-    for (const [key, entry] of workersMap) {
-      workers[key] = entry.worker !== null ? 'active' : 'dead';
+    // T2: atomik, donmuş snapshot — canlı Map üzerinde gezerken anahtar kaybolmaz.
+    const workers: Record<string, WorkerLifecycleStatus> = {};
+    for (const row of runtimeManager.getWorkerSnapshot()) {
+      workers[row.key] = row.status;
     }
 
     _replayPush({
@@ -133,11 +217,54 @@ function _takeReplaySample(): void {
   }
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+ * #555 · ÖRNEKLEYİCİ BİRİKMESİ — "1 Hz" iddiası sahada tutmuyordu
+ *
+ * ── SAHA KANITI (2026-08-12, gerçek araç · CAROS LAB kopyası) ──────────────
+ * 60 örneğin en az beş ÇİFTİ BİREBİR AYNI `ts` ile yazılmış (…127774 ×2,
+ * …141586 ×2, …145593 ×2, …158630/631, …170544 ×2) ve aralıklar 0,24 s ile
+ * 2,4 s arasında savruluyor.
+ *
+ * KÖK: saniyede bir `requestIdleCallback(…, {timeout: 1500})` KUYRUĞA atılıyor
+ * ama bekleyen istek olup olmadığına bakılmıyordu. Cihaz meşgulken istekler
+ * birikiyor, idle anı gelince arka arkaya boşalıyor ve aynı milisaniyede iki
+ * örnek yazılıyordu.
+ *
+ * NEDEN ÖNEMLİ: bu halka kaza sonrası ADLİ kayıttır. Mükerrer örnekler 60
+ * elemanlı halkayı erken doldurur → "son 60 saniye" beyanı sessizce yalan olur
+ * (gerçekte daha kısa bir pencere kalır). Yani kusur kozmetik değil, KANITIN
+ * KAPSAMINI daraltıyordu.
+ *
+ * DÜZELTME iki katmanlı: (1) bekleyen istek varken yenisi kuyruğa GİRMEZ —
+ * birikmenin kökü; (2) yazım anında taban aralık kapısı — aynı milisaniyede
+ * iki kayıt yapısal olarak imkânsız. Yeni timer KURULMAZ.
+ * ════════════════════════════════════════════════════════════════════════ */
+
+/** Kuyrukta bekleyen örnekleme var mı — birikmeyi önleyen tek bayrak. */
+let _replayPending = false;
+/** Son yazılan örneğin duvar-saati damgası. */
+let _lastReplaySampleMs = 0;
+/**
+ * İki örnek arasındaki taban aralık (ms). 1 Hz hedefinin altında bilinçli
+ * seçildi: idle gecikmesi normal salınımı biraz kaydırabilir, o meşrudur —
+ * kapı yalnız AYNI ANDA iki yazımı keser, düzenli örneklemeyi seyreltmez.
+ */
+const REPLAY_MIN_GAP_MS = 750;
+
 function _scheduleReplaySample(): void {
+  /* Bekleyen istek varken ikincisini kuyruğa ATMA — birikme burada kesilir. */
+  if (_replayPending) return;
+  _replayPending = true;
+  const run = (): void => {
+    /* Bayrak örneklemeden ÖNCE düşer: `_takeReplaySample` beklenmedik bir
+       şekilde düşse bile örnekleyici kalıcı olarak kilitlenmez. */
+    _replayPending = false;
+    _takeReplaySample();
+  };
   if (typeof requestIdleCallback !== 'undefined') {
-    requestIdleCallback(_takeReplaySample, { timeout: 1500 });
+    requestIdleCallback(run, { timeout: 1500 });
   } else {
-    setTimeout(_takeReplaySample, 0);
+    setTimeout(run, 0);
   }
 }
 
@@ -257,6 +384,11 @@ let _accelUnsub:         (() => void) | null = null;
 let _obdUnsub:           (() => void) | null = null;
 // Monotonic cooldown: performance.now() tabanlı → sistem saati atlamasına karşı bağışık
 let _lastCrashMono       = -Infinity;
+/** Hareket KANITININ son görüldüğü an (monotonic ms). -Infinity = hiç görülmedi. */
+let _lastMotionMono      = -Infinity;
+/** Gözlemlenebilirlik sayaçları — hüküm değil, ölçüm (bkz. getCrashDetectionHealth). */
+let _crashRecorded       = 0;
+let _crashRejectedNoMotion = 0;
 // Safety Lock hysteresis timer — manevra bitiminden 2s sonra kilidi serbest bırakır
 let _safetyUnlockTimer:  ReturnType<typeof setTimeout> | null = null;
 
@@ -279,12 +411,43 @@ function _clearSafetyLock(): void {
 
 /* ── Kaza verisi kilitleme ────────────────────────────────────── */
 
+/**
+ * `crash-log-*` kayıtlarını en yeni `MAX_CRASH_RECORDS` adetle sınırlar.
+ *
+ * Anahtar biçimi `crash-log-<Date.now()>` olduğundan sıralama sözlüksel DEĞİL
+ * SAYISAL yapılır (13 haneli epoch'ta sözlüksel sıra tesadüfen doğru çalışır
+ * ama 2286'da hane değişince sessizce bozulurdu). Ayrıştırılamayan anahtar
+ * EN ESKİ sayılır — bozuk kayıt yeni kaydı dışarı itemez.
+ *
+ * Fail-soft: depolama listelenemezse budama atlanır, kaza kaydı yine yazılmıştır.
+ */
+function _pruneCrashLogs(): void {
+  try {
+    const keys = listCrashLogKeys();
+    if (keys.length <= MAX_CRASH_RECORDS) return;
+    const ts = (k: string): number => {
+      const n = Number(k.slice(CRASH_KEY_PREFIX.length));
+      return Number.isFinite(n) ? n : -1;
+    };
+    keys.sort((a, b) => ts(b) - ts(a));                  // en yeni başa
+    for (const k of keys.slice(MAX_CRASH_RECORDS)) safeRemoveRaw(k);
+  } catch { /* budama yapılamadı — kaza kaydının kendisi etkilenmez */ }
+}
+
 function _lockCrashData(peakG: number): void {
   const mono = performance.now() - _origin;  // monotonic delta — cooldown + crashMono için
   const now  = Date.now();                   // duvar saati — yalnızca crashAt ve dosya adı için
 
   // Monotonic cooldown: Date.now() atlaması çift kaydı tetikleyemez
   if (mono - _lastCrashMono < CRASH_COOLDOWN_MS) return;
+
+  /* HAREKET KANITI KAPISI (kütük #456) — cooldown mandalından SONRA, ama
+     mandalı KİLİTLEMEDEN önce: kanıtsız darbe kaydı üretmez ve gerçek bir
+     çarpışma hemen ardından gelirse cooldown onu yutmaz. */
+  if (mono - _lastMotionMono > CRASH_MOTION_WINDOW_MS) {
+    _crashRejectedNoMotion++;
+    return;
+  }
   _lastCrashMono = mono;
 
   // Kaza anındaki G verisini mevcut slota yaz (snapshot öncesi)
@@ -306,6 +469,8 @@ function _lockCrashData(peakG: number): void {
   // R-2 Atomik Filesystem: native → atomik .tmp→rename; web → localStorage
   const key = `${CRASH_KEY_PREFIX}${now}`;
   void safeSetRawImmediate(key, JSON.stringify(record));
+  _crashRecorded++;
+  _pruneCrashLogs();
 
   dispatchCrashDetected(peakG);
 }
@@ -383,6 +548,14 @@ function _sampleVehicleState(): void {
   slot.gy       = _lastGy;
   slot.gz       = _lastGz;
 
+  /* HAREKET KANITI (kütük #456): kaza kararının ikinci ayağı. ÖLÇÜLMÜŞ hız
+     aranır — `vs.speed ?? 0` gibi sahte bir 0 kanıt sayılmaz, `null` de
+     "duruyor" diye okunmaz; yalnız gerçek bir sayı eşiği geçerse an damgalanır.
+     OBD hızı ayrı bir tanıktır (-1 = PID desteklenmiyor). Zero-allocation. */
+  const _vsSpeed  = typeof vs.speed === 'number' ? vs.speed : -1;
+  const _bestSpd  = _lastOBDSpeed > _vsSpeed ? _lastOBDSpeed : _vsSpeed;
+  if (_bestSpd >= CRASH_MIN_SPEED_KMH) _lastMotionMono = slot.ts;
+
   // Maneuver Detection → Safety Lock (CLAUDE.md §2.3 Hysteresis)
   // peakG: max-abs ekseni — araç sert fren / hızlanma / viraj ivmesini yakalar.
   // Zero-allocation: primitif karşılaştırma, nesne yok.
@@ -410,6 +583,10 @@ export function startBlackBox(): () => void {
   _head          = 0;
   _filled        = 0;
   _lastCrashMono = -Infinity;  // cooldown sıfırla — ilk kaza her zaman geçer
+  /* Hareket kanıtı DEVRALINMAZ: yeni oturum, kanıtı yeniden ölçmelidir.
+     Muhafazakâr yön — kanıt yokken kapı kapalıdır (kütük #456). */
+  _lastMotionMono = -Infinity;
+  _crashRecorded = _crashRejectedNoMotion = 0;
   _lastGx = _lastGy = _lastGz = 0;
   _lastOBDSpeed = _lastOBDRpm = _lastOBDThrottle = -1;
 
@@ -434,6 +611,9 @@ export function startBlackBox(): () => void {
   return () => {
     if (_sampleTimer  !== null) { clearInterval(_sampleTimer);  _sampleTimer  = null; }
     if (_replayTimer  !== null) { clearInterval(_replayTimer);  _replayTimer  = null; }
+    /* #555: durdurulunca bekleyen bayrak da düşer — yeniden başlatıldığında
+       ilk örnek "kuyrukta bekleyen var" sanılıp atlanmasın. */
+    _replayPending = false;
     _accelUnsub?.();      _accelUnsub     = null;
     _obdUnsub?.();        _obdUnsub       = null;
     _replayMemUnsub?.();  _replayMemUnsub = null;
@@ -475,12 +655,52 @@ export function deleteCrashLog(key: string): void {
   safeRemoveRaw(key);
 }
 
+/** Kaza algılama sağlığı — salt-okunur ÖLÇÜM (hüküm/iddia değil). */
+export interface CrashDetectionHealth {
+  /** Bu oturumda diske yazılan kaza kaydı sayısı. */
+  readonly recorded: number;
+  /** Eşiği aşan ama hareket kanıtı olmayan darbe sayısı (elde sallama vb.). */
+  readonly rejectedNoMotion: number;
+  /** Hareket kanıtı hiç görülmedi mi — `true` ise her darbe reddedilir. */
+  readonly motionEvidenceSeen: boolean;
+  /** Depoda duran kaza kaydı sayısı; `null` = depo listelenemedi (UNAVAILABLE). */
+  readonly storedRecords: number | null;
+  /** Yürürlükteki eşikler — sahada ölçümü yorumlayabilmek için. */
+  readonly minSpeedKmh: number;
+  readonly motionWindowMs: number;
+  readonly maxStored: number;
+}
+
+/**
+ * Kaza algılamanın ölçülebilir durumu (kütük #456).
+ *
+ * Neden var: "hareket kanıtı yok" diye reddedilen darbeler sessizce yok
+ * olursa, sahada eşiğin fazla mı sıkı yoksa gevşek mi olduğu ASLA bilinemez.
+ * Sayaç, kararın kendisini değiştirmez — yalnız görünür kılar.
+ */
+export function getCrashDetectionHealth(): CrashDetectionHealth {
+  let stored: number | null = null;
+  try { stored = listCrashLogKeys().length; } catch { stored = null; }
+  return {
+    recorded:           _crashRecorded,
+    rejectedNoMotion:   _crashRejectedNoMotion,
+    motionEvidenceSeen: _lastMotionMono > -Infinity,
+    storedRecords:      stored,
+    minSpeedKmh:        CRASH_MIN_SPEED_KMH,
+    motionWindowMs:     CRASH_MOTION_WINDOW_MS,
+    maxStored:          MAX_CRASH_RECORDS,
+  };
+}
+
 /* ── HMR cleanup ─────────────────────────────────────────────── */
 
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
     if (_sampleTimer  !== null) { clearInterval(_sampleTimer);  _sampleTimer  = null; }
     if (_replayTimer  !== null) { clearInterval(_replayTimer);  _replayTimer  = null; }
+    /* #555: durdurulunca bekleyen bayrak da düşer — yeniden başlatıldığında
+       ilk örnek "kuyrukta bekleyen var" sanılıp atlanmasın. */
+    _replayPending = false;
     _accelUnsub?.();      _accelUnsub     = null;
     _obdUnsub?.();        _obdUnsub       = null;
     _replayMemUnsub?.();  _replayMemUnsub = null;

@@ -305,11 +305,19 @@ describe('PR-W3 — kapsam sınırı', () => {
 
 describe('PR-W3 — SystemBoot entegrasyonu', () => {
   it('bus wiring Wave 1\'de, diğer Wave 1 servislerinden ÖNCE kaydedilir (LIFO → en son dispose)', () => {
-    // Kayıt (cleanup push) noktaları karşılaştırılır — import/restart satırları değil.
+    /* Kayıt noktaları karşılaştırılır — import/restart satırları değil.
+
+       ARCH-06/F2 KİLİT GÜNCELLEMESİ (zayıflatma DEĞİL): `UiActivityRecorder`
+       artık `bootDeferral` ile AFTER_FIRST_FRAME'e ertelendi, bu yüzden
+       kayıt noktası `_cleanups.push(...)` değil `schedule({ jobId: ... })`.
+       Korunan invaryant AYNI: bus kablolaması Wave 1'de, diğer Wave 1
+       servislerinin kayıt noktasından ÖNCE gelir (LIFO → en son dispose). */
     const iBus = SYSTEMBOOT_SRC.indexOf('this._reg(startPlatformCoreEventBusWiring())');
-    const iUi = SYSTEMBOOT_SRC.indexOf('this._cleanups.push(startUiActivityRecorder())');
+    const iUi = SYSTEMBOOT_SRC.indexOf("jobId: 'UiActivityRecorder'");
     const iVdl = SYSTEMBOOT_SRC.indexOf("this._regNamed('VehicleDataLayer', startVehicleDataLayer(");
     expect(iBus).toBeGreaterThan(0);
+    expect(iUi, 'UiActivityRecorder kayıt noktası kayboldu — kilit körleşti')
+      .toBeGreaterThan(0);
     expect(iUi).toBeGreaterThan(iBus);       // Wave 1'in ilk servisi bile bus'tan SONRA
     expect(iVdl).toBeGreaterThan(iBus);      // Wave 2 (VDL) bus'tan SONRA
   });

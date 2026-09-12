@@ -235,6 +235,55 @@ public class ElmProtocolTest {
         assertEquals(java.util.Arrays.asList("ATSH7E0", "ATCRA7E8", "22F190", "ATSH7DF", "ATAR"), ch.sent);
     }
 
+    /* ══════════════════════════════════════════════════════════════════════
+     * P0-VDK-B3 · ADRESLEME MALİYETİNİN SAHİPLİĞİ (ÖLÇÜLDÜ — KÖR KALDIRMA YOK)
+     *
+     * SAHA (2026-08-30 · TAM KOPYA): aynı hedefe giden ardışık iki işlem arasında
+     * `ATSH7DF · ATAR · ATSH7E0 · ATCRA7E8` dizisi tekrarlanıyor (~165 ms). "Gereksiz"
+     * görünen bu tekrarın SAHİBİ vardır: restore, bir SONRAKİ 7DF fonksiyonel poll
+     * isteğinin doğru çalışmasını garanti eder ve `ElmCommandQueue` USER/DTC ile POLL
+     * görevlerini AYNI kanalda sıralar → iki işlem arasına 7DF bekleyen bir poll
+     * komutu GİREBİLİR. Bu yüzden restore atlanamaz ve maliyet yalnız ÖLÇÜLÜR
+     * (`PollCostLedger.redundantHeaderSwitches`), komut ATLANMAZ.
+     * ══════════════════════════════════════════════════════════════════════ */
+
+    /** 🔒 B3 — AYNI hedefe ardışık iki işlem: restore sözleşmesi HER İKİSİNDE de korunur. */
+    @Test
+    public void b3_ayniHedefeArdisikIkiIslem_restoreAtlanmaz() throws Exception {
+        RecordingFakeChannel ch = new RecordingFakeChannel()
+            .on("ATSH7E0", "OK").on("ATCRA7E8", "OK")
+            .on("22F190", "62 F1 90 30 31")
+            .on("ATSH7DF", "OK").on("ATAR", "OK");
+        ElmProtocol elm = new ElmProtocol(ch);
+
+        elm.withEcuHeader("7E0", "7E8", () -> elm.readDid("F190"));
+        elm.withEcuHeader("7E0", "7E8", () -> elm.readDid("F190"));
+
+        /* İki işlem = 8 adresleme komutu + 2 istek. Bu maliyet GERÇEKTİR ve
+           ölçülür; "aynı header zaten kuruluydu" diye KISALTILMAZ — araya bir
+           poll komutu girmiş olabilir ve o 7DF bekler. */
+        assertEquals(java.util.Arrays.asList(
+            "ATSH7E0", "ATCRA7E8", "22F190", "ATSH7DF", "ATAR",
+            "ATSH7E0", "ATCRA7E8", "22F190", "ATSH7DF", "ATAR"), ch.sent);
+    }
+
+    /** 🔒 B3 — FARKLI hedefe geçişte adresleme komutu KESİLMEZ. */
+    @Test
+    public void b3_gercekHeaderDegisimiKesilmez() throws Exception {
+        RecordingFakeChannel ch = new RecordingFakeChannel()
+            .on("ATSH7E0", "OK").on("ATCRA7E8", "OK")
+            .on("ATSH7E1", "OK").on("ATCRA7E9", "OK")
+            .on("22F190", "62 F1 90 30 31")
+            .on("ATSH7DF", "OK").on("ATAR", "OK");
+        ElmProtocol elm = new ElmProtocol(ch);
+
+        elm.withEcuHeader("7E0", "7E8", () -> elm.readDid("F190"));
+        elm.withEcuHeader("7E1", "7E9", () -> elm.readDid("F190"));
+
+        assertTrue("ikinci ECU'nun adresleme komutu gönderilmedi", ch.sent.contains("ATSH7E1"));
+        assertTrue("ikinci ECU'nun alım filtresi kurulmadı", ch.sent.contains("ATCRA7E9"));
+    }
+
     @Test
     public void withEcuHeader_actionExceptionAtsaBile_restoreCalisir_orijinalFirlatilir() throws Exception {
         RecordingFakeChannel ch = new RecordingFakeChannel()
@@ -540,9 +589,24 @@ public class ElmProtocolTest {
         assertEquals("41", elm.readDid("F190"));
     }
 
-    @Test(expected = IOException.class)
-    public void readDid_digerNrc_hataFirlatir() throws Exception {
+    /**
+     * OBD-OS-F3-4 KİLİT GÜNCELLEMESİ (bilinçli davranış değişimi — kilit SİLİNMEDİ, güncellendi):
+     * NRC 0x22 (conditionsNotCorrect) artık FATAL değil → SESSION_REQUIRED: extended session
+     * (1003) BİR KEZ denenir; ECU oturumu da açamazsa "desteklenmiyor" (null). Eski kilit
+     * IOException bekliyordu (FAZ 3 öncesi davranış) — bkz. {@code classifyNrc} yorumu.
+     */
+    @Test
+    public void readDid_nrc22_sessionDenenir_acilamazsa_null() throws Exception {
         RecordingFakeChannel ch = new RecordingFakeChannel().on("22F190", "7F 22 22"); // conditionsNotCorrect
+        ElmProtocol elm = new ElmProtocol(ch);
+        assertNull(elm.readDid("F190"));
+        assertTrue("extended session (1003) BİR KEZ denenmeli", ch.sent.contains("1003"));
+    }
+
+    /** Orijinal niyetin KORUNMUŞ kilidi: gerçekten tanınmayan NRC (0x10 generalReject → FATAL) → IOException. */
+    @Test(expected = IOException.class)
+    public void readDid_bilinmeyenNrc_hataFirlatir() throws Exception {
+        RecordingFakeChannel ch = new RecordingFakeChannel().on("22F190", "7F 22 10"); // generalReject
         ElmProtocol elm = new ElmProtocol(ch);
         elm.readDid("F190");
     }

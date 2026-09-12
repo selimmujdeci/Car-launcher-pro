@@ -228,6 +228,144 @@ describe('CacheLRUManager — cache hit / miss', () => {
   });
 });
 
+/* ── #613 — SIFIR BAYTLIK KARO ZEHRİ (SAHADA ÖLÇÜLDÜ 2026-08-17) ──────────
+ *
+ * Cihazda mini harita bomboş kalıyordu: `caros-tiles-v1` önbelleğinde vektör
+ * karoları `200 / 0 bayt` olarak duruyordu (canlı ağda aynı karo 34 095 bayt).
+ * `new ArrayBuffer(0)` truthy olduğu için eski `if (cached)` kapısı bunu GEÇERLİ
+ * isabet sayıyor, MapLibre boş karoyu ayrıştırıp `loaded` diyor → sıfır özellik,
+ * HATA YOK → sessiz beyaz harita (#609 mandalı da tetiklenmiyor). 0 baytlık girdi
+ * `_totalBytes`i büyütmediği için LRU baskısıyla asla düşmüyor → zehir kalıcı.
+ * BU KİLİTLER ZAYIFLATILMAZ.
+ */
+describe('CacheLRUManager — #613 sıfır baytlık karo zehri', () => {
+  const HTTPS_URL = 'https://tile.openstreetmap.org/10/520/350.png';
+  const PROTO_URL = 'caros-tile://tile.openstreetmap.org/10/520/350.png';
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    _mockCacheStore.clear();
+    (global.fetch as ReturnType<typeof vi.fn>).mockClear();
+  });
+
+  it('0 baytlık önbellek girdisi İSABET SAYILMAZ — ağdan yeniden indirilir', async () => {
+    const mgr = await _freshManager();
+    const handler = _registeredProtocols.get('caros-tile')!;
+
+    // Zehirli girdiyi ek — tam sahada ölçülen biçim: status 200, gövde boş
+    const cache = await _mockCaches.open('caros-tiles-v1');
+    await cache.put(HTTPS_URL, new Response(new ArrayBuffer(0), { status: 200 }));
+
+    const res = await (handler as (...args: unknown[]) => Promise<{ data: ArrayBuffer }>)(
+      { url: PROTO_URL }, new AbortController(),
+    );
+
+    // Boş veri DÖNMEZ; gerçek karo döner
+    expect(res.data.byteLength).toBeGreaterThan(0);
+    // İsabet sayılmadı, ağa çıkıldı
+    expect(mgr.getCacheStats().hits).toBe(0);
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('zehirli girdi TEMİZLENİR — sonraki istek 0 bayt görmez', async () => {
+    await _freshManager();
+    const handler = _registeredProtocols.get('caros-tile')!;
+    const cache = await _mockCaches.open('caros-tiles-v1');
+    await cache.put(HTTPS_URL, new Response(new ArrayBuffer(0), { status: 200 }));
+
+    await (handler as (...args: unknown[]) => Promise<unknown>)({ url: PROTO_URL }, new AbortController());
+    // Tembel onarım asenkron (fire-and-forget) — mikro görev kuyruğunu boşalt
+    await new Promise(r => setTimeout(r, 0));
+
+    const stored = await cache.match(HTTPS_URL);
+    // Girdi ya silinmiş ya da gerçek veriyle değişmiş olmalı — 0 bayt KALMAMALI
+    const bytes = stored ? (await stored.arrayBuffer()).byteLength : 0;
+    expect(bytes).not.toBe(0);
+  });
+
+  it('ağdan 0 bayt gelirse HATA FIRLATIR — sessiz boş karo dönmez', async () => {
+    await _freshManager();
+    const handler = _registeredProtocols.get('caros-tile')!;
+    (global.fetch as ReturnType<typeof vi.fn>).mockImplementationOnce(
+      async () => new Response(new ArrayBuffer(0), { status: 200 }),
+    );
+
+    await expect(
+      (handler as (...args: unknown[]) => Promise<unknown>)({ url: PROTO_URL }, new AbortController()),
+    ).rejects.toThrow();
+  });
+
+  it('0 baytlık gövde ÖNBELLEĞE YAZILMAZ', async () => {
+    await _freshManager();
+    const handler = _registeredProtocols.get('caros-tile')!;
+    (global.fetch as ReturnType<typeof vi.fn>).mockImplementationOnce(
+      async () => new Response(new ArrayBuffer(0), { status: 200 }),
+    );
+
+    await (handler as (...args: unknown[]) => Promise<unknown>)({ url: PROTO_URL }, new AbortController())
+      .catch(() => { /* fırlatması beklenen davranış — burada önbelleği ölçüyoruz */ });
+    await new Promise(r => setTimeout(r, 0));
+
+    const cache = await _mockCaches.open('caros-tiles-v1');
+    expect(await cache.match(HTTPS_URL)).toBeUndefined();
+  });
+
+  /**
+   * Zehrin GERÇEK kaynağı: MapLibre döndürülen ArrayBuffer'ı worker'a TRANSFER
+   * eder → buffer bu iş parçacığında detach olur (byteLength 0). Fire-and-forget
+   * `_putToCache` `await caches.open()` sırasında sıra bıraktığı için detach tam
+   * o aralıkta gerçekleşir ve diske BOŞ gövde yazılırdı: karo ilk açılışta çizer,
+   * sonraki her açılış 0 bayt servis eder. Önbelleğe kendi `slice(0)` kopyamız
+   * yazılır — bu kilit o kopyayı korur.
+   */
+  it('döndürülen buffer TRANSFER/detach edilse bile önbellekteki kopya sağlam kalır', async () => {
+    await _freshManager();
+    const handler = _registeredProtocols.get('caros-tile')!;
+
+    // Mock `caches.open()` anında çözülüyor ve yarışı GİZLİYOR (kilit sahte
+    // olarak geçiyordu — doğrulandı). Gerçek cihazdaki sıralama şudur:
+    // `_putToCache` `caches.open()` üzerinde sıra bırakır, tam o aralıkta
+    // MapLibre buffer'ı transfer eder. Bu yüzden open bilinçli yavaşlatılır.
+    const origOpen = _mockCaches.open;
+    _mockCaches.open = (async (name: string) => {
+      await new Promise(r => setTimeout(r, 5));
+      return origOpen(name);
+    }) as typeof _mockCaches.open;
+
+    try {
+      const res = await (handler as (...args: unknown[]) => Promise<{ data: ArrayBuffer }>)(
+        { url: PROTO_URL }, new AbortController(),
+      );
+      // MapLibre'nin yaptığını birebir taklit et: buffer'ı transfer ederek detach et
+      structuredClone(res.data, { transfer: [res.data] });
+      expect(res.data.byteLength).toBe(0);          // detach gerçekleşti (ön koşul)
+
+      await new Promise(r => setTimeout(r, 40));     // fire-and-forget yazımı bekle
+
+      const cache  = await origOpen('caros-tiles-v1');
+      const stored = await cache.match(HTTPS_URL);
+      expect(stored).toBeDefined();
+      expect((await stored!.arrayBuffer()).byteLength).toBeGreaterThan(0);
+    } finally {
+      _mockCaches.open = origOpen;
+    }
+  });
+
+  it('vektör karosu PNG olarak DEĞİL, vektör içerik türüyle önbelleğe yazılır', async () => {
+    await _freshManager();
+    const handler = _registeredProtocols.get('caros-tile')!;
+    const pbfProto = 'caros-tile://tile.openstreetmap.org/10/520/350.pbf';
+    const pbfHttps = 'https://tile.openstreetmap.org/10/520/350.pbf';
+
+    await (handler as (...args: unknown[]) => Promise<unknown>)({ url: pbfProto }, new AbortController());
+    await new Promise(r => setTimeout(r, 0));
+
+    const cache  = await _mockCaches.open('caros-tiles-v1');
+    const stored = await cache.match(pbfHttps);
+    expect(stored?.headers.get('content-type')).toBe('application/vnd.mapbox-vector-tile');
+  });
+});
+
 describe('CacheLRUManager — istatistikler', () => {
   beforeEach(() => {
     vi.clearAllMocks();

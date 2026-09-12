@@ -7,6 +7,7 @@ import {
   buildRoadStyle,
   buildSatelliteStyle,
   buildHybridStyle,
+  isOnlineVectorBlocked,
 } from './mapStyleBuilders';
 import {
   probeLocalTiles,
@@ -367,8 +368,151 @@ export function isNightHour(hour: number): boolean {
 let _mapNight = (() => {
   try { return isNightHour(new Date().getHours()); } catch { return false; }
 })();
-export function setMapNight(night: boolean): void { _mapNight = night; }
+
+/* ── TÜNEL GECE ÖRTÜSÜ (#451 türevi değil — ayrı ürün davranışı) ────────────
+ *
+ * Tünel bir AYAR değil, GEÇİCİ bir çalışma durumudur. `settings.dayNightMode`e
+ * yazmak YASAK: `useDayNightManager.checkTime()` her 60 sn'de o ayarı saate
+ * göre hedefe GERİ ZORLAR → tunnel:night → 60 sn sonra day → tunnel yine night
+ * = **flicker döngüsü**. Bu yüzden tünel, ayarın ÜSTÜNDE bir örtüdür.
+ *
+ * ÖRTÜ NEDEN TAM BURADA: `setMapNight` gün/gece durumunun TEK yazma hunisidir
+ * (`applyMapDayNight` ve `MiniMapWidget` ikisi de buradan geçer). Örtüyü
+ * çağıranların birine koymak, diğerinin onu sessizce ezmesi demekti. Burada
+ * ise HANGİ çağıran yazarsa yazsın örtü YAPISAL olarak korunur.
+ *
+ * İSTEK ve ETKİN durum ayrı tutulur:
+ *   · `_mapNightRequested` → kullanıcı/saat kaynaklı istek (örtü kalkınca dönülecek yer)
+ *   · `_mapNight`          → ETKİN değer; mevcut TÜM okuyucular (getMapStyle,
+ *     applyMapDayNight, PR-3b `resolveLightBasemap`) bunu okur ve DEĞİŞMEZ. */
+let _mapNightRequested = _mapNight;
+let _tunnelNight = false;
+
+/** Etkin gece = tünel örtüsü VEYA istenen gece. */
+function _recomputeMapNight(): void {
+  _mapNight = _tunnelNight || _mapNightRequested;
+}
+
+export function setMapNight(night: boolean): void {
+  _mapNightRequested = night;
+  _recomputeMapNight();
+}
+
+/** ETKİN gün/gece — tünel örtüsü DAHİL. PR-3b `lightBasemap` bunu okur. */
 export function getMapNight(): boolean { return _mapNight; }
+
+/** Kullanıcı/saat kaynaklı İSTEK — örtü kalkınca dönülecek durum (gözlem + yeniden boyama). */
+export function getRequestedMapNight(): boolean { return _mapNightRequested; }
+
+/** Tünel örtüsü şu an açık mı (gözlem). */
+export function isTunnelNightOverrideActive(): boolean { return _tunnelNight; }
+
+/**
+ * Tünel örtüsünü kur/kaldır.
+ *
+ * İDEMPOTENT: aynı durum tekrar bildirilirse `false` döner ve ETKİN değer
+ * DEĞİŞMEZ → çağıran gereksiz yeniden boyama YAPMAZ (far callback'i tünel
+ * içinde defalarca gelebilir).
+ *
+ * @returns Etkin gün/gece durumu GERÇEKTEN değiştiyse `true`.
+ */
+export function setTunnelNightOverride(active: boolean): boolean {
+  const next = active === true;
+  if (next === _tunnelNight) return false;      // durum aynı → iş YOK
+  const before = _mapNight;
+  _tunnelNight = next;
+  _recomputeMapNight();
+  return _mapNight !== before;                  // gece zaten açıksa boyama gerekmez
+}
+
+/**
+ * KÖK 2 (2026-08-18, harita bilgi yoğunluğu denetimi) — İSTENEN vs GERÇEKLEŞEN
+ * karo modu ayrımı. `useMapSourceStore.tileRender` yalnız NİYETİ taşır
+ * (`notifyNavigationRender` yazar); `buildVectorStyle` kaynak yoksa/kapalıysa
+ * SESSİZCE `onFallback()` ile raster'a düşer ama store'daki `tileRender` alanı
+ * bundan HABERSİZ 'vector' kalırdı — CAROS LAB (`navigationCoreSources.ts`
+ * `miniMapStyle`) bu yüzden "road/vector" gösterirken ürün fiilen raster
+ * çizebiliyordu (gözlemlenemeyen düşüş, CLAUDE.md'nin gözlemlenebilirlik
+ * maddesiyle çelişiyordu).
+ *
+ * `_mapNightRequested`/`_mapNight` ile AYNI desen: bu alan store'a YAZILMAZ
+ * (yazılsaydı `useTileRenderMode()`e abone `[tileRender]` efekti tekrar
+ * tetiklenir, gereksiz bir stil-değişim turu daha yapardı) — yalnız GÖZLEM
+ * için ayrı, salt-okunur bir değişkendir.
+ */
+let _lastResolvedTileMode: TileRenderMode = 'vector';
+
+/** Bu oturumda `getMapStyle()`in GERÇEKTEN döndürdüğü mod — LAB gözlemi için. */
+export function getResolvedTileMode(): TileRenderMode { return _lastResolvedTileMode; }
+
+/** Haritanın NEDEN raster çizdiğinin tek kaynağı (kanıtsız sebep ÜRETİLMEZ). */
+export type TileRasterReason =
+  | 'MAP_MODE_RASTER'        // uydu/hibrit — raster zaten sözleşme
+  | 'AR_ACTIVE'              // AR overlay açık — raster kasıtlı
+  | 'THERMAL_LOCK_FPS'       // FPS < 20 ölçüldü → raster kilidi
+  | 'INTENT_RASTER'          // niyetin kendisi raster (navigasyon/düşük-uç/debounce)
+  | 'VECTOR_GATE_BLOCKED'    // çevrimiçi vektör kapısı karo hatalarıyla kapandı (#637)
+  | 'NO_VECTOR_SOURCE';      // ne yerel .pbf ne çevrimiçi vektör ucu kullanılabilir
+
+export interface TileModeVerdict {
+  /** `getMapStyle()`in GERÇEKTEN döndürdüğü mod. */
+  readonly resolved: TileRenderMode;
+  /** Store'daki NİYET — çözülenle aynı olmak zorunda değildir. */
+  readonly intent:   TileRenderMode;
+  /** Çözülen raster ise sebebi; vektörse `null`. */
+  readonly reason:   TileRasterReason | null;
+  readonly mapMode:  MapMode;
+  readonly thermalLock: boolean;
+  readonly arActive:    boolean;
+  readonly vectorGateBlocked: boolean;
+  readonly deviceTier: string;
+  /** ETKİN gece/gündüz (tünel örtüsü dahil) — `getMapStyle()`in okuduğu değer.
+   *  #652-sonrası saha bulgusu: `resolved`/`intent` senkron olsa bile GECE
+   *  yanlış çözülürse harita "ham OSM" (RASTER_PAINT_DAY) gibi görünür —
+   *  önceki verdict bunu göstermiyordu (gözlemlenebilirlik boşluğu). */
+  readonly mapNight: boolean;
+  /** İSTENEN gece/gündüz (saat/kullanıcı) — tünel örtüsü kalkınca dönülecek değer. */
+  readonly mapNightRequested: boolean;
+  /** `intent !== resolved` — niyet ile fiilen ekrana çizilen mod SENKRON DEĞİL. */
+  readonly intentResolvedMismatch: boolean;
+}
+
+/**
+ * #640 — "Harita neden gri?" sorusunun TEK YAPIŞTIRMAYLA cevaplanması.
+ *
+ * SAHA (2026-08-19): kullanıcı haritanın gri-üstüne-gri olduğunu bildirdi;
+ * ekran pikselinden yol↔zemin kontrastı **1,21:1** ölçüldü (vektör merdiveni
+ * 3,04–8,00). Sebep raster'a düşülmüş olmasıydı — ama LAB'ın TAM KOPYASINDA
+ * ne çözülen karo modu ne de sebebi vardı: gönderilen tam dökümden teşhis
+ * ÇIKARILAMADI. Bu fonksiyon o boşluğu kapatır.
+ *
+ * Sebep SIRALI okunur (ilk eşleşen kazanır) ve yalnız GÖZLENEN durumdan
+ * türetilir — tahmin YOK. Vektörse `reason` `null`dır ("sebep yok" ≠ "bilinmiyor").
+ */
+export function getTileModeVerdict(): TileModeVerdict {
+  const { mapMode, tileRender } = useMapSourceStore.getState();
+  const resolved = _lastResolvedTileMode;
+  const gateBlocked = (() => { try { return isOnlineVectorBlocked(); } catch { return false; } })();
+  const tier = (() => { try { return getDeviceTier(); } catch { return 'unknown'; } })();
+
+  let reason: TileRasterReason | null = null;
+  if (resolved === 'raster') {
+    if (mapMode !== 'road')            reason = 'MAP_MODE_RASTER';
+    else if (_arActive)                reason = 'AR_ACTIVE';
+    else if (_thermalLock)             reason = 'THERMAL_LOCK_FPS';
+    else if (tileRender === 'raster')  reason = 'INTENT_RASTER';
+    else if (gateBlocked)              reason = 'VECTOR_GATE_BLOCKED';
+    else                               reason = 'NO_VECTOR_SOURCE';
+  }
+
+  return {
+    resolved, intent: tileRender, reason, mapMode,
+    thermalLock: _thermalLock, arActive: _arActive,
+    vectorGateBlocked: gateBlocked, deviceTier: tier,
+    mapNight: _mapNight, mapNightRequested: _mapNightRequested,
+    intentResolvedMismatch: resolved !== tileRender,
+  };
+}
 
 export function getMapStyle(): StyleSpecification {
   const { mapMode, tileRender, sources, activeSourceId } = useMapSourceStore.getState();
@@ -378,8 +522,16 @@ export function getMapStyle(): StyleSpecification {
   }
   if (mapMode === 'satellite') return buildSatelliteStyle();
   if (mapMode === 'hybrid')    return buildHybridStyle();
-  const roadFallback = () => buildRoadStyle(activeSourceId, sources, getActiveTileUrls, _mapNight);
-  if (tileRender === 'vector') return buildVectorStyle(sources, roadFallback, _mapNight);
+  const roadFallback = () => {
+    // Yalnız GERÇEKTEN çağrılırsa (yani vektör kaynağı reddedildiyse) tetiklenir.
+    _lastResolvedTileMode = 'raster';
+    return buildRoadStyle(activeSourceId, sources, getActiveTileUrls, _mapNight);
+  };
+  if (tileRender === 'vector') {
+    _lastResolvedTileMode = 'vector'; // varsayım — `roadFallback` çağrılırsa düzelir
+    return buildVectorStyle(sources, roadFallback, _mapNight);
+  }
+  _lastResolvedTileMode = 'raster';
   return buildRoadStyle(activeSourceId, sources, getActiveTileUrls, _mapNight);
 }
 
@@ -476,6 +628,12 @@ let _toVectorTimer: ReturnType<typeof setTimeout> | null = null;
 // Thermal lock — FPS < 20 tespit edildiğinde raster modunu kilitler
 let _thermalLock = false;
 
+/* #640 — AR durumu MODÜLDE hatırlanır. `notifyLowFPS(false)` ile gelen vektör
+   KURTARMASI, AR açıkken vektöre dönmemeli; AR bilgisi yalnız
+   `notifyNavigationRender`in parametresinde yaşıyordu ve kurtarma yolundan
+   görünmüyordu (görünmeyen durum = yanlış karar). */
+let _arActive = false;
+
 /**
  * FullMapView FPS monitöründen çağrılır.
  * isLow=true  → raster'ı kilitle, bekleyen vector geçişini iptal et.
@@ -492,7 +650,35 @@ export function notifyLowFPS(isLow: boolean): void {
     if (mapMode === 'road') {
       useMapSourceStore.setState({ tileRender: 'raster' });
     }
+    return;
   }
+
+  /* ── #640 · TEK YÖNLÜ MANDAL KAPATILDI (CİHAZDA ÖLÇÜLDÜ 2026-08-19) ───────
+   * Eski kod `isLow=false` gelince YALNIZ bayrağı temizliyordu; vektöre dönüşü
+   * hiçbir yerden kurmuyordu. Vektöre dönüş tek bir başka çağrıya bağlıydı
+   * (`notifyNavigationRender`) ve o da yalnız navigasyon durumu DEĞİŞİNCE
+   * çalışır. Sürücü navigasyona girmiyorsa harita, tek bir anlık FPS düşüşünden
+   * sonra OTURUM BOYUNCA raster'da kalıyordu.
+   *
+   * Bedeli kozmetik DEĞİL: raster gece boyası (`RASTER_PAINT_NIGHT`) tüm
+   * görüntüyü ekranın %23'lük bandına sıkıştırır ve doygunluğu %58 siler —
+   * cihazda ölçülen yol↔zemin kontrastı **1,21:1** (vektör merdiveni 3,04–8,00).
+   * Yani mandal kapandığı anda harita okunamaz hâle geliyordu ve bir daha
+   * kendiliğinden düzelmiyordu. (#634 · #604 · #606 ile AYNI kusur sınıfı.)
+   *
+   * Kurtarma AYNI debounce'u kullanır (yeni politika YAZILMADI): 2500 ms
+   * istikrarlı yüksek FPS. Tetikte `_thermalLock` yeniden bakılır — bu arada
+   * FPS tekrar düşmüşse geçiş yapılmaz (salınım koruması). */
+  if (_arActive) return;                       // AR'da raster kasıtlıdır
+  const { mapMode, tileRender } = useMapSourceStore.getState();
+  if (mapMode !== 'road' || tileRender !== 'raster') return;
+  if (_toVectorTimer !== null) return;         // zaten planlı
+  _toVectorTimer = setTimeout(() => {
+    _toVectorTimer = null;
+    if (_thermalLock || _arActive) return;
+    if (useMapSourceStore.getState().mapMode !== 'road') return;
+    useMapSourceStore.setState({ tileRender: 'vector' });
+  }, 2500);
 }
 
 /**
@@ -520,6 +706,7 @@ export function setMapHeavyNeighbor(active: boolean): void {
  * Does nothing when mapMode !== 'road' (satellite/hybrid are always raster).
  */
 export function notifyNavigationRender(isNavigating: boolean, arActive: boolean): void {
+  _arActive = arActive;                        // #640 — kurtarma yolu da görsün
   const { mapMode } = useMapSourceStore.getState();
   if (mapMode !== 'road') return;
 

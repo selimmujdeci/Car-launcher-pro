@@ -1,0 +1,80 @@
+{
+ "viewport": {
+  "w": 904,
+  "h": 406,
+  "dpr": 3
+ },
+ "cases": [
+  {
+   "name": "dikey  orta",
+   "swipe": [
+    "700",
+    "900",
+    "700",
+    "1900",
+    "600"
+   ],
+   "events": [
+    "dragstart:USER",
+    "dragend:USER"
+   ],
+   "mode": "FOLLOW_SUSPENDED",
+   "element": "CANVAS.maplibregl-canvas"
+  },
+  {
+   "name": "yatay  orta",
+   "swipe": [
+    "400",
+    "1350",
+    "1000",
+    "1350",
+    "600"
+   ],
+   "events": [],
+   "mode": "FOLLOW_SUSPENDED",
+   "element": null
+  },
+  {
+   "name": "yatay  üst-orta",
+   "swipe": [
+    "400",
+    "800",
+    "1000",
+    "800",
+    "600"
+   ],
+   "events": [],
+   "mode": "FOLLOW_SUSPENDED",
+   "element": "BUTTON.flex items-center gap-2 h-8 px-3 rounded-xl active:scale-95 "
+  },
+  {
+   "name": "yatay  yavaş",
+   "swipe": [
+    "400",
+    "1350",
+    "1000",
+    "1350",
+    "1200"
+   ],
+   "events": [],
+   "mode": "FOLLOW_SUSPENDED",
+   "element": null
+  },
+  {
+   "name": "çapraz orta",
+   "swipe": [
+    "500",
+    "1000",
+    "1000",
+    "1800",
+    "700"
+   ],
+   "events": [
+    "dragstart:USER",
+    "dragend:USER"
+   ],
+   "mode": "FOLLOW_SUSPENDED",
+   "element": "CANVAS.maplibregl-canvas"
+  }
+ ]
+}

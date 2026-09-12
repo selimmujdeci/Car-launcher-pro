@@ -10,19 +10,27 @@
  * PII yok — koordinat/VIN/plaka/MAC/token bölümlere hiç girmez.
  */
 
-import { getOBDStatusSnapshot, getOBDDataSnapshot, getTransportStats } from './obdService';
+import { getOBDStatusSnapshot, getOBDDataSnapshot, getTransportStats, getHandshakeDiagnostics, getObdConnLifecycle } from './obdService';
+import type { DiscoveryEvidence } from '../core/val/OBDHandshake';
 import { getObdHealth } from './obd/ObdHealthMonitor';
-import { getSupportedPids, getPidValue } from './obd/extendedPidService';
+import { getSupportedPids, getPidValue, getUnavailablePids } from './obd/extendedPidService';
+import { getExtendedPollEvidence, type ExtendedPollEvidenceSnapshot } from './obd/extendedPollEvidence';
+import { getKwpRecoveryEvidence, type KwpRecoveryEvidenceSnapshot } from './obd/kwpRecoveryEvidence';
+import { getMode22Evidence, type Mode22Evidence } from './obd/manufacturerPidService';
 import { getDTCStateSnapshot } from './dtcService';
 import { getAiHealthSnapshot } from './aiHealth';
 import { getProviderQuotaSnapshot } from './companion/companionChatProvider';
-import { getGPSState, isDeadReckoningActive } from './gpsService';
-import { getVoiceSnapshot, getLastSttOutcome } from './voiceService';
+import { getGPSState, isDeadReckoningActive, getLocationEvidence } from './gpsService';
+import { getVoiceSnapshot, getLastSttOutcome, getSessionPeakVolume } from './voiceService';
 import { getWakeWordState, isVoskModelReady } from './wakeWordService';
+import { getRecentVoiceDiag, type VoiceDiagRingEntry } from './voiceDiagService';
+import { getCloudSttKeyPresent } from './cloudSttService';
+import { getAutoDiscoveredDids } from './obd/autoDidDiscovery';
 import { getGeofenceStatus } from './security/geofenceService';
 import { connectivityService } from './connectivityService';
 import { getVoltageStats } from './power/BatteryProtectionService';
 import { useUnifiedVehicleStore } from './vehicleDataLayer/UnifiedVehicleStore';
+import { resolveBatteryVoltage } from './vehicleDataLayer/canonicalVehicleSignal';
 import { useHALStatusStore } from './vehicleDataLayer/halStatusStore';
 import type { SignalSource } from './vehicleDataLayer/valTypes';
 import {
@@ -34,6 +42,7 @@ import {
 import { getEventBusStatus } from './system/platformCoreEventBusWiring';
 import { getVehicleHalWiringStatus } from './system/platformCoreVehicleHalWiring';
 import { getVehicleHalBridgeStatus } from './system/platformCoreVehicleHalBridgeWiring';
+import { getAiRuntimeStatus } from './system/platformCoreAiRuntimeWiring';
 
 /* ── OBD DERİN ───────────────────────────────────────────────── */
 
@@ -42,7 +51,7 @@ export interface ObdDeepSnapshot {
     source: string; connectionState: string; vehicleType: string; lastSeenMs: number;
   };
   health: {
-    connectionQuality: number; lastPacketAgeMs: number; reconnectPressure: number;
+    connectionQuality: number; lastPacketAgeMs: number; isStale: boolean; reconnectPressure: number;
     sensorReliability: Record<string, number>;
   };
   /** Anahtar canlı sinyaller — geçersiz (-1) olanlar "yok" say. */
@@ -50,16 +59,58 @@ export interface ObdDeepSnapshot {
   extended: {
     discovered: boolean; supportedCount: number;
     samples: { pid: string; name: string; value: number; ageMs: number }[];
+    /** PR-OBD-KWP-1: native'in ardışık NO_DATA/7F kanıtıyla turdan düşürdüğü PID'ler —
+     *  "bitmap destekli ama araç vermiyor" gerçeği (Trafic 39/39 vakasının raporu). Bounded ≤48. */
+    unavailable: string[];
+  };
+  /** PR-OBD-DIAG-3: EXTENDED PID poll KANITI — H1/H2/H3 ayrımı (samples boşsa neden?). */
+  extendedPollEvidence: ExtendedPollEvidenceSnapshot | null;
+  /** PR-KWP-EVID: KWP ölü-oturum kurtarma kanıtı (bounded). null = native vermedi/eski APK. */
+  kwpRecoveryEvidence: KwpRecoveryEvidenceSnapshot | null;
+  /** PR-OBD-CONN-1: bağlantı yaşam-döngüsü — reset/disconnect/reconnect gerçekten çalıştı mı. */
+  connLifecycle: ReturnType<typeof getObdConnLifecycle> | null;
+  /** PR-OBD-DATA-1: Mode-22 acquisition kanıtı — gerçek değer mi, fail-closed unsupported mu. */
+  mode22: Mode22Evidence | null;
+  /** PR-5a/PR-1a: handshake yaşam-döngüsü kanıtı (non-PII) — root-cause zinciri için. */
+  handshake: {
+    outcome: string; ranAt: number | null; vinClass: string | null; vinPresent: boolean;
+    bitmapClass: string | null; readBlocks: string[]; supportedCount: number;
+    /**
+     * P0-OBD-CORE-01B — KESIF BUTUNLUGU. `supportedCount` TEK BASINA kanit
+     * DEGILDIR: zincir ilk blokta kirildiginda da ~15 doner ve bu "arac 15 PID
+     * destekliyor" ANLAMINA GELMEZ. 'incomplete' iken okunmayan bloklarin
+     * PID'leri BILINMIYOR (desteklenmiyor DEGIL).
+     */
+    discoveryCompleteness: 'complete' | 'incomplete' | 'not_run';
+    /** Zincirin kirildigi blok ('20','40'...); kirilmadiysa null. */
+    failedBlock: string | null;
+    /** Denenmis blok taban PID'leri — basarisiz olan da DAHIL. */
+    attemptedBlocks: string[];
+    /** Blok basina yapilan deneme sayisi; native tasimiyorsa bos. */
+    blockAttempts: number[];
+    failReason: string | null;
+    // PR-1a
+    timeoutStage: string | null; durationMs: number | null;
+    protocolTried: string | null; protocolActive: string | null;
+    lastSuccessAt: number | null; reconnectReason: string | null;
+    reconnectHistory: { ts: number; reason: string }[];
+    // PR-OBD-DIAG-2: bounded PID keşif kanıtı (per-blok outcome/continuation/stopReason).
+    discoveryEvidence: DiscoveryEvidence | null;
   };
   dtc: {
     count: number; isStale: boolean; error: string | null; lastReadAt: number | null;
     codes: { code: string; severity: string; system: string }[];
   };
+  /** OTOMATİK DID KEŞFİ: 2200-22FF taramasında yanıt veren marka DID'leri + ham değerler
+   *  (anlam YOK — gösterge değeriyle eşleştirmek için). Sayı + bounded örnek. */
+  autoDids: { count: number; sample: { did: string; dataHex: string; ecuRx: string }[] };
 }
 
 // Genişlik-kaçağını önlemek için tavan (payload kompakt kalsın).
 const MAX_EXT_SAMPLES = 8;
 const MAX_DTC = 10;
+/** Rapora giren otomatik-DID örneği tavanı (payload kompakt). */
+const MAX_AUTO_DIDS = 24;
 
 // Canlı raporlanacak anahtar OBD alanları (EV+ICE karışık; -1 = yok/atla).
 const LIVE_KEYS = [
@@ -71,9 +122,13 @@ export function buildObdDeepSnapshot(): ObdDeepSnapshot {
   const status = _safe(() => getOBDStatusSnapshot(), {
     connectionState: 'unknown', source: 'none', vehicleType: 'ice', lastSeenMs: 0,
   });
+  /* P0-OBD-06: yedek anlık görüntü sözleşmeyi TAM karşılar. Eksik alan bırakmak
+     "ölçüm yok" ile "sıfır ölçüm" ayrımını bulanıklaştırırdı — `fieldTiming` BOŞ
+     harita demek "hiçbir alan gözlenmedi"dir, `sessionHasData:false` de bunu söyler. */
   const health = _safe(() => getObdHealth(), {
-    connectionQuality: 0, lastPacketAgeMs: -1, reconnectPressure: 0,
+    connectionQuality: 0, lastPacketAgeMs: -1, isStale: false, reconnectPressure: 0,
     sensorReliability: {} as Record<string, number>,
+    fieldTiming: {}, expectedIntervalMs: 0, sessionHasData: false,
   });
 
   const data = _safe(() => getOBDDataSnapshot(), null as ReturnType<typeof getOBDDataSnapshot> | null);
@@ -129,6 +184,7 @@ export function buildObdDeepSnapshot(): ObdDeepSnapshot {
     health: {
       connectionQuality: health.connectionQuality,
       lastPacketAgeMs:   health.lastPacketAgeMs,
+      isStale:           health.isStale ?? false,
       reconnectPressure: Math.round((health.reconnectPressure ?? 0) * 100) / 100,
       sensorReliability: health.sensorReliability ?? {},
     },
@@ -137,11 +193,34 @@ export function buildObdDeepSnapshot(): ObdDeepSnapshot {
       discovered: supported !== null,
       supportedCount: supported ? supported.size : 0,
       samples,
+      // PR-OBD-KWP-1: native NO_DATA demote kanıtı (bounded — tavan 48, native listeyle aynı).
+      unavailable: _safe(() => [...getUnavailablePids().keys()].slice(0, 48), [] as string[]),
     },
+    // PR-OBD-DIAG-3: samples boşsa "neden" — native poll kanıtı (refreshExtendedPollEvidence
+    // rapor derlenmeden önce await edilir; edilmediyse fail-soft NO_NATIVE_EVIDENCE döner).
+    extendedPollEvidence: _safe(() => getExtendedPollEvidence(), null),
+    // PR-KWP-EVID: "kurtarma denendi mi / ATPC sonrası veri döndü mü / Data Gate mi yıktı"
+    kwpRecoveryEvidence: _safe(() => getKwpRecoveryEvidence(), null),
+    // PR-OBD-CONN-1: bağlantı yaşam-döngüsü kanıtı (reset/disconnect/reconnect sayaçları).
+    connLifecycle: _safe(() => getObdConnLifecycle(), null),
+    // PR-OBD-DATA-1: Mode-22 acquisition kanıtı (gerçek değer VEYA fail-closed unsupported).
+    mode22: _safe(() => getMode22Evidence(), null),
+    handshake: _safe(() => getHandshakeDiagnostics(), {
+      outcome: 'not_run', ranAt: null, vinClass: null, vinPresent: false,
+      bitmapClass: null, readBlocks: [], supportedCount: 0, failReason: null,
+      discoveryCompleteness: 'not_run', failedBlock: null,
+      attemptedBlocks: [], blockAttempts: [],
+      timeoutStage: null, durationMs: null, protocolTried: null, protocolActive: null,
+      lastSuccessAt: null, reconnectReason: null, reconnectHistory: [], discoveryEvidence: null,
+    }),
     dtc: {
       count: dtcCount, isStale: dtcIsStale, error: dtcError,
       lastReadAt: dtcLastReadAt, codes,
     },
+    autoDids: _safe(() => {
+      const all = getAutoDiscoveredDids();
+      return { count: all.length, sample: all.slice(0, MAX_AUTO_DIDS) };
+    }, { count: 0, sample: [] }),
   };
 }
 
@@ -149,7 +228,8 @@ export function buildObdDeepSnapshot(): ObdDeepSnapshot {
 
 export interface NetAiSnapshot {
   online: boolean;
-  ai: { healthy: boolean; consecFails: number; blockedForMs: number };
+  /** `consecTimeouts` = bütçe timeout'ları (ayrı/yüksek eşik) — `consecFails` gerçek ulaşılamazlık. */
+  ai: { healthy: boolean; consecFails: number; consecTimeouts: number; blockedForMs: number };
   quota: { geminiCooldownMs: number; groqCooldownMs: number; haikuCooldownMs: number };
 }
 
@@ -157,7 +237,7 @@ export function buildNetAiSnapshot(): NetAiSnapshot {
   const online = _safe(
     () => (typeof navigator !== 'undefined' ? !!navigator.onLine : true), true,
   );
-  const ai = _safe(() => getAiHealthSnapshot(), { healthy: true, consecFails: 0, blockedForMs: 0 });
+  const ai = _safe(() => getAiHealthSnapshot(), { healthy: true, consecFails: 0, consecTimeouts: 0, blockedForMs: 0 });
   const quota = _safe(() => getProviderQuotaSnapshot(), {
     geminiCooldownMs: 0, groqCooldownMs: 0, haikuCooldownMs: 0,
   });
@@ -197,13 +277,15 @@ export async function buildGpsDeepSnapshot(): Promise<GpsDeepSnapshot> {
     }
   } catch { /* API yoksa/erişilemezse 'unknown' kalır (fail-soft) */ }
 
-  const now = Date.now();
   const loc = state.location;
   const acc = loc?.accuracy;
 
   return {
     permission,
-    fixAgeMs:  loc ? Math.max(0, now - loc.timestamp) : -1,
+    /* G1 (#527): fix yaşı TEK OTORİTEDEN. Eskiden burada duvar saatiyle
+       (`now - loc.timestamp`) yeniden hesaplanıyordu — saat sıçramasına açık
+       ve `navigationCoreSources`in monotonik hesabıyla ÇELİŞİYORDU. */
+    fixAgeMs:  _safe(() => getLocationEvidence().fixAgeMs, null) ?? -1,
     accuracyM: loc && Number.isFinite(acc) ? Math.round(acc as number) : -1,
     source:    state.source ?? 'none',
     drActive:  _safe(() => isDeadReckoningActive(), false),
@@ -214,7 +296,8 @@ export async function buildGpsDeepSnapshot(): Promise<GpsDeepSnapshot> {
 /* ── SESLİ / STT ─────────────────────────────────────────────── */
 
 export interface VoiceDiagSnapshot {
-  voskReady: boolean;
+  /** Vosk modeli hazır mı.  = OKUNAMADI ("hazır" DEĞİL) — #557. */
+  voskReady: boolean | null;
   wakeWordEnabled: boolean;
   /** Anlık asistan durumu (idle/listening/processing/success/error/throttled). */
   status: string;
@@ -222,20 +305,53 @@ export interface VoiceDiagSnapshot {
   lastSttAgeMs: number;
   /** Son STT sonucu başarılı mı — hiç olmadıysa null. Ham transkript YOK (PII). */
   lastSttOk: boolean | null;
+  /**
+   * MİKROFON SAĞLIĞI: son dinleme oturumundaki TEPE ses seviyesi (0..1). ~0 ise
+   * mikrofon sessizlik yakalıyor (ölü kaynak/donanım) — "dinliyor ama boş" kökü.
+   * >0.1 ise mikrofon ses alıyor → sorun tanıma/model tarafında.
+   */
+  micPeakVolume: number;
+  /**
+   * WAKE'İN DUYDUKLARI: pasif döngünün son duyduğu transcript'ler (en yeni başta,
+   * max 5). "hey mavi tetiklemiyor" / "kendi kendine tetikliyor" (yanlış-wake)
+   * teşhisi — Vosk'un GERÇEKTE ne duyduğunu gösterir. Kullanıcının KENDİ aracı +
+   * yalnız SUPPORT_SECRET ile çekilebilir; saha teşhisi için bilinçli dahil.
+   */
+  wakeHeard: string[];
+  /**
+   * SON SES OTURUMLARININ İZİ: her olay {aşama, hata kodu, rota (vosk/bulut), süre,
+   * transcript uzunluğu, zaman}. Nerede düştüğünü (mik sessiz→timeout, tanıdı ama
+   * parser→error, bulut devrede mi) ve yanlış-wake sıklığını gösterir. Transcript
+   * METNİ YOK.
+   */
+  recent: VoiceDiagRingEntry[];
+  /**
+   * HİBRİT BULUT: bulut STT için anahtar (Groq/Gemini) girili mi. null = henüz
+   * bakılmadı (bulut hiç denenmedi). false + online → OEM tanıma için anahtar EKSİK.
+   */
+  cloudKey: boolean | null;
 }
 
 export function buildVoiceSnapshot(): VoiceDiagSnapshot {
-  const voskReady       = _safe(() => isVoskModelReady(), true);
-  const wakeWordEnabled = _safe(() => getWakeWordState().enabled, false);
+  /* #557: fallback ESKİDEN `true` idi — okuma düşerse model "hazır" görünüyordu.
+     Bu, teşhisi ters yöne çeviren SAHTE bir olumlu kanıttır (kanıtsız bilgi
+     üretilmez; bilinmeyen `null` gösterilir). Saha teşhisinde "vosk hazır"
+     yazısına bakıp model tarafını elemek, kökü tamamen kaçırmak demekti. */
+  const voskReady       = _safe(() => isVoskModelReady(), null as boolean | null);
+  const wakeState       = _safe(() => getWakeWordState(), null as ReturnType<typeof getWakeWordState> | null);
   const status          = _safe(() => getVoiceSnapshot().status as string, 'idle');
   const outcome         = _safe(() => getLastSttOutcome(), { atMs: -1, ok: null as boolean | null });
 
   return {
     voskReady,
-    wakeWordEnabled,
+    wakeWordEnabled: wakeState?.enabled ?? false,
     status,
     lastSttAgeMs: outcome.atMs >= 0 ? Date.now() - outcome.atMs : -1,
     lastSttOk:    outcome.ok,
+    micPeakVolume: _safe(() => Math.round(getSessionPeakVolume() * 100) / 100, -1),
+    wakeHeard:     wakeState?.lastHeard ?? [],
+    recent:        _safe(() => getRecentVoiceDiag(), []),
+    cloudKey:      _safe(() => getCloudSttKeyPresent(), null),
   };
 }
 
@@ -303,18 +419,25 @@ const VOLT_LOW_V      = 12.2;
 const VOLT_CHARGING_V = 13.2;
 
 export function buildPowerSnapshot(): PowerSnapshot {
-  // CAN (gövde veriyolu, ProfileSignalGate → UnifiedVehicleStore.canBatteryVolt)
-  const canV = _safe(() => useUnifiedVehicleStore.getState().canBatteryVolt, null as number | null);
-  // OBD (PID 0x42 ATRV, obdSanitizer → OBDData.batteryVoltage; -1 = desteklenmiyor)
-  const obdV = _safe(() => getOBDDataSnapshot().batteryVoltage, undefined as number | undefined);
-
-  let source: PowerSnapshot['source'] = 'none';
-  let voltageV: number | null = null;
-  if (canV != null && Number.isFinite(canV) && canV > 0) {
-    source = 'CAN'; voltageV = canV;
-  } else if (obdV != null && Number.isFinite(obdV) && obdV > 0 && obdV !== -1) {
-    source = 'OBD'; voltageV = obdV;
-  }
+  /* P0-OBD-03 · ÜÇÜNCÜ KOPYA KALDIRILDI. Bu blok CAN → ATRV önceliğini KENDİ
+     yazıyordu ve `useBatteryVoltage` ile AYRIŞABİLİYORDU: farklı geçerlilik
+     bandı (`> 0` vs 8–16 V) ve PID 0x42'den habersizlik yüzünden gösterge bir
+     değer gösterirken tanı raporu "kaynak yok" diyebiliyordu. Zincir artık
+     TEK yerde: CAN → OBD PID 0x42 → adaptör ATRV → yok. */
+  const atrv = _safe(() => getOBDDataSnapshot().batteryVoltage, undefined as number | undefined);
+  const reading = _safe(
+    () => resolveBatteryVoltage(
+      useUnifiedVehicleStore.getState(),
+      typeof atrv === 'number' && atrv > 0 ? atrv : null,
+      Date.now(),
+    ),
+    null as { value: number | null; source: 'CAN' | 'OBD' | 'NONE' } | null,
+  );
+  const source: PowerSnapshot['source'] =
+    reading === null || reading.source === 'NONE'
+      ? 'none'
+      : (reading.source as PowerSnapshot['source']);
+  const voltageV: number | null = reading === null ? null : reading.value;
 
   let severity: PowerSnapshot['severity'] = 'unknown';
   if (voltageV != null) {
@@ -404,6 +527,9 @@ export interface TransportSnapshot {
 export function buildTransportSnapshot(): TransportSnapshot {
   const obd = _safe(() => getTransportStats(), {
     transport: 'none' as const, connected: false, reconnectAttempts: 0,
+    // T4: kapsam alanları fallback'te de taşınır — tüketici "toplam" sanmasın.
+    consecutiveRetryStreak: 0,
+    reconnectAttemptsScope: 'current_backoff_streak' as const,
     lastDisconnectReason: null as string | null,
   });
   const canConnected = _safe(() => useHALStatusStore.getState().halConnected, false);
@@ -497,11 +623,38 @@ export interface PlatformSourceHealthDiag {
   lastChangeAt: number | null;
 }
 
+/**
+ * AI Core runtime (Faz-2) — Platform Event Bus'ın üretimdeki TEK gerçek tüketicisi
+ * (`aiCoreRuntime` 4 `vehicle.*` olayına abone olur).
+ *
+ * NEDEN RAPORDA: `eventBus.activeListenerCount = 0` tek başına AYIRT EDİLEMEZ bir gözlemdi —
+ * (a) bus hiç yoktu → wiring sessizce no-op döndü, (b) runtime kuruldu sonra dispose edildi,
+ * (c) abonelik reddedildi. Bu bölüm `present` + `busPresent` + `subscriptions` üçlüsüyle kökü
+ * ayırır. `activeListenerCount` ile `subscriptions` NORMALDE eşleşir; eşleşmiyorsa çift
+ * instance ya da bayat snapshot şüphesidir (otomatik düzeltme YOK, yalnız gözlem).
+ *
+ * `present:false` = runtime RUNTIME'DA YOK ("ölçülemiyor") → sayaçlar `null`, 0 DEĞİL.
+ * Event adı, payload, AI çıktısı, prompt, araç verisi BURAYA GİRMEZ — yalnız sayaç/bayrak.
+ */
+export interface PlatformAiRuntimeDiag {
+  present: boolean;
+  started: boolean | null;
+  disposed: boolean | null;
+  /** Son start denemesinde bus var mıydı; `null` = hiç denenmedi (BİLİNMİYOR). */
+  busPresent: boolean | null;
+  /** Bus'a açılan aktif abonelik sayısı (beklenen 4). `null` = ölçülemiyor. */
+  subscriptions: number | null;
+  runCount: number | null;
+  errorCount: number | null;
+  lastRunAt: number | null;
+}
+
 export interface PlatformRuntimeSnapshot {
   eventBus: PlatformEventBusDiag;
   halWiring: PlatformHalWiringDiag;
   halBridge: PlatformHalBridgeDiag;
   sourceHealth: PlatformSourceHealthDiag;
+  aiRuntime: PlatformAiRuntimeDiag;
 }
 
 const _SOURCE_HEALTH_UNKNOWN: PlatformSourceHealthDiag = {
@@ -524,6 +677,13 @@ const _HAL_BRIDGE_ABSENT: PlatformHalBridgeDiag = {
 const _HAL_WIRING_ABSENT: PlatformHalWiringDiag = {
   started: false, lastRefreshAt: null, refreshCount: null,
   ingestedSignalCount: null, activeSubscriptionCount: null, lastErrorCode: null,
+};
+
+/* Runtime yok → sayaçlar `null` ("ölçülemiyor"), 0 DEĞİL. `busPresent` accessor'dan
+   gelirse korunur (kökü ayıran tek bit); accessor patlarsa `null` (bilinmiyor). */
+const _AI_RUNTIME_ABSENT: PlatformAiRuntimeDiag = {
+  present: false, started: null, disposed: null, busPresent: null,
+  subscriptions: null, runCount: null, errorCount: null, lastRunAt: null,
 };
 
 /** Sayaç normalizasyonu: NaN/Infinity/negatif-olmayan olmayan → null (ölçülemiyor). */
@@ -601,7 +761,27 @@ export function buildPlatformRuntimeSnapshot(): PlatformRuntimeSnapshot {
     };
   }, _SOURCE_HEALTH_UNKNOWN);
 
-  return { eventBus: bus, halWiring, halBridge, sourceHealth };
+  /* AI Core runtime — bus'ın TEK gerçek tüketicisi. `activeListenerCount` ile birlikte
+     okunur: normalde `subscriptions === activeListenerCount`. Accessor SALT-OKUNUR
+     (runtime/abonelik YARATMAZ) ve throw ederse bölüm absent'e düşer, rapor sürer. */
+  const aiRuntime = _safe<PlatformAiRuntimeDiag>(() => {
+    const s = getAiRuntimeStatus();
+    const busPresent = typeof s?.busPresent === 'boolean' ? s.busPresent : null;
+    // Runtime yok → "ölçülemiyor" (0 DEĞİL), ama busPresent korunur: kökü o ayırır.
+    if (!s || s.present !== true) return { ..._AI_RUNTIME_ABSENT, busPresent };
+    return {
+      present: true,
+      started:  s.started === true,
+      disposed: s.disposed === true,
+      busPresent,
+      subscriptions: _count(s.subscriptions),
+      runCount:      _count(s.runCount),
+      errorCount:    _count(s.errorCount),
+      lastRunAt:     _ts(s.lastRunAt),
+    };
+  }, _AI_RUNTIME_ABSENT);
+
+  return { eventBus: bus, halWiring, halBridge, sourceHealth, aiRuntime };
 }
 
 /* ── util ────────────────────────────────────────────────────── */

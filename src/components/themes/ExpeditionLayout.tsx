@@ -3,32 +3,39 @@ import {
   Navigation, Music2, Mic, Wind, Settings, Car, Bell,
   Plus, Minus, SkipBack, SkipForward, Play, Pause, MoreVertical,
   ChevronRight, Maximize2, CornerUpRight,
-  BatteryCharging, Fuel, Gauge,
+   Fuel,
   Phone, Cloud, AlertTriangle, Camera, Route, ShieldAlert, Shield, Tv2, Zap, LayoutGrid,
+  FlaskConical,
 } from 'lucide-react';
+import { useCarosLabAllowed } from '../../hooks/useCarosLabAllowed';
+import { openCarosLab } from '../../platform/devtools/carosLabEntry';
 import { useStore } from '../../store/useStore';
 import { useDayNightAttr } from '../../hooks/useDayNightAttr';
 import { useMediaState, togglePlayPause, startMediaHub, stopMediaHub } from '../../platform/mediaService';
 import { next, previous, seek, resumeLastMedia, previewLastMedia } from '../../platform/media/carosMediaLayer';
-import { ensureYouTubeReady } from '../../platform/youtubeService';
+import { preloadYouTubeIfAffordable } from '../../platform/youtubeService';
 import { getPerformanceMode } from '../../platform/performanceMode';
 import { isLowEndDevice } from '../../platform/headUnitCompat';
-import { useOBDState } from '../../platform/obdService';
-import { useGPSLocation, resolveSpeedKmh } from '../../platform/gpsService';
+import { useDisplaySpeed, formatDisplaySpeed } from '../../hooks/useDisplaySpeed';
+import { useBatteryVoltage } from '../../hooks/useBatteryVoltage';
 import { useLivingThemeState } from '../../hooks/useLivingThemeState';
-import { useUnifiedVehicleStore } from '../../platform/vehicleDataLayer/UnifiedVehicleStore';
+import { useAmbientTemp } from '../../hooks/useCanonicalVehicleSignal';
 import { VehicleTellTales } from '../vehicle/VehicleTellTales';
 import { useEngineReadout } from '../../hooks/useEngineReadout';
+import { useOBDState } from '../../platform/obdService';
+import { isObdReadingLive } from '../../platform/vehicleStatusModel';
 import { useClock, DAYS_TR, MONTHS_TR } from '../../hooks/useClock';
 import { useNotificationState } from '../../platform/notificationService';
 import { openDrawer } from '../../platform/drawerBus';
 import { StatusControls } from '../common/StatusControls';
 import { openMusicDrawer } from '../../platform/mediaUi';
 import { MiniMapWidget } from '../map/MiniMapWidget';
+import { TripMeterRow } from '../trip/TripMeterRow';
+import { useNavSummary } from '../../hooks/useNavSummary';
 import { type AppItem } from '../../data/apps';
 import type { SmartSnapshot } from '../../platform/smartEngine';
 import { MagicContextCard } from '../common/MagicContextCard';
-import { useLayoutStore } from '../../store/useLayoutStore';
+import { useLayoutIntent, useZoneWidths } from '../../store/useLayoutStore';
 import { solveLayout, normalizeIntent, EXPEDITION_MANIFEST, type Zone } from '../../platform/theme/layoutSolver';
 import emblemUrl from '../../assets/expedition/emblem.png';
 import roverUrl from '../../assets/expedition/rover.png';
@@ -38,9 +45,18 @@ import { SUPPORTS_CSS_CLAMP, SUPPORTS_ASPECT_RATIO } from '../../utils/cssCompat
  * clamp()/aspect-ratio desteklenmeyince tarayıcı deklarasyonu sessizce düşürür:
  * grid tek kolona çöker, harita plakası 0px olur (Duster saha vakası).
  * Şablonlar module-eval'de BİR KEZ seçilir. */
-const GRID_COLS = SUPPORTS_CSS_CLAMP
-  ? 'clamp(200px,24vw,330px) minmax(0,1fr) clamp(230px,27vw,360px)'
-  : 'minmax(200px,330px) minmax(0,1fr) minmax(230px,360px)';
+/* Sütun genişlikleri ÇARPANLA ölçeklenir (PR-5). Çarpan yoksa (varsayılan)
+   değerler BİREBİR eskisiyle aynıdır — mevcut ekran korunur. Mutlak piksel
+   YAZILMAZ: temanın kendi `clamp()` alt/üst sınırları oranla ölçeklenir, böylece
+   farklı ekran boyutlarında taşma/ezilme olmaz (ölçülmüş ders: oran ile mutlak
+   aynı formülde buluşunca HU ölçüleri telefonda çöküyordu). */
+function exGridCols(sol: number, sag: number): string {
+  const ol = (a: number, b: number, c: number, k: number) =>
+    SUPPORTS_CSS_CLAMP
+      ? `clamp(${Math.round(a * k)}px,${(b * k).toFixed(1)}vw,${Math.round(c * k)}px)`
+      : `minmax(${Math.round(a * k)}px,${Math.round(c * k)}px)`;
+  return `${ol(200, 24, 330, sol)} minmax(0,1fr) ${ol(230, 27, 360, sag)}`;
+}
 const RING_BOX: React.CSSProperties = (SUPPORTS_CSS_CLAMP && SUPPORTS_ASPECT_RATIO)
   ? { position: 'relative', width: 'min(210px, 80%)', aspectRatio: '1' }
   : { position: 'relative', width: 210, maxWidth: '100%', height: 210 };
@@ -80,7 +96,7 @@ const DAY: Pal = {
   // `--accent-rgb` yollarsa CANLI yansır.
   accent: 'var(--accent-primary, #E07B14)', accentDeep: '#B65F0C', accentGlow: 'rgba(var(--accent-rgb, 255,154,46), 0.45)',
   accentA23: 'rgba(var(--accent-rgb, 224,123,20), 0.23)', accentA40: 'rgba(var(--accent-rgb, 224,123,20), 0.4)', accentA53: 'rgba(var(--accent-rgb, 224,123,20), 0.53)',
-  inkCritical: '#181410', ink: 'var(--text-primary, #2A2620)', ink2: 'var(--text-secondary, #6E665A)', ink3: '#A79E90',
+  inkCritical: '#181410', ink: 'var(--text-primary, #2A2620)', ink2: 'var(--text-secondary, #6E665A)', ink3: 'var(--text-tertiary, #A79E90)',
   plate: 'var(--bg-card, #F4F0E8)', plateRaised: '#FBF8F2', plateSunk: '#EBE5DA',
   edge: '#B3AA99', edgeLight: 'rgba(255,255,255,.85)', hairline: 'rgba(60,48,28,.12)',
   rivetL: '#EDE7DA', rivetD: '#8A8276',
@@ -98,7 +114,7 @@ const NIGHT: Pal = {
   // hue'su yeşile çekildi → Tesla'nın espresso kahvesinden NET ayrışır.
   accent: 'var(--accent-primary, #F2871C)', accentDeep: '#B65F0C', accentGlow: 'rgba(var(--accent-rgb, 242,135,28), 0.5)',
   accentA23: 'rgba(var(--accent-rgb, 242,135,28), 0.23)', accentA40: 'rgba(var(--accent-rgb, 242,135,28), 0.4)', accentA53: 'rgba(var(--accent-rgb, 242,135,28), 0.53)',
-  inkCritical: '#FCF7EE', ink: 'var(--text-primary, #EDE4D2)', ink2: 'var(--text-secondary, #A89678)', ink3: '#6E6049',
+  inkCritical: '#FCF7EE', ink: 'var(--text-primary, #EDE4D2)', ink2: 'var(--text-secondary, #A89678)', ink3: 'var(--text-tertiary, #6E6049)',
   plate: 'var(--bg-card, #1a241a)', plateRaised: '#26331f', plateSunk: '#0a0f0a',
   edge: '#3a4a2a', edgeLight: 'rgba(150,180,92,.36)', hairline: 'rgba(150,180,92,.15)',
   rivetL: '#7d8a5a', rivetD: '#0a0d07',
@@ -143,10 +159,12 @@ function plateStyle(p: Pal): React.CSSProperties {
     boxShadow: `${p.plateShadow}, ${p.bevel}`,
   };
 }
-const Plate = memo(function Plate({ children, style, className, onClick }: { children: React.ReactNode; style?: React.CSSProperties; className?: string; onClick?: () => void }) {
+/* Tema Stüdyo kimliği: `editId` KARARLI bileşen kimliğidir (themeComponentRegistry).
+   CSS sınıf adı değişse bile tema bozulmaz — bağ yalnız bu öznitelik üzerindendir. */
+const Plate = memo(function Plate({ children, style, className, onClick, editId, editType = 'card' }: { children: React.ReactNode; style?: React.CSSProperties; className?: string; onClick?: () => void; editId?: string; editType?: string }) {
   const p = usePal();
   return (
-    <div className={className} onClick={onClick} style={{ ...plateStyle(p), ...style }}>
+    <div className={className} onClick={onClick} data-editable={editId} data-editable-type={editId ? editType : undefined} style={{ ...plateStyle(p), ...style }}>
       <Rivets />
       {children}
     </div>
@@ -169,12 +187,16 @@ const Header = memo(function Header() {
   const p = usePal();
   const use24Hour = useStore(s => s.settings.use24Hour);
   const { time } = useClock(use24Hour, false);
-  const ambient = useUnifiedVehicleStore(s => s.canAmbientTemp);
+  /* P0-OBD-03: doğrudan CAN alanı okuması KALDIRILDI. `canAmbientTemp` CAN'ı
+     olmayan (aftermarket ELM327'li) araçta kalıcı null'dır ve başlık sonsuza
+     dek '—' gösteriyordu — oysa PID 0x46 okunuyordu. Otorite tek yerde:
+     CAN → OBD → yok, ve YALNIZ taze (LIVE) ölçüm sayı olarak basılır. */
+  const ambient = useAmbientTemp();
   const n = useNotificationState();
   // Living theme — bağlantı durumu (online yeşil nabız / offline soluk).
   const online = useLivingThemeState().conn === 'online';
   return (
-    <div className="flex items-center justify-between flex-shrink-0" style={{ height: 50, padding: '0 16px' }}>
+    <div data-editable="expedition.header" data-editable-type="header" className="flex items-center justify-between flex-shrink-0" style={{ height: 50, padding: '0 16px' }}>
       <div className="flex items-center" style={{ gap: 12 }}>
         <img src={emblemUrl} alt="CarOS" style={{ width: 38, height: 38, objectFit: 'contain', filter: p.night ? 'drop-shadow(0 2px 4px rgba(0,0,0,.55))' : 'none' }} />
         <div style={{ fontWeight: 800, fontSize: 20, letterSpacing: '0.22em', color: p.ink2 }}>CAR<b style={{ color: p.ink }}>OS</b></div>
@@ -200,13 +222,19 @@ const SpeedPlate = memo(function SpeedPlate() {
   const p = usePal();
   const use24Hour = useStore(s => s.settings.use24Hour);
   const { time, date } = useClock(use24Hour, false);
-  const obd = useOBDState();
-  const gps = useGPSLocation();
-  const speed = Math.round(resolveSpeedKmh(gps, obd.speed ?? 0));
+  /* SAHA 2026-08-12: ham değer YUVARLANMADAN basılıyordu. GPS kaynaklı hız
+     `loc.speed * 3.6` ile üretilir → ONDALIKLIDIR ("67.154"); 88 px'lik rakamla
+     6+ karakter plakayı taşırıp ekranın dışına çıkıyordu. OBD (`010D`) tam sayı
+     döndürdüğü için kusur yalnız GPS kaynağı kazandığında görünüyordu — sürücünün
+     "bazen düzeliyor" dediği şey buydu. Gösterim TEK biçimleyiciden geçer
+     (`formatDisplaySpeed`: yuvarlar + `null` → "—"); YAY matematiği ham sayıyı
+     kullanmaya devam eder. */
+  const rawSpeed = useDisplaySpeed();
+  const speed = rawSpeed ?? 0;   // yalnız yay/oran hesabı için
   // 270° yay (r=100, çevre 628 → görünür 471); dolum = hız/200
   const offset = useMemo(() => 471 - Math.min(speed / 200, 1) * 471, [speed]);
   return (
-    <Plate style={{ padding: '22px 20px', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+    <Plate editId="expedition.speed" editType="gauge" style={{ padding: '22px 20px', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
       <div>
         <div style={{ fontWeight: 700, fontSize: 52, lineHeight: 0.95, color: p.ink, fontVariantNumeric: 'tabular-nums', letterSpacing: '0.01em' }}>{time}</div>
         <div style={{ marginTop: 5, color: p.ink2, fontSize: 15, fontWeight: 500 }}>{date}</div>
@@ -218,7 +246,7 @@ const SpeedPlate = memo(function SpeedPlate() {
             <circle cx="116" cy="116" r="100" fill="none" strokeWidth="16" strokeLinecap="round" strokeDasharray="471 628" strokeDashoffset={offset} style={{ stroke: p.accent, filter: `drop-shadow(0 0 6px ${p.accentGlow})`, transition: 'stroke-dashoffset .5s ease' }} />
           </svg>
           <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2 }}>
-            <div style={{ fontWeight: 800, fontSize: 88, lineHeight: 0.8, color: p.inkCritical, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em' }}>{speed}</div>
+            <div style={{ fontWeight: 800, fontSize: 88, lineHeight: 0.8, color: p.inkCritical, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em' }}>{formatDisplaySpeed(rawSpeed)}</div>
             <div style={{ fontSize: 15, fontWeight: 700, letterSpacing: '0.12em', color: p.ink2 }}>KM/H</div>
           </div>
         </div>
@@ -235,13 +263,23 @@ const SpeedPlate = memo(function SpeedPlate() {
 /* ─── RANGE / FUEL PLATE ─────────────────────────────────────────── */
 const RangePlate = memo(function RangePlate() {
   const p = usePal();
+  const obd = useOBDState();
   const eng = useEngineReadout();
-  const odometer = useUnifiedVehicleStore(s => s.odometer);
-  const lvl = eng.fuel;
-  const range = lvl != null ? Math.round((lvl / 100) * 750) : null;
+  /* SAHA 2026-08-06: bu plaka OBD bağlı DEĞİLKEN "675 km MENZİL" gösteriyordu ve
+     araç 1,5 km ilerlerken değer hiç değişmedi (donuk uydurma).
+     İKİ KUSUR VARDI ve ikisi de Tesla/Horizon'da ÇOKTAN düzeltilmişti — bu plaka
+     atlanmıştı (aktif tema burasıydı):
+       (a) canlılık kapısı yoktu → bayat OBD okuması sonsuza dek canlı sanıldı,
+       (b) sabit 750 km katsayısı → menzil UYDURULUYORDU.
+     Menzil artık araç profilinin tank+tüketim hesabından gelir; yoksa dürüstçe '—'. */
+  const live = isObdReadingLive(obd);
+  const lvl = live && obd.fuelLevel != null && obd.fuelLevel >= 0 ? obd.fuelLevel : eng.fuel;
+  const range = live && obd.estimatedRangeKm != null && obd.estimatedRangeKm >= 0
+    ? Math.round(obd.estimatedRangeKm)
+    : null;
   const seg = lvl != null ? Math.round(lvl / 10) : 0;
   return (
-    <Plate style={{ padding: '12px 20px', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 9 }}>
+    <Plate editId="expedition.range" style={{ padding: '12px 20px', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 9 }}>
       <div className="flex items-center" style={{ gap: 12 }}>
         <Fuel className="w-[27px] h-[27px]" style={{ color: p.ink2 }} />
         <span style={{ fontWeight: 800, fontSize: 30, color: p.ink, fontVariantNumeric: 'tabular-nums' }}>{range ?? '—'} <small style={{ fontSize: 16, color: p.ink2, fontWeight: 600 }}>km</small></span>
@@ -256,12 +294,14 @@ const RangePlate = memo(function RangePlate() {
         </div>
         <span style={{ fontSize: 11, fontWeight: 700, color: p.ink2 }}>F</span>
       </div>
-      {/* Kilometre (odometre) — GPS, OBD'siz çalışır; aynı panelde ayrı etiketli okuma */}
-      <div className="flex items-center" style={{ gap: 12, marginTop: 2, paddingTop: 9, borderTop: `1px solid ${p.edge}` }}>
-        <Gauge className="w-[27px] h-[27px]" style={{ color: p.ink2 }} />
-        <span style={{ fontWeight: 800, fontSize: 30, color: p.ink, fontVariantNumeric: 'tabular-nums' }}>{Math.round(odometer)} <small style={{ fontSize: 16, color: p.ink2, fontWeight: 600 }}>km</small></span>
-        <span style={{ marginLeft: 'auto' }}><Label>Kilometre</Label></span>
-      </div>
+      {/* Yol Sayacı — RESETLENEBİLİR kullanıcı sayacı (kümülatif odometre farkı).
+          Eskiden burada ham kümülatif odometre ("Kilometre") vardı; sıfırlanamadığı
+          için pratikte hep 0 okunuyordu. */}
+      <TripMeterRow
+        palette={{ ink: p.ink, ink2: p.ink2, ink3: p.ink3, accent: p.accent, tile: p.plateSunk, edge: p.edge }}
+        valueSize={30} unitSize={16} labelSize={12} iconSize={27} gap={12}
+        showTopBorder
+      />
     </Plate>
   );
 });
@@ -269,11 +309,12 @@ const RangePlate = memo(function RangePlate() {
 /* ─── MAP PLATE (canlı harita + expedition overlay) ──────────────── */
 const MapPlate = memo(function MapPlate({ onOpenMap, fullMapOpen }: { onOpenMap: () => void; fullMapOpen?: boolean }) {
   const p = usePal();
+  const navSummary = useNavSummary();
   const chip: React.CSSProperties = { background: p.night ? 'rgba(16,12,7,0.82)' : 'rgba(250,244,232,0.9)', border: `1px solid ${p.edge}`, borderRadius: 13 };
   // minHeight 200: grid çökse bile harita konteyneri asla 0px olamaz —
   // MiniMapWidget 0 boyutta init'i bekletir (MiniMapWidget.tsx tryInit)
   return (
-    <Plate style={{ padding: 0, overflow: 'hidden', flex: 1, minWidth: 0, minHeight: 200 }} onClick={onOpenMap}>
+    <Plate editId="expedition.map" editType="map" style={{ padding: 0, overflow: 'hidden', flex: 1, minWidth: 0, minHeight: 200 }} onClick={onOpenMap}>
       <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, borderRadius: 20, overflow: 'hidden', cursor: 'pointer' }}>
         {fullMapOpen
           ? <div className="w-full h-full flex items-center justify-center" style={{ background: p.plateSunk }}><Navigation className="w-10 h-10" style={{ color: p.accent }} /></div>
@@ -281,15 +322,20 @@ const MapPlate = memo(function MapPlate({ onOpenMap, fullMapOpen }: { onOpenMap:
         <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, pointerEvents: 'none', borderRadius: 20, boxShadow: p.night ? 'inset 0 0 90px rgba(0,0,0,.65), inset 0 2px 0 rgba(176,134,76,.30)' : 'inset 0 0 60px rgba(0,0,0,.4), inset 0 2px 0 rgba(255,255,255,.6)' }} />
       </div>
       <div className="absolute flex items-start justify-between" style={{ top: 14, left: 14, right: 14, pointerEvents: 'none' }}>
-        <div style={{ ...chip, padding: '9px 13px', pointerEvents: 'auto' }}>
-          <div className="flex items-center" style={{ gap: 12 }}>
-            <div className="flex items-center justify-center" style={{ width: 36, height: 36, borderRadius: 11, background: p.accent, boxShadow: `0 6px 16px ${p.accentGlow}` }}><CornerUpRight className="w-5 h-5" style={{ color: '#fff' }} /></div>
-            <div>
-              <div style={{ fontSize: 21, fontWeight: 800, color: p.inkCritical, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>2.4 <span style={{ fontSize: 12, fontWeight: 600, color: p.ink2 }}>km</span></div>
-              <div style={{ fontSize: 12, fontWeight: 500, color: p.ink2, marginTop: 2 }}>Sahil Yolu Cd.</div>
+        {/* Rota özeti — GERÇEK navigasyon durumundan. Sabit sahte yol adı + mesafe
+            YAZILIYDI; hiçbir kaynağa bağlı değildi (saha 2026-08-02). Rota yoksa
+            chip HİÇ gösterilmez — sahte hedef/mesafe ÜRETİLMEZ. */}
+        {navSummary ? (
+          <div style={{ ...chip, padding: '9px 13px', pointerEvents: 'auto' }}>
+            <div className="flex items-center" style={{ gap: 12 }}>
+              <div className="flex items-center justify-center" style={{ width: 36, height: 36, borderRadius: 11, background: p.accent, boxShadow: `0 6px 16px ${p.accentGlow}` }}><CornerUpRight className="w-5 h-5" style={{ color: '#fff' }} /></div>
+              <div>
+                <div style={{ fontSize: 21, fontWeight: 800, color: p.inkCritical, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{navSummary.mesafe} <span style={{ fontSize: 12, fontWeight: 600, color: p.ink2 }}>km</span></div>
+                <div style={{ fontSize: 12, fontWeight: 500, color: p.ink2, marginTop: 2 }}>{navSummary.hedef}</div>
+              </div>
             </div>
           </div>
-        </div>
+        ) : <div />}
         <div className="flex items-center" style={{ gap: 8, pointerEvents: 'auto' }}>
           <div className="flex items-center" style={{ gap: 6, padding: '6px 10px', borderRadius: 999, ...chip }}>
             <span style={{ width: 6, height: 6, borderRadius: '50%', background: p.accent, animation: 'exPulse 2s infinite' }} />
@@ -301,16 +347,14 @@ const MapPlate = memo(function MapPlate({ onOpenMap, fullMapOpen }: { onOpenMap:
       <div className="absolute flex flex-col" style={{ right: 14, top: '50%', transform: 'translateY(-50%)', gap: 8 }} onClick={e => e.stopPropagation()}>
         {[Plus, Minus].map((Ic, i) => <button key={i} className="ex-btn flex items-center justify-center" style={{ width: 34, height: 34, ...chip, cursor: 'pointer' }}><Ic className="w-4 h-4" style={{ color: p.ink2 }} /></button>)}
       </div>
-      <div className="absolute flex items-center" style={{ bottom: 14, left: 14, pointerEvents: 'none' }}>
-        <div className="flex items-center" style={{ gap: 14, padding: '8px 15px', ...chip, pointerEvents: 'auto' }}>
-          <span style={{ fontSize: 13, fontWeight: 700, color: p.ink }}>23 dk</span>
-          <span style={{ fontSize: 12, color: p.ink3 }}>· 19:56</span>
-          <span style={{ width: 1, height: 14, background: p.hairline }} />
-          <span style={{ fontSize: 12, fontWeight: 600, color: p.ink2 }}>18 km</span>
-          <span style={{ width: 1, height: 14, background: p.hairline }} />
-          <div className="flex items-center" style={{ gap: 6 }}><BatteryCharging className="w-4 h-4" style={{ color: p.accent }} /><span style={{ fontSize: 12, fontWeight: 600, color: p.ink2 }}>EV kullanımı</span></div>
-        </div>
-      </div>
+      {/* Kütük #382/#431 — SAHTE ETA ŞERİDİ KALDIRILDI (saha 2026-08-05).
+       * Burada "23 dk · 19:56 · 18 km · EV kullanımı" SABİT değerleri vardı ve
+       * rota iptal edilir edilmez geri geliyordu (`shot_18`). Hiçbiri ölçüme
+       * dayanmıyordu; üstelik araç ICE iken "EV kullanımı" yazıyordu.
+       * Kütüğün kabul ölçütü: "ya gerçek kaynağa bağlanmalı ya da rota yokken
+       * HİÇ gösterilmemeli — kapatma yolu sayıları değiştirmek DEĞİLDİR".
+       * Rota yokken gösterilecek bir ETA YOKTUR → şerit kaldırıldı.
+       * Aktif rotanın gerçek şeridi mini haritanın kendi HUD'ında zaten var. */}
     </Plate>
   );
 });
@@ -325,10 +369,10 @@ const MusicPlate = memo(function MusicPlate() {
     startMediaHub();
     previewLastMedia();
     if (getPerformanceMode() === 'lite') {
-      const id = window.setTimeout(() => { void ensureYouTubeReady().catch(() => {}); }, 4000);
+      const id = window.setTimeout(() => { preloadYouTubeIfAffordable(); }, 4000);
       return () => { window.clearTimeout(id); stopMediaHub(); };
     }
-    void ensureYouTubeReady().catch(() => {});
+    preloadYouTubeIfAffordable();
     return () => stopMediaHub();
   }, []);
   const total = track.durationSec || 0;
@@ -370,7 +414,7 @@ const MusicPlate = memo(function MusicPlate() {
     ? { background: 'transparent', color: p.accent, border: `2.5px solid ${p.accent}`, boxShadow: `0 0 18px ${p.accentGlow}` }
     : { background: p.accent, color: '#1a0f02', border: 'none', boxShadow: `0 6px 16px ${p.accentGlow}, inset 0 2px 0 rgba(255,255,255,.35)` };
   return (
-    <Plate style={{ padding: '18px 20px', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+    <Plate editId="expedition.music" editType="media" style={{ padding: '18px 20px', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
       <div className="flex items-center" style={{ gap: 14 }}>
         <button onClick={() => openMusicDrawer()} style={{ width: 64, height: 64, borderRadius: 10, flexShrink: 0, border: `1px solid ${p.edge}`, boxShadow: '0 3px 8px rgba(0,0,0,.5)', overflow: 'hidden', background: p.plateSunk, cursor: 'pointer', display: 'grid', placeItems: 'center' }}>
           {track.albumArt ? <img src={track.albumArt} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <Music2 className="w-7 h-7" style={{ color: p.accent }} />}
@@ -403,15 +447,14 @@ const MusicPlate = memo(function MusicPlate() {
 /* ─── VEHICLE PLATE (CarOS Rover + canlı metrikler) ──────────────── */
 const VehiclePlate = memo(function VehiclePlate({ onOpenSettings }: { onOpenSettings: () => void }) {
   const p = usePal();
-  const obd = useOBDState();
-  const gps = useGPSLocation();
-  const volt = useUnifiedVehicleStore(s => s.canBatteryVolt);
+  const battery = useBatteryVoltage();   // kütük #427: CAN → OBD otoritesi
+  const volt = battery.volt;
   const eng = useEngineReadout();
-  const speed = Math.round(resolveSpeedKmh(gps, obd.speed ?? 0));
+  const rawSpeed = useDisplaySpeed();
   const motor = eng.engineTemp != null ? Math.round(eng.engineTemp) : null;
   const rpm = eng.rpm;
   return (
-    <Plate style={{ padding: '18px 20px 0', display: 'flex', flexDirection: 'column', overflow: 'hidden' }} onClick={onOpenSettings}>
+    <Plate editId="expedition.vehicle" style={{ padding: '18px 20px 0', display: 'flex', flexDirection: 'column', overflow: 'hidden' }} onClick={onOpenSettings}>
       <div className="flex items-baseline justify-between">
         <Label>Araç Durumu</Label>
         <div className="flex items-center" style={{ gap: 4 }}>
@@ -427,18 +470,19 @@ const VehiclePlate = memo(function VehiclePlate({ onOpenSettings }: { onOpenSett
       <div className="flex" style={{ borderTop: `1px solid ${p.hairline}`, position: 'relative', zIndex: 2 }} onClick={e => e.stopPropagation()}>
         <Metric k="Motor" v={motor != null ? `${motor}` : '—'} unit="°C" />
         <Metric k="Devir" v={rpm != null ? `${Math.round(rpm)}` : '—'} unit="" border />
-        <Metric k="Akü"  v={volt != null ? volt.toFixed(1) : '—'} unit="V" border />
-        <Metric k="Hız"  v={`${speed}`} unit=" km/h" border />
+        <Metric k="Akü"  v={volt != null ? volt.toFixed(1) : '—'} unit="V" border warn={battery.isWarning} />
+        <Metric k="Hız"  v={formatDisplaySpeed(rawSpeed)} unit=" km/h" border />
       </div>
     </Plate>
   );
 });
-function Metric({ k, v, unit, border }: { k: string; v: string; unit: string; border?: boolean }) {
+function Metric({ k, v, unit, border, warn }: { k: string; v: string; unit: string; border?: boolean; warn?: boolean }) {
   const p = usePal();
   return (
     <div style={{ flex: 1, padding: border ? '12px 4px 16px 16px' : '12px 4px 16px', borderLeft: border ? `1px solid ${p.hairline}` : undefined }}>
       <div style={{ fontSize: 13, fontWeight: 600, letterSpacing: '0.05em', color: p.ink2, textTransform: 'uppercase' }}>{k}</div>
-      <div style={{ fontWeight: 700, fontSize: 27, marginTop: 2, color: p.ink, fontVariantNumeric: 'tabular-nums' }}>{v}<small style={{ fontSize: 15, color: p.ink2, fontWeight: 600 }}>{unit}</small></div>
+      {/* Kütük #427: WARN seviyesinde değer uyarı renginde gösterilir. */}
+      <div style={{ fontWeight: 700, fontSize: 27, marginTop: 2, color: warn ? 'var(--oem-warn)' : p.ink, fontVariantNumeric: 'tabular-nums' }}>{v}<small style={{ fontSize: 15, color: p.ink2, fontWeight: 600 }}>{unit}</small></div>
     </div>
   );
 }
@@ -447,8 +491,10 @@ function Metric({ k, v, unit, border }: { k: string; v: string; unit: string; bo
 function DockBtn({ Icon, cap, active, onClick, badge }: { Icon: typeof Navigation; cap: string; active?: boolean; onClick: () => void; badge?: number }) {
   const p = usePal();
   // flex 0 0 33.333% → her zaman 3 buton görünür; fazlası yatay kaydırmayla gelir.
+  // Tema Stüdyo: dock butonları TOPLUCA düzenlenir — 17 butona ayrı kimlik vermek
+  // kayıt defterini şişirir; aynı kimlik hepsinde → tek CSS kuralı hepsine iner.
   return (
-    <button onClick={onClick} className="ex-dock-btn flex flex-col items-center justify-center flex-shrink-0" style={{ flex: '0 0 38%', minWidth: 0, scrollSnapAlign: 'start', background: 'transparent', border: 'none', cursor: 'pointer', gap: 8, color: active ? p.accent : p.ink2, borderRight: `1px solid ${p.hairline}`, position: 'relative', touchAction: 'pan-x' }}>
+    <button data-dock-item data-editable="expedition.dock-buttons" data-editable-type="dock" onClick={onClick} className="ex-dock-btn flex flex-col items-center justify-center flex-shrink-0" style={{ flex: '0 0 38%', minWidth: 0, scrollSnapAlign: 'start', background: 'transparent', border: 'none', cursor: 'pointer', gap: 8, color: active ? p.accent : p.ink2, borderRight: `1px solid ${p.hairline}`, position: 'relative', touchAction: 'pan-x' }}>
       {active && !p.night
         ? <span style={{ width: 52, height: 52, borderRadius: '50%', background: p.accent, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', boxShadow: `0 4px 14px ${p.accentGlow}` }}><Icon className="w-8 h-8" /></span>
         : <Icon className="w-[34px] h-[34px]" style={{ filter: 'drop-shadow(0 1px 1px rgba(0,0,0,.5))' }} />}
@@ -555,7 +601,7 @@ const BrandClock = memo(function BrandClock({ onClick }: { onClick: () => void }
   }
 
   return (
-    <button onClick={onClick} className="ex-btn" aria-label="Saat — Menü" style={{ position: 'absolute', bottom: 0, left: '50%', transform: 'translateX(-50%) scale(0.95)', transformOrigin: '50% 100%', width: 162, height: 162, zIndex: 3, background: 'none', border: 'none', cursor: 'pointer', padding: 0, outline: 'none', WebkitTapHighlightColor: 'transparent', contain: 'paint' }}>
+    <button data-editable="expedition.clock" data-editable-type="card" onClick={onClick} className="ex-btn" aria-label="Saat — Menü" style={{ position: 'absolute', bottom: 0, left: '50%', transform: 'translateX(-50%) scale(0.95)', transformOrigin: '50% 100%', width: 162, height: 162, zIndex: 3, background: 'none', border: 'none', cursor: 'pointer', padding: 0, outline: 'none', WebkitTapHighlightColor: 'transparent', contain: 'paint' }}>
       {/* dış kontur — gölge taşıyıcı (gün/gece duyarlı) */}
       <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, borderRadius: '50%', background: outerRim, boxShadow: outerShadow }} />
       {/* altın bezel (gündüz şampanya) */}
@@ -655,11 +701,16 @@ const ExpeditionDock = memo(function ExpeditionDock({ onOpenMap, onOpenApps, onO
 }) {
   const p = usePal();
   const n = useNotificationState();
+  /* CAROS LAB — AppGrid kartı ve DockBar kısayoluyla AYNI fail-closed kapı
+     (DEVELOPER_FEATURES_ENABLED). Kapı kapalıyken buton hiç render EDİLMEZ;
+     `openCarosLab` ayrıca kendi içinde tekrar kontrol eder (çift savunma).
+     Sağ grubun EN SONUNDA: sürücü akışındaki kısayolların sırası değişmez. */
+  const carosLabAllowed = useCarosLabAllowed();
   // İki yan grup yatay kaydırılabilir; her birinde 3 buton görünür (toplam 6),
   // kaydırınca diğerleri gelir. Ortadaki pusula ve metal şerit aynen korunur.
   return (
     <div style={{ position: 'relative', flex: '0 0 auto', height: 124 }}>
-      <div style={{ ...plateStyle(p), position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, display: 'flex', alignItems: 'stretch', overflow: 'hidden' }}>
+      <div data-editable="expedition.dock" data-editable-type="dock" style={{ ...plateStyle(p), position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, display: 'flex', alignItems: 'stretch', overflow: 'hidden' }}>
         <Rivets />
         {/* Sol grup — kaydırılabilir */}
         <DockScrollZone>
@@ -685,6 +736,9 @@ const ExpeditionDock = memo(function ExpeditionDock({ onOpenMap, onOpenApps, onO
           <DockBtn Icon={Shield}        cap="Güvenlik" onClick={() => openDrawer('security')} />
           <DockBtn Icon={Tv2}           cap="Eğlence"  onClick={() => openDrawer('entertainment')} />
           <DockBtn Icon={Zap}           cap="Sport"    onClick={() => openDrawer('sport')} />
+          {carosLabAllowed && (
+            <DockBtn Icon={FlaskConical} cap="CAROS LAB" onClick={() => { openCarosLab(); }} />
+          )}
         </DockScrollZone>
       </div>
       <BrandClock onClick={onOpenApps} />
@@ -713,7 +767,13 @@ export const ExpeditionLayout = memo(function ExpeditionLayout(props: Props) {
 
   // ── Yerleşim Motoru — Tema Stüdyo niyetinden çöz (özelleştirme yoksa = mevcut ekran) ──
   // Ham niyet EXPEDITION_MANIFEST ile normalize edilir (pro/diğer tema kartları elenir).
-  const rawIntent = useLayoutStore((s) => s.intent);
+  // Tema-başına niyet (Tema Manifesti v3); o tema için yoksa paylaşılan niyete düşer.
+  const zoneW = useZoneWidths('expedition');
+  const gridCols = useMemo(
+    () => exGridCols(zoneW['left-rail'] ?? 1, zoneW['right-rail'] ?? 1),
+    [zoneW],
+  );
+  const rawIntent = useLayoutIntent('expedition');
   const intent = useMemo(() => normalizeIntent(rawIntent, EXPEDITION_MANIFEST), [rawIntent]);
   const solved = useMemo(() => solveLayout(intent, EXPEDITION_MANIFEST), [intent]);
 
@@ -734,22 +794,48 @@ export const ExpeditionLayout = memo(function ExpeditionLayout(props: Props) {
     if (id === 'range') return SUPPORTS_CSS_CLAMP ? 'clamp(120px,18vh,160px)' : 'minmax(120px,160px)';
     return 'minmax(0, 1fr)';
   };
+  /* GRUP satır boyu (#656): birleşik kartlar TEK grid satırı kaplar. Sabit
+     yükseklikli üye varsa (menzil plakası) satır `auto` olur ve iç ızgara
+     dağıtır; hepsi esnekse fr değerleri TOPLANIR → birleştirme öncesi ile
+     sonrası aynı toplam alanı kullanır (ekran zıplamaz). */
+  const exGroupRow = (ids: string[]): string => {
+    const boylar = ids.map((id) => exRowSize(id));
+    if (boylar.some((b) => !b.startsWith('minmax(0,'))) return 'auto';
+    const toplam = ids.reduce((acc, id) => acc + (intent[id]?.growCustom ?? 1), 0);
+    return `minmax(0, ${toplam}fr)`;
+  };
   const exRailRows = (zone: Zone) =>
-    solved[zone].items.map((it) => exRowSize(it.id)).join(' ') || 'minmax(0,1fr)';
+    solved[zone].groups.map((g) => exGroupRow(g.map((it) => it.id))).join(' ') || 'minmax(0,1fr)';
+
+  /* Bir grubu çizer. Tek elemanlı grup da BURADAN geçer — çizimde ikinci bir
+     kod yolu yoktur (birleşik/değil ayrımı yalnız `data-merged` ile görünür). */
+  const renderExGroup = (g: { id: string }[], key: string) => {
+    if (g.length === 1) {
+      return <div key={key} style={{ minWidth: 0, minHeight: 0, display: 'grid' }}>{renderExCard(g[0].id)}</div>;
+    }
+    return (
+      <div key={key} data-merged="true" style={{
+        minWidth: 0, minHeight: 0, display: 'grid', gap: 0,
+        gridTemplateRows: g.map((it) => exRowSize(it.id)).join(' '),
+      }}>
+        {g.map((it) => (
+          <div key={it.id} style={{ minWidth: 0, minHeight: 0, display: 'grid' }}>{renderExCard(it.id)}</div>
+        ))}
+      </div>
+    );
+  };
 
   return (
     <PalCtx.Provider value={pal}>
-      <div className="relative w-full h-full overflow-hidden" style={{ background: pal.desk, transition: 'background .5s ease', color: pal.ink, display: 'flex', flexDirection: 'column', padding: 16, gap: 14 }}>
+      <div data-theme-surface="home" className="relative w-full h-full overflow-hidden" style={{ background: pal.desk, transition: 'background .5s ease', color: pal.ink, display: 'flex', flexDirection: 'column', padding: 16, gap: 14 }}>
         {voiceOpen && <Suspense fallback={null}><VoiceAssistant onClose={() => setVoiceOpen(false)} minimal /></Suspense>}
 
         <Header />
 
-        <div style={{ flex: '1 1 auto', minHeight: 0, display: 'grid', gridTemplateColumns: GRID_COLS, gap: 14 }}>
+        <div style={{ flex: '1 1 auto', minHeight: 0, display: 'grid', gridTemplateColumns: gridCols, gap: 14 }}>
           {/* Sol ray — Yerleşim Motoru'ndan (sıra/görünürlük/boyut niyete göre; varsayılan = mevcut ekran) */}
           <div style={{ display: 'grid', gap: 14, minWidth: 0, minHeight: 0, gridTemplateRows: exRailRows('left-rail') }}>
-            {solved['left-rail'].items.map((it) => (
-              <div key={it.id} style={{ minWidth: 0, minHeight: 0, display: 'grid' }}>{renderExCard(it.id)}</div>
-            ))}
+            {solved['left-rail'].groups.map((g, i) => renderExGroup(g, g.map((x) => x.id).join('+') || String(i)))}
           </div>
           {/* Orta */}
           <div style={{ position: 'relative', minWidth: 0, minHeight: 0, display: 'flex' }}>
@@ -762,9 +848,7 @@ export const ExpeditionLayout = memo(function ExpeditionLayout(props: Props) {
           </div>
           {/* Sağ ray — Yerleşim Motoru'ndan (sıra/görünürlük/boyut niyete göre) */}
           <div style={{ display: 'grid', gap: 14, minWidth: 0, minHeight: 0, gridTemplateRows: exRailRows('right-rail') }}>
-            {solved['right-rail'].items.map((it) => (
-              <div key={it.id} style={{ minWidth: 0, minHeight: 0, display: 'grid' }}>{renderExCard(it.id)}</div>
-            ))}
+            {solved['right-rail'].groups.map((g, i) => renderExGroup(g, g.map((x) => x.id).join('+') || String(i)))}
           </div>
         </div>
 

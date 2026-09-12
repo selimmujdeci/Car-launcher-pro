@@ -13,6 +13,23 @@ import { timeoutSignal } from './providers';
 
 const ARCHIVE = 'https://archive.org';
 
+/* ── Harici yanıt sözleşmeleri (GÜVENİLMEZ — her alan opsiyonel) ────────────
+   Internet Archive JSON'u şemasız gelir; alanlar eksik veya farklı tipte
+   olabilir. Bu arayüzler "API'nin ne döndürdüğü"nü BELGELER, garanti etmez —
+   erişimler bu yüzden opsiyonel zincir + varsayılanla korunur. */
+
+interface ArchiveDoc {
+  identifier?: string;
+  /** Archive bazı item'larda tek string, bazılarında dizi döndürür. */
+  title?:      string | string[];
+  creator?:    string | string[];
+}
+
+interface ArchiveFile {
+  name?:   string;
+  format?: string;
+}
+
 /** streamUrl bu önekle başlıyorsa Internet Archive item'ıdır (çalmadan önce çözülür). */
 export const ARCHIVE_SCHEME = 'archive://';
 
@@ -35,9 +52,10 @@ export const archiveProvider: MediaProvider = {
       const res = await fetch(`${ARCHIVE}/advancedsearch.php?${params.toString()}`, { signal });
       if (!res.ok) return [];
       const json = await res.json();
-      const docs = (json?.response?.docs ?? []) as any[];
+      const docs = (json?.response?.docs ?? []) as ArchiveDoc[];
       return docs
-        .filter((d) => d.identifier)
+        // Boolean(): ESKİ truthiness testinin AYNISI — yalnız tip daraltması eklendi.
+        .filter((d): d is ArchiveDoc & { identifier: string } => Boolean(d.identifier))
         .slice(0, 20)
         .map((d): UnifiedTrack => {
           const creator = Array.isArray(d.creator) ? d.creator[0] : d.creator;
@@ -67,7 +85,7 @@ export async function resolveArchiveStream(identifier: string): Promise<string |
     });
     if (!res.ok) return null;
     const json  = await res.json();
-    const files = (json?.files ?? []) as any[];
+    const files = (json?.files ?? []) as ArchiveFile[];
     const pick =
       files.find((f) => /mp3/i.test(f.format ?? '') || /\.mp3$/i.test(f.name ?? '')) ??
       files.find((f) => /\.(ogg|m4a|flac|wav)$/i.test(f.name ?? ''));

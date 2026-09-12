@@ -43,6 +43,7 @@ const VOICE_LABELS: Record<string, string> = {
 const IncomingCallCard = memo(function IncomingCallCard({ notif, onDismiss }: { notif: AppNotification; onDismiss: () => void }) {
   return (
     <div className="rounded-2xl p-5 flex flex-col gap-4 animate-slide-up"
+      data-editable="notifications.call-card" data-editable-type="card"
       style={{ background: 'var(--oem-good-soft, rgba(34,197,94,0.10))', border: '1px solid var(--oem-good, rgba(34,197,94,0.35))' }}>
       <div className="flex items-center gap-3">
         <div className="w-10 h-10 rounded-full flex items-center justify-center"
@@ -113,6 +114,7 @@ const NotificationCard = memo(function NotificationCard({
 
   return (
     <div className="rounded-2xl p-4 transition-colors"
+      data-editable="notifications.card" data-editable-type="card"
       style={{
         background: notif.isRead ? 'var(--oem-surface-2, rgba(255,255,255,0.03))' : 'var(--oem-info-soft, rgba(59,130,246,0.04))',
         border: `1px solid ${notif.isRead ? 'var(--oem-line, rgba(255,255,255,0.06))' : 'var(--oem-info, rgba(59,130,246,0.22))'}`,
@@ -226,7 +228,7 @@ function NotificationCenterInner() {
   const others   = ns.notifications.filter((n) => n.category !== 'call');
 
   return (
-    <div className="flex flex-col gap-4 p-4 pb-6">
+    <div data-theme-surface="notifications" data-editable="notification-center" data-editable-type="panel" className="flex flex-col gap-4 p-4 pb-6">
 
       {/* ── Header ────────────────────────────────────────── */}
       <div className="flex items-center justify-between">

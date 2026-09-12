@@ -1,0 +1,65 @@
+{
+  "sample": {
+    "ML": {
+      "n": 20,
+      "yok": 1,
+      "kayik": 0,
+      "belirsiz": 5,
+      "var": 14
+    },
+    "OSM": {
+      "n": 5,
+      "yok": 0,
+      "kayik": 1,
+      "belirsiz": 0,
+      "var": 4
+    }
+  },
+  "wilson95": {
+    "ML_yanlisPozitif": [
+      0.9,
+      23.6
+    ],
+    "ML_acikKusur": [
+      0.9,
+      23.6
+    ],
+    "ML_enKotu": [
+      14.5,
+      51.9
+    ],
+    "OSM_acikKusur": [
+      3.6,
+      62.4
+    ]
+  },
+  "areaM2": {
+    "overtureML": {
+      "n": 112,
+      "min": 12,
+      "p25": 37,
+      "median": 73,
+      "p75": 113,
+      "max": 480,
+      "mean": 92
+    },
+    "overtureOsmKokenli": {
+      "n": 11,
+      "min": 122,
+      "p25": 162,
+      "median": 162,
+      "p75": 320,
+      "max": 531,
+      "mean": 245
+    },
+    "osmUpstream": {
+      "n": 11,
+      "min": 122,
+      "p25": 162,
+      "median": 162,
+      "p75": 320,
+      "max": 531,
+      "mean": 245
+    }
+  }
+}

@@ -35,8 +35,14 @@
 import { safeGetRaw, safeSetRaw, safeRemoveRaw } from '../../utils/safeStorage';
 import {
   clampProgress,
+  missingCompletionOutcome,
   normalizeFingerprintHash,
   sanitizeText,
+  MAX_INCOMPLETE_REASONS,
+  type DeepScanCompletionOutcome,
+  type DeepScanCoverageSummary,
+  type DeepScanFinalVerdict,
+  type DeepScanIncompleteReason,
   type DeepScanMode,
   type DeepScanReportSummary,
   type DeepScanSnapshot,
@@ -104,6 +110,21 @@ export interface DeepScanRecord {
   readonly reportSummary: DeepScanReportSummary | null;
   /** İdempotent sayaç koruması — aynı scanId iki kez `completedScanCount`'u artırmasın. */
   readonly lastCompletedScanId: string | null;
+
+  /* ── COMPLETION TRUTH (kapsam gerçeği) — legacy alanların YANINDA zorunlu meta ──
+   * `lastStatus === 'completed'` YALNIZ "state machine terminale ulaştı" demektir.
+   * "Gerçekten tam tarandı mı" sorusunun cevabı AŞAĞIDAKİ alanlardadır. */
+
+  /** Tarama terminale ulaştı mı (completed/failed/cancelled). */
+  readonly lastScanTerminal: boolean;
+  /** Son taramanın kapsam kararı (tek otorite çıktısı). Bilinmiyorsa `null`. */
+  readonly lastFinalVerdict: DeepScanFinalVerdict | null;
+  /** Son tarama neden `full` sayılmadı — kapalı küme, bounded. */
+  readonly lastIncompleteReasons: readonly DeepScanIncompleteReason[];
+  /** Son taramanın kapsam sayımları (ham veri YOK). */
+  readonly lastCoverage: DeepScanCoverageSummary | null;
+  /** Tam kapsam elde EDİLEMEDEN sonlanan tarama sayısı (gözlemlenebilirlik). */
+  readonly partialScanCount: number;
 }
 
 /**
@@ -117,6 +138,14 @@ export interface DeepScanPersistInput {
   readonly didIds?: readonly string[];
   readonly firmware?: ReadonlyArray<{ readonly ecu?: string; readonly version?: string }>;
   readonly capabilitySummary?: string;
+  /**
+   * KAPSAM KANITI (`evaluateDeepScanCompletion()` çıktısı) — `completeScan()` için
+   * ZORUNLU sayılır. Geriye uyumluluk için tip düzeyinde opsiyoneldir, ama
+   * VERİLMEZSE FAIL-CLOSED davranılır: `hasCompletedFullScan` YÜKSELTİLMEZ,
+   * sayaçlar ARTMAZ ve kayda `completion_evidence_missing` nedeni yazılır.
+   * `saveSnapshot()` (ara checkpoint) bu alanı KULLANMAZ.
+   */
+  readonly completion?: DeepScanCompletionOutcome;
 }
 
 /** Kalıcı zarf (şema sürümlü). */
@@ -254,11 +283,148 @@ function _cloneReport(v: unknown): DeepScanReportSummary | null {
   }) as DeepScanReportSummary;
 }
 
+/* ── Completion truth normalizasyonu (kapalı küme → uydurma değer geçemez) ──── */
+
+const _VALID_VERDICTS: ReadonlySet<string> = new Set<DeepScanFinalVerdict>([
+  'full', 'partial', 'incomplete', 'failed', 'cancelled',
+]);
+
+const _VALID_REASONS: ReadonlySet<string> = new Set<DeepScanIncompleteReason>([
+  'no_required_phases',
+  'required_phase_not_attempted',
+  'required_phase_handler_unavailable',
+  'required_phase_skipped',
+  'required_phase_failed',
+  'required_phase_timeout',
+  'required_phase_budget_exhausted',
+  'required_phase_partial',
+  'required_phase_cancelled',
+  'required_phase_unknown_status',
+  'scan_cancelled',
+  'scan_failed',
+  'safety_blocked',
+  'persistence_not_finalized',
+  'completion_evidence_missing',
+]);
+
+function _verdict(v: unknown): DeepScanFinalVerdict | null {
+  return typeof v === 'string' && _VALID_VERDICTS.has(v) ? (v as DeepScanFinalVerdict) : null;
+}
+
+/** Nedenleri kapalı kümeye süzer + tekilleştirir + bound'lar (serbest metin GEÇMEZ). */
+function _normReasons(v: unknown): DeepScanIncompleteReason[] {
+  if (!Array.isArray(v)) return [];
+  const set = new Set<DeepScanIncompleteReason>();
+  for (const r of v) {
+    if (typeof r === 'string' && _VALID_REASONS.has(r)) set.add(r as DeepScanIncompleteReason);
+    if (set.size >= MAX_INCOMPLETE_REASONS) break;
+  }
+  return [...set];
+}
+
+/** Kapsam sayımlarını gizlilik-güvenli klonlar (yalnız sayı). */
+function _cloneCoverage(v: unknown): DeepScanCoverageSummary | null {
+  if (!v || typeof v !== 'object') return null;
+  const c = v as Partial<DeepScanCoverageSummary>;
+  return Object.freeze({
+    requiredCount:        _count(c.requiredCount),
+    attemptedCount:       _count(c.attemptedCount),
+    completedCount:       _count(c.completedCount),
+    skippedCount:         _count(c.skippedCount),
+    failedCount:          _count(c.failedCount),
+    unavailableCount:     _count(c.unavailableCount),
+    timedOutCount:        _count(c.timedOutCount),
+    budgetExhaustedCount: _count(c.budgetExhaustedCount),
+    partialCount:         _count(c.partialCount),
+    unknownCount:         _count(c.unknownCount),
+  }) as DeepScanCoverageSummary;
+}
+
+/**
+ * Kapsam kanıtını doğrular. FAIL-CLOSED:
+ *  - kanıt yok / bozuk → `missingCompletionOutcome()` (asla `full`)
+ *  - `hasCompletedFullScan` yalnız `finalVerdict === 'full'` ile birlikte kabul edilir
+ *    (çağıran uyumsuz bir çift gönderirse iddia DÜŞÜRÜLÜR).
+ */
+function _normCompletion(v: unknown, scanId: string | null): DeepScanCompletionOutcome {
+  if (!v || typeof v !== 'object') return missingCompletionOutcome(scanId);
+  const c = v as Partial<DeepScanCompletionOutcome>;
+  const verdict = _verdict(c.finalVerdict);
+  if (verdict === null) return missingCompletionOutcome(scanId);
+  const reasons = _normReasons(c.incompleteReasons);
+  const full = verdict === 'full' && c.hasCompletedFullScan === true && reasons.length === 0;
+  return Object.freeze({
+    scanId: _boundScanId(c.scanId) ?? scanId,
+    completionEligibility: full ? 'eligible' : 'ineligible',
+    finalVerdict: full ? 'full' : (verdict === 'full' ? 'incomplete' : verdict),
+    hasCompletedFullScan: full,
+    incompleteReasons: Object.freeze(
+      full ? [] : (reasons.length > 0 ? reasons : ['completion_evidence_missing' as DeepScanIncompleteReason]),
+    ),
+    coverage: _cloneCoverage(c.coverage) ?? _cloneCoverage({})!,
+  }) as DeepScanCompletionOutcome;
+}
+
 /** Serbest kapasite özeti metni → temizlenir + bound'lanır ya da null. */
 function _normCapability(v: unknown): string | null {
   if (typeof v !== 'string') return null;
   const c = sanitizeText(v, MAX_CAPABILITY_CHARS);
   return c || null;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * ★ LEGACY FULL-SCAN GÜVEN SINIFLANDIRMASI — TEK MERKEZİ OTORİTE
+ *
+ * SORUN: Completion Truth'tan ÖNCEKİ sürümler `hasCompletedFullScan = true`'yu
+ * yalnız `status === 'completed'` görerek yazıyordu — kapsam kanıtı olmadan. O
+ * kayıtlar diskte DURUYOR (silinmiyor, şema bump edilmiyor) ve ham alana bakan
+ * her tüketici onları "tam tarandı" sanardı → CHANGE_CHECK'e geçilir ve eksik bir
+ * kayıt baseline olurdu.
+ *
+ * KURAL (fail-closed): `hasCompletedFullScan === true` iddiası ancak YANINDA
+ * tutarlı completion metadata varsa GÜVENİLİRDİR. Metadata yok/eksik/tutarsızsa
+ * kayıt `legacy_unverified_full`'dür: SİLİNMEZ, sayaçları DEĞİŞTİRİLMEZ, ama
+ * baseline OLAMAZ ve CHANGE_CHECK ÜRETEMEZ.
+ *
+ * ⚠️ Bu sınıflandırma TEK YERDE yapılır. Tüketiciler ham `record.hasCompletedFullScan`
+ * alanına BAKMAZ — `isVerifiedFullScan()` / `classifyFullScanTrust()` kullanır.
+ * ════════════════════════════════════════════════════════════════════════ */
+
+/** Bir kaydın "tam tarandı" iddiasının güven seviyesi. */
+export type DeepScanFullScanTrust =
+  /** Kanıtlı: `hasCompletedFullScan` + tutarlı completion metadata (verdict `full`). */
+  | 'verified_full'
+  /** İddia var ama KANIT YOK/TUTARSIZ (eski sürüm kaydı) → güvenilmez. */
+  | 'legacy_unverified_full'
+  /** Tam tarama iddiası hiç yok (kısmi/incomplete/failed/cancelled/kayıt yok). */
+  | 'not_full';
+
+/**
+ * Kaydın full-scan güven seviyesini belirler. SAF · DETERMİNİSTİK · throw ETMEZ ·
+ * kaydı MUTATE ETMEZ. Eksik/`undefined` alanlar güvenli şekilde ele alınır.
+ *
+ * `verified_full` için TÜM şartlar:
+ *  - `hasCompletedFullScan === true`  (iddia)
+ *  - `lastFinalVerdict === 'full'`    (kapsam kararı kanıtı)
+ *  - `lastIncompleteReasons` BOŞ      (tutarlılık — `full` + gerekçe bir arada olamaz)
+ *  - `lastScanTerminal === true`      (tutarlılık — full daima terminaldir)
+ */
+export function classifyFullScanTrust(
+  record: DeepScanRecord | null | undefined,
+): DeepScanFullScanTrust {
+  if (!record || typeof record !== 'object') return 'not_full';
+  if (record.hasCompletedFullScan !== true) return 'not_full';
+
+  const verdictOk = record.lastFinalVerdict === 'full';
+  const reasonsOk = !Array.isArray(record.lastIncompleteReasons) || record.lastIncompleteReasons.length === 0;
+  const terminalOk = record.lastScanTerminal === true;
+
+  return verdictOk && reasonsOk && terminalOk ? 'verified_full' : 'legacy_unverified_full';
+}
+
+/** Kayıt KANITLI tam tarama mı (baseline/CHANGE_CHECK için TEK kapı). */
+export function isVerifiedFullScan(record: DeepScanRecord | null | undefined): boolean {
+  return classifyFullScanTrust(record) === 'verified_full';
 }
 
 /** Kaydı derinlemesine dondurur (iç durum referansla dışarı sızmasın). */
@@ -271,6 +437,8 @@ function _freezeRecord(r: DeepScanRecord): DeepScanRecord {
     firmwareInventory: Object.freeze(r.firmwareInventory.map((f) => Object.freeze({ ...f }))),
     warnings: Object.freeze([...r.warnings]),
     reportSummary: r.reportSummary ? Object.freeze({ ...r.reportSummary }) : null,
+    lastIncompleteReasons: Object.freeze([...r.lastIncompleteReasons]),
+    lastCoverage: r.lastCoverage ? Object.freeze({ ...r.lastCoverage }) : null,
   }) as DeepScanRecord;
 }
 
@@ -406,6 +574,13 @@ export class DeepScanPersistenceStore {
       warnings: _normWarnings(d.warnings),
       reportSummary: _cloneReport(d.reportSummary),
       lastCompletedScanId: _boundScanId(d.lastCompletedScanId),
+      // Completion truth — eski şema kayıtlarında YOKTUR → fail-closed varsayılan
+      // (`null` verdict = "bilinmiyor", asla "full" varsayılmaz).
+      lastScanTerminal: d.lastScanTerminal === true,
+      lastFinalVerdict: _verdict(d.lastFinalVerdict),
+      lastIncompleteReasons: _normReasons(d.lastIncompleteReasons),
+      lastCoverage: _cloneCoverage(d.lastCoverage),
+      partialScanCount: _count(d.partialScanCount),
     });
   }
 
@@ -424,17 +599,44 @@ export class DeepScanPersistenceStore {
 
     let completedScanCount = existing?.completedScanCount ?? 0;
     let changeCheckCount = existing?.changeCheckCount ?? 0;
+    let partialScanCount = existing?.partialScanCount ?? 0;
     let hasCompletedFullScan = existing?.hasCompletedFullScan ?? false;
     let lastCompletedScanId = existing?.lastCompletedScanId ?? null;
+    let lastScanTerminal = existing?.lastScanTerminal ?? false;
+    let lastFinalVerdict = existing?.lastFinalVerdict ?? null;
+    let lastIncompleteReasons: readonly DeepScanIncompleteReason[] = existing?.lastIncompleteReasons ?? [];
+    let lastCoverage = existing?.lastCoverage ?? null;
 
-    if (isCompleteCall && snap.status === 'completed') {
+    if (isCompleteCall) {
       const scanId = _boundScanId(snap.scanId);
-      // İdempotent: aynı tamamlanmış scanId sayaçları YENİDEN artırmaz.
+      // ★ KAPSAM KANITI — kanıt yoksa fail-closed (`completion_evidence_missing`).
+      const completion = _normCompletion(input.completion, scanId);
+      const terminal = snap.status === 'completed' || snap.status === 'failed' || snap.status === 'cancelled';
+
+      lastScanTerminal = terminal;
+      lastFinalVerdict = completion.finalVerdict;
+      lastIncompleteReasons = completion.incompleteReasons;
+      lastCoverage = completion.coverage;
+
+      // ⚠️ TEK YÜKSELTME KAPISI: `hasCompletedFullScan` ve tamamlanma sayaçları YALNIZ
+      // gerçek FULL kapsamda ilerler. `status === 'completed'` TEK BAŞINA YETMEZ —
+      // eski hata buydu (handler'sız/atlanmış fazlarla "tam tarandı" yazılıyordu).
+      const isFullCompletion =
+        snap.status === 'completed' && completion.hasCompletedFullScan === true;
+
+      // İdempotent: aynı scanId sayaçları YENİDEN artırmaz (full VE partial için).
       if (scanId !== null && scanId !== lastCompletedScanId) {
-        completedScanCount += 1;
-        if (snap.mode === 'CHANGE_CHECK') changeCheckCount += 1;
-        if (snap.mode === 'FULL_SCAN') hasCompletedFullScan = true;
-        lastCompletedScanId = scanId;
+        if (isFullCompletion) {
+          completedScanCount += 1;
+          if (snap.mode === 'CHANGE_CHECK') changeCheckCount += 1;
+          if (snap.mode === 'FULL_SCAN') hasCompletedFullScan = true;
+          lastCompletedScanId = scanId;
+        } else if (terminal) {
+          // Terminal ama TAM DEĞİL → yalnız gözlem sayacı. Baseline/mod kararına
+          // etki ETMEZ (`hasCompletedFullScan` dokunulmadan kalır).
+          partialScanCount += 1;
+          lastCompletedScanId = scanId;   // sayaç idempotans anahtarı (full/partial ortak)
+        }
       }
     }
 
@@ -463,6 +665,11 @@ export class DeepScanPersistenceStore {
       warnings: _normWarnings(snap.warnings),
       reportSummary: _cloneReport(snap.reportSummary) ?? existing?.reportSummary ?? null,
       lastCompletedScanId,
+      lastScanTerminal,
+      lastFinalVerdict,
+      lastIncompleteReasons,
+      lastCoverage,
+      partialScanCount,
     });
   }
 
@@ -482,16 +689,32 @@ export class DeepScanPersistenceStore {
     return [...this._records.values()];        // her öğe zaten frozen
   }
 
-  /** Bu araçta daha önce TAM tarama tamamlandı mı. */
+  /**
+   * Bu araçta daha önce KANITLI tam tarama tamamlandı mı.
+   *
+   * ⚠️ Ham `record.hasCompletedFullScan` alanını DÖNMEZ — onu `classifyFullScanTrust()`
+   * süzgecinden geçirir. Completion Truth öncesi yazılmış (metadata'sız) `true`
+   * kayıtları `legacy_unverified_full`'dür ve buradan `false` döner (fail-closed).
+   * Ham alanı görmek gerekirse `load()` ile kayıt okunur; karar için BU metod kullanılır.
+   */
   hasCompletedFullScan(vehicleFingerprintHash: unknown): boolean {
-    return this.load(vehicleFingerprintHash)?.hasCompletedFullScan === true;
+    return isVerifiedFullScan(this.load(vehicleFingerprintHash));
+  }
+
+  /**
+   * Kaydın full-scan güven seviyesi (teşhis/gözlemlenebilirlik).
+   * Kayıt yoksa `not_full`. Throw ETMEZ.
+   */
+  getFullScanTrust(vehicleFingerprintHash: unknown): DeepScanFullScanTrust {
+    return classifyFullScanTrust(this.load(vehicleFingerprintHash));
   }
 
   /**
    * Sonraki bağlantı için mod kararı — `deepScanModel.resolveScanMode` ile uyumlu:
    *  - Kayıt yok → `FULL_SCAN`
    *  - Kayıt var ama tam tarama tamamlanmamış → `FULL_SCAN`
-   *  - Tam tarama tamamlanmış → `CHANGE_CHECK`
+   *  - Kayıt "tam" diyor ama KANIT YOK (legacy) → `FULL_SCAN` (fail-closed)
+   *  - KANITLI tam tarama → `CHANGE_CHECK`
    */
   resolveMode(vehicleFingerprintHash: unknown): DeepScanMode {
     return this.hasCompletedFullScan(vehicleFingerprintHash) ? 'CHANGE_CHECK' : 'FULL_SCAN';
@@ -506,10 +729,18 @@ export class DeepScanPersistenceStore {
   }
 
   /**
-   * Tarama tamamlandığında çağrılır. Alan güncellemesine EK olarak, snapshot
-   * `completed` ise (ve scanId yeni ise) `completedScanCount`'u artırır; mod
-   * `CHANGE_CHECK` ise `changeCheckCount`'u; mod `FULL_SCAN` ise
-   * `hasCompletedFullScan`'i işaretler. `failed`/`cancelled` sayaç ARTIRMAZ.
+   * Tarama SONLANDIĞINDA çağrılır (terminal: completed/failed/cancelled).
+   *
+   * Dört durumu AYRI AYRI kaydeder:
+   *  1. terminale ulaştı            → `lastScanTerminal` + `lastStatus`
+   *  2. kapsam kararı               → `lastFinalVerdict` (+ `lastIncompleteReasons`, `lastCoverage`)
+   *  3. TAM tarama tamamlandı       → `hasCompletedFullScan` / `completedScanCount` / `changeCheckCount`
+   *  4. kısmi/eksik tarama sonlandı → `partialScanCount` (yükseltme YOK)
+   *
+   * ⚠️ 3. madde YALNIZ `input.completion.hasCompletedFullScan === true` (yani
+   * `evaluateDeepScanCompletion` kararı `full`) VE `snapshot.status === 'completed'`
+   * iken gerçekleşir. Kanıt gelmezse FAIL-CLOSED: yükseltme YOK, neden
+   * `completion_evidence_missing` olarak persist edilir. `failed`/`cancelled` sayaç ARTIRMAZ.
    */
   completeScan(input: DeepScanPersistInput): DeepScanRecord | null {
     return this._upsert(input, true);

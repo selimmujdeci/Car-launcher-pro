@@ -1,6 +1,16 @@
 import { useEffect, useRef } from 'react';
-import { toIntent, routeIntent } from '../platform/intentEngine';
-import { registerCommandHandler, registerAIResultHandler, cancelAssistantDuck } from '../platform/voiceService';
+import { toIntent, routeIntent, type AppIntent } from '../platform/intentEngine';
+import {
+  registerCommandHandler, registerAIResultHandler, cancelAssistantDuck, isResultAckCommand,
+  setSavedLocationResolver,
+} from '../platform/voiceService';
+// MAVI-M3: sahte ACK yerine YÜRÜTME SONUCUNDAN türeyen tek geri bildirim zarfı.
+import { buildIntentExecutionFeedback } from '../platform/intentExecutionResult';
+// MAVI-M5: geç dönen yürütme sonucu yeni turu bozamaz.
+import { continueIfTurnCurrent, getActiveMaviTurn } from '../platform/assistant/maviTurn';
+// MAVI-M6: normal kullanıcı cevabının TEK otoritesi (ttsService'e delege eder).
+import { speakMaviAnswer } from '../platform/assistant/maviSpeech';
+import type { VehicleContext } from '../platform/aiVoiceService';
 import { reportVoiceDiag } from '../platform/voiceDiagService';
 import { play, getMediaState, setMediaPreferredPackage } from '../platform/mediaService';
 // next/previous/togglePlayPause: UI'nın kullandığı KUYRUK-FARKINDA + in-app yönlendiren
@@ -8,6 +18,7 @@ import { play, getMediaState, setMediaPreferredPackage } from '../platform/media
 // stream kuyruğunu bilmez → "değiştir/durdur" çalışmıyordu).
 import { next, previous, togglePlayPause } from '../platform/media/carosMediaLayer';
 import { setVideoMode as applyVideoMode } from '../platform/media/videoModeStore';
+/* MUSIC F7.2 · sürüşte video görüntüsü kapalı — sesli komut da SAHTE ONAY vermez. */
 import { bridge, isNative } from '../platform/bridge';
 import { showToast } from '../platform/errorBus';
 import { CarLauncher } from '../platform/nativePlugin';
@@ -16,9 +27,64 @@ import type { MusicFavorite, AppSettings } from '../store/useStore';
 import { useStore } from '../store/useStore';
 import { useCarTheme, baseOf, toDay, toNight, isDay, type CoreTheme } from '../store/useCarTheme';
 import { getVoiceSetting } from '../platform/settingsVoice';
+import { unknownMaviVehicleContext, currentMaviVehicleContext } from '../platform/assistant/maviVehicleContext';
+// MAVI-M4: tek eylem otoritesi + açık onay akışı.
+import { executeIntent, type CommandContext } from '../platform/commandExecutor';
+// MAVI-F7: ayar portu artık KANIT döner — koşulsuz "Ayar uygulandı" iddiası kapandı.
+import type { SettingApplyEvidence } from '../platform/capability/observation/observationContract';
+import { isVehicleEffectiveIntent, getVehicleActionDef } from '../platform/action/maviActionAuthority';
+import { setPendingAction, setConfirmedActionExecutor } from '../platform/action/pendingActionConfirmation';
+import type { IntentExecutionResult } from '../platform/intentExecutionResult';
+import { isCommandOwnedByMavi, resolveOwnershipKey } from '../platform/maviCore/wiring/maviOwnership';
+import { recordLegacyExecution, adjustRegistration } from '../platform/maviCore/wiring/maviEvidence';
 
 // activeMediaSourceKey değerleri içinde geçerli MusicOptionKey olabilenler
 const _MUSIC_KEY_SET = new Set<string>(['spotify', 'youtube'] satisfies MusicOptionKey[]);
+
+/* MUSIC F14 · ÖLÇÜLEN GERÇEK: bu tipler `isVehicleEffectiveIntent` DIŞINDA
+   kaldığı için `routeIntent`e (aşağıdaki `RouterContext` portları:
+   `playMusicSearch`/`playMusicQuery`/`addMusicFavorite`/`nextTrack`/
+   `prevTrack`/`playMedia`/`pauseMedia`) gidiyordu — bu portlar F9'un
+   `dispatchMusicIntent`inden GEÇMEDEN doğrudan `carosMediaLayer`/eski Zustand
+   favori deposunu çağırıyordu (`ADD_MUSIC_FAVORITE` → `useStore.addMusicFavorite`,
+   F13'ün TEK otoritesinden AYRI bir favori kaydı). AI/beyin yolu
+   (`executeAIResult` → `dispatchIntent`, HER ZAMAN) bu tipleri ZATEN
+   `commandExecutor.dispatchIntent`in F9'a bağlı/kanıta-dayalı dallarından
+   geçiriyordu — iki yol aynı komut için FARKLI davranıyordu. Bu küme o
+   ayrışmayı kapatır: müzik tipleri artık HER İKİ girişten de (yerel parser +
+   AI) AYNI tek otoriteye (`executeIntent` → `dispatchIntent`) gider.
+   `routeIntent`in müzik dalları artık bu yoldan ULAŞILAMAZ — silinmedi
+   (0 başka çağıran KANITLANDI ama büyük çok-dosyalı silme riskten kaçınmak
+   için bilinçli olarak ERTELENDİ), yalnız compatibility adapter'a indi. */
+const _MUSIC_INTENT_TYPES = new Set<AppIntent['type']>([
+  'OPEN_MUSIC', 'PLAY_MUSIC_SEARCH', 'PLAY_MUSIC_QUERY', 'ADD_MUSIC_FAVORITE',
+  'PLAY_MEDIA', 'PAUSE_MEDIA', 'MEDIA_NEXT', 'MEDIA_PREV',
+]);
+
+/* ── MAVI-M4 · sesli hattın araç etkili YÜRÜTÜCÜ PORTLARI ───────────────────
+ * KÖK NEDEN (M4 envanteri): bu hat donanım portlarını HİÇ taşımıyordu —
+ * `routeIntent` `ctx.hwHonkHorn?.()` gibi OPSİYONEL çağrılar yapıyor, port
+ * hiç sağlanmadığı için çağrı SESSİZCE düşüyordu. Yani "korna çal" komutu
+ * yıllardır hiçbir şey yapmadan geçiyordu ve kimse fark etmiyordu.
+ *
+ * Tek otoritede bu artık MÜMKÜN DEĞİL: port yoksa kapı DÜRÜST `unsupported`
+ * döner. Burada portlar `bridge` üzerinden (VehicleCommandQueue → L2 ACK)
+ * bağlanır; yeni bir native yetenek eklenmez, var olan kuyruk kullanılır.
+ * Nesne her çağrıda AYNI ŞEKİLDE (aynı anahtar sırası) üretilir → V8 hidden
+ * class kararlı kalır (CLAUDE.md · Shape Stability). */
+function _vehiclePorts(): Pick<
+  CommandContext,
+  'hwLockDoors' | 'hwUnlockDoors' | 'hwHonkHorn' | 'hwFlashLights' | 'hwAlarmOn' | 'hwAlarmOff'
+> {
+  return {
+    hwLockDoors:   () => bridge.hwLockDoors(),
+    hwUnlockDoors: () => bridge.hwUnlockDoors(),
+    hwHonkHorn:    () => bridge.hwHonkHorn(),
+    hwFlashLights: () => bridge.hwFlashLights(),
+    hwAlarmOn:     () => bridge.hwAlarmOn(),
+    hwAlarmOff:    () => bridge.hwAlarmOff(),
+  };
+}
 
 /* ── Sesli tema kontrolü ───────────────────────────────────────────────
  * Sesli komutlar GÖRÜNÜR temayı (useCarTheme) değiştirir — eskiden yalnızca
@@ -46,20 +112,45 @@ function cycleVoiceTheme(): void {
  * Aksiyonu doğrudan AppSettings'e (veya wifi/bt/brightness native) uygular.
  * getState() React dışında güvenli; openTab için drawer açıcı callback geçilir. */
 const _SETTING_STEP = 10;
-async function applyVoiceSetting(
+
+/** Ayar deposundan GERİ OKUMA — yazılan değer gerçekten oturdu mu. */
+function _readBackSetting(key: string): unknown {
+  try {
+    return (useStore.getState().settings as unknown as Record<string, unknown>)[key];
+  } catch { return undefined; }
+}
+
+/**
+ * MAVI-F7 · Sesli ayar kontrolü — **artık KANIT DÖNER.**
+ *
+ * ÖLÇÜLEN KUSUR (F5 borcu, kütük #986/b): bu fonksiyon `void` dönüyordu ve
+ * `commandExecutor` porta ULAŞSIN ULAŞMASIN koşulsuz "Ayar uygulandı" diyordu.
+ * Artık ne yaptığını bildirir:
+ *   · `APPLIED`        — depoya yazıldı ve **geri okundu** (bağımsız gözlem)
+ *   · `DELIVERED`      — native'e gönderildi, kanıt DÖNMÜYOR (WiFi/Bluetooth)
+ *   · `SURFACE_OPENED` — yalnız ilgili ayar sekmesi açıldı, ayar UYGULANMADI
+ *   · `REJECTED`       — değer yok / geri okuma tutmadı
+ *
+ * Fonksiyon SENKRON hâle geldi: kanıt depodan senkron okunur. Native yan
+ * etkiler (WiFi/BT/parlaklık) `void` promise ile ateşlenir — davranış AYNI,
+ * yalnız kanıt artık kaybolmuyor. Sahte başarı EKLENMEDİ: kanıt üretmeyen
+ * yollar dürüstçe `DELIVERED`/`SURFACE_OPENED` döner.
+ */
+function applyVoiceSetting(
   key: string,
   action: string,
   value: string | undefined,
   kind: string | undefined,
   openSettings: () => void,
-): Promise<void> {
+): SettingApplyEvidence {
   // WiFi / Bluetooth — DOĞRUDAN aç/kapat. Native önce donanım toggle'ı dener
   // (eski Android / sistem-app head unit → ekran açılmadan uygulanır); modern
   // telefonda OS engeller → native otomatik sistem paneline düşer (fail-soft).
   // Eski plugin sürümünde setWifi/setBluetooth yoksa eski panel-açma davranışı.
   if (key === 'wifi' || key === 'bluetooth') {
-    if (isNative) {
-      const opts = action === 'toggle' ? { toggle: true } : { enabled: action === 'on' };
+    if (!isNative) return { kind: 'REJECTED', key, reason: 'not_native' };
+    const opts = action === 'toggle' ? { toggle: true } : { enabled: action === 'on' };
+    void (async () => {
       try {
         if (key === 'wifi') {
           if (CarLauncher.setWifi) await CarLauncher.setWifi(opts);
@@ -69,19 +160,23 @@ async function applyVoiceSetting(
           else                          await CarLauncher.openBluetoothSettings?.();
         }
       } catch { /* fail-soft */ }
-    }
-    return;
+    })();
+    /* Native köprü sonuç DÖNDÜRMÜYOR → "uygulandı" DENEMEZ (sahte-ACK yasağı). */
+    return { kind: 'DELIVERED', key };
   }
 
   const update  = useStore.getState().updateSettings;
   const s        = useStore.getState().settings as unknown as Record<string, unknown>;
   const effKind  = kind ?? getVoiceSetting(key)?.kind;
 
-  if (effKind === 'openTab') { openSettings(); return; }
+  if (effKind === 'openTab') { openSettings(); return { kind: 'SURFACE_OPENED', key }; }
 
   if (effKind === 'enum') {
-    if (value) update({ [key]: value } as unknown as Partial<AppSettings>);
-    return;
+    if (!value) return { kind: 'REJECTED', key, reason: 'no_value' };
+    update({ [key]: value } as unknown as Partial<AppSettings>);
+    return _readBackSetting(key) === value
+      ? { kind: 'APPLIED', key }
+      : { kind: 'REJECTED', key, reason: 'readback_mismatch' };
   }
 
   if (effKind === 'number') {
@@ -93,15 +188,21 @@ async function applyVoiceSetting(
     next = Math.max(0, Math.min(100, Number.isFinite(next) ? next : cur));
     update({ [key]: next } as unknown as Partial<AppSettings>);
     if (key === 'brightness' && isNative) {
-      try { await CarLauncher.setBrightness({ value: Math.round((next / 100) * 255) }); } catch { /* fail-soft */ }
+      void CarLauncher.setBrightness({ value: Math.round((next / 100) * 255) })
+        ?.catch?.(() => { /* fail-soft */ });
     }
-    return;
+    return Number(_readBackSetting(key)) === next
+      ? { kind: 'APPLIED', key }
+      : { kind: 'REJECTED', key, reason: 'readback_mismatch' };
   }
 
   // bool (varsayılan) — on/off/toggle
   const curBool  = Boolean(s[key]);
   const nextBool = action === 'toggle' ? !curBool : action === 'on';
   update({ [key]: nextBool } as unknown as Partial<AppSettings>);
+  return Boolean(_readBackSetting(key)) === nextBool
+    ? { kind: 'APPLIED', key }
+    : { kind: 'REJECTED', key, reason: 'readback_mismatch' };
 }
 
 // Android paket adından store'daki kaynak anahtarına eşleme
@@ -183,19 +284,63 @@ async function _isInstalled(pkg: string): Promise<boolean> {
   return _installedPkgCache.has(pkg);
 }
 
-async function _speakAndToast(msg: string): Promise<void> {
+/**
+ * MAVI-M6: `CarLauncher.speak` DOĞRUDAN BYPASS'I KALDIRILDI.
+ *
+ * Eskiden bu fonksiyon `ttsService`i tamamen atlayarak native'e konuşuyordu →
+ * dedupe · ducking · cancel · `__SAFETY_LOCK__` korumalarının HİÇBİRİ uygulanmıyor,
+ * ayrıca dispatch'in söylediği "X aranıyor" ile ÜST ÜSTE biniyordu (M1 bulgu #4).
+ * Artık TEK otoriteden geçer: müzik sonucu turun NİHAİ cevabıdır (`answer`), parser
+ * metni ise 'progress' katmanında kaldığı için slot boştur → tek ses duyulur.
+ * Toast (görsel) DEĞİŞMEDİ.
+ */
+function _speakAndToast(msg: string): void {
   showToast({ type: 'info', title: 'Müzik', message: msg, duration: 4000 });
-  if (isNative) {
-    try { await CarLauncher.speak({ text: msg }); } catch { /* ignore */ }
-  }
+  speakMaviAnswer(msg);
 }
 
 import { resolveAndNavigate } from '../platform/addressNavigationEngine';
+import { dispatchNearbyPoiNavigation } from '../platform/nearbyPoiNavigation';
 import { getGPSState } from '../platform/gpsService';
+import { startNavigation } from '../platform/navigationService';
+// Özel Konumlar — TEK otorite. UI (NavigationHUD) ve Mavi AYNI servisi çağırır.
+import {
+  addSavedLocation, renameSavedLocation, removeSavedLocation,
+  findSavedLocationByName, shareSavedLocation, buildLocationShareText,
+} from '../platform/savedLocations/savedLocationsService';
+import { searchContacts } from '../platform/contactsService';
+import { prepareWhatsAppMessage } from '../platform/whatsappShare';
 import type { ParsedCommand } from '../platform/commandParser';
 import type { SmartSnapshot } from '../platform/smartEngine';
 import type { DrawerType } from '../components/layout/DockBar';
 import { executeAIResult } from '../platform/commandExecutor';
+
+/**
+ * Serbest adres navigasyonu — ÖNCE Özel Konumlar'da isim eşleşmesi arar
+ * (bulursa `resolveAndNavigate`in yaptığı geocoding'i ATLAR, kayıtlı
+ * koordinatla DOĞRUDAN `startNavigation` çağırır — Mavi kendi rota sistemi
+ * KURMAZ, aynı navigasyon otoritesini kullanır). Eşleşme yoksa/belirsizse
+ * eski davranış (mevcut geocoding zinciri) BİREBİR korunur.
+ *
+ * Yerel parser (`navigate_address`/`navigate_place`, ~526) VE çevrimiçi beyin
+ * portu (`navigateToPlace`, ~353) AYNI fonksiyonu çağırır — iki kopya YOK.
+ */
+function _resolveAndNavigateOrSaved(dest: string): void {
+  const { match, ambiguous } = findSavedLocationByName(dest);
+  if (ambiguous.length > 0) {
+    speakMaviAnswer(`Birden fazla "${dest}" adında kayıtlı konum var, hangisini kastettiğini netleştirir misin?`);
+    return;
+  }
+  if (match) {
+    startNavigation(
+      { id: match.id, name: match.name, latitude: match.lat, longitude: match.lng, type: 'history' },
+      false, 'USER_VOICE',
+    );
+    return;
+  }
+  const gps = getGPSState().location;
+  resolveAndNavigate(dest, gps ? { lat: gps.latitude, lng: gps.longitude } : undefined);
+}
 
 interface UseVoiceCommandHandlerParams {
   settings: AppSettings;
@@ -221,8 +366,15 @@ export function useVoiceCommandHandler({
     return registerAIResultHandler((aiResult, vehicleCtx) => {
       const { settings: s, handleLaunch: launch, setDrawer: open, openWeather: showWeather } = voiceCtxRef.current;
       void reportVoiceDiag('voice_command_execute', { command: aiResult.intent });
-      executeAIResult(aiResult, {
-        vehicleCtx: vehicleCtx ?? { speedKmh: 0, drivingMode: 'idle', isDriving: false },
+      /* Tur KOMUT GİRİŞİNDE yakalanır — geç cevap kapısı için (yerel yolla aynı). */
+      const _aiTurn = getActiveMaviTurn();
+      return executeAIResult(aiResult, {
+        // MAVI-M2: sabit `{ speedKmh: 0, isDriving: false }` PARK VARSAYIMI KALDIRILDI.
+        // O varsayım "veri yok"u "araç duruyor" sayıyordu → riskli eylem kapıları
+        // fail-open çalışıyordu (M1 bulgu #1). Bağlam voiceService'te komut başına
+        // çözülür; buraya ulaşmadığı istisnai durumda DÜRÜST bilinmeyen bağlam
+        // kullanılır (`motionState:'unknown'` → kapılar fail-closed kalır).
+        vehicleCtx: vehicleCtx ?? unknownMaviVehicleContext(),
         defaultNav:   s.defaultNav as 'maps' | 'waze' | 'yandex',
         defaultMusic: s.defaultMusic,
         launch,
@@ -230,38 +382,327 @@ export function useVoiceCommandHandler({
         cycleTheme:  cycleVoiceTheme,   // AI yolu da tema döngüsünü işlesin (yoksa "Komut Hatası")
         openDrawer:  (t) => open(t as DrawerType),
         applySetting: (key, action, value, kind) =>
-          void applyVoiceSetting(key, action, value, kind, () => open('settings' as DrawerType)),
+          applyVoiceSetting(key, action, value, kind, () => open('settings' as DrawerType)),
         openWeather: showWeather,
         // Uygulama-içi navigasyon — offline routeIntent yolu ile aynı. AI yolunun
         // (Gemini) "rota oluştur" komutunu harici Google Maps'e değil kendi
         // haritamıza yönlendirir.
-        navigateToPlace: (query: string) => {
+        navigateToPlace: (query: string) => { _resolveAndNavigateOrSaved(query); },
+        // NAVIGATION-P1-1: AI/Mavi beyin hattı da hastane ile AYNI merkezi "en yakın X"
+        // dispatch'ine bağlanır (GPS fail-closed + dedupe + bounded TTS).
+        dispatchNearbyPoi: (cat) => {
           const gps = getGPSState().location;
-          resolveAndNavigate(query, gps ? { lat: gps.latitude, lng: gps.longitude } : undefined);
+          dispatchNearbyPoiNavigation(cat, gps ? { lat: gps.latitude, lng: gps.longitude } : undefined);
         },
+        /* İLK çağrıda onay YOKTUR — beynin komutu anlaması ONAY DEĞİLDİR.
+         * Onaylı yürütme yalnız `setConfirmedActionExecutor` yolundan geçer
+         * (yerel parser yoluyla birebir aynı sözleşme). */
+        actionConfirmed: false,
+      }).then((outcome) => {
+        /* SAHA BULGUSU (2026-07-31): burası eskiden BOŞTU — sonuç atılıyordu.
+         * `OPEN_PHONE` onay gerektirdiği için kapı `needs_confirmation` dönüyor,
+         * kimse bunu görmediği için ne soru soruluyor ne bekleyen eylem kuruluyordu
+         * → "annemi ara" hiç aramıyordu. Yerel yolun deseni buraya taşındı. */
+        if (!outcome) return;
+        const { intent, result } = outcome;
+
+        if (result.status === 'needs_confirmation' && isVehicleEffectiveIntent(intent.type)) {
+          const def = getVehicleActionDef(intent.type);
+          const t = getActiveMaviTurn();
+          if (def && t) setPendingAction({ intent, actionId: def.actionId, turnId: t.id, atMs: Date.now() });
+        }
+
+        if (!continueIfTurnCurrent(_aiTurn, 'feedback')) return;
+        const fb = buildIntentExecutionFeedback(result);
+        if (fb && fb.message.trim()) {
+          speakMaviAnswer(fb.message, { isDriving: vehicleCtx?.isDriving === true });
+        }
+      }).catch(() => {
+        if (!continueIfTurnCurrent(_aiTurn, 'feedback')) return;
+        speakMaviAnswer('İşlemin sonucunu doğrulayamadım.');
       });
     });
   }, []);
 
+  /* MAVI-M4: ONAYLI eylem yürütücüsü. `voiceService` "evet" duyduğunda bunu çağırır;
+   * eylem TEK OTORİTEDEN (`executeIntent`) ve `actionConfirmed:true` ile geçer —
+   * kapı sırası (hareket · AiSafetyGate · capability) yine uygulanır. Cevap M6 tek
+   * zarfından çıkar. Kayıt/sökme bu effect'in yaşam döngüsüne bağlıdır (zero-leak). */
   useEffect(() => {
-    return registerCommandHandler((cmd: ParsedCommand) => {
+    setConfirmedActionExecutor((intent) => {
+      const { settings: s, handleLaunch: launch, setDrawer: open } = voiceCtxRef.current;
+      const turn = getActiveMaviTurn();
+      /* Bağlam ONAY ANINDA yeniden çözülür (kayıt anında DEĞİL): kullanıcı
+       * "evet" derken araç hareket ediyor olabilir. Çözüm başarısızsa DÜRÜST
+       * bilinmeyen bağlam → hareket kapıları fail-closed kalır. */
+      let confirmedCtx: VehicleContext;
+      try { confirmedCtx = currentMaviVehicleContext(); }
+      catch { confirmedCtx = unknownMaviVehicleContext(); }
+      void executeIntent(intent, {
+        vehicleCtx: confirmedCtx,
+        defaultNav:   s.defaultNav as 'maps' | 'waze' | 'yandex',
+        defaultMusic: s.defaultMusic,
+        launch,
+        openDrawer: (t) => open(t as DrawerType),
+        ..._vehiclePorts(),
+        /* Onaylı yürütme kendi turunda başlar (kullanıcı "evet" dedi) → o turun
+         * token'ı taşınır; onay sonrası araya yeni komut girerse geç metin susar. */
+        turn,
+        actionConfirmed: true,
+      }).then((result) => {
+        if (!continueIfTurnCurrent(turn, 'feedback')) return;
+        const fb = buildIntentExecutionFeedback(result);
+        if (fb && fb.message.trim()) speakMaviAnswer(fb.message);
+      }).catch(() => {
+        if (!continueIfTurnCurrent(turn, 'feedback')) return;
+        speakMaviAnswer('İşlemin sonucunu doğrulayamadım.');
+      });
+    });
+    return () => { setConfirmedActionExecutor(null); };
+  }, []);
+
+  /* Özel Konumlar SİL onayı — voiceService `savedLocationsService`i DOĞRUDAN
+   * import ETMEZ (o dosya `useStore`in tüm uygulama mağazasını taşır, ölçüldü:
+   * voiceService'in mock'lanmış test grafiğini kırar). `setConfirmedActionExecutor`
+   * ile AYNI DI deseni: isim çözümleyici burada KAYIT edilir, voiceService yalnız
+   * çağırır (tek otorite `savedLocationsService`de KALIR — ikinci CRUD KURULMAZ). */
+  useEffect(() => {
+    setSavedLocationResolver(findSavedLocationByName);
+    return () => { setSavedLocationResolver(null); };
+  }, []);
+
+  useEffect(() => {
+    // PR-DIAG-2 · ÜRETİCİ #5 (guard sayacı): kayıt/sökme MEVCUT useEffect yaşam döngüsüne bağlıdır
+    // — yeni abonelik/timer YOK. Sızıntı olursa sayaç 1'i aşar ve rapor bunu gösterir.
+    try { adjustRegistration('guard', 1); } catch { /* fail-soft */ }
+    const _unregister = registerCommandHandler((cmd: ParsedCommand, vehicleCtx?: VehicleContext) => {
+      // ── MAVİ TAKEOVER GUARD (Faz-3 · MAVI3-4c) ──────────────────────────
+      // Aynı istekte iki hattın birden çalışmasını engelleyen TEK karar noktası. Cevap senkron ve
+      // SIRA-BAĞIMSIZDIR: bu handler'ın Mavi köprüsünden önce mi sonra mı çağrıldığı sonucu
+      // değiştirmez. FAIL-OPEN: wiring yoksa, bayrak kapalıysa (varsayılan), anahtar geçersizse
+      // veya hakem hata atarsa `false` döner → eski hat bugünkü gibi çalışır. Hakem allowlist'i
+      // yalnız `media.next` içerdiğinden guard pratikte SADECE o komutta etkilidir; diğer tüm
+      // komutlar bu satırdan etkilenmeden akar.
+      if (isCommandOwnedByMavi(cmd)) return;
+
+      /* MAVI-M5: bu handler `dispatch()` içinden SENKRON çağrılır → yakalanan token
+       * bu komutun TA KENDİSİNİN turudur. Aşağıdaki async `routeIntent` sonucu geç
+       * dönerse bu token ile güncellik sorulur (yeni komut geldiyse SESSİZCE düşer). */
+      const _turn = getActiveMaviTurn();
+
+      // PR-DIAG-2 · ÜRETİCİ #4: guard'ın GEÇİRDİĞİ komut = eski hattın gerçek yürütmesi.
+      // Anahtar, Mavi'nin kullandığı AYNI saf builder'dan gelir → iki taraf aynı correlationId'yi
+      // yazar ve rapor sonradan birleştirilebilir. Kayıt fail-soft; komut akışını ASLA etkilemez.
+      try {
+        const _k = resolveOwnershipKey(cmd);
+        recordLegacyExecution({
+          generationId: _k?.generationId ?? -1,
+          sessionId:    _k?.sessionId ?? -1,
+          commandId:    _k?.commandId ?? cmd.type,
+          resolvedAction: _k?.actionId ?? null,
+          atMs: Date.now(),
+        });
+      } catch { /* fail-soft */ }
+
       const { settings: s, smart: sm, handleLaunch: launch, updateSettings: update, setDrawer: open, openWeather: showWeather } = voiceCtxRef.current;
       void reportVoiceDiag('voice_command_execute', { command: cmd.type });
       if (cmd.type === 'toggle_sleep_mode') { update({ sleepMode: !s.sleepMode }); return; }
 
-      // Serbest adres navigasyonu — intentEngine'e geçmeden burada çözülür
-      if (
-        cmd.type === 'navigate_address' ||
-        cmd.type === 'navigate_place'   ||
-        cmd.type === 'find_nearby_gas'  ||
-        cmd.type === 'find_nearby_parking'
-      ) {
-        const dest = cmd.extra?.destination ?? cmd.raw;
-        const gps  = getGPSState().location;
-        resolveAndNavigate(
-          dest,
+      // "En yakın hastane" — NAVIGATION-P0-2: merkezi dispatchNearbyPoiNavigation'a
+      // delege edilir (GPS fail-closed + dedupe + bounded TTS için — bkz.
+      // nearbyPoiNavigation.ts).
+      if (cmd.type === 'find_nearby_hospital') {
+        const gps = getGPSState().location;
+        dispatchNearbyPoiNavigation(
+          'hospital',
           gps ? { lat: gps.latitude, lng: gps.longitude } : undefined,
         );
+        return;
+      }
+
+      // "En yakın benzinlik" — NAVIGATION-P1-1: eskiden bu blok navigate_address/place/
+      // parking ile birlikte doğrudan resolveAndNavigate('__nearby_gas__', gps) çağırırdı
+      // (GPS fail-closed/dedupe/bounded-TTS YOKTU). Artık hastane ile AYNI merkezi hatta
+      // (dispatchNearbyPoiNavigation) taşındı — fuel katalog girişi zaten tam tanımlıydı,
+      // yalnız çağrı yeri eksikti.
+      if (cmd.type === 'find_nearby_gas') {
+        const gps = getGPSState().location;
+        dispatchNearbyPoiNavigation(
+          'fuel',
+          gps ? { lat: gps.latitude, lng: gps.longitude } : undefined,
+        );
+        return;
+      }
+
+      // "En yakın otopark" — NAVIGATION-P1-2: fuel ile AYNI desen. Eskiden bu blok
+      // navigate_address/place ile birlikte doğrudan resolveAndNavigate('__nearby_parking__',
+      // gps) çağırırdı (GPS fail-closed/dedupe/bounded-TTS YOKTU). Artık fuel/hastane ile
+      // AYNI merkezi hatta (dispatchNearbyPoiNavigation) taşındı.
+      if (cmd.type === 'find_nearby_parking') {
+        const gps = getGPSState().location;
+        dispatchNearbyPoiNavigation(
+          'parking',
+          gps ? { lat: gps.latitude, lng: gps.longitude } : undefined,
+        );
+        return;
+      }
+
+      // Serbest adres navigasyonu — intentEngine'e geçmeden burada çözülür.
+      //
+      // ⚠️ BU BLOK MAVİ SAHİPLİĞİNDE ZATEN ULAŞILAMAZ: yukarıdaki tek karar noktası
+      // (`isCommandOwnedByMavi` → erken return) bu satırlardan ÖNCE çalışır. Yani
+      // aynı komut için iki hat birden resolveAndNavigate ÇAĞIRAMAZ. Mavi bu komutu
+      // sahiplenmediğinde (bugünkü durum — `navigation.open` takeover-eligible DEĞİL)
+      // eski hat çalışmaya devam eder; bu bilinçli fail-open davranıştır.
+      if (
+        cmd.type === 'navigate_address' ||
+        cmd.type === 'navigate_place'
+      ) {
+        // FAIL-CLOSED (yeni): hedef boşsa navigasyon BAŞLATILMAZ.
+        // KÖK: `cmd.extra.destination` yoksa `cmd.raw`a düşülüyordu; ikisi de boş/boşluk
+        // olduğunda `resolveAndNavigate('')` çağrılıyordu. O fonksiyonun kendi boş-hedef
+        // koruması YOKTUR (addressNavigationEngine.ts) — boş sorguyla 'searching' durumu
+        // yayınlanıp anlamsız arama başlıyordu. Hedefi olmayan komut, hedefi olmayan
+        // navigasyondur: sessizce düşmek yerine hiç başlatılmaz.
+        const rawDest = cmd.extra?.destination ?? cmd.raw;
+        const dest = typeof rawDest === 'string' ? rawDest.trim() : '';
+        if (!dest) {
+          void reportVoiceDiag('voice_command_execute', { command: cmd.type, errorCode: 'empty_destination' });
+          return;
+        }
+        _resolveAndNavigateOrSaved(dest);
+        return;
+      }
+
+      // ── Özel Konumlar (Mavi entegrasyonu) — TEK otorite: savedLocationsService.
+      // Sonuç-temelli ACK: parser metni ("X kaydediliyor") burada KONUŞULMAZ
+      // (voiceCommandPolicy.RESULT_ACK_COMMAND_TYPES) — cevap GERÇEK sonuçtan üretilir.
+      if (cmd.type === 'save_location') {
+        const gps = getGPSState().location;
+        if (!gps) {
+          // GPS kanıtı YOK → konum UYDURULMAZ, sahte kayıt oluşmaz (fail-closed).
+          speakMaviAnswer('GPS sinyali yok, konumu kaydedemedim.');
+          return;
+        }
+        const rawName = cmd.extra?.name ?? '';
+        const saved = addSavedLocation(gps.latitude, gps.longitude, rawName || null);
+        speakMaviAnswer(saved ? `${saved.name} olarak kaydettim.` : 'Konumu kaydedemedim.');
+        return;
+      }
+
+      if (cmd.type === 'rename_location') {
+        const targetName = cmd.extra?.name ?? '';
+        const newName = cmd.extra?.newName ?? '';
+        const { match, ambiguous } = findSavedLocationByName(targetName);
+        if (ambiguous.length > 0) {
+          speakMaviAnswer(`Birden fazla "${targetName}" kaydı var, hangisini kastettiğini netleştirir misin?`);
+          return;
+        }
+        if (!match) {
+          speakMaviAnswer(`"${targetName}" adında kayıtlı bir konum bulamadım.`);
+          return;
+        }
+        const ok = newName ? renameSavedLocation(match.id, newName) : false;
+        speakMaviAnswer(ok ? `${match.name} artık ${newName}.` : `${match.name} konumunun adını değiştiremedim.`);
+        return;
+      }
+
+      if (cmd.type === 'share_location') {
+        const targetName = cmd.extra?.name ?? '';
+        const { match, ambiguous } = findSavedLocationByName(targetName);
+        if (ambiguous.length > 0) {
+          speakMaviAnswer(`Birden fazla "${targetName}" kaydı var, hangisini kastettiğini netleştirir misin?`);
+          return;
+        }
+        if (!match) {
+          speakMaviAnswer(`"${targetName}" adında kayıtlı bir konum bulamadım.`);
+          return;
+        }
+        void shareSavedLocation(match).then((r) => {
+          // Sessiz "başarılı" YASAK: kullanıcı paylaşım sayfasını iptal etse bile
+          // (route:'native', ok:true) burada ekstra konuşma GEREKMEZ — sistem
+          // sayfası zaten açıldı/kapandı, ikinci bir TTS onayı gürültü olurdu.
+          if (!r.ok) speakMaviAnswer(`${match.name} konumunu paylaşamadım.`);
+        });
+        return;
+      }
+
+      if (cmd.type === 'delete_location') {
+        // Buraya YALNIZ açık onaydan SONRA ulaşılır (voiceService `_pendingCmd`
+        // "evet" akışı) — `resolvedId` orada ÇÖZÜLMÜŞTÜR, burada TEKRAR
+        // aranmaz (aynı isim o sırada eklenmiş/silinmiş olabilir; ID sabit kalır).
+        const resolvedId = cmd.extra?.resolvedId;
+        const targetName = cmd.extra?.name ?? 'Konum';
+        const ok = resolvedId ? removeSavedLocation(resolvedId) : false;
+        speakMaviAnswer(ok ? `${targetName} konumunu sildim.` : `${targetName} konumunu silemedim.`);
+        return;
+      }
+
+      /* ── WhatsApp konum gönderimi ("Ev konumunu Ahmet'e gönder") ──────────
+       * ÜRÜN KARARI: WhatsApp'ın Gönder tuşuna kullanıcı adına BASILMAZ (resmî
+       * sınır — bkz. `whatsappShare.ts` başlığı) → ekstra "onaylıyor musun?"
+       * diyaloğu da YOK; WhatsApp'ın kendi Gönder düğmesi nihai onaydır.
+       * Konum: `getGPSState`/`findSavedLocationByName` (TEK otorite, aynı
+       * save/share akışıyla). Kişi: `contactsService.searchContacts` (TEK
+       * otorite, `OPEN_PHONE`ın kullandığı AYNI yol). Belirsizlikte (0 veya
+       * >1 eşleşme) rastgele seçim YOK — kullanıcıya sorulur/dürüstçe söylenir.
+       * "Gönderdim" ASLA denmez — yalnız "hazırladım" (gerçek gönderim
+       * doğrulanamaz, WhatsApp'ın kendi sınırı). */
+      if (cmd.type === 'send_location_contact') {
+        const recipientRaw = cmd.extra?.recipient ?? '';
+        const isCurrent = cmd.extra?.isCurrent === '1';
+
+        const finishWithLocation = (locName: string, lat: number, lng: number): void => {
+          const contactMatches = searchContacts(recipientRaw, 'frequent');
+          if (contactMatches.length === 0) {
+            speakMaviAnswer(`${recipientRaw} rehberde bulunamadı.`);
+            return;
+          }
+          if (contactMatches.length > 1) {
+            speakMaviAnswer(`Rehberde birden fazla "${recipientRaw}" var, hangisini kastettiğini netleştirir misin?`);
+            return;
+          }
+          const contact = contactMatches[0];
+          const phone = contact.phones.find((p) => p.label === 'mobile') ?? contact.phones[0];
+          if (!phone) {
+            speakMaviAnswer(`${contact.name} için kayıtlı bir telefon numarası yok.`);
+            return;
+          }
+          const text = buildLocationShareText({ name: locName, lat, lng });
+          void prepareWhatsAppMessage(phone.number, text).then((r) => {
+            if (r.ok) { speakMaviAnswer(`${contact.name} için WhatsApp'ta hazırladım.`); return; }
+            if (r.failure === 'not_installed') {
+              speakMaviAnswer('WhatsApp kurulu değil, konumu gönderemedim.');
+            } else if (r.failure === 'invalid_phone') {
+              speakMaviAnswer(`${contact.name} için kayıtlı numara WhatsApp'a uygun değil, gönderemedim.`);
+            } else {
+              speakMaviAnswer(`${contact.name} için WhatsApp'ı açamadım.`);
+            }
+          });
+        };
+
+        if (isCurrent) {
+          const gps = getGPSState().location;
+          if (!gps) {
+            // GPS kanıtı YOK → konum UYDURULMAZ (fail-closed) — save_location ile AYNI ilke.
+            speakMaviAnswer('GPS sinyali yok, konumu gönderemedim.');
+            return;
+          }
+          finishWithLocation('Şu anki konum', gps.latitude, gps.longitude);
+          return;
+        }
+
+        const targetName = cmd.extra?.name ?? '';
+        const { match, ambiguous } = findSavedLocationByName(targetName);
+        if (ambiguous.length > 0) {
+          speakMaviAnswer(`Birden fazla "${targetName}" kaydı var, hangisini kastettiğini netleştirir misin?`);
+          return;
+        }
+        if (!match) {
+          speakMaviAnswer(`"${targetName}" adında kayıtlı bir konum bulamadım.`);
+          return;
+        }
+        finishWithLocation(match.name, match.lat, match.lng);
         return;
       }
       // activeMediaSourceKey geçerli bir MusicOptionKey ise defaultMusic'e öncelik tanır.
@@ -274,13 +715,44 @@ export function useVoiceCommandHandler({
         defaultNav: s.defaultNav, defaultMusic: effectiveMusic,
         recentAppId: sm.quickActions.find((a) => a.id.startsWith('last-'))?.appId,
       });
-      routeIntent(intent, {
+      /* ── MAVI-M4 · TEK EYLEM OTORİTESİ YÖNLENDİRMESİ ─────────────────────
+       * ARAÇ ETKİLİ intentler (donanım · DTC · sensör · telefon araması) ARTIK
+       * `routeIntent`e HİÇ GİTMEZ — doğrudan tek otoriteye (`executeIntent` →
+       * `dispatchIntent`) verilir. Orada kapı sırası: hareket politikası (M2) →
+       * AiSafetyGate → açık onay → capability, hepsi port/native/OBD çağrısından
+       * ÖNCE. `routeIntent` yalnız düşük riskli UI/medya/navigasyon intentlerinde
+       * kalır (araç etkili portları RouterContext'te ARTIK YOK).
+       * Her iki yol da AYNI `IntentExecutionResult` sözleşmesini döndürür → M6
+       * tek cevap zarfı ve M5 tur kapısı değişmeden çalışır.
+       *
+       * MUSIC F14: müzik tipleri (`_MUSIC_INTENT_TYPES`) de BURADAN
+       * `executeIntent`e yönlendirilir — AI/beyin yolunun (`executeAIResult`)
+       * ZATEN kullandığı AYNI `dispatchIntent` otoritesi. Tek amaç aynı komutun
+       * girişe göre FARKLI (ve F13/F9'dan KOPUK) davranmasını engellemek. */
+      const _run: Promise<IntentExecutionResult> = (isVehicleEffectiveIntent(intent.type)
+        || _MUSIC_INTENT_TYPES.has(intent.type))
+        ? executeIntent(intent, {
+            vehicleCtx: vehicleCtx ?? unknownMaviVehicleContext(),
+            defaultNav:   s.defaultNav as 'maps' | 'waze' | 'yandex',
+            defaultMusic: s.defaultMusic,
+            launch,
+            openDrawer: (t) => open(t as DrawerType),
+            ..._vehiclePorts(),
+            /* MAVI-M6-LATE-SPEECH-GATE: bu komutun TA KENDİSİNİN turu (yukarıda
+             * senkron yakalandı). `dispatchIntent` içindeki await sonrası
+             * konuşmalar bununla korunur. */
+            turn: _turn,
+            // İLK çağrıda onay YOKTUR — parser eşleşmesi ONAY DEĞİLDİR. Onaylı
+            // yürütme yalnız `setConfirmedActionExecutor` yolundan geçer.
+            actionConfirmed: false,
+          })
+        : routeIntent(intent, {
         launch,
         openDrawer:  (t) => open(t as DrawerType),
         setTheme:    applyVoiceTheme,
         cycleTheme:  cycleVoiceTheme,
         applySetting: (key, action, value, kind) =>
-          void applyVoiceSetting(key, action, value, kind, () => open('settings' as DrawerType)),
+          applyVoiceSetting(key, action, value, kind, () => open('settings' as DrawerType)),
         // Medya komutları oynatmayı YÖNETİR → asistan ducking-resume'unu iptal et
         // (yoksa mikrofon ducking müziği duraklatıp idle'da geri başlatarak "durdur"u
         // eziyordu). cancelAssistantDuck idempotent; alakasız komutlarda çağrılmaz.
@@ -293,13 +765,31 @@ export function useVoiceCommandHandler({
         prevTrack:   () => { cancelAssistantDuck(); previous(); },    // carosMediaLayer (kuyruk-farkında)
         // "video moduna al" → müzik ekranını aç + tam ekran video modunu aç.
         // Yalnız YouTube çalarken görsel etki olur (aksi halde zararsız no-op).
-        setVideoMode: (on) => { open('music' as DrawerType); applyVideoMode(on); },
+        /* MUSIC F7.2: niyet KAYDEDİLİR (ekran açılır, mod işaretlenir) ama
+           duruş kanıtlanmadan görüntü AÇILMAZ. Kullanıcı neden görmediğini
+           öğrenir — "açtım" deyip hiçbir şey olmaması yasak. */
+        /* SAHA BUGFIX (2026-09-03) · ÜRÜN KARARI DEĞİŞTİ: hız/hareket video
+         * açma isteğini REDDEDEMEZ ve "gizlendi" diye bir gerekçe artık
+         * doğru değildir — video her durumda AÇILIR. Eskiden burada
+         * `decideVideoVisibility`/`videoBlockReason` ile "video gizlendi"
+         * toast'ı gösteriliyordu; bu artık YALAN olurdu (video gerçekten
+         * gösterilirken "gizlendi" denirdi) → kaldırıldı. */
+        setVideoMode: (on) => {
+          open('music' as DrawerType);
+          applyVideoMode(on);
+        },
         volumeUp:         () => update({ volume: Math.min(100, useStore.getState().settings.volume + 10) }),
         volumeDown:       () => update({ volume: Math.max(0,   useStore.getState().settings.volume - 10) }),
         openWeather:      showWeather,
         navigateToPlace: (query) => {
           const gps = getGPSState().location;
           resolveAndNavigate(query, gps ? { lat: gps.latitude, lng: gps.longitude } : undefined);
+        },
+        // NAVIGATION-P1-1: yerel commandParser→intentEngine.routeIntent hattı da
+        // AYNI merkezi "en yakın X" dispatch'ine bağlanır.
+        dispatchNearbyPoi: (cat) => {
+          const gps = getGPSState().location;
+          dispatchNearbyPoiNavigation(cat, gps ? { lat: gps.latitude, lng: gps.longitude } : undefined);
         },
         playMusicSearch: (appKey, query) => {
           // Şarkı/sanatçı adı → KAYNAK FARK ETMEKSİZİN uygulama içinde çal.
@@ -406,6 +896,37 @@ export function useVoiceCommandHandler({
         },
       });
 
+      /* MAVI-F13: sonuç zinciri ARTIK ÇAĞIRANA DÖNER (eskiden `void` ile
+       * atılıyordu). Tek amaç: kanonik bileşik plan adımı yürütmenin gerçekten
+       * bitmesini bekleyip GÖZLEMİ okuyabilsin. `dispatch`/`dispatchDriving`
+       * dönüşü bugünkü gibi yok sayar → tekil komut davranışı BİREBİR aynıdır. */
+      return _run.then((result) => {
+        /* MAVI-M4: onay isteniyorsa eylemi BEKLET (yürütme YAPILMADI). Bir sonraki
+         * turda kullanıcı "evet" derse `voiceService` kayıtlı yürütücüyü çağırır;
+         * "hayır"da slot temizlenir ve HİÇBİR yan etki oluşmaz. */
+        if (result.status === 'needs_confirmation' && isVehicleEffectiveIntent(intent.type)) {
+          const def = getVehicleActionDef(intent.type);
+          const t = getActiveMaviTurn();
+          if (def && t) setPendingAction({ intent, actionId: def.actionId, turnId: t.id, atMs: Date.now() });
+        }
+        /* MAVI-M5 · KAPI F + M6 DÜZELTMESİ: bu sonuç turun KENDİ geç cevabıdır ve
+         * `completeMaviTurn`ten SONRA çözülür. `continueIfTurnActive` kullanılırsa
+         * M3'ün dürüst ACK'i ("… bağlantısı henüz hazır değil") ÜRETİMDE HİÇ
+         * DUYULMAZDI. Susturulması gereken DEVRALINMA'dır → `continueIfTurnCurrent`. */
+        if (!continueIfTurnCurrent(_turn, 'feedback')) return;
+        // TEK zarf · TEK ses (otorite tur başına tek `answer` geçirir).
+        const fb = buildIntentExecutionFeedback(result);
+        if (fb && fb.message.trim()) speakMaviAnswer(fb.message, { isDriving: vehicleCtx?.isDriving === true });
+      }).catch(() => {
+        // Yürütme zinciri throw etti → BAŞARI İDDİA EDİLMEZ, dürüstçe bilinmiyor denir.
+        if (!continueIfTurnCurrent(_turn, 'feedback')) return;
+        if (isResultAckCommand(cmd.type)) speakMaviAnswer('İşlemin sonucunu doğrulayamadım.');
+      });
+
     });
+    return () => {
+      try { adjustRegistration('guard', -1); } catch { /* fail-soft */ }
+      _unregister();
+    };
   }, []);
 }

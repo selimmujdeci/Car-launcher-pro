@@ -1,6 +1,21 @@
 /**
- * deepScanOrchestrator — Deep Scan'in TÜM katmanlarını yöneten tek koordinatör
- * (FOUNDATION).
+ * deepScanOrchestrator — Deep Scan faz orkestrasyonu (FOUNDATION).
+ *
+ * ⚠️ OTORİTE SINIRI (V-10, 2026-08-22 — ÖLÇÜLEREK BELİRLENDİ)
+ * Bu başlık eskiden *"Deep Scan'in TÜM katmanlarını yöneten TEK koordinatör"*
+ * diyordu. Bu cümle ÜRÜN GERÇEĞİYLE UYUŞMUYORDU ve depoda "ikinci otorite"
+ * alarmı yaratmıştı (V-10). Ölçüm: üretimde bu orchestrator'a enjekte edilen
+ * TEK handler `change_detection`tir; **hiçbir AKTİF faz handler'ı yoktur** →
+ * aktif fazlar `handler_unavailable` döner ve GERÇEK İŞ YAPILMAZ.
+ *
+ * ÜRETİMDEKİ İŞ BÖLÜMÜ (tek beyan: `deepScanAuthority.ts`):
+ *   · AKTİF tarama (araca sorgu)  → `discoveryLive` — TEK otorite, bu dosya DEĞİL
+ *   · ÇEVRİMDIŞI değişim tespiti  → BU DOSYA (gerçekten çalışan yarı)
+ *
+ * Aktif fazlara handler bağlamak, ikinci bir tarama otoritesi doğurur ve iki
+ * motor araca ayrı ayrı sorgu göndermeye başlar. Bu yüzden `deepScanAuthority`
+ * ve kilidi (`deepScanAuthority.test.ts`) önce GÜNCELLENMEK zorundadır — karar
+ * bilinçli olsun, kazara olmasın.
  *
  * NE YAPAR: Deep Scan sürecini deterministik faz sırasıyla yürütür — Ignition doğrula
  * → Mode seç (full_scan/change_check) → Identity → Protocol → ECU/PID/DID/Firmware
@@ -13,7 +28,14 @@
  *  - Gerçek OBD komutu GÖNDERMEZ · yeni PID/DID/Discovery algoritması EKLEMEZ ·
  *    native koda DOKUNMAZ · SystemBoot/Assistant/Dashboard WIRING YAPMAZ · SQL YOK.
  *  - Fazların GERÇEK işi enjekte edilen `handlers` ile yapılır (foundation'da yok →
- *    hepsi `skipped`); ileride orchestration'a gerçek discovery servisleri BAĞLANIR.
+ *    hepsi `handler_unavailable`); ileride gerçek discovery servisleri BAĞLANIR.
+ *
+ * COMPLETION TRUTH (kapsam gerçeği): Bir taramanın "tamamlandı" sayılması artık bir
+ * KANIT işidir, akışın sonuna gelmenin yan etkisi değil. Her faz sonucu tipli bir
+ * KAPSAM KÜTÜĞÜNE yazılır; `full` kararını YALNIZ saf `evaluateDeepScanCompletion()`
+ * verir (tek karar otoritesi). Handler'ı olmayan / atlanan / timeout / bütçesi biten /
+ * kısmi / başarısız / bilinmeyen zorunlu faz → `hasCompletedFullScan` ASLA true olmaz,
+ * orchestrator durumu `partial` olur ve nedenler persist edilir.
  *  - Timer AÇMAZ · yeni thread AÇMAZ · sürekli döngü KURMAZ · hot-path'e GİRMEZ ·
  *    OBD polling'e dokunmaz. Fazlar ÇAĞRILABİLİR API'dir (`runNextPhase()` / `run()`).
  *  - Import edilmesi YAN ETKİSİZDİR (yapıcı timer/abonelik/native çağrı açmaz).
@@ -34,9 +56,16 @@ import {
   isActivePhase,
   isOfflinePhase,
   sanitizeText,
+  buildDeepScanCoverageLedger,
+  evaluateDeepScanCompletion,
+  toPhaseCompletionStatus,
   OFFLINE_PHASE_SEQUENCE,
+  type DeepScanCompletionOutcome,
+  type DeepScanCoverageLedger,
   type DeepScanMode,
   type DeepScanPhase,
+  type DeepScanPhaseCompletionStatus,
+  type DeepScanPhaseLedgerEntry,
   type DeepScanReportSummary,
   type DeepScanSnapshot,
   type DeepScanStatus,
@@ -77,10 +106,31 @@ const MAX_ORCH_WARNINGS = 16;
  * Tipler
  * ════════════════════════════════════════════════════════════════════════ */
 
+/**
+ * Orchestrator durumu.
+ *
+ * ⚠️ `completed` ARTIK BİR KAPSAM İDDİASIDIR: yalnız kapsam kütüğü `full` verdiğinde
+ * üretilir. Tarama sonuna ulaşmış ama zorunlu fazları eksik (skipped / handler yok /
+ * timeout / budget / partial) kalmış tarama `partial` olur — terminaldir, raporu vardır,
+ * ama "tam tarandı" DEMEZ.
+ */
 export type OrchestratorStatus =
-  | 'idle' | 'running' | 'waiting_for_ignition' | 'completed' | 'failed' | 'cancelled';
+  | 'idle' | 'running' | 'waiting_for_ignition'
+  | 'completed' | 'partial' | 'failed' | 'cancelled';
 
-export type PhaseOutcomeStatus = 'success' | 'skipped' | 'error' | 'timeout' | 'cancelled';
+/**
+ * Faz sonucu durumu (handler sözleşmesi).
+ *
+ * - `success` → faz gerçekten yapıldı (kapsama SAYILIR).
+ * - `skipped` → bilinçli atlandı; kapsama SAYILMAZ.
+ * - `handler_unavailable` → fazın handler'ı YOK (orchestrator üretir); kapsama SAYILMAZ.
+ * - `partial` → kısmi sonuç; kapsama SAYILMAZ.
+ * - `budget_exhausted` → bütçe/kota bitti; kapsama SAYILMAZ.
+ * - `error` / `timeout` / `cancelled` → kapsama SAYILMAZ.
+ */
+export type PhaseOutcomeStatus =
+  | 'success' | 'skipped' | 'error' | 'timeout' | 'cancelled'
+  | 'handler_unavailable' | 'budget_exhausted' | 'partial';
 
 /** Bir keşif sinyali (PID/DID) sonucu. */
 export interface DiscoverySignalResult {
@@ -147,6 +197,12 @@ export interface OrchestratorSnapshot {
   readonly runtimeStatus: DeepScanStatus;
   readonly reportSummary: DeepScanReportSummary | null;
   readonly warnings: readonly string[];
+  /**
+   * KAPSAM GERÇEĞİ — `evaluateDeepScanCompletion()` çıktısı (tek karar otoritesi).
+   * Tarama sürerken de okunabilir; o sırada `persistence_not_finalized` nedeniyle
+   * `ineligible`'dır (henüz sonlandırılmadı — doğru ve fail-closed).
+   */
+  readonly completion: DeepScanCompletionOutcome;
 }
 
 export interface StartOrchestrationInput {
@@ -262,6 +318,14 @@ export class DeepScanOrchestrator {
   private _disposed = false;
   private _warnings: string[] = [];
 
+  /* ── COMPLETION TRUTH (kapsam kütüğü) ──────────────────────────────────── */
+  /** Faz → kapsam durumu. Bounded (faz sayısı kadar). Tek gerçek kaynağı budur. */
+  private _ledger = new Map<DeepScanPhase, DeepScanPhaseCompletionStatus>();
+  /** Kontak/güvenlik kapısı taramayı kesti mi (aktif faz açılamadı). */
+  private _safetyBlocked = false;
+  /** Persistence finalizasyonu BAŞARIYLA yazıldı mı (fail-closed varsayılan). */
+  private _persistenceFinalized = false;
+
   /* Offline pass (W5-3a) — gerçek tarama alanlarından AYRI tutulur (kirlenme yok). */
   private _offlinePassRunning = false;
   private _offlinePassCancelled = false;
@@ -297,13 +361,59 @@ export class DeepScanOrchestrator {
     }
   }
 
+  /* ── Kapsam kütüğü (completion truth) ──────────────────────────────────── */
+
+  /** Bir fazın kapsam sonucunu kütüğe yazar (en son yazılan geçerlidir). */
+  private _recordCoverage(phase: DeepScanPhase, rawStatus: unknown): void {
+    this._ledger.set(phase, toPhaseCompletionStatus(rawStatus));
+  }
+
+  /**
+   * Kütüğü (tipli + bounded + dondurulmuş) üretir.
+   * @param persistenceFinalized `undefined` → mevcut gerçek durum; `true` → finalize
+   *        öncesi PROVISIONAL değerlendirme (persistence'a ne yazılacağını bilmek için).
+   */
+  private _buildLedger(persistenceFinalized?: boolean): DeepScanCoverageLedger {
+    const entries: DeepScanPhaseLedgerEntry[] = [];
+    for (const [phase, status] of this._ledger) entries.push({ phase, status });
+    let scanId: string | null = null;
+    try { scanId = this._runtimeSnapshot().scanId; } catch { scanId = null; }
+    const rs = this._runtimeStatusSafe();
+    return buildDeepScanCoverageLedger({
+      scanId,
+      // ZORUNLU KÜME: tüm faz sırası. Bu mimaride "opsiyonel faz" modeli YOKTUR →
+      // varsayım üretmek yerine FAIL-CLOSED davranılır (bkz. deepScanModel).
+      requiredPhases: DEEP_SCAN_PHASE_SEQUENCE,
+      entries,
+      scanCancelled: this._cancelled || rs === 'cancelled',
+      scanFailed: rs === 'failed',
+      safetyBlocked: this._safetyBlocked,
+      persistenceFinalized: persistenceFinalized ?? this._persistenceFinalized,
+    });
+  }
+
+  /**
+   * ★ Kapsam kararı — TEK otorite (`evaluateDeepScanCompletion`). Önbellek YOK:
+   * karar runtime durumuna da bağlıdır (cancelled/failed), bayat önbellek YALAN
+   * söylerdi. Maliyet sabittir (≤12 faz) ve hot-path'te değildir.
+   */
+  private _completion(): DeepScanCompletionOutcome {
+    return evaluateDeepScanCompletion(this._buildLedger());
+  }
+
+  private _runtimeStatusSafe(): DeepScanStatus {
+    try { return this._runtime.getSnapshot().status; } catch { return 'idle'; }
+  }
+
   private _deriveStatus(): OrchestratorStatus {
     if (!this._started) return 'idle';
-    let rs: DeepScanStatus = 'idle';
-    try { rs = this._runtime.getSnapshot().status; } catch { /* fail-soft */ }
-    if (rs === 'completed') return 'completed';
+    const rs = this._runtimeStatusSafe();
     if (rs === 'failed') return 'failed';
     if (rs === 'cancelled') return 'cancelled';
+    if (rs === 'completed') {
+      // ⚠️ `completed` YALNIZ gerçek tam kapsamda. Aksi hâlde terminal ama `partial`.
+      return this._completion().finalVerdict === 'full' ? 'completed' : 'partial';
+    }
     if (rs === 'waiting_for_ignition') return 'waiting_for_ignition';
     return 'running';
   }
@@ -430,6 +540,9 @@ export class DeepScanOrchestrator {
     this._finalized = false;
     this._index = 0;
     this._lastProgress = 0;
+    this._ledger = new Map();            // yeni tarama → yeni kapsam kütüğü
+    this._safetyBlocked = false;
+    this._persistenceFinalized = false;
 
     const hash = input.vehicleFingerprintHash;
     let hasCompleted = false;
@@ -480,9 +593,14 @@ export class DeepScanOrchestrator {
       this._syncIgnition();
       if (this._runtimeSnapshot().ignitionConfirmed !== true) {
         try { this._runtime.updatePhase(phase); } catch { /* runtime waiting_for_ignition yapar */ }
+        // GÜVENLİK KAPISI: aktif faz açılamadı → bu tarama full completion ÜRETEMEZ.
+        // (Kontak sonradan gelip faz gerçekten koşarsa bayrak aşağıda düşer —
+        // kalıcı ceza değil, o anki kapsam gerçeği.)
+        this._safetyBlocked = true;
         this._emit('phase_failed', phase, 'waiting_for_ignition');
         return this.getSnapshot(); // aynı faza sonra tekrar denenebilir
       }
+      this._safetyBlocked = false;   // kontak doğrulandı → kapı artık kapalı değil
     }
 
     // Fazı runtime'a bildir (aktif→scanning, offline→analyzing; progress floor).
@@ -490,7 +608,7 @@ export class DeepScanOrchestrator {
     this._emit('phase_started', phase);
     this._maybeEmitProgress(phase);
 
-    // Handler'ı çalıştır (foundation'da yok → skipped). Hata izole.
+    // Handler'ı çalıştır. Hata izole.
     const handler = this._handlers[phase];
     let result: PhaseResult;
     if (typeof handler === 'function') {
@@ -507,7 +625,11 @@ export class DeepScanOrchestrator {
         result = { status: 'error', errorCode: 'handler_exception' };
       }
     } else {
-      result = { status: 'skipped' };
+      // ⚠️ ESKİ DAVRANIŞ `{ status:'skipped' }` İDİ ve `skipped` başarı eşdeğeri sayılıp
+      // taramanın "tam tarandı" iddiasıyla bitmesine izin veriyordu. Handler YOKLUĞU
+      // artık kendi tipli sonucudur: pipeline devam eder, ama kapsam kütüğü bunu
+      // `handler_unavailable` yazar → full completion İMKÂNSIZ olur.
+      result = { status: 'handler_unavailable', reason: 'handler_unavailable' };
     }
 
     this._mapOutcome(phase, result);
@@ -770,65 +892,121 @@ export class DeepScanOrchestrator {
     });
   }
 
+  /**
+   * Faz sonucunu runtime'a + KAPSAM KÜTÜĞÜNE yansıtır.
+   *
+   * Kütük HER YOLDA yazılır (kapsam kaydı atlanamaz). Pipeline akışı korunur:
+   * eksik/kısmi faz taramayı DURDURMAZ (fail-soft), ama full completion'ı ENGELLER.
+   * Tanınmayan durum → `unknown` (fail-closed).
+   */
   private _mapOutcome(phase: DeepScanPhase, result: PhaseResult): void {
+    this._recordCoverage(phase, result.status);
+
     switch (result.status) {
       case 'success':
-      case 'skipped':
         this._applyResult(result);
         this._emit('phase_completed', phase, result.reason);
+        break;
+      case 'skipped':
+      case 'handler_unavailable':
+      case 'partial':
+        // Kapsama SAYILMAZ ama zincir kırılmaz (fail-soft): kısmi veri varsa yine işlenir.
+        this._applyResult(result);
+        this._warn(`phase_${result.status}:${phase}`);
+        this._emit('phase_completed', phase, result.reason ?? result.status);
         break;
       case 'cancelled':
         this._cancelled = true;
         this._doCancel(result.reason ?? 'phase_cancelled');
         break;
       case 'error':
-      case 'timeout': {
+      case 'timeout':
+      case 'budget_exhausted': {
         const code = sanitizeText(result.errorCode ?? result.status, 64) || result.status;
         // KRİTİK faz → runtime failed; kritik olmayan → skip + warn (FAIL-SOFT devam).
         try { this._runtime.reportPhaseFailure(phase, code); } catch { /* */ }
         this._warn(`phase_${result.status}:${phase}`);
         this._emit('phase_failed', phase, code);
         if (this._deriveStatus() === 'failed') {
-          this._checkpointPersistence(); // failed öncesi son durum yazılabilsin (fail-soft)
+          this._persistTerminal();   // failed öncesi son durum + kapsam gerçeği yazılsın
           this._emit('scan_failed', phase, code);
         }
+        break;
+      }
+      default: {
+        // FAIL-CLOSED: sözleşme dışı durum. Kütüğe `unknown` yazıldı (yukarıda) →
+        // full completion İMKÂNSIZ. Pipeline sessizce "başarılı" saymaz.
+        const code = sanitizeText(result.errorCode ?? 'unknown_phase_status', 64) || 'unknown_phase_status';
+        this._warn(`phase_unknown_status:${phase}`);
+        this._emit('phase_failed', phase, code);
         break;
       }
     }
   }
 
-  private _doCancel(reason: string): void {
-    try { this._runtime.cancelScan(reason); } catch { /* */ }
-    this._checkpointPersistence();
-    this._emit('scan_cancelled', null, reason);
-  }
-
-  /** Tarama tamamlama: report üret (runtime) → persistence completeScan → olaylar. */
-  private _finalize(): void {
-    if (this._finalized) return;
-    this._finalized = true;
-
-    // 1) Report projeksiyonu — runtime.completeScan report üretir (Persistence düşse
-    //    bile Report üretilebilsin diye ÖNCE burada).
-    try { this._runtime.completeScan({ note: this._mode ? `mode:${this._mode}` : undefined }); }
-    catch (err) { this._warn('runtime_complete_failed'); console.error('[DeepScanOrchestrator] completeScan fail-soft', err); }
-
-    // 2) Persistence completeScan (fail-soft — Report zaten üretildi).
+  /**
+   * Kapsam gerçeğini persistence'a yazar. `completion` ZORUNLU alandır: persistence
+   * kanıtsız `hasCompletedFullScan` YÜKSELTEMEZ (fail-closed sözleşme).
+   * @returns yazma GERÇEKTEN başarılı oldu mu (throw yok + kayıt üretildi).
+   */
+  private _persistCompletion(completion: DeepScanCompletionOutcome): boolean {
     try {
-      this._persistence.completeScan({
+      const record = this._persistence.completeScan({
         snapshot: this._runtimeSnapshot(),
         ecuAddresses: [...this._ecus],
         pidIds: [...this._pids],
         didIds: [...this._dids],
         firmware: this._firmware,
+        completion,
       });
+      return record !== null && record !== undefined;
     } catch (err) {
       this._warn('persistence_complete_failed');
       console.error('[DeepScanOrchestrator] persistence.completeScan fail-soft', err);
+      return false;
     }
+  }
+
+  /** Terminal (iptal/hata) yolu — kapsam gerçeği yazılır; hiçbir sayaç ARTMAZ. */
+  private _persistTerminal(): void {
+    // Bu yolda kütük zaten `cancelled`/`failed` taşır → karar ASLA `full` olamaz.
+    this._persistenceFinalized = this._persistCompletion(this._completion());
+  }
+
+  private _doCancel(reason: string): void {
+    try { this._runtime.cancelScan(reason); } catch { /* */ }
+    this._persistTerminal();
+    this._emit('scan_cancelled', null, reason);
+  }
+
+  /**
+   * Tarama sonlandırma: report üret (runtime) → KAPSAM KARARI → persistence → olaylar.
+   *
+   * ⚠️ Sonlanmak "tamamlanmak" DEĞİLDİR. `full` kararı yalnız `evaluateDeepScanCompletion`
+   * verir; verdict `full` değilse orchestrator durumu `partial` olur, persistence
+   * `hasCompletedFullScan`/`completedScanCount` YÜKSELTMEZ, nedenler persist edilir.
+   * İDEMPOTENT (`_finalized` + persistence `lastCompletedScanId` çift koruması).
+   */
+  private _finalize(): void {
+    if (this._finalized) return;
+    this._finalized = true;
+
+    // 1) Report projeksiyonu — runtime.completeScan report üretir (Persistence düşse
+    //    bile Report üretilebilsin diye ÖNCE burada). Bu bir KAPSAM İDDİASI DEĞİLDİR.
+    try { this._runtime.completeScan({ note: this._mode ? `mode:${this._mode}` : undefined }); }
+    catch (err) { this._warn('runtime_complete_failed'); console.error('[DeepScanOrchestrator] completeScan fail-soft', err); }
+
+    // 2) PROVISIONAL kapsam kararı — "persistence yazılacak" varsayımıyla. Yazma
+    //    gerçekten başarılı olmazsa (3) adımında karar geri düşürülür.
+    const provisional = evaluateDeepScanCompletion(this._buildLedger(true));
+
+    // 3) Persistence (fail-soft — Report zaten üretildi). Başarısızsa full İLAN EDİLMEZ.
+    this._persistenceFinalized = this._persistCompletion(provisional);
+    if (!this._persistenceFinalized) this._warn('persistence_not_finalized');
 
     this._maybeEmitProgress('report_generation');
     this._emit('report_ready', 'report_generation');
+    // Terminal olay: `status` alanı gerçeği taşır (`completed` VEYA `partial`).
     this._emit('scan_completed', null);
   }
 
@@ -855,7 +1033,20 @@ export class DeepScanOrchestrator {
       runtimeStatus: rt ? rt.status : 'idle',
       reportSummary: rt ? rt.reportSummary : null,
       warnings: Object.freeze([...this._warnings]),
+      completion: this._completion(),
     });
+  }
+
+  /**
+   * Kapsam kütüğü (salt-okunur, dondurulmuş) — gözlem/teşhis için. Ham veri TAŞIMAZ.
+   */
+  getCoverageLedger(): DeepScanCoverageLedger {
+    return this._buildLedger();
+  }
+
+  /** ★ Kapsam kararı (tek otorite çıktısı). `hasCompletedFullScan` buradan okunur. */
+  getCompletionOutcome(): DeepScanCompletionOutcome {
+    return this._completion();
   }
 
   subscribe(listener: OrchestratorListener): () => void {
@@ -885,6 +1076,9 @@ export class DeepScanOrchestrator {
     this._pids = new Set();
     this._dids = new Set();
     this._firmware = [];
+    this._ledger = new Map();            // kapsam kütüğü SIFIRLANIR (devretmez)
+    this._safetyBlocked = false;
+    this._persistenceFinalized = false;
     try { this._runtime.reset(); } catch { /* */ }
   }
 
@@ -898,6 +1092,7 @@ export class DeepScanOrchestrator {
     this._dids = new Set();
     this._firmware = [];
     this._warnings = [];
+    this._ledger = new Map();
     this._disposed = true;
   }
 
@@ -917,7 +1112,7 @@ export function createDeepScanOrchestrator(deps: DeepScanOrchestratorDeps = {}):
 
 /**
  * Uygulama geneli tekil orchestrator (varsayılan tekil runtime/persistence/ignition ile).
- * SystemBoot'a BAĞLI DEĞİLDİR; handler YOK (tüm fazlar `skipped`) → gerçek discovery
- * servisleri ileride orchestration PR'ında `handlers` ile bağlanır.
+ * SystemBoot'a BAĞLI DEĞİLDİR; handler YOK (tüm fazlar `handler_unavailable` → tarama
+ * ASLA `full` sayılmaz) → gerçek discovery servisleri ileride `handlers` ile bağlanır.
  */
 export const deepScanOrchestrator = new DeepScanOrchestrator();

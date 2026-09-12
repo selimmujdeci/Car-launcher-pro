@@ -33,6 +33,18 @@ vi.mock('@capacitor/core', () => ({
   Capacitor: { isNativePlatform: vi.fn(() => M.isNative) },
 }));
 
+// P0-OBD-CORE-05: readAllDTCs/readFreezeFrame artık admisyon kapısından geçer
+// — bu dosyanın tüm senaryoları ZATEN bağlı/oturum-hazır bir aracı varsayar
+// (fail-soft BİRLEŞTİRME davranışını test eder, bağlantı durumunu DEĞİL).
+vi.mock('../platform/obdService', () => ({
+  getOBDDataSnapshot: () => ({ connectionState: 'connected', transportConnected: true, dataFresh: true }),
+  getObdSessionHealth: () => ({
+    transportReady: true, sessionReady: true, pollingActive: true, dataFresh: true, ready: true,
+  }),
+  getEcuRecoveryLadder: () => ({ inFlight: false, nativeReconnectInFlight: false }),
+  getObdSessionEpoch: () => 0,
+}));
+
 vi.mock('../platform/nativePlugin', () => ({
   CarLauncher: {
     readDTC: (...a: unknown[]) => M.readDTC(...(a as [])),
@@ -212,7 +224,11 @@ describe('Patch 11A — readAllDTCs', () => {
   it('web/non-native ortamda boş sonuç döner', async () => {
     M.isNative = false;
     const r = await readAllDTCs();
-    expect(r).toEqual({ codes: [], permanentSupported: true });
+    expect(r).toEqual({
+      codes: [],
+      permanentSupported: true,
+      completeness: { stored: 'ok', pending: 'ok', permanent: 'ok' },
+    });
   });
 
   it('üç mod da başarılı → status alanıyla ayrışan birleşik liste', async () => {

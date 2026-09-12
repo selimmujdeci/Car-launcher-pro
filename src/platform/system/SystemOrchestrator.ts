@@ -19,7 +19,7 @@
  */
 
 import { onVehicleEvent }                          from '../vehicleDataLayer';
-import { onTripState }                             from '../tripLogService';
+import { onTripState, getTripJournalGlance }       from '../tripLogService';
 import { speakAlert }                              from '../ttsService';
 import { useSystemStore }                          from '../../store/useSystemStore';
 import { startCognitiveEngine, stopCognitiveEngine } from './CognitivePriorityEngine';
@@ -277,6 +277,31 @@ export function startSystemOrchestrator(): () => void {
         break;
       }
 
+      /* ── Kullanıcının belirlediği hız eşiği aşıldı ──────────────────────
+       *
+       * Karar `speedAlertRuntime`ta verilmiştir (histerezis 8 km/h + 5 dk
+       * cooldown); burada YALNIZ sunum yapılır — eşik yeniden yorumlanmaz,
+       * ikinci bir karar otoritesi doğmaz.
+       *
+       * Geri viteste bastırılır: manevra sırasında ekranı kaplayan kamerayı
+       * WARNING seviyesinde bir uyarı bölemez (LOW_FUEL ile aynı kural).
+       */
+      case 'SPEED_LIMIT_EXCEEDED': {
+        if (store().isReverseActive) break;
+        const speed = Math.round(e.speedKmh);
+        store().addAlert({
+          type:     'SPEED_LIMIT_EXCEEDED',
+          severity: 'WARNING',
+          label:    `Hız Eşiği Aşıldı: ${speed} km/h`,
+          sublabel: `Belirlediğiniz sınır ${Math.round(e.thresholdKmh)} km/h`,
+          ts:       e.ts,
+        });
+        speakAlert(`Hız sınırını aştınız. ${speed} kilometre.`);
+        const latest = useSystemStore.getState().activeAlerts.at(-1);
+        if (latest) _scheduleAutoDismiss(latest.id, AUTO_DISMISS_WARNING_MS);
+        break;
+      }
+
       case 'LOW_FUEL': {
         // Geri vites sırasında yeni uyarı ekleme — zaten kamera kaplıyor
         if (store().isReverseActive) break;
@@ -306,7 +331,25 @@ export function startSystemOrchestrator(): () => void {
       // Resume-guard: foreground dönüşünün hemen ardından biten "trip" = arka-plan/
       // uyku resume artefaktı → banner gösterme (gerçek yolculuk resume anında bitmez).
       if (Date.now() - _lastResumeAt < RESUME_TRIP_GRACE_MS) return;
-      useSystemStore.getState().setTripSummary(state.history[0]);
+
+      /* KANONİK KAPANIŞ KAPISI.
+       *
+       * `justEnded` yalnız "aktif yolculuk kalmadı" der; yolculuğun KAYDA
+       * GEÇTİĞİNİ söylemez. `tripLogService` 1 dk'dan kısa / 100 m'den kısa
+       * yolculukları KAYDETMEZ — geçiş olur, `history` değişmez ve eskiden
+       * burada **bir önceki yolculuk** yeniden "Yolculuk Tamamlandı" diye
+       * gösteriliyordu.
+       *
+       * `lastCompletedTripId` tam olarak `ACTIVE → COMPLETED` geçişinde
+       * kaydedilen kimliktir. `history[0]` onunla EŞLEŞMİYORSA bu kapanış
+       * bir özet üretmemiştir ve kart AÇILMAZ. (Store tarafında ayrıca
+       * tripId başına tek atış kilidi vardır — iki kapı, iki ayrı kusur
+       * sınıfı için.) */
+      const head = state.history[0];
+      const completedId = getTripJournalGlance().lastCompletedTripId;
+      if (!head || completedId === null || head.id !== completedId) return;
+
+      useSystemStore.getState().setTripSummary(head);
     }
   });
 

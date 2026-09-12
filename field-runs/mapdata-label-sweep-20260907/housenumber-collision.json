@@ -1,0 +1,2974 @@
+{
+  "environment": "Headless Chromium + SwiftShader · DPR1 · üretim stili KAYNAKTAN derlendi · kaydedilmiş z14 PBF · NAV/runtime YOK",
+  "criterion": "#1318 kabul ölçütü (3): numara katmanı AÇIKken sokak adı sayısı KAPALIyken ölçülenle AYNI kalmalı.",
+  "limits": [
+    "CİHAZ KANITI DEĞİLDİR: okunabilirlik, kontrast, gerçek DPR ve NAV kamerası ölçülmedi.",
+    "queryRenderedFeatures yerleşim çıktısıdır; piksel doğrulaması değildir.",
+    "Tek sahne (Tarsus merkez, 9 kaydedilmiş z14 karosu)."
+  ],
+  "errors": [],
+  "comparisons": [
+    {
+      "theme": "day",
+      "viewport": "904x406",
+      "center": "kanonik",
+      "pitch": 0,
+      "zoom": 16,
+      "localOff": 10,
+      "localOn": 10,
+      "majorOff": 0,
+      "majorOn": 0,
+      "lostLocal": [],
+      "lostMajor": [],
+      "hnRendered": 0,
+      "housenumbers": []
+    },
+    {
+      "theme": "day",
+      "viewport": "904x406",
+      "center": "kanonik",
+      "pitch": 0,
+      "zoom": 17,
+      "localOff": 2,
+      "localOn": 2,
+      "majorOff": 0,
+      "majorOn": 0,
+      "lostLocal": [],
+      "lostMajor": [],
+      "hnRendered": 0,
+      "housenumbers": []
+    },
+    {
+      "theme": "day",
+      "viewport": "904x406",
+      "center": "kanonik",
+      "pitch": 0,
+      "zoom": 18,
+      "localOff": 2,
+      "localOn": 2,
+      "majorOff": 0,
+      "majorOn": 0,
+      "lostLocal": [],
+      "lostMajor": [],
+      "hnRendered": 0,
+      "housenumbers": []
+    },
+    {
+      "theme": "day",
+      "viewport": "904x406",
+      "center": "kanonik",
+      "pitch": 45,
+      "zoom": 16,
+      "localOff": 15,
+      "localOn": 15,
+      "majorOff": 1,
+      "majorOn": 1,
+      "lostLocal": [],
+      "lostMajor": [],
+      "hnRendered": 0,
+      "housenumbers": []
+    },
+    {
+      "theme": "day",
+      "viewport": "904x406",
+      "center": "kanonik",
+      "pitch": 45,
+      "zoom": 17,
+      "localOff": 5,
+      "localOn": 5,
+      "majorOff": 0,
+      "majorOn": 0,
+      "lostLocal": [],
+      "lostMajor": [],
+      "hnRendered": 0,
+      "housenumbers": []
+    },
+    {
+      "theme": "day",
+      "viewport": "904x406",
+      "center": "kanonik",
+      "pitch": 45,
+      "zoom": 18,
+      "localOff": 2,
+      "localOn": 2,
+      "majorOff": 0,
+      "majorOn": 0,
+      "lostLocal": [],
+      "lostMajor": [],
+      "hnRendered": 0,
+      "housenumbers": []
+    },
+    {
+      "theme": "day",
+      "viewport": "904x406",
+      "center": "numara-kumesi",
+      "pitch": 0,
+      "zoom": 16,
+      "localOff": 4,
+      "localOn": 4,
+      "majorOff": 1,
+      "majorOn": 1,
+      "lostLocal": [],
+      "lostMajor": [],
+      "hnRendered": 0,
+      "housenumbers": []
+    },
+    {
+      "theme": "day",
+      "viewport": "904x406",
+      "center": "numara-kumesi",
+      "pitch": 0,
+      "zoom": 17,
+      "localOff": 2,
+      "localOn": 2,
+      "majorOff": 1,
+      "majorOn": 1,
+      "lostLocal": [],
+      "lostMajor": [],
+      "hnRendered": 2,
+      "housenumbers": [
+        "6",
+        "8"
+      ]
+    },
+    {
+      "theme": "day",
+      "viewport": "904x406",
+      "center": "numara-kumesi",
+      "pitch": 0,
+      "zoom": 18,
+      "localOff": 2,
+      "localOn": 2,
+      "majorOff": 1,
+      "majorOn": 1,
+      "lostLocal": [],
+      "lostMajor": [],
+      "hnRendered": 4,
+      "housenumbers": [
+        "10",
+        "4",
+        "6",
+        "8"
+      ]
+    },
+    {
+      "theme": "day",
+      "viewport": "904x406",
+      "center": "numara-kumesi",
+      "pitch": 45,
+      "zoom": 16,
+      "localOff": 7,
+      "localOn": 7,
+      "majorOff": 1,
+      "majorOn": 1,
+      "lostLocal": [],
+      "lostMajor": [],
+      "hnRendered": 0,
+      "housenumbers": []
+    },
+    {
+      "theme": "day",
+      "viewport": "904x406",
+      "center": "numara-kumesi",
+      "pitch": 45,
+      "zoom": 17,
+      "localOff": 2,
+      "localOn": 2,
+      "majorOff": 1,
+      "majorOn": 1,
+      "lostLocal": [],
+      "lostMajor": [],
+      "hnRendered": 2,
+      "housenumbers": [
+        "6",
+        "8"
+      ]
+    },
+    {
+      "theme": "day",
+      "viewport": "904x406",
+      "center": "numara-kumesi",
+      "pitch": 45,
+      "zoom": 18,
+      "localOff": 2,
+      "localOn": 2,
+      "majorOff": 1,
+      "majorOn": 1,
+      "lostLocal": [],
+      "lostMajor": [],
+      "hnRendered": 4,
+      "housenumbers": [
+        "10",
+        "4",
+        "6",
+        "8"
+      ]
+    },
+    {
+      "theme": "day",
+      "viewport": "800x480",
+      "center": "kanonik",
+      "pitch": 0,
+      "zoom": 16,
+      "localOff": 10,
+      "localOn": 10,
+      "majorOff": 0,
+      "majorOn": 0,
+      "lostLocal": [],
+      "lostMajor": [],
+      "hnRendered": 0,
+      "housenumbers": []
+    },
+    {
+      "theme": "day",
+      "viewport": "800x480",
+      "center": "kanonik",
+      "pitch": 0,
+      "zoom": 17,
+      "localOff": 4,
+      "localOn": 4,
+      "majorOff": 0,
+      "majorOn": 0,
+      "lostLocal": [],
+      "lostMajor": [],
+      "hnRendered": 0,
+      "housenumbers": []
+    },
+    {
+      "theme": "day",
+      "viewport": "800x480",
+      "center": "kanonik",
+      "pitch": 0,
+      "zoom": 18,
+      "localOff": 2,
+      "localOn": 2,
+      "majorOff": 0,
+      "majorOn": 0,
+      "lostLocal": [],
+      "lostMajor": [],
+      "hnRendered": 0,
+      "housenumbers": []
+    },
+    {
+      "theme": "day",
+      "viewport": "800x480",
+      "center": "kanonik",
+      "pitch": 45,
+      "zoom": 16,
+      "localOff": 16,
+      "localOn": 16,
+      "majorOff": 1,
+      "majorOn": 1,
+      "lostLocal": [],
+      "lostMajor": [],
+      "hnRendered": 0,
+      "housenumbers": []
+    },
+    {
+      "theme": "day",
+      "viewport": "800x480",
+      "center": "kanonik",
+      "pitch": 45,
+      "zoom": 17,
+      "localOff": 5,
+      "localOn": 5,
+      "majorOff": 0,
+      "majorOn": 0,
+      "lostLocal": [],
+      "lostMajor": [],
+      "hnRendered": 0,
+      "housenumbers": []
+    },
+    {
+      "theme": "day",
+      "viewport": "800x480",
+      "center": "kanonik",
+      "pitch": 45,
+      "zoom": 18,
+      "localOff": 2,
+      "localOn": 2,
+      "majorOff": 0,
+      "majorOn": 0,
+      "lostLocal": [],
+      "lostMajor": [],
+      "hnRendered": 0,
+      "housenumbers": []
+    },
+    {
+      "theme": "day",
+      "viewport": "800x480",
+      "center": "numara-kumesi",
+      "pitch": 0,
+      "zoom": 16,
+      "localOff": 6,
+      "localOn": 6,
+      "majorOff": 1,
+      "majorOn": 1,
+      "lostLocal": [],
+      "lostMajor": [],
+      "hnRendered": 0,
+      "housenumbers": []
+    },
+    {
+      "theme": "day",
+      "viewport": "800x480",
+      "center": "numara-kumesi",
+      "pitch": 0,
+      "zoom": 17,
+      "localOff": 2,
+      "localOn": 2,
+      "majorOff": 1,
+      "majorOn": 1,
+      "lostLocal": [],
+      "lostMajor": [],
+      "hnRendered": 2,
+      "housenumbers": [
+        "6",
+        "8"
+      ]
+    },
+    {
+      "theme": "day",
+      "viewport": "800x480",
+      "center": "numara-kumesi",
+      "pitch": 0,
+      "zoom": 18,
+      "localOff": 2,
+      "localOn": 2,
+      "majorOff": 1,
+      "majorOn": 1,
+      "lostLocal": [],
+      "lostMajor": [],
+      "hnRendered": 4,
+      "housenumbers": [
+        "10",
+        "4",
+        "6",
+        "8"
+      ]
+    },
+    {
+      "theme": "day",
+      "viewport": "800x480",
+      "center": "numara-kumesi",
+      "pitch": 45,
+      "zoom": 16,
+      "localOff": 8,
+      "localOn": 8,
+      "majorOff": 1,
+      "majorOn": 1,
+      "lostLocal": [],
+      "lostMajor": [],
+      "hnRendered": 0,
+      "housenumbers": []
+    },
+    {
+      "theme": "day",
+      "viewport": "800x480",
+      "center": "numara-kumesi",
+      "pitch": 45,
+      "zoom": 17,
+      "localOff": 2,
+      "localOn": 2,
+      "majorOff": 1,
+      "majorOn": 1,
+      "lostLocal": [],
+      "lostMajor": [],
+      "hnRendered": 2,
+      "housenumbers": [
+        "6",
+        "8"
+      ]
+    },
+    {
+      "theme": "day",
+      "viewport": "800x480",
+      "center": "numara-kumesi",
+      "pitch": 45,
+      "zoom": 18,
+      "localOff": 2,
+      "localOn": 2,
+      "majorOff": 1,
+      "majorOn": 1,
+      "lostLocal": [],
+      "lostMajor": [],
+      "hnRendered": 4,
+      "housenumbers": [
+        "10",
+        "4",
+        "6",
+        "8"
+      ]
+    },
+    {
+      "theme": "night",
+      "viewport": "904x406",
+      "center": "kanonik",
+      "pitch": 0,
+      "zoom": 16,
+      "localOff": 10,
+      "localOn": 10,
+      "majorOff": 0,
+      "majorOn": 0,
+      "lostLocal": [],
+      "lostMajor": [],
+      "hnRendered": 0,
+      "housenumbers": []
+    },
+    {
+      "theme": "night",
+      "viewport": "904x406",
+      "center": "kanonik",
+      "pitch": 0,
+      "zoom": 17,
+      "localOff": 2,
+      "localOn": 2,
+      "majorOff": 0,
+      "majorOn": 0,
+      "lostLocal": [],
+      "lostMajor": [],
+      "hnRendered": 0,
+      "housenumbers": []
+    },
+    {
+      "theme": "night",
+      "viewport": "904x406",
+      "center": "kanonik",
+      "pitch": 0,
+      "zoom": 18,
+      "localOff": 2,
+      "localOn": 2,
+      "majorOff": 0,
+      "majorOn": 0,
+      "lostLocal": [],
+      "lostMajor": [],
+      "hnRendered": 0,
+      "housenumbers": []
+    },
+    {
+      "theme": "night",
+      "viewport": "904x406",
+      "center": "kanonik",
+      "pitch": 45,
+      "zoom": 16,
+      "localOff": 15,
+      "localOn": 15,
+      "majorOff": 1,
+      "majorOn": 1,
+      "lostLocal": [],
+      "lostMajor": [],
+      "hnRendered": 0,
+      "housenumbers": []
+    },
+    {
+      "theme": "night",
+      "viewport": "904x406",
+      "center": "kanonik",
+      "pitch": 45,
+      "zoom": 17,
+      "localOff": 5,
+      "localOn": 5,
+      "majorOff": 0,
+      "majorOn": 0,
+      "lostLocal": [],
+      "lostMajor": [],
+      "hnRendered": 0,
+      "housenumbers": []
+    },
+    {
+      "theme": "night",
+      "viewport": "904x406",
+      "center": "kanonik",
+      "pitch": 45,
+      "zoom": 18,
+      "localOff": 2,
+      "localOn": 2,
+      "majorOff": 0,
+      "majorOn": 0,
+      "lostLocal": [],
+      "lostMajor": [],
+      "hnRendered": 0,
+      "housenumbers": []
+    },
+    {
+      "theme": "night",
+      "viewport": "904x406",
+      "center": "numara-kumesi",
+      "pitch": 0,
+      "zoom": 16,
+      "localOff": 4,
+      "localOn": 4,
+      "majorOff": 1,
+      "majorOn": 1,
+      "lostLocal": [],
+      "lostMajor": [],
+      "hnRendered": 0,
+      "housenumbers": []
+    },
+    {
+      "theme": "night",
+      "viewport": "904x406",
+      "center": "numara-kumesi",
+      "pitch": 0,
+      "zoom": 17,
+      "localOff": 2,
+      "localOn": 2,
+      "majorOff": 1,
+      "majorOn": 1,
+      "lostLocal": [],
+      "lostMajor": [],
+      "hnRendered": 2,
+      "housenumbers": [
+        "6",
+        "8"
+      ]
+    },
+    {
+      "theme": "night",
+      "viewport": "904x406",
+      "center": "numara-kumesi",
+      "pitch": 0,
+      "zoom": 18,
+      "localOff": 2,
+      "localOn": 2,
+      "majorOff": 1,
+      "majorOn": 1,
+      "lostLocal": [],
+      "lostMajor": [],
+      "hnRendered": 4,
+      "housenumbers": [
+        "10",
+        "4",
+        "6",
+        "8"
+      ]
+    },
+    {
+      "theme": "night",
+      "viewport": "904x406",
+      "center": "numara-kumesi",
+      "pitch": 45,
+      "zoom": 16,
+      "localOff": 7,
+      "localOn": 7,
+      "majorOff": 1,
+      "majorOn": 1,
+      "lostLocal": [],
+      "lostMajor": [],
+      "hnRendered": 0,
+      "housenumbers": []
+    },
+    {
+      "theme": "night",
+      "viewport": "904x406",
+      "center": "numara-kumesi",
+      "pitch": 45,
+      "zoom": 17,
+      "localOff": 2,
+      "localOn": 2,
+      "majorOff": 1,
+      "majorOn": 1,
+      "lostLocal": [],
+      "lostMajor": [],
+      "hnRendered": 2,
+      "housenumbers": [
+        "6",
+        "8"
+      ]
+    },
+    {
+      "theme": "night",
+      "viewport": "904x406",
+      "center": "numara-kumesi",
+      "pitch": 45,
+      "zoom": 18,
+      "localOff": 2,
+      "localOn": 2,
+      "majorOff": 1,
+      "majorOn": 1,
+      "lostLocal": [],
+      "lostMajor": [],
+      "hnRendered": 4,
+      "housenumbers": [
+        "10",
+        "4",
+        "6",
+        "8"
+      ]
+    },
+    {
+      "theme": "night",
+      "viewport": "800x480",
+      "center": "kanonik",
+      "pitch": 0,
+      "zoom": 16,
+      "localOff": 10,
+      "localOn": 10,
+      "majorOff": 0,
+      "majorOn": 0,
+      "lostLocal": [],
+      "lostMajor": [],
+      "hnRendered": 0,
+      "housenumbers": []
+    },
+    {
+      "theme": "night",
+      "viewport": "800x480",
+      "center": "kanonik",
+      "pitch": 0,
+      "zoom": 17,
+      "localOff": 4,
+      "localOn": 4,
+      "majorOff": 0,
+      "majorOn": 0,
+      "lostLocal": [],
+      "lostMajor": [],
+      "hnRendered": 0,
+      "housenumbers": []
+    },
+    {
+      "theme": "night",
+      "viewport": "800x480",
+      "center": "kanonik",
+      "pitch": 0,
+      "zoom": 18,
+      "localOff": 2,
+      "localOn": 2,
+      "majorOff": 0,
+      "majorOn": 0,
+      "lostLocal": [],
+      "lostMajor": [],
+      "hnRendered": 0,
+      "housenumbers": []
+    },
+    {
+      "theme": "night",
+      "viewport": "800x480",
+      "center": "kanonik",
+      "pitch": 45,
+      "zoom": 16,
+      "localOff": 16,
+      "localOn": 16,
+      "majorOff": 1,
+      "majorOn": 1,
+      "lostLocal": [],
+      "lostMajor": [],
+      "hnRendered": 0,
+      "housenumbers": []
+    },
+    {
+      "theme": "night",
+      "viewport": "800x480",
+      "center": "kanonik",
+      "pitch": 45,
+      "zoom": 17,
+      "localOff": 5,
+      "localOn": 5,
+      "majorOff": 0,
+      "majorOn": 0,
+      "lostLocal": [],
+      "lostMajor": [],
+      "hnRendered": 0,
+      "housenumbers": []
+    },
+    {
+      "theme": "night",
+      "viewport": "800x480",
+      "center": "kanonik",
+      "pitch": 45,
+      "zoom": 18,
+      "localOff": 2,
+      "localOn": 2,
+      "majorOff": 0,
+      "majorOn": 0,
+      "lostLocal": [],
+      "lostMajor": [],
+      "hnRendered": 0,
+      "housenumbers": []
+    },
+    {
+      "theme": "night",
+      "viewport": "800x480",
+      "center": "numara-kumesi",
+      "pitch": 0,
+      "zoom": 16,
+      "localOff": 6,
+      "localOn": 6,
+      "majorOff": 1,
+      "majorOn": 1,
+      "lostLocal": [],
+      "lostMajor": [],
+      "hnRendered": 0,
+      "housenumbers": []
+    },
+    {
+      "theme": "night",
+      "viewport": "800x480",
+      "center": "numara-kumesi",
+      "pitch": 0,
+      "zoom": 17,
+      "localOff": 2,
+      "localOn": 2,
+      "majorOff": 1,
+      "majorOn": 1,
+      "lostLocal": [],
+      "lostMajor": [],
+      "hnRendered": 2,
+      "housenumbers": [
+        "6",
+        "8"
+      ]
+    },
+    {
+      "theme": "night",
+      "viewport": "800x480",
+      "center": "numara-kumesi",
+      "pitch": 0,
+      "zoom": 18,
+      "localOff": 2,
+      "localOn": 2,
+      "majorOff": 1,
+      "majorOn": 1,
+      "lostLocal": [],
+      "lostMajor": [],
+      "hnRendered": 4,
+      "housenumbers": [
+        "10",
+        "4",
+        "6",
+        "8"
+      ]
+    },
+    {
+      "theme": "night",
+      "viewport": "800x480",
+      "center": "numara-kumesi",
+      "pitch": 45,
+      "zoom": 16,
+      "localOff": 8,
+      "localOn": 8,
+      "majorOff": 1,
+      "majorOn": 1,
+      "lostLocal": [],
+      "lostMajor": [],
+      "hnRendered": 0,
+      "housenumbers": []
+    },
+    {
+      "theme": "night",
+      "viewport": "800x480",
+      "center": "numara-kumesi",
+      "pitch": 45,
+      "zoom": 17,
+      "localOff": 2,
+      "localOn": 2,
+      "majorOff": 1,
+      "majorOn": 1,
+      "lostLocal": [],
+      "lostMajor": [],
+      "hnRendered": 2,
+      "housenumbers": [
+        "6",
+        "8"
+      ]
+    },
+    {
+      "theme": "night",
+      "viewport": "800x480",
+      "center": "numara-kumesi",
+      "pitch": 45,
+      "zoom": 18,
+      "localOff": 2,
+      "localOn": 2,
+      "majorOff": 1,
+      "majorOn": 1,
+      "lostLocal": [],
+      "lostMajor": [],
+      "hnRendered": 4,
+      "housenumbers": [
+        "10",
+        "4",
+        "6",
+        "8"
+      ]
+    }
+  ],
+  "rows": [
+    {
+      "theme": "day",
+      "viewport": "904x406",
+      "center": "kanonik",
+      "pitch": 0,
+      "zoom": 16,
+      "housenumberVisible": false,
+      "localDistinct": 10,
+      "majorDistinct": 0,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "0451. Sokak",
+        "0469. Sokak",
+        "0474. Sokak",
+        "0476. Sokak",
+        "0478. Sokak",
+        "1957. Sokak",
+        "1958. Sokak",
+        "1961. Sokak",
+        "1968. Sokak",
+        "Mavi Bulvar"
+      ],
+      "majorNames": [],
+      "housenumbers": []
+    },
+    {
+      "theme": "day",
+      "viewport": "904x406",
+      "center": "kanonik",
+      "pitch": 0,
+      "zoom": 16,
+      "housenumberVisible": true,
+      "localDistinct": 10,
+      "majorDistinct": 0,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "0451. Sokak",
+        "0469. Sokak",
+        "0474. Sokak",
+        "0476. Sokak",
+        "0478. Sokak",
+        "1957. Sokak",
+        "1958. Sokak",
+        "1961. Sokak",
+        "1968. Sokak",
+        "Mavi Bulvar"
+      ],
+      "majorNames": [],
+      "housenumbers": []
+    },
+    {
+      "theme": "day",
+      "viewport": "904x406",
+      "center": "kanonik",
+      "pitch": 0,
+      "zoom": 17,
+      "housenumberVisible": false,
+      "localDistinct": 2,
+      "majorDistinct": 0,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "0469. Sokak",
+        "Mavi Bulvar"
+      ],
+      "majorNames": [],
+      "housenumbers": []
+    },
+    {
+      "theme": "day",
+      "viewport": "904x406",
+      "center": "kanonik",
+      "pitch": 0,
+      "zoom": 17,
+      "housenumberVisible": true,
+      "localDistinct": 2,
+      "majorDistinct": 0,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "0469. Sokak",
+        "Mavi Bulvar"
+      ],
+      "majorNames": [],
+      "housenumbers": []
+    },
+    {
+      "theme": "day",
+      "viewport": "904x406",
+      "center": "kanonik",
+      "pitch": 0,
+      "zoom": 18,
+      "housenumberVisible": false,
+      "localDistinct": 2,
+      "majorDistinct": 0,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "0451. Sokak",
+        "0469. Sokak"
+      ],
+      "majorNames": [],
+      "housenumbers": []
+    },
+    {
+      "theme": "day",
+      "viewport": "904x406",
+      "center": "kanonik",
+      "pitch": 0,
+      "zoom": 18,
+      "housenumberVisible": true,
+      "localDistinct": 2,
+      "majorDistinct": 0,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "0451. Sokak",
+        "0469. Sokak"
+      ],
+      "majorNames": [],
+      "housenumbers": []
+    },
+    {
+      "theme": "day",
+      "viewport": "904x406",
+      "center": "kanonik",
+      "pitch": 45,
+      "zoom": 16,
+      "housenumberVisible": false,
+      "localDistinct": 15,
+      "majorDistinct": 1,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "0212. Sokak",
+        "0437. Sokak",
+        "0441. Sokak",
+        "0443. Sokak",
+        "0451. Sokak",
+        "0469. Sokak",
+        "0474. Sokak",
+        "0476. Sokak",
+        "0478. Sokak",
+        "0486. Sokak",
+        "1958. Sokak",
+        "1961. Sokak",
+        "1968. Sokak",
+        "Mavi Bulvar",
+        "Şamil Basayev Caddesi"
+      ],
+      "majorNames": [
+        "Gazipaşa Bulvarı"
+      ],
+      "housenumbers": []
+    },
+    {
+      "theme": "day",
+      "viewport": "904x406",
+      "center": "kanonik",
+      "pitch": 45,
+      "zoom": 16,
+      "housenumberVisible": true,
+      "localDistinct": 15,
+      "majorDistinct": 1,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "0212. Sokak",
+        "0437. Sokak",
+        "0441. Sokak",
+        "0443. Sokak",
+        "0451. Sokak",
+        "0469. Sokak",
+        "0474. Sokak",
+        "0476. Sokak",
+        "0478. Sokak",
+        "0486. Sokak",
+        "1958. Sokak",
+        "1961. Sokak",
+        "1968. Sokak",
+        "Mavi Bulvar",
+        "Şamil Basayev Caddesi"
+      ],
+      "majorNames": [
+        "Gazipaşa Bulvarı"
+      ],
+      "housenumbers": []
+    },
+    {
+      "theme": "day",
+      "viewport": "904x406",
+      "center": "kanonik",
+      "pitch": 45,
+      "zoom": 17,
+      "housenumberVisible": false,
+      "localDistinct": 5,
+      "majorDistinct": 0,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "0451. Sokak",
+        "0469. Sokak",
+        "0478. Sokak",
+        "Mavi Bulvar",
+        "Şamil Basayev Caddesi"
+      ],
+      "majorNames": [],
+      "housenumbers": []
+    },
+    {
+      "theme": "day",
+      "viewport": "904x406",
+      "center": "kanonik",
+      "pitch": 45,
+      "zoom": 17,
+      "housenumberVisible": true,
+      "localDistinct": 5,
+      "majorDistinct": 0,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "0451. Sokak",
+        "0469. Sokak",
+        "0478. Sokak",
+        "Mavi Bulvar",
+        "Şamil Basayev Caddesi"
+      ],
+      "majorNames": [],
+      "housenumbers": []
+    },
+    {
+      "theme": "day",
+      "viewport": "904x406",
+      "center": "kanonik",
+      "pitch": 45,
+      "zoom": 18,
+      "housenumberVisible": false,
+      "localDistinct": 2,
+      "majorDistinct": 0,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "0451. Sokak",
+        "0469. Sokak"
+      ],
+      "majorNames": [],
+      "housenumbers": []
+    },
+    {
+      "theme": "day",
+      "viewport": "904x406",
+      "center": "kanonik",
+      "pitch": 45,
+      "zoom": 18,
+      "housenumberVisible": true,
+      "localDistinct": 2,
+      "majorDistinct": 0,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "0451. Sokak",
+        "0469. Sokak"
+      ],
+      "majorNames": [],
+      "housenumbers": []
+    },
+    {
+      "theme": "day",
+      "viewport": "904x406",
+      "center": "numara-kumesi",
+      "pitch": 0,
+      "zoom": 16,
+      "housenumberVisible": false,
+      "localDistinct": 4,
+      "majorDistinct": 1,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "1838. Sokak",
+        "1846. Sokak",
+        "Kale Burcu Caddesi",
+        "sk 1848"
+      ],
+      "majorNames": [
+        "Atatürk Bulvarı"
+      ],
+      "housenumbers": []
+    },
+    {
+      "theme": "day",
+      "viewport": "904x406",
+      "center": "numara-kumesi",
+      "pitch": 0,
+      "zoom": 16,
+      "housenumberVisible": true,
+      "localDistinct": 4,
+      "majorDistinct": 1,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "1838. Sokak",
+        "1846. Sokak",
+        "Kale Burcu Caddesi",
+        "sk 1848"
+      ],
+      "majorNames": [
+        "Atatürk Bulvarı"
+      ],
+      "housenumbers": []
+    },
+    {
+      "theme": "day",
+      "viewport": "904x406",
+      "center": "numara-kumesi",
+      "pitch": 0,
+      "zoom": 17,
+      "housenumberVisible": false,
+      "localDistinct": 2,
+      "majorDistinct": 1,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "1846. Sokak",
+        "sk 1848"
+      ],
+      "majorNames": [
+        "Atatürk Bulvarı"
+      ],
+      "housenumbers": []
+    },
+    {
+      "theme": "day",
+      "viewport": "904x406",
+      "center": "numara-kumesi",
+      "pitch": 0,
+      "zoom": 17,
+      "housenumberVisible": true,
+      "localDistinct": 2,
+      "majorDistinct": 1,
+      "hnRendered": 2,
+      "hnInstances": 2,
+      "localNames": [
+        "1846. Sokak",
+        "sk 1848"
+      ],
+      "majorNames": [
+        "Atatürk Bulvarı"
+      ],
+      "housenumbers": [
+        "6",
+        "8"
+      ]
+    },
+    {
+      "theme": "day",
+      "viewport": "904x406",
+      "center": "numara-kumesi",
+      "pitch": 0,
+      "zoom": 18,
+      "housenumberVisible": false,
+      "localDistinct": 2,
+      "majorDistinct": 1,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "1846. Sokak",
+        "sk 1848"
+      ],
+      "majorNames": [
+        "Atatürk Bulvarı"
+      ],
+      "housenumbers": []
+    },
+    {
+      "theme": "day",
+      "viewport": "904x406",
+      "center": "numara-kumesi",
+      "pitch": 0,
+      "zoom": 18,
+      "housenumberVisible": true,
+      "localDistinct": 2,
+      "majorDistinct": 1,
+      "hnRendered": 4,
+      "hnInstances": 4,
+      "localNames": [
+        "1846. Sokak",
+        "sk 1848"
+      ],
+      "majorNames": [
+        "Atatürk Bulvarı"
+      ],
+      "housenumbers": [
+        "10",
+        "4",
+        "6",
+        "8"
+      ]
+    },
+    {
+      "theme": "day",
+      "viewport": "904x406",
+      "center": "numara-kumesi",
+      "pitch": 45,
+      "zoom": 16,
+      "housenumberVisible": false,
+      "localDistinct": 7,
+      "majorDistinct": 1,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "1838. Sokak",
+        "1846. Sokak",
+        "4076. Sokak",
+        "Fatih Sultan Mehmet Bulvarı",
+        "Kale Burcu Caddesi",
+        "Mücahitler Caddesi",
+        "sk 1848"
+      ],
+      "majorNames": [
+        "Atatürk Bulvarı"
+      ],
+      "housenumbers": []
+    },
+    {
+      "theme": "day",
+      "viewport": "904x406",
+      "center": "numara-kumesi",
+      "pitch": 45,
+      "zoom": 16,
+      "housenumberVisible": true,
+      "localDistinct": 7,
+      "majorDistinct": 1,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "1838. Sokak",
+        "1846. Sokak",
+        "4076. Sokak",
+        "Fatih Sultan Mehmet Bulvarı",
+        "Kale Burcu Caddesi",
+        "Mücahitler Caddesi",
+        "sk 1848"
+      ],
+      "majorNames": [
+        "Atatürk Bulvarı"
+      ],
+      "housenumbers": []
+    },
+    {
+      "theme": "day",
+      "viewport": "904x406",
+      "center": "numara-kumesi",
+      "pitch": 45,
+      "zoom": 17,
+      "housenumberVisible": false,
+      "localDistinct": 2,
+      "majorDistinct": 1,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "1846. Sokak",
+        "sk 1848"
+      ],
+      "majorNames": [
+        "Atatürk Bulvarı"
+      ],
+      "housenumbers": []
+    },
+    {
+      "theme": "day",
+      "viewport": "904x406",
+      "center": "numara-kumesi",
+      "pitch": 45,
+      "zoom": 17,
+      "housenumberVisible": true,
+      "localDistinct": 2,
+      "majorDistinct": 1,
+      "hnRendered": 2,
+      "hnInstances": 2,
+      "localNames": [
+        "1846. Sokak",
+        "sk 1848"
+      ],
+      "majorNames": [
+        "Atatürk Bulvarı"
+      ],
+      "housenumbers": [
+        "6",
+        "8"
+      ]
+    },
+    {
+      "theme": "day",
+      "viewport": "904x406",
+      "center": "numara-kumesi",
+      "pitch": 45,
+      "zoom": 18,
+      "housenumberVisible": false,
+      "localDistinct": 2,
+      "majorDistinct": 1,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "1846. Sokak",
+        "sk 1848"
+      ],
+      "majorNames": [
+        "Atatürk Bulvarı"
+      ],
+      "housenumbers": []
+    },
+    {
+      "theme": "day",
+      "viewport": "904x406",
+      "center": "numara-kumesi",
+      "pitch": 45,
+      "zoom": 18,
+      "housenumberVisible": true,
+      "localDistinct": 2,
+      "majorDistinct": 1,
+      "hnRendered": 4,
+      "hnInstances": 4,
+      "localNames": [
+        "1846. Sokak",
+        "sk 1848"
+      ],
+      "majorNames": [
+        "Atatürk Bulvarı"
+      ],
+      "housenumbers": [
+        "10",
+        "4",
+        "6",
+        "8"
+      ]
+    },
+    {
+      "theme": "day",
+      "viewport": "800x480",
+      "center": "kanonik",
+      "pitch": 0,
+      "zoom": 16,
+      "housenumberVisible": false,
+      "localDistinct": 10,
+      "majorDistinct": 0,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "0451. Sokak",
+        "0469. Sokak",
+        "0474. Sokak",
+        "0476. Sokak",
+        "0478. Sokak",
+        "1957. Sokak",
+        "1958. Sokak",
+        "1961. Sokak",
+        "1968. Sokak",
+        "Mavi Bulvar"
+      ],
+      "majorNames": [],
+      "housenumbers": []
+    },
+    {
+      "theme": "day",
+      "viewport": "800x480",
+      "center": "kanonik",
+      "pitch": 0,
+      "zoom": 16,
+      "housenumberVisible": true,
+      "localDistinct": 10,
+      "majorDistinct": 0,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "0451. Sokak",
+        "0469. Sokak",
+        "0474. Sokak",
+        "0476. Sokak",
+        "0478. Sokak",
+        "1957. Sokak",
+        "1958. Sokak",
+        "1961. Sokak",
+        "1968. Sokak",
+        "Mavi Bulvar"
+      ],
+      "majorNames": [],
+      "housenumbers": []
+    },
+    {
+      "theme": "day",
+      "viewport": "800x480",
+      "center": "kanonik",
+      "pitch": 0,
+      "zoom": 17,
+      "housenumberVisible": false,
+      "localDistinct": 4,
+      "majorDistinct": 0,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "0469. Sokak",
+        "1965. Sokak",
+        "1971. Sokak",
+        "Mavi Bulvar"
+      ],
+      "majorNames": [],
+      "housenumbers": []
+    },
+    {
+      "theme": "day",
+      "viewport": "800x480",
+      "center": "kanonik",
+      "pitch": 0,
+      "zoom": 17,
+      "housenumberVisible": true,
+      "localDistinct": 4,
+      "majorDistinct": 0,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "0469. Sokak",
+        "1965. Sokak",
+        "1971. Sokak",
+        "Mavi Bulvar"
+      ],
+      "majorNames": [],
+      "housenumbers": []
+    },
+    {
+      "theme": "day",
+      "viewport": "800x480",
+      "center": "kanonik",
+      "pitch": 0,
+      "zoom": 18,
+      "housenumberVisible": false,
+      "localDistinct": 2,
+      "majorDistinct": 0,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "0451. Sokak",
+        "0469. Sokak"
+      ],
+      "majorNames": [],
+      "housenumbers": []
+    },
+    {
+      "theme": "day",
+      "viewport": "800x480",
+      "center": "kanonik",
+      "pitch": 0,
+      "zoom": 18,
+      "housenumberVisible": true,
+      "localDistinct": 2,
+      "majorDistinct": 0,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "0451. Sokak",
+        "0469. Sokak"
+      ],
+      "majorNames": [],
+      "housenumbers": []
+    },
+    {
+      "theme": "day",
+      "viewport": "800x480",
+      "center": "kanonik",
+      "pitch": 45,
+      "zoom": 16,
+      "housenumberVisible": false,
+      "localDistinct": 16,
+      "majorDistinct": 1,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "0212. Sokak",
+        "0437. Sokak",
+        "0441. Sokak",
+        "0443. Sokak",
+        "0451. Sokak",
+        "0469. Sokak",
+        "0474. Sokak",
+        "0476. Sokak",
+        "0478. Sokak",
+        "0486. Sokak",
+        "0488. Sokak",
+        "1958. Sokak",
+        "1961. Sokak",
+        "1968. Sokak",
+        "Mavi Bulvar",
+        "Şamil Basayev Caddesi"
+      ],
+      "majorNames": [
+        "Gazipaşa Bulvarı"
+      ],
+      "housenumbers": []
+    },
+    {
+      "theme": "day",
+      "viewport": "800x480",
+      "center": "kanonik",
+      "pitch": 45,
+      "zoom": 16,
+      "housenumberVisible": true,
+      "localDistinct": 16,
+      "majorDistinct": 1,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "0212. Sokak",
+        "0437. Sokak",
+        "0441. Sokak",
+        "0443. Sokak",
+        "0451. Sokak",
+        "0469. Sokak",
+        "0474. Sokak",
+        "0476. Sokak",
+        "0478. Sokak",
+        "0486. Sokak",
+        "0488. Sokak",
+        "1958. Sokak",
+        "1961. Sokak",
+        "1968. Sokak",
+        "Mavi Bulvar",
+        "Şamil Basayev Caddesi"
+      ],
+      "majorNames": [
+        "Gazipaşa Bulvarı"
+      ],
+      "housenumbers": []
+    },
+    {
+      "theme": "day",
+      "viewport": "800x480",
+      "center": "kanonik",
+      "pitch": 45,
+      "zoom": 17,
+      "housenumberVisible": false,
+      "localDistinct": 5,
+      "majorDistinct": 0,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "0451. Sokak",
+        "0469. Sokak",
+        "1971. Sokak",
+        "Mavi Bulvar",
+        "Şamil Basayev Caddesi"
+      ],
+      "majorNames": [],
+      "housenumbers": []
+    },
+    {
+      "theme": "day",
+      "viewport": "800x480",
+      "center": "kanonik",
+      "pitch": 45,
+      "zoom": 17,
+      "housenumberVisible": true,
+      "localDistinct": 5,
+      "majorDistinct": 0,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "0451. Sokak",
+        "0469. Sokak",
+        "1971. Sokak",
+        "Mavi Bulvar",
+        "Şamil Basayev Caddesi"
+      ],
+      "majorNames": [],
+      "housenumbers": []
+    },
+    {
+      "theme": "day",
+      "viewport": "800x480",
+      "center": "kanonik",
+      "pitch": 45,
+      "zoom": 18,
+      "housenumberVisible": false,
+      "localDistinct": 2,
+      "majorDistinct": 0,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "0451. Sokak",
+        "0469. Sokak"
+      ],
+      "majorNames": [],
+      "housenumbers": []
+    },
+    {
+      "theme": "day",
+      "viewport": "800x480",
+      "center": "kanonik",
+      "pitch": 45,
+      "zoom": 18,
+      "housenumberVisible": true,
+      "localDistinct": 2,
+      "majorDistinct": 0,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "0451. Sokak",
+        "0469. Sokak"
+      ],
+      "majorNames": [],
+      "housenumbers": []
+    },
+    {
+      "theme": "day",
+      "viewport": "800x480",
+      "center": "numara-kumesi",
+      "pitch": 0,
+      "zoom": 16,
+      "housenumberVisible": false,
+      "localDistinct": 6,
+      "majorDistinct": 1,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "0415. Sokak",
+        "1813. Sokak",
+        "1838. Sokak",
+        "1846. Sokak",
+        "Kale Burcu Caddesi",
+        "sk 1848"
+      ],
+      "majorNames": [
+        "Atatürk Bulvarı"
+      ],
+      "housenumbers": []
+    },
+    {
+      "theme": "day",
+      "viewport": "800x480",
+      "center": "numara-kumesi",
+      "pitch": 0,
+      "zoom": 16,
+      "housenumberVisible": true,
+      "localDistinct": 6,
+      "majorDistinct": 1,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "0415. Sokak",
+        "1813. Sokak",
+        "1838. Sokak",
+        "1846. Sokak",
+        "Kale Burcu Caddesi",
+        "sk 1848"
+      ],
+      "majorNames": [
+        "Atatürk Bulvarı"
+      ],
+      "housenumbers": []
+    },
+    {
+      "theme": "day",
+      "viewport": "800x480",
+      "center": "numara-kumesi",
+      "pitch": 0,
+      "zoom": 17,
+      "housenumberVisible": false,
+      "localDistinct": 2,
+      "majorDistinct": 1,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "1846. Sokak",
+        "sk 1848"
+      ],
+      "majorNames": [
+        "Atatürk Bulvarı"
+      ],
+      "housenumbers": []
+    },
+    {
+      "theme": "day",
+      "viewport": "800x480",
+      "center": "numara-kumesi",
+      "pitch": 0,
+      "zoom": 17,
+      "housenumberVisible": true,
+      "localDistinct": 2,
+      "majorDistinct": 1,
+      "hnRendered": 2,
+      "hnInstances": 2,
+      "localNames": [
+        "1846. Sokak",
+        "sk 1848"
+      ],
+      "majorNames": [
+        "Atatürk Bulvarı"
+      ],
+      "housenumbers": [
+        "6",
+        "8"
+      ]
+    },
+    {
+      "theme": "day",
+      "viewport": "800x480",
+      "center": "numara-kumesi",
+      "pitch": 0,
+      "zoom": 18,
+      "housenumberVisible": false,
+      "localDistinct": 2,
+      "majorDistinct": 1,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "1846. Sokak",
+        "sk 1848"
+      ],
+      "majorNames": [
+        "Atatürk Bulvarı"
+      ],
+      "housenumbers": []
+    },
+    {
+      "theme": "day",
+      "viewport": "800x480",
+      "center": "numara-kumesi",
+      "pitch": 0,
+      "zoom": 18,
+      "housenumberVisible": true,
+      "localDistinct": 2,
+      "majorDistinct": 1,
+      "hnRendered": 4,
+      "hnInstances": 4,
+      "localNames": [
+        "1846. Sokak",
+        "sk 1848"
+      ],
+      "majorNames": [
+        "Atatürk Bulvarı"
+      ],
+      "housenumbers": [
+        "10",
+        "4",
+        "6",
+        "8"
+      ]
+    },
+    {
+      "theme": "day",
+      "viewport": "800x480",
+      "center": "numara-kumesi",
+      "pitch": 45,
+      "zoom": 16,
+      "housenumberVisible": false,
+      "localDistinct": 8,
+      "majorDistinct": 1,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "0415. Sokak",
+        "1813. Sokak",
+        "1838. Sokak",
+        "1846. Sokak",
+        "Fatih Sultan Mehmet Bulvarı",
+        "Kale Burcu Caddesi",
+        "Mücahitler Caddesi",
+        "sk 1848"
+      ],
+      "majorNames": [
+        "Atatürk Bulvarı"
+      ],
+      "housenumbers": []
+    },
+    {
+      "theme": "day",
+      "viewport": "800x480",
+      "center": "numara-kumesi",
+      "pitch": 45,
+      "zoom": 16,
+      "housenumberVisible": true,
+      "localDistinct": 8,
+      "majorDistinct": 1,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "0415. Sokak",
+        "1813. Sokak",
+        "1838. Sokak",
+        "1846. Sokak",
+        "Fatih Sultan Mehmet Bulvarı",
+        "Kale Burcu Caddesi",
+        "Mücahitler Caddesi",
+        "sk 1848"
+      ],
+      "majorNames": [
+        "Atatürk Bulvarı"
+      ],
+      "housenumbers": []
+    },
+    {
+      "theme": "day",
+      "viewport": "800x480",
+      "center": "numara-kumesi",
+      "pitch": 45,
+      "zoom": 17,
+      "housenumberVisible": false,
+      "localDistinct": 2,
+      "majorDistinct": 1,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "1846. Sokak",
+        "sk 1848"
+      ],
+      "majorNames": [
+        "Atatürk Bulvarı"
+      ],
+      "housenumbers": []
+    },
+    {
+      "theme": "day",
+      "viewport": "800x480",
+      "center": "numara-kumesi",
+      "pitch": 45,
+      "zoom": 17,
+      "housenumberVisible": true,
+      "localDistinct": 2,
+      "majorDistinct": 1,
+      "hnRendered": 2,
+      "hnInstances": 2,
+      "localNames": [
+        "1846. Sokak",
+        "sk 1848"
+      ],
+      "majorNames": [
+        "Atatürk Bulvarı"
+      ],
+      "housenumbers": [
+        "6",
+        "8"
+      ]
+    },
+    {
+      "theme": "day",
+      "viewport": "800x480",
+      "center": "numara-kumesi",
+      "pitch": 45,
+      "zoom": 18,
+      "housenumberVisible": false,
+      "localDistinct": 2,
+      "majorDistinct": 1,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "1846. Sokak",
+        "sk 1848"
+      ],
+      "majorNames": [
+        "Atatürk Bulvarı"
+      ],
+      "housenumbers": []
+    },
+    {
+      "theme": "day",
+      "viewport": "800x480",
+      "center": "numara-kumesi",
+      "pitch": 45,
+      "zoom": 18,
+      "housenumberVisible": true,
+      "localDistinct": 2,
+      "majorDistinct": 1,
+      "hnRendered": 4,
+      "hnInstances": 4,
+      "localNames": [
+        "1846. Sokak",
+        "sk 1848"
+      ],
+      "majorNames": [
+        "Atatürk Bulvarı"
+      ],
+      "housenumbers": [
+        "10",
+        "4",
+        "6",
+        "8"
+      ]
+    },
+    {
+      "theme": "night",
+      "viewport": "904x406",
+      "center": "kanonik",
+      "pitch": 0,
+      "zoom": 16,
+      "housenumberVisible": false,
+      "localDistinct": 10,
+      "majorDistinct": 0,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "0451. Sokak",
+        "0469. Sokak",
+        "0474. Sokak",
+        "0476. Sokak",
+        "0478. Sokak",
+        "1957. Sokak",
+        "1958. Sokak",
+        "1961. Sokak",
+        "1968. Sokak",
+        "Mavi Bulvar"
+      ],
+      "majorNames": [],
+      "housenumbers": []
+    },
+    {
+      "theme": "night",
+      "viewport": "904x406",
+      "center": "kanonik",
+      "pitch": 0,
+      "zoom": 16,
+      "housenumberVisible": true,
+      "localDistinct": 10,
+      "majorDistinct": 0,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "0451. Sokak",
+        "0469. Sokak",
+        "0474. Sokak",
+        "0476. Sokak",
+        "0478. Sokak",
+        "1957. Sokak",
+        "1958. Sokak",
+        "1961. Sokak",
+        "1968. Sokak",
+        "Mavi Bulvar"
+      ],
+      "majorNames": [],
+      "housenumbers": []
+    },
+    {
+      "theme": "night",
+      "viewport": "904x406",
+      "center": "kanonik",
+      "pitch": 0,
+      "zoom": 17,
+      "housenumberVisible": false,
+      "localDistinct": 2,
+      "majorDistinct": 0,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "0469. Sokak",
+        "Mavi Bulvar"
+      ],
+      "majorNames": [],
+      "housenumbers": []
+    },
+    {
+      "theme": "night",
+      "viewport": "904x406",
+      "center": "kanonik",
+      "pitch": 0,
+      "zoom": 17,
+      "housenumberVisible": true,
+      "localDistinct": 2,
+      "majorDistinct": 0,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "0469. Sokak",
+        "Mavi Bulvar"
+      ],
+      "majorNames": [],
+      "housenumbers": []
+    },
+    {
+      "theme": "night",
+      "viewport": "904x406",
+      "center": "kanonik",
+      "pitch": 0,
+      "zoom": 18,
+      "housenumberVisible": false,
+      "localDistinct": 2,
+      "majorDistinct": 0,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "0451. Sokak",
+        "0469. Sokak"
+      ],
+      "majorNames": [],
+      "housenumbers": []
+    },
+    {
+      "theme": "night",
+      "viewport": "904x406",
+      "center": "kanonik",
+      "pitch": 0,
+      "zoom": 18,
+      "housenumberVisible": true,
+      "localDistinct": 2,
+      "majorDistinct": 0,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "0451. Sokak",
+        "0469. Sokak"
+      ],
+      "majorNames": [],
+      "housenumbers": []
+    },
+    {
+      "theme": "night",
+      "viewport": "904x406",
+      "center": "kanonik",
+      "pitch": 45,
+      "zoom": 16,
+      "housenumberVisible": false,
+      "localDistinct": 15,
+      "majorDistinct": 1,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "0212. Sokak",
+        "0437. Sokak",
+        "0441. Sokak",
+        "0443. Sokak",
+        "0451. Sokak",
+        "0469. Sokak",
+        "0474. Sokak",
+        "0476. Sokak",
+        "0478. Sokak",
+        "0486. Sokak",
+        "1958. Sokak",
+        "1961. Sokak",
+        "1968. Sokak",
+        "Mavi Bulvar",
+        "Şamil Basayev Caddesi"
+      ],
+      "majorNames": [
+        "Gazipaşa Bulvarı"
+      ],
+      "housenumbers": []
+    },
+    {
+      "theme": "night",
+      "viewport": "904x406",
+      "center": "kanonik",
+      "pitch": 45,
+      "zoom": 16,
+      "housenumberVisible": true,
+      "localDistinct": 15,
+      "majorDistinct": 1,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "0212. Sokak",
+        "0437. Sokak",
+        "0441. Sokak",
+        "0443. Sokak",
+        "0451. Sokak",
+        "0469. Sokak",
+        "0474. Sokak",
+        "0476. Sokak",
+        "0478. Sokak",
+        "0486. Sokak",
+        "1958. Sokak",
+        "1961. Sokak",
+        "1968. Sokak",
+        "Mavi Bulvar",
+        "Şamil Basayev Caddesi"
+      ],
+      "majorNames": [
+        "Gazipaşa Bulvarı"
+      ],
+      "housenumbers": []
+    },
+    {
+      "theme": "night",
+      "viewport": "904x406",
+      "center": "kanonik",
+      "pitch": 45,
+      "zoom": 17,
+      "housenumberVisible": false,
+      "localDistinct": 5,
+      "majorDistinct": 0,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "0451. Sokak",
+        "0469. Sokak",
+        "0478. Sokak",
+        "Mavi Bulvar",
+        "Şamil Basayev Caddesi"
+      ],
+      "majorNames": [],
+      "housenumbers": []
+    },
+    {
+      "theme": "night",
+      "viewport": "904x406",
+      "center": "kanonik",
+      "pitch": 45,
+      "zoom": 17,
+      "housenumberVisible": true,
+      "localDistinct": 5,
+      "majorDistinct": 0,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "0451. Sokak",
+        "0469. Sokak",
+        "0478. Sokak",
+        "Mavi Bulvar",
+        "Şamil Basayev Caddesi"
+      ],
+      "majorNames": [],
+      "housenumbers": []
+    },
+    {
+      "theme": "night",
+      "viewport": "904x406",
+      "center": "kanonik",
+      "pitch": 45,
+      "zoom": 18,
+      "housenumberVisible": false,
+      "localDistinct": 2,
+      "majorDistinct": 0,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "0451. Sokak",
+        "0469. Sokak"
+      ],
+      "majorNames": [],
+      "housenumbers": []
+    },
+    {
+      "theme": "night",
+      "viewport": "904x406",
+      "center": "kanonik",
+      "pitch": 45,
+      "zoom": 18,
+      "housenumberVisible": true,
+      "localDistinct": 2,
+      "majorDistinct": 0,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "0451. Sokak",
+        "0469. Sokak"
+      ],
+      "majorNames": [],
+      "housenumbers": []
+    },
+    {
+      "theme": "night",
+      "viewport": "904x406",
+      "center": "numara-kumesi",
+      "pitch": 0,
+      "zoom": 16,
+      "housenumberVisible": false,
+      "localDistinct": 4,
+      "majorDistinct": 1,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "1838. Sokak",
+        "1846. Sokak",
+        "Kale Burcu Caddesi",
+        "sk 1848"
+      ],
+      "majorNames": [
+        "Atatürk Bulvarı"
+      ],
+      "housenumbers": []
+    },
+    {
+      "theme": "night",
+      "viewport": "904x406",
+      "center": "numara-kumesi",
+      "pitch": 0,
+      "zoom": 16,
+      "housenumberVisible": true,
+      "localDistinct": 4,
+      "majorDistinct": 1,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "1838. Sokak",
+        "1846. Sokak",
+        "Kale Burcu Caddesi",
+        "sk 1848"
+      ],
+      "majorNames": [
+        "Atatürk Bulvarı"
+      ],
+      "housenumbers": []
+    },
+    {
+      "theme": "night",
+      "viewport": "904x406",
+      "center": "numara-kumesi",
+      "pitch": 0,
+      "zoom": 17,
+      "housenumberVisible": false,
+      "localDistinct": 2,
+      "majorDistinct": 1,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "1846. Sokak",
+        "sk 1848"
+      ],
+      "majorNames": [
+        "Atatürk Bulvarı"
+      ],
+      "housenumbers": []
+    },
+    {
+      "theme": "night",
+      "viewport": "904x406",
+      "center": "numara-kumesi",
+      "pitch": 0,
+      "zoom": 17,
+      "housenumberVisible": true,
+      "localDistinct": 2,
+      "majorDistinct": 1,
+      "hnRendered": 2,
+      "hnInstances": 2,
+      "localNames": [
+        "1846. Sokak",
+        "sk 1848"
+      ],
+      "majorNames": [
+        "Atatürk Bulvarı"
+      ],
+      "housenumbers": [
+        "6",
+        "8"
+      ]
+    },
+    {
+      "theme": "night",
+      "viewport": "904x406",
+      "center": "numara-kumesi",
+      "pitch": 0,
+      "zoom": 18,
+      "housenumberVisible": false,
+      "localDistinct": 2,
+      "majorDistinct": 1,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "1846. Sokak",
+        "sk 1848"
+      ],
+      "majorNames": [
+        "Atatürk Bulvarı"
+      ],
+      "housenumbers": []
+    },
+    {
+      "theme": "night",
+      "viewport": "904x406",
+      "center": "numara-kumesi",
+      "pitch": 0,
+      "zoom": 18,
+      "housenumberVisible": true,
+      "localDistinct": 2,
+      "majorDistinct": 1,
+      "hnRendered": 4,
+      "hnInstances": 4,
+      "localNames": [
+        "1846. Sokak",
+        "sk 1848"
+      ],
+      "majorNames": [
+        "Atatürk Bulvarı"
+      ],
+      "housenumbers": [
+        "10",
+        "4",
+        "6",
+        "8"
+      ]
+    },
+    {
+      "theme": "night",
+      "viewport": "904x406",
+      "center": "numara-kumesi",
+      "pitch": 45,
+      "zoom": 16,
+      "housenumberVisible": false,
+      "localDistinct": 7,
+      "majorDistinct": 1,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "1838. Sokak",
+        "1846. Sokak",
+        "4076. Sokak",
+        "Fatih Sultan Mehmet Bulvarı",
+        "Kale Burcu Caddesi",
+        "Mücahitler Caddesi",
+        "sk 1848"
+      ],
+      "majorNames": [
+        "Atatürk Bulvarı"
+      ],
+      "housenumbers": []
+    },
+    {
+      "theme": "night",
+      "viewport": "904x406",
+      "center": "numara-kumesi",
+      "pitch": 45,
+      "zoom": 16,
+      "housenumberVisible": true,
+      "localDistinct": 7,
+      "majorDistinct": 1,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "1838. Sokak",
+        "1846. Sokak",
+        "4076. Sokak",
+        "Fatih Sultan Mehmet Bulvarı",
+        "Kale Burcu Caddesi",
+        "Mücahitler Caddesi",
+        "sk 1848"
+      ],
+      "majorNames": [
+        "Atatürk Bulvarı"
+      ],
+      "housenumbers": []
+    },
+    {
+      "theme": "night",
+      "viewport": "904x406",
+      "center": "numara-kumesi",
+      "pitch": 45,
+      "zoom": 17,
+      "housenumberVisible": false,
+      "localDistinct": 2,
+      "majorDistinct": 1,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "1846. Sokak",
+        "sk 1848"
+      ],
+      "majorNames": [
+        "Atatürk Bulvarı"
+      ],
+      "housenumbers": []
+    },
+    {
+      "theme": "night",
+      "viewport": "904x406",
+      "center": "numara-kumesi",
+      "pitch": 45,
+      "zoom": 17,
+      "housenumberVisible": true,
+      "localDistinct": 2,
+      "majorDistinct": 1,
+      "hnRendered": 2,
+      "hnInstances": 2,
+      "localNames": [
+        "1846. Sokak",
+        "sk 1848"
+      ],
+      "majorNames": [
+        "Atatürk Bulvarı"
+      ],
+      "housenumbers": [
+        "6",
+        "8"
+      ]
+    },
+    {
+      "theme": "night",
+      "viewport": "904x406",
+      "center": "numara-kumesi",
+      "pitch": 45,
+      "zoom": 18,
+      "housenumberVisible": false,
+      "localDistinct": 2,
+      "majorDistinct": 1,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "1846. Sokak",
+        "sk 1848"
+      ],
+      "majorNames": [
+        "Atatürk Bulvarı"
+      ],
+      "housenumbers": []
+    },
+    {
+      "theme": "night",
+      "viewport": "904x406",
+      "center": "numara-kumesi",
+      "pitch": 45,
+      "zoom": 18,
+      "housenumberVisible": true,
+      "localDistinct": 2,
+      "majorDistinct": 1,
+      "hnRendered": 4,
+      "hnInstances": 4,
+      "localNames": [
+        "1846. Sokak",
+        "sk 1848"
+      ],
+      "majorNames": [
+        "Atatürk Bulvarı"
+      ],
+      "housenumbers": [
+        "10",
+        "4",
+        "6",
+        "8"
+      ]
+    },
+    {
+      "theme": "night",
+      "viewport": "800x480",
+      "center": "kanonik",
+      "pitch": 0,
+      "zoom": 16,
+      "housenumberVisible": false,
+      "localDistinct": 10,
+      "majorDistinct": 0,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "0451. Sokak",
+        "0469. Sokak",
+        "0474. Sokak",
+        "0476. Sokak",
+        "0478. Sokak",
+        "1957. Sokak",
+        "1958. Sokak",
+        "1961. Sokak",
+        "1968. Sokak",
+        "Mavi Bulvar"
+      ],
+      "majorNames": [],
+      "housenumbers": []
+    },
+    {
+      "theme": "night",
+      "viewport": "800x480",
+      "center": "kanonik",
+      "pitch": 0,
+      "zoom": 16,
+      "housenumberVisible": true,
+      "localDistinct": 10,
+      "majorDistinct": 0,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "0451. Sokak",
+        "0469. Sokak",
+        "0474. Sokak",
+        "0476. Sokak",
+        "0478. Sokak",
+        "1957. Sokak",
+        "1958. Sokak",
+        "1961. Sokak",
+        "1968. Sokak",
+        "Mavi Bulvar"
+      ],
+      "majorNames": [],
+      "housenumbers": []
+    },
+    {
+      "theme": "night",
+      "viewport": "800x480",
+      "center": "kanonik",
+      "pitch": 0,
+      "zoom": 17,
+      "housenumberVisible": false,
+      "localDistinct": 4,
+      "majorDistinct": 0,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "0469. Sokak",
+        "1965. Sokak",
+        "1971. Sokak",
+        "Mavi Bulvar"
+      ],
+      "majorNames": [],
+      "housenumbers": []
+    },
+    {
+      "theme": "night",
+      "viewport": "800x480",
+      "center": "kanonik",
+      "pitch": 0,
+      "zoom": 17,
+      "housenumberVisible": true,
+      "localDistinct": 4,
+      "majorDistinct": 0,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "0469. Sokak",
+        "1965. Sokak",
+        "1971. Sokak",
+        "Mavi Bulvar"
+      ],
+      "majorNames": [],
+      "housenumbers": []
+    },
+    {
+      "theme": "night",
+      "viewport": "800x480",
+      "center": "kanonik",
+      "pitch": 0,
+      "zoom": 18,
+      "housenumberVisible": false,
+      "localDistinct": 2,
+      "majorDistinct": 0,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "0451. Sokak",
+        "0469. Sokak"
+      ],
+      "majorNames": [],
+      "housenumbers": []
+    },
+    {
+      "theme": "night",
+      "viewport": "800x480",
+      "center": "kanonik",
+      "pitch": 0,
+      "zoom": 18,
+      "housenumberVisible": true,
+      "localDistinct": 2,
+      "majorDistinct": 0,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "0451. Sokak",
+        "0469. Sokak"
+      ],
+      "majorNames": [],
+      "housenumbers": []
+    },
+    {
+      "theme": "night",
+      "viewport": "800x480",
+      "center": "kanonik",
+      "pitch": 45,
+      "zoom": 16,
+      "housenumberVisible": false,
+      "localDistinct": 16,
+      "majorDistinct": 1,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "0212. Sokak",
+        "0437. Sokak",
+        "0441. Sokak",
+        "0443. Sokak",
+        "0451. Sokak",
+        "0469. Sokak",
+        "0474. Sokak",
+        "0476. Sokak",
+        "0478. Sokak",
+        "0486. Sokak",
+        "0488. Sokak",
+        "1958. Sokak",
+        "1961. Sokak",
+        "1968. Sokak",
+        "Mavi Bulvar",
+        "Şamil Basayev Caddesi"
+      ],
+      "majorNames": [
+        "Gazipaşa Bulvarı"
+      ],
+      "housenumbers": []
+    },
+    {
+      "theme": "night",
+      "viewport": "800x480",
+      "center": "kanonik",
+      "pitch": 45,
+      "zoom": 16,
+      "housenumberVisible": true,
+      "localDistinct": 16,
+      "majorDistinct": 1,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "0212. Sokak",
+        "0437. Sokak",
+        "0441. Sokak",
+        "0443. Sokak",
+        "0451. Sokak",
+        "0469. Sokak",
+        "0474. Sokak",
+        "0476. Sokak",
+        "0478. Sokak",
+        "0486. Sokak",
+        "0488. Sokak",
+        "1958. Sokak",
+        "1961. Sokak",
+        "1968. Sokak",
+        "Mavi Bulvar",
+        "Şamil Basayev Caddesi"
+      ],
+      "majorNames": [
+        "Gazipaşa Bulvarı"
+      ],
+      "housenumbers": []
+    },
+    {
+      "theme": "night",
+      "viewport": "800x480",
+      "center": "kanonik",
+      "pitch": 45,
+      "zoom": 17,
+      "housenumberVisible": false,
+      "localDistinct": 5,
+      "majorDistinct": 0,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "0451. Sokak",
+        "0469. Sokak",
+        "1971. Sokak",
+        "Mavi Bulvar",
+        "Şamil Basayev Caddesi"
+      ],
+      "majorNames": [],
+      "housenumbers": []
+    },
+    {
+      "theme": "night",
+      "viewport": "800x480",
+      "center": "kanonik",
+      "pitch": 45,
+      "zoom": 17,
+      "housenumberVisible": true,
+      "localDistinct": 5,
+      "majorDistinct": 0,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "0451. Sokak",
+        "0469. Sokak",
+        "1971. Sokak",
+        "Mavi Bulvar",
+        "Şamil Basayev Caddesi"
+      ],
+      "majorNames": [],
+      "housenumbers": []
+    },
+    {
+      "theme": "night",
+      "viewport": "800x480",
+      "center": "kanonik",
+      "pitch": 45,
+      "zoom": 18,
+      "housenumberVisible": false,
+      "localDistinct": 2,
+      "majorDistinct": 0,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "0451. Sokak",
+        "0469. Sokak"
+      ],
+      "majorNames": [],
+      "housenumbers": []
+    },
+    {
+      "theme": "night",
+      "viewport": "800x480",
+      "center": "kanonik",
+      "pitch": 45,
+      "zoom": 18,
+      "housenumberVisible": true,
+      "localDistinct": 2,
+      "majorDistinct": 0,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "0451. Sokak",
+        "0469. Sokak"
+      ],
+      "majorNames": [],
+      "housenumbers": []
+    },
+    {
+      "theme": "night",
+      "viewport": "800x480",
+      "center": "numara-kumesi",
+      "pitch": 0,
+      "zoom": 16,
+      "housenumberVisible": false,
+      "localDistinct": 6,
+      "majorDistinct": 1,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "0415. Sokak",
+        "1813. Sokak",
+        "1838. Sokak",
+        "1846. Sokak",
+        "Kale Burcu Caddesi",
+        "sk 1848"
+      ],
+      "majorNames": [
+        "Atatürk Bulvarı"
+      ],
+      "housenumbers": []
+    },
+    {
+      "theme": "night",
+      "viewport": "800x480",
+      "center": "numara-kumesi",
+      "pitch": 0,
+      "zoom": 16,
+      "housenumberVisible": true,
+      "localDistinct": 6,
+      "majorDistinct": 1,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "0415. Sokak",
+        "1813. Sokak",
+        "1838. Sokak",
+        "1846. Sokak",
+        "Kale Burcu Caddesi",
+        "sk 1848"
+      ],
+      "majorNames": [
+        "Atatürk Bulvarı"
+      ],
+      "housenumbers": []
+    },
+    {
+      "theme": "night",
+      "viewport": "800x480",
+      "center": "numara-kumesi",
+      "pitch": 0,
+      "zoom": 17,
+      "housenumberVisible": false,
+      "localDistinct": 2,
+      "majorDistinct": 1,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "1846. Sokak",
+        "sk 1848"
+      ],
+      "majorNames": [
+        "Atatürk Bulvarı"
+      ],
+      "housenumbers": []
+    },
+    {
+      "theme": "night",
+      "viewport": "800x480",
+      "center": "numara-kumesi",
+      "pitch": 0,
+      "zoom": 17,
+      "housenumberVisible": true,
+      "localDistinct": 2,
+      "majorDistinct": 1,
+      "hnRendered": 2,
+      "hnInstances": 2,
+      "localNames": [
+        "1846. Sokak",
+        "sk 1848"
+      ],
+      "majorNames": [
+        "Atatürk Bulvarı"
+      ],
+      "housenumbers": [
+        "6",
+        "8"
+      ]
+    },
+    {
+      "theme": "night",
+      "viewport": "800x480",
+      "center": "numara-kumesi",
+      "pitch": 0,
+      "zoom": 18,
+      "housenumberVisible": false,
+      "localDistinct": 2,
+      "majorDistinct": 1,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "1846. Sokak",
+        "sk 1848"
+      ],
+      "majorNames": [
+        "Atatürk Bulvarı"
+      ],
+      "housenumbers": []
+    },
+    {
+      "theme": "night",
+      "viewport": "800x480",
+      "center": "numara-kumesi",
+      "pitch": 0,
+      "zoom": 18,
+      "housenumberVisible": true,
+      "localDistinct": 2,
+      "majorDistinct": 1,
+      "hnRendered": 4,
+      "hnInstances": 4,
+      "localNames": [
+        "1846. Sokak",
+        "sk 1848"
+      ],
+      "majorNames": [
+        "Atatürk Bulvarı"
+      ],
+      "housenumbers": [
+        "10",
+        "4",
+        "6",
+        "8"
+      ]
+    },
+    {
+      "theme": "night",
+      "viewport": "800x480",
+      "center": "numara-kumesi",
+      "pitch": 45,
+      "zoom": 16,
+      "housenumberVisible": false,
+      "localDistinct": 8,
+      "majorDistinct": 1,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "0415. Sokak",
+        "1813. Sokak",
+        "1838. Sokak",
+        "1846. Sokak",
+        "Fatih Sultan Mehmet Bulvarı",
+        "Kale Burcu Caddesi",
+        "Mücahitler Caddesi",
+        "sk 1848"
+      ],
+      "majorNames": [
+        "Atatürk Bulvarı"
+      ],
+      "housenumbers": []
+    },
+    {
+      "theme": "night",
+      "viewport": "800x480",
+      "center": "numara-kumesi",
+      "pitch": 45,
+      "zoom": 16,
+      "housenumberVisible": true,
+      "localDistinct": 8,
+      "majorDistinct": 1,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "0415. Sokak",
+        "1813. Sokak",
+        "1838. Sokak",
+        "1846. Sokak",
+        "Fatih Sultan Mehmet Bulvarı",
+        "Kale Burcu Caddesi",
+        "Mücahitler Caddesi",
+        "sk 1848"
+      ],
+      "majorNames": [
+        "Atatürk Bulvarı"
+      ],
+      "housenumbers": []
+    },
+    {
+      "theme": "night",
+      "viewport": "800x480",
+      "center": "numara-kumesi",
+      "pitch": 45,
+      "zoom": 17,
+      "housenumberVisible": false,
+      "localDistinct": 2,
+      "majorDistinct": 1,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "1846. Sokak",
+        "sk 1848"
+      ],
+      "majorNames": [
+        "Atatürk Bulvarı"
+      ],
+      "housenumbers": []
+    },
+    {
+      "theme": "night",
+      "viewport": "800x480",
+      "center": "numara-kumesi",
+      "pitch": 45,
+      "zoom": 17,
+      "housenumberVisible": true,
+      "localDistinct": 2,
+      "majorDistinct": 1,
+      "hnRendered": 2,
+      "hnInstances": 2,
+      "localNames": [
+        "1846. Sokak",
+        "sk 1848"
+      ],
+      "majorNames": [
+        "Atatürk Bulvarı"
+      ],
+      "housenumbers": [
+        "6",
+        "8"
+      ]
+    },
+    {
+      "theme": "night",
+      "viewport": "800x480",
+      "center": "numara-kumesi",
+      "pitch": 45,
+      "zoom": 18,
+      "housenumberVisible": false,
+      "localDistinct": 2,
+      "majorDistinct": 1,
+      "hnRendered": 0,
+      "hnInstances": 0,
+      "localNames": [
+        "1846. Sokak",
+        "sk 1848"
+      ],
+      "majorNames": [
+        "Atatürk Bulvarı"
+      ],
+      "housenumbers": []
+    },
+    {
+      "theme": "night",
+      "viewport": "800x480",
+      "center": "numara-kumesi",
+      "pitch": 45,
+      "zoom": 18,
+      "housenumberVisible": true,
+      "localDistinct": 2,
+      "majorDistinct": 1,
+      "hnRendered": 4,
+      "hnInstances": 4,
+      "localNames": [
+        "1846. Sokak",
+        "sk 1848"
+      ],
+      "majorNames": [
+        "Atatürk Bulvarı"
+      ],
+      "housenumbers": [
+        "10",
+        "4",
+        "6",
+        "8"
+      ]
+    }
+  ]
+}

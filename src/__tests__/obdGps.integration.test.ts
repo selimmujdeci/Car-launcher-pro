@@ -54,7 +54,7 @@ vi.mock('../core/runtime/AdaptiveRuntimeManager', () => ({
     getMode: vi.fn(() => 'BALANCED'),
     getConfig: vi.fn(() => ({ obdPollingMs: 50, gpsUpdateMs: 200, uiFpsTarget: 60, enableBlur: false, enableAnimations: false })),
     subscribe: vi.fn(() => () => {}),
-    reportFailure: vi.fn(),
+    reportFailure: vi.fn(), reportRecovery: vi.fn(),
   },
 }));
 
@@ -65,6 +65,7 @@ vi.mock('../platform/safety/SafetyBrain', () => ({
   NO_VIN_KEY: '__NO_VIN__',
   isFeatureEnabled: vi.fn(() => true),
   recordFault: vi.fn(),
+  recordFeatureRecovered: vi.fn(),
   getCurrentVinKey: vi.fn(() => '__NO_VIN__'),
 }));
 

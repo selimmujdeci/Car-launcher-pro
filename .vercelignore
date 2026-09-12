@@ -2,20 +2,59 @@
 #   car-launcher-pro  → Root Directory "."       (Vite; index.html + admin.html ŞART)
 #   carospro          → Root Directory "website" (Next.js → carospro.com)
 #
-# ESKİ içerik "/*  +  !/website" kökteki index.html'i de siliyordu →
-# car-launcher-pro build'i 24 gündür "Cannot resolve entry module index.html"
-# ile kırıktı (carospro root'u website olduğu için etkilenmiyordu, "Removed 0").
-# Artık kök Vite kaynağı korunur; yalnızca iki build'in de kullanmadığı ağır
-# dizinler elenir. Anchored (/) pattern'lar website/ içine dokunmaz.
+# ── TARİHÇE 1: "/*  +  !/website" ──────────────────────────────────────────
+# Kökteki index.html/admin.html/src'yi de siliyordu → car-launcher-pro build'i
+# 24 GÜN "Cannot resolve entry module index.html" ile kırıktı (carospro root'u
+# website olduğu için etkilenmiyordu, "Removed 0" diyordu). Blanket kaldırıldı.
+#
+# ── TARİHÇE 2 (2026-08-18): ANCHORED DESENLER ARŞİVİ ELEMİYORDU ────────────
+# `--archive=tgz` ile her deploy 1,3 GB yüklüyordu ve yükleme sırasında iki kez
+# koptu. Ölçüm (Get-ChildItem, MB):
+#     tools 788 · website/node_modules 483 · website/.next 387 · node_modules 312
+#     .git 197 · android 181 · src 23 · dist 18 · docs 6 · public 3
+# Kalması gereken ~226 MB'dır; arşiv 1,3 GB'ydı → `/tools`, `/android` gibi
+# ANCHORED desenler arşive girmeyi engellemiyordu ve `.git` hiç yazılmamıştı.
+# Desenler artık ANCHORSUZ (her seviyede eşleşir) ve `.git` de eleniyor.
+#
+# DOKUNULMAZ: kök `index.html` · `admin.html` · `src/` · `public/` · `website/src` ·
+# `website/public` — ikisi de build için ŞART.
+
+# Bağımlılıklar ve derleme çıktıları (her seviyede)
 node_modules
-/dist
-/android
-/tools
-/supabase
-/e2e
-/docs
-/scripts
-/playwright-report
+.next
+dist
+build
+
+# Sürüm geçmişi — Vercel git bilgisini CLI'dan alır, klasöre ihtiyaç yok
+.git
+
+# Yalnız yerel geliştirme/CI için olan ağır dizinler.
+#
+# ⚠️ `tools` ANCHORSUZ YAZILAMAZ: kaynakta `src/platform/ai/tools` vardır ve
+# anchorsuz desen ONU DA eler → araç build'i kırılır (2026-07'deki 24 günlük
+# kırığın aynısı). Negasyon (`!src/...`) denemek yerine ağır ALT YOLLAR tek tek
+# yazılır — sıfır risk. Ölçüm (MB): can-re 605 · night-shots* 27.
+# ⚠️ SLASH'LI DESEN DE ÇALIŞMIYOR (2026-08-18, preview ölçümü): `tools/can-re`
+# yazıldığında arşiv 1,33 GB → 1,00 GB'a indi, yani elenen yalnız `.git`+`android`
+# oldu; 605 MB'lık `can-re` HÂLÂ giriyordu. Anlaşılan yalnız TEK SEGMENTLİ,
+# anchorsuz desenler uygulanıyor. O yüzden dizin adları tek segment yazılır —
+# kaynakta bu adlarla çakışan hiçbir dizin YOKTUR (denetlendi).
+can-re
+night-shots
+night-shots-p1
+night-shots-p2
+night-shots-p3
+night-shots-p4
+android
+supabase
+e2e
+docs
+scripts
+playwright-report
+test-results
+coverage
+
+# Artefaktlar
 *.apk
-website/node_modules
-website/.next
+*.aab
+*.keystore

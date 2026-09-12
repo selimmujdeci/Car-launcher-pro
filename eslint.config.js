@@ -6,7 +6,10 @@ import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist', 'website/', '.worktrees/']),
+  // 'test-parser.ts': .gitignore'lu, depoya GİRMEYEN, elle koşulan komut-ayrıştırıcı
+  // deneme betiği (bkz. .gitignore:135). Takipsiz olduğu için CI onu hiç görmez;
+  // yalnız YEREL lint'i kirletip 'CI yeşil ama yerelde kırmızı' sapması üretiyordu.
+  globalIgnores(['dist', 'website/', 'caros-ale/', '.worktrees/', 'test-parser.ts']),
   {
     files: ['**/*.{ts,tsx}'],
     extends: [

@@ -10,9 +10,9 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { Bluetooth, BluetoothSearching, Wifi, X, CheckCircle, AlertCircle, Loader2, RefreshCw, Settings, KeyRound, Trash2, Stethoscope, ChevronDown } from 'lucide-react';
 import { CarLauncher } from '../../platform/nativePlugin';
-import { startOBD, stopOBD, useOBDConnectionState, useOBDState } from '../../platform/obdService';
-import { looksLikeObd } from '../../platform/obdDiscovery';
-import { saveObdAddress, saveObdTransport, isValidTcpAddress } from '../../platform/obdStorage';
+import { startOBD, stopOBD, resetObdConnection, useOBDConnectionState, useOBDState } from '../../platform/obdService';
+import { classifyObdDevice, CONFIDENCE_RANK, type ObdConfidence } from '../../platform/obdDiscovery';
+import { saveObdAddress, saveObdTransport, isValidTcpAddress, loadVerifiedObdAddresses, loadObdAddress, loadObdTransport } from '../../platform/obdStorage';
 import { OBDDiagnosticTimeline } from './OBDDiagnosticTimeline';
 import { startSession, setSessionDevice, endSession, recordDiag } from '../../platform/obdDiagnosticRecorder';
 
@@ -31,7 +31,16 @@ interface DiscoveredDevice {
   //  • cached → kalıcı kayıt (şu an kullanılmıyor; ileride direct-reconnect için).
   // Native eski sürümü 'source' göndermezse: bonded=true→'bonded', değilse 'live'.
   source:  DeviceSource;
+  // BLE reklamındaki GATT servis UUID'leri — isimsiz cihaz için tek pozitif OBD kanıtı.
+  serviceUuids?: string[];
 }
+
+/** Kanıt düzeyine göre rozet metni + renk. 'unlikely' rozet almaz (listede de görünmez). */
+const CONFIDENCE_BADGE: Record<Exclude<ObdConfidence, 'unlikely'>, { text: string; color: string; soft: string }> = {
+  verified: { text: 'OBD ✓',  color: 'var(--oem-good)', soft: 'var(--oem-good-soft)' },
+  likely:   { text: 'OBD',    color: 'var(--oem-info)', soft: 'var(--oem-info-soft)' },
+  possible: { text: 'OBD?',   color: 'var(--oem-warn)', soft: 'var(--oem-warn-soft)' },
+};
 
 /** Native event payload'ından güvenli kaynak türetimi (geriye dönük uyumlu). */
 function resolveSource(raw: unknown, bonded: boolean): DeviceSource {
@@ -54,10 +63,14 @@ export function OBDConnectModal({ open, onClose }: Props) {
   const [pinValue,    setPinValue]    = useState('');
   const [showAll,     setShowAll]     = useState(false);
   const [showDiag,    setShowDiag]    = useState(false);   // teşhis timeline — varsayılan KAPALI
+  const [resetting,   setResetting]   = useState(false);   // PR-OBD-CONN-1: reset lifecycle görünür + debounce
   // Patch 10: WiFi ELM327 (AP modu) manuel adres girişi — K24 gibi standart BT'si
   // OEM tarafından kilitli head unit'lerde OBD'ye ulaşmanın TEK yolu.
   const [wifiAddress, setWifiAddress] = useState('');
   const [wifiError,   setWifiError]   = useState<string | null>(null);
+  // Kanıt defteri: bu adreslerden GERÇEK OBD verisi aktığı doğrulandı (kalıcı).
+  // Tarama sırasında değişmez → her açılışta bir kez okunur.
+  const [verifiedAddrs, setVerifiedAddrs] = useState<ReadonlySet<string>>(() => new Set<string>());
 
   // Teşhis: bu oturumda "cihaz bulundu" event'i kaydedilen adres → kaynak eşlemesi.
   // (Yalnız spam önleme değil; 'bonded' kaydedilmiş bir adres sonradan canlı gelirse
@@ -135,6 +148,7 @@ export function OBDConnectModal({ open, onClose }: Props) {
     setPinValue('');
     setShowAll(false);
     setScanning(true);
+    setVerifiedAddrs(loadVerifiedObdAddresses());  // kanıtlanmış adaptörler → 'verified' rozeti
     stopDiscovery();
 
     // Teşhis: yeni oturum + tarama başladı milestone'u (pasif gözlemci).
@@ -201,21 +215,26 @@ export function OBDConnectModal({ open, onClose }: Props) {
           // Kaynak: CANLI her zaman kazanır (bir kez canlı görülen cihaz canlıdır).
           const mergedSource: DeviceSource =
             existing.source === 'live' || src === 'live' ? 'live' : existing.source;
+          // Servis UUID'leri kanıttır — bir kez görüldüyse KAYBETME (sonraki reklam
+          // paketi UUID taşımayabilir; bonded dump hiç taşımaz).
+          const mergedUuids =
+            existing.serviceUuids?.length ? existing.serviceUuids : data.serviceUuids;
           if (
             mergedTransport === existing.transport &&
             mergedBonded === existing.bonded &&
             mergedName === existing.name &&
-            mergedSource === existing.source
+            mergedSource === existing.source &&
+            mergedUuids === existing.serviceUuids
           ) {
             return prev;
           }
           return prev.map((d) =>
             d.address === data.address
-              ? { ...d, name: mergedName, bonded: mergedBonded, transport: mergedTransport, source: mergedSource }
+              ? { ...d, name: mergedName, bonded: mergedBonded, transport: mergedTransport, source: mergedSource, serviceUuids: mergedUuids }
               : d,
           );
         }
-        return [...prev, { name: data.name, address: data.address, bonded: data.bonded, transport: data.transport, source: src }];
+        return [...prev, { name: data.name, address: data.address, bonded: data.bonded, transport: data.transport, source: src, serviceUuids: data.serviceUuids }];
       });
     });
     discoveryHandleRef.current = handle;
@@ -404,14 +423,18 @@ export function OBDConnectModal({ open, onClose }: Props) {
             <div className="font-bold text-[color:var(--oem-ink)]" style={{ fontSize: fbase }}>
               OBD Cihaz Bağlantısı
             </div>
+            {/* Sayaç, listenin GERÇEĞİNİ söyler: kaç OBD adayı var, kaç cihaz elendi.
+                (Eskiden taranan TÜM cihazlar "cihaz" diye sayılıyordu → listede 2 satır
+                varken başlıkta "15 cihaz" yazıyordu.) */}
             <div className="text-[color:var(--oem-ink-3)] uppercase tracking-wider mt-0.5" style={{ fontSize: fxs }}>
-              {scanning
-                ? 'Canlı taranıyor…'
-                : devices.length === 0
-                  ? 'Cihaz yok · OBD takılı + Konum açık mı?'
-                  : devices.some((d) => d.source === 'live')
-                    ? `${devices.length} cihaz · ${devices.filter((d) => d.source === 'live').length} CANLI`
-                    : `${devices.length} cihaz · canlı yok (eşleşmiş)`}
+              {(() => {
+                if (scanning) return 'Canlı taranıyor…';
+                if (devices.length === 0) return 'Cihaz yok · OBD takılı + Konum açık mı?';
+                const candidates = devices.filter((d) => classifyObdDevice(d, verifiedAddrs) !== 'unlikely');
+                const filtered   = devices.length - candidates.length;
+                if (candidates.length === 0) return `OBD adayı yok · ${filtered} cihaz elendi`;
+                return `${candidates.length} OBD adayı${filtered > 0 ? ` · ${filtered} cihaz elendi` : ''}`;
+              })()}
             </div>
           </div>
           <button
@@ -584,21 +607,26 @@ export function OBDConnectModal({ open, onClose }: Props) {
             </div>
           )}
 
-          {/* Cihaz listesi — sadece OBD adayları (geniş kapsam) */}
+          {/* Cihaz listesi — yalnızca LEHİNE kanıt bulunan cihazlar (zero-trust).
+              'unlikely' olanlar gizlenir ama "tümünü göster" ile elle seçilebilir. */}
           {(() => {
-            // Canlı bulunanlar üstte (source==='live' önce), sıra korunarak.
+            // Sıralama: önce kanıt gücü (verified > likely > possible), sonra canlı olanlar.
             const SOURCE_RANK: Record<DeviceSource, number> = { live: 0, bonded: 1, cached: 2 };
-            const byLiveFirst = (a: DiscoveredDevice, b: DiscoveredDevice) =>
-              SOURCE_RANK[a.source] - SOURCE_RANK[b.source];
-            const obdDevices   = devices.filter((d) => looksLikeObd(d.name, d.address)).sort(byLiveFirst);
-            const otherDevices = devices.filter((d) => !looksLikeObd(d.name, d.address)).sort(byLiveFirst);
-            const visibleDevices = showAll ? [...devices].sort(byLiveFirst) : obdDevices;
+            const confidenceOf = (d: DiscoveredDevice) => classifyObdDevice(d, verifiedAddrs);
+            const byEvidence = (a: DiscoveredDevice, b: DiscoveredDevice) =>
+              (CONFIDENCE_RANK[confidenceOf(a)] - CONFIDENCE_RANK[confidenceOf(b)]) ||
+              (SOURCE_RANK[a.source] - SOURCE_RANK[b.source]);
+            const obdDevices   = devices.filter((d) => confidenceOf(d) !== 'unlikely').sort(byEvidence);
+            const otherDevices = devices.filter((d) => confidenceOf(d) === 'unlikely').sort(byEvidence);
+            const visibleDevices = showAll ? [...devices].sort(byEvidence) : obdDevices;
             return (
               <>
                 {visibleDevices.length > 0 ? (
             <div className="flex flex-col" style={{ gap: spSm, marginTop: spSm, paddingBottom: spSm }}>
               {visibleDevices.map((dev) => {
-                const isObd  = looksLikeObd(dev.name, dev.address);
+                const conf   = confidenceOf(dev);
+                const badge  = conf === 'unlikely' ? null : CONFIDENCE_BADGE[conf];
+                const isObd  = badge !== null;
                 const isCon  = connecting === dev.address;
                 const isDone = connected === dev.address;
 
@@ -657,18 +685,23 @@ export function OBDConnectModal({ open, onClose }: Props) {
                         }}
                       >
                         {dev.name}
-                        {isObd && (
+                        {badge && (
                           <span
                             className="ml-1.5 font-black uppercase tracking-wider inline-block"
                             style={{
                               fontSize: `calc(${fxs} * 0.9)`,
                               padding: '1px 5px',
                               borderRadius: '4px',
-                              background: 'var(--oem-info-soft)',
-                              color: 'var(--oem-info)',
+                              background: badge.soft,
+                              color: badge.color,
                             }}
+                            title={
+                              conf === 'verified' ? 'Bu adaptörden daha önce gerçek OBD verisi alındı.'
+                              : conf === 'likely' ? 'OBD adaptörü işaretleri var (isim veya servis kimliği).'
+                              : 'Doğrulanmadı — isimsiz cihaz, OBD olabilir. Bağlanmayı deneyebilirsiniz.'
+                            }
                           >
-                            OBD
+                            {badge.text}
                           </span>
                         )}
                       </div>
@@ -703,21 +736,23 @@ export function OBDConnectModal({ open, onClose }: Props) {
                               : 'Daha önce eşleşmiş'}
                     </div>
                   </button>
-                  {dev.bonded && (
-                    <button
-                      onClick={() => void handleForget(dev)}
-                      disabled={!!connecting || !!connected}
-                      title="Cihazı unut (eşleşmeyi sil)"
-                      aria-label="Cihazı unut"
-                      className="shrink-0 flex items-center justify-center transition-all active:scale-90 disabled:opacity-40"
-                      style={{
-                        width: '44px', height: '44px', borderRadius: rSm,
-                        background: 'var(--oem-danger-soft)', border: '1px solid var(--oem-danger)',
-                      }}
-                    >
-                      <Trash2 style={{ width: iconSm, height: iconSm }} className="text-[color:var(--oem-danger)]" />
-                    </button>
-                  )}
+                  {/* Cihazı unut — HER cihazda görünür (yalnız bonded değil). Saha (2026-07-16 Doblo):
+                      bozuk/yarım eşleşme (BONDING'de takılı) dongle'da `dev.bonded` false görünüyor
+                      → eski koşul butonu gizliyordu → kullanıcı bozuk bond'u uygulamadan temizleyemiyordu
+                      (PIN kabul edilmiyor). removeBond BOND_NONE'da idempotent/zararsız → her satırda güvenli. */}
+                  <button
+                    onClick={() => void handleForget(dev)}
+                    disabled={!!connecting || !!connected}
+                    title="Cihazı unut (eşleşmeyi sil — PIN sorunu / bozuk eşleşme için)"
+                    aria-label="Cihazı unut"
+                    className="shrink-0 flex items-center justify-center transition-all active:scale-90 disabled:opacity-40"
+                    style={{
+                      width: '44px', height: '44px', borderRadius: rSm,
+                      background: 'var(--oem-danger-soft)', border: '1px solid var(--oem-danger)',
+                    }}
+                  >
+                    <Trash2 style={{ width: iconSm, height: iconSm }} className="text-[color:var(--oem-danger)]" />
+                  </button>
                   </div>
                 );
               })}
@@ -879,6 +914,48 @@ export function OBDConnectModal({ open, onClose }: Props) {
           >
             <RefreshCw style={{ width: iconSm, height: iconSm }} className={scanning ? 'animate-spin' : ''} />
             {scanning ? 'Taranıyor…' : 'Yeniden Tara'}
+          </button>
+          {/*
+            BAĞLANTIYI SIFIRLA — dongle başka araca takıldığında (saha 2026-07-15).
+            Sistem araç değişimini ancak timeout biriktirerek TAHMİN eder (~1 dk);
+            kullanıcı BİLİR → tek dokunuşla "hiç bağlanılmamış gibi" başlat.
+            Eskiden bunun tek yolu uygulamayı komple öldürmekti.
+          */}
+          <button
+            onClick={() => {
+              // PR-OBD-CONN-1: DETERMİNİSTİK + GÖRÜNÜR reset. Eskiden reset() + startOBD()
+              // TEK senkron tick'te çağrılıyordu → kullanıcı görünür bir disconnect/reconnect
+              // yaşam döngüsü görmüyordu (saha: "hiçbir şey olmadı"). Artık: buton "Sıfırlanıyor…"
+              // + disabled (çift-dokunuş yok) → native disconnect TAMAMLANANA kadar bekle →
+              // ANCAK SONRA tek temiz reconnect (eski GATT oturumu kapanmadan reconnect yarışı yok).
+              if (resetting) return;                    // debounce
+              setResetting(true);
+              void (async () => {
+                try {
+                  await resetObdConnection('user');     // native disconnect+close biter
+                  // Kayıtlı adres korunur (aynı dongle) → temiz oturumdan yeniden bağlan;
+                  // isterse listeden başka cihaz seçer. Protokol kaydı SİLİNMEZ: ilk deneme
+                  // ATSP0-otomatik gider, yeni araç bulununca ATDPN önbelleği tazeler.
+                  const addr = loadObdAddress();
+                  if (addr) startOBD(addr, undefined, loadObdTransport() ?? undefined);
+                } finally {
+                  setResetting(false);
+                }
+              })();
+            }}
+            disabled={resetting}
+            className="font-bold uppercase tracking-wider transition-all active:scale-95 disabled:opacity-50"
+            style={{
+              padding: `${spMd} ${spXl}`,
+              fontSize: fsm,
+              borderRadius: rMd,
+              minHeight: '44px',
+              background: 'var(--oem-surface-2)',
+              border: '1px solid var(--oem-warn, var(--oem-line))',
+              color: 'var(--oem-ink-2)',
+            }}
+          >
+            {resetting ? 'Sıfırlanıyor…' : 'Bağlantıyı Sıfırla'}
           </button>
           <button
             onClick={onClose}

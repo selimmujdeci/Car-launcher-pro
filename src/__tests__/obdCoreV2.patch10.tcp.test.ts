@@ -92,7 +92,7 @@ vi.mock('../core/runtime/AdaptiveRuntimeManager', () => ({
       loggingLevel:     'silent',
     })),
     subscribe:     vi.fn(() => () => {}),
-    reportFailure: vi.fn(),
+    reportFailure: vi.fn(), reportRecovery: vi.fn(),
   },
   AdaptiveRuntimeManager: { getInstance: vi.fn() },
 }));

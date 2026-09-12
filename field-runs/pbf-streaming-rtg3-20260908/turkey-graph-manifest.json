@@ -1,0 +1,301 @@
+{
+  "schemaVersion": 1,
+  "datasetId": "osm-tr-33-3548f3e82cee",
+  "country": "TR",
+  "source": "OpenStreetMap / Geofabrik Turkey extract; Mersin relation 223131",
+  "sourceTimestamp": "2026-09-06T19:53:37Z",
+  "buildTimestamp": "2026-09-08T06:17:42.764Z",
+  "policyVersion": "2b4f5de8",
+  "graphFormat": "RTG3",
+  "regions": [
+    {
+      "regionId": "tr-33-65-72",
+      "bbox": [
+        32.5,
+        36,
+        33,
+        36.5
+      ],
+      "graphFile": "regions/tr-33-65-72.rtg3",
+      "sha256": "7fc9b226b9db0c58daff4fbc1fc2ae081d57ee1b6b46daa29809d02a5bfea344",
+      "byteSize": 1614692,
+      "nodeCount": 36168,
+      "edgeCount": 36995,
+      "neighbors": [
+        "tr-33-66-72"
+      ],
+      "sourceHash": "3548f3e82ceee708898c4dad4d0fef5110cf5a40b3beae81cd38fd1c5c99079a"
+    },
+    {
+      "regionId": "tr-33-65-73",
+      "bbox": [
+        32.5,
+        36.5,
+        33,
+        37
+      ],
+      "graphFile": "regions/tr-33-65-73.rtg3",
+      "sha256": "984a9b39ceafe3fc2efe9b6a25496f7813a120683684de3ec9d4fe782351b409",
+      "byteSize": 3772,
+      "nodeCount": 86,
+      "edgeCount": 85,
+      "neighbors": [],
+      "sourceHash": "3548f3e82ceee708898c4dad4d0fef5110cf5a40b3beae81cd38fd1c5c99079a"
+    },
+    {
+      "regionId": "tr-33-66-72",
+      "bbox": [
+        33,
+        36,
+        33.5,
+        36.5
+      ],
+      "graphFile": "regions/tr-33-66-72.rtg3",
+      "sha256": "f3ddfd4dbf03ab14e3e4c27dca90aed251593eb61612fb6ee75b5facdd10032a",
+      "byteSize": 1406968,
+      "nodeCount": 31588,
+      "edgeCount": 32198,
+      "neighbors": [
+        "tr-33-65-72",
+        "tr-33-66-73",
+        "tr-33-67-72",
+        "tr-33-67-73"
+      ],
+      "sourceHash": "3548f3e82ceee708898c4dad4d0fef5110cf5a40b3beae81cd38fd1c5c99079a"
+    },
+    {
+      "regionId": "tr-33-66-73",
+      "bbox": [
+        33,
+        36.5,
+        33.5,
+        37
+      ],
+      "graphFile": "regions/tr-33-66-73.rtg3",
+      "sha256": "0d381067a7cef639542c246bf162cbe04cf9980998884f52691a4907399d7348",
+      "byteSize": 1250772,
+      "nodeCount": 27753,
+      "edgeCount": 28811,
+      "neighbors": [
+        "tr-33-66-72",
+        "tr-33-67-72",
+        "tr-33-67-73"
+      ],
+      "sourceHash": "3548f3e82ceee708898c4dad4d0fef5110cf5a40b3beae81cd38fd1c5c99079a"
+    },
+    {
+      "regionId": "tr-33-67-72",
+      "bbox": [
+        33.5,
+        36,
+        34,
+        36.5
+      ],
+      "graphFile": "regions/tr-33-67-72.rtg3",
+      "sha256": "30f9eb2e50d635bfe44fb14f0944002d05853e6791d6773773997f2c5920f86d",
+      "byteSize": 2001128,
+      "nodeCount": 43984,
+      "edgeCount": 46334,
+      "neighbors": [
+        "tr-33-66-72",
+        "tr-33-66-73",
+        "tr-33-67-73",
+        "tr-33-68-72",
+        "tr-33-68-73"
+      ],
+      "sourceHash": "3548f3e82ceee708898c4dad4d0fef5110cf5a40b3beae81cd38fd1c5c99079a"
+    },
+    {
+      "regionId": "tr-33-67-73",
+      "bbox": [
+        33.5,
+        36.5,
+        34,
+        37
+      ],
+      "graphFile": "regions/tr-33-67-73.rtg3",
+      "sha256": "5bc5d918a7d956aaab551fad49453510d7bc9d4542a2c7b462a077e6cd355905",
+      "byteSize": 3537872,
+      "nodeCount": 80129,
+      "edgeCount": 80564,
+      "neighbors": [
+        "tr-33-66-72",
+        "tr-33-66-73",
+        "tr-33-67-72",
+        "tr-33-67-74",
+        "tr-33-68-72",
+        "tr-33-68-73"
+      ],
+      "sourceHash": "3548f3e82ceee708898c4dad4d0fef5110cf5a40b3beae81cd38fd1c5c99079a"
+    },
+    {
+      "regionId": "tr-33-67-74",
+      "bbox": [
+        33.5,
+        37,
+        34,
+        37.5
+      ],
+      "graphFile": "regions/tr-33-67-74.rtg3",
+      "sha256": "b4eeb8b1319a9572bba3779156f7b51cb92a3e68b8940411d2b05410a80b2912",
+      "byteSize": 155320,
+      "nodeCount": 3529,
+      "edgeCount": 3530,
+      "neighbors": [
+        "tr-33-67-73",
+        "tr-33-68-73",
+        "tr-33-68-74"
+      ],
+      "sourceHash": "3548f3e82ceee708898c4dad4d0fef5110cf5a40b3beae81cd38fd1c5c99079a"
+    },
+    {
+      "regionId": "tr-33-68-72",
+      "bbox": [
+        34,
+        36,
+        34.5,
+        36.5
+      ],
+      "graphFile": "regions/tr-33-68-72.rtg3",
+      "sha256": "9f004e6da64c004e08af3779cf6c121839dd4cd69450c11ee6d947a8bd6d27ba",
+      "byteSize": 554112,
+      "nodeCount": 12154,
+      "edgeCount": 12836,
+      "neighbors": [
+        "tr-33-67-72",
+        "tr-33-67-73",
+        "tr-33-68-73"
+      ],
+      "sourceHash": "3548f3e82ceee708898c4dad4d0fef5110cf5a40b3beae81cd38fd1c5c99079a"
+    },
+    {
+      "regionId": "tr-33-68-73",
+      "bbox": [
+        34,
+        36.5,
+        34.5,
+        37
+      ],
+      "graphFile": "regions/tr-33-68-73.rtg3",
+      "sha256": "b8176251525e2bba02e0de5e81ad58765e5c2126e742f3f71c9f64c310d915a5",
+      "byteSize": 5665388,
+      "nodeCount": 126765,
+      "edgeCount": 129897,
+      "neighbors": [
+        "tr-33-67-72",
+        "tr-33-67-73",
+        "tr-33-67-74",
+        "tr-33-68-72",
+        "tr-33-68-74",
+        "tr-33-69-73",
+        "tr-33-69-74"
+      ],
+      "sourceHash": "3548f3e82ceee708898c4dad4d0fef5110cf5a40b3beae81cd38fd1c5c99079a"
+    },
+    {
+      "regionId": "tr-33-68-74",
+      "bbox": [
+        34,
+        37,
+        34.5,
+        37.5
+      ],
+      "graphFile": "regions/tr-33-68-74.rtg3",
+      "sha256": "9aa9acf0683bb307e017bca3377b7883e40d33381f34f1130c6ebfeb7effe5ff",
+      "byteSize": 524824,
+      "nodeCount": 11790,
+      "edgeCount": 12006,
+      "neighbors": [
+        "tr-33-67-74",
+        "tr-33-68-73",
+        "tr-33-69-73",
+        "tr-33-69-74"
+      ],
+      "sourceHash": "3548f3e82ceee708898c4dad4d0fef5110cf5a40b3beae81cd38fd1c5c99079a"
+    },
+    {
+      "regionId": "tr-33-69-73",
+      "bbox": [
+        34.5,
+        36.5,
+        35,
+        37
+      ],
+      "graphFile": "regions/tr-33-69-73.rtg3",
+      "sha256": "e644c71cd3a26cac01a9c5aee74c5739c16f868910e129068248fc9512989099",
+      "byteSize": 6586728,
+      "nodeCount": 139098,
+      "edgeCount": 155702,
+      "neighbors": [
+        "tr-33-68-73",
+        "tr-33-68-74",
+        "tr-33-69-74",
+        "tr-33-70-73",
+        "tr-33-70-74"
+      ],
+      "sourceHash": "3548f3e82ceee708898c4dad4d0fef5110cf5a40b3beae81cd38fd1c5c99079a"
+    },
+    {
+      "regionId": "tr-33-69-74",
+      "bbox": [
+        34.5,
+        37,
+        35,
+        37.5
+      ],
+      "graphFile": "regions/tr-33-69-74.rtg3",
+      "sha256": "e46f50d8545be47f466814959fdebbcd1c33af878e8647dfbc7e7e11b2fbf4ad",
+      "byteSize": 3210136,
+      "nodeCount": 71794,
+      "edgeCount": 73622,
+      "neighbors": [
+        "tr-33-68-73",
+        "tr-33-68-74",
+        "tr-33-69-73",
+        "tr-33-70-73",
+        "tr-33-70-74"
+      ],
+      "sourceHash": "3548f3e82ceee708898c4dad4d0fef5110cf5a40b3beae81cd38fd1c5c99079a"
+    },
+    {
+      "regionId": "tr-33-70-73",
+      "bbox": [
+        35,
+        36.5,
+        35.5,
+        37
+      ],
+      "graphFile": "regions/tr-33-70-73.rtg3",
+      "sha256": "8a7995d5a7b0659adc67678c57bd89b379b23b8642d055fb92aee0bf119ef735",
+      "byteSize": 472280,
+      "nodeCount": 10389,
+      "edgeCount": 10930,
+      "neighbors": [
+        "tr-33-69-73",
+        "tr-33-69-74",
+        "tr-33-70-74"
+      ],
+      "sourceHash": "3548f3e82ceee708898c4dad4d0fef5110cf5a40b3beae81cd38fd1c5c99079a"
+    },
+    {
+      "regionId": "tr-33-70-74",
+      "bbox": [
+        35,
+        37,
+        35.5,
+        37.5
+      ],
+      "graphFile": "regions/tr-33-70-74.rtg3",
+      "sha256": "2881629d55a6762401aafc1c35921b6ea82ca0998783184918350db9a1383b08",
+      "byteSize": 248868,
+      "nodeCount": 5594,
+      "edgeCount": 5691,
+      "neighbors": [
+        "tr-33-69-73",
+        "tr-33-69-74",
+        "tr-33-70-73"
+      ],
+      "sourceHash": "3548f3e82ceee708898c4dad4d0fef5110cf5a40b3beae81cd38fd1c5c99079a"
+    }
+  ]
+}

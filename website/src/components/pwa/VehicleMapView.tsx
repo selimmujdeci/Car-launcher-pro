@@ -105,18 +105,22 @@ function parkingMarkerEl(): HTMLElement {
 /**
  * ÖLÇÜLEN KUSUR (2026-09-12, gerçek cihaz): CartoDB'nin ÜCRETSİZ basemap'leri
  * artık harita üzerine "API KEY REQUIRED — carto.com/basemaps/apikey"
- * filigranı basıyor. İKİ uç da denendi, İKİSİ DE filigranlı geldi:
- *   · eski raster:  `a/b.basemaps.cartocdn.com/dark_all/...` (harita hiç
+ * filigranı basıyor. İki uç da denendi ve İKİSİ DE filigranlı geldi:
+ *   · eski raster:  `a/b.basemaps.cartocdn.com/dark_all/...`  (harita hiç
  *     çizilmedi, yalnız filigran)
  *   · GL vektör:    `basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json`
  *     (harita ÇİZİLDİ — yol/yer adları geldi — ama filigran yine bindi)
- * HTTP 200 dönmesi "temiz içerik" DEMEK DEĞİLMİŞ; ilk turda yalnız durum
- * koduna bakarak yanlış doğrulandı, cihaz ekran görüntüsü düzeltti.
+ * HTTP 200 dönmesi "temiz içerik" DEMEK DEĞİLMİŞ; bunu ilk turda yalnız
+ * durum koduna bakarak yanlış doğruladım, cihaz ekran görüntüsü düzeltti.
  *
  * OpenFreeMap: API key YOK, kayıt YOK, kota YOK (OpenMapTiles şeması,
  * MapLibre uyumlu). DOĞRULANDI — Tarsus karosu (z11/1222/798) indirildi:
  * 22,8 KB gerçek veri, içinde "api key"/"required" metni 0 eşleşme, gerçek
  * yerel yer adları var (Adana · Akdeniz · Akçakocalı · Adanalıoğlu).
+ *
+ * NOT: konsol tarafı (`lib/console/mapStyle.ts`) HÂLÂ CartoDB'dedir ve aynı
+ * filigrandan etkilenir; orası ayrı bir tur (gece okunurluk yaması CARTO
+ * katman adlarına bağlı, sağlayıcı değişince o kurallar da gözden geçirilmeli).
  */
 const MAP_STYLE_DARK = 'https://tiles.openfreemap.org/styles/dark';
 

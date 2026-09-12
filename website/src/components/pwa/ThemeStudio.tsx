@@ -1,274 +1,248 @@
 'use client';
 
-import { memo, useState, useCallback, useRef, useEffect } from 'react';
+/**
+ * Tema Stüdyo — Arabam Cebimde
+ *
+ * Akış:  4 GERÇEK tema → ekran seç → önizlemede bileşene DOKUN → TAM EKRAN düzenle
+ *        → canlı önizleme → geri al/yinele/seviyeli sıfırla → Araca Gönder.
+ *
+ * MİMARİ
+ *  - Durum: `themeStudioState` (saf reducer, tema başına manifest, undo/redo).
+ *  - Sözleşme: `themeManifest` v3 (sürümlü, doğrulanır, fail-closed taşınır;
+ *    yerleşim niyeti de manifest'in parçasıdır — çözümü hâlâ layoutSolver yapar).
+ *  - Kimlik: `themeComponentRegistry` (kararlı componentId — DOM seçici DEĞİL).
+ *  - Önizleme: gerçek araç uygulaması iframe'de; postMessage ile canlı manifest.
+ *  - Dokun & Düzenle: araç yalnız GEOMETRİ ÖLÇÜMÜ bildirir; seçim katmanı bu
+ *    dosyanın kendi overlay'idir → dokunuş iframe'e ulaşmaz, araç DOM'una yazılmaz.
+ *  - Araca Gönder: mevcut `theme_change` komutu (yeni `manifest` alanı + eski
+ *    `theme`/`themeVars` alanları geri-uyum için KORUNUR).
+ */
+
+import {
+  memo, useCallback, useEffect, useMemo, useReducer, useRef, useState,
+} from 'react';
 import { sendCommand } from '@/lib/commandService';
-
-// ── Types ─────────────────────────────────────────────────────────────────────
-
-type StudioTab = 'renkler' | 'sekiller' | 'efektler' | 'yazi' | 'ikonlar';
-
-interface ThemeToken {
-  name: string;
-  baseTheme: string;
-  accentPrimary: string;
-  accentSecondary: string;
-  bgPrimary: string;
-  bgCard: string;
-  textPrimary: string;
-  textSecondary: string;
-  borderColor: string;
-  glowColor: string;
-  radiusCard: number;
-  radiusBtn: number;
-  radiusTile: number;
-  radiusDock: number;
-  cardBlurPx: number;
-  glowIntensity: number;
-  fontFamily: string;
-  fontWeight: number;
-  letterSpacing: number;
-  iconNav: string;
-  iconMedia: string;
-  iconDock: string;
+import {
+  manifestToCssVars,
+  THEME_BASE_IDS,
+  THEME_PRESETS,
+  type CardLayout,
+  type ComponentStyle,
+  type GlobalTokens,
+  type ScreenOverride,
+  type StateKey,
+  type StateStyle,
+  type ThemeBaseId,
+  SCALABLE_ZONES,
+  ZONE_SCALE_MIN,
+  ZONE_SCALE_MAX,
 }
+from '@/lib/theme/themeManifest';
+import {
+  componentsForSurface,
+  getThemeComponent,
+  isLayoutCapableTheme,
+  layoutCardIdFor,
+  surfacesForTheme,
+  type ThemeSurfaceId,
+} from '@/lib/theme/themeComponentRegistry';
+import { solvePreview, ZONE_LABEL } from '@/lib/theme/themeLayoutBridge';
+import { distinctProbeIds, resolveProbeSelection, sanitizeProbeItems, type ProbeItem } from '@/lib/theme/themeProbe';
+import {
+  canRedo as canRedoOf,
+  canRedoScoped,
+  canUndo as canUndoOf,
+  canUndoScoped,
+  cardHasChanges,
+  cardLayoutOf,
+  cardScope,
+  componentStyleOf,
+  screenScope,
+  tokensScope,
+  createStudioState,
+  customizationCount,
+  deserializeStudio,
+  migrateLegacyStudio,
+  screenOverrideOf,
+  serializeStudio,
+  studioReducer,
+  STUDIO_LEGACY_KEY,
+  STUDIO_STORAGE_KEY,
+} from '@/lib/theme/themeStudioState';
+import { ComponentEditor, SurfaceEditor, TokensEditor } from './theme/ThemeEditors';
+import { ZoneReorder } from './theme/ZoneReorder';
 
-// ── Presets (mirrors car app useThemeStudio.ts) ───────────────────────────────
+/* ── Önizleme hedefi (gerçek araç uygulaması) ─────────────────────── */
 
-const PRESETS: Record<string, ThemeToken> = {
-  pro: {
-    name: 'PRO', baseTheme: 'pro',
-    accentPrimary: '#D4AF37', accentSecondary: '#C0392B',
-    bgPrimary: '#1C1C2E', bgCard: 'rgba(35,35,58,0.96)',
-    textPrimary: '#F5F0E8', textSecondary: '#B8A89A',
-    borderColor: 'rgba(212,175,55,0.30)', glowColor: 'rgba(212,175,55,0.25)',
-    radiusCard: 18, radiusBtn: 4, radiusTile: 4, radiusDock: 0,
-    cardBlurPx: 16, glowIntensity: 60,
-    fontFamily: 'orbitron', fontWeight: 900, letterSpacing: 2,
-    iconNav: '#D4AF37', iconMedia: '#2ECC71', iconDock: '#D4AF37',
-  },
-  tesla: {
-    name: 'TESLA', baseTheme: 'tesla',
-    accentPrimary: '#E31937', accentSecondary: '#FFFFFF',
-    bgPrimary: '#141414', bgCard: 'rgba(20,20,20,0.95)',
-    textPrimary: '#FFFFFF', textSecondary: '#9EA3AE',
-    borderColor: 'rgba(227,25,55,0.25)', glowColor: 'rgba(227,25,55,0.15)',
-    radiusCard: 12, radiusBtn: 6, radiusTile: 8, radiusDock: 0,
-    cardBlurPx: 20, glowIntensity: 40,
-    fontFamily: 'system', fontWeight: 400, letterSpacing: 0,
-    iconNav: '#E31937', iconMedia: '#FFFFFF', iconDock: '#E31937',
-  },
-};
-
-const LS_KEY = 'caros-theme-studio';
-
-function load(): ThemeToken {
-  try {
-    const raw = localStorage.getItem(LS_KEY);
-    if (raw) return JSON.parse(raw) as ThemeToken;
-  } catch { /* ignore */ }
-  return PRESETS.pro;
-}
-
-function save(t: ThemeToken) {
-  try { localStorage.setItem(LS_KEY, JSON.stringify(t)); } catch { /* ignore */ }
-}
-
-// ── Token → CSS var map (matches car app applyTokens) ────────────────────────
-
-const FONT_MAP: Record<string, string> = {
-  system:    `-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif`,
-  orbitron:  `'Orbitron', monospace`,
-  rajdhani:  `'Rajdhani', sans-serif`,
-  exo2:      `'Exo 2', sans-serif`,
-  sharetech: `'Share Tech Mono', monospace`,
-};
-
-const FONT_CSS: Record<string, string> = {
-  system:    '-apple-system, sans-serif',
-  orbitron:  "'Orbitron', monospace",
-  rajdhani:  "'Rajdhani', sans-serif",
-  exo2:      "'Exo 2', sans-serif",
-  sharetech: "'Share Tech Mono', monospace",
-};
-
-// Hex → "r, g, b" (araç tarafında rgba(var(--accent-rgb), a) ile alfa üretmek için).
-// Geçersiz/eksik hex'te fail-soft: nötr gri döner (BOŞ STRİNG DÖNME — CSS custom
-// property set edilip boş bırakılırsa var(--x, fallback) fallback'i DEVREYE GİRMEZ,
-// rgba() geçersiz olur ve tüm stil çöker; bu yüzden her zaman geçerli bir triplet).
-function hexToRgb(hex: string): string {
-  const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex.trim());
-  if (!m) return '128, 128, 128';
-  return `${parseInt(m[1], 16)}, ${parseInt(m[2], 16)}, ${parseInt(m[3], 16)}`;
-}
-
-function tokenToVars(t: ThemeToken): Record<string, string> {
-  return {
-    '--accent-primary':      t.accentPrimary,
-    '--accent-rgb':          hexToRgb(t.accentPrimary),
-    '--accent-secondary':    t.accentSecondary,
-    '--pack-accent':         t.accentPrimary,
-    '--premium-accent':      t.accentPrimary,
-    '--accent-blue':         t.accentPrimary,
-    '--neon-accent':         t.accentPrimary,
-    '--bg-primary':          t.bgPrimary,
-    '--bg-card':             t.bgCard,
-    '--pack-bg':             t.bgPrimary,
-    '--pack-card-bg':        t.bgCard,
-    '--text-primary':        t.textPrimary,
-    '--text-primary-var':    t.textPrimary,
-    '--text-secondary':      t.textSecondary,
-    '--text-secondary-var':  t.textSecondary,
-    '--border-color':        t.borderColor,
-    '--pack-border':         t.borderColor,
-    '--accent-glow':         t.glowColor,
-    '--pack-glow':           t.glowColor,
-    '--radius-card':         `${t.radiusCard}px`,
-    '--card-radius':         `${t.radiusCard}px`,
-    '--radius-btn':          `${t.radiusBtn}px`,
-    '--radius-tile':         `${t.radiusTile}px`,
-    '--radius-dock':         `${t.radiusDock}px`,
-    '--card-blur':           `${t.cardBlurPx}px`,
-    '--glass-blur':          `blur(${t.cardBlurPx}px)`,
-    '--font-ui':             FONT_MAP[t.fontFamily] ?? FONT_MAP.system,
-    '--font-weight-ui':      String(t.fontWeight),
-    '--letter-spacing-ui':   `${t.letterSpacing}px`,
-    '--icon-color-nav':      t.iconNav,
-    '--icon-color-media':    t.iconMedia,
-    '--dock-icon-color':     t.iconDock,
-    '--dock-icon-color-active': t.accentPrimary,
-    '__baseTheme':           t.baseTheme,
-  };
-}
-
-// ── Accent / bg color presets ─────────────────────────────────────────────────
-
-const ACCENT_COLORS = [
-  '#E31937','#CC0000','#D4AF37','#C8A96E',
-  '#00D4FF','#00E5FF','#22c55e','#a855f7',
-  '#f59e0b','#ec4899','#FFFFFF','#6b7280',
-];
-
-const BG_COLORS = [
-  '#000000','#0A0A0A','#080606','#141414',
-  '#05080E','#0c1a2e','#1C1C2E','#0f172a',
-];
-
-const FONTS = [
-  { id: 'system',    label: 'Sistem' },
-  { id: 'orbitron',  label: 'Orbitron' },
-  { id: 'rajdhani',  label: 'Rajdhani' },
-  { id: 'exo2',      label: 'Exo 2' },
-  { id: 'sharetech', label: 'Share Tech Mono' },
-];
-
-// ── Sub-components ────────────────────────────────────────────────────────────
-
-function SectionTitle({ children }: { children: React.ReactNode }) {
-  return (
-    <p className="text-[9px] font-black uppercase tracking-[0.35em] mb-2"
-      style={{ color: 'var(--pwa-text-3)' }}>
-      {children}
-    </p>
-  );
-}
-
-function Slider({ label, value, min, max, step = 1, unit, onChange }: {
-  label: string; value: number; min: number; max: number;
-  step?: number; unit: string; onChange: (v: number) => void;
-}) {
-  return (
-    <div className="flex flex-col gap-1.5">
-      <div className="flex justify-between items-baseline">
-        <span className="text-[10px] font-semibold" style={{ color: 'var(--pwa-text-2)' }}>{label}</span>
-        <span className="text-[10px] font-mono tabular-nums" style={{ color: 'var(--pwa-text-2)' }}>
-          {Number.isInteger(value) ? value : value.toFixed(1)}{unit}
-        </span>
-      </div>
-      <input
-        type="range" min={min} max={max} step={step} value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
-        className="w-full h-1.5 rounded-full cursor-pointer appearance-none"
-        style={{ accentColor: 'var(--accent-primary, #3b82f6)' }}
-      />
-    </div>
-  );
-}
-
-function ColorPicker({ label, value, presets, onChange }: {
-  label: string; value: string; presets?: string[];
-  onChange: (v: string) => void;
-}) {
-  return (
-    <div className="flex flex-col gap-2">
-      <div className="flex items-center justify-between">
-        <span className="text-[10px] font-semibold" style={{ color: 'var(--pwa-text-2)' }}>{label}</span>
-        <div className="flex items-center gap-2">
-          <span className="text-[9px] font-mono" style={{ color: 'var(--pwa-text-3)' }}>{value}</span>
-          <label className="relative cursor-pointer">
-            <div className="w-7 h-7 rounded-lg border-2 overflow-hidden"
-              style={{ borderColor: 'var(--pwa-border)', backgroundColor: value }}>
-              <input type="color" value={value.startsWith('#') ? value : '#000000'}
-                onChange={(e) => onChange(e.target.value)}
-                className="absolute inset-0 opacity-0 cursor-pointer w-full h-full" />
-            </div>
-          </label>
-        </div>
-      </div>
-      {presets && (
-        <div className="flex flex-wrap gap-1.5">
-          {presets.map((c) => (
-            <button key={c} onClick={() => onChange(c)}
-              className="w-7 h-7 rounded-lg transition-all active:scale-90"
-              style={{
-                backgroundColor: c,
-                border: value === c ? '2px solid white' : '1.5px solid var(--pwa-border)',
-                boxShadow: value === c ? `0 0 8px ${c}80` : 'none',
-              }} />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── Gerçek uygulama önizlemesi (iframe) ──────────────────────────────────────
-// Sahte maket yerine GERÇEK araç uygulaması (car-launcher-pro) iframe'e gömülür;
-// kullanıcı renk/şekil/font değiştirdikçe postMessage ile CANLI tema uygulanır
-// (birebir önizleme). Uygulama demo modunda ana ekranı gösterir; iframe içindeki
-// themePreviewBridge 'caros-preview-ready' der, biz temayı yollarız.
-const PREVIEW_URL    = 'https://car-launcher-pro.vercel.app/';
+const PREVIEW_URL = 'https://car-launcher-pro.vercel.app/';
 const PREVIEW_ORIGIN = 'https://car-launcher-pro.vercel.app';
-const PREVIEW_W = 1180;   // araç ekranı mantıksal genişliği (ölçeklenir)
+const PREVIEW_W = 1180;
 const PREVIEW_H = 720;
 
+const PERSIST_DEBOUNCE_MS = 1000;
 
-// ── Main ──────────────────────────────────────────────────────────────────────
+type SyncState = 'idle' | 'sending' | 'ok' | 'fail';
+type EditorTarget =
+  | { kind: 'none' }
+  | { kind: 'tokens' }
+  | { kind: 'surface'; surface: ThemeSurfaceId }
+  | { kind: 'component'; componentId: string };
 
 interface Props { vehicleId: string | null }
 
 export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
-  const tokenRef  = useRef<ThemeToken>(load());
-  const [token,   setToken]   = useState<ThemeToken>(() => tokenRef.current);
-  const [tab,     setTab]     = useState<StudioTab>('renkler');
-  const [sync,    setSync]    = useState<'idle' | 'sending' | 'ok' | 'fail'>('idle');
+  const [state, dispatch] = useReducer(studioReducer, undefined, createStudioState);
+  const [editor, setEditor] = useState<EditorTarget>({ kind: 'none' });
+  const [sync, setSync] = useState<SyncState>('idle');
+  const [syncNote, setSyncNote] = useState<string | null>(null);
+  const [selectMode, setSelectMode] = useState(false);
+  const [previewReady, setPreviewReady] = useState(false);
+  const [probe, setProbe] = useState<ProbeItem[] | null>(null);
+  const [hoverId, setHoverId] = useState<string | null>(null);
+  const [confirmReset, setConfirmReset] = useState(false);
 
-  const timerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const mountedRef = useRef(true);
+  /** Ölçümden gelen kimlikler = o an araçta GERÇEKTEN çizili bileşenler. */
+  const inventory = useMemo(() => (probe === null ? null : probe.map((p) => p.id)), [probe]);
 
-  // Gerçek uygulama iframe önizlemesi (canlı tema postMessage ile)
+
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const wrapRef   = useRef<HTMLDivElement>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const mountedRef = useRef(true);
+  const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const syncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [scale, setScale] = useState(0.3);
 
-  const postPreview = useCallback((t: ThemeToken) => {
+  const manifest = state.manifests[state.themeId];
+  const preset = THEME_PRESETS[state.themeId];
+  const surfaces = useMemo(() => surfacesForTheme(state.themeId), [state.themeId]);
+  const components = useMemo(
+    () => componentsForSurface(state.themeId, state.surface),
+    [state.themeId, state.surface],
+  );
+
+  /**
+   * ÖNİZLEME BU EKRANI GÖSTEREBİLİYOR MU? — ÖLÇÜLEN gerçek, sabit liste DEĞİL.
+   *
+   * Bazı yüzeyler önizlemede AÇILAMAZ ve bu bilerek böyledir: geri görüş
+   * kamerası vitese, Sinema/Bölünmüş ekran kullanıcı eylemine bağlıdır —
+   * onları Stüdyo'dan taklit etmek bir güvenlik yüzeyini YALANLAMAK olurdu.
+   * Bu durumda kullanıcı ana ekranı görür ve farkında olmadan KÖRLEMESİNE
+   * düzenler. Uyarı, sabit bir "gösterilemeyenler" listesinden değil, ÖLÇÜMDEN
+   * türetilir: seçili ekranın hiçbir bileşeni ölçümde görünmüyorsa gösterim
+   * yok demektir. Böylece ileride eklenip gezinmesi unutulan her yüzey de
+   * kendiliğinden yakalanır (sabit liste bayatlar, ölçüm bayatlamaz).
+   *
+   * `null` = henüz ölçüm yok → HİÇBİR ŞEY iddia edilmez.
+   */
+  const surfaceShown = useMemo<boolean | null>(() => {
+    if (probe === null) return null;
+    if (components.length === 0) return null;
+    const olculen = new Set(probe.map((p) => p.id));
+    return components.some((c) => olculen.has(c.id));
+  }, [probe, components]);
+
+  /* ── Kalıcılık: yükle (bir kez) ─────────────────────────────────── */
+  useEffect(() => {
+    mountedRef.current = true;
+    try {
+      const raw = localStorage.getItem(STUDIO_STORAGE_KEY);
+      if (raw) {
+        const p = deserializeStudio(raw);
+        dispatch({ type: 'hydrate', manifests: p.manifests, themeId: p.themeId });
+      } else {
+        // v1 Tema Stüdyo emeği çöpe atılmaz — tanınırsa taşınır.
+        const legacy = migrateLegacyStudio(localStorage.getItem(STUDIO_LEGACY_KEY));
+        if (legacy) dispatch({ type: 'hydrate', manifests: legacy.manifests, themeId: legacy.themeId });
+      }
+    } catch { /* fail-soft: varsayılan durumla devam */ }
+    return () => {
+      mountedRef.current = false;
+      if (persistTimer.current) clearTimeout(persistTimer.current);
+      if (syncTimer.current) clearTimeout(syncTimer.current);
+    };
+  }, []);
+
+  /* ── Kalıcılık: yaz (kısıtlanmış — slider sürüklerken her karede yazma) ── */
+  useEffect(() => {
+    if (persistTimer.current) clearTimeout(persistTimer.current);
+    persistTimer.current = setTimeout(() => {
+      try { localStorage.setItem(STUDIO_STORAGE_KEY, serializeStudio(state)); } catch { /* kota/gizli mod */ }
+    }, PERSIST_DEBOUNCE_MS);
+    return () => { if (persistTimer.current) clearTimeout(persistTimer.current); };
+  }, [state]);
+
+  /* ── Önizleme: manifest yayını ──────────────────────────────────── */
+  const postPreview = useCallback((m = manifest) => {
     try {
       iframeRef.current?.contentWindow?.postMessage(
-        { type: 'caros-theme-preview', vars: tokenToVars(t) }, PREVIEW_ORIGIN,
+        { type: 'caros-theme-manifest', manifest: m }, PREVIEW_ORIGIN,
       );
+    } catch { /* ignore */ }
+  }, [manifest]);
+
+  useEffect(() => {
+    if (previewReady) postPreview(manifest);
+  }, [manifest, previewReady, postPreview]);
+
+  /** Araçtan güncel geometri iste (araç DOM'una hiçbir şey yazmaz). */
+  const requestProbe = useCallback(() => {
+    try {
+      iframeRef.current?.contentWindow?.postMessage({ type: 'caros-preview-probe' }, PREVIEW_ORIGIN);
     } catch { /* ignore */ }
   }, []);
 
-  // iframe'i PWA kutusuna sığdır (araç ekranını ölçekle)
+  /* ── ÖNİZLEME GEZİNMESİ ──────────────────────────────────────────────
+   * KAPATILAN BOŞLUK: ekran seçilince önizleme O EKRANA GİTMİYORDU — iframe
+   * ana ekranda kalıyordu. Kullanıcı Ayarlar/Bildirim/İklim düzenlerken
+   * sonucu GÖREMİYOR, körlemesine renk seçiyordu. Bu, yeni eklenen ekranlara
+   * özgü DEĞİLDİ: mevcut on çekmece ekranı da aynı durumdaydı.
+   *
+   * Hedef eşlemesi ARAÇ tarafında yaşar (`themePreviewBridge.SURFACE_DRAWER`);
+   * burada yalnız kayıt defterindeki yüzey kimliği yollanır — çekmece kavramı
+   * PWA'ya sızdırılmaz ve ikinci bir eşleme tablosu KURULMAZ. */
+  useEffect(() => {
+    if (!previewReady) return;
+    try {
+      iframeRef.current?.contentWindow?.postMessage(
+        { type: 'caros-preview-surface', surface: state.surface }, PREVIEW_ORIGIN,
+      );
+    } catch { /* ignore */ }
+    /* Ekran değişince kutular tamamen değişir → taze ölçüm şart. */
+    requestProbe();
+  }, [state.surface, previewReady, requestProbe]);
+
+  /* ── Önizleme: araçtan gelen mesajlar ───────────────────────────── */
+  useEffect(() => {
+    const onMsg = (e: MessageEvent) => {
+      if (e.origin !== PREVIEW_ORIGIN) return;
+      const d = e.data as { type?: string; items?: unknown } | null;
+      if (!d || typeof d.type !== 'string') return;
+      if (d.type === 'caros-preview-ready') {
+        setPreviewReady(true);
+      } else if (d.type === 'caros-preview-probe-result') {
+        // Zero-trust: kayıt defterinde olmayan kimlik / bozuk kutu DÜŞÜRÜLÜR.
+        setProbe(sanitizeProbeItems(d.items));
+      }
+    };
+    window.addEventListener('message', onMsg);
+    return () => window.removeEventListener('message', onMsg);
+  }, []);
+
+  /* Seçim modu açılınca taze ölçüm iste (kutular kaymış olabilir). */
+  useEffect(() => {
+    if (selectMode && previewReady) requestProbe();
+  }, [selectMode, previewReady, requestProbe]);
+
+  /** Overlay'den bileşen seçimi — bileşen listesiyle AYNI yolu kullanır. */
+  const openComponent = useCallback((componentId: string) => {
+    const info = resolveProbeSelection(componentId);
+    if (!info) return;
+    dispatch({ type: 'select-surface', surface: info.surface });
+    dispatch({ type: 'open-editor', componentId: info.id });
+    setEditor({ kind: 'component', componentId: info.id });
+  }, []);
+
+  /* ── Önizleme ölçekleme ─────────────────────────────────────────── */
   useEffect(() => {
     const el = wrapRef.current;
     if (!el || typeof ResizeObserver === 'undefined') return;
@@ -279,62 +253,172 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
     return () => ro.disconnect();
   }, []);
 
-  // iframe içindeki köprü "hazır" derse mevcut temayı yolla
+  /* Editörden çıkınca ölçümü tazele: stil değişikliği kutuyu büyütmüş olabilir. */
   useEffect(() => {
-    const onMsg = (e: MessageEvent) => {
-      if (e.origin === PREVIEW_ORIGIN && (e.data as { type?: string })?.type === 'caros-preview-ready') {
-        postPreview(tokenRef.current);
-      }
-    };
-    window.addEventListener('message', onMsg);
-    return () => window.removeEventListener('message', onMsg);
-  }, [postPreview]);
+    if (editor.kind === 'none' && selectMode && previewReady) requestProbe();
+  }, [editor, selectMode, previewReady, requestProbe]);
 
-  useEffect(() => () => {
-    mountedRef.current = false;
-    if (timerRef.current) clearTimeout(timerRef.current);
-  }, []);
-
-  const patch = useCallback((p: Partial<ThemeToken>) => {
-    const next = { ...tokenRef.current, ...p };
-    tokenRef.current = next;
-    setToken({ ...next });
-    save(next);
-    // YALNIZ iframe önizlemesine yansıt — araca DOKUNMA. Araç ancak
-    // kullanıcı "Araca Gönder" deyince değişir (sendToVehicle).
-    postPreview(next);
-  }, [postPreview]);
-
-  const applyPreset = useCallback((key: string) => {
-    const preset = PRESETS[key];
-    if (!preset) return;
-    patch(preset);
-  }, [patch]);
-
-  // Araca Gönder — mevcut temayı gerçek araca uygula (theme_change)
+  /* ── Araca Gönder ───────────────────────────────────────────────── */
   const sendToVehicle = useCallback(async () => {
     if (!vehicleId) return;
     setSync('sending');
-    const r = await sendCommand(vehicleId, 'theme_change', { themeVars: tokenToVars(tokenRef.current) });
-    setSync(r.ok ? 'ok' : 'fail');
-    setTimeout(() => { if (mountedRef.current) setSync('idle'); }, 2000);
-  }, [vehicleId]);
+    setSyncNote(null);
+    const at = new Date().toISOString();
+    const outgoing = {
+      ...manifest,
+      themeVersion: manifest.themeVersion + 1,
+      metadata: { ...manifest.metadata, updatedAt: at, origin: 'pwa-studio' as const },
+    };
+    const r = await sendCommand(vehicleId, 'theme_change', {
+      // Yeni sözleşme (v2)
+      manifest: outgoing,
+      // Geri-uyum: manifest'i tanımayan eski araç sürümü bu ikisini kullanır.
+      theme: outgoing.themeId,
+      themeVars: manifestToCssVars(outgoing),
+    });
+    if (!mountedRef.current) return;
+    if (r.ok) {
+      dispatch({ type: 'mark-sent', at });
+      setSync('ok');
+      setSyncNote(r.queued ? 'Araç çevrimdışı — sıraya alındı' : null);
+    } else {
+      setSync('fail');
+      setSyncNote(r.error ?? 'Gönderilemedi');
+    }
+    if (syncTimer.current) clearTimeout(syncTimer.current);
+    syncTimer.current = setTimeout(() => { if (mountedRef.current) setSync('idle'); }, 3500);
+  }, [vehicleId, manifest]);
 
-  const TABS: { id: StudioTab; label: string }[] = [
-    { id: 'renkler',  label: 'Renkler'  },
-    { id: 'sekiller', label: 'Şekiller' },
-    { id: 'efektler', label: 'Efektler' },
-    { id: 'yazi',     label: 'Yazı'     },
-    { id: 'ikonlar',  label: 'İkonlar'  },
-  ];
+  /* ── Kısayollar ─────────────────────────────────────────────────── */
+  /* Geri al / ileri al — TEK mekanizma, kapsam parametresiyle.
+   * `scope` yoksa global; kart editöründe KART kapsamı verilir → bir kartın
+   * geri alması başka kartın geçmişine DOKUNMAZ. */
+  const undo = useCallback(() => dispatch({ type: 'undo' }), []);
+  const redo = useCallback(() => dispatch({ type: 'redo' }), []);
+  const canUndo = canUndoOf(state);
+  const canRedo = canRedoOf(state);
+  const undoScoped = useCallback(
+    (scope: ReturnType<typeof cardScope>) => dispatch({ type: 'undo', scope }), [],
+  );
+  const redoScoped = useCallback(
+    (scope: ReturnType<typeof cardScope>) => dispatch({ type: 'redo', scope }), [],
+  );
 
+  const patchTokens = useCallback((patch: Partial<GlobalTokens>) => dispatch({ type: 'patch-tokens', patch }), []);
+  const patchComponent = useCallback(
+    (componentId: string, patch: Partial<ComponentStyle>) => dispatch({ type: 'patch-component', componentId, patch }),
+    [],
+  );
+  const patchComponentState = useCallback(
+    (componentId: string, stateKey: StateKey, patch: Partial<StateStyle>) =>
+      dispatch({ type: 'patch-component-state', componentId, stateKey, patch }),
+    [],
+  );
+  const patchScreen = useCallback(
+    (surface: ThemeSurfaceId, patch: Partial<ScreenOverride>) => dispatch({ type: 'patch-screen', surface, patch }),
+    [],
+  );
+  const patchLayout = useCallback(
+    (cardId: string, patch: Partial<CardLayout>) => dispatch({ type: 'patch-layout', cardId, patch }),
+    [],
+  );
+  const resetLayout = useCallback((cardId: string) => dispatch({ type: 'reset-layout', cardId }), []);
+
+  /** Yerleşim önizlemesi GERÇEK solver'dan gelir (ikinci motor yok). */
+  const solved = useMemo(
+    () => (state.surface === 'home' ? solvePreview(state.themeId, manifest) : null),
+    [state.surface, state.themeId, manifest],
+  );
+
+  const touched = customizationCount(manifest);
   const syncColor = sync === 'ok' ? '#34d399' : sync === 'fail' ? '#f87171' : sync === 'sending' ? '#60a5fa' : 'var(--pwa-text-3)';
-  const syncLabel = sync === 'ok' ? '✓ Gönderildi' : sync === 'fail' ? '✗ Hata' : sync === 'sending' ? '● Gönderiliyor…' : '● Araca İletiliyor';
 
+  /* ── DÜZENLEYİCİ PANELİ — ÖNİZLEMEYİ KAPATMADAN ───────────────────
+   * KULLANICI ŞİKÂYETİ (2026-08-18): *"yaptığım düzenlemeleri göremiyorum,
+   * ekran sabit kalsın ki yaptığım düzenlemeleri görebileyim."*
+   *
+   * ÖLÇÜLEN KUSUR: bu blok eskiden `return <ComponentEditor/>` ile ERKEN
+   * DÖNÜYORDU. Sonuç iki katmanlıydı:
+   *   1. Önizleme DOM'dan tamamen kalkıyordu → düzenleme yapılırken canlı
+   *      önizlemeyi görmek YAPISAL OLARAK imkânsızdı ("canlı önizleme"
+   *      vaadi yalnız hiçbir şey düzenlemezken geçerliydi).
+   *   2. iframe UNMOUNT oluyordu → her editör açılış/kapanışında araç
+   *      uygulaması BAŞTAN boot ediyor, `previewReady` sıfırlanıyor ve
+   *      manifest yeniden gönderiliyordu.
+   * Panel artık ana ağaçta, sticky önizlemenin ALTINDA render edilir;
+   * iframe hiç taşınmaz → remount YOK, geri bildirim ANLIK. */
+  const editorNode = (() => {
+  if (editor.kind === 'tokens') {
+    return (
+      <TokensEditor
+        themeId={state.themeId}
+        tokens={manifest.tokens}
+        onPatch={patchTokens}
+        onResetTheme={() => { dispatch({ type: 'reset-theme' }); setEditor({ kind: 'none' }); }}
+        onClose={() => setEditor({ kind: 'none' })}
+        onUndo={() => undoScoped(tokensScope(state.themeId))}
+        onRedo={() => redoScoped(tokensScope(state.themeId))}
+        canUndo={canUndoScoped(state, tokensScope(state.themeId))}
+        canRedo={canRedoScoped(state, tokensScope(state.themeId))}
+      />
+    );
+  }
+  if (editor.kind === 'surface') {
+    const info = surfaces.find((s) => s.id === editor.surface);
+    return (
+      <SurfaceEditor
+        surfaceLabel={info?.label ?? editor.surface}
+        surfaceId={editor.surface}
+        override={screenOverrideOf(manifest, editor.surface)}
+        onPatch={(p) => patchScreen(editor.surface, p)}
+        onResetSurface={() => { dispatch({ type: 'reset-surface', surface: editor.surface }); setEditor({ kind: 'none' }); }}
+        onClose={() => setEditor({ kind: 'none' })}
+        onUndo={() => undoScoped(screenScope(state.themeId, editor.surface))}
+        onRedo={() => redoScoped(screenScope(state.themeId, editor.surface))}
+        canUndo={canUndoScoped(state, screenScope(state.themeId, editor.surface))}
+        canRedo={canRedoScoped(state, screenScope(state.themeId, editor.surface))}
+      />
+    );
+  }
+  if (editor.kind === 'component') {
+    const info = getThemeComponent(editor.componentId);
+    if (info) {
+      // Kartın kapsamı = bileşen stili + (varsa) solver yerleşim kartı.
+      const lcId = layoutCardIdFor(info, state.themeId);
+      const scope = cardScope(state.themeId, info.id, lcId);
+      return (
+        <ComponentEditor
+          info={info}
+          themeId={state.themeId}
+          style={componentStyleOf(manifest, info.id)}
+          layout={cardLayoutOf(manifest, lcId ?? '')}
+          hasChanges={cardHasChanges(manifest, info.id, lcId)}
+          onPatch={(p) => patchComponent(info.id, p)}
+          onPatchState={(k, p) => patchComponentState(info.id, k, p)}
+          onPatchLayout={patchLayout}
+          onResetLayout={resetLayout}
+          onResetCard={() => dispatch({ type: 'reset-card', componentId: info.id, layoutCardId: lcId })}
+          onClose={() => { setEditor({ kind: 'none' }); dispatch({ type: 'close-editor' }); }}
+          onUndo={() => undoScoped(scope)}
+          onRedo={() => redoScoped(scope)}
+          canUndo={canUndoScoped(state, scope)}
+          canRedo={canRedoScoped(state, scope)}
+        />
+      );
+    }
+  }
+
+  return null;
+  })();
+  /** Düzenleyici açıkken önizleme KOMPAKT olur — panel için yer açar ama
+   *  ekrandan KAYBOLMAZ (kullanıcının istediği "ekran sabit kalsın"). */
+  const editing = editorNode !== null;
+
+  /* ── Ana görünüm ────────────────────────────────────────────────── */
   return (
     <div className="flex flex-col">
 
-      {/* ── SABİT ÜST: başlık + CANLI MAKET + Araca Gönder — ayarlar altında kayarken sabit kalır ── */}
+      {/* ═══ SABİT ÜST: başlık + canlı önizleme + gönder ═══ */}
       <div
         style={{
           position: 'sticky', top: 0, zIndex: 20,
@@ -344,253 +428,593 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
           boxShadow: '0 14px 22px -12px rgba(0,0,0,0.6)',
         }}
       >
-        {/* Header */}
-        <div className="flex items-center justify-between mb-3">
-          <div>
+        <div className="flex items-center justify-between mb-3 gap-2">
+          <div className="min-w-0">
             <p className="text-sm font-black pwa-text">Tema Stüdyo</p>
-            <p className="text-[10px] mt-0.5" style={{ color: 'var(--pwa-text-3)' }}>Gerçek ekran · canlı önizleme · aşağıdan renk &amp; şekil ver</p>
+            <p className="text-[10px] mt-0.5 truncate" style={{ color: 'var(--pwa-text-3)' }}>
+              {preset.label} · {touched === 0 ? 'özelleştirme yok' : `${touched} özelleştirme`}
+            </p>
           </div>
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[9px] font-bold transition-all"
+          <div
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[9px] font-bold flex-shrink-0"
             style={{
               background: sync !== 'idle' ? `${syncColor}15` : 'var(--pwa-surface)',
               border: `1px solid ${syncColor}40`,
               color: syncColor,
-            }}>
-            {!vehicleId ? '⚠ Araç Bağlı Değil' : syncLabel}
+            }}
+          >
+            {!vehicleId ? '⚠ Araç Bağlı Değil'
+              : sync === 'ok' ? '✓ Gönderildi'
+              : sync === 'fail' ? '✗ Hata'
+              : sync === 'sending' ? '● Gönderiliyor…'
+              : '● Hazır'}
           </div>
         </div>
 
-        {/* GERÇEK uygulama iframe önizlemesi — birebir, canlı tema (postMessage) */}
-        <div ref={wrapRef} style={{ position: 'relative', width: '100%', aspectRatio: `${PREVIEW_W} / ${PREVIEW_H}`, overflow: 'hidden', borderRadius: 14, border: '1px solid var(--pwa-border)', background: '#000' }}>
+        {/* Canlı önizleme — gerçek araç uygulaması */}
+        <div
+          ref={wrapRef}
+          style={{
+            position: 'relative',
+            /* Genişlik daralınca `ResizeObserver` ölçeği kendiliğinden yeniden
+               hesaplar (scale = clientWidth / PREVIEW_W) — ayrı bir ölçek
+               otoritesi kurulmaz. */
+            width: editing ? '62%' : '100%',
+            marginLeft: 'auto', marginRight: 'auto',
+            aspectRatio: `${PREVIEW_W} / ${PREVIEW_H}`,
+            overflow: 'hidden', borderRadius: 14,
+            border: selectMode ? '2px solid #60a5fa' : '1px solid var(--pwa-border)',
+            background: '#000',
+          }}
+        >
           <iframe
             ref={iframeRef}
             src={PREVIEW_URL}
             title="Araç ekranı canlı önizleme"
-            onLoad={() => setTimeout(() => postPreview(tokenRef.current), 400)}
-            style={{ position: 'absolute', top: 0, left: 0, width: PREVIEW_W, height: PREVIEW_H, border: 0, transformOrigin: 'top left', transform: `scale(${scale})`, colorScheme: 'normal' }}
+            onLoad={() => setTimeout(() => postPreview(), 400)}
+            style={{
+              position: 'absolute', top: 0, left: 0, width: PREVIEW_W, height: PREVIEW_H,
+              border: 0, transformOrigin: 'top left', transform: `scale(${scale})`, colorScheme: 'normal',
+            }}
           />
-          <span style={{ position: 'absolute', top: 6, left: 8, fontSize: 8, fontWeight: 700, letterSpacing: '0.1em', color: 'rgba(255,255,255,0.6)', background: 'rgba(0,0,0,0.4)', borderRadius: 5, padding: '2px 6px', pointerEvents: 'none' }}>
-            CANLI ÖNİZLEME
+          {/* ── STÜDYO OVERLAY'İ ──
+              Kutular araçtan gelen ÖLÇÜME göre çizilir. Dokunuş bu katmanda
+              biter — iframe'e HİÇ ULAŞMAZ → araç uygulamasının kendi davranışı
+              bozulmaz ve araç DOM'una hiçbir şey yazılmaz. */}
+          {selectMode && (
+            <div
+              className="absolute inset-0"
+              style={{ pointerEvents: 'auto' }}
+              onPointerLeave={() => setHoverId(null)}
+            >
+              {(probe ?? []).map((it) => {
+                const active = editor.kind === 'component' && editor.componentId === it.id;
+                const hot = hoverId === it.id;
+                const info = getThemeComponent(it.id);
+                return (
+                  <button
+                    /* Aynı kimlik ekranda birden çok düğüme inebilir (ayar
+                       kartları, kategori menüsü, dock butonları) → anahtar
+                       kimlik + örnek sırasıdır; yoksa React kutuları birbirine
+                       karıştırır ve yalnız biri çizilir. */
+                    key={`${it.id}#${it.index}`}
+                    type="button"
+                    aria-label={info?.label ?? it.id}
+                    onPointerEnter={() => setHoverId(it.id)}
+                    onClick={() => openComponent(it.id)}
+                    style={{
+                      position: 'absolute',
+                      left: it.x * scale,
+                      top: it.y * scale,
+                      width: it.w * scale,
+                      height: it.h * scale,
+                      padding: 0,
+                      borderRadius: 6,
+                      background: active
+                        ? 'rgba(96,165,250,0.28)'
+                        : hot ? 'rgba(96,165,250,0.16)' : 'rgba(96,165,250,0.05)',
+                      border: `${active ? 2 : 1}px ${active ? 'solid' : 'dashed'} rgba(96,165,250,${active ? 0.95 : hot ? 0.8 : 0.45})`,
+                      cursor: 'pointer',
+                      transition: 'background 120ms ease',
+                    }}
+                  />
+                );
+              })}
+              {probe !== null && probe.length === 0 && (
+                <div
+                  className="absolute inset-x-0 bottom-0 text-center"
+                  style={{ background: 'rgba(0,0,0,0.55)', color: '#fbbf24', fontSize: 9, padding: '4px 6px' }}
+                >
+                  Ölçüm boş — bu araç sürümü Stüdyo ölçümünü desteklemiyor olabilir.
+                  Bileşen listesinden düzenleyebilirsiniz.
+                </div>
+              )}
+            </div>
+          )}
+
+          <span
+            style={{
+              position: 'absolute', top: 6, left: 8, fontSize: 8, fontWeight: 700, letterSpacing: '0.1em',
+              color: 'rgba(255,255,255,0.65)', background: 'rgba(0,0,0,0.45)', borderRadius: 5,
+              padding: '2px 6px', pointerEvents: 'none',
+            }}
+          >
+            {selectMode
+              ? `DOKUN & DÜZENLE${probe === null
+                  ? ' · ölçülüyor…'
+                  : ` · ${distinctProbeIds(probe)} bileşen · ${probe.length} alan`}`
+              : 'CANLI ÖNİZLEME'}
           </span>
         </div>
 
-        {/* Araca Gönder + Sıfırla */}
+        {/* Dokun&Düzenle + Araca Gönder */}
         <div className="flex gap-2 mt-2.5">
-          <button onClick={() => patch(PRESETS.pro)}
-            className="text-[11px] font-bold px-3 py-2.5 rounded-xl"
-            style={{ background: 'var(--pwa-surface)', border: '1px solid var(--pwa-border)', color: 'var(--pwa-text-2)' }}>
-            Sıfırla
-          </button>
-          <button onClick={sendToVehicle} disabled={!vehicleId || sync === 'sending'}
-            className="flex-1 text-[12px] font-black uppercase tracking-wider px-3 py-2.5 rounded-xl transition-all active:scale-[0.98]"
-            style={{ background: `${syncColor}18`, border: `1.5px solid ${syncColor}55`, color: syncColor, opacity: vehicleId ? 1 : 0.5 }}>
-            {!vehicleId ? '⚠ Araç Bağlı Değil' : sync === 'ok' ? '✓ Araca Gönderildi' : sync === 'sending' ? '● Gönderiliyor…' : 'Araca Gönder'}
-          </button>
-        </div>
-      </div>
-
-      {/* ── KAYAN AYARLAR (renk / şekil / efekt / yazı / ikon) ── */}
-      <div className="flex flex-col gap-4 pt-4">
-
-      {/* Base theme row */}
-      <div>
-        <SectionTitle>Başlangıç Teması</SectionTitle>
-        <div className="flex gap-2 overflow-x-auto pb-1">
-          {Object.entries(PRESETS).map(([key, preset]) => (
-            <button key={key} onClick={() => applyPreset(key)}
-              className="flex-shrink-0 flex flex-col items-center gap-1.5 px-3 py-2 rounded-xl transition-all active:scale-90"
-              style={{
-                background: token.baseTheme === key ? `${preset.accentPrimary}18` : 'var(--pwa-surface)',
-                border: `1.5px solid ${token.baseTheme === key ? `${preset.accentPrimary}60` : 'var(--pwa-border)'}`,
-              }}>
-              <div className="w-4 h-4 rounded-full" style={{
-                background: preset.accentPrimary,
-                boxShadow: token.baseTheme === key ? `0 0 8px ${preset.accentPrimary}` : 'none',
-              }} />
-              <span className="text-[8px] font-black uppercase tracking-widest" style={{
-                color: token.baseTheme === key ? preset.accentPrimary : 'var(--pwa-text-3)',
-              }}>
-                {preset.name}
-              </span>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Tab nav */}
-      <div className="flex gap-1 overflow-x-auto pb-0.5">
-        {TABS.map(({ id, label }) => (
-          <button key={id} onClick={() => setTab(id)}
-            className="flex-shrink-0 px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all"
+          <button
+            type="button"
+            onClick={() => setSelectMode((v) => !v)}
+            className="text-[11px] font-bold px-3 rounded-xl active:scale-95"
             style={{
-              background: tab === id ? 'rgba(59,130,246,0.2)' : 'var(--pwa-surface)',
-              color:       tab === id ? '#60a5fa' : 'var(--pwa-text-3)',
-              border:      `1px solid ${tab === id ? 'rgba(59,130,246,0.4)' : 'var(--pwa-border-soft)'}`,
-            }}>
-            {label}
+              minHeight: 46,
+              background: selectMode ? 'rgba(96,165,250,0.18)' : 'var(--pwa-surface)',
+              border: `1.5px solid ${selectMode ? 'rgba(96,165,250,0.5)' : 'var(--pwa-border)'}`,
+              color: selectMode ? '#60a5fa' : 'var(--pwa-text-2)',
+            }}
+          >
+            {selectMode ? '✓ Seçim Açık' : 'Dokun & Düzenle'}
           </button>
-        ))}
-      </div>
-
-      {/* Tab content */}
-      <div className="flex flex-col gap-5 pb-4">
-
-        {/* ── RENKLER ─────────────────────────────────────────────────────────── */}
-        {tab === 'renkler' && (
-          <>
-            <ColorPicker label="Ana Vurgu Rengi" value={token.accentPrimary}
-              presets={ACCENT_COLORS}
-              onChange={(v) => patch({ accentPrimary: v })} />
-            <ColorPicker label="İkincil Vurgu" value={token.accentSecondary}
-              presets={ACCENT_COLORS}
-              onChange={(v) => patch({ accentSecondary: v })} />
-            <ColorPicker label="Arka Plan" value={token.bgPrimary}
-              presets={BG_COLORS}
-              onChange={(v) => patch({ bgPrimary: v })} />
-            <ColorPicker label="Kart Arkaplanı" value={token.bgCard}
-              onChange={(v) => patch({ bgCard: v })} />
-            <ColorPicker label="Ana Metin" value={token.textPrimary}
-              presets={['#FFFFFF','#F5F0E8','#EDE8E0','#E8F4FF','#CCCCCC']}
-              onChange={(v) => patch({ textPrimary: v })} />
-            <ColorPicker label="İkincil Metin" value={token.textSecondary}
-              presets={['#888888','#9EA3AE','#B8A89A','#5A7A9A','#8A7A5E','#606060']}
-              onChange={(v) => patch({ textSecondary: v })} />
-            <ColorPicker label="Kenarlık Rengi" value={token.borderColor}
-              onChange={(v) => patch({ borderColor: v })} />
-            <ColorPicker label="Parlaklık / Glow" value={token.glowColor}
-              onChange={(v) => patch({ glowColor: v })} />
-          </>
-        )}
-
-        {/* ── ŞEKİLLER ─────────────────────────────────────────────────────────── */}
-        {tab === 'sekiller' && (
-          <>
-            <div className="p-3 rounded-2xl flex flex-col gap-4"
-              style={{ background: 'var(--pwa-surface-3)', border: '1px solid var(--pwa-border-soft)' }}>
-              <SectionTitle>Köşe Yuvarlaklığı</SectionTitle>
-              <Slider label="Kart"         value={token.radiusCard} min={0} max={40} unit="px" onChange={(v) => patch({ radiusCard: v })} />
-              <Slider label="Buton"        value={token.radiusBtn}  min={0} max={28} unit="px" onChange={(v) => patch({ radiusBtn: v })} />
-              <Slider label="Kutucuk"      value={token.radiusTile} min={0} max={32} unit="px" onChange={(v) => patch({ radiusTile: v })} />
-              <Slider label="Dock"         value={token.radiusDock} min={0} max={24} unit="px" onChange={(v) => patch({ radiusDock: v })} />
-            </div>
-            <div>
-              <SectionTitle>Hızlı Şekil Profili</SectionTitle>
-              <div className="grid grid-cols-3 gap-2">
-                {[
-                  { label: 'Keskin',   icon: '▭', r: { radiusCard: 2,  radiusBtn: 2,  radiusTile: 2,  radiusDock: 0  } },
-                  { label: 'Modern',   icon: '▢', r: { radiusCard: 12, radiusBtn: 8,  radiusTile: 10, radiusDock: 4  } },
-                  { label: 'Yuvarlak', icon: '◯', r: { radiusCard: 28, radiusBtn: 20, radiusTile: 20, radiusDock: 16 } },
-                ].map(({ label, icon, r }) => (
-                  <button key={label} onClick={() => patch(r)}
-                    className="flex flex-col items-center gap-1 py-3 rounded-xl transition-all active:scale-95"
-                    style={{ background: 'var(--pwa-surface)', border: '1px solid var(--pwa-border)' }}>
-                    <span className="text-xl">{icon}</span>
-                    <span className="text-[9px] font-bold pwa-text-2">{label}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </>
-        )}
-
-        {/* ── EFEKTLER ─────────────────────────────────────────────────────────── */}
-        {tab === 'efektler' && (
-          <div className="flex flex-col gap-5">
-            <div className="p-3 rounded-2xl flex flex-col gap-4"
-              style={{ background: 'var(--pwa-surface-3)', border: '1px solid var(--pwa-border-soft)' }}>
-              <SectionTitle>Cam / Blur Efekti</SectionTitle>
-              <Slider label="Bulanıklık"         value={token.cardBlurPx}    min={0} max={40} unit="px" onChange={(v) => patch({ cardBlurPx: v })} />
-              <Slider label="Parlaklık Yoğunluğu" value={token.glowIntensity} min={0} max={100} unit="%" onChange={(v) => patch({ glowIntensity: v })} />
-            </div>
-            <div>
-              <SectionTitle>Hızlı Efekt Profili</SectionTitle>
-              <div className="grid grid-cols-3 gap-2">
-                {[
-                  { label: 'OLED\nSıfır',    blur: 0,  glow: 100 },
-                  { label: 'Glass\nOrta',    blur: 20, glow: 50  },
-                  { label: 'Frosted\nYüksek',blur: 40, glow: 30  },
-                ].map(({ label, blur, glow }) => (
-                  <button key={label}
-                    onClick={() => patch({ cardBlurPx: blur, glowIntensity: glow })}
-                    className="flex flex-col items-center gap-1 py-3 rounded-xl transition-all active:scale-95"
-                    style={{ background: 'var(--pwa-surface)', border: '1px solid var(--pwa-border)' }}>
-                    <span className="text-[9px] font-bold pwa-text-2 text-center leading-snug whitespace-pre-line">{label}</span>
-                    <span className="text-[8px] pwa-text-3">{blur}px / %{glow}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ── YAZI ─────────────────────────────────────────────────────────────── */}
-        {tab === 'yazi' && (
-          <>
-            <div>
-              <SectionTitle>Yazı Tipi</SectionTitle>
-              <div className="flex flex-col gap-2">
-                {FONTS.map(({ id, label }) => (
-                  <button key={id} onClick={() => patch({ fontFamily: id })}
-                    className="flex items-center justify-between px-3 py-3 rounded-xl transition-all active:scale-[0.98]"
-                    style={{
-                      background: token.fontFamily === id ? 'rgba(59,130,246,0.12)' : 'var(--pwa-surface)',
-                      border: `1.5px solid ${token.fontFamily === id ? 'rgba(59,130,246,0.4)' : 'var(--pwa-border-soft)'}`,
-                    }}>
-                    <span className="text-xs pwa-text-2">{label}</span>
-                    <span className="text-sm" style={{
-                      fontFamily: FONT_CSS[id],
-                      color: token.fontFamily === id ? '#60a5fa' : 'var(--pwa-text-3)',
-                    }}>
-                      CAROS
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="p-3 rounded-2xl flex flex-col gap-4"
-              style={{ background: 'var(--pwa-surface-3)', border: '1px solid var(--pwa-border-soft)' }}>
-              <SectionTitle>Yazı Ayarları</SectionTitle>
-              <Slider label="Kalınlık"     value={token.fontWeight}    min={400} max={900} step={100} unit=""   onChange={(v) => patch({ fontWeight: v })} />
-              <Slider label="Harf Aralığı" value={token.letterSpacing} min={0}   max={6}   step={0.5} unit="px" onChange={(v) => patch({ letterSpacing: v })} />
-            </div>
-          </>
-        )}
-
-        {/* ── İKONLAR ──────────────────────────────────────────────────────────── */}
-        {tab === 'ikonlar' && (
-          <>
-            <button onClick={() => patch({ iconNav: token.accentPrimary, iconMedia: token.accentPrimary, iconDock: token.accentPrimary })}
-              className="w-full py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all active:scale-[0.97]"
-              style={{ background: 'var(--pwa-surface)', border: '1px solid var(--pwa-border)', color: 'var(--pwa-text-2)' }}>
-              Tümünü Ana Renge Eşitle
+          {selectMode && (
+            <button
+              type="button"
+              onClick={requestProbe}
+              aria-label="Ölçümü yenile"
+              className="text-[11px] font-bold px-3 rounded-xl active:scale-95"
+              style={{ minHeight: 46, background: 'var(--pwa-surface)', border: '1px solid var(--pwa-border)', color: 'var(--pwa-text-2)' }}
+            >
+              ↻
             </button>
-            <ColorPicker label="Navigasyon İkonları" value={token.iconNav}   presets={ACCENT_COLORS} onChange={(v) => patch({ iconNav: v })} />
-            <ColorPicker label="Medya İkonları"      value={token.iconMedia} presets={ACCENT_COLORS} onChange={(v) => patch({ iconMedia: v })} />
-            <ColorPicker label="Dock İkonları"       value={token.iconDock}  presets={ACCENT_COLORS} onChange={(v) => patch({ iconDock: v })} />
-            <div className="p-3 rounded-2xl" style={{ background: 'var(--pwa-surface-3)', border: '1px solid var(--pwa-border-soft)' }}>
-              <SectionTitle>İkon Önizlemesi</SectionTitle>
-              <div className="flex items-center justify-around py-2">
-                {[
-                  { color: token.iconNav,   label: 'Nav',   path: 'M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z' },
-                  { color: token.iconMedia, label: 'Medya', path: 'M9 18V6l12-3v12' },
-                  { color: token.iconDock,  label: 'Dock',  path: 'M3 3h7v4H3zM14 3h7v8h-7zM3 10h7v11H3zM14 14h7v6h-7z' },
-                ].map(({ color, label, path }) => (
-                  <div key={label} className="flex flex-col items-center gap-2">
-                    <div className="w-12 h-12 rounded-2xl flex items-center justify-center"
-                      style={{ background: `${color}15`, border: `1px solid ${color}30`, color }}>
-                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-                        <path d={path} stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    </div>
-                    <span className="text-[8px] font-bold" style={{ color: 'var(--pwa-text-3)' }}>{label}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </>
+          )}
+          <button
+            type="button"
+            onClick={sendToVehicle}
+            disabled={!vehicleId || sync === 'sending'}
+            className="flex-1 text-[12px] font-black uppercase tracking-wider px-3 rounded-xl active:scale-[0.98]"
+            style={{
+              minHeight: 46,
+              background: `${syncColor}18`,
+              border: `1.5px solid ${syncColor}55`,
+              color: syncColor,
+              opacity: vehicleId ? 1 : 0.5,
+            }}
+          >
+            {!vehicleId ? '⚠ Araç Bağlı Değil' : sync === 'ok' ? '✓ Araca Gönderildi' : 'Araca Gönder'}
+          </button>
+        </div>
+        {syncNote && (
+          <p className="text-[10px] mt-1.5 px-1" style={{ color: syncColor }}>{syncNote}</p>
+        )}
+
+        {/* Geri al / Yinele — GLOBAL kapsam. Düzenleyici açıkken GİZLENİR:
+            panelin kendi başlığında KART KAPSAMLI geri al/yinele vardır ve iki
+            farklı kapsamı yan yana göstermek "hangisi neyi geri alıyor"
+            belirsizliği üretir. Ayrıca sticky başlık kısalır → panele yer açılır. */}
+        {!editing && (
+        <div className="flex gap-2 mt-2">
+          <button
+            type="button" onClick={undo} disabled={!canUndo}
+            className="flex-1 text-[11px] font-bold rounded-xl active:scale-95"
+            style={{ minHeight: 42, background: 'var(--pwa-surface)', border: '1px solid var(--pwa-border)', color: 'var(--pwa-text-2)', opacity: canUndo ? 1 : 0.35 }}
+          >
+            ↶ Geri Al
+          </button>
+          <button
+            type="button" onClick={redo} disabled={!canRedo}
+            className="flex-1 text-[11px] font-bold rounded-xl active:scale-95"
+            style={{ minHeight: 42, background: 'var(--pwa-surface)', border: '1px solid var(--pwa-border)', color: 'var(--pwa-text-2)', opacity: canRedo ? 1 : 0.35 }}
+          >
+            ↷ Yinele
+          </button>
+        </div>
         )}
       </div>
+
+      {/* ═══ KAYAN İÇERİK — düzenleyici açıkken ONUN YERİNE panel gelir ═══ */}
+      {editorNode ?? (
+      <div className="flex flex-col gap-4 pt-4 pb-6">
+
+        {/* ── 4 tema galerisi ── */}
+        <div>
+          <p className="text-[9px] font-black uppercase tracking-[0.35em] mb-2" style={{ color: 'var(--pwa-text-3)' }}>
+            Temalar
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            {THEME_BASE_IDS.map((id) => {
+              const p = THEME_PRESETS[id];
+              const m = state.manifests[id];
+              const n = customizationCount(m);
+              const active = state.themeId === id;
+              const accent = m.tokens.accentPrimary ?? p.base.accentPrimary;
+              const bg = m.tokens.bgPrimary?.from ?? p.base.bgPrimary;
+              const card = m.tokens.bgCard?.from ?? p.base.bgCard;
+              const ink = m.tokens.textPrimary ?? p.base.textPrimary;
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => dispatch({ type: 'select-theme', themeId: id })}
+                  className="flex flex-col gap-2 p-2 rounded-2xl text-left active:scale-[0.98]"
+                  style={{
+                    background: active ? `${accent}14` : 'var(--pwa-surface)',
+                    border: `1.5px solid ${active ? accent : 'var(--pwa-border)'}`,
+                  }}
+                >
+                  {/* gerçek tema örneği */}
+                  <div style={{ background: bg, borderRadius: 10, padding: 7, display: 'flex', flexDirection: 'column', gap: 5 }}>
+                    <div style={{ background: card, borderRadius: 6, height: 20, display: 'flex', alignItems: 'center', paddingLeft: 6, gap: 5 }}>
+                      <span style={{ width: 7, height: 7, borderRadius: 4, background: accent, display: 'inline-block' }} />
+                      <span style={{ height: 4, width: '52%', background: ink, opacity: 0.7, borderRadius: 2, display: 'inline-block' }} />
+                    </div>
+                    <div style={{ display: 'flex', gap: 5 }}>
+                      <span style={{ flex: 1, height: 13, background: card, borderRadius: 5, display: 'inline-block' }} />
+                      <span style={{ width: 26, height: 13, background: accent, borderRadius: 5, display: 'inline-block' }} />
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between gap-1">
+                    <span className="text-[10px] font-black truncate" style={{ color: active ? accent : 'var(--pwa-text-2)' }}>
+                      {p.label}
+                    </span>
+                    {n > 0 && (
+                      <span className="text-[8px] font-bold px-1.5 py-0.5 rounded" style={{ background: 'var(--pwa-surface-3)', color: 'var(--pwa-text-3)' }}>
+                        {n}
+                      </span>
+                    )}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* ── Aktif tema eylemleri ── */}
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => setEditor({ kind: 'tokens' })}
+            className="text-[11px] font-bold rounded-xl active:scale-95"
+            style={{ minHeight: 46, background: 'rgba(96,165,250,0.14)', border: '1.5px solid rgba(96,165,250,0.4)', color: '#60a5fa' }}
+          >
+            Tema Geneli Düzenle
+          </button>
+          <CopyFromMenu
+            themeId={state.themeId}
+            onCopy={(src) => dispatch({ type: 'copy-from', sourceThemeId: src })}
+          />
+        </div>
+
+        {/* ── Ekran seçimi ── */}
+        <div>
+          <p className="text-[9px] font-black uppercase tracking-[0.35em] mb-2" style={{ color: 'var(--pwa-text-3)' }}>
+            Ekranlar
+          </p>
+          <div className="flex gap-1.5 overflow-x-auto pb-1">
+            {surfaces.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => dispatch({ type: 'select-surface', surface: s.id })}
+                className="flex-shrink-0 px-3 rounded-xl text-[10px] font-black uppercase tracking-wider active:scale-95"
+                style={{
+                  minHeight: 40,
+                  background: state.surface === s.id ? 'rgba(96,165,250,0.18)' : 'var(--pwa-surface)',
+                  color: state.surface === s.id ? '#60a5fa' : 'var(--pwa-text-3)',
+                  border: `1px solid ${state.surface === s.id ? 'rgba(96,165,250,0.42)' : 'var(--pwa-border-soft)'}`,
+                }}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+          {surfaceShown === false && (
+            <p
+              className="mt-2 text-[10px] leading-snug font-semibold rounded-lg px-2.5 py-2"
+              style={{ background: 'rgba(251,191,36,0.10)', border: '1px solid rgba(251,191,36,0.30)', color: '#fbbf24' }}
+            >
+              Bu ekran önizlemede gösterilemiyor — araçta kullanıcı eylemiyle açılır
+              (geri vites, uzun basma). Değişiklikler yine de kaydedilir ve araca gider;
+              ama burada <b>sonucu göremezsin</b>.
+            </p>
+          )}
+        </div>
+
+        {/* ── Ekran ayarı ── */}
+        <button
+          type="button"
+          onClick={() => setEditor({ kind: 'surface', surface: state.surface })}
+          className="text-[11px] font-bold rounded-xl active:scale-95"
+          style={{ minHeight: 46, background: 'var(--pwa-surface)', border: '1px solid var(--pwa-border)', color: 'var(--pwa-text-2)' }}
+        >
+          Bu Ekranın Genel Ayarı
+        </button>
+
+        {/* ── Yerleşim (yalnız solver kullanan temada, yalnız ana ekranda) ── */}
+        {state.surface === 'home' && (
+          isLayoutCapableTheme(state.themeId) && solved ? (
+            <div className="rounded-2xl p-3 flex flex-col gap-2"
+              style={{ background: 'var(--pwa-surface-3)', border: '1px solid var(--pwa-border-soft)' }}>
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[10px] font-black uppercase tracking-[0.3em]" style={{ color: 'var(--pwa-text-3)' }}>
+                  Yerleşim (çözülmüş)
+                </p>
+                <button
+                  type="button"
+                  onClick={() => dispatch({ type: 'reset-all-layout' })}
+                  className="text-[9px] font-bold px-2 py-1.5 rounded-lg active:scale-95"
+                  style={{ background: 'var(--pwa-surface)', border: '1px solid var(--pwa-border)', color: 'var(--pwa-text-3)' }}
+                >
+                  Yerleşimi Sıfırla
+                </button>
+              </div>
+              <p className="text-[10px]" style={{ color: 'var(--pwa-text-3)' }}>
+                Aşağıdaki sıra <b>araçtaki yerleşim motorunun</b> (layoutSolver) bu manifestle
+                ürettiği gerçek sonuçtur. Bir kartın sırasını/boyutunu değiştirmek için
+                kartın kendi editörünü açın.
+              </p>
+
+              {/* ── SÜTUN GENİŞLİĞİ (PR-5) ─────────────────────────────────
+                  Kullanıcı isteği: "sütun genişliği". Bugüne dek raylar SABİT
+                  clamp() değerleriyle çiziliyordu ve hiçbir ayarla değişmiyordu.
+                  MUTLAK PİKSEL DEĞİL ÇARPAN: temanın kendi duyarlı sınırları
+                  ölçeklenir, böylece farklı ekran boyutlarında taşma/ezilme
+                  olmaz. Orta sahne (harita) listede YOKTUR — o esnektir ve
+                  kalan alanı alır; ölçeklemek anlamsız olurdu. */}
+              <div className="flex flex-col gap-1.5 pt-1"
+                style={{ borderTop: '1px solid var(--pwa-border-soft)' }}>
+                <p className="text-[9px] font-bold uppercase tracking-wider" style={{ color: 'var(--pwa-text-3)' }}>
+                  Sütun Genişliği
+                </p>
+                {SCALABLE_ZONES.map((z) => {
+                  const deger = manifest.zoneWidths[z] ?? null;
+                  return (
+                    <div key={z} className="flex items-center gap-2">
+                      <span className="text-[10px] font-bold flex-1" style={{ color: 'var(--pwa-text-2)' }}>
+                        {ZONE_LABEL[z]}
+                      </span>
+                      <input
+                        type="range"
+                        min={ZONE_SCALE_MIN}
+                        max={ZONE_SCALE_MAX}
+                        step={0.05}
+                        value={deger ?? 1}
+                        onChange={(e) => dispatch({
+                          type: 'patch-zone-width', zone: z, scale: Number(e.target.value),
+                        })}
+                        style={{ flex: 2, minWidth: 0 }}
+                      />
+                      <span className="text-[10px] font-black tabular-nums w-10 text-right"
+                        style={{ color: deger === null ? 'var(--pwa-text-3)' : '#60a5fa' }}>
+                        {deger === null ? 'oto' : `${deger.toFixed(2)}×`}
+                      </span>
+                      {deger !== null && (
+                        <button
+                          type="button"
+                          aria-label="Sütun genişliğini sıfırla"
+                          onClick={() => dispatch({ type: 'patch-zone-width', zone: z, scale: null })}
+                          className="text-[9px] font-bold px-1.5 py-1 rounded-md active:scale-95"
+                          style={{ background: 'var(--pwa-surface)', border: '1px solid var(--pwa-border)', color: 'var(--pwa-text-3)' }}
+                        >
+                          ↺
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              {solved.zones.filter((z) => z.items.length > 0 || z.overflow.length > 0).map((z) => (
+                <div key={z.zone} className="flex flex-col gap-1">
+                  <p className="text-[9px] font-bold uppercase tracking-wider" style={{ color: 'var(--pwa-text-3)' }}>
+                    {ZONE_LABEL[z.zone]}
+                  </p>
+                  {/* SÜRÜKLE-BIRAK (#658): sıra artık sayı girerek değil,
+                      taşıyarak değiştirilir. Liste `solved`dan gelir — yani
+                      ARAÇTAKİ çözücünün gerçek sonucudur, ayrı bir sıra
+                      kopyası tutulmaz. */}
+                  <ZoneReorder
+                    items={z.items.map((it) => ({ id: it.id, label: it.label, locked: it.locked }))}
+                    onCommit={(ids) => dispatch({ type: 'reorder-zone', zone: z.zone, orderedCardIds: ids })}
+                  />
+                  <div className="flex flex-wrap gap-1.5">
+                    {z.overflow.map((id) => (
+                      <span key={id}
+                        className="text-[10px] font-semibold px-2 py-1 rounded-lg"
+                        style={{ background: 'rgba(251,191,36,0.12)', border: '1px solid rgba(251,191,36,0.35)', color: '#fbbf24' }}>
+                        {id} · TAŞTI
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-2xl p-3"
+              style={{ background: 'var(--pwa-surface-3)', border: '1px solid var(--pwa-border-soft)' }}>
+              <p className="text-[10px]" style={{ color: 'var(--pwa-text-3)' }}>
+                <b>{preset.label}</b> sabit yerleşimle çizilir (araçta yerleşim motoruna
+                bağlı değildir) → bu temada kart sırası/boyutu <b>düzenlenemez</b>.
+                Renk, tipografi ve efekt düzenlemeleri tam çalışır.
+              </p>
+            </div>
+          )
+        )}
+
+        {/* ── Bileşen listesi ── */}
+        <div>
+          <p className="text-[9px] font-black uppercase tracking-[0.35em] mb-2" style={{ color: 'var(--pwa-text-3)' }}>
+            Düzenlenebilir Bileşenler
+          </p>
+          <div className="flex flex-col gap-1.5">
+            {components.map((c) => {
+              const s = manifest.componentOverrides[c.id];
+              const edited = s !== undefined;
+              const present = inventory === null ? null : inventory.includes(c.id);
+              return (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => setEditor({ kind: 'component', componentId: c.id })}
+                  className="flex items-center justify-between gap-2 px-3 rounded-xl text-left active:scale-[0.99]"
+                  style={{
+                    minHeight: 52,
+                    background: edited ? 'rgba(52,211,153,0.08)' : 'var(--pwa-surface)',
+                    border: `1px solid ${edited ? 'rgba(52,211,153,0.3)' : 'var(--pwa-border)'}`,
+                  }}
+                >
+                  <div className="min-w-0">
+                    <p className="text-[12px] font-bold truncate" style={{ color: 'var(--pwa-text-2)' }}>{c.label}</p>
+                    <p className="text-[9px] font-mono truncate" style={{ color: 'var(--pwa-text-3)' }}>
+                      {c.id} · {c.type}{c.locked ? ' · kilitli' : ''}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                    {present === false && (
+                      <span className="text-[8px] font-bold px-1.5 py-0.5 rounded" style={{ background: 'rgba(251,191,36,0.14)', color: '#fbbf24' }}>
+                        EKRANDA YOK
+                      </span>
+                    )}
+                    {edited && (
+                      <span className="text-[8px] font-bold px-1.5 py-0.5 rounded" style={{ background: 'rgba(52,211,153,0.16)', color: '#34d399' }}>
+                        DÜZENLENDİ
+                      </span>
+                    )}
+                    <span style={{ color: 'var(--pwa-text-3)' }}>›</span>
+                  </div>
+                </button>
+              );
+            })}
+            {components.length === 0 && (
+              <p className="text-[11px] px-1" style={{ color: 'var(--pwa-text-3)' }}>
+                Bu ekranda bu temaya ait düzenlenebilir bileşen yok.
+              </p>
+            )}
+          </div>
+          {inventory !== null && (
+            <p className="text-[9px] mt-2 px-1" style={{ color: 'var(--pwa-text-3)' }}>
+              Önizleme ölçümünde bulunan bileşen: {inventory.length}. &quot;EKRANDA YOK&quot; = o bileşen
+              önizlemenin şu anki görünümünde çizilmiyor (ör. çekmece kapalı) — stil yine kaydedilir.
+            </p>
+          )}
+        </div>
+
+        {/* ── Seviyeli sıfırlama ── */}
+        <div className="rounded-2xl p-3 flex flex-col gap-2"
+          style={{ background: 'var(--pwa-surface-3)', border: '1px solid var(--pwa-border-soft)' }}>
+          <p className="text-[10px] font-black uppercase tracking-[0.3em]" style={{ color: 'var(--pwa-text-3)' }}>
+            Sıfırlama
+          </p>
+          <p className="text-[10px]" style={{ color: 'var(--pwa-text-3)' }}>
+            <b>Kartı Sıfırla</b> kartın editöründe, <b>Ekranı Sıfırla</b> ekran
+            ayarındadır. Aşağıdaki işlem <b>seçili temanın tamamını</b> kapsar ve
+            iki adım ister. Tek bir <b>Geri Al</b> ile iade edilebilir.
+          </p>
+          {!confirmReset ? (
+            <button
+              type="button"
+              onClick={() => setConfirmReset(true)}
+              disabled={touched === 0}
+              className="text-[11px] font-bold rounded-xl active:scale-95"
+              style={{
+                minHeight: 44, background: 'var(--pwa-surface)',
+                border: '1px solid var(--pwa-border)', color: 'var(--pwa-text-2)',
+                opacity: touched === 0 ? 0.4 : 1,
+              }}
+            >
+              ↺ Tüm Değişiklikleri Geri Al
+            </button>
+          ) : (
+            <>
+              <div className="rounded-xl p-2.5"
+                style={{ background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.32)' }}>
+                <p className="text-[11px] font-bold" style={{ color: '#f87171' }}>
+                  Bu temadaki tüm Studio değişiklikleri geri alınacak.
+                </p>
+                <p className="text-[10px] mt-1" style={{ color: 'var(--pwa-text-3)' }}>
+                  <b>{preset.label}</b> başlangıç hâline döner (renk · yazı · bileşen ·
+                  ekran · yerleşim). Diğer temalara <b>dokunulmaz</b>.
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setConfirmReset(false)}
+                  className="flex-1 text-[11px] font-bold rounded-xl active:scale-95"
+                  style={{ minHeight: 44, background: 'var(--pwa-surface)', border: '1px solid var(--pwa-border)', color: 'var(--pwa-text-2)' }}
+                >
+                  Vazgeç
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { dispatch({ type: 'reset-theme' }); setConfirmReset(false); }}
+                  className="flex-1 text-[11px] font-black rounded-xl active:scale-95"
+                  style={{ minHeight: 44, background: 'rgba(248,113,113,0.14)', border: '1.5px solid rgba(248,113,113,0.42)', color: '#f87171' }}
+                >
+                  Evet, {preset.label} sıfırlansın
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+
       </div>
+      )}
+    </div>
+  );
+});
+
+/* ── "Başka temadan kopyala" ──────────────────────────────────────── */
+
+const CopyFromMenu = memo(function CopyFromMenu({
+  themeId, onCopy,
+}: {
+  themeId: ThemeBaseId;
+  onCopy: (src: ThemeBaseId) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const others = THEME_BASE_IDS.filter((id) => id !== themeId);
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="text-[11px] font-bold rounded-xl active:scale-95"
+        style={{ minHeight: 46, background: 'var(--pwa-surface)', border: '1px solid var(--pwa-border)', color: 'var(--pwa-text-2)' }}
+      >
+        Başka Temadan Kopyala
+      </button>
+    );
+  }
+  return (
+    <div className="col-span-2 rounded-2xl p-2 flex flex-col gap-1.5"
+      style={{ background: 'var(--pwa-surface-3)', border: '1px solid var(--pwa-border-soft)' }}>
+      <p className="text-[10px] px-1" style={{ color: 'var(--pwa-text-3)' }}>
+        Seçilen temanın ÖZELLEŞTİRMELERİ bu temaya kopyalanır (temanın kendi kimliği korunur).
+      </p>
+      {others.map((id) => (
+        <button
+          key={id}
+          type="button"
+          onClick={() => { onCopy(id); setOpen(false); }}
+          className="text-[11px] font-bold rounded-xl active:scale-95"
+          style={{ minHeight: 42, background: 'var(--pwa-surface)', border: '1px solid var(--pwa-border)', color: 'var(--pwa-text-2)' }}
+        >
+          {THEME_PRESETS[id].label}
+        </button>
+      ))}
+      <button
+        type="button"
+        onClick={() => setOpen(false)}
+        className="text-[10px] font-bold rounded-xl"
+        style={{ minHeight: 38, background: 'transparent', color: 'var(--pwa-text-3)' }}
+      >
+        Vazgeç
+      </button>
     </div>
   );
 });

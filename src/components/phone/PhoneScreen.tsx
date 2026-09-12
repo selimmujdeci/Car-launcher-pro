@@ -39,6 +39,7 @@ function ContactRow({ contact, onCall }: {
   const initials = contact.name.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
   return (
     <button
+      data-editable="phone.contact-row" data-editable-type="card"
       onClick={() => onCall(contact.name, contact.phones)}
       className="flex items-center gap-4 w-full px-4 py-3 rounded-2xl active:scale-[0.98] transition-all duration-150 text-left"
       style={{ background: 'var(--oem-surface-2, rgba(255,255,255,0.04))', border: '1px solid var(--oem-line, rgba(255,255,255,0.08))' }}
@@ -78,7 +79,7 @@ function NumberPicker({
 }) {
   return (
     <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-      <div className="rounded-3xl p-6 w-full max-w-xs mx-4 shadow-2xl"
+      <div data-editable="phone.number-picker" data-editable-type="panel" className="rounded-3xl p-6 w-full max-w-xs mx-4 shadow-2xl"
         style={{ background: 'var(--oem-surface-0)', border: '1px solid var(--oem-line)' }}>
         <div className="font-black text-lg mb-1 text-center" style={{ color: 'var(--oem-ink)' }}>{name}</div>
         <div className="text-xs text-center mb-5" style={{ color: 'var(--oem-ink-3)' }}>Numara seç</div>
@@ -134,7 +135,8 @@ export const PhoneScreen = memo(function PhoneScreen() {
   };
 
   return (
-    <div className="h-full flex flex-col glass-card border-none !shadow-none relative">
+    <div data-theme-surface="phone" data-editable="phone.screen" data-editable-type="panel"
+      className="h-full flex flex-col glass-card border-none !shadow-none relative">
 
       {/* Numara seçici overlay */}
       {picking && (
@@ -143,7 +145,7 @@ export const PhoneScreen = memo(function PhoneScreen() {
 
       {/* Arama kutusu */}
       <div className="flex-shrink-0 p-4 pb-2">
-        <div className="flex items-center gap-3 rounded-2xl px-4 py-3"
+        <div data-editable="phone.search" data-editable-type="card" className="flex items-center gap-3 rounded-2xl px-4 py-3"
           style={{ background: 'var(--oem-surface-2)', border: '1px solid var(--oem-line)' }}>
           <Search className="w-5 h-5 flex-shrink-0" style={{ color: 'var(--oem-ink-3)' }} />
           <input

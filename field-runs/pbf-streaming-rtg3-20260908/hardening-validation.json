@@ -1,0 +1,232 @@
+{
+  "generatedAt": "2026-09-08T06:28:19.549Z",
+  "chain": [
+    "tr-33-65-72",
+    "tr-33-66-72",
+    "tr-33-66-73"
+  ],
+  "repeats": 15,
+  "routes": [
+    {
+      "name": "cross-region-arterial-to-residential",
+      "regions": [
+        "tr-33-65-72",
+        "tr-33-66-72"
+      ],
+      "distanceM": 70407,
+      "solveP50Ms": 210.51,
+      "solveP95Ms": 257.31,
+      "samples": 15,
+      "endpointErrorM": 0,
+      "accessLegal": true,
+      "onewayLegal": true,
+      "restrictionLegal": true,
+      "nodeCount": 65976,
+      "edgeCount": 67417,
+      "restrictionCount": 8,
+      "viaWayChains": 1
+    },
+    {
+      "name": "cross-region-residential-to-residential",
+      "regions": [
+        "tr-33-65-72",
+        "tr-33-66-72"
+      ],
+      "distanceM": 26468,
+      "solveP50Ms": 29.17,
+      "solveP95Ms": 31.86,
+      "samples": 15,
+      "endpointErrorM": 0,
+      "accessLegal": true,
+      "onewayLegal": true,
+      "restrictionLegal": true,
+      "nodeCount": 65976,
+      "edgeCount": 67417,
+      "restrictionCount": 8,
+      "viaWayChains": 1
+    },
+    {
+      "name": "three-region-local-to-arterial",
+      "regions": [
+        "tr-33-65-72",
+        "tr-33-66-72",
+        "tr-33-66-73"
+      ],
+      "distanceM": 90636,
+      "solveP50Ms": 168.13,
+      "solveP95Ms": 179.81,
+      "samples": 15,
+      "endpointErrorM": 0,
+      "accessLegal": true,
+      "onewayLegal": true,
+      "restrictionLegal": true,
+      "nodeCount": 93053,
+      "edgeCount": 95558,
+      "restrictionCount": 8,
+      "viaWayChains": 1
+    }
+  ],
+  "routesBefore": [
+    {
+      "name": "cross-region-arterial-to-residential",
+      "regions": [
+        "tr-33-65-72",
+        "tr-33-66-72"
+      ],
+      "distanceM": 70407,
+      "solveP50Ms": 199.78,
+      "solveP95Ms": 210.81,
+      "samples": 15,
+      "endpointErrorM": 0,
+      "accessLegal": true,
+      "onewayLegal": true,
+      "restrictionLegal": true,
+      "nodeCount": 65976,
+      "edgeCount": 67417,
+      "restrictionCount": 6,
+      "viaWayChains": 0
+    },
+    {
+      "name": "cross-region-residential-to-residential",
+      "regions": [
+        "tr-33-65-72",
+        "tr-33-66-72"
+      ],
+      "distanceM": 26468,
+      "solveP50Ms": 32.57,
+      "solveP95Ms": 36.73,
+      "samples": 15,
+      "endpointErrorM": 0,
+      "accessLegal": true,
+      "onewayLegal": true,
+      "restrictionLegal": true,
+      "nodeCount": 65976,
+      "edgeCount": 67417,
+      "restrictionCount": 6,
+      "viaWayChains": 0
+    },
+    {
+      "name": "three-region-local-to-arterial",
+      "regions": [
+        "tr-33-65-72",
+        "tr-33-66-72",
+        "tr-33-66-73"
+      ],
+      "distanceM": 90636,
+      "solveP50Ms": 187.61,
+      "solveP95Ms": 204.57,
+      "samples": 15,
+      "endpointErrorM": 0,
+      "accessLegal": true,
+      "onewayLegal": true,
+      "restrictionLegal": true,
+      "nodeCount": 93053,
+      "edgeCount": 95558,
+      "restrictionCount": 6,
+      "viaWayChains": 0
+    }
+  ],
+  "beforeAvailable": true,
+  "restrictionStats": {
+    "observed": 147,
+    "valid": 124,
+    "supported": 112,
+    "supportedViaNode": 110,
+    "supportedViaWay": 2,
+    "unsupported": 4,
+    "malformed": 23,
+    "unresolved": 8,
+    "conditional": 0,
+    "vehicleSpecific": 4,
+    "viaWay": 3,
+    "unsupportedType": 0
+  },
+  "restrictionTotals": {
+    "records": 117,
+    "chains": 2
+  },
+  "viaNodeEvidence": {
+    "relationId": 10048729,
+    "restrictionType": "no_u_turn",
+    "regionId": "tr-33-65-72",
+    "fromWay": 114439024,
+    "toWay": 114439024,
+    "viaNodeId": 1296383068,
+    "fromEdge": 7828,
+    "toEdge": 7828,
+    "directTurnAllowed": false,
+    "outcome": "FORBIDDEN_DIRECT_TURN"
+  },
+  "viaWayCases": [
+    {
+      "relationId": 10048813,
+      "regionId": "tr-33-65-72",
+      "restrictionType": "no_u_turn",
+      "kind": "NO",
+      "chainLinks": 2,
+      "linkEdges": [
+        30196,
+        29996,
+        29997
+      ],
+      "linkNodes": [
+        29465,
+        16549
+      ],
+      "automatonEnforced": true,
+      "unrelatedEntryAllowed": true,
+      "intermediateAlternativesFree": true,
+      "workerOutcome": "LEGAL_ALTERNATE_ROUTE",
+      "workerAutomatonViolation": false,
+      "workerContainsForbiddenSequence": false
+    },
+    {
+      "relationId": 17574418,
+      "regionId": "tr-33-69-73",
+      "restrictionType": "only_straight_on",
+      "kind": "ONLY",
+      "chainLinks": 2,
+      "linkEdges": [
+        149638,
+        149633,
+        149415
+      ],
+      "linkNodes": [
+        134299,
+        134654
+      ],
+      "automatonEnforced": true,
+      "unrelatedEntryAllowed": true,
+      "intermediateAlternativesFree": true,
+      "workerOutcome": "MANDATED_CONTINUATION_HONOURED",
+      "workerAutomatonViolation": false,
+      "workerContainsForbiddenSequence": true
+    }
+  ],
+  "failures": [
+    {
+      "name": "manifest-missing-neighbor",
+      "rejected": true
+    },
+    {
+      "name": "sha-mismatch",
+      "rejected": true
+    },
+    {
+      "name": "corrupt-truncated-rtg3",
+      "rejected": true
+    },
+    {
+      "name": "missing-required-region",
+      "rejected": true
+    },
+    {
+      "name": "unsupported-manifest-version",
+      "rejected": true
+    },
+    {
+      "name": "corrupt-via-way-chain",
+      "rejected": true
+    }
+  ]
+}

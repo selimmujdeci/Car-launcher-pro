@@ -1,3 +1,4 @@
+import { execSync } from 'node:child_process';
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
@@ -230,12 +231,31 @@ function removeLayers(css: string): string {
 // web dağıtımında (carospro.com) aktif olur; dev artık onu test etmez.
 const _coopCoepHeaders: Record<string, string> = {};
 
+/**
+ * Derleme kimliği — hangi commit'ten üretildiği cihazda görünsün diye.
+ * Git yoksa (temiz kopya, CI dışı) derleme DÜŞMEZ: 'unknown' döner.
+ */
+const _buildCommit: string = (() => {
+  try {
+    return execSync('git rev-parse --short HEAD', { encoding: 'utf8' }).trim();
+  } catch {
+    return 'unknown';
+  }
+})();
+
 export default defineConfig({
   define: {
     // Kaynak: version.properties (yukarıdaki _versionProps). import.meta.env
     // anahtarları derlemede literal'e çevrilir — runtime env DEĞİL.
     'import.meta.env.VITE_APP_VERSION':      JSON.stringify(_versionProps.versionName),
     'import.meta.env.VITE_APP_VERSION_CODE': JSON.stringify(String(_versionProps.versionCode)),
+    /* ── DERLEME KİMLİĞİ (saha 2026-08-09) ────────────────────────────────
+       NEDEN: sahada eski bir APK'da ölçüm yapıp sonucu sınavın cevabı sanmak
+       gerçek bir tuzaktı — kurulu derlemenin hangi commit'ten geldiği cihazda
+       hiçbir yerde görünmüyordu. Artık LAB tek satırda söylüyor.
+       Gizli veri DEĞİL: yalnız kısa commit hash'i ve derleme zamanı. */
+    'import.meta.env.VITE_BUILD_COMMIT': JSON.stringify(_buildCommit),
+    'import.meta.env.VITE_BUILD_TIME':   JSON.stringify(new Date().toISOString()),
   },
   // host 127.0.0.1: Spotify OAuth loopback redirect'i IPv4 ister. Varsayılan
   // "localhost" Windows'ta ::1'e (IPv6) bağlanıp 127.0.0.1'i reddediyordu.

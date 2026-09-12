@@ -14,6 +14,10 @@
  *   voiceService → semanticAiService.enrichBackground() → proaktif log
  */
 
+import {
+  geminiChatEndpoint, DEFAULT_GEMINI_MODEL,
+  geminiThinkingConfig, noteGeminiThinkingRejectedIf400,
+} from './gateway/models';
 import type { IntentType } from '../intentEngine';
 import type { VehicleContext } from '../aiVoiceService';
 import { resolveApiKey, type AIProvider } from '../aiVoiceService';
@@ -21,6 +25,7 @@ import { callProcessIntent } from '../supabaseClient';
 import { buildPidRegistryIntegrityPromptBlock } from './pidDescriptionGate';
 import { signalWithTimeout } from '../../utils/abortCompat';
 import { recordAiNetFailure, recordAiNetSuccess } from '../aiHealth';
+import { errorKindFromException } from './aiOfflineReason';
 
 /* ── POI Kategorileri ────────────────────────────────────────── */
 
@@ -60,7 +65,7 @@ export interface SemanticResult {
 const VALID_INTENTS = new Set<string>([
   'SEARCH_POI',
   'OPEN_NAVIGATION', 'NAVIGATE_ADDRESS', 'NAVIGATE_PLACE',
-  'FIND_NEARBY_GAS', 'FIND_NEARBY_PARKING',
+  'FIND_NEARBY_GAS', 'FIND_NEARBY_PARKING', 'FIND_NEARBY_REST_AREA',
   'OPEN_MUSIC', 'PLAY_MUSIC_SEARCH', 'PAUSE_MEDIA',
   'MEDIA_NEXT', 'MEDIA_PREV', 'VOLUME_UP', 'VOLUME_DOWN',
   'OPEN_PHONE', 'OPEN_APP', 'OPEN_SCREEN', 'OPEN_SETTINGS', 'OPEN_FAVORITES',
@@ -91,7 +96,7 @@ GÖREV: Günlük konuşma dilindeki belirsiz ve doğal sorguları anlamlı niyet
 
 JSON FORMATI:
 {
-  "intent": "SEARCH_POI | NAVIGATE_ADDRESS | OPEN_NAVIGATION | FIND_NEARBY_GAS | FIND_NEARBY_PARKING | OPEN_MUSIC | OPEN_PHONE | OPEN_SETTINGS | SHOW_WEATHER | CHECK_VEHICLE_HEALTH | CHECK_MAINTENANCE | UNKNOWN",
+  "intent": "SEARCH_POI | NAVIGATE_ADDRESS | OPEN_NAVIGATION | FIND_NEARBY_GAS | FIND_NEARBY_PARKING | FIND_NEARBY_REST_AREA | OPEN_MUSIC | OPEN_PHONE | OPEN_SETTINGS | SHOW_WEATHER | CHECK_VEHICLE_HEALTH | CHECK_MAINTENANCE | UNKNOWN",
   "category": "RESTAURANT | CAFE | FAST_FOOD | BAKERY | GAS_STATION | PARKING | CAR_WASH | MECHANIC | HOSPITAL | PHARMACY | CLINIC | HOTEL | MOTEL | SHOPPING | SUPERMARKET | ATM | BANK | GENERAL",
   "query": "normalize edilmiş arama terimi (Türkçe, küçük harf)",
   "destination": "navigasyon hedefi (opsiyonel)",
@@ -101,7 +106,9 @@ JSON FORMATI:
 
 ÖRNEKLER:
 - "kanka buralarda iyi bir kebapçı var mı?" → {"intent":"SEARCH_POI","category":"RESTAURANT","query":"kebap","feedback":"Yakın kebapçılar aranıyor","confidence":0.96}
-- "biraz yoruldum" → {"intent":"SEARCH_POI","category":"PARKING","query":"dinlenme alanı","feedback":"Yakın mola noktaları aranıyor","confidence":0.78}
+- "biraz yoruldum" → {"intent":"FIND_NEARBY_REST_AREA","feedback":"Yakın dinlenme tesisi aranıyor","confidence":0.78}
+- "mola vereyim" → {"intent":"FIND_NEARBY_REST_AREA","feedback":"Yakın dinlenme tesisi aranıyor","confidence":0.85}
+- "park yeri lazım" → {"intent":"FIND_NEARBY_PARKING","feedback":"Yakın otopark aranıyor","confidence":0.9}
 - "acıktım" → {"intent":"SEARCH_POI","category":"RESTAURANT","query":"restoran","feedback":"Yakın restoranlar aranıyor","confidence":0.85}
 - "yakında benzin var mı" → {"intent":"FIND_NEARBY_GAS","query":"benzin istasyonu","feedback":"Yakın benzin istasyonları","confidence":0.97}
 - "eve git" → {"intent":"OPEN_NAVIGATION","destination":"home","feedback":"Eve gidiyoruz","confidence":0.99}
@@ -112,7 +119,11 @@ function buildContextPrompt(ctx?: VehicleContext): string {
   const pidBlock = `\n\n${buildPidRegistryIntegrityPromptBlock()}`;
   if (!ctx) return BASE_SYSTEM_PROMPT + pidBlock;
 
-  const lines = [`\n\n[ARAÇ BAĞLAMI]`, `Hız: ${ctx.speedKmh} km/h`];
+  // MAVI-M2: hız `null` ise "0 km/h" UYDURULMAZ — dürüstçe bilinmiyor yazılır.
+  const lines = [
+    `\n\n[ARAÇ BAĞLAMI]`,
+    typeof ctx.speedKmh === 'number' ? `Hız: ${ctx.speedKmh} km/h` : `Hız: bilinmiyor`,
+  ];
 
   if (ctx.isDriving) {
     lines.push(
@@ -163,19 +174,30 @@ function parseSemanticJson(raw: string): SemanticResult | null {
 
 async function _askGemini(text: string, apiKey: string, ctx?: VehicleContext): Promise<SemanticResult | null> {
   // gemini-flash-latest: yeni "AQ." anahtarlarda sabit-adlı modeller 429 veriyor (SAHA 2026-07-03).
-  const endpoint = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent';
-  const resp = await fetch(endpoint, {
+  const endpoint = geminiChatEndpoint();
+  /* thinkingBudget:0 — düşünen modeller bütçesizde düşünme token'larını yiyip
+     MAX_TOKENS ile metinsiz dönüyor (SAHA 2026-07-03). Ama bazı modeller alanı
+     REDDEDER (400) → alan artık sahibine sorularak eklenir (models.ts). */
+  const send = (): Promise<Response> => fetch(endpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-goog-api-key': apiKey },
     body: JSON.stringify({
       system_instruction: { parts: [{ text: buildContextPrompt(ctx) }] },
       contents: [{ role: 'user', parts: [{ text }] }],
-      // thinkingBudget:0 — flash-latest düşünen model; bütçesizde düşünme token'ları
-      // yiyip MAX_TOKENS ile metinsiz dönüyor (SAHA 2026-07-03).
-      generationConfig: { responseMimeType: 'application/json', temperature: 0.05, maxOutputTokens: 128, thinkingConfig: { thinkingBudget: 0 } },
+      generationConfig: {
+        responseMimeType: 'application/json', temperature: 0.05, maxOutputTokens: 128,
+        ...geminiThinkingConfig(DEFAULT_GEMINI_MODEL),
+      },
     }),
     signal: signalWithTimeout(5_000), // Chrome <103 WebView güvenli (abortCompat)
   });
+
+  /* SAHA 2026-09-11: bu yol her turun İLK Gemini çağrısıdır. Alanı reddeden bir
+     varsayılan modelde 400 alıp SESSİZCE `null` dönüyordu → semantik yönlendirme
+     her turda kayboluyor, üstelik ölçülen ~0,55 sn boşa gidiyordu. Artık ret
+     BİR KEZ öğrenilir ve istek alansız TEKRARLANIR (aynı tur kurtarılır). */
+  let resp = await send();
+  if (await noteGeminiThinkingRejectedIf400(DEFAULT_GEMINI_MODEL, resp)) resp = await send();
 
   if (!resp.ok) return null;
   const data = await resp.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
@@ -264,8 +286,10 @@ export async function classifySemantic(
     if (provider === 'gemini') result = await _askGemini(text, resolvedKey, ctx);
     if (provider === 'haiku')  result = await _askHaiku(text, resolvedKey, ctx);
     if (result) { recordAiNetSuccess(); return result; }
-  } catch {
-    recordAiNetFailure(); // ağ hatası/timeout — devre kesici art arda hatada AI'yı kapatır
+  } catch (e) {
+    // Ağ hatası/timeout — kesici art arda hatada AI'yı kapatır. Sebep kodu +
+    // künye kaydedilir (sessiz offline yasak — SAHA 2026-07-22).
+    recordAiNetFailure({ provider, exceptionType: errorKindFromException(e) });
   }
 
   // ── 3. Offline fallback ─────────────────────────────────────

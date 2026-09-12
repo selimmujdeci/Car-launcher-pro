@@ -1,149 +1,98 @@
 /**
- * otaSchema.test.ts — OTA v1 / Commit 2: Supabase şema sözleşmesi
+ * otaSchema.test.ts — OTA: KOD ↔ ŞEMA sözleşmesi (istemci/servis tarafı).
  *
- * Migration SQL'i lokalde koşulamadığında (Docker/linked proje yok) bile
- * şema ↔ kod sözleşmesini kilitler:
- *  - rollout_plans kolonları RolloutPlan tipi + createRolloutPlan insert'iyle senkron
- *  - status/channel enum'ları UI sabitleriyle senkron
- *  - CLAUDE.md GRANT+RLS+POLICY+verification dörtlüsü iki tabloda da eksiksiz
- *  - storage bucket private + yalnız okuma policy'si
- *  - elle-SQL JSDoc bağımlılığı kaldırıldı
+ * ── BU DOSYANIN KAPSAMI DEĞİŞTİ (kütük #588) ──────────────────────────────
+ * Eskiden burada iki ayrı şey vardı: (a) migration 018/019'un SQL METNİ
+ * üzerinden kolon/CHECK/GRANT/RLS/policy iddiaları, (b) servis ve UI kodunun
+ * o şemayla senkron kaldığı kilitler. #583'ün baseline squash'ı 018/019'u
+ * `supabase/migrations_archive/`'e taşıyınca (a) yükleme anında düştü.
  *
- * NOT: Gerçek DB'de koşum (verification DO bloklarının PASS etmesi)
- * "deploy'da doğrulanmadı" — Supabase projesine push gerektirir.
+ * (a) **silinmedi, TAŞINDI**: `prodBaselineSecurityGuards.test.ts` içinde ve
+ * artık üretimin gerçeğine (`00000000000000_prod_baseline.sql`) soruluyor.
+ * Orada ayrıca iki SAPMA da beyan edildi: OTA tablolarında `anon` tam yazma
+ * ayrıcalıklı (tek savunma RLS) ve `ota_apks` bucket'ı **prod'da hiç yok**.
+ *
+ * Burada kalan (b) hâlâ zorunludur: şema doğru olsa bile servis kodu farklı
+ * bir kolon adı veya farklı bir durum kümesi kullanırsa OTA sessizce kırılır.
+ * Bu kilit, şemayı DEĞİL, koda gömülü sözleşmeyi korur.
  */
 import { describe, it, expect } from 'vitest';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import baselineSql from '../../supabase/migrations/00000000000000_prod_baseline.sql?raw';
 
-const MIG_DIR     = join(process.cwd(), 'supabase', 'migrations');
-const REGISTRY_FN = '20260610000018_ota_release_registry.sql';
-const STORAGE_FN  = '20260610000019_ota_storage_policies.sql';
-
-const registry = readFileSync(join(MIG_DIR, REGISTRY_FN), 'utf-8');
-const storage  = readFileSync(join(MIG_DIR, STORAGE_FN),  'utf-8');
-const service  = readFileSync(
+const service = readFileSync(
   join(process.cwd(), 'src', 'admin', 'services', 'superadmin.service.ts'), 'utf-8');
 
-describe('OTA migration dosyaları', () => {
-  it('timestamp sırası: OTA migration\'ları kendinden önceki tüm migration\'lardan SONRA gelir', () => {
-    // OTA'dan sonra eklenen migration'lar (ör. 020 remote log guards) bu
-    // testin kapsamı dışında — yalnız OTA-öncesi dosyalarla karşılaştırılır.
-    const stamped = readdirSync(MIG_DIR)
-      .filter((f) => /^\d{8}/.test(f) && f < REGISTRY_FN)
-      .sort();
-    const newest = stamped[stamped.length - 1];
-    expect(REGISTRY_FN > newest).toBe(true);
-    expect(STORAGE_FN > REGISTRY_FN).toBe(true); // bucket policy tablodan sonra
-  });
-});
-
-describe('rollout_plans — ekran/servis sözleşmesi', () => {
-  it('createRolloutPlan insert alanlarının TAMAMI migration kolonu', () => {
-    // superadmin.service.ts createRolloutPlan plan objesi + id (PK)
+describe('rollout_plans — servis ↔ şema senkronu', () => {
+  it('KİLİT: createRolloutPlan\'in yazdığı her alan gerçekten bir kolon', () => {
     const cols = ['id', 'name', 'version', 'description', 'status', 'stages',
                   'rollback_to', 'created_at', 'created_by', 'approved_by', 'approved_at'];
+    /* Tablo tanımını izole et — dosyanın başka yerlerinde aynı adlı kolonlar
+       (ör. `name`) bulunabilir; iddia YALNIZ bu tabloya aittir. */
+    const start = baselineSql.indexOf('CREATE TABLE IF NOT EXISTS public."rollout_plans"');
+    expect(start, 'rollout_plans prod\'da yok').toBeGreaterThan(-1);
+    const table = baselineSql.slice(start, baselineSql.indexOf(');', start));
     for (const col of cols) {
-      expect(registry, `rollout_plans kolonu eksik: ${col}`).toMatch(
-        new RegExp(`^\\s+${col}\\s`, 'm'));
+      expect(table, `rollout_plans kolonu eksik: ${col}`).toMatch(new RegExp(`\\b${col}\\b`));
     }
   });
 
-  it('status CHECK değerleri RolloutCenter STATUS_COLOR anahtarlarıyla senkron', () => {
-    // RolloutCenter.tsx:35-43 — draft/pending_review/approved/rolling/paused/complete/reverted
-    for (const s of ['draft', 'pending_review', 'approved', 'rolling', 'paused', 'complete', 'reverted']) {
-      expect(registry).toContain(`'${s}'`);
-    }
-  });
-
-  it('elle-SQL JSDoc bağımlılığı kaldırıldı (servis migration\'a işaret ediyor)', () => {
+  it('KİLİT: elle-SQL JSDoc bağımlılığı geri gelmedi (şema migration\'ın işi)', () => {
     expect(service).not.toContain('CREATE TABLE IF NOT EXISTS public.rollout_plans');
-    expect(service).toContain(REGISTRY_FN);
   });
 });
 
 describe('ota_releases — cihaz sorgu sözleşmesi', () => {
-  it('cihaz sorgusunun gerektirdiği kolonlar mevcut', () => {
+  it('KİLİT: cihaz sorgusunun gerektirdiği kolonlar şemada var', () => {
+    const start = baselineSql.indexOf('CREATE TABLE IF NOT EXISTS public."ota_releases"');
+    expect(start, 'ota_releases prod\'da yok').toBeGreaterThan(-1);
+    const table = baselineSql.slice(start, baselineSql.indexOf(');', start));
     for (const col of ['version_code', 'version_name', 'channel', 'apk_path',
                        'apk_size', 'sha256', 'status', 'release_notes', 'rollout_plan_id']) {
-      expect(registry, `ota_releases kolonu eksik: ${col}`).toMatch(
-        new RegExp(`^\\s+${col}\\s`, 'm'));
+      expect(table, `ota_releases kolonu eksik: ${col}`).toMatch(new RegExp(`\\b${col}\\b`));
     }
   });
 
-  it('status enum tam olarak {draft, active, paused, revoked}', () => {
-    const m = registry.match(/status\s+text\s+NOT NULL\s+DEFAULT\s+'draft'\s+CHECK\s*\(status IN \(([^)]+)\)\)/g);
-    expect(m, 'ota_releases status CHECK bulunamadı').toBeTruthy();
-    const otaCheck = m!.find((s) => s.includes("'revoked'"));
-    expect(otaCheck).toBeTruthy();
+  it('KİLİT: durum kümesi UI\'ın bildiği kümeyle aynı', () => {
+    /* UI bir durumu tanımıyorsa release görünmez olur; şema UI'ın bilmediği
+       bir durum kabul ederse sessiz ölü kayıt doğar. İki uç birlikte kilitlenir. */
     for (const s of ['draft', 'active', 'paused', 'revoked']) {
-      expect(otaCheck).toContain(`'${s}'`);
+      expect(baselineSql, `şemada durum eksik: ${s}`).toContain(`'${s}'::text`);
     }
   });
 
-  it('channel enum {internal, pilot, production} (stage targeting v1)', () => {
-    expect(registry).toMatch(/channel IN \('internal','pilot','production'\)/);
-  });
-
-  it('bütünlük kısıtları: version_code UNIQUE+pozitif, sha256 64 hex, FK rollout_plans', () => {
-    expect(registry).toMatch(/version_code\s+integer NOT NULL UNIQUE CHECK \(version_code > 0\)/);
-    expect(registry).toMatch(/char_length\(sha256\) = 64/);
-    expect(registry).toMatch(/REFERENCES public\.rollout_plans\(id\) ON DELETE SET NULL/);
-  });
-
-  it('cihaz sorgu indeksi mevcut (channel, status, version_code DESC)', () => {
-    expect(registry).toMatch(/idx_ota_releases_device_query/);
-    expect(registry).toMatch(/\(channel, status, version_code DESC\)/);
+  it('KİLİT: bütünlük kısıtları duruyor (version_code pozitif+tekil, sha256 64 hex)', () => {
+    expect(baselineSql).toMatch(/ota_releases_version_code_check.*version_code > 0/s);
+    expect(baselineSql).toMatch(/char_length\(sha256\) = 64/);
   });
 });
 
-describe('CLAUDE.md dörtlüsü — GRANT + RLS + POLICY + verification', () => {
-  for (const table of ['rollout_plans', 'ota_releases']) {
-    it(`${table}: GRANT üç role de eksiksiz`, () => {
-      expect(registry).toContain(`GRANT SELECT ON public.${table} TO anon`);
-      expect(registry).toContain(`GRANT SELECT, INSERT, UPDATE, DELETE ON public.${table} TO authenticated`);
-      expect(registry).toContain(`GRANT ALL ON public.${table} TO service_role`);
-    });
+describe('rollout durumları — ölçülen sapma (kütük #588)', () => {
+  it('SAPMA: rollout_plans.status\'ta CHECK kısıtı YOK — durum kümesi zorlanmıyor', () => {
+    /* ÖLÇÜLDÜ: migration 018 `CHECK (status IN ('draft','pending_review',…))`
+       yazıyordu; PROD'da bu kısıt YOK (`ota_releases`te VAR — bkz. baseline
+       kilitleri). Yani `rollout_plans.status` serbest metindir: yazım hatası
+       ya da bilinmeyen bir durum sessizce kaydedilebilir ve o plan ekranda
+       renksiz/işlemsiz kalır.
 
-    it(`${table}: RLS açık`, () => {
-      expect(registry).toContain(`ALTER TABLE public.${table} ENABLE ROW LEVEL SECURITY`);
-    });
-  }
+       Bu bir AÇIK BORÇtur ve burada "tanımlı" diye gösterilmez. Kısıt geri
+       eklenirse bu test düşer → bilinçli değişiklik kütüğe işlenir ve kilit
+       "durum kümesi zorlanıyor" hâline güncellenir. */
+    const start = baselineSql.indexOf('CREATE TABLE IF NOT EXISTS public."rollout_plans"');
+    const table = baselineSql.slice(start, baselineSql.indexOf(');', start));
+    expect(table).toMatch(/"status" text DEFAULT 'draft'::text NOT NULL/);
+    expect(baselineSql).not.toContain('rollout_plans_status_check');
+  });
 
-  it('policy seti: superadmin yazma + cihaz/auth active-okuma', () => {
-    for (const p of ['superadmin_rollouts', 'ota_releases_device_read',
-                     'ota_releases_auth_read_active', 'ota_releases_superadmin_all']) {
-      expect(registry).toContain(`"${p}"`);
+  it('KİLİT: durum kümesinin TEK kaynağı UI sabitidir — servis onu ezmez', () => {
+    /* Şema zorlamıyorsa sözleşmeyi kod taşımak zorundadır: yeni bir durum
+       eklenirse RolloutCenter'ın renk haritasına da girmelidir, yoksa plan
+       ekranda görünmez olur. */
+    const center = readFileSync(
+      join(process.cwd(), 'src', 'admin', 'pages', 'superadmin', 'RolloutCenter.tsx'), 'utf-8');
+    for (const s of ['draft', 'pending_review', 'approved', 'rolling', 'paused', 'complete', 'reverted']) {
+      expect(center, `RolloutCenter durumu tanımıyor: ${s}`).toContain(s);
     }
-    // Cihaz yalnız aktif release görür (pause = anında gizlenir)
-    expect(registry).toMatch(/FOR SELECT TO anon\s+USING \(status = 'active'\)/);
-  });
-
-  it('verification DO bloğu: GRANT + RLS + policy sayımı, eksikte EXCEPTION', () => {
-    expect(registry).toContain('information_schema.role_table_grants');
-    expect(registry).toContain('pg_tables');
-    expect(registry).toContain('pg_policies');
-    expect(registry).toMatch(/RAISE EXCEPTION 'OTA migration: GRANT eksik/);
-    expect(registry).toMatch(/RAISE EXCEPTION 'OTA migration: RLS kapalı/);
-    expect(registry).toMatch(/RAISE EXCEPTION 'OTA migration: policy eksik/);
-  });
-});
-
-describe('ota_apks storage bucket', () => {
-  it('bucket private + APK mime whitelist', () => {
-    expect(storage).toContain("'ota_apks'");
-    expect(storage).toMatch(/false,\s*\n\s*209715200/); // public=false, 200MB
-    expect(storage).toContain('application/vnd.android.package-archive');
-  });
-
-  it('yalnız OKUMA policy\'leri var — yazma policy\'si bilinçli yok (service_role bypass)', () => {
-    expect(storage).toContain('"ota_apks_device_read"');
-    expect(storage).toContain('"ota_apks_auth_read"');
-    expect(storage).not.toMatch(/FOR (INSERT|UPDATE|DELETE)/);
-  });
-
-  it('verification: bucket varlığı + private teyidi + policy sayımı', () => {
-    expect(storage).toMatch(/RAISE EXCEPTION 'OTA storage: ota_apks PUBLIC olmamalı/);
-    expect(storage).toMatch(/RAISE EXCEPTION 'OTA storage: okuma policy eksik/);
   });
 });

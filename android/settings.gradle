@@ -1,4 +1,8 @@
 include ':app'
+// PHONE-HUB P1-A: paylaşılan saf-Java protokol modülü (head unit + telefon ortak).
+include ':phonehub-protocol'
+// PHONE-HUB P1-A: telefona kurulan companion uygulaması (AYRI APK).
+include ':phonehub-companion'
 include ':capacitor-cordova-android-plugins'
 project(':capacitor-cordova-android-plugins').projectDir = new File('./capacitor-cordova-android-plugins/')
 

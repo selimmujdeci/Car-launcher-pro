@@ -1,23 +1,27 @@
 /**
- * theaterModeService.ts — Theater (Sinema) Modu ses profili senkronizasyonu.
+ * theaterModeService.ts — Theater (Sinema) Modu güvenlik çıkışı.
  *
  * NOT: Otomatik aktivasyon KALDIRILDI. Araç durunca sistem kendiliğinden
  * "siyah perde"ye (Theater Mode) GİRMEZ. Premium UI her modda net kalır.
  * Theater Mode yalnızca kullanıcı manuel açtığında (SmartCard / buton) aktifleşir.
  *
- * Bu servisin iki sorumluluğu kaldı:
- *   1. GÜVENLİK ÇIKIŞI: araç harekete geçerse (speed > EXIT_SPEED_KMH) Theater
- *      Mode anında kapanır.
- *   2. SES PROFİLİ: isTheaterModeActive değiştiğinde sinema/normal ses profili.
+ * Bu servisin TEK sorumluluğu kaldı:
+ *   GÜVENLİK ÇIKIŞI: araç harekete geçerse (speed > EXIT_SPEED_KMH) Theater
+ *   Mode anında kapanır.
+ *
+ * MUSIC F6.1 — SES PROFİLİ SORUMLULUĞU KALDIRILDI (ölü yol temizliği):
+ * bu servis `audioService.setCinemaAudioProfile()/setNormalAudioProfile()`
+ * çağırıyordu. O fonksiyonlar bir **Web Audio** EQ zincirini ayarlıyordu;
+ * üretimde o zincire hiçbir kaynak bağlı DEĞİLDİ (kanonik oynatma native
+ * ExoPlayer'dır) → çağrılar duyulur hiçbir şey yapmıyordu. Kanonik ses rengi
+ * otoritesi `AudioExperienceAuthority`dir (F6) ve preset KULLANICININDIR;
+ * Theater Mode oraya YAZMAZ (ikinci preset yazarı kurulmaz — Cross-Domain §1).
  *
  * Akış:
- *   speed > EXIT_SPEED_KMH      →  setTheaterMode(false)  [anında güvenlik çıkışı]
- *   isTheaterModeActive: true   →  setCinemaAudioProfile()
- *   isTheaterModeActive: false  →  setNormalAudioProfile()
+ *   speed > EXIT_SPEED_KMH  →  setTheaterMode(false)  [anında güvenlik çıkışı]
  */
 
 import { useUnifiedVehicleStore as useVehicleStore }    from './vehicleDataLayer/UnifiedVehicleStore';
-import { setCinemaAudioProfile, setNormalAudioProfile } from './audioService';
 import { useSystemStore }                               from '../store/useSystemStore';
 
 // ── Sabitler ─────────────────────────────────────────────────────────────────
@@ -26,10 +30,8 @@ const EXIT_SPEED_KMH = 2;      // Bu hızı aşınca → anında çıkış (GPS 
 
 // ── Modül state ───────────────────────────────────────────────────────────────
 
-let _active           = false;
-let _unsubSpeed:      (() => void) | null = null;
-let _unsubTheater:    (() => void) | null = null;
-let _wasTheaterActive = false;
+let _active      = false;
+let _unsubSpeed: (() => void) | null = null;
 
 // ── İç yardımcılar ───────────────────────────────────────────────────────────
 
@@ -63,21 +65,6 @@ export function startTheaterService(): () => void {
     }
   });
 
-  // ── Theater Mode değişiminde ses profili güncelle ─────────────────────────
-  // Yalnızca gerçekten değiştiğinde → setState döngüsü riski yok.
-  _wasTheaterActive = useSystemStore.getState().isTheaterModeActive;
-
-  _unsubTheater = useSystemStore.subscribe((state) => {
-    const isActive = state.isTheaterModeActive;
-    if (isActive === _wasTheaterActive) return;
-    _wasTheaterActive = isActive;
-    if (isActive) {
-      setCinemaAudioProfile();
-    } else {
-      setNormalAudioProfile();
-    }
-  });
-
   return stopTheaterService;
 }
 
@@ -85,6 +72,5 @@ export function stopTheaterService(): void {
   if (!_active) return;
   _active = false;
   _exitTheaterMode();
-  _unsubSpeed?.();   _unsubSpeed   = null;
-  _unsubTheater?.(); _unsubTheater = null;
+  _unsubSpeed?.(); _unsubSpeed = null;
 }

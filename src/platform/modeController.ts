@@ -61,13 +61,34 @@ function _resolveMode(
 ): NavMode {
   if (pref === 'standard') return 'STANDARD_NAVIGATION';
 
-  // Confidence below threshold → AR unreliable, show map at full opacity
-  if (confidence < 0.5) return 'STANDARD_NAVIGATION';
-
   const visionReady = visionState === 'active' || visionState === 'degraded';
 
-  if (pref === 'hybrid' && visionReady) return 'HYBRID_AR_NAVIGATION';
-  if (pref === 'auto'   && visionState === 'active') return 'HYBRID_AR_NAVIGATION';
+  /* ── KULLANICI AÇIKÇA İSTEDİ → KAMERA GÖSTERİLİR ────────────────────────
+   * SAHA KUSURU (cihazda ölçüldü 2026-08-03): kullanıcı AR'a bastığında
+   * kamera GERÇEKTEN açılıyordu (video: srcObject var · track 'live' ·
+   * 1280×720 · readyState 4) ama ekranda hiçbir şey görünmüyordu, çünkü
+   * `confidence < 0.5` kapısı modu STANDARD'a çeviriyor ve video katmanının
+   * opacity'si 0 kalıyordu. Kullanıcı kamerayı açıyor, pil/ısı harcanıyor,
+   * karşılığında hiçbir şey görmüyordu — üstelik nedeni de söylenmiyordu.
+   *
+   * Dahası kapı YAPISAL olarak aşılamıyordu: güven formülü
+   * `0.60·şerit + 0.25·kare + 0.15·tabela` olduğundan şerit çizgisi
+   * GÖRÜLMEYEN bir yolda skor en fazla ~0.40'a çıkabilir. Türkiye'de
+   * mahalle sokaklarının çoğunda şerit çizgisi YOKTUR → AR o yollarda
+   * hiçbir zaman açılamazdı.
+   *
+   * AYRIM: "kamerayı görmek" ile "AR çiziminin doğruluğu" AYRI şeylerdir.
+   * Güven kapısı yalnız AR ÇİZİMİNİ (canvas) ilgilendirir — o zaten ayrıca
+   * `canvasOpacity` ile güvene bağlıdır (bkz. VisionOverlay). Kamera
+   * görüntüsü, tespit çalışmasa bile sürücüye faydalıdır ve kullanıcının
+   * AÇIK tercihidir; otomatik bir kalite ölçütü bu tercihi EZEMEZ. */
+  if (pref === 'hybrid') return visionReady ? 'HYBRID_AR_NAVIGATION' : 'STANDARD_NAVIGATION';
+
+  /* ── OTOMATİK mod MUHAFAZAKÂRDIR ────────────────────────────────────────
+   * Kendiliğinden kameraya geçmek için tespit güveni yeterli olmalı;
+   * güvenilmez AR'ı kullanıcı istemeden açmak yanıltıcı olur. */
+  if (confidence < 0.5) return 'STANDARD_NAVIGATION';
+  if (pref === 'auto' && visionState === 'active') return 'HYBRID_AR_NAVIGATION';
 
   return 'STANDARD_NAVIGATION';
 }

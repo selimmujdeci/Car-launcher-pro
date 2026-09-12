@@ -25,9 +25,7 @@
 /.github/                   @selimmujdeci
 /.github/workflows/         @selimmujdeci
 
-# ── Anayasa dosyaları (dikkatle değiştirilir) ──
+# ── Çalışma kuralı ve lisans (dikkatle değiştirilir) ──
 /CLAUDE.md                  @selimmujdeci
-/AI.md                      @selimmujdeci
-/GEMINI.md                  @selimmujdeci
 /LICENSE-PROPRIETARY.md     @selimmujdeci
 /SECURITY.md                @selimmujdeci

@@ -1,0 +1,6561 @@
+{
+ "note": "MAPDATA-F2 sınırlı fixture. Gerçek ölçümden türetildi; UYDURMA VERİ YOKTUR.",
+ "area": {
+  "bbox": [
+   34.85985,
+   36.9157,
+   34.86435,
+   36.9193
+  ],
+  "description": "Tarsus ~400x400 m, canonical nokta 36.9175/34.8621"
+ },
+ "provenance": {
+  "overtureRelease": "2026-08-19.0",
+  "overtureRetrievedFrom": "s3://overturemaps-us-west-2/release/2026-08-19.0/theme=buildings",
+  "osmSource": "field-runs/map-data-coverage-20260907/osm-api-map.json (6 Eylül 2026 çekimi)",
+  "attribution": "© OpenStreetMap katkıcıları (ODbL) · © Overture Maps Foundation · Microsoft ML Buildings (ODbL-1.0)"
+ },
+ "counts": {
+  "overtureBuildings": 123,
+  "osmBuildings": 11
+ },
+ "overtureBuildings": [
+  {
+   "id": "02c0a301-35cc-4551-9224-7ec925980ed6",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8603226,
+       36.9186593
+      ],
+      [
+       34.8602699,
+       36.9186447
+      ],
+      [
+       34.860289,
+       36.9186007
+      ],
+      [
+       34.8603417,
+       36.9186153
+      ],
+      [
+       34.8603226,
+       36.9186593
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "046efae2-e985-446f-b7a1-d4070b1195ad",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8619828,
+       36.9166671
+      ],
+      [
+       34.861996,
+       36.9166224
+      ],
+      [
+       34.862061,
+       36.9166347
+      ],
+      [
+       34.8620478,
+       36.9166794
+      ],
+      [
+       34.8619828,
+       36.9166671
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "06426995-f2b9-4d0f-bca9-e167fee438f4",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8617612,
+       36.9168531
+      ],
+      [
+       34.8617883,
+       36.9167957
+      ],
+      [
+       34.8618916,
+       36.9168269
+      ],
+      [
+       34.8618644,
+       36.9168843
+      ],
+      [
+       34.8617612,
+       36.9168531
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "0b7cb237-e94d-428d-b3e7-29fdb21df1d9",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8619698,
+       36.9168093
+      ],
+      [
+       34.8620109,
+       36.91674
+      ],
+      [
+       34.8621138,
+       36.916779
+      ],
+      [
+       34.8620728,
+       36.9168483
+      ],
+      [
+       34.8619698,
+       36.9168093
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "0d701f1a-36c3-47cb-b201-76e726a35293",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8612702,
+       36.9171741
+      ],
+      [
+       34.861258,
+       36.9171082
+      ],
+      [
+       34.8613262,
+       36.9171001
+      ],
+      [
+       34.8613384,
+       36.917166
+      ],
+      [
+       34.8612702,
+       36.9171741
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "0f7674d2-3221-40d8-a2a9-7c8b61287b08",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.861969,
+       36.9190791
+      ],
+      [
+       34.8620112,
+       36.9189383
+      ],
+      [
+       34.8621342,
+       36.9189618
+      ],
+      [
+       34.8620993,
+       36.9190783
+      ],
+      [
+       34.862112,
+       36.9190807
+      ],
+      [
+       34.8621047,
+       36.919105
+      ],
+      [
+       34.861969,
+       36.9190791
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "11672c46-e544-4c3d-977d-743810829b7f",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8614415,
+       36.9186494
+      ],
+      [
+       34.8614147,
+       36.9187056
+      ],
+      [
+       34.8614897,
+       36.9187284
+      ],
+      [
+       34.8614719,
+       36.9187659
+      ],
+      [
+       34.8613407,
+       36.918726
+      ],
+      [
+       34.8613852,
+       36.9186323
+      ],
+      [
+       34.8614415,
+       36.9186494
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "1382c430-bf1f-447e-b2c7-31e86c9ce6d3",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8619675,
+       36.9168256
+      ],
+      [
+       34.8620387,
+       36.9168331
+      ],
+      [
+       34.8620342,
+       36.9168605
+      ],
+      [
+       34.861963,
+       36.916853
+      ],
+      [
+       34.8619675,
+       36.9168256
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "160e6d3f-da79-48e8-a5ff-1324976517ca",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8635073,
+       36.9168365
+      ],
+      [
+       34.8636315,
+       36.9167275
+      ],
+      [
+       34.8637598,
+       36.9168208
+      ],
+      [
+       34.8636676,
+       36.9169017
+      ],
+      [
+       34.8636303,
+       36.9168746
+      ],
+      [
+       34.8635983,
+       36.9169027
+      ],
+      [
+       34.8635073,
+       36.9168365
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "196100bf-107b-4bf9-b2ed-e403efc36693",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8614418,
+       36.9158481
+      ],
+      [
+       34.8614527,
+       36.915807
+      ],
+      [
+       34.861486,
+       36.9158127
+      ],
+      [
+       34.8614751,
+       36.9158537
+      ],
+      [
+       34.8614418,
+       36.9158481
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "19856b8b-9cee-4274-9a89-3a50e5e7e532",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8620698,
+       36.9183334
+      ],
+      [
+       34.8620954,
+       36.9182893
+      ],
+      [
+       34.8622112,
+       36.9183322
+      ],
+      [
+       34.8621856,
+       36.9183763
+      ],
+      [
+       34.8620698,
+       36.9183334
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "1a2d861c-c78f-4d07-9629-45d43f5e4ddb",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8609798,
+       36.9160718
+      ],
+      [
+       34.8609967,
+       36.9160242
+      ],
+      [
+       34.8611019,
+       36.916048
+      ],
+      [
+       34.8610851,
+       36.9160956
+      ],
+      [
+       34.8609798,
+       36.9160718
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "1d31fa81-c2f6-4048-af64-c1bf6accd5ee",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "OpenStreetMap",
+     "license": "ODbL-1.0",
+     "record_id": "w440736020@1",
+     "update_time": "2016-09-05T11:03:41.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "osm",
+     "resource": "planet",
+     "version": "2026-08-02T00:00:00.000Z"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8639409,
+       36.9172529
+      ],
+      [
+       34.8638121,
+       36.917175
+      ],
+      [
+       34.8638888,
+       36.9170939
+      ],
+      [
+       34.8640176,
+       36.9171717
+      ],
+      [
+       34.8639409,
+       36.9172529
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "206e2aab-4742-4a89-847c-9ca0d4c1822f",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8598961,
+       36.9184736
+      ],
+      [
+       34.8596878,
+       36.9184366
+      ],
+      [
+       34.8597495,
+       36.9182146
+      ],
+      [
+       34.8599579,
+       36.9182516
+      ],
+      [
+       34.8598961,
+       36.9184736
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "248e0419-f35a-43ee-8b9c-810bf5fc1af7",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8643648,
+       36.9163011
+      ],
+      [
+       34.8643224,
+       36.9162557
+      ],
+      [
+       34.8643791,
+       36.9162218
+      ],
+      [
+       34.8644216,
+       36.9162671
+      ],
+      [
+       34.8643648,
+       36.9163011
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "2544ccac-a7de-47d9-9170-fb7aa8614f1c",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8618666,
+       36.9170217
+      ],
+      [
+       34.8618146,
+       36.9170002
+      ],
+      [
+       34.8618563,
+       36.916936
+      ],
+      [
+       34.8619082,
+       36.9169575
+      ],
+      [
+       34.8618666,
+       36.9170217
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "2605487a-b329-49e1-b797-05c566b9a7ef",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8610229,
+       36.9158695
+      ],
+      [
+       34.8608954,
+       36.9159624
+      ],
+      [
+       34.86081,
+       36.9158874
+      ],
+      [
+       34.8609374,
+       36.9157945
+      ],
+      [
+       34.8610229,
+       36.9158695
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "2634261a-b864-4913-a554-ea030d66d6d6",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "OpenStreetMap",
+     "license": "ODbL-1.0",
+     "record_id": "w440736023@1",
+     "update_time": "2016-09-05T11:03:41.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "osm",
+     "resource": "planet",
+     "version": "2026-08-02T00:00:00.000Z"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8637132,
+       36.9163957
+      ],
+      [
+       34.8636024,
+       36.91632
+      ],
+      [
+       34.8636819,
+       36.9162457
+      ],
+      [
+       34.8637927,
+       36.9163214
+      ],
+      [
+       34.8637132,
+       36.9163957
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "26f92733-6163-4a3e-a0b3-bf474f444bb1",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8619339,
+       36.915993
+      ],
+      [
+       34.8618832,
+       36.9159742
+      ],
+      [
+       34.8619001,
+       36.9159449
+      ],
+      [
+       34.8619509,
+       36.9159637
+      ],
+      [
+       34.8619339,
+       36.915993
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "281793cb-5fb0-4414-bfe7-1a926ed149cf",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8614228,
+       36.9162761
+      ],
+      [
+       34.861508,
+       36.9163242
+      ],
+      [
+       34.8614423,
+       36.9163986
+      ],
+      [
+       34.8613571,
+       36.9163506
+      ],
+      [
+       34.8614228,
+       36.9162761
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "2e7a9ad0-53c5-40f6-b28b-262cc7ac6cbd",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8623194,
+       36.9180069
+      ],
+      [
+       34.8623702,
+       36.9179338
+      ],
+      [
+       34.8624572,
+       36.9179725
+      ],
+      [
+       34.8624065,
+       36.9180455
+      ],
+      [
+       34.8623194,
+       36.9180069
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "31588d0f-86cf-4b43-ba1a-9624859129d5",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8621309,
+       36.9180545
+      ],
+      [
+       34.8621696,
+       36.91799
+      ],
+      [
+       34.8622416,
+       36.9180176
+      ],
+      [
+       34.8622029,
+       36.9180821
+      ],
+      [
+       34.8621309,
+       36.9180545
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "3353ff2a-318d-4803-bf36-0da5c14ba631",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8614499,
+       36.9176244
+      ],
+      [
+       34.8613822,
+       36.9176597
+      ],
+      [
+       34.8613282,
+       36.9175935
+      ],
+      [
+       34.861396,
+       36.9175581
+      ],
+      [
+       34.8614499,
+       36.9176244
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "34894def-dd48-44f4-8ebe-036c61c2f045",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8622485,
+       36.9186307
+      ],
+      [
+       34.8623204,
+       36.9186506
+      ],
+      [
+       34.8623046,
+       36.918687
+      ],
+      [
+       34.8622328,
+       36.9186671
+      ],
+      [
+       34.8622485,
+       36.9186307
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "36dc3399-fb28-4e02-b9be-c47c7bbeca68",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "OpenStreetMap",
+     "license": "ODbL-1.0",
+     "record_id": "w440736019@1",
+     "update_time": "2016-09-05T11:03:41.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "osm",
+     "resource": "planet",
+     "version": "2026-08-02T00:00:00.000Z"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8640562,
+       36.9171242
+      ],
+      [
+       34.8639274,
+       36.9170463
+      ],
+      [
+       34.8640041,
+       36.9169652
+      ],
+      [
+       34.864133,
+       36.917043
+      ],
+      [
+       34.8640562,
+       36.9171242
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "36ee61d5-c48e-4004-97d8-20ec74fb9213",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8620313,
+       36.9174459
+      ],
+      [
+       34.8619653,
+       36.9174133
+      ],
+      [
+       34.8620193,
+       36.9173435
+      ],
+      [
+       34.8620853,
+       36.9173761
+      ],
+      [
+       34.8620313,
+       36.9174459
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "38366372-6bde-40e0-a716-0afe5a4b2786",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8624762,
+       36.9177218
+      ],
+      [
+       34.8624618,
+       36.9177649
+      ],
+      [
+       34.8624256,
+       36.9177572
+      ],
+      [
+       34.8624162,
+       36.9177852
+      ],
+      [
+       34.8623673,
+       36.9177747
+      ],
+      [
+       34.8623912,
+       36.9177035
+      ],
+      [
+       34.8624762,
+       36.9177218
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "3ac3a010-0dab-45bd-8c9f-bbf8dce8de6d",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8640778,
+       36.9159949
+      ],
+      [
+       34.8641655,
+       36.9158704
+      ],
+      [
+       34.8642625,
+       36.915914
+      ],
+      [
+       34.8641748,
+       36.9160386
+      ],
+      [
+       34.8640778,
+       36.9159949
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "3c6e0f65-71f9-4b02-a7f1-e96e159f297a",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8616609,
+       36.916475
+      ],
+      [
+       34.861696,
+       36.9164272
+      ],
+      [
+       34.8617917,
+       36.9164722
+      ],
+      [
+       34.8617566,
+       36.91652
+      ],
+      [
+       34.8616609,
+       36.916475
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "3d1bd5cc-384a-4b91-8a0a-0c57a171e2ef",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8605996,
+       36.9177682
+      ],
+      [
+       34.8604384,
+       36.9176507
+      ],
+      [
+       34.8604825,
+       36.9176121
+      ],
+      [
+       34.8605009,
+       36.9176255
+      ],
+      [
+       34.8605369,
+       36.9175938
+      ],
+      [
+       34.8605947,
+       36.917636
+      ],
+      [
+       34.8605667,
+       36.9176606
+      ],
+      [
+       34.8606517,
+       36.9177225
+      ],
+      [
+       34.8605996,
+       36.9177682
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "4204c9cc-eaa6-4028-83f1-9c9db5c24211",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "OpenStreetMap",
+     "license": "ODbL-1.0",
+     "record_id": "w440902357@1",
+     "update_time": "2016-09-06T07:14:15.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "osm",
+     "resource": "planet",
+     "version": "2026-08-02T00:00:00.000Z"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8602674,
+       36.9189328
+      ],
+      [
+       34.8600463,
+       36.9188899
+      ],
+      [
+       34.8600974,
+       36.9187218
+      ],
+      [
+       34.8603185,
+       36.9187647
+      ],
+      [
+       34.8602674,
+       36.9189328
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "4454b90a-cec3-432a-b4e0-aa581705e522",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.862276,
+       36.9172688
+      ],
+      [
+       34.8621923,
+       36.9172243
+      ],
+      [
+       34.8622597,
+       36.9171434
+      ],
+      [
+       34.8623433,
+       36.9171879
+      ],
+      [
+       34.862276,
+       36.9172688
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "46050cbf-0a41-45c2-95c1-0abf004f8a54",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8619517,
+       36.9187326
+      ],
+      [
+       34.8618541,
+       36.9186993
+      ],
+      [
+       34.8618831,
+       36.9186449
+      ],
+      [
+       34.8619807,
+       36.9186781
+      ],
+      [
+       34.8619517,
+       36.9187326
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "483a43a2-9d79-43cc-9424-1549721eef20",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8623011,
+       36.9179063
+      ],
+      [
+       34.8622366,
+       36.9178881
+      ],
+      [
+       34.8622703,
+       36.9178118
+      ],
+      [
+       34.8623811,
+       36.917843
+      ],
+      [
+       34.8623601,
+       36.9178907
+      ],
+      [
+       34.8623137,
+       36.9178776
+      ],
+      [
+       34.8623011,
+       36.9179063
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "4adfb419-e860-4227-b368-6a12b62a5522",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8643228,
+       36.9157625
+      ],
+      [
+       34.8642451,
+       36.9157148
+      ],
+      [
+       34.8643034,
+       36.9156541
+      ],
+      [
+       34.8643811,
+       36.9157018
+      ],
+      [
+       34.8643228,
+       36.9157625
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "4ee7e26e-4ca8-4930-981a-d03f90302daa",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8609775,
+       36.9182141
+      ],
+      [
+       34.8610301,
+       36.9181807
+      ],
+      [
+       34.8610915,
+       36.9182424
+      ],
+      [
+       34.8610389,
+       36.9182759
+      ],
+      [
+       34.8609775,
+       36.9182141
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "4eead0e5-543b-4d25-98f0-072766f2fd5e",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.862581,
+       36.9174574
+      ],
+      [
+       34.8626432,
+       36.9174114
+      ],
+      [
+       34.8627536,
+       36.9175069
+      ],
+      [
+       34.8626914,
+       36.9175529
+      ],
+      [
+       34.862581,
+       36.9174574
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "4ef191b7-c89b-4f11-bb08-8e261cee98a1",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8613577,
+       36.9186672
+      ],
+      [
+       34.8613242,
+       36.918653
+      ],
+      [
+       34.8613576,
+       36.9186028
+      ],
+      [
+       34.861391,
+       36.918617
+      ],
+      [
+       34.8613577,
+       36.9186672
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "5351a2b5-cc54-4b8f-a630-2b04cd99e995",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8611208,
+       36.9186276
+      ],
+      [
+       34.8611753,
+       36.91853
+      ],
+      [
+       34.8612827,
+       36.9185682
+      ],
+      [
+       34.8612282,
+       36.9186659
+      ],
+      [
+       34.8611208,
+       36.9186276
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "544bd7ba-dd68-4d57-8b3e-e31e395fadc7",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8616437,
+       36.9158305
+      ],
+      [
+       34.8615809,
+       36.9158225
+      ],
+      [
+       34.8615905,
+       36.9157744
+      ],
+      [
+       34.8616533,
+       36.9157824
+      ],
+      [
+       34.8616437,
+       36.9158305
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "565241f2-d540-4a8c-90da-5bf44c2960f9",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8617394,
+       36.9176455
+      ],
+      [
+       34.8616229,
+       36.9175954
+      ],
+      [
+       34.8616795,
+       36.9175112
+      ],
+      [
+       34.8617346,
+       36.9175349
+      ],
+      [
+       34.8617088,
+       36.9175732
+      ],
+      [
+       34.8617703,
+       36.9175996
+      ],
+      [
+       34.8617394,
+       36.9176455
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "59064912-b60d-4388-8fb5-29a5d1d21c0a",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "OpenStreetMap",
+     "license": "ODbL-1.0",
+     "record_id": "w440736021@1",
+     "update_time": "2016-09-05T11:03:41.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "osm",
+     "resource": "planet",
+     "version": "2026-08-02T00:00:00.000Z"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8635064,
+       36.9166481
+      ],
+      [
+       34.8633775,
+       36.9165703
+      ],
+      [
+       34.8634543,
+       36.9164891
+      ],
+      [
+       34.8635831,
+       36.916567
+      ],
+      [
+       34.8635064,
+       36.9166481
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "5a14d004-154a-4ad6-9a7b-9ad2a80b6fc9",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8605235,
+       36.9173822
+      ],
+      [
+       34.8604233,
+       36.9173074
+      ],
+      [
+       34.8605188,
+       36.9172257
+      ],
+      [
+       34.860619,
+       36.9173006
+      ],
+      [
+       34.8605235,
+       36.9173822
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "5a273d3b-6917-4f6d-a1fd-11e8199c56f5",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8610487,
+       36.9180226
+      ],
+      [
+       34.8607939,
+       36.917869
+      ],
+      [
+       34.8608622,
+       36.9177965
+      ],
+      [
+       34.861117,
+       36.9179501
+      ],
+      [
+       34.8610487,
+       36.9180226
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "5a6142a5-edeb-4cea-8aa2-7bfb1aff8330",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8619691,
+       36.918226
+      ],
+      [
+       34.8620479,
+       36.9181132
+      ],
+      [
+       34.8621573,
+       36.918162
+      ],
+      [
+       34.8620786,
+       36.9182748
+      ],
+      [
+       34.8619691,
+       36.918226
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "5d391ac4-59af-454a-b17e-0e62e14b9f6f",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8621197,
+       36.9192519
+      ],
+      [
+       34.8621214,
+       36.919284
+      ],
+      [
+       34.8620691,
+       36.9192857
+      ],
+      [
+       34.8620675,
+       36.9192536
+      ],
+      [
+       34.8621197,
+       36.9192519
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "6419ba75-4c8d-49ca-aa82-0c83c2f6f9de",
+   "name": "Hz. Mevlana Camii",
+   "height": null,
+   "num_floors": null,
+   "class": "mosque",
+   "subtype": "religious",
+   "sources": [
+    {
+     "property": "",
+     "dataset": "OpenStreetMap",
+     "license": "ODbL-1.0",
+     "record_id": "w989882117@3",
+     "update_time": "2026-01-09T13:04:24.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "osm",
+     "resource": "planet",
+     "version": "2026-08-02T00:00:00.000Z"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8636993,
+       36.9178834
+      ],
+      [
+       34.863535,
+       36.9178403
+      ],
+      [
+       34.8636089,
+       36.9176601
+      ],
+      [
+       34.8637733,
+       36.9177032
+      ],
+      [
+       34.8636993,
+       36.9178834
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "65f20527-983d-4dcc-89d4-6b92ed7b689e",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8642263,
+       36.9189498
+      ],
+      [
+       34.8643943,
+       36.9190583
+      ],
+      [
+       34.8642456,
+       36.9192056
+      ],
+      [
+       34.8640775,
+       36.9190972
+      ],
+      [
+       34.8642263,
+       36.9189498
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "6c00412d-3bc0-478e-81b4-3ac0e8938ded",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "OpenStreetMap",
+     "license": "ODbL-1.0",
+     "record_id": "w440736018@1",
+     "update_time": "2016-09-05T11:03:41.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "osm",
+     "resource": "planet",
+     "version": "2026-08-02T00:00:00.000Z"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8641783,
+       36.9169922
+      ],
+      [
+       34.8640494,
+       36.9169143
+      ],
+      [
+       34.8641261,
+       36.9168332
+      ],
+      [
+       34.864255,
+       36.916911
+      ],
+      [
+       34.8641783,
+       36.9169922
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "6cc33225-8ebb-49ab-be7e-2d93c5bc3292",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8633687,
+       36.9164825
+      ],
+      [
+       34.8634098,
+       36.9165081
+      ],
+      [
+       34.8633545,
+       36.916565
+      ],
+      [
+       34.8633134,
+       36.9165394
+      ],
+      [
+       34.8633687,
+       36.9164825
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "70d1d4d9-020c-4895-94f2-84ab3a411057",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8642212,
+       36.915722
+      ],
+      [
+       34.8641183,
+       36.915683
+      ],
+      [
+       34.8641909,
+       36.9155604
+      ],
+      [
+       34.8642939,
+       36.9155994
+      ],
+      [
+       34.8642212,
+       36.915722
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "72d43efe-47f7-46a7-ac36-fa8d4a9ab1bf",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8608318,
+       36.9174063
+      ],
+      [
+       34.8608933,
+       36.9174603
+      ],
+      [
+       34.8609453,
+       36.9174224
+      ],
+      [
+       34.8610059,
+       36.9174757
+      ],
+      [
+       34.8609172,
+       36.9175402
+      ],
+      [
+       34.8607952,
+       36.917433
+      ],
+      [
+       34.8608318,
+       36.9174063
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "7860e0c1-e3c8-49c6-8267-52758df72f86",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.864216,
+       36.9157877
+      ],
+      [
+       34.8642336,
+       36.9157526
+      ],
+      [
+       34.8643053,
+       36.9157755
+      ],
+      [
+       34.8642877,
+       36.9158106
+      ],
+      [
+       34.864216,
+       36.9157877
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "7ccd1754-c744-4c0d-87f2-d59e47b2604a",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8610784,
+       36.9178724
+      ],
+      [
+       34.8611318,
+       36.9178799
+      ],
+      [
+       34.8611245,
+       36.9179132
+      ],
+      [
+       34.861071,
+       36.9179056
+      ],
+      [
+       34.8610784,
+       36.9178724
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "7ff1aa5e-0a19-4ba0-bd0f-a06b1968c241",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8617648,
+       36.9184993
+      ],
+      [
+       34.8617353,
+       36.918487
+      ],
+      [
+       34.8617682,
+       36.9184364
+      ],
+      [
+       34.8618221,
+       36.9184588
+      ],
+      [
+       34.8617968,
+       36.9184976
+      ],
+      [
+       34.8618358,
+       36.9185139
+      ],
+      [
+       34.861804,
+       36.9185628
+      ],
+      [
+       34.8617406,
+       36.9185364
+      ],
+      [
+       34.8617648,
+       36.9184993
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "83e71445-1462-4766-87b4-4aee2d6604de",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8621267,
+       36.9160083
+      ],
+      [
+       34.8619218,
+       36.9159275
+      ],
+      [
+       34.8619867,
+       36.9158222
+      ],
+      [
+       34.8620902,
+       36.9158631
+      ],
+      [
+       34.862044,
+       36.915938
+      ],
+      [
+       34.8621454,
+       36.9159779
+      ],
+      [
+       34.8621267,
+       36.9160083
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "85ea1a16-e1f4-4f4d-a8ef-02100f45c613",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8617147,
+       36.9185317
+      ],
+      [
+       34.8617992,
+       36.9185668
+      ],
+      [
+       34.861745,
+       36.9186502
+      ],
+      [
+       34.8616605,
+       36.9186151
+      ],
+      [
+       34.8617147,
+       36.9185317
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "8b7a00b3-16c5-4a40-b287-7581c8ba9957",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8607591,
+       36.9180696
+      ],
+      [
+       34.8607877,
+       36.9180072
+      ],
+      [
+       34.8608952,
+       36.9180386
+      ],
+      [
+       34.8608666,
+       36.918101
+      ],
+      [
+       34.8607591,
+       36.9180696
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "90746474-06fe-426c-9e24-31e67e4d1562",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8606417,
+       36.9179559
+      ],
+      [
+       34.8606773,
+       36.917979
+      ],
+      [
+       34.8606524,
+       36.9180036
+      ],
+      [
+       34.860573,
+       36.9179522
+      ],
+      [
+       34.8606189,
+       36.9179068
+      ],
+      [
+       34.8606627,
+       36.9179352
+      ],
+      [
+       34.8606417,
+       36.9179559
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "908efe8a-b714-4f08-9780-aeca244cb05b",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8641067,
+       36.9171232
+      ],
+      [
+       34.8641754,
+       36.9171547
+      ],
+      [
+       34.8641545,
+       36.9171837
+      ],
+      [
+       34.8640859,
+       36.9171523
+      ],
+      [
+       34.8641067,
+       36.9171232
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "95232428-bc73-42da-a276-76365edf662a",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8617575,
+       36.9164449
+      ],
+      [
+       34.8616989,
+       36.9164244
+      ],
+      [
+       34.8617235,
+       36.9163794
+      ],
+      [
+       34.8617821,
+       36.9163999
+      ],
+      [
+       34.8617575,
+       36.9164449
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "9528880f-8a2e-4822-80b6-0045b1d75fe6",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "OpenStreetMap",
+     "license": "ODbL-1.0",
+     "record_id": "w440902356@1",
+     "update_time": "2016-09-06T07:14:15.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "osm",
+     "resource": "planet",
+     "version": "2026-08-02T00:00:00.000Z"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.859991,
+       36.9188905
+      ],
+      [
+       34.8598113,
+       36.9188543
+      ],
+      [
+       34.8598646,
+       36.9186852
+      ],
+      [
+       34.8600443,
+       36.9187213
+      ],
+      [
+       34.859991,
+       36.9188905
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "95805a3f-4a73-42dd-97e1-a9bc6cc29756",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8607235,
+       36.918087
+      ],
+      [
+       34.8607573,
+       36.9180563
+      ],
+      [
+       34.8608467,
+       36.918119
+      ],
+      [
+       34.860813,
+       36.9181497
+      ],
+      [
+       34.8607235,
+       36.918087
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "95cbaf45-de46-4fcf-b5f7-f2040e4beea5",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.861673,
+       36.9188282
+      ],
+      [
+       34.8617436,
+       36.9188588
+      ],
+      [
+       34.861711,
+       36.9189069
+      ],
+      [
+       34.8616405,
+       36.9188763
+      ],
+      [
+       34.861673,
+       36.9188282
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "96911b9a-5d5d-4b3f-b1c1-e419991e5cdf",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8621185,
+       36.9184774
+      ],
+      [
+       34.8620379,
+       36.9184452
+      ],
+      [
+       34.8620801,
+       36.9183775
+      ],
+      [
+       34.8621607,
+       36.9184096
+      ],
+      [
+       34.8621185,
+       36.9184774
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "97a53cfe-8cfd-4f69-979b-0dd8749c52ff",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8622315,
+       36.9170396
+      ],
+      [
+       34.8621162,
+       36.9169909
+      ],
+      [
+       34.8621599,
+       36.9169248
+      ],
+      [
+       34.8622752,
+       36.9169735
+      ],
+      [
+       34.8622315,
+       36.9170396
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "987ff656-9402-4f03-9990-98f89ce1da0a",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8614988,
+       36.9175025
+      ],
+      [
+       34.8612692,
+       36.9173844
+      ],
+      [
+       34.8613533,
+       36.9172797
+      ],
+      [
+       34.8615393,
+       36.9173753
+      ],
+      [
+       34.8614942,
+       36.9174315
+      ],
+      [
+       34.8615378,
+       36.9174539
+      ],
+      [
+       34.8614988,
+       36.9175025
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "9e9d377b-635b-48cd-986f-8124338d5cf2",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.861853,
+       36.9184847
+      ],
+      [
+       34.8618923,
+       36.9184997
+      ],
+      [
+       34.8618767,
+       36.9185259
+      ],
+      [
+       34.8618374,
+       36.9185109
+      ],
+      [
+       34.861853,
+       36.9184847
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "a014c207-653a-4bb4-b4d7-039f839dfd41",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8621979,
+       36.9168963
+      ],
+      [
+       34.8622536,
+       36.9169139
+      ],
+      [
+       34.8622407,
+       36.9169399
+      ],
+      [
+       34.8621851,
+       36.9169222
+      ],
+      [
+       34.8621979,
+       36.9168963
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "a06f5ac1-1a10-4e3c-b998-20a569557338",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8617835,
+       36.9174723
+      ],
+      [
+       34.861859,
+       36.9175042
+      ],
+      [
+       34.8618224,
+       36.9175595
+      ],
+      [
+       34.8617469,
+       36.9175276
+      ],
+      [
+       34.8617835,
+       36.9174723
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "a09c4ae7-716b-4032-89d7-fc067d0127f1",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8610601,
+       36.917597
+      ],
+      [
+       34.8609559,
+       36.9175512
+      ],
+      [
+       34.8610193,
+       36.917459
+      ],
+      [
+       34.8611235,
+       36.9175048
+      ],
+      [
+       34.8610601,
+       36.917597
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "a381f1d2-1f63-4d0a-ad5e-c300e281a53d",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8619795,
+       36.9169607
+      ],
+      [
+       34.8618798,
+       36.9169177
+      ],
+      [
+       34.8619257,
+       36.9168496
+      ],
+      [
+       34.8620255,
+       36.9168926
+      ],
+      [
+       34.8619795,
+       36.9169607
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "a3c138ab-4dca-46f6-a21e-970409222731",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8628102,
+       36.9185764
+      ],
+      [
+       34.8628529,
+       36.9185787
+      ],
+      [
+       34.8628479,
+       36.9186385
+      ],
+      [
+       34.8627197,
+       36.9186315
+      ],
+      [
+       34.862728,
+       36.9185334
+      ],
+      [
+       34.8628135,
+       36.918538
+      ],
+      [
+       34.8628102,
+       36.9185764
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "a637b08e-ec8a-491f-9773-7dd3b8b54a3f",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8622501,
+       36.9186189
+      ],
+      [
+       34.8622998,
+       36.9185527
+      ],
+      [
+       34.8623678,
+       36.9185853
+      ],
+      [
+       34.8623181,
+       36.9186515
+      ],
+      [
+       34.8622501,
+       36.9186189
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "a89762f7-e5b5-4b2c-9ff5-82fab610c329",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8616488,
+       36.9167683
+      ],
+      [
+       34.8615632,
+       36.916747
+      ],
+      [
+       34.8615939,
+       36.916668
+      ],
+      [
+       34.8616795,
+       36.9166893
+      ],
+      [
+       34.8616488,
+       36.9167683
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "a9024904-6041-4188-972e-e03450b57ec4",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.860022,
+       36.9182782
+      ],
+      [
+       34.8600741,
+       36.9182853
+      ],
+      [
+       34.8600683,
+       36.9183124
+      ],
+      [
+       34.8600162,
+       36.9183052
+      ],
+      [
+       34.860022,
+       36.9182782
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "aac47478-c181-46f8-8bdc-cfad91e3a9a2",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8607671,
+       36.9176037
+      ],
+      [
+       34.8608492,
+       36.9176559
+      ],
+      [
+       34.8607909,
+       36.9177145
+      ],
+      [
+       34.8607088,
+       36.9176623
+      ],
+      [
+       34.8607671,
+       36.9176037
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "ad9f35c2-8930-4110-9786-3f82cfe305d4",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8620412,
+       36.9164858
+      ],
+      [
+       34.8620866,
+       36.9165093
+      ],
+      [
+       34.8620365,
+       36.9165713
+      ],
+      [
+       34.8619911,
+       36.9165478
+      ],
+      [
+       34.8620412,
+       36.9164858
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "adc72b91-57cc-4de0-9e2b-992e1264f5ac",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8642169,
+       36.916985
+      ],
+      [
+       34.8642859,
+       36.9170315
+      ],
+      [
+       34.8642641,
+       36.9170521
+      ],
+      [
+       34.8641951,
+       36.9170056
+      ],
+      [
+       34.8642169,
+       36.916985
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "afbf9028-1fed-4090-9f8c-ba3afdd31013",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8614483,
+       36.9159289
+      ],
+      [
+       34.8614917,
+       36.9158524
+      ],
+      [
+       34.8616354,
+       36.9159046
+      ],
+      [
+       34.861592,
+       36.915981
+      ],
+      [
+       34.8614483,
+       36.9159289
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "b18adb31-0ae9-4e8e-820f-8d367e66b0f5",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.86171,
+       36.9169324
+      ],
+      [
+       34.8617482,
+       36.9168569
+      ],
+      [
+       34.8618611,
+       36.9168935
+      ],
+      [
+       34.8618228,
+       36.916969
+      ],
+      [
+       34.86171,
+       36.9169324
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "b2ab481c-f673-4826-a9bc-5067e329e8f5",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8613192,
+       36.9177972
+      ],
+      [
+       34.8613814,
+       36.9177235
+      ],
+      [
+       34.8615564,
+       36.917818
+      ],
+      [
+       34.8614942,
+       36.9178916
+      ],
+      [
+       34.8613192,
+       36.9177972
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "b35e4f0e-682c-4f92-bcda-0d1899097248",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8640402,
+       36.9157709
+      ],
+      [
+       34.8641348,
+       36.9158215
+      ],
+      [
+       34.8640592,
+       36.9159119
+      ],
+      [
+       34.8639646,
+       36.9158614
+      ],
+      [
+       34.8640402,
+       36.9157709
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "b38eb370-12e5-468e-b69a-e60691007ce8",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8601874,
+       36.9172306
+      ],
+      [
+       34.8602547,
+       36.917178
+      ],
+      [
+       34.8603298,
+       36.9172395
+      ],
+      [
+       34.8602625,
+       36.9172921
+      ],
+      [
+       34.8601874,
+       36.9172306
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "b59726e0-c528-45f4-90fa-fdb435bf070a",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8613349,
+       36.9184112
+      ],
+      [
+       34.8613446,
+       36.918415
+      ],
+      [
+       34.8613542,
+       36.9183995
+      ],
+      [
+       34.8614429,
+       36.9184342
+      ],
+      [
+       34.8613962,
+       36.9185103
+      ],
+      [
+       34.8612978,
+       36.9184717
+      ],
+      [
+       34.8613349,
+       36.9184112
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "b5abbe0e-90f8-4687-93f4-80c0002c8bbb",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8605086,
+       36.9168778
+      ],
+      [
+       34.8605542,
+       36.9169043
+      ],
+      [
+       34.8605325,
+       36.9169281
+      ],
+      [
+       34.8604869,
+       36.9169016
+      ],
+      [
+       34.8605086,
+       36.9168778
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "b663d66f-4453-45d7-ae1f-48a73ac14110",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8600992,
+       36.9174904
+      ],
+      [
+       34.8600689,
+       36.9174697
+      ],
+      [
+       34.8600941,
+       36.9174462
+      ],
+      [
+       34.8601244,
+       36.9174669
+      ],
+      [
+       34.8600992,
+       36.9174904
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "b93ce4b2-e3b2-44da-9d66-c348e2e1d69e",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.862667,
+       36.9178763
+      ],
+      [
+       34.8628032,
+       36.9179397
+      ],
+      [
+       34.862746,
+       36.9180182
+      ],
+      [
+       34.8626098,
+       36.9179547
+      ],
+      [
+       34.862667,
+       36.9178763
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "bb5e82e5-ecfb-4569-8590-770ed2daa4d7",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8622308,
+       36.9181062
+      ],
+      [
+       34.8622675,
+       36.9180321
+      ],
+      [
+       34.8623371,
+       36.9180541
+      ],
+      [
+       34.8623003,
+       36.9181283
+      ],
+      [
+       34.8622308,
+       36.9181062
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "bb77c434-97e1-4eb0-af11-1568471ceedb",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8614362,
+       36.915914
+      ],
+      [
+       34.8613466,
+       36.91586
+      ],
+      [
+       34.8613874,
+       36.9158168
+      ],
+      [
+       34.861477,
+       36.9158709
+      ],
+      [
+       34.8614362,
+       36.915914
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "bef1c7c5-f03f-463f-95d4-6dbe698658eb",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8601876,
+       36.917453
+      ],
+      [
+       34.8602801,
+       36.9173304
+      ],
+      [
+       34.8604374,
+       36.9174062
+      ],
+      [
+       34.8603449,
+       36.9175289
+      ],
+      [
+       34.8601876,
+       36.917453
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "c0851865-7d1e-4986-bd67-55aef87ff0d7",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8625129,
+       36.9181229
+      ],
+      [
+       34.8626623,
+       36.918179
+      ],
+      [
+       34.8626272,
+       36.9182387
+      ],
+      [
+       34.8624778,
+       36.9181826
+      ],
+      [
+       34.8625129,
+       36.9181229
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "c4185f11-195a-47ff-8c8a-80f6ce8f5958",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.862031,
+       36.918446
+      ],
+      [
+       34.8621133,
+       36.9184823
+      ],
+      [
+       34.8620873,
+       36.9185201
+      ],
+      [
+       34.8620049,
+       36.9184839
+      ],
+      [
+       34.862031,
+       36.918446
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "c49080af-3f0c-4883-bd21-36656d88f60e",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8618623,
+       36.9170213
+      ],
+      [
+       34.861931,
+       36.9170488
+      ],
+      [
+       34.8619116,
+       36.9170796
+      ],
+      [
+       34.861843,
+       36.9170522
+      ],
+      [
+       34.8618623,
+       36.9170213
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "c9b9fad7-8090-4e0e-bd4f-871aab75339d",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8643549,
+       36.9173374
+      ],
+      [
+       34.8641612,
+       36.9172315
+      ],
+      [
+       34.8642431,
+       36.9171357
+      ],
+      [
+       34.8644368,
+       36.9172417
+      ],
+      [
+       34.8643549,
+       36.9173374
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "cab923fe-6d4f-4c24-8c04-bc03f3f459d4",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8642858,
+       36.9159459
+      ],
+      [
+       34.8643812,
+       36.9159757
+      ],
+      [
+       34.8642979,
+       36.916146
+      ],
+      [
+       34.8642026,
+       36.9161162
+      ],
+      [
+       34.8642858,
+       36.9159459
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "cd6ee496-037b-4022-a342-e1e38fc06456",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "OpenStreetMap",
+     "license": "ODbL-1.0",
+     "record_id": "w440902355@1",
+     "update_time": "2016-09-06T07:14:15.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "osm",
+     "resource": "planet",
+     "version": "2026-08-02T00:00:00.000Z"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8601426,
+       36.9185891
+      ],
+      [
+       34.8599039,
+       36.9185419
+      ],
+      [
+       34.8599696,
+       36.9183299
+      ],
+      [
+       34.8602082,
+       36.9183772
+      ],
+      [
+       34.8601426,
+       36.9185891
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "cd90a297-4811-428e-9e95-3b5e354e1ef2",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "OpenStreetMap",
+     "license": "ODbL-1.0",
+     "record_id": "w440736017@1",
+     "update_time": "2016-09-05T11:03:41.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "osm",
+     "resource": "planet",
+     "version": "2026-08-02T00:00:00.000Z"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.863938,
+       36.9167693
+      ],
+      [
+       34.863774,
+       36.9166571
+      ],
+      [
+       34.8638562,
+       36.9165803
+      ],
+      [
+       34.8640202,
+       36.9166925
+      ],
+      [
+       34.863938,
+       36.9167693
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "cda7db34-350c-4038-b177-a989454b1cf7",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8612617,
+       36.9172071
+      ],
+      [
+       34.8613622,
+       36.9172645
+      ],
+      [
+       34.8612798,
+       36.9173569
+      ],
+      [
+       34.861117,
+       36.9172641
+      ],
+      [
+       34.8612065,
+       36.9171637
+      ],
+      [
+       34.8612688,
+       36.9171992
+      ],
+      [
+       34.8612617,
+       36.9172071
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "cefd33d4-5c3c-42b7-80ea-ac9272d6ad40",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8614642,
+       36.917127
+      ],
+      [
+       34.8612767,
+       36.9170319
+      ],
+      [
+       34.8613458,
+       36.9169447
+      ],
+      [
+       34.8614377,
+       36.9169913
+      ],
+      [
+       34.8614292,
+       36.917002
+      ],
+      [
+       34.8615248,
+       36.9170505
+      ],
+      [
+       34.8614642,
+       36.917127
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "d1b47fc5-22dc-4ef0-b555-f670a546d7a2",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.864314,
+       36.9161803
+      ],
+      [
+       34.8643591,
+       36.9161055
+      ],
+      [
+       34.8644788,
+       36.9161517
+      ],
+      [
+       34.8644336,
+       36.9162265
+      ],
+      [
+       34.864314,
+       36.9161803
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "d32a6969-d2d9-4f31-a45e-1db50499c22e",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8600935,
+       36.9174334
+      ],
+      [
+       34.860003,
+       36.9173898
+      ],
+      [
+       34.8600859,
+       36.9172796
+      ],
+      [
+       34.8601765,
+       36.9173232
+      ],
+      [
+       34.8600935,
+       36.9174334
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "d61a83d6-ef0e-46eb-abe5-fcdd11b601b8",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8619981,
+       36.9159897
+      ],
+      [
+       34.8621089,
+       36.9160303
+      ],
+      [
+       34.8620769,
+       36.916086
+      ],
+      [
+       34.8619661,
+       36.9160453
+      ],
+      [
+       34.8619981,
+       36.9159897
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "d7ceea4d-e1a1-4a50-a866-abf0f93efc91",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8606123,
+       36.9183179
+      ],
+      [
+       34.8605594,
+       36.9182982
+      ],
+      [
+       34.8605871,
+       36.9182506
+      ],
+      [
+       34.86064,
+       36.9182703
+      ],
+      [
+       34.8606123,
+       36.9183179
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "d99bb874-f845-45aa-b64c-1e2560c36d5d",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8609563,
+       36.9191899
+      ],
+      [
+       34.8609636,
+       36.9191589
+      ],
+      [
+       34.8610089,
+       36.9191657
+      ],
+      [
+       34.8610016,
+       36.9191968
+      ],
+      [
+       34.8609563,
+       36.9191899
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "da122264-2e0a-4416-b4d6-0cb12cf16434",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8618278,
+       36.9167789
+      ],
+      [
+       34.8618817,
+       36.9166866
+      ],
+      [
+       34.8619928,
+       36.916728
+      ],
+      [
+       34.8619605,
+       36.9167833
+      ],
+      [
+       34.8619375,
+       36.9167748
+      ],
+      [
+       34.8619159,
+       36.9168118
+      ],
+      [
+       34.8618278,
+       36.9167789
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "dae370cf-1496-4abe-80bd-1315e8464961",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8615919,
+       36.9184052
+      ],
+      [
+       34.8615574,
+       36.9183915
+      ],
+      [
+       34.8615819,
+       36.9183519
+      ],
+      [
+       34.8616164,
+       36.9183655
+      ],
+      [
+       34.8615919,
+       36.9184052
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "db298485-eb29-4914-87e7-7635dbe10648",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8635648,
+       36.9167071
+      ],
+      [
+       34.8635049,
+       36.9166664
+      ],
+      [
+       34.8635314,
+       36.9166415
+      ],
+      [
+       34.8635913,
+       36.9166822
+      ],
+      [
+       34.8635648,
+       36.9167071
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "dba7605d-9add-4345-995a-53290623acb0",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8606952,
+       36.9174902
+      ],
+      [
+       34.8607567,
+       36.9174373
+      ],
+      [
+       34.8608474,
+       36.9175046
+      ],
+      [
+       34.8607858,
+       36.9175575
+      ],
+      [
+       34.8606952,
+       36.9174902
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "e0137f27-e4ce-4a36-8d0f-8029f4f9de12",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8602909,
+       36.9177017
+      ],
+      [
+       34.860399,
+       36.9177418
+      ],
+      [
+       34.860357,
+       36.9178142
+      ],
+      [
+       34.8602489,
+       36.917774
+      ],
+      [
+       34.8602909,
+       36.9177017
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "e3584cbe-47c7-435b-8ca6-d8be9a8c67ee",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8624225,
+       36.9182366
+      ],
+      [
+       34.8624965,
+       36.9182663
+      ],
+      [
+       34.8624604,
+       36.9183238
+      ],
+      [
+       34.8623864,
+       36.9182941
+      ],
+      [
+       34.8624225,
+       36.9182366
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "e4c27885-9608-4647-b603-956aefc99e11",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8616774,
+       36.9173671
+      ],
+      [
+       34.861568,
+       36.9173292
+      ],
+      [
+       34.8616112,
+       36.9172498
+      ],
+      [
+       34.8616721,
+       36.917271
+      ],
+      [
+       34.861656,
+       36.9173006
+      ],
+      [
+       34.8617044,
+       36.9173174
+      ],
+      [
+       34.8616774,
+       36.9173671
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "e85d523f-007c-41ad-99d9-2a14530283f0",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8611442,
+       36.9176552
+      ],
+      [
+       34.8610538,
+       36.9176081
+      ],
+      [
+       34.8611207,
+       36.9175258
+      ],
+      [
+       34.8612112,
+       36.9175729
+      ],
+      [
+       34.8611442,
+       36.9176552
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "ea95f39d-a568-4bdc-b256-b20c40c7adaa",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8604631,
+       36.9168987
+      ],
+      [
+       34.8605167,
+       36.9169394
+      ],
+      [
+       34.8604698,
+       36.9169788
+      ],
+      [
+       34.8604163,
+       36.9169381
+      ],
+      [
+       34.8604631,
+       36.9168987
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "eb6b970f-73da-4564-ae0d-e05aa561495e",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "OpenStreetMap",
+     "license": "ODbL-1.0",
+     "record_id": "w440736022@1",
+     "update_time": "2016-09-05T11:03:41.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "osm",
+     "resource": "planet",
+     "version": "2026-08-02T00:00:00.000Z"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.863617,
+       36.9165207
+      ],
+      [
+       34.8634908,
+       36.91644
+      ],
+      [
+       34.8635507,
+       36.9163802
+      ],
+      [
+       34.8636769,
+       36.9164609
+      ],
+      [
+       34.863617,
+       36.9165207
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "ec316c56-55bf-4f5c-abc1-7e2570613295",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8630772,
+       36.9175783
+      ],
+      [
+       34.8629554,
+       36.9175335
+      ],
+      [
+       34.8630073,
+       36.9174432
+      ],
+      [
+       34.8631291,
+       36.9174879
+      ],
+      [
+       34.8630772,
+       36.9175783
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "ef6e0719-55cb-425f-8f4e-329cc423958a",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8598033,
+       36.917205
+      ],
+      [
+       34.8597759,
+       36.9171727
+      ],
+      [
+       34.8598254,
+       36.9171458
+      ],
+      [
+       34.8598529,
+       36.9171781
+      ],
+      [
+       34.8598033,
+       36.917205
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "f00cdc41-4bd4-4816-8788-d054c64b9784",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8597755,
+       36.9180041
+      ],
+      [
+       34.8598762,
+       36.9180399
+      ],
+      [
+       34.8598323,
+       36.9181187
+      ],
+      [
+       34.8597316,
+       36.9180828
+      ],
+      [
+       34.8597755,
+       36.9180041
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "f57d1f1e-8e5a-4f0b-9ac3-15d51647c969",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8614552,
+       36.9180736
+      ],
+      [
+       34.861591,
+       36.9181178
+      ],
+      [
+       34.861546,
+       36.9182061
+      ],
+      [
+       34.8614103,
+       36.9181619
+      ],
+      [
+       34.8614552,
+       36.9180736
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "f977cdd7-43e4-48ba-af14-5990b5af0037",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8630712,
+       36.9174228
+      ],
+      [
+       34.8630143,
+       36.917399
+      ],
+      [
+       34.8630478,
+       36.9173477
+      ],
+      [
+       34.8631047,
+       36.9173715
+      ],
+      [
+       34.8630712,
+       36.9174228
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "fb35b144-c8fb-443b-aadb-3380f2faa36d",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8641014,
+       36.9156759
+      ],
+      [
+       34.8641916,
+       36.915724
+      ],
+      [
+       34.8641279,
+       36.9158004
+      ],
+      [
+       34.8640376,
+       36.9157523
+      ],
+      [
+       34.8641014,
+       36.9156759
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "fe31a692-0e35-42a5-851e-56f1843bac15",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.861909,
+       36.9157262
+      ],
+      [
+       34.8619547,
+       36.9156931
+      ],
+      [
+       34.8619902,
+       36.9157244
+      ],
+      [
+       34.8619445,
+       36.9157575
+      ],
+      [
+       34.861909,
+       36.9157262
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "id": "ff6e7e5d-75fa-4359-afb4-235b173cd578",
+   "name": null,
+   "height": null,
+   "num_floors": null,
+   "class": null,
+   "subtype": null,
+   "sources": [
+    {
+     "property": "",
+     "dataset": "Microsoft ML Buildings",
+     "license": "ODbL-1.0",
+     "record_id": null,
+     "update_time": "2015-02-06T00:00:00.000Z",
+     "confidence": null,
+     "between": null,
+     "provider": "microsoft",
+     "resource": "ml_buildings",
+     "version": "2025-02-25"
+    }
+   ],
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       34.8614974,
+       36.9184588
+      ],
+      [
+       34.8615874,
+       36.9185018
+      ],
+      [
+       34.8615614,
+       36.9185366
+      ],
+      [
+       34.8614714,
+       36.9184936
+      ],
+      [
+       34.8614974,
+       36.9184588
+      ]
+     ]
+    ]
+   }
+  }
+ ],
+ "osmBuildings": [
+  {
+   "id": 440736017,
+   "type": "way",
+   "timestamp": "2016-09-05T11:03:41Z",
+   "version": 1,
+   "tags": {
+    "building": "yes"
+   },
+   "ring": [
+    [
+     34.863774,
+     36.9166571
+    ],
+    [
+     34.8638562,
+     36.9165803
+    ],
+    [
+     34.8640202,
+     36.9166925
+    ],
+    [
+     34.863938,
+     36.9167693
+    ],
+    [
+     34.863774,
+     36.9166571
+    ]
+   ]
+  },
+  {
+   "id": 440736018,
+   "type": "way",
+   "timestamp": "2016-09-05T11:03:41Z",
+   "version": 1,
+   "tags": {
+    "building": "yes"
+   },
+   "ring": [
+    [
+     34.8640494,
+     36.9169143
+    ],
+    [
+     34.8641261,
+     36.9168332
+    ],
+    [
+     34.864255,
+     36.916911
+    ],
+    [
+     34.8641783,
+     36.9169922
+    ],
+    [
+     34.8640494,
+     36.9169143
+    ]
+   ]
+  },
+  {
+   "id": 440736019,
+   "type": "way",
+   "timestamp": "2016-09-05T11:03:41Z",
+   "version": 1,
+   "tags": {
+    "building": "yes"
+   },
+   "ring": [
+    [
+     34.8639274,
+     36.9170463
+    ],
+    [
+     34.8640041,
+     36.9169652
+    ],
+    [
+     34.864133,
+     36.917043
+    ],
+    [
+     34.8640562,
+     36.9171242
+    ],
+    [
+     34.8639274,
+     36.9170463
+    ]
+   ]
+  },
+  {
+   "id": 440736020,
+   "type": "way",
+   "timestamp": "2016-09-05T11:03:41Z",
+   "version": 1,
+   "tags": {
+    "building": "yes"
+   },
+   "ring": [
+    [
+     34.8638121,
+     36.917175
+    ],
+    [
+     34.8638888,
+     36.9170939
+    ],
+    [
+     34.8640176,
+     36.9171717
+    ],
+    [
+     34.8639409,
+     36.9172529
+    ],
+    [
+     34.8638121,
+     36.917175
+    ]
+   ]
+  },
+  {
+   "id": 440736021,
+   "type": "way",
+   "timestamp": "2016-09-05T11:03:41Z",
+   "version": 1,
+   "tags": {
+    "building": "yes"
+   },
+   "ring": [
+    [
+     34.8633775,
+     36.9165703
+    ],
+    [
+     34.8634543,
+     36.9164891
+    ],
+    [
+     34.8635831,
+     36.916567
+    ],
+    [
+     34.8635064,
+     36.9166481
+    ],
+    [
+     34.8633775,
+     36.9165703
+    ]
+   ]
+  },
+  {
+   "id": 440736022,
+   "type": "way",
+   "timestamp": "2016-09-05T11:03:41Z",
+   "version": 1,
+   "tags": {
+    "building": "yes"
+   },
+   "ring": [
+    [
+     34.8634908,
+     36.91644
+    ],
+    [
+     34.8635507,
+     36.9163802
+    ],
+    [
+     34.8636769,
+     36.9164609
+    ],
+    [
+     34.863617,
+     36.9165207
+    ],
+    [
+     34.8634908,
+     36.91644
+    ]
+   ]
+  },
+  {
+   "id": 440736023,
+   "type": "way",
+   "timestamp": "2016-09-05T11:03:41Z",
+   "version": 1,
+   "tags": {
+    "building": "yes"
+   },
+   "ring": [
+    [
+     34.8636024,
+     36.91632
+    ],
+    [
+     34.8636819,
+     36.9162457
+    ],
+    [
+     34.8637927,
+     36.9163214
+    ],
+    [
+     34.8637132,
+     36.9163957
+    ],
+    [
+     34.8636024,
+     36.91632
+    ]
+   ]
+  },
+  {
+   "id": 440902355,
+   "type": "way",
+   "timestamp": "2016-09-06T07:14:15Z",
+   "version": 1,
+   "tags": {
+    "building": "yes"
+   },
+   "ring": [
+    [
+     34.8599039,
+     36.9185419
+    ],
+    [
+     34.8599696,
+     36.9183299
+    ],
+    [
+     34.8602082,
+     36.9183772
+    ],
+    [
+     34.8601426,
+     36.9185891
+    ],
+    [
+     34.8599039,
+     36.9185419
+    ]
+   ]
+  },
+  {
+   "id": 440902356,
+   "type": "way",
+   "timestamp": "2016-09-06T07:14:15Z",
+   "version": 1,
+   "tags": {
+    "building": "yes"
+   },
+   "ring": [
+    [
+     34.8598113,
+     36.9188543
+    ],
+    [
+     34.8598646,
+     36.9186852
+    ],
+    [
+     34.8600443,
+     36.9187213
+    ],
+    [
+     34.859991,
+     36.9188905
+    ],
+    [
+     34.8598113,
+     36.9188543
+    ]
+   ]
+  },
+  {
+   "id": 440902357,
+   "type": "way",
+   "timestamp": "2016-09-06T07:14:15Z",
+   "version": 1,
+   "tags": {
+    "building": "yes"
+   },
+   "ring": [
+    [
+     34.8600463,
+     36.9188899
+    ],
+    [
+     34.8600974,
+     36.9187218
+    ],
+    [
+     34.8603185,
+     36.9187647
+    ],
+    [
+     34.8602674,
+     36.9189328
+    ],
+    [
+     34.8600463,
+     36.9188899
+    ]
+   ]
+  },
+  {
+   "id": 989882117,
+   "type": "way",
+   "timestamp": "2026-01-09T13:04:24Z",
+   "version": 3,
+   "tags": {
+    "addr:city": "Mersin",
+    "addr:district": "Tarsus",
+    "addr:neighbourhood": "Bağlar",
+    "amenity": "place_of_worship",
+    "building": "mosque",
+    "denomination": "sunni",
+    "name": "Hz. Mevlana Camii",
+    "religion": "muslim"
+   },
+   "ring": [
+    [
+     34.863535,
+     36.9178403
+    ],
+    [
+     34.8636089,
+     36.9176601
+    ],
+    [
+     34.8637733,
+     36.9177032
+    ],
+    [
+     34.8636993,
+     36.9178834
+    ],
+    [
+     34.863535,
+     36.9178403
+    ]
+   ]
+  }
+ ]
+}

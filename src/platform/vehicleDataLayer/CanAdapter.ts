@@ -4,6 +4,11 @@ import type { CanAdapterData } from './types';
 import { dbgPushCanRaw, dbgUpdateCanExtras } from '../debug';
 import { useUnifiedVehicleStore } from './UnifiedVehicleStore';
 import { useHALStatusStore } from './halStatusStore';
+import { recordCanNativeProvenance } from './canNativeProvenance';
+/* ARCH-06/F1 — T0 sayaç + ilk araç gözlemi taşı. Native 80 ms coalescing
+   otoritesi DEĞİŞMEDİ; buraya ikinci bir JS throttle EKLENMEDİ. */
+import { bumpPerf } from '../perf/perfCounters';
+import { markBootMilestone } from '../bootTimingRecorder';
 
 // READ-ONLY: CAN bus'tan yalnızca veri okunur.
 // Araç sistemlerine hiçbir yazma veya kontrol komutu gönderilemez.
@@ -33,6 +38,8 @@ export interface ICanAdapter {
 export class CanAdapter implements ICanAdapter {
   private readonly _listeners = new Set<Callback>();
   private _unsub: (() => void) | null = null;
+  private _starting = false;
+  private _listenerGeneration = 0;
 
   // Pre-allocated data object — her CAN frame'de yeni nesne yaratmak yerine
   // mevcut nesne mutate edilir. GC baskısı 0.
@@ -47,24 +54,63 @@ export class CanAdapter implements ICanAdapter {
   private _retryCount          = 0;
 
   start(): void {
-    if (this._unsub) return;
+    if (this._unsub || this._starting) {
+      /* ARCH-04/F5: ikinci kayıt DENENDİ ve ENGELLENDİ — sessiz geçmez. */
+      this._note('DUPLICATE_REGISTRATION_BLOCKED', this._listenerGeneration);
+      return;
+    }
     if (!isNative) return;
+    this._starting = true;
+    const generation = ++this._listenerGeneration;
+    this._note('REGISTERED', generation);
 
     this._firstFrameReceived = false;
     this._retryCount         = 0;
     useHALStatusStore.getState().setCanPhase('ADAPTER_INIT');
 
+    let statusHandle: { remove: () => void } | null = null;
     CarLauncher.addListener('canStatus', (status) => {
+      if (generation !== this._listenerGeneration) {
+        /* Eski nesle ait geç bildirim — YAN ETKİ ÜRETMEZ. */
+        this._note('STALE_CALLBACK_REJECTED', generation);
+        return;
+      }
+      this._note('STATUS', generation, status.connected ? status.mode : 'none',
+        status.connected ? 'NONE' : 'TRANSPORT_ABSENT');
       console.info('[CAN]', status.mode, status.port, status.connected ? '✓' : '✗');
+    }).then((handle) => {
+      if (!this._starting || generation !== this._listenerGeneration) {
+        this._note('LATE_HANDLE_DISPOSED', generation);
+        handle.remove(); return;
+      }
+      statusHandle = handle;
     }).catch(() => {});
 
     CarLauncher.addListener('canData', (raw) => {
+      /* ARCH-04/F5 NESİL KAPISI: eski nesle ait geç çerçeve araç gerçeğine
+         YAZAMAZ. Bu kapı `stop()` ile `handle.remove()` arasındaki yarışı
+         kapatır — dinleyici kaldırılmadan önce gelen çağrı da reddedilir. */
+      if (generation !== this._listenerGeneration) {
+        this._note('STALE_CALLBACK_REJECTED', generation);
+        return;
+      }
+      /* ARCH-06/F1: JS'e ULAŞAN olay sayısı. Native tarafta bundan ÖNCE
+         coalescing + dedup uygulanmıştır (CarLauncherPlugin 80 ms penceresi),
+         dolayısıyla bu sayaç "ham CAN frame hızı" DEĞİL, "köprüden geçen olay
+         hızı"dır. İkisi karıştırılmamalıdır. */
+      bumpPerf('bridge.canData.received');
+
       // İlk frame geldi — timeout timer'ı iptal et
       if (!this._firstFrameReceived) {
         this._firstFrameReceived = true;
         this._clearTimers();
         this._retryCount = 0;
         useHALStatusStore.getState().setCanPhase('CONNECTED', 0);
+        this._note('FIRST_FRAME', generation);
+        /* ARCH-06/F1 · VEHICLE_DATA_FIRST_OBSERVATION — araçtan ÖLÇÜLMÜŞ ilk
+           sinyal. `VEHICLE_CORE_INITIALIZED` (alt yapı kuruldu) ile KARIŞTIRILMAZ:
+           araç bağlı değilse bu taş ASLA düşmez ve bu DÜRÜST sonuçtur. */
+        markBootMilestone('VEHICLE_DATA_FIRST_OBSERVATION', 'CanAdapter:firstFrame');
       }
 
       // ── Temel sürüş ──────────────────────────────────────────────────────
@@ -126,8 +172,13 @@ export class CanAdapter implements ICanAdapter {
         tpms:         this._data.tpms,
       });
     }).then((handle) => {
-      this._unsub = () => { handle.remove(); };
-    });
+      if (!this._starting || generation !== this._listenerGeneration) {
+        this._note('LATE_HANDLE_DISPOSED', generation);
+        handle.remove(); statusHandle?.remove(); return;
+      }
+      this._starting = false;
+      this._unsub = () => { try { handle.remove(); } finally { statusHandle?.remove(); } };
+    }).catch(() => { this._starting = false; statusHandle?.remove(); });
 
     CarLauncher.startCanBus?.();
 
@@ -138,6 +189,9 @@ export class CanAdapter implements ICanAdapter {
 
   stop(): void {
     this._clearTimers();
+    this._starting = false;
+    this._listenerGeneration += 1;
+    this._note('DISPOSED', this._listenerGeneration);
     this._firstFrameReceived = false;
     this._retryCount         = 0;
     this._unsub?.();
@@ -156,6 +210,30 @@ export class CanAdapter implements ICanAdapter {
   onData(cb: Callback): () => void {
     this._listeners.add(cb);
     return () => this._listeners.delete(cb);
+  }
+
+  /**
+   * ARCH-04/F5 — native SINIR kanıdı. Salt-okunur defterdir: hiçbir CAN
+   * kararına, hiçbir araç gerçeğine geri beslenmez ve ASLA throw etmez.
+   * Köprü burada ANLAM ÜRETMEZ; yalnız nesil/kaynak/sınıf taşınır.
+   */
+  private _note(
+    eventClass: Parameters<typeof recordCanNativeProvenance>[0]['eventClass'],
+    generation: number | null,
+    busContext: string | null = null,
+    dropErrorClass: Parameters<typeof recordCanNativeProvenance>[0]['dropErrorClass'] = 'NONE',
+  ): void {
+    try {
+      recordCanNativeProvenance({
+        sourceRef: 'CanAdapter',
+        eventClass,
+        listenerGeneration: generation,
+        currentGeneration: this._listenerGeneration,
+        busContext,
+        dropErrorClass,
+        nativeAvailable: isNative ? typeof CarLauncher.startCanBus === 'function' : false,
+      });
+    } catch { /* kanıt kaybı taşımayı bozmaz */ }
   }
 
   // ── First-frame timeout machinery ─────────────────────────────────────────
@@ -187,6 +265,7 @@ export class CanAdapter implements ICanAdapter {
 
     this._retryCount++;
     useHALStatusStore.getState().setCanPhase('NO_FRAME_TIMEOUT', this._retryCount);
+    this._note('STATUS', this._listenerGeneration, null, 'NO_FRAME_TIMEOUT');
 
     if (this._retryCount < MAX_RETRIES) {
       // CanBusManager zaten arkaplanda port taramasını sürdürüyor.

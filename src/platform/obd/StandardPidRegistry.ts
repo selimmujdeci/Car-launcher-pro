@@ -48,12 +48,35 @@ const pct = (b: number[]) => A(b) / 2.55;              // A×100/255
 const trim = (b: number[]) => A(b) / 1.28 - 100;       // A/1.28 − 100
 const temp = (b: number[]) => A(b) - 40;               // A − 40
 const lambda = (b: number[]) => (AB(b) * 2) / 65536;   // 2AB/65536
+/**
+ * PID 0x34-0x3B, C-D baytları: sensör AKIMI = (256C+D)/256 − 128  [mA]  (J1979 Tablo B.1).
+ * NEDEN AYRI PID AİLESİ: 0x24-0x2B ile 0x34-0x3B AYNI sensörü okur ama İKİNCİ ÇİFTİ farklıdır —
+ * 0x24 ailesi lambda+VOLTAJ, 0x34 ailesi lambda+AKIM taşır. Araç ikisini de destekleyebilir ve
+ * teşhis uygulamaları ikisini AYRI satır sayar. Lambda 0x24 ailesinde zaten sunulduğu için
+ * burada YENİ BİLGİ olan akım çözülür — aynı sayıyı iki isimle göstermek tekrar olurdu.
+ */
+const o2Current = (b: number[]) => (b[2]! * 256 + b[3]!) / 256 - 128;
+/** Bir bayttaki set bit sayısı — PID 41 monitör hazırlık sayımı için. */
+const popcount = (x: number) => {
+  let n = 0, v = x & 0xFF;
+  while (v) { n += v & 1; v >>= 1; }
+  return n;
+};
 
 /* ── Tablo ──────────────────────────────────────────────────────────────── */
 // NOT: sıra PID numarasına göre; her kayıt tam şekilli (hidden-class kararlılığı için
 // opsiyonel 'core' alanı bile her kayıtta açıkça yazılmadı — TS derleyicisi şekli sabitler,
 // runtime'da Map'e normalize edilir).
 const DEFS: StandardPidDef[] = [
+  /* SAHA TARAMASI 2026-08-04 (cihaz `4L45OFZDX84X55GE`, ECU `18DAF110`, 29-bit CAN):
+     bitmap `0100=983B0011` bu iki PID'i DESTEKLİ bildirdi ve ikisi de gerçek veri
+     döndürdü — ama katalogda YOKLARDI, dolayısıyla LAB Canlı Veri'de hiç görünmüyorlardı.
+       · `01` ham `00068000` → A=0x00 → MIL KAPALI, DTC sayısı 0
+       · `1C` ham `06`       → 6 = EOBD (Avrupa)
+     `01` bir BİT ALANIDIR; bu katalog tek sayı döndürdüğü için ondan yalnız
+     KARAR DEĞERİ olan "arıza kodu sayısı" (A & 0x7F) çıkarılır — MIL bayrağı ayrı
+     bir sayıya sıkıştırılıp UYDURULMAZ. */
+  { pid: '01', name: 'Arıza kodu sayısı (MIL)',      unit: '',     bytes: 4, min: 0,    max: 127,   category: 'emisyon',  decode: (b) => b[0]! & 0x7F },
   { pid: '04', name: 'Hesaplanan motor yükü',        unit: '%',    bytes: 1, min: 0,    max: 100,   category: 'motor',    decode: pct },
   { pid: '05', name: 'Soğutma sıvısı sıcaklığı',     unit: '°C',   bytes: 1, min: -40,  max: 215,   category: 'sicaklik', core: true, decode: temp },
   { pid: '06', name: 'Kısa dönem yakıt trim (B1)',   unit: '%',    bytes: 1, min: -100, max: 99.2,  category: 'yakit',    decode: trim },
@@ -76,6 +99,7 @@ const DEFS: StandardPidDef[] = [
   { pid: '19', name: 'O2 sensör voltajı (B2S2)',     unit: 'V',    bytes: 2, min: 0,    max: 1.275, category: 'o2',       decode: (b) => A(b) / 200 },
   { pid: '1A', name: 'O2 sensör voltajı (B2S3)',     unit: 'V',    bytes: 2, min: 0,    max: 1.275, category: 'o2',       decode: (b) => A(b) / 200 },
   { pid: '1B', name: 'O2 sensör voltajı (B2S4)',     unit: 'V',    bytes: 2, min: 0,    max: 1.275, category: 'o2',       decode: (b) => A(b) / 200 },
+  { pid: '1C', name: 'OBD standardı (kod)',          unit: '',     bytes: 1, min: 1,    max: 255,   category: 'emisyon',  decode: A },
   { pid: '1F', name: 'Motor çalışma süresi',         unit: 's',    bytes: 2, min: 0,    max: 65535, category: 'motor',    decode: AB },
   { pid: '21', name: 'MIL yanarken kat edilen yol',  unit: 'km',   bytes: 2, min: 0,    max: 65535, category: 'mesafe',   decode: AB },
   { pid: '22', name: 'Yakıt ray basıncı (manifold göreli)', unit: 'kPa', bytes: 2, min: 0, max: 5177.27, category: 'basinc', decode: (b) => AB(b) * 0.079 },
@@ -104,6 +128,13 @@ const DEFS: StandardPidDef[] = [
   { pid: '3D', name: 'Katalizör sıcaklığı (B2S1)',   unit: '°C',   bytes: 2, min: -40,  max: 6513.5, category: 'sicaklik', decode: (b) => AB(b) / 10 - 40 },
   { pid: '3E', name: 'Katalizör sıcaklığı (B1S2)',   unit: '°C',   bytes: 2, min: -40,  max: 6513.5, category: 'sicaklik', decode: (b) => AB(b) / 10 - 40 },
   { pid: '3F', name: 'Katalizör sıcaklığı (B2S2)',   unit: '°C',   bytes: 2, min: -40,  max: 6513.5, category: 'sicaklik', decode: (b) => AB(b) / 10 - 40 },
+  /* Saha 2026-08-04: bitmap `0140=80C00000` PID 41'i destekli bildirdi, ham `00068080`
+     geldi — ama katalogda yoktu. 41 bir BİT ALANIDIR (SAE J1979 §B.1: A=ayrılmış,
+     B bit4-6 = incomplete, C = destekli monitörler, D = tamamlanmamış monitörler).
+     Tek sayıya indirgerken UYDURMA yapılmaz; çıkarılan değer muayene öncesi
+     gerçekten KARAR veren sayıdır: hem destekli hem tamamlanmamış monitör adedi.
+     Ölçülen ham veride: B&0x70=0 · C&D=0x80 → 1 hazır olmayan monitör. */
+  { pid: '41', name: 'Hazır olmayan monitör sayısı', unit: '',     bytes: 4, min: 0,    max: 11,    category: 'emisyon',  decode: (b) => popcount(b[1]! & 0x70) + popcount(b[2]! & b[3]!) },
   { pid: '42', name: 'Kontrol ünitesi voltajı',      unit: 'V',    bytes: 2, min: 0,    max: 65.535, category: 'elektrik', decode: (b) => AB(b) / 1000 },
   { pid: '43', name: 'Mutlak motor yükü',            unit: '%',    bytes: 2, min: 0,    max: 25700, category: 'motor',    decode: (b) => AB(b) / 2.55 },
   { pid: '44', name: 'Komutlanan hava-yakıt oranı',  unit: 'λ',    bytes: 2, min: 0,    max: 2,     category: 'yakit',    decode: lambda },
@@ -150,6 +181,54 @@ const DEFS: StandardPidDef[] = [
   { pid: '7C', name: 'DPF sıcaklığı (Banka 1)',        unit: '°C',   bytes: 3, min: -40,  max: 6513.5, category: 'sicaklik', decode: (b) => (b[1]! * 256 + b[2]!) / 10 - 40 },
   { pid: '83', name: 'NOx konsantrasyonu (Sensör 1)', unit: 'ppm',  bytes: 3, min: 0,    max: 65535,  category: 'emisyon',  decode: (b) => b[1]! * 256 + b[2]! },
   { pid: '8E', name: 'Motor sürtünme torku',          unit: '%',    bytes: 1, min: -125, max: 130,    category: 'tork',     decode: (b) => A(b) - 125 },
+
+  /* ══════════════════════════════════════════════════════════════════════
+   * KAPSAM v3 (2026-08-21) — SAHA KARŞILAŞTIRMASINDAN DOĞDU
+   *
+   * Gerçek araçta (Renault, benzinli) üçüncü-taraf bir teşhis uygulamasıyla yan yana
+   * bakıldı: o uygulama 36 standart PID okurken bu panel 28 gösteriyordu. Denetim,
+   * farkın bir okuma/decode kusuru DEĞİL, TANIM YOKLUĞU olduğunu ölçtü — aşağıdaki
+   * PID'ler kayıtta hiç bulunmadığı için ekranda "YOK" bile yazmıyor, SATIR OLARAK
+   * mevcut değillerdi. Kütük #681.
+   *
+   * KAYNAK DEĞİŞMEDİ: yalnız SAE J1979 Tablo B.1 formülleri. Üçüncü-taraf uygulamadan
+   * liste veya formül ALINMADI — karşılaştırma yalnız EKSİĞİ GÖRÜNÜR kıldı, içeriği
+   * kamu standardından yazıldı (CLAUDE.md ticari lisans kuralı).
+   *
+   * BİLİNÇLİ OLARAK HÂLÂ DIŞARIDA: 0x03/0x12/0x13/0x1D/0x1E/0x5F/0x65 gibi BİT/ENUM
+   * durum PID'leri. Bu kaydın sözleşmesi "ham baytlar → FİZİKSEL SAYI"dır; bir bitmask'i
+   * sayıya çevirip birim vermek uydurma olurdu. Onların yeri StandardPidEnums'tır ve
+   * Canlı Test'e taşınmaları AYRI bir iştir (kütük #681'de açık borç).
+   * ════════════════════════════════════════════════════════════════════ */
+
+  // 0x34-0x3B — lambda + AKIM ailesi (0x24-0x2B lambda + VOLTAJ ailesinin eşi).
+  { pid: '34', name: 'O2 sensör akımı (S1)',          unit: 'mA',   bytes: 4, min: -128, max: 128,    category: 'o2',       decode: o2Current },
+  { pid: '35', name: 'O2 sensör akımı (S2)',          unit: 'mA',   bytes: 4, min: -128, max: 128,    category: 'o2',       decode: o2Current },
+  { pid: '36', name: 'O2 sensör akımı (S3)',          unit: 'mA',   bytes: 4, min: -128, max: 128,    category: 'o2',       decode: o2Current },
+  { pid: '37', name: 'O2 sensör akımı (S4)',          unit: 'mA',   bytes: 4, min: -128, max: 128,    category: 'o2',       decode: o2Current },
+  { pid: '38', name: 'O2 sensör akımı (S5)',          unit: 'mA',   bytes: 4, min: -128, max: 128,    category: 'o2',       decode: o2Current },
+  { pid: '39', name: 'O2 sensör akımı (S6)',          unit: 'mA',   bytes: 4, min: -128, max: 128,    category: 'o2',       decode: o2Current },
+  { pid: '3A', name: 'O2 sensör akımı (S7)',          unit: 'mA',   bytes: 4, min: -128, max: 128,    category: 'o2',       decode: o2Current },
+  { pid: '3B', name: 'O2 sensör akımı (S8)',          unit: 'mA',   bytes: 4, min: -128, max: 128,    category: 'o2',       decode: o2Current },
+
+  // 0x4F — A=maks lambda, B=maks O2 voltajı, C=maks O2 akımı, D=maks MAP. Tek sayı
+  // sözleşmesi gereği A sunulur; diğer üç tavan ayrı satır istiyorsa AYRI PID gerekir.
+  { pid: '4F', name: 'Maksimum lambda değeri',        unit: 'λ',    bytes: 4, min: 0,    max: 255,    category: 'o2',       decode: A },
+
+  // 0x51 — yakıt tipi KODU (J1979 Tablo B.2: 1=benzin, 4=dizel, 8=elektrik…).
+  // Birimsiz sayıdır; kodu ada çeviren eşleme sunum katmanının işidir, burada YAPILMAZ.
+  { pid: '51', name: 'Yakıt tipi (kod)',              unit: '',     bytes: 1, min: 0,    max: 23,     category: 'yakit',    decode: A },
+
+  // 0x64 — 5 baytın tamamı yüzde tork: A=rölanti, B-E=motor noktaları. A sunulur.
+  { pid: '64', name: 'Motor yüzde tork (rölanti)',    unit: '%',    bytes: 5, min: -125, max: 130,    category: 'tork',     decode: (b) => A(b) - 125 },
+
+  /* 0x66-0x6A: İLK bayt "veri destek" bitmask'idir, ölçüm B'den başlar — 0x6B/0x78
+     ile AYNI desen (bkz. v2 notu). Yalnız 1. sensör/kanal çözülür. */
+  { pid: '66', name: 'MAF sensör A',                  unit: 'g/s',  bytes: 5, min: 0,    max: 2047.96, category: 'motor',   decode: (b) => (b[1]! * 256 + b[2]!) / 32 },
+  { pid: '67', name: 'Soğutma sıvısı sıcaklığı (S1)', unit: '°C',   bytes: 3, min: -40,  max: 215,    category: 'sicaklik', decode: (b) => b[1]! - 40 },
+  { pid: '68', name: 'Emme havası sıcaklığı (S1)',    unit: '°C',   bytes: 7, min: -40,  max: 215,    category: 'sicaklik', decode: (b) => b[1]! - 40 },
+  { pid: '69', name: 'Komutlanan EGR (A)',            unit: '%',    bytes: 7, min: 0,    max: 100,    category: 'emisyon',  decode: (b) => b[1]! / 2.55 },
+  { pid: '6A', name: 'Komutlanan dizel hava akışı (A)', unit: '%',  bytes: 5, min: 0,    max: 100,    category: 'emisyon',  decode: (b) => b[1]! / 2.55 },
 ];
 
 /** PID ('04') → tanım. Büyük-harf 2 hane hex anahtar. */

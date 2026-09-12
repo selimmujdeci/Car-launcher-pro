@@ -33,6 +33,15 @@ export interface ObdPollProfile {
 /** Weak head unit eşiği: RuntimeMode obdPollingMs bu değerin üstündeyse moda uyulur. */
 export const WEAK_MODE_THRESHOLD_MS = 5_000;
 
+/**
+ * ZAYIF MODDA BİLE FAST-grup (yalnız RPM/hız — 2 ucuz PID) tavanı (ms). SAHA 2026-07-19:
+ * weak modda fastMs=modePollingMs (5s+) yapılıyordu → RPM/hız göstergesi 5-8s'de bir
+ * güncelleniyordu ("yine geç geliyor"). RPM/hız çekirdek gösterge; 2 PID'i ~1.5s'de pollamak
+ * en zayıf cihazda bile ucuz. AĞIR PID'ler (extended round-robin) yine yavaş kalır — bu
+ * yalnız FAST grubu etkiler, weak modun yük azaltma amacını bozmaz.
+ */
+export const WEAK_FAST_FLOOR_MS = 1_500;
+
 /** Cihaz sınıfına göre FAST grup taban periyodu (ms). */
 const TIER_FAST_MS: Record<DeviceTier, number> = {
   high: 250,   // 4 Hz — modern head unit, BT bant genişliği bol
@@ -59,7 +68,9 @@ export function computeObdPollProfile(tier: DeviceTier, modePollingMs: number): 
     return { fastMs: 3_000, uiHz: TIER_UI_HZ[tier] };
   }
   if (modePollingMs >= WEAK_MODE_THRESHOLD_MS) {
-    return { fastMs: modePollingMs, uiHz: 1 };
+    // Weak modda AĞIR poll seyrektir AMA RPM/hız (FAST grup) taban hızında kalır →
+    // gösterge yine akıcı. uiHz de tabanla uyumlu (~1.5s = ~0.7Hz yerine min 1Hz yuvarlanır).
+    return { fastMs: Math.min(modePollingMs, WEAK_FAST_FLOOR_MS), uiHz: 1 };
   }
   return { fastMs: TIER_FAST_MS[tier], uiHz: TIER_UI_HZ[tier] };
 }

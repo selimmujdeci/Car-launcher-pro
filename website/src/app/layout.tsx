@@ -1,8 +1,9 @@
 import type { Metadata, Viewport } from 'next';
-import { Inter, JetBrains_Mono } from 'next/font/google';
+import { Inter, JetBrains_Mono, Fraunces } from 'next/font/google';
 import './globals.css';
 import PWARegistration from '@/components/layout/PWARegistration';
 import { AuthRecoveryHandler } from '@/components/auth/AuthRecoveryHandler';
+import { CONSOLE_THEME_BOOT_SCRIPT } from '@/lib/console/consoleTheme';
 
 const inter = Inter({
   subsets: ['latin'],
@@ -11,9 +12,18 @@ const inter = Inter({
 });
 const jetbrainsMono = JetBrains_Mono({
   subsets: ['latin'],
-  weight: ['400', '500'],
+  weight: ['400', '500', '600', '700'],
   display: 'swap',
   variable: '--font-mono',
+});
+/* KANIT KONSOLU başlık/marka/plaka yüzü — serif ağırlık, enstrüman paneli
+   kimliği. Yalnız konsol yüzeylerinde kullanılır; pazarlama sayfaları Inter
+   ile kalır (mevcut kimlik DEĞİŞMEZ). */
+const fraunces = Fraunces({
+  subsets: ['latin'],
+  weight: ['500', '600', '700'],
+  display: 'swap',
+  variable: '--font-display',
 });
 
 // İlk boyamadan önce temayı uygula → flash yok. Varsayılan koyu (marka kimliği).
@@ -21,6 +31,10 @@ const jetbrainsMono = JetBrains_Mono({
 // çubuğu tema ile uyumlu (iOS Safari 15+, Android Chrome). Tek kaynak: bu script.
 const THEME_BG = { dark: '#060d1a', light: '#f6f8fb' };
 const themeScript = `(function(){try{var t=localStorage.getItem('caros-theme');if(t!=='light'&&t!=='dark'){t='dark';}var d=document.documentElement;d.setAttribute('data-theme',t);var c=t==='light'?'${THEME_BG.light}':'${THEME_BG.dark}';var m=document.querySelector('meta[name="theme-color"]');if(!m){m=document.createElement('meta');m.setAttribute('name','theme-color');document.head.appendChild(m);}m.setAttribute('content',c);}catch(e){document.documentElement.setAttribute('data-theme','dark');}})();`;
+
+/* KANIT KONSOLU teması — ilk boyamadan ÖNCE `<html data-console>` basılır.
+   Effect'te uygulanırsa gündüz tercihinde bir kare siyah flaşlar (#663). */
+const consoleThemeScript = CONSOLE_THEME_BOOT_SCRIPT;
 
 export const metadata: Metadata = {
   title: 'Caros Pro — Araç İçi Yazılım Platformu',
@@ -56,11 +70,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       lang="tr"
       data-theme="dark"
       translate="no"
-      className={`${inter.variable} ${jetbrainsMono.variable}`}
+      className={`${inter.variable} ${jetbrainsMono.variable} ${fraunces.variable}`}
       suppressHydrationWarning
     >
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+        <script dangerouslySetInnerHTML={{ __html: consoleThemeScript }} />
       </head>
       <body className="bg-bg text-ink antialiased">
         <PWARegistration />

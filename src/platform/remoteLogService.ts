@@ -37,6 +37,7 @@ import { healthMonitor }     from './system/SystemHealthMonitor';
 import { getOBDStatusSnapshot } from './obdService';
 import { useOtaStore, getCurrentVersionCode } from './otaUpdateService';
 import { safeGetRaw, safeSetRaw, safeRemoveRaw } from '../utils/safeStorage';
+import { maskVinStrict }     from './privacy/vinMask';
 import { getCapabilities, getDeviceTier } from './deviceCapabilities';
 import { getUiActivitySnapshot } from './uiActivityRecorder';
 import { getDiagnosticTrail } from './diagnosticTrail';
@@ -47,7 +48,14 @@ import {
   buildPowerSnapshot, buildFusionSnapshot, buildBootTimingSnapshot, buildTransportSnapshot,
   buildPlatformRuntimeSnapshot,
 } from './diagnosticSections';
-import { buildTriageSnapshot, type TriageSections } from './diagnosticTriage';
+// PR-OBD-DIAG-3: native extended poll kanıtı async — buildObdDeepSnapshot senkron okumadan
+// önce tazelenir (fail-soft: eski APK / hata → kanıt yok).
+import { refreshExtendedPollEvidence } from './obd/extendedPollEvidence';
+import { refreshKwpRecoveryEvidence } from './obd/kwpRecoveryEvidence';
+// PR-DIAG-3: MAVİ ses/TAKEOVER kanıt bölümü — DIAG-1/DIAG-2 verisini SERİLEŞTİRİR (karar vermez).
+import { collectMaviEvidenceSection } from './maviCore/wiring/maviEvidenceSection';
+import { buildTriageSnapshot, buildRootCauseSnapshot, buildDiagnosticVerdict, type TriageSections, type ErrorLedgerLike } from './diagnosticTriage';
+import { buildErrorLedger, type RawErrorLike } from './errorLedger';
 import { useVidStore } from '../store/useVidStore';
 import {
   beginDelivery, getDelivery, deriveReportId, isTerminal, SERVER_MAX_BYTES,
@@ -99,6 +107,11 @@ const BOOT_ID: string = (() => {
   try { return crypto.randomUUID().slice(0, 8); }
   catch { return Math.random().toString(36).slice(2, 10); }
 })();
+
+/** Bu oturumun (app boot) başlangıç zamanı — errorLedger'da eski/yeni sınırı
+ *  (PR-2). Modül erken boot'ta yüklendiği için app oturumu başlangıcına yakındır;
+ *  lastErrors KALICI ring olduğundan bundan ÖNCEKİ ts'ler önceki boot'tandır. */
+const SESSION_START_MS: number = Date.now();
 
 /* ── Sanitize katmanı ───────────────────────────────────────── */
 
@@ -400,6 +413,31 @@ function _attachTriage(payload: Record<string, unknown>): void {
   try {
     payload.triage = buildTriageSnapshot(payload as TriageSections);
   } catch { /* triyaj asla ana raporu bozmaz */ }
+  // V2 (Root Cause Engine, PR-1) — AYRI fail-soft: rootCause patlasa bile
+  // ne ana rapor ne de klasik triage etkilenir (bağımsız geçiş).
+  try {
+    payload.rootCause = buildRootCauseSnapshot(payload as TriageSections);
+  } catch { /* kök-neden bloğu asla ana raporu/triyajı bozmaz */ }
+  // V2 (PR-2) — ESKİ/YENİ hata ayrımı: lastErrors (+ lastCritical) → dedup defter.
+  // Ayrı fail-soft geçiş; kalıcı ring'teki önceki-boot hataları activeNow:false olur.
+  try {
+    const raw: RawErrorLike[] = [];
+    if (Array.isArray(payload.lastErrors)) raw.push(...(payload.lastErrors as RawErrorLike[]));
+    if (payload.lastCritical && typeof payload.lastCritical === 'object') {
+      raw.push(payload.lastCritical as RawErrorLike);
+    }
+    payload.errorLedger = buildErrorLedger(raw, {
+      nowMs: Date.now(), sessionStartMs: SESSION_START_MS, bootId: BOOT_ID,
+    });
+  } catch { /* defter bloğu asla ana raporu/triyajı bozmaz */ }
+  // V2 (PR-7) — BİRLEŞİK VERDİKT: rootCause + inconclusive + errorLedger old/new →
+  // tek bakılacak nesne. Ayrı fail-soft geçiş; errorLedger yoksa da çalışır.
+  try {
+    payload.diagnosticVerdict = buildDiagnosticVerdict(
+      payload as TriageSections,
+      (payload.errorLedger as ErrorLedgerLike | undefined) ?? null,
+    );
+  } catch { /* verdict bloğu asla ana raporu/triyajı bozmaz */ }
 }
 
 /* ── VID aynası (vidMirror) — EXPLICIT ALLOWLIST ─────────────────────
@@ -416,11 +454,10 @@ function _attachTriage(payload: Record<string, unknown>): void {
 
 /** VIN'i maskeler: yalnız WMI (ilk 3 — marka/bölge, kişi-tanımlayıcı değil)
  *  açık kalır; benzersiz seri (VDS/VIS) '*' ile gizlenir. Çıktı '*' içerdiği
- *  için 17-karakter VIN regex'ine takılmaz → maske kendisi de korunur. */
+ *  için 17-karakter VIN regex'ine takılmaz → maske kendisi de korunur.
+ *  Uygulama `platform/privacy/vinMask`'te tektir. */
 function _maskVin(vin: string): string {
-  const v = vin.trim().toUpperCase();
-  if (v.length < 6) return '*'.repeat(v.length); // kısa/geçersiz → tamamen gizle
-  return v.slice(0, 3) + '*'.repeat(v.length - 3);
+  return maskVinStrict(vin) ?? '';
 }
 
 /** VID şemasında henüz bulunmayan (ileride eklenebilecek) opsiyonel alanı
@@ -501,6 +538,10 @@ async function _buildSupportSnapshotPayload(): Promise<Record<string, unknown>> 
   const [gps, storageQueue] = await Promise.all([
     _safeSectionAsync(buildGpsDeepSnapshot),
     buildStorageQueueSnapshot().catch(() => ({ queuePending: 0, storagePct: -1, storageWarn: false })),
+    // PR-OBD-DIAG-3: native extended poll kanıtını tazele → buildObdDeepSnapshot senkron okur.
+    refreshExtendedPollEvidence().catch(() => { /* fail-soft: kanıt yok */ }),
+    // PR-KWP-EVID: native KWP kurtarma kanıtını tazele → buildObdDeepSnapshot senkron okur.
+    refreshKwpRecoveryEvidence().catch(() => { /* fail-soft: kanıt yok */ }),
   ]);
 
   const payload = _deepSanitize({
@@ -580,6 +621,11 @@ async function _buildSupportSnapshotPayload(): Promise<Record<string, unknown>> 
     // içeriği, araç sinyal DEĞERLERİ, VIN/koordinat/CAN YOK). Wiring yoksa sayaçlar
     // null ("ölçülemiyor" ≠ 0). Bridge henüz bağlı değil → bölümü YOK.
     platform: _safeSection(buildPlatformRuntimeSnapshot),
+    // MAVİ ÇEKİRDEĞİ ses/TAKEOVER kanıtı (PR-DIAG-3) — lifecycle/karar/media.next/ownership/
+    // segment/safety kanıtını DIAG-1/DIAG-2 depolarından OKUYUP serileştirir. KARAR VERMEZ
+    // (yalnız OBSERVED/NOT_OBSERVED/NOT_TESTED/NO_SOURCE); ledger'a yazmaz. Kendi içinde
+    // fail-soft; _safeSection ek savunma katmanı (bölüm patlasa ana rapor ETKİLENMEZ).
+    MAVI_VOICE_AND_TAKEOVER_EVIDENCE: _safeSection(collectMaviEvidenceSection),
   }, 0) as Record<string, unknown>;
 
   return payload;
@@ -710,7 +756,9 @@ const _SECTION_LABELS: Record<string, string> = {
   power: 'Güç / akü', fusion: 'Sensör füzyon', bootTiming: 'Açılış zamanları',
   transport: 'Bağlantı sağlığı', vidMirror: 'Araç özeti', platform: 'Platform runtime',
   triage: 'Öncelikli bulgular', inspector: 'Geliştirici izi', selfTest: 'Otomatik test',
-  userReport: 'Açıklamanız', source: 'Kaynak',
+  userReport: 'Açıklamanız', source: 'Kaynak', rootCause: 'Kök neden',
+  errorLedger: 'Hata defteri (eski/yeni)', diagnosticVerdict: 'Tanı verdikti',
+  MAVI_VOICE_AND_TAKEOVER_EVIDENCE: 'Mavi ses / TAKEOVER kanıtı',
 };
 
 const _MASKED_INFO = [

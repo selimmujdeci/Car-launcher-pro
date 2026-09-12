@@ -1,0 +1,170 @@
+{
+  "measuredAt": "2026-09-06",
+  "area": {
+    "tileBbox": [
+      34.8486328125,
+      36.91476428895592,
+      34.87060546875,
+      36.93233006150314
+    ],
+    "nearBbox": {
+      "xmin": 34.85985,
+      "ymin": 36.9157,
+      "xmax": 34.86435,
+      "ymax": 36.9193
+    },
+    "tile": "14/9778/6381",
+    "canonicalPoint": [
+      36.9175,
+      34.8621
+    ]
+  },
+  "baselines": {
+    "osm": {
+      "source": "field-runs/map-data-coverage-20260907/osm-api-map.json",
+      "buildingWays": 340,
+      "highwayWays": 564,
+      "namedHighwayWays": 138,
+      "unnamedHighwayWays": 426,
+      "addrHousenumberElements": 3,
+      "buildingWaysInNearArea": 11
+    },
+    "openfreemap": {
+      "source": "field-runs/map-data-coverage-20260907/summary.json",
+      "tile": "https://tiles.openfreemap.org/planet/20260830_080001_pt/14/9778/6381.pbf",
+      "buildingFeatures": 11,
+      "buildingPolygonParts": 351,
+      "transportationFeatures": 64,
+      "transportationNameFeatures": 117,
+      "housenumberFeatures": 7,
+      "poiFeatures": 120,
+      "maxzoom": 14,
+      "note": "z15/z16 üretimde bu z14 karosundan overzoom edilir — bağımsız veri yok."
+    }
+  },
+  "overture": {
+    "release": "2026-08-19.0",
+    "buildings": {
+      "total": 2627,
+      "osmBacked": 337,
+      "osmBackedAlsoInOurOsmSet": 337,
+      "nonOsmSourced": 2290,
+      "datasets": {
+        "Microsoft ML Buildings": 2290,
+        "OpenStreetMap": 337
+      },
+      "recordLicenses": {
+        "ODbL-1.0": 2627
+      },
+      "withHeight": 0,
+      "withNumFloors": 22,
+      "withName": 13,
+      "inNearArea": 123,
+      "inNearAreaNonOsm": 112
+    },
+    "segments": {
+      "total": 1559,
+      "road": 1557,
+      "named": 527,
+      "roadNamed": 525,
+      "osmBacked": 1511,
+      "datasets": {
+        "OpenStreetMap": 1579,
+        "TomTom": 48
+      },
+      "byClass": {
+        "unknown": 50,
+        "motorway": 9,
+        "tertiary": 238,
+        "residential": 1132,
+        "service": 34,
+        "secondary": 85,
+        "footway": 7,
+        "track": 2,
+        "unclassified": 2
+      },
+      "distinctNames": 104,
+      "namesOnlyInOverture": 3,
+      "namesOnlyInOsm": 1,
+      "namesOnlyInOvertureSample": [
+        "Mersin-Adana-Gaziantep yüksek standartlı demiryolu",
+        "Tarsus Batı 2 Kavşağı",
+        "Tarsus Üniversitesi - Tarsus Adliyesi Tramvay Hattı"
+      ],
+      "namesOnlyInOsmSample": [
+        "Kocatepe Caddesi"
+      ]
+    },
+    "addresses": {
+      "total": 0,
+      "note": "Bu bbox için Overture adres kaydı YOK (ölçüldü)."
+    },
+    "places": {
+      "total": 337,
+      "named": 337,
+      "nonOsmSourced": 337,
+      "datasets": {
+        "meta": 309,
+        "Overture": 337,
+        "AllThePlaces": 18,
+        "Foursquare": 6,
+        "Microsoft": 4
+      }
+    }
+  },
+  "roofProbe": [
+    {
+      "index": 0,
+      "lon": 34.861475229263306,
+      "lat": 36.918384129749924,
+      "overtureContains": null,
+      "nearestOvertureVertexMetres": 6.3,
+      "nearestOvertureId": "b59726e0-c528-45f4-90fa-fdb435bf070a",
+      "nearestOvertureDatasets": [
+        "Microsoft ML Buildings"
+      ],
+      "overtureBuildingsWithin30m": 9,
+      "priorOsmNearestVertexMetres": 111.2
+    },
+    {
+      "index": 1,
+      "lon": 34.86132502555847,
+      "lat": 36.9179295146294,
+      "overtureContains": null,
+      "nearestOvertureVertexMetres": 14.7,
+      "nearestOvertureId": "b2ab481c-f673-4826-a9bc-5067e329e8f5",
+      "nearestOvertureDatasets": [
+        "Microsoft ML Buildings"
+      ],
+      "overtureBuildingsWithin30m": 4,
+      "priorOsmNearestVertexMetres": 111.1
+    },
+    {
+      "index": 2,
+      "lon": 34.8616361618042,
+      "lat": 36.91821257719264,
+      "overtureContains": null,
+      "nearestOvertureVertexMetres": 8,
+      "nearestOvertureId": "f57d1f1e-8e5a-4f0b-9ac3-15d51647c969",
+      "nearestOvertureDatasets": [
+        "Microsoft ML Buildings"
+      ],
+      "overtureBuildingsWithin30m": 4,
+      "priorOsmNearestVertexMetres": 128.3
+    }
+  ],
+  "incrementalGain": {
+    "buildingsAbsolute": 2287,
+    "buildingsRatio": 7.73,
+    "buildingsNonOsmSourced": 2290,
+    "namedRoadsDelta": 2,
+    "addressesDelta": -7,
+    "placesVsProductionPoi": 217
+  },
+  "limits": [
+    "OSM tabanı `map.json?bbox` yanıtıdır: bbox içinde EN AZ BİR düğümü olan way'leri döndürür; Overture sorgusu ise feature bbox kesişimidir. İki sayım birebir aynı kural değildir.",
+    "OpenFreeMap sayıları TILE FEATURE sayısıdır; sağlayıcı aynı nitelikteki geometrileri birleştirir (merkezde 11 feature = 351 polygon). Feature ≠ bina.",
+    "Overture bina sayısı ML türevi footprint içerir; bunlar gerçek bina KANITI değil, ALGORİTMA ÇIKTISIDIR — doğruluk bu turda yer gerçeği ile ölçülmedi.",
+    "Çatı örnekleri uydu üzerinde ELLE seçilmiş üç noktadır; alan geneli kapsam yüzdesi değildir."
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "result": {
+    "type": "object",
+    "value": [
+      {
+        "key": "An",
+        "src": "function sm(e=\"NAV_END\"){qp(),$p=e,Bp=null,Kp=null,Vp(Pp.FOLLOWING)}"
+      },
+      {
+        "key": "Cn",
+        "src": "function lm(){const e=Yp();return{cameraMode:Fp,isVehicleCentered:Fp===Pp.FOLLOWING,lastUserPanAgeMs:null!==Bp?Math.max(0,Math.round(e-Bp)):null,recenterAvailable:Jp(),lastRecenterAgeMs:null!==Wp?Math.max(0,Math.round(e-Wp)):null,recenterReason:$p,followZoom:Kp,autoRecenterPending:null!==Gp,autoRecenterDelayMs:Up?3e3:1e4,listenerCount:Hp.size}}"
+      },
+      {
+        "key": "On",
+        "src": "function nm(e){Fp===Pp.USER_PANNING&&(Bp=Yp(),Vp(Pp.FOLLOW_SUSPENDED),qp(),e&&(Gp=setTimeout(()=>{if(Gp=null,Fp===Pp.FOLLOW_SUSPENDED){rm(\"AUTO_TIMEOUT\");try{e()}catch(t){}im()}},Up?3e3:1e4)))}"
+      },
+      {
+        "key": "Rn",
+        "src": "function Ip(e){const t=Cp(e.speedKmh,e.prevBand),n=Rp(e.nextManeuverM,e.maneuverDistanceSource),a=(r=t,null!==(i=Mp.find(e=>e.id===r))&&void 0!==i?i:Mp[0]);var r,i;const o=\"PORTRAIT\"===e.orientation?a.anchorYPortrait:a.anchorYLandscape,s={profileId:t,policyVersion:jp,speedBand:t,maneuverBand:n,anchorY:o,anchorX:.5};if(\"USER_PANNING\"===e.followState)return{...s,state:\"USER_PANNING\",cameraDriveAllowed:!1,applyManeuverCamera:!1,maxZoomHint:null,updateReason:\"kullanıcı haritayı sürüklüyor — kamera sürülmez\"};if(\"FOLLOW_SUSPENDED\"===e.followState)return{...s,state:\"FOLLOW_SUSPENDED\",cameraDriveAllowed:!1,applyManeuverCamera:!1,maxZoomHint:null,updateReason:\"takip askıda — kamera kullanıcının bıraktığı yerde\"};if(\"RECENTERING\"===e.followState)return{...s,state:\"RECENTERING\",cameraDriveAllowed:!0,applyManeuverCamera:\"NONE\"!==n,maxZoomHint:null,updateReason:\"ortalama uygulanıyor\"};if(\"UNKNOWN\"===e.followState)return{...s,state:\"UNKNOWN\",cameraDriveAllowed:!1,applyManeuverCamera:!1,maxZoomHint:null,updateReason:\"takip durumu bilinmiyor — fail-closed\"};if(\"GPS_DEGRADED\"===e.motionState||\"STALE\"===e.motionState)return{...s,state:\"GPS_DEGRADED\",cameraDriveAllowed:!0,applyManeuverCamera:!1,maxZoomHint:Ep(e.motionState),updateReason:\"GPS bozuk/bayat — zoom sınırlı, manevra kamerası kapalı\"};if(\"IMMINENT\"===n)return{...s,state:\"IN_MANEUVER\",cameraDriveAllowed:!0,applyManeuverCamera:!0,maxZoomHint:null,updateReason:\"manevra anı — kavşak geometrisi kadrajda\"};if(\"APPROACH\"===n)return{...s,state:\"APPROACH_MANEUVER\",cameraDriveAllowed:!0,applyManeuverCamera:!0,maxZoomHint:null,updateReason:\"kavşağa yaklaşılıyor — kadraj açılıyor\"};if(!0===e.justPassedManeuver)return{...s,state:\"POST_MANEUVER\",cameraDriveAllowed:!0,applyManeuverCamera:!1,maxZoomHint:null,updateReason:\"manevra tamamlandı — seyir profiline dönülüyor\"};const l=\"CRUISE\"===t||\"HIGHWAY\"===t||\"SUBURBAN\"===t;return{...s,state:l?\"FOLLOW_CRUISE\":\"FOLLOW_CITY\",cameraDriveAllowed:!0,applyManeuverCamera:!1,maxZoomHint:null,updateReason:l?`seyir profili (${t}) — ön yol bağlamı`:`şehir profili (${t}) — ayrıntı öncelikli`}}"
+      },
+      {
+        "key": "Sn",
+        "src": "function im(){Vp(Pp.FOLLOWING)}"
+      },
+      {
+        "key": "Tn",
+        "src": "function Jp(){return Fp===Pp.USER_PANNING||Fp===Pp.FOLLOW_SUSPENDED||Fp===Pp.UNKNOWN}"
+      },
+      {
+        "key": "xn",
+        "src": "function Zp(){return Fp===Pp.FOLLOWING}"
+      }
+    ]
+  }
+}

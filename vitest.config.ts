@@ -1,13 +1,82 @@
 /// <reference types="vitest" />
-import { defineConfig } from 'vite';
+import { fileURLToPath } from 'node:url';
+import { defineConfig, type Plugin } from 'vite';
+
+/**
+ * `node:sqlite` HER ZAMAN dış modüldür.
+ *
+ * Vite bir `node:` tanımlayıcısını yalnız çalışan Node'un
+ * `module.builtinModules` listesinde görürse dışsal sayar. `sqlite` o
+ * listeye Node 22'de GİRMEZ (deneysel etiketi hâlâ üstünde) — bu yüzden
+ * Vite onu bir npm paketi sanıp bundle etmeye çalışır ve
+ * `scripts/rtg3BuildPreflight.mjs` dönüşümü *"Cannot bundle Node.js
+ * built-in \"node:sqlite\""* ile düşer. Node 24'te aynı ad listede olduğu
+ * için yerelde sorun görünmüyordu; CI (Node 22) kırmızıydı.
+ *
+ * Dışsal ilan etmek HİÇBİR İDDİAYI DEĞİŞTİRMEZ: modül zaten çalışma anında
+ * `await import('node:sqlite')` ile yükleniyor ve preflight onu GERÇEK
+ * sorguyla kanıtlıyor (bayraksız kullanılabilirlik sözleşmesi
+ * `RTG3_TOOLCHAIN.node.min = 22.13.0` ile korunur).
+ */
+
+const nodeSqliteExternal: Plugin = {
+  name: 'caros:node-sqlite-external',
+  enforce: 'pre',
+  resolveId(id) {
+    return id === 'node:sqlite' ? { id, external: true } : null;
+  },
+};
+
 
 export default defineConfig({
+  plugins: [nodeSqliteExternal],
   test: {
     environment: 'jsdom',
     globals:     true,
     include:     ['src/__tests__/**/*.test.ts', 'src/__tests__/**/*.test.tsx'],
     exclude:     ['src/__tests__/**/*.integration.test.ts', 'src/__tests__/fixtures/**'],
-    setupFiles: ['src/__tests__/setup.ts'],
+    setupFiles: [fileURLToPath(new URL('./src/__tests__/setup.ts', import.meta.url))],
+
+    /**
+     * Varsayılan 5 sn YETMİYOR — ve bu bir ÜRÜN kusuru DEĞİL.
+     *
+     * ÖLÇÜM (2026-08-22): yerel Supabase yığını (10 Docker konteyneri) ayaktayken
+     * tam paket koşulduğunda her seferinde 2-3 test düşüyordu ve **düşen küme
+     * DEĞİŞİYORDU** (maviMemoryEngine · maviMechanicHistory · carosLabKwpMonitor
+     * · guardianTickBudget dönüşümlü). Hepsi izole koşulduğunda GEÇİYOR;
+     * `--testTimeout=60000` ile tam paket de geçiyor. Yani sebep ürün değil,
+     * paralel işçilerin CPU için yarışması: ağır `await import(...)` grafiklerinin
+     * Vite dönüşümü tek başına ~9 sn sürebiliyor.
+     *
+     * Bu değeri yükseltmek HİÇBİR İDDİAYI ZAYIFLATMAZ — yalnız "ne kadar
+     * bekleriz"i değiştirir. Testler tam olarak aynı şeyleri doğrulamaya devam
+     * eder. CI runner'ları geliştirici makinesinden genellikle YAVAŞTIR; 5 sn
+     * orada da yalancı kırmızı üretirdi.
+     *
+     * NOT: `guardianTickBudget` gibi DUVAR SAATİ BÜTÇESİ ölçen testler bundan
+     * etkilenmez ve etkilenmemelidir — onlar yük altında düşmeye devam eder,
+     * çünkü ölçtükleri şey tam olarak budur. Onları gevşetmek KİLİDİ ZAYIFLATMAK
+     * olurdu (bkz. CLAUDE.md · Regresyon Kasası).
+     */
+    testTimeout: 20_000,
+    /**
+     * ÖLÇÜM (2026-09-02, F10.1): `dormantCapabilityActivation` hook'u SOĞUK
+     * önbellekte düştü — `Hook timed out in 10000ms`. Aynı dosya SICAK
+     * önbellekte geçiyor: transform 6,99 sn → import 60 ms. Yani düşen şey
+     * ürün davranışı değil, hook içindeki İLK `await import(...)` çağrısının
+     * Vite dönüşüm maliyeti.
+     *
+     * `testTimeout` yukarıda tam bu gerekçeyle 20 sn'ye çekilmişti; hook'lar
+     * ayrı bir bütçe (`hookTimeout`, varsayılan 10 sn) kullandığı için o karar
+     * hook'lara UYGULANMAMIŞTI. Aynı ölçüm, aynı sonuç: bu değeri hizalamak
+     * HİÇBİR İDDİAYI ZAYIFLATMAZ — hook'lar tam olarak aynı şeyi kurar, yalnız
+     * dönüşüm için beklenen süre artar.
+     *
+     * ⚠️ Bu bir "testi geçirmek için timeout büyütme" DEĞİLDİR: kök neden
+     * ölçüldü (soğuk transform), ürün kodunda değişiklik gerektirmediği
+     * kanıtlandı ve karar yukarıdaki mevcut ölçümle aynı çizgidedir.
+     */
+    hookTimeout: 20_000,
     coverage: {
       provider:  'v8',
       include:   ['src/platform/**/*.ts'],

@@ -68,6 +68,16 @@ export interface GpsAdapterData {
   speed?: number;
   heading?: number;
   location?: { lat: number; lng: number; accuracy: number };
+  /**
+   * Fix'in KAYNAKTA ölçüldüğü an (`GeolocationPosition.timestamp`, ms).
+   *
+   * Paketin bize VARDIĞI andan farklıdır: fix'ler tamponlanıp toplu geldiğinde
+   * (tünel çıkışı, ana iş parçacığı meşgul) varış farkı küçülürken gerçek ölçüm
+   * farkı büyük kalır. Odometre koruyucusu Δt'yi varıştan hesapladığı için
+   * 94,8 km/h'de 264 m'lik meşru hareketi "800 km/h teleport" sanıp reddediyordu
+   * (kütük #458 — 32 dakikada 1,15 km kalıcı kayıp).
+   */
+  fixTs?: number;
 }
 
 export interface VehicleState {

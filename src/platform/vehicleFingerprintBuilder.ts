@@ -35,6 +35,8 @@ import {
   type VehicleFingerprint,
   type VehicleFingerprintInput,
 } from './vehicleFingerprintService';
+import { observeVehicleIdentity } from './telemetry/vehicleIdentityRuntime';
+import type { BuildIdentityInput } from './telemetry/vehicleIdentityObservation';
 
 /* ══════════════════════════════════════════════════════════════════════════
  * Öğrenilmiş (yaşam-döngülü) parmak izi — foundation kimliğinin ÜSTÜNE builder alanları
@@ -203,15 +205,19 @@ export class AutomaticVehicleFingerprint {
   private readonly _store: VehicleFingerprintStore;
   private readonly _readVid: () => VidStore;
   private readonly _readObs: () => DiscoveryObservation[];
+  /** Fleet kimlik bildirimi (DI — testte gözlemlenebilir, üretimde koordinatör). */
+  private readonly _publishIdentity: (input: BuildIdentityInput) => void;
 
   constructor(
     store: VehicleFingerprintStore = vehicleFingerprintStore,
     readVid: () => VidStore = () => useVidStore.getState(),
     readObs: () => DiscoveryObservation[] = () => discoveryCaptureService.getObservations(),
+    publishIdentity: (input: BuildIdentityInput) => void = observeVehicleIdentity,
   ) {
     this._store = store;
     this._readVid = readVid;
     this._readObs = readObs;
+    this._publishIdentity = publishIdentity;
   }
 
   /** Aboneliği başlatır (idempotent). Döndürülen fonksiyon durdurur (zero-leak). */
@@ -237,7 +243,33 @@ export class AutomaticVehicleFingerprint {
       const sig = fingerprintInputSignature(input);
       if (sig === this._lastSig) return; // kimlik değişmedi → hot-path/telemetri tick'i atla
       this._lastSig = sig;
-      ingestVehicleFingerprint(input, this._store);
+      const learned = ingestVehicleFingerprint(input, this._store);
+
+      /* ── FLEET KİMLİK YAYINI (P1) ──────────────────────────────────────
+         Kimlik burada YAYINLANMAZ; yalnız KOORDİNATÖRE BİLDİRİLİR.
+         Kanıt kapısı, dedupe, retry ve çakışma yorumu koordinatörün işidir
+         (tek otorite). `observe()` senkron + ağ çağrısı yapmaz → bu
+         abonelik yolu bloklanmaz. Kendi try/catch'i var: kimlik yayını
+         parmak izi öğrenmeyi ASLA bozmaz. */
+      try {
+        this._publishIdentity({
+          nowMs: learned.lastSeen,
+          vid: {
+            vin:               vid.vehicle.vin,
+            make:              vid.vehicle.make,
+            model:             vid.vehicle.model,
+            modelYear:         vid.vehicle.modelYear,
+            activeProtocol:    vid.obdAdapter.lastProtocolNum,
+            transportVerified: vid.obdAdapter.isTransportVerified,
+          },
+          fingerprint: {
+            hash:        learned.hash,
+            confidence:  learned.confidence,
+            sourceCount: learned.sourceCount,
+            lastSeen:    learned.lastSeen,
+          },
+        });
+      } catch { /* FAIL-SOFT — kimlik yayını parmak izini bozmaz */ }
     } catch {
       /* FAIL-SOFT: fingerprint hatası mevcut OBD akışını ASLA bozmaz */
     }

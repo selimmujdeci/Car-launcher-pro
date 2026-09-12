@@ -121,3 +121,17 @@ export function resolveScreen(spoken: string): ScreenEntry | null {
 export function _screenIds(): string[] {
   return SCREENS.map((s) => s.id);
 }
+
+/** Kanonik ekran kimlikleri (dış kullanım — nav Action Registry kaynağı). */
+export function screenIds(): readonly string[] {
+  return SCREENS.map((s) => s.id);
+}
+
+/**
+ * Kanonik ekranı KİMLİĞİYLE (fuzzy DEĞİL) getirir — nav Action Registry handler'ı bu kesin
+ * erişimi kullanır (resolveScreen serbest/sesli metin içindir). Bilinmeyen id → null (fail-closed).
+ */
+export function getScreenById(id: string): ScreenEntry | null {
+  if (typeof id !== 'string' || id.length === 0) return null;
+  return SCREENS.find((s) => s.id === id) ?? null;
+}

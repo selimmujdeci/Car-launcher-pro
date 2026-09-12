@@ -1,6 +1,9 @@
 @import "tailwindcss";
 @import "maplibre-gl/dist/maplibre-gl.css";
 
+/* Gömülü yazı tipleri (self-hosted, OFL) — ağ gerektirmez (#655). */
+@import "./styles/fonts.css";
+@import "./styles/card-merge.css";
 @import "./styles/base.css";
 @import "./styles/theme.css";
 @import "./styles/drive-states.css";
@@ -62,6 +65,16 @@
    .perf-low (GPU-tier) ile çakışması zararsız — ikisi de gölgeyi sıfırlar. */
 html.rt-no-shadow * {
   box-shadow: none !important;
+}
+
+/* Runtime-mode bazlı BLUR kontrolü — aynı gerekçe, aynı desen (kütük #1294).
+   `--rt-blur` çarpanı yalnız `calc(var(--rt-blur,1) * Npx)` yazan yerleri kapatır;
+   sabit Tailwind `backdrop-blur-*` sınıfları çarpanı KULLANMAZ. Gerçek cihazda
+   ölçüldü: `--rt-blur:0` iken ekranda hâlâ 50 element blur(8px|32px) ile duruyordu
+   ve tam ekran haritada GPU'yu yakmaya devam ediyordu. Bu sınıf kaçağı kapatır. */
+html.rt-no-blur * {
+  backdrop-filter:         none !important;
+  -webkit-backdrop-filter: none !important;
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -607,7 +620,61 @@ html.rt-no-shadow * {
 .sunlight-mode .text-xl { font-size: 24px !important; }
 .sunlight-mode .text-2xl { font-size: 28px !important; }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   HARİTA YÜZEYİ · GÜNEŞ MODU CHROME MUAFİYETİ (saha bildirimi 2026-09-06)
+   ═══════════════════════════════════════════════════════════════════════════
+   KULLANICI: *"siyah kalın çerçeveli UI chrome haritadan daha baskın · sol
+   quick destinations çok büyük · sağ controls çok ağır · aftermarket Android
+   haritası hissi."*
+
+   ÖLÇÜLDÜ (cihaz, 2026-09-06): kusur bileşen stilinde DEĞİLDİ — `QuickCard`
+   kendi stilinde zaten hafif (`h-8`, `1px rgba(255,255,255,0.10)`). Ağırlığı
+   `.sunlight-mode button { border: 2px solid #000000 }` + yazı büyütme
+   kuralları üretiyordu ve `sunlight-mode` GÜNDÜZ SAATLERİNDE KOŞULSUZ AÇIK:
+   `autoBrightnessService` onu `phase === 'morning' | 'afternoon'` ile yazıyor.
+   Ortam ışığı sensörü YOKTUR (index.css'teki "ALS/OBD algılama" notu gerçeği
+   yansıtmıyordu) — yani kanıt değil, SAAT tetikliyor.
+
+   KARAR: güneş okunabilirliği dashboard/dock'ta AYNEN KORUNUR; yalnız HARİTA
+   yüzeyinde (`[data-theme-surface="nav"]`) chrome geri çekilir. Gerekçe:
+   haritanın kendi ölçülmüş kontrast sözleşmesi vardır (yol merdiveni
+   kasa/zemin 1,51–2,61) ve navigasyonda görsel birinci öncelik HARİTADIR;
+   her düğmeye 2 px saf siyah kontur, kartografiyi ezen tek en büyük etkendi.
+
+   FONKSİYON SİLİNMEDİ · DOKUNMA HEDEFİ KÜÇÜLMEDİ: `min-height/min-width: 52px`
+   AYNEN korunur — yalnız görünen çerçeve ve yazı boyu geri çekilir.
+   ═══════════════════════════════════════════════════════════════════════════ */
+.sunlight-mode [data-theme-surface="nav"] button {
+  border-width: 1px !important;
+  /* Kenar rengi TEMAYA bağlı olmalı: sabit siyah, gece kartının (koyu yüzey)
+     üzerinde GÖRÜNMÜYORDU — cihazda ölçüldü (2026-09-06, saat 17:00'de
+     `sunlight-mode` hâlâ açıkken gece teması: kart `rgb(38,44,60)`, kenar
+     `rgba(0,0,0,0.42)`). OEM token'ları tema başına doğru değeri veriyor:
+     gündüz `rgba(0,0,0,.16)` · gece `rgba(255,240,210,.18)`. */
+  border-color: var(--oem-line-strong, rgba(0, 0, 0, 0.42)) !important;
+  font-weight: 600 !important;
+}
+.sunlight-mode [data-theme-surface="nav"] .text-xs   { font-size: 12px !important; }
+.sunlight-mode [data-theme-surface="nav"] .text-sm   { font-size: 14px !important; }
+.sunlight-mode [data-theme-surface="nav"] .text-base { font-size: 16px !important; }
+/* İkon konturu da haritada incelir — 3 px kontur harita üstünde grafik gürültüsü. */
+.sunlight-mode [data-theme-surface="nav"] svg[stroke],
+.sunlight-mode [data-theme-surface="nav"] svg *[stroke] {
+  stroke-width: 2 !important;
+}
+
 /* Layout Engine — fade-in when layout type changes */
+/* F4 · Now Playing kapak geçişi — sakin crossfade, ölçek zıplaması YOK.
+   Hareket azaltma isteyen kullanıcıda ve düşük performans modunda bileşen bu
+   animasyonu hiç uygulamaz; medya sorgusu ikinci bir güvence katmanıdır. */
+@keyframes caros-art-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-music-surface] * { animation: none !important; }
+}
+
 @keyframes layout-fadein {
   from { opacity: 0; transform: scale(0.985); }
   to   { opacity: 1; transform: scale(1); }

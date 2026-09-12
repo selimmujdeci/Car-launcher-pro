@@ -59,27 +59,32 @@ export interface DidDiscoveryProgress {
 }
 
 export interface StartDiscoveryOptions {
-  /** İstek header'ı hex (ör. '7E0'). */
+  /** İstek header'ı hex (ör. '7E0'); PR-OBD-KWP-1: '' = varsayılan oturum (header'a dokunulmaz). */
   tx: string;
-  /** Yanıt filtre adresi hex (ör. '7E8'). */
+  /** Yanıt filtre adresi hex (ör. '7E8'); tx boşsa boş bırakılır. */
   rx: string;
-  /** 4 hex haneli aralık başlangıcı (ör. '2200'). */
+  /** Aralık başlangıcı — servis 22: 4 hane (ör. '2200'); servis 21: 2 hane (ör. '00'). */
   from: string;
-  /** 4 hex haneli aralık sonu (DAHİL, ör. '22FF'). */
+  /** Aralık sonu (DAHİL) — servis 22: 4 hane; servis 21: 2 hane (ör. 'FF'). */
   to: string;
+  /** PR-OBD-KWP-1: taranacak veri servisi — '22' (UDS DID, varsayılan) | '21' (KWP LID).
+   *  Servis 21 SALT-OKUMADIR (ReadDataByLocalIdentifier) — ECU'ya yazmaz; tarama yine de
+   *  yalnız kullanıcı tetiklemesiyle çalışır ve DID'ler arası bekleme uygulanır. */
+  service?: '22' | '21';
   onProgress?: (p: DidDiscoveryProgress) => void;
   /** İptal — standart AbortController.signal. */
   signal?: AbortSignal;
 }
 
-/** `from`..`to` (dahil) arasındaki tüm DID'leri sıralı, 4 hex haneli büyük harf üretir. */
-function hexToRange(from: string, to: string): string[] {
+/** `from`..`to` (dahil) arasındaki tüm kimlikleri sıralı, büyük harf üretir
+ *  (servis 22 → 4 hane DID, servis 21 → 2 hane LID). */
+function hexToRange(from: string, to: string, digits: 2 | 4): string[] {
   const start = parseInt(from, 16);
   const end = parseInt(to, 16);
   const out: string[] = [];
   if (!Number.isFinite(start) || !Number.isFinite(end) || start > end) return out;
   for (let v = start; v <= end; v++) {
-    out.push(v.toString(16).toUpperCase().padStart(4, '0'));
+    out.push(v.toString(16).toUpperCase().padStart(digits, '0'));
   }
   return out;
 }
@@ -105,6 +110,7 @@ function hexToBytes(dataHex: string): number[] {
  */
 export async function startDiscovery(opts: StartDiscoveryOptions): Promise<DidDiscoveryOutcome> {
   const { tx, rx, from, to, onProgress, signal } = opts;
+  const service = opts.service ?? '22';
   const results: DidDiscoveryResult[] = [];
   let positive = 0;
   let negative = 0;
@@ -114,7 +120,7 @@ export async function startDiscovery(opts: StartDiscoveryOptions): Promise<DidDi
     return { results, summary: { scanned: 0, positive: 0, negative: 0, stopReason: 'plugin_unavailable' } };
   }
 
-  const dids = hexToRange(from, to);
+  const dids = hexToRange(from, to, service === '21' ? 2 : 4);
   const total = dids.length;
 
   for (let i = 0; i < total; i++) {
@@ -126,7 +132,7 @@ export async function startDiscovery(opts: StartDiscoveryOptions): Promise<DidDi
     onProgress?.({ did, index: i, total });
 
     try {
-      const r = await CarLauncher.readObdDid({ tx, rx, did });
+      const r = await CarLauncher.readObdDid({ tx, rx, did, service });
       scanned++;
       if (r.supported && r.data) {
         results.push({ did, dataHex: r.data, bytes: hexToBytes(r.data) });

@@ -1,0 +1,523 @@
+{
+  "generatedAt": "2026-09-07T20:20:57.087Z",
+  "source": "OpenStreetMap via official Overpass API",
+  "policyVersion": "2b4f5de8",
+  "format": {
+    "magic": "RTG3",
+    "nodeStride": 16,
+    "edgeStride": 28,
+    "restrictionStride": 16
+  },
+  "aois": {
+    "tarsus": {
+      "bbox": [
+        34.85985,
+        36.9157,
+        34.86435,
+        36.9193
+      ],
+      "sourceSha256": "157a0a39ad795aed7aa149ec0a54aeae3340465f002c0549cdbabe94686d86db",
+      "sourceElements": 289,
+      "sourceTimestamp": "2026-09-07T20:11:10Z",
+      "old": {
+        "nodes": 0,
+        "edges": 0,
+        "bytes": 16,
+        "load": {
+          "p50Ms": 0.00039999999999906777,
+          "p95Ms": 0.001200000000000756
+        },
+        "topology": {
+          "components": 0,
+          "largestComponentPct": 0,
+          "deadEnds": 0,
+          "selfLoops": 0,
+          "zeroLength": 0,
+          "duplicateEdges": 0,
+          "invalidReferences": 0,
+          "oneway": 0,
+          "destinationOnly": 0,
+          "bridges": 0,
+          "tunnels": 0,
+          "layered": 0
+        }
+      },
+      "full": {
+        "nodes": 249,
+        "edges": 275,
+        "bytes": 11700,
+        "load": {
+          "p50Ms": 0.004800000000003024,
+          "p95Ms": 0.005099999999998772
+        },
+        "classCount": {
+          "tertiary": 110,
+          "residential": 165
+        },
+        "restrictions": {
+          "source": 0,
+          "supported": 0,
+          "unsupported": 0,
+          "malformed": 0
+        },
+        "topology": {
+          "components": 2,
+          "largestComponentPct": 69.47791164658635,
+          "deadEnds": 22,
+          "selfLoops": 0,
+          "zeroLength": 0,
+          "duplicateEdges": 0,
+          "invalidReferences": 0,
+          "oneway": 0,
+          "destinationOnly": 0,
+          "bridges": 0,
+          "tunnels": 0,
+          "layered": 0
+        },
+        "buildMs": 1.050699999999999
+      },
+      "routes": [
+        {
+          "scenario": "REAL_LOCAL_1",
+          "sourceWayId": 216631397,
+          "oldEndpointErrorM": null,
+          "newEndpointErrorM": 0,
+          "oldRouteM": null,
+          "newRouteM": 304,
+          "oldLatencyP50Ms": null,
+          "oldLatencyP95Ms": null,
+          "newLatencyP50Ms": 0.012999999999998124,
+          "newLatencyP95Ms": 0.04140000000000299,
+          "oldExpanded": null,
+          "newExpanded": 10
+        },
+        {
+          "scenario": "REAL_LOCAL_2",
+          "sourceWayId": 216631397,
+          "oldEndpointErrorM": null,
+          "newEndpointErrorM": 0,
+          "oldRouteM": null,
+          "newRouteM": 261,
+          "oldLatencyP50Ms": null,
+          "oldLatencyP95Ms": null,
+          "newLatencyP50Ms": 0.0058000000000006935,
+          "newLatencyP95Ms": 0.011099999999999,
+          "oldExpanded": null,
+          "newExpanded": 5
+        },
+        {
+          "scenario": "REAL_LOCAL_3",
+          "sourceWayId": 216631395,
+          "oldEndpointErrorM": null,
+          "newEndpointErrorM": 0,
+          "oldRouteM": null,
+          "newRouteM": 248,
+          "oldLatencyP50Ms": null,
+          "oldLatencyP95Ms": null,
+          "newLatencyP50Ms": 0.0033000000000029672,
+          "newLatencyP95Ms": 0.00460000000000349,
+          "oldExpanded": null,
+          "newExpanded": 5
+        },
+        {
+          "scenario": "REAL_LOCAL_4",
+          "sourceWayId": 216631397,
+          "oldEndpointErrorM": null,
+          "newEndpointErrorM": 0,
+          "oldRouteM": null,
+          "newRouteM": 202,
+          "oldLatencyP50Ms": null,
+          "oldLatencyP95Ms": null,
+          "newLatencyP50Ms": 0.001300000000000523,
+          "newLatencyP95Ms": 0.001599999999996271,
+          "oldExpanded": null,
+          "newExpanded": 2
+        },
+        {
+          "scenario": "REAL_LOCAL_5",
+          "sourceWayId": 216631397,
+          "oldEndpointErrorM": null,
+          "newEndpointErrorM": 0,
+          "oldRouteM": null,
+          "newRouteM": 173,
+          "oldLatencyP50Ms": null,
+          "oldLatencyP95Ms": null,
+          "newLatencyP50Ms": 0.0018999999999991246,
+          "newLatencyP95Ms": 0.002200000000001978,
+          "oldExpanded": null,
+          "newExpanded": 3
+        },
+        {
+          "scenario": "REAL_LOCAL_6",
+          "sourceWayId": 1055487042,
+          "oldEndpointErrorM": null,
+          "newEndpointErrorM": 0,
+          "oldRouteM": null,
+          "newRouteM": 172,
+          "oldLatencyP50Ms": null,
+          "oldLatencyP95Ms": null,
+          "newLatencyP50Ms": 0.0005000000000023874,
+          "newLatencyP95Ms": 0.0009000000000014552,
+          "oldExpanded": null,
+          "newExpanded": 1
+        },
+        {
+          "scenario": "REAL_LOCAL_7",
+          "sourceWayId": 216631397,
+          "oldEndpointErrorM": null,
+          "newEndpointErrorM": 0,
+          "oldRouteM": null,
+          "newRouteM": 170,
+          "oldLatencyP50Ms": null,
+          "oldLatencyP95Ms": null,
+          "newLatencyP50Ms": 0.001300000000000523,
+          "newLatencyP95Ms": 0.0015000000000000568,
+          "oldExpanded": null,
+          "newExpanded": 2
+        }
+      ],
+      "elapsedMs": 18.9347
+    },
+    "mersin": {
+      "bbox": [
+        34.6304,
+        36.8093,
+        34.6374,
+        36.8149
+      ],
+      "sourceSha256": "54cf80683360d02e792b16c2373c0c4cddcd45c3855547493e19ea0bfb46f216",
+      "sourceElements": 473,
+      "sourceTimestamp": "2026-09-07T20:11:10Z",
+      "old": {
+        "nodes": 40,
+        "edges": 38,
+        "bytes": 1720,
+        "load": {
+          "p50Ms": 0.000499999999995282,
+          "p95Ms": 0.0005999999999986017
+        },
+        "topology": {
+          "components": 2,
+          "largestComponentPct": 57.5,
+          "deadEnds": 4,
+          "selfLoops": 0,
+          "zeroLength": 0,
+          "duplicateEdges": 0,
+          "invalidReferences": 0,
+          "oneway": 38,
+          "destinationOnly": 0,
+          "bridges": 0,
+          "tunnels": 0,
+          "layered": 0
+        }
+      },
+      "full": {
+        "nodes": 309,
+        "edges": 356,
+        "bytes": 14928,
+        "load": {
+          "p50Ms": 0.00280000000000058,
+          "p95Ms": 0.004199999999997317
+        },
+        "classCount": {
+          "tertiary": 97,
+          "trunk": 38,
+          "residential": 216,
+          "service": 5
+        },
+        "restrictions": {
+          "source": 0,
+          "supported": 0,
+          "unsupported": 0,
+          "malformed": 0
+        },
+        "topology": {
+          "components": 5,
+          "largestComponentPct": 47.896440129449836,
+          "deadEnds": 29,
+          "selfLoops": 0,
+          "zeroLength": 0,
+          "duplicateEdges": 0,
+          "invalidReferences": 0,
+          "oneway": 97,
+          "destinationOnly": 0,
+          "bridges": 0,
+          "tunnels": 0,
+          "layered": 0
+        },
+        "buildMs": 0.30290000000000106
+      },
+      "routes": [
+        {
+          "scenario": "REAL_LOCAL_1",
+          "sourceWayId": 212394652,
+          "oldEndpointErrorM": 294.09603270404097,
+          "newEndpointErrorM": 0,
+          "oldRouteM": 201,
+          "newRouteM": 165,
+          "oldLatencyP50Ms": 0.0007000000000019213,
+          "oldLatencyP95Ms": 0.0011999999999972033,
+          "newLatencyP50Ms": 0.0005000000000023874,
+          "newLatencyP95Ms": 0.0009000000000014552,
+          "oldExpanded": 2,
+          "newExpanded": 1
+        },
+        {
+          "scenario": "REAL_LOCAL_2",
+          "sourceWayId": 211614038,
+          "oldEndpointErrorM": 189.1693347422051,
+          "newEndpointErrorM": 0,
+          "oldRouteM": 128,
+          "newRouteM": 158,
+          "oldLatencyP50Ms": 0.0004000000000061732,
+          "oldLatencyP95Ms": 0.0005999999999986017,
+          "newLatencyP50Ms": 0.0037999999999982492,
+          "newLatencyP95Ms": 0.004200000000004422,
+          "oldExpanded": 1,
+          "newExpanded": 7
+        },
+        {
+          "scenario": "REAL_LOCAL_3",
+          "sourceWayId": 112950661,
+          "oldEndpointErrorM": 55.89951461571396,
+          "newEndpointErrorM": 0,
+          "oldRouteM": 117,
+          "newRouteM": 148,
+          "oldLatencyP50Ms": 0.0007000000000019213,
+          "oldLatencyP95Ms": 0.0011999999999972033,
+          "newLatencyP50Ms": 0.014499999999998181,
+          "newLatencyP95Ms": 0.04070000000000107,
+          "oldExpanded": 2,
+          "newExpanded": 21
+        },
+        {
+          "scenario": "REAL_LOCAL_4",
+          "sourceWayId": 112950663,
+          "oldEndpointErrorM": 122.38589833321652,
+          "newEndpointErrorM": 0,
+          "oldRouteM": 117,
+          "newRouteM": 143,
+          "oldLatencyP50Ms": 0.0007000000000019213,
+          "oldLatencyP95Ms": 0.001100000000000989,
+          "newLatencyP50Ms": 0.016500000000000625,
+          "newLatencyP95Ms": 0.020899999999997476,
+          "oldExpanded": 2,
+          "newExpanded": 21
+        },
+        {
+          "scenario": "REAL_LOCAL_5",
+          "sourceWayId": 211614036,
+          "oldEndpointErrorM": 190.95375894605303,
+          "newEndpointErrorM": 0,
+          "oldRouteM": 54,
+          "newRouteM": 143,
+          "oldLatencyP50Ms": 0.000499999999995282,
+          "oldLatencyP95Ms": 0.0005999999999986017,
+          "newLatencyP50Ms": 0.005099999999998772,
+          "newLatencyP95Ms": 0.0069000000000016826,
+          "oldExpanded": 1,
+          "newExpanded": 8
+        },
+        {
+          "scenario": "REAL_LOCAL_6",
+          "sourceWayId": 212394752,
+          "oldEndpointErrorM": 236.69094270433814,
+          "newEndpointErrorM": 0,
+          "oldRouteM": 0,
+          "newRouteM": 141,
+          "oldLatencyP50Ms": 0.00019999999999953388,
+          "oldLatencyP95Ms": 0.0002000000000066393,
+          "newLatencyP50Ms": 0.0020000000000024443,
+          "newLatencyP95Ms": 0.0025000000000048317,
+          "oldExpanded": 0,
+          "newExpanded": 4
+        },
+        {
+          "scenario": "REAL_LOCAL_7",
+          "sourceWayId": 112950370,
+          "oldEndpointErrorM": 180.63052159692575,
+          "newEndpointErrorM": 0,
+          "oldRouteM": null,
+          "newRouteM": 140,
+          "oldLatencyP50Ms": null,
+          "oldLatencyP95Ms": null,
+          "newLatencyP50Ms": 0.01820000000000732,
+          "newLatencyP95Ms": 0.03459999999999752,
+          "oldExpanded": null,
+          "newExpanded": 23
+        }
+      ],
+      "elapsedMs": 20.780300000000004
+    },
+    "erdemli": {
+      "bbox": [
+        34.29,
+        36.6318,
+        34.298,
+        36.6382
+      ],
+      "sourceSha256": "4418e38663d01002854136e2e95ddf7dd585f1c2a7a77cbe5c09bcf624dc3078",
+      "sourceElements": 325,
+      "sourceTimestamp": "2026-09-07T20:11:10Z",
+      "old": {
+        "nodes": 0,
+        "edges": 0,
+        "bytes": 16,
+        "load": {
+          "p50Ms": 0.0002000000000066393,
+          "p95Ms": 0.00030000000000995897
+        },
+        "topology": {
+          "components": 0,
+          "largestComponentPct": 0,
+          "deadEnds": 0,
+          "selfLoops": 0,
+          "zeroLength": 0,
+          "duplicateEdges": 0,
+          "invalidReferences": 0,
+          "oneway": 0,
+          "destinationOnly": 0,
+          "bridges": 0,
+          "tunnels": 0,
+          "layered": 0
+        }
+      },
+      "full": {
+        "nodes": 285,
+        "edges": 287,
+        "bytes": 12612,
+        "load": {
+          "p50Ms": 0.0020999999999986585,
+          "p95Ms": 0.002300000000005298
+        },
+        "classCount": {
+          "unclassified": 74,
+          "residential": 106,
+          "tertiary": 107
+        },
+        "restrictions": {
+          "source": 0,
+          "supported": 0,
+          "unsupported": 0,
+          "malformed": 0
+        },
+        "topology": {
+          "components": 3,
+          "largestComponentPct": 60,
+          "deadEnds": 11,
+          "selfLoops": 0,
+          "zeroLength": 0,
+          "duplicateEdges": 0,
+          "invalidReferences": 0,
+          "oneway": 0,
+          "destinationOnly": 0,
+          "bridges": 0,
+          "tunnels": 0,
+          "layered": 0
+        },
+        "buildMs": 0.23869999999999436
+      },
+      "routes": [
+        {
+          "scenario": "REAL_LOCAL_1",
+          "sourceWayId": 675808159,
+          "oldEndpointErrorM": null,
+          "newEndpointErrorM": 0,
+          "oldRouteM": null,
+          "newRouteM": 221,
+          "oldLatencyP50Ms": null,
+          "oldLatencyP95Ms": null,
+          "newLatencyP50Ms": 0.016099999999994452,
+          "newLatencyP95Ms": 0.04200000000000159,
+          "oldExpanded": null,
+          "newExpanded": 20
+        },
+        {
+          "scenario": "REAL_LOCAL_2",
+          "sourceWayId": 420545913,
+          "oldEndpointErrorM": null,
+          "newEndpointErrorM": 0,
+          "oldRouteM": null,
+          "newRouteM": 220,
+          "oldLatencyP50Ms": null,
+          "oldLatencyP95Ms": null,
+          "newLatencyP50Ms": 0.004800000000003024,
+          "newLatencyP95Ms": 0.010100000000008436,
+          "oldExpanded": null,
+          "newExpanded": 7
+        },
+        {
+          "scenario": "REAL_LOCAL_3",
+          "sourceWayId": 675809365,
+          "oldEndpointErrorM": null,
+          "newEndpointErrorM": 0,
+          "oldRouteM": null,
+          "newRouteM": 203,
+          "oldLatencyP50Ms": null,
+          "oldLatencyP95Ms": null,
+          "newLatencyP50Ms": 0.01279999999999859,
+          "newLatencyP95Ms": 0.013499999999993406,
+          "oldExpanded": null,
+          "newExpanded": 18
+        },
+        {
+          "scenario": "REAL_LOCAL_4",
+          "sourceWayId": 1472417566,
+          "oldEndpointErrorM": null,
+          "newEndpointErrorM": 0,
+          "oldRouteM": null,
+          "newRouteM": 192,
+          "oldLatencyP50Ms": null,
+          "oldLatencyP95Ms": null,
+          "newLatencyP50Ms": 0.010100000000008436,
+          "newLatencyP95Ms": 0.011899999999997135,
+          "oldExpanded": null,
+          "newExpanded": 15
+        },
+        {
+          "scenario": "REAL_LOCAL_5",
+          "sourceWayId": 420545913,
+          "oldEndpointErrorM": null,
+          "newEndpointErrorM": 0,
+          "oldRouteM": null,
+          "newRouteM": 177,
+          "oldLatencyP50Ms": null,
+          "oldLatencyP95Ms": null,
+          "newLatencyP50Ms": 0.002599999999986835,
+          "newLatencyP95Ms": 0.0049999999999954525,
+          "oldExpanded": null,
+          "newExpanded": 4
+        },
+        {
+          "scenario": "REAL_LOCAL_6",
+          "sourceWayId": 675810947,
+          "oldEndpointErrorM": null,
+          "newEndpointErrorM": 0,
+          "oldRouteM": null,
+          "newRouteM": 149,
+          "oldLatencyP50Ms": null,
+          "oldLatencyP95Ms": null,
+          "newLatencyP50Ms": 0.0028000000000076852,
+          "newLatencyP95Ms": 0.005099999999998772,
+          "oldExpanded": null,
+          "newExpanded": 4
+        },
+        {
+          "scenario": "REAL_LOCAL_7",
+          "sourceWayId": 420545913,
+          "oldEndpointErrorM": null,
+          "newEndpointErrorM": 0,
+          "oldRouteM": null,
+          "newRouteM": 140,
+          "oldLatencyP50Ms": null,
+          "oldLatencyP95Ms": null,
+          "newLatencyP50Ms": 0.001999999999995339,
+          "newLatencyP95Ms": 0.0023999999999944066,
+          "oldExpanded": null,
+          "newExpanded": 3
+        }
+      ],
+      "elapsedMs": 15.730999999999995
+    }
+  }
+}

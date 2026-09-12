@@ -2,11 +2,27 @@ import { Capacitor } from '@capacitor/core';
 import { useExpertStore } from '../store/useExpertStore';
 import { NAV_OPTIONS, MUSIC_OPTIONS } from '../data/apps';
 import type { AppItem, NavOptionKey, MusicOptionKey } from '../data/apps';
-import { CarLauncher } from './nativePlugin';
+import { CarLauncher, isNativeCommandSent } from './nativePlugin';
+import type { NativeVehicleCommandResult } from './nativePlugin';
 import { logError } from './crashLogger';
 import { showToast } from './errorBus';
 import { getPhonePackage, getPlatformInfo, PHONE_FALLBACK_PACKAGES } from './headUnitPlatform';
 import { openInApp } from './inAppBrowser';
+
+/**
+ * Arama girişiminin GERÇEK sonucu.
+ *
+ * `CALL`   — arama BAŞLATILDI (ACTION_CALL · CALL_PHONE izni var)
+ * `DIAL`   — yalnız çevirici açıldı; kullanıcı arama tuşuna basmalı
+ * `VENDOR` — head unit'in BT telefon uygulamasına devredildi; sonuç BİLİNMİYOR
+ *
+ * **Yalnız `placed === true` bir arama kanıtıdır.** Diğerleri "aranıyor" diye
+ * sunulamaz (`intentExecutionResult` sahte-onay yasağı).
+ */
+export interface CallOutcome {
+  readonly mode: 'CALL' | 'DIAL' | 'VENDOR';
+  readonly placed: boolean;
+}
 
 /**
  * Tel: intent'e göndermeden önce numarayı temizler.
@@ -50,8 +66,15 @@ export interface CarBridge {
   launchSystemSettings(): void;
   launchBluetoothSettings(): void;
   launchHotspotSettings(): void;
-  /** Open native dialer with number pre-filled. Falls back to tel: link on web. */
-  callNumber(number: string): void;
+  /**
+   * Aramayı BAŞLATIR (izin varsa) ya da çeviriciyi açar.
+   *
+   * ── SONUÇ DÖNDÜRÜR (fire-and-forget DEĞİL) ────────────────────────────
+   * Eski imza `void` idi: native reddetse bile üst katman bunu göremiyor ve
+   * koşulsuz "aranıyor" diyordu (saha bulgusu). Artık hangi modun çalıştığı
+   * yukarı taşınır; `mode:'DIAL'` bir arama DEĞİLDİR.
+   */
+  callNumber(number: string): Promise<CallOutcome>;
   /**
    * Araç kapı kilidi — VehicleCommandQueue üzerinden CAN bus komutu gönderir.
    * L2 ACK onaylanınca resolve olur; timeout/hata durumunda 'rejected'/'failed' döner.
@@ -61,6 +84,15 @@ export interface CarBridge {
   hwLockDoors(): Promise<CommandResult>;
   /** Araç kapı kilidi açma — hwLockDoors ile aynı kuyruk sözleşmesi. */
   hwUnlockDoors(): Promise<CommandResult>;
+  /* MAVI-M4: korna/far/alarm da AYNI `VehicleCommandQueue` sözleşmesinden geçer
+   * (L2 ACK'li `CommandResult`). Bu portlar `VehicleCommandType` içinde ZATEN
+   * tanımlıydı ve `_executeNative` onları çözüyordu; yalnız köprü yüzeyi eksikti
+   * → sesli hattın tek eylem otoritesi bir yürütücü BULAMIYORDU. Yeni native
+   * yetenek EKLENMEDİ; var olan kuyruk yüzeye çıkarıldı. */
+  hwHonkHorn(): Promise<CommandResult>;
+  hwFlashLights(): Promise<CommandResult>;
+  hwAlarmOn(): Promise<CommandResult>;
+  hwAlarmOff(): Promise<CommandResult>;
 }
 
 /* ── Demo implementation (web / local dev) ───────────────── */
@@ -88,9 +120,17 @@ const demoBridge: CarBridge = {
   launchSystemSettings()     { /* no browser equivalent */ },
   launchBluetoothSettings()  { /* no browser equivalent */ },
   launchHotspotSettings()    { /* no browser equivalent */ },
-  callNumber(number)         { _open(`tel:${sanitizePhoneNumber(number)}`); },
+  /* Web/demo: `tel:` bağlantısı yalnız çeviriciyi ÖNERİR — arama başlatmaz. */
+  callNumber(number) {
+    _open(`tel:${sanitizePhoneNumber(number)}`);
+    return Promise.resolve<CallOutcome>({ mode: 'DIAL', placed: false });
+  },
   hwLockDoors()              { return vehicleCommandQueue.enqueue('LOCK_DOORS'); },
   hwUnlockDoors()            { return vehicleCommandQueue.enqueue('UNLOCK_DOORS'); },
+  hwHonkHorn()               { return vehicleCommandQueue.enqueue('HONK_HORN'); },
+  hwFlashLights()            { return vehicleCommandQueue.enqueue('FLASH_LIGHTS'); },
+  hwAlarmOn()                { return vehicleCommandQueue.enqueue('ALARM_ON'); },
+  hwAlarmOff()               { return vehicleCommandQueue.enqueue('ALARM_OFF'); },
 };
 
 /* ── Native implementation (Android / Capacitor) ─────────── */
@@ -187,7 +227,7 @@ const nativeBridge: CarBridge = {
     _nativeLaunch(undefined, 'android.settings.BLUETOOTH_SETTINGS');
   },
 
-  callNumber(number) {
+  async callNumber(number) {
     const sanitized = sanitizePhoneNumber(number);
     const telUri    = `tel:${sanitized}`;
 
@@ -203,18 +243,32 @@ const nativeBridge: CarBridge = {
       // hepsi ACTION_DIAL + tel: URI'yi kendi package context'inde handle eder.
       const phonePkg = platformInfo!.phone ?? PHONE_FALLBACK_PACKAGES[0];
       _nativeLaunch(phonePkg, 'android.intent.action.DIAL', telUri);
-      return;
+      /* Aramayı üreticinin BT uygulaması yürütür; başlayıp başlamadığını BİLEMEYİZ
+         → `VENDOR`. "Başladı" diye SUNULMAZ. */
+      return { mode: 'VENDOR', placed: false };
     }
 
-    // Standart Android: Java ACTION_DIAL → catch → BT fallback zinciri
-    CarLauncher.callNumber({ number: sanitized }).catch((e: unknown) => {
+    // Standart Android: native ACTION_CALL/ACTION_DIAL → catch → BT fallback zinciri
+    try {
+      const res = await CarLauncher.callNumber({ number: sanitized });
+      return {
+        mode:   res?.mode === 'CALL' ? 'CALL' : 'DIAL',
+        placed: res?.placed === true,
+      };
+    } catch (e: unknown) {
       logError('Bridge:CallNumber', e);
       const phonePkg = getPhonePackage() ?? PHONE_FALLBACK_PACKAGES[0];
       _nativeLaunch(phonePkg, 'android.intent.action.DIAL', telUri);
-    });
+      /* Fallback yalnız çeviriciyi açar — arama BAŞLAMADI. */
+      return { mode: 'DIAL', placed: false };
+    }
   },
   hwLockDoors()   { return vehicleCommandQueue.enqueue('LOCK_DOORS'); },
   hwUnlockDoors() { return vehicleCommandQueue.enqueue('UNLOCK_DOORS'); },
+  hwHonkHorn()    { return vehicleCommandQueue.enqueue('HONK_HORN'); },
+  hwFlashLights() { return vehicleCommandQueue.enqueue('FLASH_LIGHTS'); },
+  hwAlarmOn()     { return vehicleCommandQueue.enqueue('ALARM_ON'); },
+  hwAlarmOff()    { return vehicleCommandQueue.enqueue('ALARM_OFF'); },
 };
 
 /* ── Active bridge — auto-detected at runtime ─────────────── */
@@ -261,6 +315,38 @@ export interface CommandResult {
   /** completed = ACK alındı; rejected = timeout/race; failed = native hata */
   status:    'completed' | 'rejected' | 'failed';
   error?:    string;
+  /**
+   * `true` = sonuç GERÇEK donanımdan değil, web/demo simülasyonundan geldi.
+   * Gerçek `completed` ile karışmasın diye AÇIK metadata olarak taşınır
+   * (çağıran bunu ayrı gerekçeyle raporlar).
+   */
+  simulated?: boolean;
+}
+
+/**
+ * Native sonucu → `CommandResult` (SAF — test edilebilir, yan etkisiz).
+ *
+ * ⚠️ FAIL-CLOSED: `sent === true` DIŞINDAKİ HER ŞEY başarısızdır. Bu fonksiyon
+ * bu görevin kalbidir; daha önce native sonuç HİÇ okunmuyordu ve promise
+ * çözüldüğü an `completed` üretiliyordu → MCU bağlı değilken bile kullanıcıya
+ * "Kapılar kilitlendi" deniyordu. Eksik/bozuk yükte de başarı VARSAYILMAZ.
+ */
+export function mapNativeVehicleResult(
+  commandId: string,
+  type: VehicleCommandType,
+  native: NativeVehicleCommandResult | null | undefined,
+): CommandResult {
+  if (!native || typeof native !== 'object' || typeof native.sent !== 'boolean') {
+    return { commandId, type, status: 'failed', error: 'malformed_native_result' };
+  }
+  if (!isNativeCommandSent(native)) {
+    return {
+      commandId, type, status: 'failed',
+      error: typeof native.reason === 'string' && native.reason ? native.reason : 'not_sent',
+    };
+  }
+  const simulated = native.reason === 'simulated';
+  return { commandId, type, status: 'completed', ...(simulated ? { simulated: true } : {}) };
 }
 
 interface QueuedCommand {
@@ -352,9 +438,10 @@ class VehicleCommandQueue {
     }, COMMAND_TIMEOUT_MS);
 
     this._executeNative(cmd.type)
-      .then(() => {
+      .then((native) => {
         clearTimeout(timer);
-        finish({ commandId: cmd.commandId, type: cmd.type, status: 'completed' });
+        // Native sonucu ARTIK OKUNUYOR: `sent!==true` → failed (sahte ACK yok).
+        finish(mapNativeVehicleResult(cmd.commandId, cmd.type, native));
       })
       .catch((err: unknown) => {
         clearTimeout(timer);
@@ -367,10 +454,11 @@ class VehicleCommandQueue {
       });
   }
 
-  private _executeNative(type: VehicleCommandType): Promise<void> {
-    // Web/demo modu: 60 ms donanım round-trip simülasyonu
+  private _executeNative(type: VehicleCommandType): Promise<NativeVehicleCommandResult> {
+    // Web/demo modu: 60 ms donanım round-trip simülasyonu. `reason:'simulated'`
+    // ile İŞARETLENİR → gerçek donanım ACK'iyle karışmaz (çağıran ayırt eder).
     if (!Capacitor.isNativePlatform()) {
-      return new Promise(res => setTimeout(res, 60));
+      return new Promise(res => setTimeout(() => res({ sent: true, reason: 'simulated' }), 60));
     }
     switch (type) {
       case 'LOCK_DOORS':   return CarLauncher.lockDoors();

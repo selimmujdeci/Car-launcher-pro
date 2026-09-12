@@ -1,0 +1,32 @@
+
+ RUN  v4.1.10 C:/Temp/caros-nav-device-20260906
+
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+ ❯ src/__tests__/mapDeviceLifecycleCampaign.test.ts (5 tests | 1 failed) 18ms
+     × MINI ve FULL aynı canlı DAY/NIGHT paletine döner; kaynak ve kamera komutu gerekmez 10ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/__tests__/mapDeviceLifecycleCampaign.test.ts > Cihaz 2026-09-06: tema yaşam döngüsü > MINI ve FULL aynı canlı DAY/NIGHT paletine döner; kaynak ve kamera komutu gerekmez
+TypeError: Cannot read properties of undefined (reading 'fill-color')
+ ❯ color src/__tests__/mapDeviceLifecycleCampaign.test.ts:27:51
+     25| }
+     26| function color(s: ReturnType<typeof surface>, id: string, prop: string…
+     27|   return (s.layers().find(l => l.id === id)?.paint as Record<string, u…
+       |                                                   ^
+     28| }
+     29| function rgb(hex: string) { return `rgb(${[1,3,5].map(i => parseInt(he…
+ ❯ src/__tests__/mapDeviceLifecycleCampaign.test.ts:41:14
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 4 passed (5)
+   Start at  09:35:32
+   Duration  1.31s (transform 400ms, setup 40ms, import 506ms, tests 18ms, environment 608ms)
+

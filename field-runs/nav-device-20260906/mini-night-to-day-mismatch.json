@@ -1,0 +1,11 @@
+{
+  "result": {
+    "type": "object",
+    "value": {
+      "mode": "day",
+      "name": "Vector (Automotive Night)",
+      "bg": "#222c3c",
+      "road": "#f9fbfc"
+    }
+  }
+}

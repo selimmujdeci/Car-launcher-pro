@@ -138,7 +138,7 @@ export function DiagnosticsBridgeLite({ incident, onClose }: Props) {
       unsubRef.current = null;
       if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
     };
-  }, [incident.deviceHash]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [incident.deviceHash]);
 
   function handleClose() {
     unsubRef.current?.();

@@ -1,158 +1,83 @@
 /**
- * offlinePoiService — Global offline POI search via SQLite FTS5.
+ * offlinePoiService — indirilmiş POI veritabanı araması (StoredLocation cephesi).
  *
- * Varsayılan DB şeması (/maps/search.db):
- *   CREATE VIRTUAL TABLE pois USING fts5(
- *     name, address, category UNINDEXED, lat UNINDEXED, lng UNINDEXED
- *   );
+ * ══════════════════════════════════════════════════════════════════════════
+ * ── ÖLÇÜLEN KUSUR: BU KATMAN YAPISAL OLARAK ÖLÜYDÜ (2026-08-23) ───────────
+ * ══════════════════════════════════════════════════════════════════════════
+ * Bu modül `SqliteEngine` üzerinden **ANA İŞ PARÇACIĞINDA** `/maps/search.db`
+ * dosyasını açmaya çalışıyordu. Üründe böyle bir dosya YOKTUR — üretilen ve
+ * paketlenen dosya `/maps/poi.db`'dir (`scripts/build-poi-db.mjs`). Fetch 404
+ * dönüyor, motor "sessizce uykuda kal" sözleşmesi gereği `null` dönüyordu →
+ * `searchGlobal` **her zaman 0 sonuç** veriyordu.
  *
- * Arama sıralaması: FTS5 rank skoru → Haversine mesafesi (yakın önce).
- * Türkçe karakter normalizasyonu MATCH/LIKE sorgusundan önce uygulanır.
- * Çıktı: offlineSearchService.StoredLocation[] (unified API).
+ * Üstelik şema da uyuşmuyordu: sorgu `pois` tablosunda `name MATCH ?` ve `lng`
+ * sütunu arıyordu; gerçek şema `poi(id,name,search,address,lat,lon,category)`.
+ * Yani dosya bulunsaydı bile sorgu patlardı. İki ayrı sessiz ölüm üst üsteydi.
+ *
+ * ÖLÇÜLEN ETKİ: harita arama çubuğunun (`mapService.searchPlaces`) 2. katmanı
+ * hiçbir zaman cevap vermiyordu — oysa `poi.db` içinde **84.911** POI var
+ * (23.845'i eczane, 13.578 market, 6.007 benzinlik) ve "eczane" anahtarı
+ * **23.850** kaydı karşılıyor. Çevrimdışı kategori araması ürünün elindeydi
+ * ama ürün ona ULAŞAMIYORDU.
+ *
+ * ── DÜZELTME: TEK OKUYUCU ─────────────────────────────────────────────────
+ * `poi.db`nin İKİ okuyucusu vardı (ana iş parçacığında `SqliteEngine`, Worker
+ * içinde `NavigationCompute.worker`). İkinci otorite bu projenin tekrar eden
+ * saha kusurudur. Ana iş parçacığı okuyucusu KALDIRILDI; bu modül artık
+ * Worker yoluna (`offlineSearchService.searchPOI`) delege eden ince bir
+ * dönüştürücüdür. Kazanç yalnız doğruluk değil: 16 MB'lık veritabanı ve
+ * sql.js WASM ana iş parçacığının yığınına ARTIK GİRMİYOR (head unit bütçesi).
  */
 
-import { sqlQuery } from './SqliteEngine';
+import { searchPOI } from '../offlineSearchService';
 import type { StoredLocation } from '../offlineSearchService';
 
-/* ── Turkish normalizer ───────────────────────────────────────────────────── */
-
-const TR_MAP: Record<string, string> = {
-  'İ': 'i', 'ı': 'i', 'Ş': 's', 'ş': 's',
-  'Ğ': 'g', 'ğ': 'g', 'Ü': 'u', 'ü': 'u',
-  'Ö': 'o', 'ö': 'o', 'Ç': 'c', 'ç': 'c',
-};
-
-function trNorm(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/[İışŞğĞüÜöÖçÇ]/g, (c) => TR_MAP[c] ?? c)
-    .replace(/[^a-z0-9\s]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+/** `poi.db` kategori adı → arama sonucunda taşınan kanonik kimlik. */
+export interface OfflinePoiHit extends StoredLocation {
+  /** `poi.db` içindeki kategori (ör. `eczane`). Boşsa `null` — uydurma YASAK. */
+  readonly categoryId: string | null;
 }
-
-/* ── Haversine ────────────────────────────────────────────────────────────── */
-
-function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
-  const R  = 6371;
-  const dL = ((lat2 - lat1) * Math.PI) / 180;
-  const dN = ((lng2 - lng1) * Math.PI) / 180;
-  const a  =
-    Math.sin(dL / 2) ** 2 +
-    Math.cos((lat1 * Math.PI) / 180) *
-    Math.cos((lat2 * Math.PI) / 180) *
-    Math.sin(dN / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
-/* ── Detour ratio proxy ───────────────────────────────────────────────────── */
-
-// No road graph available offline; nearby-POI density proxies urbanisation level.
-// Dense urban (≥3 neighbours within 4 km) → roads are direct → ratio 1.25.
-// Isolated / rural → roads wind around obstacles → ratio 1.68.
-function _estimateDetourRatio(loc: StoredLocation, pool: StoredLocation[]): number {
-  const URBAN_R = 4; // km
-  let nearby = 0;
-  for (const other of pool) {
-    if (other !== loc && haversineKm(loc.lat, loc.lng, other.lat, other.lng) < URBAN_R) {
-      if (++nearby >= 3) return 1.25; // short-circuit — confirmed urban
-    }
-  }
-  return nearby >= 1 ? 1.42 : 1.68;
-}
-
-/* ── Result builder ───────────────────────────────────────────────────────── */
-
-function _toStoredLocation(row: Record<string, string | number | null | Uint8Array>): StoredLocation | null {
-  const lat = typeof row['lat'] === 'number' ? row['lat'] : parseFloat(String(row['lat'] ?? ''));
-  const lng = typeof row['lng'] === 'number' ? row['lng'] : parseFloat(String(row['lng'] ?? ''));
-  const name = String(row['name'] ?? '').trim();
-
-  if (!name || !isFinite(lat) || !isFinite(lng)) return null;
-
-  const id = `poi_${trNorm(name)}_${lat.toFixed(4)}_${lng.toFixed(4)}`;
-
-  return {
-    id,
-    name,
-    address:   row['address'] ? String(row['address']) : undefined,
-    lat,
-    lng,
-    source:    'search',
-    timestamp: Date.now(),
-    useCount:  0,
-  };
-}
-
-/* ── FTS5 search ──────────────────────────────────────────────────────────── */
-
-async function _fts5Search(normalized: string, limit: number): Promise<StoredLocation[]> {
-  // FTS5 MATCH: her kelime sonuna * wildcard ekle (prefix match)
-  const ftsQuery = normalized
-    .split(' ')
-    .filter(Boolean)
-    .map((w) => `${w}*`)
-    .join(' ');
-
-  const rows = await sqlQuery(
-    `SELECT name, address, lat, lng FROM pois WHERE name MATCH ? ORDER BY rank LIMIT ?`,
-    [ftsQuery, limit * 3], // daha fazla çek, mesafeye göre sırala
-  );
-
-  return rows.flatMap((r) => {
-    const loc = _toStoredLocation(r);
-    return loc ? [loc] : [];
-  });
-}
-
-/* ── LIKE fallback (FTS5 yoksa) ──────────────────────────────────────────── */
-
-async function _likeSearch(normalized: string, limit: number): Promise<StoredLocation[]> {
-  const rows = await sqlQuery(
-    `SELECT name, address, lat, lng FROM pois WHERE lower(name) LIKE ? LIMIT ?`,
-    [`%${normalized}%`, limit * 3],
-  );
-
-  return rows.flatMap((r) => {
-    const loc = _toStoredLocation(r);
-    return loc ? [loc] : [];
-  });
-}
-
-/* ── Public API ───────────────────────────────────────────────────────────── */
 
 /**
- * /maps/search.db içindeki POI veritabanında FTS5 araması yapar.
+ * İndirilmiş POI veritabanında arama yapar (Worker üzerinden, off-main-thread).
  *
- * @param query      Ham kullanıcı sorgusu (Türkçe dahil)
- * @param userLat    Kullanıcı konumu — mesafe sıralaması için (opsiyonel)
- * @param userLng    Kullanıcı konumu — mesafe sıralaması için (opsiyonel)
- * @param maxResults Maksimum sonuç (varsayılan 8)
- * @returns StoredLocation[] — boş dizi eğer DB yoksa veya eşleşme yoksa
+ * @param query      Ham kullanıcı sorgusu (Türkçe dahil — katlama Worker'da)
+ * @param userLat    Mesafe sıralaması için (opsiyonel)
+ * @param userLng    Mesafe sıralaması için (opsiyonel)
+ * @param maxResults Maksimum sonuç
+ * @returns Boş dizi — `poi.db` yoksa, Worker yoksa veya eşleşme yoksa (fail-soft)
  */
 export async function searchGlobal(
   query:      string,
   userLat?:   number,
   userLng?:   number,
   maxResults: number = 8,
-): Promise<StoredLocation[]> {
-  const normalized = trNorm(query);
-  if (!normalized) return [];
+): Promise<OfflinePoiHit[]> {
+  if (!query.trim()) return [];
 
-  // FTS5 → LIKE fallback
-  let results = await _fts5Search(normalized, maxResults);
-  if (results.length === 0) {
-    results = await _likeSearch(normalized, maxResults);
+  let hits: Awaited<ReturnType<typeof searchPOI>>;
+  try {
+    hits = await searchPOI(query, { lat: userLat, lon: userLng, maxResults });
+  } catch {
+    return [];                       // Worker yok / poi.db yok → arama ÇÖKMEZ
   }
 
-  // Reachability-weighted sort — detour ratio penalises isolated / rural POIs
-  if (userLat != null && userLng != null) {
-    results.sort((a, b) => {
-      const rA = haversineKm(userLat, userLng, a.lat, a.lng) * _estimateDetourRatio(a, results);
-      const rB = haversineKm(userLat, userLng, b.lat, b.lng) * _estimateDetourRatio(b, results);
-      return rA - rB;
+  const out: OfflinePoiHit[] = [];
+  for (const p of hits) {
+    if (!Number.isFinite(p.lat) || !Number.isFinite(p.lon)) continue;
+    const name = (p.name ?? '').trim();
+    if (!name) continue;             // adsız kayıt gösterilemez
+    out.push({
+      id:         p.id || `poi_${p.lat.toFixed(4)}_${p.lon.toFixed(4)}`,
+      name,
+      address:    p.address ? p.address : undefined,
+      lat:        p.lat,
+      lng:        p.lon,
+      source:     'search',
+      timestamp:  Date.now(),
+      useCount:   0,
+      categoryId: p.category ? p.category : null,
     });
   }
-
-  return results.slice(0, maxResults);
+  return out.slice(0, maxResults);
 }

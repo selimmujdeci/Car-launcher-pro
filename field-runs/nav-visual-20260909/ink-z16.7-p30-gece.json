@@ -1,0 +1,53 @@
+{
+  "base": {
+    "brightPct": 5.11,
+    "meanL": 80.6
+  },
+  "rows": [
+    {
+      "katman": "road-minor",
+      "parlakPay": 0.93,
+      "payYuzde": 18.2
+    },
+    {
+      "katman": "road-service",
+      "parlakPay": 0.17,
+      "payYuzde": 3.3
+    },
+    {
+      "katman": "road-tertiary",
+      "parlakPay": 0.44,
+      "payYuzde": 8.6
+    },
+    {
+      "katman": "road-secondary",
+      "parlakPay": 0.07,
+      "payYuzde": 1.4
+    },
+    {
+      "katman": "road-primary",
+      "parlakPay": 3.33,
+      "payYuzde": 65.2
+    },
+    {
+      "katman": "road-motorway",
+      "parlakPay": 0,
+      "payYuzde": 0
+    },
+    {
+      "katman": "road-minor-casing",
+      "parlakPay": -0.28,
+      "payYuzde": -5.5
+    },
+    {
+      "katman": "building",
+      "parlakPay": 0,
+      "payYuzde": 0
+    },
+    {
+      "katman": "road-path",
+      "parlakPay": 0.01,
+      "payYuzde": 0.2
+    }
+  ]
+}

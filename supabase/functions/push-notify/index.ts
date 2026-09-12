@@ -29,7 +29,8 @@ type PushEvent =
   | 'command_failed'
   | 'alarm_triggered'
   | 'geofence_breach'
-  | 'vehicle_offline';
+  | 'vehicle_offline'
+  | 'speed_alert';
 
 interface RequestBody {
   event:     PushEvent;
@@ -93,6 +94,22 @@ function buildPayload(event: PushEvent, data: Record<string, unknown>): PushPayl
         tag:    `geo-${String(data.vehicleId ?? '')}`,
         url:    `${appUrl}/dashboard`,
         urgent: false,
+      };
+    case 'speed_alert':
+      /* Kullanıcının KENDİ belirlediği eşik aşıldı (yol hız limiti DEĞİL —
+         o ayrı bir sistemdir ve burada iddia edilmez). Ölçülen hız ve eşik
+         aracın bildirdiği değerlerdir; eksikse sayı UYDURULMAZ. */
+      return {
+        title:  `⚠️ Hız uyarısı`,
+        body:   data.speed_kmh != null && data.threshold_kmh != null
+          ? `${plate} — ${String(data.speed_kmh)} km/h (eşik ${String(data.threshold_kmh)} km/h)`
+          : `${plate} — belirlediğiniz hız eşiği aşıldı`,
+        icon:   `${appUrl}/icons/icon-192.svg`,
+        badge:  `${appUrl}/icons/badge-72.svg`,
+        // Tek etiket: aynı araç için üst üste bildirim yığılmaz, sonuncusu kalır.
+        tag:    `speed-${String(data.vehicleId ?? '')}`,
+        url:    `${appUrl}/kumanda`,
+        urgent: true,
       };
     case 'vehicle_offline':
       return {

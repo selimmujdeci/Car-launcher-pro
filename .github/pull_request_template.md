@@ -1,6 +1,6 @@
 <!--
   CarOS Pro PR Şablonu — tüm açıklamalar Türkçe yazılır (CLAUDE.md dil kuralı).
-  AI.md STABILIZATION MODE aktif: one bug = one fix, ilgisiz değişiklik karıştırma.
+  Kural (CLAUDE.md): one bug = one fix; ilgisiz değişiklik karıştırma.
   Doldurmadan PR açma.
 -->
 
@@ -13,7 +13,7 @@
 ## Hangi dosyalar değişti?
 
 <!-- Değişen dosyaları ve her birinde ne yapıldığını kısaca listele.
-     İlgisiz değişiklik karıştırılmadığını teyit et (AI.md PATCH RULES). -->
+     İlgisiz değişiklik karıştırılmadığını teyit et (CLAUDE.md §5 minimum patch). -->
 
 -
 

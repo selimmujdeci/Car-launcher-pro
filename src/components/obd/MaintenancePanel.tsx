@@ -52,7 +52,7 @@ export const MaintenancePanel = memo(() => {
 
   /* Kart yüzeyi → oem-surface-2 (beyaz saydam overlay kaldırıldı) */
   return (
-    <div className="flex flex-col gap-6 p-6 bg-[var(--oem-surface-2)] rounded-3xl border border-[var(--oem-line)] shadow-2xl">
+    <div data-theme-surface="maintenance" data-editable="maintenance-panel" data-editable-type="panel" className="flex flex-col gap-6 p-6 bg-[var(--oem-surface-2)] rounded-3xl border border-[var(--oem-line)] shadow-2xl">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           {/* Başlık ikonu → info token (nötr bilgi/araç) */}
@@ -67,7 +67,8 @@ export const MaintenancePanel = memo(() => {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Yağ Ömrü kartı → oem-surface-2 / oem-line */}
-        <div className="bg-[var(--oem-surface-2)] rounded-2xl p-4 border border-[var(--oem-line)]">
+        <div className="bg-[var(--oem-surface-2)] rounded-2xl p-4 border border-[var(--oem-line)]"
+          data-editable="maintenance.card" data-editable-type="card">
           <div className="flex items-center gap-3 mb-3">
             <Droplets className={`w-5 h-5 ${getStatusColor(oilAssessment?.status)}`} />
             <span className="text-sm font-medium text-slate-400">Yağ Ömrü</span>
@@ -94,7 +95,8 @@ export const MaintenancePanel = memo(() => {
         <div className="flex flex-col gap-2">
           {inspectionAssessment && (
             /* Muayene satırı → oem yüzey/kenarlık + semantik durum rengi */
-            <div className="bg-[var(--oem-surface-2)] rounded-xl p-3 border border-[var(--oem-line)] flex items-center justify-between">
+            <div className="bg-[var(--oem-surface-2)] rounded-xl p-3 border border-[var(--oem-line)] flex items-center justify-between"
+              data-editable="maintenance.item" data-editable-type="card">
               <div className="flex items-center gap-2">
                 <ClipboardCheck className={`w-4 h-4 ${getStatusColor(inspectionAssessment.status)}`} />
                 <span className="text-xs font-medium text-primary">Muayene</span>
@@ -106,7 +108,8 @@ export const MaintenancePanel = memo(() => {
           )}
           {insuranceAssessment && (
             /* Sigorta satırı → oem yüzey/kenarlık + semantik durum rengi */
-            <div className="bg-[var(--oem-surface-2)] rounded-xl p-3 border border-[var(--oem-line)] flex items-center justify-between">
+            <div className="bg-[var(--oem-surface-2)] rounded-xl p-3 border border-[var(--oem-line)] flex items-center justify-between"
+              data-editable="maintenance.item" data-editable-type="card">
               <div className="flex items-center gap-2">
                 <ShieldCheck className={`w-4 h-4 ${getStatusColor(insuranceAssessment.status)}`} />
                 <span className="text-xs font-medium text-primary">Sigorta</span>

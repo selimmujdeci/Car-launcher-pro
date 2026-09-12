@@ -76,25 +76,35 @@ export class VehicleSignalResolver {
     this._onCrash = onCrash;
     // ⭐ CLASSIC (IIFE) worker — modül worker DEĞİL. Modül worker Chrome 80+
     // gerektirir; Duster T507 (64-79) / 8227L (52-74) gibi eski head unit
-    // WebView'larında YÜKLENMEZ (bazı WebView constructor'da senkron throw eder →
-    // eski hâlde CAN katmanı komple ölürdü). VehicleCompute.worker yalnız statik
-    // import + tree-shake edilen import.meta.env.DEV kullanır → Vite bunu classic
-    // IIFE olarak paketler, Chrome 52+'da yüklenir. (§HEAD_UNIT_MATRIX)
+    // WebView'larında YÜKLENMEZ (WebView constructor'da senkron throw eder →
+    // CAN/araç veri katmanı komple ölür, her şey ana-thread fallback'ine düşer →
+    // donma). Vite prod'da `worker.format:'iife'` ile worker DOSYASINI classic IIFE
+    // paketler (Chrome 52+ yüklenir). (§HEAD_UNIT_MATRIX)
     try {
-      // type:'module' — Vite dev worker'ı MODÜL olarak servis eder (import cümleleri
-      // çalışır; dev tarayıcısı modern). PROD'da vite.config `worker.format:'iife'`
-      // bunu classic IIFE'ye ZORLAR → Chrome 52+ eski WebView'da yüklenir+parse edilir
-      // (modül worker Chrome 80+ ister). Böylece dev+prod ikisi de çalışır. (§HEAD_UNIT_MATRIX)
-      this._worker = new Worker(
-        new URL('./VehicleCompute.worker.ts', import.meta.url),
-        { type: 'module', name: 'VehicleCompute' },
-      );
+      // PR-RUNTIME-WORKER-1 KÖK NEDEN: worker DOSYASI prod'da IIFE olsa da, `new Worker`
+      // constructor SEÇENEĞİ ('type') Vite tarafından call-site'ta değiştirilMEZ. Eski
+      // yorum "Vite prod'da classic'e zorlar" YANLIŞTI: sabit `type:'module'` prod bundle'da
+      // kalıyor → WebView<80 dosyayı yüklemeden ÖNCE seçeneği reddedip throw ediyordu
+      // (Duster WebView 74 saha raporu: "Module scripts are not supported on DedicatedWorker"
+      // → VehicleCompute:create fail-soft → worker null → ana-thread donması).
+      // Çözüm: type'ı BUILD-TIME sabitiyle seç (runtime UA-sniff YOK). DEV: Vite worker'ı
+      // ESM servis eder → 'module' şart. PROD: bundle IIFE → 'classic' (WebView 52+ kabul).
+      // NOT: Vite `vite:worker-import-meta-url` plugin'i `type`'ın LİTERAL olmasını zorunlu
+      // kılar (ternary → "Expected worker options type property to be a literal value" build
+      // hatası). Bu yüzden İKİ ayrı literal-type call-site; `import.meta.env.DEV` build-time
+      // sabiti prod'da 'module' dalını ölü-kod eleme ile atar → prod bundle YALNIZ classic taşır.
+      this._worker = import.meta.env.DEV
+        ? new Worker(new URL('./VehicleCompute.worker.ts', import.meta.url), { type: 'module', name: 'VehicleCompute' })
+        : new Worker(new URL('./VehicleCompute.worker.ts', import.meta.url), { type: 'classic', name: 'VehicleCompute' });
       this._onWorkerMessageBound = this._onWorkerMessage.bind(this);
       this._worker.addEventListener('message', this._onWorkerMessageBound);
       this._worker.onerror = (err) => {
         logError('VehicleCompute:onerror', new Error(err.message ?? 'Worker crash'));
         runtimeManager.reportFailure('VehicleCompute');
         runtimeManager.unregisterWorker('VehicleCompute');
+        // T2: ÇÖKME yolu — düzenli teardown'dan ayrılır. unregisterWorker() 'stopped'
+        // yazar; gerçek arıza burada 'dead'e yükseltilir (BlackBox/LAB bunu ayırt eder).
+        runtimeManager.markWorkerDead('VehicleCompute');
         this._onWorkerMessageBound = null; // crash path'te referansı temizle
         this._worker = null;
         this._onCrash?.();
@@ -105,6 +115,8 @@ export class VehicleSignalResolver {
       // boot/UI ayakta. _send null-safe, registerWorker null kabul eder.
       logError('VehicleCompute:create', e instanceof Error ? e : new Error(String(e)));
       this._worker = null;
+      // T2: WebView worker'ı REDDETTİ — bu bir çökme değil, platform sınırı.
+      runtimeManager.markWorkerUnavailable('VehicleCompute', 'unsupported');
     }
   }
 
@@ -140,11 +152,11 @@ export class VehicleSignalResolver {
     this._unsubs.push(
       this.can.onData((d) => {
         const signals = SignalNormalizer.fromCAN(applyProfileGate(d), Date.now());
-        this._send({ type: 'VEHICLE_DATA', source: 'CAN', signals });
+        this._send({ type: 'VEHICLE_DATA', source: 'CAN', signals, fixTs: 0 });
       }),
       this.obd.onData((d) => {
         const signals = SignalNormalizer.fromOBD(d, Date.now());
-        this._send({ type: 'VEHICLE_DATA', source: 'OBD', signals });
+        this._send({ type: 'VEHICLE_DATA', source: 'OBD', signals, fixTs: 0 });
       }),
       this.gps.onData((d) => {
         // GpsAdapterData.speed ham m/s — RawGpsData formatına çevir
@@ -152,7 +164,10 @@ export class VehicleSignalResolver {
           { speedMs: d.speed, heading: d.heading, location: d.location },
           Date.now(),
         );
-        this._send({ type: 'VEHICLE_DATA', source: 'GPS', signals });
+        /* `signals.*.ts` BİLEREK varış anı kalır: güven (confidence) tazelik
+           çürümesi o eksene bağlı ve füzyon davranışı değişmemeli. Ölçüm anı
+           AYRI alanda taşınır ve yalnız odometre Δt'sinde kullanılır. */
+        this._send({ type: 'VEHICLE_DATA', source: 'GPS', signals, fixTs: d.fixTs ?? 0 });
       }),
     );
 
@@ -160,7 +175,7 @@ export class VehicleSignalResolver {
     this._unsubs.push(
       this.hal.onData((d) => {
         const signals = SignalNormalizer.fromHAL(d, Date.now());
-        this._send({ type: 'VEHICLE_DATA', source: 'HAL', signals });
+        this._send({ type: 'VEHICLE_DATA', source: 'HAL', signals, fixTs: 0 });
       }),
     );
     this.hal.start();

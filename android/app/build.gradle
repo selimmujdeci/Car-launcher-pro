@@ -89,6 +89,27 @@ android {
     kotlinOptions {
         jvmTarget = "21"
     }
+    // MÜZİK HUB PAKET A: playback authority birim testleri Android çerçeve
+    // sınıflarına dokunur (AudioManager sabitleri, Handler). Robolectric ile
+    // koşulur; unitTests.returnDefaultValues stub sınıf çağrılarında patlamayı önler.
+    testOptions {
+        unitTests {
+            includeAndroidResources = true
+            returnDefaultValues = true
+            /*
+             * TÜRKÇE LOCALE TUZAĞI (Windows geliştirme makinesi):
+             * Robolectric'in conscrypt yükleyicisi işletim sistemi adını
+             * `toLowerCase()` ile küçültür. Türkçe locale'de "WINDOWS" →
+             * "wındows" (noktasız ı) olur ve `conscrypt_openjdk_jni-wındows-x86_64`
+             * native kütüphanesi BULUNAMAZ → tüm Robolectric testleri
+             * UnsatisfiedLinkError ile düşer. Test JVM'inin locale'ini sabitlemek
+             * bunu kökten keser; ÜRÜN davranışını etkilemez (yalnız test JVM'i).
+             */
+            all {
+                it.jvmArgs '-Duser.language=en', '-Duser.country=US'
+            }
+        }
+    }
 }
 
 repositories {
@@ -106,7 +127,20 @@ dependencies {
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
     implementation 'com.google.android.material:material:1.12.0'
     implementation project(':capacitor-android')
+    // PHONE-HUB P1-A: head unit ve telefon companion'ın PAYLAŞTIĞI saf-Java
+    // protokol modülü (çerçeveleme · kripto · el sıkışma · tanı).
+    implementation project(':phonehub-protocol')
+    // ── MÜZİK HUB PAKET A — Playback Truth & Native Audio Core ──────────────
+    // Tek app-owned playback authority: ExoPlayer (oynatma) + MediaSession
+    // (bildirim · kilit ekranı · AVRCP · direksiyon tuşları tek kapıya gider).
+    // Apache-2.0 → ticari satışa uygun.
+    implementation "androidx.media3:media3-exoplayer:$media3Version"
+    implementation "androidx.media3:media3-session:$media3Version"
+    implementation "androidx.media3:media3-common:$media3Version"
     testImplementation "junit:junit:$junitVersion"
+    // JVM'de Android çerçevesi gerektiren playback authority testleri (Robolectric).
+    testImplementation "org.robolectric:robolectric:$robolectricVersion"
+    testImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
     implementation project(':capacitor-cordova-android-plugins')

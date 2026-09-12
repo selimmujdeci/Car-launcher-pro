@@ -14,6 +14,7 @@
  */
 import { updateMediaState, getMediaState } from './mediaService';
 import { isLowEndDevice } from './headUnitCompat';
+import { getDeviceTier } from './deviceCapabilities';
 
 export const YOUTUBE_PKG = 'com.cockpitos.pro.youtube';
 
@@ -36,7 +37,56 @@ function _logRegion(msg: string, data: Record<string, unknown>): void {
   console.warn('[YT-region]', msg, JSON.stringify(data));
 }
 
-let _player: any = null;
+/* ── YouTube IFrame Player API sözleşmesi ──────────────────────────────────
+   Bu API'nin resmî TS tipi paketi YOK ve ekleyemeyiz (yeni bağımlılık + lisans
+   denetimi). Bu yüzden YALNIZ KULLANDIĞIMIZ yüzey burada dar biçimde modellenir.
+   Yöntemler opsiyonel: script yüklenirken/parçalı yüklendiğinde eksik olabilir
+   (kod zaten `?.` ile çağırıyor — sözleşme bu gerçeği yansıtır). */
+interface YtPlayer {
+  /* Kod bunları `?.` OLMADAN çağırıyor (try/catch koruması var) → zorunlu. */
+  loadVideoById(arg: string | { videoId: string; suggestedQuality: string }): void;
+  playVideo():  void;
+  pauseVideo(): void;
+  setVolume(v: number): void;
+  seekTo(seconds: number, allowSeekAhead: boolean): void;
+  /* Kod bunları `?.` İLE çağırıyor (eski/parçalı player'da eksik olabilir). */
+  mute?():           void;
+  unMute?():         void;
+  stopVideo?():      void;
+  getPlayerState?(): number;
+  getCurrentTime?(): number;
+  getDuration?():    number;
+}
+
+/** Player olayları yalnız sayısal `data` taşır (durum kodu / hata kodu). */
+interface YtEvent { data?: number }
+
+interface YtPlayerOptions {
+  width:      string;
+  height:     string;
+  playerVars: Record<string, number | string>;
+  events: {
+    onReady:       () => void;
+    onStateChange: (e: YtEvent) => void;
+    onError:       (e: YtEvent) => void;
+  };
+}
+
+interface YtNamespace {
+  Player: new (elementId: string, opts: YtPlayerOptions) => YtPlayer;
+  PlayerState: { PLAYING: number; PAUSED: number; ENDED: number };
+}
+
+/** IFrame API kendini `window` üzerine yazar. */
+interface YtWindow {
+  YT?: YtNamespace;
+  onYouTubeIframeAPIReady?: () => void;
+}
+
+/** `window`u YT alanlarıyla birlikte gören dar görünüm (global kirletmeden). */
+const _ytWindow = (): YtWindow => window as unknown as YtWindow;
+
+let _player: YtPlayer | null = null;
 let _apiLoading = false;
 // Son uygulanan ses düzeyi (0–100). IFrame player web'de sistem sesinden bağımsızdır;
 // bu yüzden ses jesti/slider buraya yönlenir. Yeni video yüklenince tekrar uygulanır.
@@ -90,7 +140,7 @@ function _ensureHost(): HTMLDivElement {
 
 function _loadApi(): Promise<void> {
   return new Promise<void>((resolve) => {
-    const w = window as any;
+    const w = _ytWindow();
     if (w.YT?.Player) { resolve(); return; }
     if (_apiLoading) {
       const iv = setInterval(() => { if (w.YT?.Player) { clearInterval(iv); resolve(); } }, 100);
@@ -105,6 +155,37 @@ function _loadApi(): Promise<void> {
   });
 }
 
+/**
+ * preloadYouTubeIfAffordable — ÖN YÜKLEME kapısı (saha kanıtı, kütük #139/#140).
+ *
+ * KÖK NEDEN: Ana ekrandaki medya kartı, hiç YouTube çalmıyorken bile mount'ta
+ * `ensureYouTubeReady()` çağırıyordu. Sonuç, K24 LOW-tier head unit'te CDP ile
+ * ÖLÇÜLDÜ: `www-widgetapi.js` 250 ms'lik interval'lar sürekli çalışıyor,
+ * `ytembeds/base.js` + `player_embed_es6` JS zamanının **%4.3'ünü** yiyor ve
+ * kalıcı bir cross-origin iframe composited katman olarak GPU'da duruyor —
+ * kullanıcı medyaya hiç dokunmasa bile.
+ *
+ * KARAR: ön yükleme yalnız BÜTÇESİ OLAN cihazda yapılır. LOW tier'da atlanır;
+ * player, kullanıcı gerçekten YouTube seçtiğinde `ensureYouTubeReady()` ile
+ * (MediaScreen yolundan) lazım olduğu anda kurulur → **işlev kaybı YOK**,
+ * yalnız boşuna ön yükleme kalkar.
+ *
+ * Bu fonksiyon ASLA hata fırlatmaz.
+ */
+export function preloadYouTubeIfAffordable(): void {
+  try {
+    if (getDeviceTier() === 'low') return;   // düşük-uç: ön yükleme YOK
+    // Safari/WebKit, görünmeyen IFrame API ön yüklemesinde zaman zaman yanlış
+    // postMessage origin'i üretir. Yalnız spekülatif ısıtmayı atla; kullanıcı
+    // YouTube'u seçtiğinde ensureYouTubeReady() aynı işlevi kurmaya devam eder.
+    const ua = navigator.userAgent;
+    const isSafariWebKit = /AppleWebKit/i.test(ua)
+      && !/(Chrome|Chromium|CriOS|Android)/i.test(ua);
+    if (isSafariWebKit) return;
+    void ensureYouTubeReady().catch(() => { /* fail-soft */ });
+  } catch { /* fail-soft */ }
+}
+
 /** Player'ı önceden hazırlar (ilk çalmada user-gesture kaybolmasın diye). */
 export function ensureYouTubeReady(): Promise<void> {
   if (_readyPromise) return _readyPromise;
@@ -114,12 +195,16 @@ export function ensureYouTubeReady(): Promise<void> {
     await _loadApi();
     console.warn('[YT] IFrame API yüklendi, player kuruluyor');
     await new Promise<void>((resolve) => {
-      const w = window as any;
-      _player = new w.YT.Player('yt-player-inner', {
+      const w = _ytWindow();
+      _player = new w.YT!.Player('yt-player-inner', {
         width: '100%', height: '100%',
         playerVars: {
           autoplay: 1, controls: 0, disablekb: 1, fs: 0,
           modestbranding: 1, rel: 0, playsinline: 1, iv_load_policy: 3,
+          // IFrame API postMessage hedefini açıkça ana uygulama origin'ine bağla.
+          // Özellikle WebKit, origin verilmezse zaman zaman youtube.com hedefiyle
+          // localhost/Capacitor origin'ini karıştırıp konsol hatası üretiyor.
+          origin: window.location.origin,
         },
         events: {
           onReady: () => { console.warn('[YT] player hazır'); _applyVolume(); resolve(); },
@@ -133,7 +218,7 @@ export function ensureYouTubeReady(): Promise<void> {
   return _readyPromise;
 }
 
-function _onError(e: any): void {
+function _onError(e: YtEvent): void {
   // 2=geçersiz param, 5=HTML5 hatası, 100=bulunamadı/kaldırıldı,
   // 101/150=video sahibi gömmeye (embedding) izin vermiyor (resmî kliplerde sık).
   const code = e?.data;
@@ -146,9 +231,9 @@ function _onError(e: any): void {
   }
 }
 
-function _onState(e: any): void {
+function _onState(e: YtEvent): void {
   console.warn('[YT] state:', e?.data);
-  const YT = (window as any).YT;
+  const YT = _ytWindow().YT;
   if (!YT || getMediaState().activePackage !== YOUTUBE_PKG) return;
   if (e.data === YT.PlayerState.PLAYING) {
     updateMediaState({ playing: true });
@@ -213,18 +298,26 @@ export async function playYouTube(videoId: string, title: string, artist: string
   } else {
     await ensureYouTubeReady();
     _ensureHostRendered();
-    try { _player.loadVideoById(_loadArg(videoId)); _applyVolume(); console.warn('[YT] loadVideoById (cold) çağrıldı'); }
+    // ensureYouTubeReady() sonrası player yine null olabilir (API yüklenemedi).
+    // Eski `any` sürümünde bu bir TypeError'a düşüp AYNI catch'e gidiyordu —
+    // davranış korunsun diye açıkça fırlatılır, log satırı aynı kalır.
+    try {
+      if (!_player) throw new Error('YT player oluşturulamadı');
+      _player.loadVideoById(_loadArg(videoId)); _applyVolume(); console.warn('[YT] loadVideoById (cold) çağrıldı');
+    }
     catch (e) { console.error('[YT] loadVideoById hata:', e); }
   }
 
-  // Diğer kaynakları durdur (tek aktif kaynak) — loadVideoById'den SONRA,
-  // fire-and-forget: bekleyen import'lar user-gesture'ı tüketmesin.
-  import('./localMusicService')
-    .then(({ isLocalMusicActive, stopLocalMusic }) => { if (isLocalMusicActive()) stopLocalMusic(); })
-    .catch(() => { /* ignore */ });
-  import('./streamMusicService')
-    .then(({ streamStop, isStreamActive }) => { if (isStreamActive()) streamStop(); })
-    .catch(() => { /* ignore */ });
+  /* MUSIC F7.1 · KAYNAK DEVRİ ARTIK BURADA YAPILMAZ.
+   *
+   * Eskiden burada `stopLocalMusic()` ve `streamStop()` "ateşle-unut" biçiminde
+   * çağrılıyordu. Bu ikinci bir devir (handover) yürütücüsüydü: durduğu
+   * DOĞRULANMIYORDU, sırası garanti değildi ve `audibleBackendCount <= 1`
+   * sözleşmesini `sourceCoordinator`un dışından zorlamaya çalışıyordu.
+   *
+   * Kanonik yol: `mediaCommandGateway.playSource({ source: 'YOUTUBE' })` →
+   * `sourceCoordinator` önce aktif kaynağı durdurur ve DOĞRULAR, sonra burayı
+   * `start()` ile çağırır. Bu fonksiyon artık yalnız KENDİ backend'ini sürer. */
 }
 
 /** Host'u DOM'da render et ama UI'ı kaplamadan.
@@ -269,15 +362,62 @@ export function youtubeSetVolume(percent: number): void {
 export function youtubeTogglePlayPause(): void {
   if (!_player) return;
   try {
-    const YT = (window as any).YT;
+    const YT = _ytWindow().YT;
     const st = _player.getPlayerState?.();
     if (st === YT?.PlayerState?.PLAYING) _player.pauseVideo();
     else _player.playVideo();
   } catch { /* ignore */ }
 }
 
-export function youtubeSeek(positionSec: number): void {
-  try { _player?.seekTo(positionSec, true); } catch { /* ignore */ }
+/* ── MUSIC F7.1 · Kanonik transport yüzeyi ─────────────────────────────────
+ *
+ * `mediaCommandGateway` bu backend'i `BackendTransport` üzerinden sürer.
+ * Fonksiyonlar KABUL bilgisini döner ("çaldı" iddiası DEĞİL) — duyulabilirlik
+ * hükmü `playbackTruth`ın işidir. IFrame yoksa `false` döner ve kapı bunu
+ * dürüst bir hata olarak raporlar (sessiz yutma YOK). */
+
+/** Oynatmayı devam ettir. @returns komut player'a İLETİLDİ mi. */
+export function youtubeResume(): boolean {
+  if (!_player) return false;
+  try { _player.playVideo(); return true; } catch { return false; }
+}
+
+/** Oynatmayı duraklat. @returns komut player'a İLETİLDİ mi. */
+export function youtubePause(): boolean {
+  if (!_player) return false;
+  try { _player.pauseVideo(); return true; } catch { return false; }
+}
+
+/** IFrame oynatıcısının GÖZLENEN durumu. */
+export type YouTubePlaybackState =
+  | 'PLAYING' | 'PAUSED' | 'BUFFERING' | 'STOPPED' | 'UNKNOWN';
+
+/**
+ * IFrame player'ın gözlenen durumu — okunamıyorsa `UNKNOWN` (uydurulmaz).
+ *
+ * Durum kodları IFrame Player API'sinin belgelenmiş sabitleridir:
+ * `-1` başlamadı · `0` bitti · `1` çalıyor · `2` duraklı · `3` tamponluyor ·
+ * `5` kuyruklandı. Çalışma anında `YT.PlayerState` varsa O KULLANILIR; yoksa
+ * belgelenmiş sayısal karşılıklara düşülür (script parçalı yüklenmiş olabilir).
+ */
+export function getYouTubePlaybackState(): YouTubePlaybackState {
+  if (!_player) return 'UNKNOWN';
+  let st: number | undefined;
+  try { st = _player.getPlayerState?.(); } catch { return 'UNKNOWN'; }
+  if (typeof st !== 'number') return 'UNKNOWN';
+
+  const ps = _ytWindow().YT?.PlayerState;
+  if (st === (ps?.PLAYING ?? 1)) return 'PLAYING';
+  if (st === (ps?.PAUSED ?? 2)) return 'PAUSED';
+  if (st === 3) return 'BUFFERING';
+  if (st === (ps?.ENDED ?? 0) || st === -1 || st === 5) return 'STOPPED';
+  return 'UNKNOWN';
+}
+
+/** Konuma atlar. @returns komut player'a İLETİLDİ mi (F7.1 · kapı bunu okur). */
+export function youtubeSeek(positionSec: number): boolean {
+  if (!_player) return false;
+  try { _player.seekTo(positionSec, true); return true; } catch { return false; }
 }
 
 export function youtubeStop(): void {

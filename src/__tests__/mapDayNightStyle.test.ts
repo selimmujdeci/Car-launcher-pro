@@ -45,7 +45,9 @@ import {
   useMapSourceStore,
 } from '../platform/mapSourceManager';
 import { getOnlineTileStyle } from '../platform/map/_mapState';
-import { RASTER_PAINT_DAY, RASTER_PAINT_NIGHT } from '../platform/mapStyleBuilders';
+import {
+  RASTER_PAINT_DAY, RASTER_PAINT_NIGHT, MAP_BG_NIGHT, MAP_BG_DAY_VECTOR, MAP_BG_DAY,
+} from '../platform/mapStyleBuilders';
 
 /* ── Yardımcılar ── */
 
@@ -68,7 +70,11 @@ describe('getMapStyle — gündüz/gece raster paleti', () => {
     const style = getMapStyle();
     expect(getMapNight()).toBe(false);
     expect(tilesPaint(style)).toEqual({ ...RASTER_PAINT_DAY });
-    expect(backgroundColor(style)).toBe('#e9eef3');
+    /* Zemin KANONİK TOKENDEN okunur — hex kopyalanmaz. (2026-09-09: token
+       `#e9eef3` → `#eee9e3` olarak yeniden kalibre edildiğinde bu kilit
+       değer kopyaladığı için düşmüştü; kilidin amacı "gündüzde gündüz zemini
+       yazılır" davranışıdır, belirli bir hex DEĞİL.) */
+    expect(backgroundColor(style)).toBe(MAP_BG_DAY);
   });
 
   it("theme='dark' (mapNight=true) → GECE paleti: grafit raster + koyu arka plan", () => {
@@ -77,7 +83,7 @@ describe('getMapStyle — gündüz/gece raster paleti', () => {
     const style = getMapStyle();
     expect(getMapNight()).toBe(true);
     expect(tilesPaint(style)).toEqual({ ...RASTER_PAINT_NIGHT });
-    expect(backgroundColor(style)).toBe('#131822');
+    expect(backgroundColor(style)).toBe(MAP_BG_NIGHT);
   });
 });
 
@@ -97,17 +103,47 @@ describe('isNightHour — otomatik gün/gece saat bandı (07–19)', () => {
   });
 });
 
-/* ── 4. vector + gündüz → raster fallback ────────────────────── */
+/* ── 4. vector + gündüz ──────────────────────────────────────── */
 
-describe('getMapStyle — vector modda gündüz fallback', () => {
-  it("tileRender='vector' + gündüz → koyu vektör DEĞİL, gündüz raster döner", () => {
+describe('getMapStyle — vector modda gündüz', () => {
+  /*
+   * ⚠️ KİLİT GÜNCELLENDİ (2026-08-08), KALDIRILMADI.
+   *
+   * ESKİ HÂLİ: "gündüzde vektör ASLA dönmez, raster fallback döner".
+   * O kural, gündüz vektör paleti HENÜZ YOKKEN doğruydu: `buildVectorStyle`
+   * tek (koyu) palet üretiyordu ve gündüz kullanılırsa harita gece gibi
+   * görünürdü — bu yüzden gündüzde bilerek raster'a düşülüyordu.
+   *
+   * #482 ile gündüz paleti yazıldı ve `buildVectorStyle` içindeki gündüz→raster
+   * kapısı kaldırıldı. Kilit bir süre YANLIŞ SEBEPLE yeşil kaldı: vektör karo
+   * kaynağı hiç tanımlı olmadığı için (#486) stil zaten raster'a düşüyordu.
+   * Kaynak bağlanınca gerçek davranış ortaya çıktı.
+   *
+   * KORUNAN ASIL KURAL DEĞİŞMEDİ: **gündüzde ekran gece paletiyle çizilemez.**
+   * Ölçüt artık "vektör mü raster mı" değil — hangi motorla çizildiğinden
+   * bağımsız olarak GÜNDÜZ PALETİ kullanılmış olmalı.
+   */
+  it('tileRender=vector + gündüz → gece paleti ASLA kullanılmaz', () => {
     useMapSourceStore.setState({ mapMode: 'road', tileRender: 'vector' });
     setMapNight(false);
     const style = getMapStyle();
-    // Gündüzde vektör (Automotive Dark) asla dönmez — raster fallback
+
+    // Ad ne çizildiğini söylemeli — gündüzde "Night" adı dönemez.
+    expect(style.name).not.toContain('Night');
     expect(style.name).not.toBe('Vector (Automotive Dark)');
-    expect(tilesPaint(style)).toEqual({ ...RASTER_PAINT_DAY });
-    expect(backgroundColor(style)).toBe('#e9eef3');
+
+    const bg = backgroundColor(style);
+    // Gece zeminleri (vektör #161c28 · raster #131822) gündüzde YASAK.
+    expect(bg).not.toBe(MAP_BG_NIGHT);
+    expect(bg).not.toBe('#131822');
+
+    // Hangi motor kullanılırsa kullanılsın zemin GÜNDÜZ tonunda olmalı:
+    // vektör yolunda MAP_BG_DAY_VECTOR, raster yolunda MAP_BG_DAY.
+    expect([MAP_BG_DAY_VECTOR, MAP_BG_DAY]).toContain(bg);
+
+    // Raster yoluna düşüldüyse gündüz raster paint'i uygulanmalı.
+    const paint = tilesPaint(style);
+    if (paint) expect(paint).toEqual({ ...RASTER_PAINT_DAY });
   });
 });
 
@@ -117,13 +153,13 @@ describe('getOnlineTileStyle — son çare fallback', () => {
   it('varsayılan (parametresiz) → GÜNDÜZ paleti (fallback asla koyu kurulmaz)', () => {
     const style = getOnlineTileStyle();
     expect(tilesPaint(style)).toEqual({ ...RASTER_PAINT_DAY });
-    expect(backgroundColor(style)).toBe('#e9eef3');
+    expect(backgroundColor(style)).toBe(MAP_BG_DAY);
   });
 
   it('night=true → GECE paleti', () => {
     const style = getOnlineTileStyle(true);
     expect(tilesPaint(style)).toEqual({ ...RASTER_PAINT_NIGHT });
-    expect(backgroundColor(style)).toBe('#131822');
+    expect(backgroundColor(style)).toBe(MAP_BG_NIGHT);
   });
 
   it("layer id 'tiles-layer' — applyMapDayNight canlı geçişi fallback haritada da çalışır", () => {
@@ -169,11 +205,32 @@ describe('kaynak sözleşmeleri — stil karar zinciri tek kaynaklı', () => {
     expect(mapCoreSrc).toMatch(/getOnlineTileStyle\(getMapNight\(\)\)/);
   });
 
-  it('FullMapView canvas CSS filtresi mapNight sinyaline bağlı — gündüzde filtre yok', () => {
-    expect(fullMapSrc).toMatch(/filter: mapNight\s*\?/);
+  /**
+   * #622 — KİLİT BİLİNÇLİ GÜNCELLENDİ (kaldırılmadı).
+   *
+   * Eski sözleşme "filtre `mapNight` sinyaline bağlı olsun" idi; amacı, filtrenin
+   * YANLIŞ sinyalden (autoBrightness.phase) sürülüp gündüz de karartmasını
+   * engellemekti. O kusur artık YAPISAL olarak imkânsız: gece karartma filtresi
+   * TAMAMEN kaldırıldı, gece görünümü ölçülmüş paletten geliyor.
+   * Ölçüm gerekçesi: Google gece zemini 0,028 lum · bizim ekranda 0,008 idi
+   * (filtre × koyu palet) → yüzey 3,5 kat karanlıktı. Yeni kilit, karartma
+   * filtresinin GERİ GELMEMESİNİ korur.
+   */
+  it('FullMapView haritayı KARARTAN bir CSS filtresi uygulamaz (#622)', () => {
+    // Gece/gündüz ayrımı artık filtreyle YAPILMAZ.
+    expect(fullMapSrc).not.toMatch(/filter: mapNight\s*\?/);
     expect(fullMapSrc).not.toMatch(/filter: isNight/);
-    // Eski farklı sinyal (autoBrightness.phase) filtre kararında kullanılmıyor
+    // Eski yanlış sinyal hâlâ yasak.
     expect(fullMapSrc).not.toMatch(/autoBrightness\.phase === 'night'/);
+    /* Karartan/ton bozan primitifler harita kabında bulunmamalı.
+       Yorumlar ÇIKARILIR: gerekçe metinleri eski değerleri anlatır ve kilidi
+       yanıltmamalıdır (kilit KODA bakar, açıklamaya değil). */
+    const kod = fullMapSrc
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^[ \t]*\/\/.*$/gm, '');
+    for (const bad of ['brightness(0.', 'sepia(', 'hue-rotate(', 'grayscale(']) {
+      expect(kod, `harita filtresinde ${bad} var`).not.toContain(bad);
+    }
   });
 
   it("applyMapDayNight standart 'tiles-layer' id'sini canlı patch'ler", () => {

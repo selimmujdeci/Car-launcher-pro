@@ -27,7 +27,7 @@ export function ProGate({ feature, children, silent = false }: Props) {
 
   return (
     <div
-      className="relative w-full h-full min-h-[120px] rounded-2xl overflow-hidden flex flex-col items-center justify-center gap-3 p-6 text-center select-none"
+      className="relative w-full h-full min-h-[120px] rounded-sm overflow-hidden flex flex-col items-center justify-center gap-3 p-6 text-center select-none"
       style={{
         background: 'rgba(6,13,26,0.85)',
         border: '1px solid rgba(255,255,255,0.07)',
@@ -36,7 +36,7 @@ export function ProGate({ feature, children, silent = false }: Props) {
     >
       {/* Lock icon */}
       <div
-        className="w-12 h-12 rounded-2xl flex items-center justify-center"
+        className="w-12 h-12 rounded-sm flex items-center justify-center"
         style={{ background: 'rgba(96,165,250,0.1)', border: '1px solid rgba(96,165,250,0.2)' }}
       >
         <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
@@ -48,8 +48,8 @@ export function ProGate({ feature, children, silent = false }: Props) {
 
       {/* Labels */}
       <div>
-        <p className="text-white font-bold text-sm">{label}</p>
-        <p className="text-white/40 text-xs mt-1">
+        <p className="text-t1 font-bold text-sm">{label}</p>
+        <p className="text-t2 text-xs mt-1">
           {isTrial
             ? 'Deneme süreniz doldu'
             : 'Bu özellik PRO plana özel'}
@@ -59,7 +59,7 @@ export function ProGate({ feature, children, silent = false }: Props) {
       {/* CTA */}
       <a
         href="/contact"
-        className="px-4 py-2 rounded-xl text-xs font-bold tracking-wide transition-all active:scale-95"
+        className="px-4 py-2 rounded-sm text-xs font-bold tracking-wide transition-all active:scale-95"
         style={{
           background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
           color: '#fff',

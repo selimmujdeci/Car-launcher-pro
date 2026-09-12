@@ -84,7 +84,16 @@ import {
   warmupGemini,
   _withAltHint,
   _resetCompanionChatForTest,
+  triggerProactiveDiagnosticAlert,
+  getProactiveAlertDiagnostics,
+  PROACTIVE_ALERT_DEBOUNCE_MS,
+  PROACTIVE_ALERT_MAX_CHARS,
 } from '../platform/companion/companionChatProvider';
+import {
+  getProactiveSuppressionHistory, getLastAiOfflineRecord, _resetAiOfflineReasonForTest,
+} from '../platform/ai/aiOfflineReason';
+import type { DiagnosticVerdict } from '../platform/diagnosticTriage';
+import { GEMINI_MODEL_CHAIN } from '../platform/ai/gateway/models';
 import { isAiNetHealthy, _resetAiHealthForTest } from '../platform/aiHealth';
 import { fromSemanticResult } from '../platform/intentEngine';
 import { parseCommandFull } from '../platform/commandParser';
@@ -172,12 +181,19 @@ describe('tryCompanionChat — AI-first router ucu', () => {
     setupCompanion(false);
   });
 
-  it('companion KAPALI → null (eski zincir AYNEN işler)', async () => {
+  /* MAVI-F1 (2026-08-29) — KİLİT YENİ DOĞRU DAVRANIŞA GÜNCELLENDİ (kaldırılmadı).
+   * ESKİ kilit: "companion KAPALI → null (eski zincir AYNEN işler)". O davranış
+   * ÜRÜN KUSURUYDU: bir KİŞİLİK ayarı kapalıyken sohbet/anlama tamamen ölüyor,
+   * Mavi regex parser'a düşüyordu. Yeni invaryant: presence TON'u yönetir,
+   * YETENEĞİ değil. */
+  it('companion KAPALI → sohbet YİNE çalışır (presence yetenek kapatmaz)', async () => {
     setupCompanion(false);
-    const fetchSpy = mockGeminiOk();
+    const fetchSpy = mockGeminiOk('İyiyim, sen nasılsın?');
     vi.stubGlobal('fetch', fetchSpy);
-    expect(await tryCompanionChat('nasılsın', GEMINI_OPTS)).toBeNull();
-    expect(fetchSpy).not.toHaveBeenCalled();
+    const r = await tryCompanionChat('nasılsın', GEMINI_OPTS);
+    expect(r).not.toBeNull();
+    expect(r!.route).toBe('companion_gemini');
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
   it('AI-FIRST: keyword listesinde OLMAYAN serbest cümle de Gemini\'ye gider', async () => {
@@ -318,14 +334,16 @@ describe('tryCompanionChat — AI-first router ucu', () => {
 
     await tryCompanionChat('nasılsın', { ...GEMINI_OPTS, isDriving: true });
     const body = lastRequestBody(fetchSpy);
-    expect(body.generationConfig.maxOutputTokens).toBe(100);        // 60 cevapları ortadan kesiyordu
+    // SAHA 2026-07-24: sürüş bütçesi 100→220 (yarım cümle üretmeyecek kadar);
+    // sürüş KISALIK KURALI (2-3 cümle) bilinçli olarak KORUNUR — ISO 15008.
+    expect(body.generationConfig.maxOutputTokens).toBe(220);
     const prompt = body.system_instruction.parts[0].text;
     expect(prompt).toContain('2-3 kısa cümle');
     expect(prompt).not.toContain('8 kelime');                       // robotik sınır kaldırıldı
     expect(prompt).toContain('Doğal ve akıcı konuş');
   });
 
-  it('park halinde: 3 doğal cümleye izin + hitap her cümlede tekrarlanmaz kuralı', async () => {
+  it('park halinde: uzunluk SORUYA uyarlanır (sabit cümle tavanı yok) + hitap her cümlede tekrarlanmaz', async () => {
     setupCompanion(true);
     useStore.getState().updateSettings({ companionUserCallsign: 'Selim' });
     const fetchSpy = mockGeminiOk();
@@ -333,9 +351,19 @@ describe('tryCompanionChat — AI-first router ucu', () => {
 
     await tryCompanionChat('nasılsın', GEMINI_OPTS);
     const body = lastRequestBody(fetchSpy);
-    expect(body.generationConfig.maxOutputTokens).toBe(160);
+    /* SAHA 2026-07-24: park bütçesi 160→900. Eski 160 token uzun anlatımı
+       `finishReason=MAX_TOKENS` ile cümle ortasında kesiyordu (cihazda ölçüldü).
+       SAHA 2026-08-30 (kütük #1049 · gerçek cihaz): 900 de YETMEDİ — "coğrafi
+       bölgeleri detaylıca anlat" sorusunda 7 bölgenin yalnız 4'ü anlatıldı ve
+       kullanıcıya kısaltıldığı SÖYLENMEDİ. Park bütçesi 900→2000; sürüş değeri
+       (220) DEĞİŞMEDİ (dikkat bütçesi · ISO 15008 pazarlıksız).
+       Kilit KALDIRILMADI, yeni doğru değere GÜNCELLENDİ. */
+    expect(body.generationConfig.maxOutputTokens).toBe(2000);
     const prompt = body.system_instruction.parts[0].text;
-    expect(prompt).toContain('3 doğal cümle');
+    // Sabit "en fazla 3 cümle" tavanı KALDIRILDI — uzunluk soruya uyar.
+    expect(prompt).not.toContain('en fazla 3 doğal cümleyle');
+    expect(prompt).toContain('SORUYA göre ayarla');
+    expect(prompt).toContain('yarıda bırakma');
     expect(prompt).toContain('her cümlede kullanma');               // hitap tekrarı engeli
   });
 
@@ -584,7 +612,13 @@ describe('tryCompanionBrain — komut/sohbet kararını tek Gemini çağrısı v
     expect(prompt).toContain('FIND_NEARBY_GAS');               // şiveli komut örneği
   });
 
-  it('FAZ 3 — No Dead-Ends: online deneme çöktü + offline eşleşme yok → kişiliğe uygun tekrar-rica (null DEĞİL)', async () => {
+  it('FAZ 3 — No Dead-Ends: online deneme çöktü + offline eşleşme yok → kişiliğe uygun DÜRÜST cevap (null DEĞİL)', async () => {
+    /* #669'da GÜNCELLENDİ (zayıflatılmadı): kilidin koruduğu kural —
+       "kullanıcı ÇIKMAZ görmez, null dönmez, cevap kişiliğe uyar" — aynen
+       duruyor. Değişen tek şey CÜMLENİN DOĞRULUĞU: `fetch` throw ettiğinde
+       (ağ ölümü) eskiden "tekrar alabilir miyim?" deniyordu; tekrar söylemek
+       işe yaramadığı için kullanıcı döngüye giriyordu (saha: "Mavi cevap
+       vermiyor, 'of orayı kaçırdım' diyor"). Artık gerçek neden söyleniyor. */
     setupCompanion(true);
     useStore.getState().updateSettings({ companionPersonality: 'profesyonel' });
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('timeout')));
@@ -592,8 +626,73 @@ describe('tryCompanionBrain — komut/sohbet kararını tek Gemini çağrısı v
     const r = await tryCompanionBrain('xqwzt blgrh vmpld', GEMINI_OPTS);
     expect(r!.kind).toBe('chat');
     if (r!.kind === 'chat') {
-      expect(r.route).toBe('companion_offline');
-      expect(r.response).toBe('Tam anlayamadım, tekrar alabilir miyim?');
+      expect(r.route).toBe('companion_net_down');
+      // Kişilik tonu korunur (persona sözleşmesi) + içerik dürüst
+      expect(r.response).toBe('Şu anda internet bağlantısı kurulamıyor. Bağlantı sağlandığında tekrar deneyebilirsiniz.');
+      expect(r.response.toLowerCase()).not.toContain('hata');
+    }
+  });
+
+  it('#698 KİLİT: Gemini 401 → "tekrar söyle" DEĞİL, DÜRÜST anahtar cevabı (sahada ölçüldü)', async () => {
+    /* SAHA (cihazda CDP ile ÖLÇÜLDÜ, 2026-08-22): kullanıcının anahtarı
+       `X-goog-api-key`e DOLU gidiyordu (53 karakter) ama Google **401** ile
+       reddediyordu: "Expected OAuth 2 access token…". Dürüst cevap dalı yalnız
+       **400/403 + gövdede API_KEY_INVALID** hâlini tanıdığı için 401 sessizce
+       yutuluyor, kullanıcı REASK ("of orayı kaçırdım") duyuyordu — çözümü kendi
+       elinde olan bir arıza, çözümsüz bir "seni duyamadım" gibi görünüyordu.
+       401 tanım gereği kimlik reddidir; gövde koşulu ARANMAZ. */
+    setupCompanion(true);
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: false, status: 401,
+      json: async () => ({ error: { code: 401, message: 'Request had invalid authentication credentials. Expected OAuth 2 access token, login cookie or other valid authentication credential.' } }),
+    });
+    vi.stubGlobal('fetch', fetchSpy);
+
+    /* Girdi, offline smalltalk motorunun cevaplayabileceği bir şey OLMAMALI:
+       offline motorun gerçek cevabı varsa o kazanır (doğru davranış) ve dürüst
+       dala hiç inilmez. Sahada REASK'ı tetikleyen de böyle bir girdiydi. */
+    const r = await tryCompanionBrain('xqwzt blgrh vmpld', GEMINI_OPTS);
+    expect(r!.kind).toBe('chat');
+    if (r!.kind === 'chat') {
+      expect(r.route).toBe('companion_key_invalid');
+      expect(r.route).not.toBe('companion_reask');      // tekrar söylemek İŞE YARAMAZ
+      expect(r.response).toContain('anahtar');          // gerçek neden söylenir
+    }
+  });
+
+  it('#698 KİLİT: Groq 401 "Invalid API Key" de dürüst cevaba besler (sağlayıcı-bağımsız)', async () => {
+    /* Sahada Groq da 401 döndü ama `!resp.ok → return null` ile SESSİZCE
+       yutuluyordu: Gemini dışındaki halkaların kimlik reddi hiç bakılmıyordu. */
+    setupCompanion(true);
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: false, status: 401,
+      json: async () => ({ error: { message: 'Invalid API Key' } }),
+    });
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const r = await tryCompanionBrain('xqwzt blgrh vmpld', { provider: 'groq', apiKey: 'gsk_test', hasNet: true });
+    expect(r!.kind).toBe('chat');
+    if (r!.kind === 'chat') expect(r.route).toBe('companion_key_invalid');
+  });
+
+  it('#698 KİLİT: 402 kredi bitişi ANAHTAR HATASINDAN AYRI cevap verir (farklı eylem gerektirir)', async () => {
+    /* Sahada gateway (OpenRouter) **402 "Insufficient credits"** döndü. Anahtar
+       GEÇERLİ, hesapta bakiye yok → "anahtarını kontrol et" YANLIŞ yönlendirme
+       olurdu. Gateway katmanı bu ayrımı zaten üretiyordu (`insufficient_credit`,
+       kütük #421); eksik olan onu dürüst cevaba TAŞIYAN kabloydu. */
+    setupCompanion(true);
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: false, status: 402,
+      json: async () => ({ error: { message: 'Insufficient credits' } }),
+    });
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const r = await tryCompanionBrain('xqwzt blgrh vmpld', { provider: 'groq', apiKey: 'gsk_test', hasNet: true });
+    expect(r!.kind).toBe('chat');
+    if (r!.kind === 'chat') {
+      expect(r.route).toBe('companion_no_credit');
+      expect(r.response.toLowerCase()).toContain('kredi');
+      expect(r.response.toLowerCase()).not.toContain('anahtarını kontrol'); // yanlış yönlendirme YOK
     }
   });
 
@@ -606,12 +705,15 @@ describe('tryCompanionBrain — komut/sohbet kararını tek Gemini çağrısı v
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it('companion KAPALI → null (eski zincir aynen)', async () => {
+  /* MAVI-F1 — KİLİT YENİ DOĞRU DAVRANIŞA GÜNCELLENDİ (bkz. yukarıdaki not).
+   * Beyin, Mavi'nin karar çekirdeğidir; kişilik ayarı onu kapatamaz. */
+  it('companion KAPALI → BEYİN YİNE çalışır (presence yetenek kapatmaz)', async () => {
     setupCompanion(false);
-    const fetchSpy = vi.fn();
+    const fetchSpy = mockGeminiOk('{"type":"chat","say":"İyiyim."}');
     vi.stubGlobal('fetch', fetchSpy);
-    expect(await tryCompanionBrain('nasılsın', GEMINI_OPTS)).toBeNull();
-    expect(fetchSpy).not.toHaveBeenCalled();
+    const r = await tryCompanionBrain('nasılsın', GEMINI_OPTS);
+    expect(r).not.toBeNull();
+    expect(fetchSpy).toHaveBeenCalled();
   });
 
   /* ── İNTERNET / grounding yeteneği (haber/güncel bilgi) ──────── */
@@ -673,7 +775,12 @@ describe('tryCompanionBrain — komut/sohbet kararını tek Gemini çağrısı v
     const r = await tryCompanionBrain('haberleri söyle', GEMINI_OPTS);
     expect(r!.kind).toBe('chat');
     if (r!.kind === 'chat') {
-      expect(r.route).toBe('companion_offline');             // grounding başarısız → reask
+      /* #697'de GÜNCELLENDİ (zayıflatılmadı): REASK'ın kendisi hâlâ üretiliyor;
+         yalnız rota `companion_offline`'dan AYRIŞTIRILDI. Çağıran bu rotayı
+         "beyin karar veremedi → önce YEREL komut zincirini dene" olarak okur;
+         eskiden offline sohbet cevabıyla aynı kulvarda olduğu için turu kapatıp
+         yerel parser'ı öldürüyordu. */
+      expect(r.route).toBe('companion_reask');               // grounding başarısız → reask
       expect(r.response.toLowerCase()).not.toContain('erişim');
     }
   });
@@ -1005,20 +1112,25 @@ describe('tryCompanionBrain — hibrit zincir yedekleme (429/timeout sırasında
 
   it('Gemini 429 soğuma penceresindeyken + chain\'de Groq var → doğrudan Groq kullanılır', async () => {
     setupCompanion(true);
-    const fetchSpy = vi.fn()
-      .mockResolvedValueOnce({ ok: false, status: 429, json: async () => ({}) }) // 1) Gemini 429 → soğuma başlar
-      .mockResolvedValueOnce(mockGroqBrainJson({ type: 'chat', say: 'Soğuma sırasında Groq cevabı.' }));
+    // SAHA 2026-07-24: kota MODEL-BAZLI → 429'da önce zincirdeki sıradaki Gemini
+    // modeli denenir; sağlayıcı soğuması YALNIZ tüm modeller tükendiğinde başlar.
+    // Mock URL-tabanlı: zincir uzunluğu değişse de kilit bozulmaz.
+    const fetchSpy = vi.fn().mockImplementation((url: unknown) =>
+      String(url).includes('generativelanguage')
+        ? Promise.resolve({ ok: false, status: 429, json: async () => ({}) })
+        : Promise.resolve(mockGroqBrainJson({ type: 'chat', say: 'Soğuma sırasında Groq cevabı.' })));
     vi.stubGlobal('fetch', fetchSpy);
 
-    const r1 = await tryCompanionBrain('nasılsın', GEMINI_OPTS); // yalnız gemini → soğumaya düşer
+    const r1 = await tryCompanionBrain('nasılsın', GEMINI_OPTS); // yalnız gemini → tüm model zinciri tükenir → soğuma
     expect(r1!.kind).toBe('chat');
     if (r1!.kind === 'chat') expect(r1.route).toBe('companion_offline');
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const geminiTries = fetchSpy.mock.calls.length;
+    expect(geminiTries, 'Gemini model zinciri denenmedi (tek modelde takılı kalmış)').toBe(GEMINI_MODEL_CHAIN.length);
 
     // İkinci çağrı: hâlâ soğuma penceresinde ama chain'de Groq VAR → Groq'a doğrudan gider.
     const r2 = await tryCompanionBrain('naber', GEMINI_GROQ_CHAIN);
-    expect(fetchSpy).toHaveBeenCalledTimes(2);
-    const [groqUrl] = fetchSpy.mock.calls[1] as [string];
+    expect(fetchSpy).toHaveBeenCalledTimes(geminiTries + 1); // Gemini HİÇ yeniden denenmedi
+    const [groqUrl] = fetchSpy.mock.calls[geminiTries] as [string];
     expect(groqUrl).toContain('api.groq.com');
     expect(r2!.kind).toBe('chat');
     if (r2!.kind === 'chat') {
@@ -1027,7 +1139,12 @@ describe('tryCompanionBrain — hibrit zincir yedekleme (429/timeout sırasında
     }
   });
 
-  it('Gemini VE Groq ikisi de attı → çökmez, kişiliğe uygun tekrar-rica ile döner (No Dead-Ends)', async () => {
+  it('Gemini VE Groq ikisi de attı → çökmez, kişiliğe uygun DÜRÜST cevapla döner (No Dead-Ends)', async () => {
+    /* #669'da GÜNCELLENDİ (zayıflatılmadı): zincirin tamamı THROW ettiğinde
+       hiçbir sağlayıcıdan HTTP yanıtı gelmemiştir → ağ ÖLÜDÜR. Kilidin
+       koruduğu "çökmez, cevapsız kalmaz" kuralı aynen duruyor; cevap artık
+       "tekrar söyle" değil, gerçek neden. HTTP yanıtı gelen hâllerde
+       (429/4xx/5xx/parse) REASK yolu KORUNUR — ayrı kilit. */
     setupCompanion(true);
     const fetchSpy = vi.fn().mockRejectedValue(new Error('timeout')); // her iki çağrı da atar
     vi.stubGlobal('fetch', fetchSpy);
@@ -1035,7 +1152,31 @@ describe('tryCompanionBrain — hibrit zincir yedekleme (429/timeout sırasında
     const r = await tryCompanionBrain('xqwzt blgrh vmpld', GEMINI_GROQ_CHAIN);
     expect(fetchSpy).toHaveBeenCalledTimes(2); // Gemini + Groq yedeği denendi
     expect(r!.kind).toBe('chat');
-    if (r!.kind === 'chat') expect(r.route).toBe('companion_offline');
+    if (r!.kind === 'chat') {
+      expect(r.route).toBe('companion_net_down');
+      expect(r.response.toLowerCase()).not.toContain('hata');
+    }
+  });
+
+  it('#669 KİLİT: HTTP yanıtı geldiyse ağ ÖLÜ sayılmaz → "tekrar söyle" korunur', async () => {
+    /* Ayrımın kalbi: sunucudan yanıt gelmesi ağın CANLI olduğunun kanıtıdır.
+       Boş/eksik gövde bir sağlayıcı hatasıdır, ağ ölümü DEĞİL — o hâlde tekrar
+       söylemek İŞE YARAYABİLİR, dolayısıyla REASK doğrudur. Bu kilit olmadan
+       #669'un düzeltmesi aşırı genişleyip her hatada "internet yok" diyebilirdi. */
+    setupCompanion(true);
+    useStore.getState().updateSettings({ companionPersonality: 'profesyonel' });
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true, status: 200, json: async () => ({ candidates: [] }),
+    });
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const r = await tryCompanionBrain('xqwzt blgrh vmpld', GEMINI_OPTS);
+    expect(r!.kind).toBe('chat');
+    if (r!.kind === 'chat') {
+      expect(r.route).not.toBe('companion_net_down');      // "internet yok" DEMEZ
+      /* #697: REASK artık kendi rotasında (davranış aynı, kulvar ayrı). */
+      expect(r.route).toBe('companion_reask');             // REASK yolu
+    }
   });
 
   it('Gemini web kararı verdi ama grounding çöktü + chain\'de Groq var → Groq yedeği dener', async () => {
@@ -1079,18 +1220,21 @@ describe('tryCompanionBrain — hibrit zincir yedekleme (429/timeout sırasında
 
   it('(b) Gemini 429 soğuma penceresinde + chain\'de Groq var → Groq direkt kullanılır (Haiku denenmez)', async () => {
     setupCompanion(true);
-    const fetchSpy = vi.fn()
-      .mockResolvedValueOnce({ ok: false, status: 429, json: async () => ({}) }) // 1) Gemini 429 → soğuma başlar
-      .mockResolvedValueOnce(mockGroqBrainJson({ type: 'chat', say: 'Groq soğuma sırasında cevap verdi.' }));
+    // Model zinciri tükenene kadar 429 (URL-tabanlı mock — zincir uzunluğundan bağımsız).
+    const fetchSpy = vi.fn().mockImplementation((url: unknown) =>
+      String(url).includes('generativelanguage')
+        ? Promise.resolve({ ok: false, status: 429, json: async () => ({}) })
+        : Promise.resolve(mockGroqBrainJson({ type: 'chat', say: 'Groq soğuma sırasında cevap verdi.' })));
     vi.stubGlobal('fetch', fetchSpy);
 
-    const r1 = await tryCompanionBrain('nasılsın', GEMINI_OPTS); // yalnız gemini → soğumaya düşer
+    const r1 = await tryCompanionBrain('nasılsın', GEMINI_OPTS); // yalnız gemini → zincir tükenir → soğuma
     expect(r1!.kind).toBe('chat');
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const geminiTries = fetchSpy.mock.calls.length;
+    expect(geminiTries).toBe(GEMINI_MODEL_CHAIN.length);
 
     const r2 = await tryCompanionBrain('naber', GEMINI_GROQ_HAIKU_CHAIN); // soğuma sürüyor
-    expect(fetchSpy).toHaveBeenCalledTimes(2); // Gemini ATLANDI, doğrudan Groq — Haiku'ya hiç gerek kalmadı
-    const [groqUrl] = fetchSpy.mock.calls[1] as [string];
+    expect(fetchSpy).toHaveBeenCalledTimes(geminiTries + 1); // Gemini ATLANDI, doğrudan Groq — Haiku'ya hiç gerek kalmadı
+    const [groqUrl] = fetchSpy.mock.calls[geminiTries] as [string];
     expect(groqUrl).toContain('api.groq.com');
     expect(r2!.kind).toBe('chat');
     if (r2!.kind === 'chat') {
@@ -1134,12 +1278,13 @@ describe('429 kota — dürüst cevap + sağlayıcı-bazlı pencere (SAHA 2026-0
     const fetchSpy = vi.fn().mockResolvedValue({ ok: false, status: 429, json: async () => ({}) });
     vi.stubGlobal('fetch', fetchSpy);
 
-    const r1 = await tryCompanionBrain('xqwzt blgrh vmpld', GEMINI_CHAIN); // denendi → 429 → soğuma
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    // 429'da önce model zinciri denenir (kota model-bazlı), tükenince soğuma başlar.
+    const r1 = await tryCompanionBrain('xqwzt blgrh vmpld', GEMINI_CHAIN);
+    expect(fetchSpy).toHaveBeenCalledTimes(GEMINI_MODEL_CHAIN.length);
     expect(r1!.kind).toBe('chat');
 
     const r2 = await tryCompanionBrain('xqwzt blgrh vmpld', GEMINI_CHAIN); // soğumada: Gemini HİÇ denenmez
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(fetchSpy).toHaveBeenCalledTimes(GEMINI_MODEL_CHAIN.length);
     expect(r2!.kind).toBe('chat');
     if (r2!.kind === 'chat') {
       expect(r2.route).toBe('companion_rate_limited');
@@ -1177,10 +1322,12 @@ describe('429 kota — dürüst cevap + sağlayıcı-bazlı pencere (SAHA 2026-0
     const fetchSpy = vi.fn().mockResolvedValue({ ok: false, status: 429, json: async () => ({}) });
     vi.stubGlobal('fetch', fetchSpy);
 
-    await tryCompanionBrain('xqwzt blgrh vmpld', GEMINI_CHAIN); // 429 → soğuma başladı
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    // Model zinciri tükenene kadar 429 → sonra sağlayıcı soğuması başlar.
+    await tryCompanionBrain('xqwzt blgrh vmpld', GEMINI_CHAIN);
+    const tries = fetchSpy.mock.calls.length;
+    expect(tries).toBe(GEMINI_MODEL_CHAIN.length);
     await warmupGemini('AIzaTest');
-    expect(fetchSpy).toHaveBeenCalledTimes(1); // warmup fetch ATMADI
+    expect(fetchSpy).toHaveBeenCalledTimes(tries); // warmup fetch ATMADI
   });
 
   it('repairMusicQuery timeout\'u beyin devre kesicisini BESLEMEZ (iki müzik komutu ≠ 90sn offline)', async () => {
@@ -1261,5 +1408,127 @@ describe('400 API_KEY_INVALID — dürüst anahtar cevabı (SAHA 2026-07-05)', (
     const r2 = await tryCompanionBrain('xqwzt blgrh vmpld', GEMINI_CHAIN);
     expect(r2!.kind).toBe('chat');
     if (r2!.kind === 'chat') expect(r2.response).toBe('Anahtar tamam.');
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * PROAKTİF KRİTİK ARIZA UYARISI (GÖREV 4)
+ *
+ * Mavi yalnız sorulduğunda değil, hayati bir arıza belirdiğinde de konuşur.
+ * Bu yol AĞA ÇIKMAZ: metin deterministik şablondan/verdict başlığından kurulur.
+ * ════════════════════════════════════════════════════════════════════════ */
+
+/** Verdict kurucusu — buildDiagnosticVerdict çıktısıyla YAPISAL uyumlu. */
+function verdict(opts: {
+  critical?: boolean; code?: string; problem?: string; active?: boolean;
+} = {}): DiagnosticVerdict {
+  const active = opts.active ?? true;
+  const hyp = {
+    problem: opts.problem ?? 'Motor soğutma devresi aşırı ısındı',
+    severity: (opts.critical === false ? 'warning' : 'critical') as 'critical' | 'warning',
+    code: opts.code ?? 'ROOT_OVERHEAT',
+    confidence: 90,
+    evidence: [], analysis: '', recommendedFix: '', sources: [],
+  };
+  return {
+    headline: 'test',
+    topRootCauses: active ? [hyp] : [],
+    inconclusive: [],
+    errorFreshness: { activeNowCount: 0, previousBootCount: 0, staleRatio: 0, topActive: [] },
+    hasActiveRootCause: active,
+  };
+}
+
+/** Nötr güvenlik bağlamı — geri manevra/koruma modu YOK. */
+const SAFE_CTX = {} as const;
+
+describe('triggerProactiveDiagnosticAlert — proaktif kritik uyarı', () => {
+  beforeEach(() => {
+    _resetCompanionChatForTest();
+    _resetAiOfflineReasonForTest();
+  });
+
+  it('critical arızada onSpeak TETİKLENİR ve 180 karakteri AŞMAZ', () => {
+    const spoke = vi.fn();
+    const r = triggerProactiveDiagnosticAlert(verdict(), {
+      onSpeak: spoke, isDriving: true, safety: SAFE_CTX, now: () => 0,
+    });
+
+    expect(r.outcome).toBe('spoken');
+    expect(spoke).toHaveBeenCalledTimes(1);
+    const said = spoke.mock.calls[0][0] as string;
+    expect(said.length).toBeGreaterThan(0);
+    expect(said.length).toBeLessThanOrEqual(PROACTIVE_ALERT_MAX_CHARS);
+    expect(r.alertKey).toBe('ROOT_OVERHEAT');
+    expect(getProactiveAlertDiagnostics().spokenCount).toBe(1);
+  });
+
+  it('NORMAL durumda (kritik kök-neden yok) TETİKLENMEZ', () => {
+    const spoke = vi.fn();
+
+    const noRoot = triggerProactiveDiagnosticAlert(verdict({ active: false }), {
+      onSpeak: spoke, safety: SAFE_CTX, now: () => 0,
+    });
+    expect(noRoot.outcome).toBe('suppressed');
+    expect(noRoot.reason).toBe('not_critical');
+
+    // warning seviyesi de proaktif uyarıya DEĞMEZ (yalnız critical konuşur).
+    const warn = triggerProactiveDiagnosticAlert(verdict({ critical: false }), {
+      onSpeak: spoke, safety: SAFE_CTX, now: () => 0,
+    });
+    expect(warn.outcome).toBe('suppressed');
+    expect(spoke).not.toHaveBeenCalled();
+  });
+
+  it('aynı arıza 5 dk içinde İKİNCİ kez konuşulmaz (debounce)', () => {
+    const spoke = vi.fn();
+    let t = 0;
+    const opts = { onSpeak: spoke, safety: SAFE_CTX, now: () => t };
+
+    expect(triggerProactiveDiagnosticAlert(verdict(), opts).outcome).toBe('spoken');
+
+    t = PROACTIVE_ALERT_DEBOUNCE_MS - 1;
+    const blocked = triggerProactiveDiagnosticAlert(verdict(), opts);
+    expect(blocked.outcome).toBe('suppressed');
+    expect(blocked.reason).toBe('debounce');
+    expect(spoke).toHaveBeenCalledTimes(1);
+
+    // Pencere dolunca yeniden konuşulabilir.
+    t = PROACTIVE_ALERT_DEBOUNCE_MS;
+    expect(triggerProactiveDiagnosticAlert(verdict(), opts).outcome).toBe('spoken');
+    expect(spoke).toHaveBeenCalledTimes(2);
+
+    // FARKLI arıza debounce'a takılmaz (anahtar bazlı).
+    const other = triggerProactiveDiagnosticAlert(verdict({ code: 'ROOT_OIL' }), opts);
+    expect(other.outcome).toBe('spoken');
+  });
+
+  it('geri manevrada SUSAR ve susturma kaydı tutulur (sessizce yutulmaz)', () => {
+    const spoke = vi.fn();
+    const r = triggerProactiveDiagnosticAlert(verdict(), {
+      onSpeak: spoke, safety: { reverseActive: true }, now: () => 0,
+    });
+
+    expect(r.outcome).toBe('suppressed');
+    expect(r.reason).toBe('reverse_attention');
+    expect(spoke).not.toHaveBeenCalled();
+
+    const hist = getProactiveSuppressionHistory();
+    expect(hist.length).toBeGreaterThan(0);
+    expect(hist[hist.length - 1].reason).toBe('PROACTIVE_SAFETY_SUPPRESSED');
+    expect(hist[hist.length - 1].detail).toBe('reverse_attention');
+    // Susturma OFFLINE halkasını KİRLETMEZ (ayrı halka).
+    expect(getLastAiOfflineRecord()).toBeNull();
+  });
+
+  it('bozuk verdict / onSpeak yok → fail-closed, throw ETMEZ, ağa ÇIKMAZ', () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+
+    expect(triggerProactiveDiagnosticAlert(null, { onSpeak: vi.fn(), now: () => 0 }).reason)
+      .toBe('invalid_verdict');
+    expect(triggerProactiveDiagnosticAlert(verdict(), { onSpeak: undefined as never }).reason)
+      .toBe('no_speech_sink');
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

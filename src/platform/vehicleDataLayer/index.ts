@@ -3,9 +3,10 @@ import { ObdAdapter }          from './ObdAdapter';
 import { GpsAdapter }          from './GpsAdapter';
 import { VehicleSignalResolver } from './VehicleSignalResolver';
 import { telemetryService }    from '../telemetryService';
-import { useUnifiedVehicleStore } from './UnifiedVehicleStore';
+import { useUnifiedVehicleStore, type CanExtrasPatch } from './UnifiedVehicleStore';
 import { startRemoteCommands, stopRemoteCommands } from '../remoteCommandService';
 import { startLiveStyleEngine }                    from '../liveStyleEngine';
+import { startObdSignalBridge }                    from './obdSignalBridge';
 import { updateGpsSpeedForValidation, onOBDData }  from '../obdService';
 import type { VehicleState, WorkerGeofenceZone }   from './types';
 import { applyProfileGate }    from '../canBus/ProfileSignalGate';
@@ -30,6 +31,61 @@ export type { GPSLocation }                            from './types';
 
 // Resolver referansı — geofence güncellemelerini worker'a iletmek için
 let _activeResolver: VehicleSignalResolver | null = null;
+
+/* ── Yaşam döngüsü teşhisi (B-2) ──────────────────────────────────────────────
+   SALT GÖZLEM: aşağıdaki sayaçlar ve `getVehicleDataLayerLifecycleDiagnostics()`
+   hiçbir karar veya kontrol akışında OKUNMAZ; adapter/resolver başlatma sırası,
+   cleanup sırası ve zamanlamalar bunlardan ETKİLENMEZ. */
+
+/** Teşhis sayaçlarının DOYGUN üst sınırı (SystemBoot B-1 ile aynı desen). */
+export const VDL_DIAG_COUNTER_MAX = 1_000_000;
+
+/** Doygun artış — `VDL_DIAG_COUNTER_MAX`'ta sabitlenir (taşma/sınırsız büyüme yok). */
+function _satInc(n: number): number {
+  return n >= VDL_DIAG_COUNTER_MAX ? VDL_DIAG_COUNTER_MAX : n + 1;
+}
+
+let _dlStarts = 0;
+let _dlStops  = 0;
+let _dlLastStartedAtMs: number | null = null;
+let _dlLastStoppedAtMs: number | null = null;
+
+/** VehicleDataLayer yaşam döngüsü teşhis anlık görüntüsü (salt-okunur, bounded). */
+export interface VehicleDataLayerLifecycleDiagnostics {
+  /** Katman şu an ayakta mı — `_activeResolver !== null` türevi. */
+  readonly active: boolean;
+  /** TAMAMLANMIŞ başlatma sayısı (herhangi bir adım throw ederse SAYILMAZ). */
+  readonly starts: number;
+  /** GERÇEKLEŞEN dispose sayısı (idempotent guard sayesinde cleanup başına en fazla 1). */
+  readonly stops: number;
+  /** Son tamamlanan başlatmanın anı (ms) — hiç başlatılmadıysa null. */
+  readonly lastStartedAtMs: number | null;
+  /** Son gerçekleşen dispose'un anı (ms) — hiç dispose olmadıysa null. */
+  readonly lastStoppedAtMs: number | null;
+  /** Sayaç doygunluk sınırı (tüketici doygunluğu ayırt edebilsin). */
+  readonly counterMax: number;
+}
+
+/**
+ * VehicleDataLayer yaşam döngüsü teşhisinin senkron, salt-okuma anlık görüntüsü.
+ *
+ * YAN ETKİSİZ: hiçbir alanı değiştirmez, timer/abonelik kurmaz, servis başlatmaz;
+ *   yalnız mevcut modül durumunu okur ve DONDURULMUŞ kopya döner. Tekrarlanan
+ *   çağrılar durumu MUTASYONA UĞRATMAZ.
+ * BOUNDED: sabit sayıda skaler alan — dizi/geçmiş YOK.
+ * GİZLİLİK: yalnız sayı/boolean/zaman damgası. VIN · GPS · OBD değeri · hata metni ·
+ *   token · kimlik · kullanıcı verisi İÇERMEZ.
+ */
+export function getVehicleDataLayerLifecycleDiagnostics(): VehicleDataLayerLifecycleDiagnostics {
+  return Object.freeze({
+    active:          _activeResolver !== null,
+    starts:          _dlStarts,
+    stops:           _dlStops,
+    lastStartedAtMs: _dlLastStartedAtMs,
+    lastStoppedAtMs: _dlLastStoppedAtMs,
+    counterMax:      VDL_DIAG_COUNTER_MAX,
+  });
+}
 
 /**
  * Geofence zona listesini Worker'a gönderir.
@@ -137,6 +193,36 @@ export function startVehicleDataLayer(opts?: { onWorkerCrash?: () => void }): ()
 
   // CAN extras — worker'a gerek yok, doğrudan store'a yaz
   // Gate uygula: Safe Mode'da CAN-only alanlar (reverse/door/gear vb.) bloklanır.
+  /* ══════════════════════════════════════════════════════════════════════
+     ARCH-06/F4 — ÖN-TAHSİSLİ CAN YAMA ZARFI (zero-allocation hot path)
+     ══════════════════════════════════════════════════════════════════════
+     ÖNCEKİ DAVRANIŞ: her CAN emit'inde (native 80 ms penceresi → ~12,5 Hz
+     TAVAN) 22 alanlı YENİ bir nesne literali tahsis ediliyordu; nesne yalnız
+     `updateCanExtras` tarafından okunup atılıyordu. Mali-400 sınıfı bir head
+     unit'te saniyede ~12 kısa ömürlü nesne, ölçülebilir GC baskısıdır.
+
+     ŞİMDİ: modül düzeyinde TEK zarf yeniden kullanılır. Bu, `CanAdapter`ın
+     `_data` ve `_tpmsBuffer` için ZATEN uyguladığı desenle aynıdır
+     (CLAUDE.md §V8: "Pre-allocated Envelopes").
+
+     ⚠️ GÜVENLİ OLMASININ SEBEBİ: `updateCanExtras` zarfı SENKRON okur, alan
+     alan karşılaştırır ve KENDİ `u` nesnesini kurar — zarfa referans TUTMAZ.
+     Bu yüzden yeniden kullanım hiçbir tüketiciyi kirletemez.
+
+     ⚠️ HER ALAN HER ÇAĞRIDA YAZILIR (kısmi güncelleme YOK): bir önceki
+     emit'ten kalan değer yeni emit'te "hâlâ var" sanılamaz. `undefined`
+     yazmak "bu emitte gelmedi" demektir ve `updateCanExtras` onu `val == null`
+     kapısıyla ZATEN atlar → UNKNOWN sıfıra ÇEVRİLMEZ. */
+  const _canPatch: CanExtrasPatch = {
+    doorOpen: undefined, headlightsOn: undefined, highBeam: undefined,
+    turnLeft: undefined, turnRight: undefined, hazard: undefined, tpms: undefined,
+    rpm: null, coolantTemp: null, oilTemp: null, throttle: null,
+    batteryVolt: null, gearPos: null, ambientTemp: null,
+    abs: undefined, tractionControl: undefined, stabilityControl: undefined,
+    parkingBrake: undefined, seatbelt: undefined, wipers: undefined,
+    airCondition: undefined, cruiseControl: undefined,
+  };
+
   const unsubCanExtras = can.onData((raw) => {
     const d = applyProfileGate(raw);   // Patch 5: gate bypass düzeltmesi
     // K24 perf düzeltmesi: eski `d !== raw || Object.keys(d).length > 0` her
@@ -147,37 +233,34 @@ export function startVehicleDataLayer(opts?: { onWorkerCrash?: () => void }): ()
     // doğru yansıtır — normal/spike/safe-mode akışlarının HEPSİNDE aynı sonucu
     // üretir, yalnız tamamen boş safe-mode köşe durumunda (artık doğru şekilde) false döner.
     recordEvent('signal', 'MCU', `CAN frame`, { accepted: _hasAnyField(d) });
-    useUnifiedVehicleStore.getState().updateCanExtras({
-      // Kapı / aydınlatma
-      doorOpen:          d.doorOpen,
-      headlightsOn:      d.headlightsOn,
-      highBeam:          d.highBeam,
-      turnLeft:          d.turnLeft,
-      turnRight:         d.turnRight,
-      hazard:            d.hazard,
-      tpms:              d.tpms?.length === 4
-                           ? (d.tpms as [number, number, number, number])
-                           : undefined,
-      // Motor
-      rpm:               d.rpm         ?? null,
-      coolantTemp:       d.coolantTemp ?? null,
-      oilTemp:           d.oilTemp     ?? null,
-      throttle:          d.throttle    ?? null,
-      // Elektrik / vites / çevre
-      batteryVolt:       d.batteryVolt ?? null,
-      gearPos:           d.gearPos     ?? null,
-      ambientTemp:       d.ambientTemp ?? null,
-      // Şasi güvenliği
-      abs:               d.abs,
-      tractionControl:   d.tractionControl,
-      stabilityControl:  d.stabilityControl,
-      // Gövde / konfor
-      parkingBrake:      d.parkingBrake,
-      seatbelt:          d.seatbelt,
-      wipers:            d.wipers,
-      airCondition:      d.airCondition,
-      cruiseControl:     d.cruiseControl,
-    });
+    /* Zarf HER alanı yeniden yazar — sıra ve alan kümesi SABİTTİR (V8 hidden
+       class kararlılığı). Değer semantiği bire bir korunur: sayısal alanlar
+       `?? null`, boolean/tuple alanlar ham `undefined`. */
+    _canPatch.doorOpen          = d.doorOpen;
+    _canPatch.headlightsOn      = d.headlightsOn;
+    _canPatch.highBeam          = d.highBeam;
+    _canPatch.turnLeft          = d.turnLeft;
+    _canPatch.turnRight         = d.turnRight;
+    _canPatch.hazard            = d.hazard;
+    _canPatch.tpms              = d.tpms?.length === 4
+                                    ? (d.tpms as [number, number, number, number])
+                                    : undefined;
+    _canPatch.rpm               = d.rpm         ?? null;
+    _canPatch.coolantTemp       = d.coolantTemp ?? null;
+    _canPatch.oilTemp           = d.oilTemp     ?? null;
+    _canPatch.throttle          = d.throttle    ?? null;
+    _canPatch.batteryVolt       = d.batteryVolt ?? null;
+    _canPatch.gearPos           = d.gearPos     ?? null;
+    _canPatch.ambientTemp       = d.ambientTemp ?? null;
+    _canPatch.abs               = d.abs;
+    _canPatch.tractionControl   = d.tractionControl;
+    _canPatch.stabilityControl  = d.stabilityControl;
+    _canPatch.parkingBrake      = d.parkingBrake;
+    _canPatch.seatbelt          = d.seatbelt;
+    _canPatch.wipers            = d.wipers;
+    _canPatch.airCondition      = d.airCondition;
+    _canPatch.cruiseControl     = d.cruiseControl;
+    useUnifiedVehicleStore.getState().updateCanExtras(_canPatch);
   });
 
   // ValidationGuard GPS beslemesi — GPS hızını obdService'e ilet (döngüsel import olmadan)
@@ -196,6 +279,20 @@ export function startVehicleDataLayer(opts?: { onWorkerCrash?: () => void }): ()
 
   // Live CSS custom property sync
   const cleanupLiveStyle = startLiveStyleEngine();
+
+  /* ── OBD Data Bridge (P0-OBD-01) ─────────────────────────────────────────
+     Zaten okunan OBD sinyallerini kanonik mağazaya taşır. YENİ SORGU ÜRETMEZ:
+     çekirdek yol mevcut `onOBDData` olayına, genişletilmiş yol mevcut
+     `extendedPidService` round-robin'ine iliştirilir (tele giden liste
+     `ELM_WATCH_CAP` ile kapılıdır). Fail-soft: köprü düşerse veri hattı
+     etkilenmez — bu yüzden başlatma kendi try/catch'inde. */
+  let cleanupObdBridge: () => void = () => {};
+  try {
+    cleanupObdBridge = startObdSignalBridge();
+  } catch (e) {
+    recordEvent('signal', 'OBD', 'OBD Data Bridge başlatılamadı', { accepted: false });
+    if (import.meta.env.DEV) console.warn('[VDL] OBD bridge start failed', e);
+  }
 
   resolver.start();
 
@@ -245,7 +342,19 @@ export function startVehicleDataLayer(opts?: { onWorkerCrash?: () => void }): ()
     }, 0);
   });
 
+  // TEŞHİS (B-2): başlatma zinciri TAMAMLANDIKTAN sonra sayılır. Yukarıdaki
+  // adımlardan biri throw ederse buraya ulaşılmaz → yarım başlatma SAYILMAZ.
+  _dlStarts          = _satInc(_dlStarts);
+  _dlLastStartedAtMs = Date.now();
+
+  // Dispose bir kez çalışır: ikinci çağrı no-op (çift stop sayımı ve
+  // gereksiz tekrar-teardown YOK).
+  let _disposed = false;
+
   return () => {
+    if (_disposed) return;
+    _disposed = true;
+
     if (_rafId) { cancelAnimationFrame(_rafId); _rafId = 0; }
     _hasPending = false;
     unsubCanExtras();
@@ -256,9 +365,14 @@ export function startVehicleDataLayer(opts?: { onWorkerCrash?: () => void }): ()
 
     _activeResolver = null;
     stopRemoteCommands();
+    try { cleanupObdBridge(); } catch { /* fail-soft: teardown ürünü düşürmez */ }
     cleanupLiveStyle();
     telemetryService.stop();
     resolver.stop();
+
+    // TEŞHİS (B-2): gerçek dispose tamamlandıktan SONRA — yalnız defter tutma.
+    _dlStops          = _satInc(_dlStops);
+    _dlLastStoppedAtMs = Date.now();
   };
 }
 

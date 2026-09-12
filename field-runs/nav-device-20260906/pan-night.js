@@ -1,0 +1,1 @@
+(()=>{__NAV_CAMPAIGN__.stage='full-pan-day-to-night';const before=__campaignFollow();__campaignSettings.getState().updateSettings({dayNightMode:'night',theme:'dark'});return {before,verdict:__campaignMapExports.o()}})()

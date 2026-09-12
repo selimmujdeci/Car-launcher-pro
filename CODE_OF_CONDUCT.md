@@ -13,8 +13,8 @@ teknoloji tercihi fark etmeksizin herkese açık bir katılım hedefleriz.
 - Farklı görüş ve deneyimlere açık olmak;
 - Yapıcı eleştiriyi nezaketle vermek ve kabul etmek;
 - Topluluk ve ürün için en iyisine odaklanmak;
-- Teknik tartışmalarda **kanıta dayalı** ilerlemek (bu projenin `GEMINI.md` ve
-  `CLAUDE.md` kültürüyle uyumlu: tahmin değil, doğrulama).
+- Teknik tartışmalarda **kanıta dayalı** ilerlemek (`CLAUDE.md` kültürü: tahmin
+  değil, doğrulama).
 
 ## Kabul Edilemez Davranışlar
 

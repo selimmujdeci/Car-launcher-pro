@@ -19,9 +19,12 @@
  *    confidence: 0.0–1.0"
  */
 import type { ParsedCommand, CommandType } from './commandParser';
-import type { CommandResult } from './bridge';
 import { resolveAppByName } from './appRegistry';
 import { resolveScreen } from './screenRegistry';
+import { isHomeWorkDestination, dispatchHomeWorkNavigation } from './homeWorkNavigation';
+import type { NearbyPoiCategory } from './nearbyPoiNavigation';
+// MAVI-M3: yürütme sonucu sözleşmesi (saf veri — TTS/UI/store yan etkisi YOK).
+import { intentResult, type IntentExecutionResult } from './intentExecutionResult';
 
 /* ── Intent types ────────────────────────────────────────── */
 
@@ -32,6 +35,10 @@ export type IntentType =
   | 'NAVIGATE_PLACE'
   | 'FIND_NEARBY_GAS'
   | 'FIND_NEARBY_PARKING'
+  | 'FIND_NEARBY_HOSPITAL'
+  /** "biraz yoruldum / mola vereyim" — otoyol dinlenme tesisi.
+   *  Eskiden FIND_NEARBY_PARKING'e düşüyordu ve ŞEHİR OTOPARKI öneriyordu. */
+  | 'FIND_NEARBY_REST_AREA'
   | 'OPEN_MUSIC'
   | 'PLAY_MUSIC_SEARCH'
   | 'PLAY_MUSIC_QUERY'
@@ -132,7 +139,11 @@ export interface RouterContext {
   setTheme:         (theme: 'night' | 'day' | 'oled' | 'dark') => void;
   cycleTheme?:      () => void;
   /** Sesli ayar kontrolü — key/action/value ile AppSettings (veya wifi/bt/brightness). */
-  applySetting?:    (key: string, action: string, value?: string, kind?: string, label?: string) => void;
+  /* MAVI-F7: port kanıt DÖNEBİLİR (`SettingApplyEvidence`). Bu hat kanıtı
+     kullanmaz (yerel ayrıştırıcı kendi geri bildirimini üretir) ama tipler
+     TEK sözleşmede kalsın diye aynı dönüşü kabul eder. */
+  applySetting?:    (key: string, action: string, value?: string, kind?: string, label?: string)
+    => SettingApplyEvidence | void;
   playMedia:        () => void;
   pauseMedia:       () => void;
   nextTrack?:       () => void;
@@ -150,15 +161,20 @@ export interface RouterContext {
   addMusicFavorite?: () => void;
   /** Serbest adres / yer araması — resolveAndNavigate wrapper'ı */
   navigateToPlace?: (query: string) => void;
-  // T-12: Donanım komutları — L2 ACK Promise döner (bridge → VehicleCommandQueue)
-  hwLockDoors?:   () => Promise<CommandResult>;
-  hwUnlockDoors?: () => Promise<CommandResult>;
-  hwHonkHorn?:    () => void;
-  hwFlashLights?: () => void;
-  hwAlarmOn?:     () => void;
-  hwAlarmOff?:    () => void;
+  /** NAVIGATION-P1-1: "en yakın X" merkezi dispatch — GPS fail-closed + dedupe +
+   *  bounded TTS için dispatchNearbyPoiNavigation() wrapper'ı. navigateToPlace'in
+   *  YERİNE geçmez (o serbest metin/adres için kalır); yalnız sentinel tabanlı
+   *  "en yakın kategori" komutları için kullanılır. */
+  dispatchNearbyPoi?: (category: NearbyPoiCategory) => void;
   /** Araç durumu: hız, yakıt, sıcaklık — TTS ile okur */
   speakVehicleStatus?: () => void;
+  /* ── MAVI-M4: ARAÇ ETKİLİ PORTLAR BURADAN KALDIRILDI ──────────────────────
+   * `hwLockDoors` · `hwUnlockDoors` · `hwHonkHorn` · `hwFlashLights` ·
+   * `hwAlarmOn/Off` · `readVehicleHealth` · `vehicleMotionState` artık
+   * `RouterContext`te YOKTUR. Böylece `routeIntent` araç etkili bir portu
+   * ÇAĞIRAMAZ — bu yapısal bir kilittir (guard testi), yorum değil.
+   * Tek eylem otoritesi: `commandExecutor.dispatchIntent`
+   * (kapı: `action/maviActionAuthority.evaluateVehicleAction`). */
 }
 
 /* ── CommandType → IntentType map ────────────────────────── */
@@ -171,7 +187,7 @@ const CMD_TO_INTENT: Record<CommandType, IntentType> = {
   find_nearby_gas:        'FIND_NEARBY_GAS',
   find_nearby_parking:    'FIND_NEARBY_PARKING',
   find_nearby_restaurant: 'UNKNOWN',
-  find_nearby_hospital:   'UNKNOWN',
+  find_nearby_hospital:   'FIND_NEARBY_HOSPITAL',
   show_traffic:           'OPEN_NAVIGATION',
   open_dashcam:           'UNKNOWN',
   toggle_bluetooth:       'SET_SETTING',
@@ -225,7 +241,27 @@ const CMD_TO_INTENT: Record<CommandType, IntentType> = {
   hw_screen_off:   'HARDWARE_SCREEN_OFF',
   vehicle_status:  'VEHICLE_STATUS',
   query_sensor:    'QUERY_SENSOR',
+  // Özel Konumlar: `voiceService`in yerel bypass'ında (savedLocationsService
+  // TEK otoritesiyle) çözülür — `find_nearby_restaurant` ile AYNI desen,
+  // bu satırlara PRATİKTE hiç ulaşılmaz. Harita eksiksiz kalsın diye tanımlı.
+  save_location:    'UNKNOWN',
+  rename_location:  'UNKNOWN',
+  delete_location:  'UNKNOWN',
+  share_location:   'UNKNOWN',
+  send_location_contact: 'UNKNOWN',
 };
+
+/**
+ * CommandType → IntentType (SALT OKUMA — `CMD_TO_INTENT`in tek dışa açık kapısı).
+ *
+ * P1 sequence onay politikası, bir komutun onay gerektirip gerektirmediğini
+ * `maviActionAuthority` defterinden okumak için bu eşlemeye ihtiyaç duyar.
+ * Map'in KOPYASINI çıkarmak yerine tek kaynak burada açılır — davranış
+ * değişmez, yeni veri eklenmez. Bilinmeyen tür `'UNKNOWN'`a düşer.
+ */
+export function commandTypeToIntentType(type: CommandType): IntentType {
+  return CMD_TO_INTENT[type] ?? 'UNKNOWN';
+}
 
 /* ── toIntent ────────────────────────────────────────────── */
 
@@ -284,6 +320,18 @@ export function toIntent(cmd: ParsedCommand, ctx: IntentContext): AppIntent {
       break;
     case 'open_phone':
       payload.targetApp = 'phone';
+      break;
+    case 'call_contact':
+      /* MAVI-M4: kişi adı VARSA taşınır — yoksa yalnız telefon UYGULAMASI açılır.
+       * Adın çözümü ve ARAMA tek otoritededir (`dispatchIntent`) ve açık onay
+       * ister; burada isim yalnız TAŞINIR, arama BAŞLATILMAZ.
+       * (Yerel parser bugün ad ÇIKARMIYOR → alan boş gelir ve davranış eskisiyle
+       * birebir aynı kalır; alanı dolduran tek yol semantik/beyin hattıdır.
+       * Bu satır iki hattın payload sözleşmesini eşitler.) */
+      payload.targetApp = 'phone';
+      if (typeof cmd.extra?.['contactName'] === 'string') {
+        payload.contactName = cmd.extra['contactName'];
+      }
       break;
     case 'open_recent':
       payload.targetApp = ctx.recentAppId;
@@ -351,8 +399,41 @@ export function toIntent(cmd: ParsedCommand, ctx: IntentContext): AppIntent {
 /**
  * Single entry point for all intent dispatch.
  * Works identically whether the AppIntent came from toIntent() or fromAIResponse().
+ *
+ * MAVI-M3: artık `IntentExecutionResult` DÖNER. Sözleşme kapsamındaki (davranışsal/
+ * yıkıcı) intent'ler gerçek yürütme sonucunu bildirir; diğer HER intent için
+ * `not_handled` döner → çağıran eski davranışı BİREBİR sürdürür (geriye uyumluluk).
+ * "Intent seçildi ≠ eylem başladı ≠ eylem başarıyla tamamlandı."
  */
-export async function routeIntent(intent: AppIntent, ctx: RouterContext): Promise<void> {
+/* MUSIC F14 · COMPATIBILITY ADAPTER (silinmedi — kanıtlı 0 çağıran, bkz. altta).
+ * ÖLÇÜLEN GERÇEK: bu tipler `isVehicleEffectiveIntent` DIŞINDAYDI ve buraya
+ * (portlar: `playMedia`/`pauseMedia`/`nextTrack`/`prevTrack`/`playMusicSearch`/
+ * `playMusicQuery`/`addMusicFavorite`) geliyordu — F9'un `dispatchMusicIntent`
+ * inden GEÇMEDEN doğrudan `carosMediaLayer`/eski Zustand favori deposunu
+ * çağırıyordu (`ADD_MUSIC_FAVORITE` → `useStore.addMusicFavorite`, F13'ün TEK
+ * otoritesinden AYRI ikinci bir favori kaydı). AI/beyin yolu (`executeAIResult`
+ * → `dispatchIntent`, HER ZAMAN) bu tipleri ZATEN F9'a bağlı dallardan
+ * geçiriyordu — aynı komut girişe göre FARKLI davranıyordu.
+ *
+ * F14 kapanışı: `useVoiceCommandHandler`daki TEK çağıran artık müzik
+ * tiplerini de `executeIntent`e (→ `dispatchIntent` → F9) yönlendiriyor;
+ * bu switch'in müzik dalları STRÜKTÜREL OLARAK ulaşılamaz hâle geldi
+ * (`routeIntent`in tüm repo'daki TEK çağıranı budur — ölçüldü, 0 başka
+ * çağıran). Büyük çok-dosyalı bir silme riskinden kaçınmak için dallar
+ * SİLİNMEDİ — yalnız `noteLegacyRouteIntentMusicCall()` ile ANOMALİ
+ * SAYACINA bağlandı: bu sayaç LAB'da HER ZAMAN 0 olmalıdır; >0 ise "aynı
+ * komut iki kez yürütülemez" güvencesinde bir boşluk var demektir. */
+const _ROUTE_INTENT_MUSIC_TYPES = new Set<AppIntent['type']>([
+  'OPEN_MUSIC', 'PLAY_MUSIC_SEARCH', 'PLAY_MUSIC_QUERY', 'ADD_MUSIC_FAVORITE',
+  'PLAY_MEDIA', 'PAUSE_MEDIA', 'MEDIA_NEXT', 'MEDIA_PREV',
+]);
+
+export async function routeIntent(intent: AppIntent, ctx: RouterContext): Promise<IntentExecutionResult> {
+  if (_ROUTE_INTENT_MUSIC_TYPES.has(intent.type)) {
+    void import('./media/intent/musicVoiceWiringTelemetry')
+      .then((m) => m.noteLegacyRouteIntentMusicCall())
+      .catch(() => { /* fail-soft: telemetri akışı ETKİLEMEZ */ });
+  }
   switch (intent.type) {
     case 'OPEN_MUSIC': {
       // Müzik açma: uygulamayı ön plana almadan arka planda çalmayı başlat,
@@ -362,7 +443,20 @@ export async function routeIntent(intent: AppIntent, ctx: RouterContext): Promis
       ctx.openDrawer('music');
       break;
     }
-    case 'OPEN_NAVIGATION':
+    case 'OPEN_NAVIGATION': {
+      // NAVIGATION-P0-1 kök neden düzeltmesi: destination 'home'/'work' ise TEK merkezi
+      // hattan (homeWorkNavigation) gerçek koordinata navigasyon başlatılır — yalnız ekran
+      // açıp hedefi görmezden gelen eski davranış (destination her zaman kayboluyordu) burada
+      // biter. Ev/İş DEĞİLSE (ör. "haritayı aç") davranış AYNEN korunur: ctx.launch(appId).
+      const dest = intent.payload.destination;
+      if (isHomeWorkDestination(dest)) {
+        dispatchHomeWorkNavigation(dest); // fail-closed: kayıtlı/geçerli değilse startNavigation hiç çağrılmaz
+        break;
+      }
+      const appId = intent.payload.targetApp;
+      if (appId) ctx.launch(appId);
+      break;
+    }
     case 'OPEN_PHONE':
     case 'OPEN_LAST_APP': {
       const appId = intent.payload.targetApp;
@@ -399,11 +493,31 @@ export async function routeIntent(intent: AppIntent, ctx: RouterContext): Promis
       break;
     }
     case 'FIND_NEARBY_GAS': {
-      ctx.navigateToPlace?.('yakın benzinlik');
+      // NAVIGATION-P1-1: merkezi dispatch — düz-metin geocode ('yakın benzinlik')
+      // ARTIK KULLANILMIYOR; GPS fail-closed + dedupe + bounded TTS için
+      // dispatchNearbyPoiNavigation('fuel', gps) üzerinden akar (bkz. nearbyPoiNavigation.ts).
+      ctx.dispatchNearbyPoi?.('fuel');
       break;
     }
     case 'FIND_NEARBY_PARKING': {
-      ctx.navigateToPlace?.('yakın park yeri');
+      // NAVIGATION-P1-2: merkezi dispatch — düz-metin geocode ('yakın park yeri')
+      // ARTIK KULLANILMIYOR; GPS fail-closed + dedupe + bounded TTS için
+      // dispatchNearbyPoiNavigation('parking', gps) üzerinden akar (fuel P1-1 ile aynı desen).
+      ctx.dispatchNearbyPoi?.('parking');
+      break;
+    }
+    case 'FIND_NEARBY_HOSPITAL': {
+      // Sentinel kullanılır (fuel/parking gibi düz metin DEĞİL) — resolveAndNavigate
+      // bu değeri doğrudan Overpass amenity=hospital aramasına yönlendirir
+      // (bkz. addressNavigationEngine.ts, geocodingService.searchNearby).
+      // Fuel/parking'in düz-metin yolu bilinçli olarak DEĞİŞTİRİLMEDİ (regresyon riski).
+      ctx.navigateToPlace?.('__nearby_hospital__');
+      break;
+    }
+    case 'FIND_NEARBY_REST_AREA': {
+      /* Merkezi hat kullanılır (fuel/parking ile AYNI desen): dedupe + GPS
+         kapısı + TTS oradan gelir, burada TEKRARLANMAZ (çift konuşma olmaz). */
+      ctx.dispatchNearbyPoi?.('restArea');
       break;
     }
     case 'OPEN_SETTINGS':
@@ -482,31 +596,31 @@ export async function routeIntent(intent: AppIntent, ctx: RouterContext): Promis
     case 'TOGGLE_SLEEP_MODE':
       // Handled in MainLayout registerCommandHandler
       break;
+    /* ── MAVI-M4 · ARAÇ ETKİLİ İNTENTLER TEK OTORİTEYE DEVREDİLDİ ──────────
+     * Bu intentlerin YÜRÜTÜCÜSÜ ARTIK BURASI DEĞİL:
+     *   commandExecutor.dispatchIntent  (kapı: action/maviActionAuthority)
+     *
+     * routeIntent yalnız DÜŞÜK RİSKLİ UI/medya/navigasyon intentlerinde kalır;
+     * araç etkili portlar RouterContext'ten KALDIRILDI → bu katman bir donanım
+     * veya OBD portunu ÇAĞIRAMAZ (yapısal kilit, guard testi ile sabit).
+     *
+     * "not_handled" döner: çağıran (useVoiceCommandHandler) bu intentleri zaten
+     * TEK OTORİTEYE yönlendirir; buradan İKİNCİ bir yürütme veya ACK ÇIKMAZ.
+     * (M3 sözleşmesi korunur: sahte ACK yok, sonuç yalnız otoriteden.) */
     case 'CHECK_VEHICLE_HEALTH':
     case 'CLEAR_DTC_CODES':
     case 'QUERY_SENSOR':
-      // Async DTC/sensör işlemleri — commandExecutor.dispatchIntent'te ele alınır.
-      break;
-    // T-12: Donanım komutları — L2 ACK beklenir; fire-and-forget değil
     case 'HARDWARE_LOCK':
-      await ctx.hwLockDoors?.();
-      break;
     case 'HARDWARE_UNLOCK':
-      // Güvenlik: hız kontrolü → sürüş sırasında kapı açma engeli (commandExecutor'da)
-      await ctx.hwUnlockDoors?.();
-      break;
     case 'HARDWARE_HORN':
-      ctx.hwHonkHorn?.();
-      break;
     case 'HARDWARE_FLASH':
-      ctx.hwFlashLights?.();
-      break;
     case 'HARDWARE_ALARM_ON':
-      ctx.hwAlarmOn?.();
-      break;
     case 'HARDWARE_ALARM_OFF':
-      ctx.hwAlarmOff?.();
-      break;
+    case 'HARDWARE_REAR_CAMERA':
+    case 'HARDWARE_LIGHTS_OFF':
+    case 'HARDWARE_SCREEN_OFF':
+      return intentResult(intent.type, 'not_handled', 'delegated_to_action_authority');
+
     case 'VEHICLE_STATUS':
       ctx.speakVehicleStatus?.();
       break;
@@ -514,6 +628,8 @@ export async function routeIntent(intent: AppIntent, ctx: RouterContext): Promis
       // Safe fallback — take no action; voice UI already shows the error state
       break;
   }
+  // M3 sözleşmesi DIŞINDAKİ tüm intent'ler: eski davranış aynen sürer.
+  return intentResult(intent.type, 'not_handled', 'legacy_path');
 }
 
 /* ── fromAIResponse — Gemini-ready bridge ────────────────── */
@@ -522,7 +638,7 @@ export async function routeIntent(intent: AppIntent, ctx: RouterContext): Promis
 const VALID_INTENTS = new Set<IntentType>([
   'SEARCH_POI',
   'OPEN_NAVIGATION', 'NAVIGATE_ADDRESS', 'NAVIGATE_PLACE',
-  'FIND_NEARBY_GAS', 'FIND_NEARBY_PARKING',
+  'FIND_NEARBY_GAS', 'FIND_NEARBY_PARKING', 'FIND_NEARBY_HOSPITAL', 'FIND_NEARBY_REST_AREA',
   'OPEN_MUSIC', 'PLAY_MUSIC_SEARCH', 'PLAY_MUSIC_QUERY', 'ADD_MUSIC_FAVORITE', 'OPEN_PHONE', 'OPEN_APP', 'OPEN_SCREEN', 'OPEN_SETTINGS',
   'PLAY_MEDIA', 'PAUSE_MEDIA', 'MEDIA_NEXT', 'MEDIA_PREV', 'MEDIA_VIDEO_MODE',
   'VOLUME_UP', 'VOLUME_DOWN', 'OPEN_FAVORITES',
@@ -540,6 +656,7 @@ const VALID_INTENTS = new Set<IntentType>([
 
 import type { SemanticResult } from './ai/semanticAiService';
 import { buildPoiSearchQuery } from './ai/semanticAiService';
+import type { SettingApplyEvidence } from './capability/observation/observationContract';
 
 /**
  * Semantik NLP servisinden gelen `SemanticResult`'ı `AppIntent`'e dönüştürür.

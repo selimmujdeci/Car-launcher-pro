@@ -28,6 +28,11 @@ const M = vi.hoisted(() => ({
   startListening: vi.fn(),
   voicePaused: false,
   voiceStatus: 'idle' as string,
+  /** Takip döngüsü AÇIK mı (`isVoiceFollowUpEngaged` sahibi). Üretim
+      varsayılanı KAPALI — açıkken wake bilinçli olarak bastırılır. */
+  followUpEngaged: false,
+  /** Asistan şu an konuşuyor mu (watchdog mikrofon takasını erteler). */
+  ttsSpeaking: false,
   spoken: [] as { text: string; onEnd?: () => void }[],
   /* Faz 5 — grammar modu mock kontrolü: false = eski APK (metot YOK). */
   grammarAvailable: false,
@@ -43,11 +48,28 @@ vi.mock('../platform/voiceService', () => ({
   startListening: (...a: unknown[]) => M.startListening(...a),
   isVoicePaused: () => M.voicePaused,
   getVoiceSnapshot: () => ({ status: M.voiceStatus }),
+  notifyWakeDetected: vi.fn(),
+  /* BAYAT MOCK DÜZELTMESİ (2026-09-05): `14afdcf3` (Mavi wake güvenilirlik
+     zinciri) `wakeWordService`e ÜÇ yeni `voiceService` importu ekledi
+     (`getVoiceSessionIds` · `subscribeVoiceState` · `isVoiceFollowUpEngaged`)
+     ama bu fabrika güncellenmedi. `vi.mock` fabrikası modülü TAMAMEN
+     değiştirdiği için eksik dışa aktarımlar `undefined` kalıyor ve
+     `isVoiceFollowUpEngaged()` çağrısı wake yolunu düşürüyordu → 13 test
+     kırmızı. Ürün kodu SAĞLAM; kusur yalnız test altyapısındaydı.
+     Varsayılanlar ÜRETİM DAVRANIŞINI YANSITIR: takip döngüsü KAPALI, oturum
+     kimliği yok, abonelik no-op (kilitler bunları senaryoya göre M üzerinden
+     değiştirebilir). */
+  isVoiceFollowUpEngaged: () => M.followUpEngaged,
+  getVoiceSessionIds: () => ({ sessionId: null, turnId: null }),
+  subscribeVoiceState: () => () => { /* abonelik yok — test tetikleri M üzerinden */ },
 }));
 vi.mock('../platform/ttsService', () => ({
   ttsSpeak: (text: string, opts?: { onEnd?: () => void }) => {
     M.spoken.push({ text, onEnd: opts?.onEnd });
   },
+  // Watchdog, asistan KONUŞURKEN mikrofon takası yapmaz (bip sesi sohbeti böler).
+  // Testlerde varsayılan "konuşmuyor"; `M.ttsSpeaking` ile senaryo kurulabilir.
+  isTtsSpeaking: () => M.ttsSpeaking,
 }));
 vi.mock('../platform/nativePlugin', () => {
   const plugin: Record<string, unknown> = {
@@ -57,7 +79,13 @@ vi.mock('../platform/nativePlugin', () => {
       const next = M.sttQueue.shift();
       if (next === undefined) return new Promise<never>(() => { /* asla dönmez */ });
       if (next.startsWith('!REJECT:')) return Promise.reject(new Error(next.slice(8)));
-      return Promise.resolve({ transcript: next });
+      // "top##alt1##alt2" → n-best simülasyonu (alternatives, transcript=ilk).
+      const parts = next.split('##');
+      return Promise.resolve(
+        parts.length > 1
+          ? { transcript: parts[0], alternatives: parts }
+          : { transcript: next },
+      );
     },
     addListener: (_event: string, handler: (d: { transcript: string }) => void) => {
       M.wakeHandler = handler;
@@ -102,6 +130,7 @@ import {
   notifyVoskModelReady,
   _resetWakeWordForTest,
   _setVoskReadyForTest,
+  getWakeWatchdogStats,
 } from '../platform/wakeWordService';
 import { useStore } from '../store/useStore';
 import { VOICE_TUNING } from '../platform/voiceTuning';
@@ -194,6 +223,24 @@ describe('resolveWakeWords — wake sözleri asistan adından türer', () => {
     expect(matchesWakeTranscript('hay mavi naber', words)).toBe(true);
     expect(matchesWakeTranscript('mavi', words)).toBe(false); // yalnız ad bu modda yetmez
   });
+
+  /* SAHA 2026-07-24 ("Mavi her şeye kendi kendine uyanıyor"): cihazda mod 'both'
+   * olduğu için tek kelime "mavi" de wake sözüydü. "mavi" günlük Türkçede sık
+   * geçer → cümle İÇİNDE duyulunca yanlış tetikliyordu. Kural: tek kelimelik
+   * ÇIPLAK ad yalnız CÜMLE BAŞINDA wake sayılır. Çıplak adla uyandırma yeteneği
+   * KORUNUR (kullanıcı bunu açıkça istedi) — yalnız cümle-içi geçiş elenir. */
+  it('KİLİT: tek kelimelik çıplak ad CÜMLE İÇİNDE wake saymaz (yanlış tetik)', () => {
+    const words = wakeWordsFor('Mavi', 'both');
+    // Uyandırma NİYETİ olan kullanımlar — çalışmaya devam etmeli
+    expect(matchesWakeTranscript('mavi', words)).toBe(true);
+    expect(matchesWakeTranscript('mavi hava nasıl', words)).toBe(true);
+    expect(matchesWakeTranscript('hey mavi', words)).toBe(true);
+    // Cümle İÇİNDE geçen ad — uyandırma niyeti YOK
+    expect(matchesWakeTranscript('bu mavi araba çok güzel', words)).toBe(false);
+    expect(matchesWakeTranscript('ışık mavi yanıyor', words)).toBe(false);
+    // Çok kelimeli söz cümle içinde de ayırt edicidir → kısıt UYGULANMAZ
+    expect(matchesWakeTranscript('bir saniye hey mavi bak', words)).toBe(true);
+  });
 });
 
 /* ── 1b. ÖZEL/sözlük-dışı wake — fonetik fuzzy eşleşme ──────────
@@ -251,8 +298,8 @@ describe('sanitizeWakeEnrollment — normalize, dedupe, max 5', () => {
     expect(sanitizeWakeEnrollment('asist')).toEqual([]);
     expect(sanitizeWakeEnrollment(undefined)).toEqual([]);
   });
-  it('en fazla 5 örnek', () => {
-    expect(sanitizeWakeEnrollment(['a1','b2','c3','d4','e5','f6','g7']).length).toBe(5);
+  it('en fazla 8 örnek (yüksek varyanslı OOV kelime için birikim payı)', () => {
+    expect(sanitizeWakeEnrollment(['a1','b2','c3','d4','e5','f6','g7','h8','i9','j10']).length).toBe(8);
   });
 });
 
@@ -319,10 +366,38 @@ describe('wakeWordService — companion wake akışı', () => {
 
     expect(M.spoken).toHaveLength(1);
     expect(['Buradayım.', 'Dinliyorum.', 'Seni dinliyorum.']).toContain(M.spoken[0].text);
-    expect(M.startListening).not.toHaveBeenCalled();   // TTS bitmeden mikrofon yok
+    expect(M.startListening).not.toHaveBeenCalled();   // greeting başında (10ms) mikrofon yok
 
     M.spoken[0].onEnd?.();                              // selamlama bitti
     expect(M.startListening).toHaveBeenCalledTimes(1);  // aktif dinleme başladı
+  });
+
+  it('SAHA 2026-07-23 KİLİT: OEM onDone GECİKSE/HİÇ GELMESE bile mikrofon deterministik açılır', async () => {
+    // "hey mavi → 'burdayım' der, GEÇ dinlemeye geçer" kökü: eskiden mikrofon YALNIZ
+    // greeting onEnd'inde açılıyordu; onEnd OEM TextToSpeech onDone'una bağlı ve geç/
+    // hiç gelebiliyordu → mikrofon çok geç açılıp ilk söz kaçıyordu. KİLİT: onEnd
+    // ÇAĞRILMASA bile greeting süre tahmini penceresi geçince dinleme başlamalı.
+    M.sttQueue = ['hey mavi'];
+    enableWakeWord(wakeWordsFor('Mavi', 'both'), { companion: true });
+    await vi.advanceTimersByTimeAsync(10);
+    expect(M.spoken).toHaveLength(1);
+    expect(M.startListening).not.toHaveBeenCalled();   // greeting daha bitmedi + onEnd yok
+
+    // onEnd BİLEREK çağrılmıyor (OEM onDone lag/kayıp simülasyonu).
+    await vi.advanceTimersByTimeAsync(2_000);           // greeting süre tahmini penceresi geçti
+    expect(M.startListening).toHaveBeenCalledTimes(1);  // onEnd beklenmeden deterministik açıldı
+  });
+
+  it('onEnd erken gelirse mikrofonu O açar; deterministik timer çift açmaz (idempotent)', async () => {
+    M.sttQueue = ['hey mavi'];
+    enableWakeWord(wakeWordsFor('Mavi', 'both'), { companion: true });
+    await vi.advanceTimersByTimeAsync(10);
+    expect(M.spoken).toHaveLength(1);
+
+    M.spoken[0].onEnd?.();                              // onEnd erken geldi → mikrofon açıldı
+    expect(M.startListening).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(2_000);           // bekleyen deterministik timer penceresi
+    expect(M.startListening).toHaveBeenCalledTimes(1);  // timer iptal edildi → çift açılış YOK
   });
 
   it('eşleşmeyen transcript dinleme BAŞLATMAZ, selamlama YOK, döngü sürer', async () => {
@@ -577,6 +652,22 @@ describe('ÖZEL wake (custom): grammar atlanır, fonetik fuzzy tetikler', () => 
     expect(M.spoken).toHaveLength(0);
     expect(M.startListening).not.toHaveBeenCalled();
   });
+
+  it('SAHA 2026-07-23 KİLİT: OOV kelime EN-İYİ tahminde kaybolsa bile ALTERNATİFTE eşleşir', async () => {
+    // "asiste" deyince tanıyıcı top="nash üste git" (alakasız) ama alt'ta "asistan evet"
+    // → enrolled "asistan" ile eşleşmeli. Yalnız top'a bakılsaydı UYANMAZDI (saha kökü).
+    M.sttQueue = ['nash üste git##asistan evet##nash esnek'];
+    enableWakeWord(['asiste'], { companion: true, custom: true, enrollment: ['asistan'] });
+    await vi.advanceTimersByTimeAsync(10);
+    expect(M.spoken).toHaveLength(1);   // alternatiften eşleşti → selamlama
+  });
+
+  it('n-best taraması yanlış tetiklemez: hiçbir aday eşleşmezse uyanmaz', async () => {
+    M.sttQueue = ['nash üste git##paris te##bir şey daha'];
+    enableWakeWord(['asiste'], { companion: true, custom: true, enrollment: ['asistan'] });
+    await vi.advanceTimersByTimeAsync(10);
+    expect(M.spoken).toHaveLength(0);   // adayların hiçbiri fuzzy eşleşmedi
+  });
 });
 
 /* ── 6. startWakeWordService — ayar-tabanlı boot orkestrasyonu ── */
@@ -695,5 +786,109 @@ describe('Vosk model hazırlık kapısı (uyanmama kökü)', () => {
     await vi.advanceTimersByTimeAsync(10);
     expect(M.grammarStarts).toHaveLength(0);           // iptal edilen start dirilmedi
     expect(getWakeWordState().enabled).toBe(false);
+  });
+});
+
+describe('Wake watchdog (self-heal — "bir süre sonra uyanmıyor" kökü)', () => {
+  /* SAHA 2026-07-24 ("bir süre sonra 'dut' sesi geliyor, sohbet kesiliyor"):
+   * her yeniden-kurma mikrofonu bırakıp yeniden alır → cihaz kayıt bip'i çalar.
+   * Cihaz izinde tam 90 sn aralıkla stopWakeWordListening→startWakeWordListening
+   * görüldü. Periyot 5 dk'ya çıkarıldı + "konuşma sürüyor"/"sessizlik" koşulları
+   * eklendi. Self-heal amacı KORUNUR (ölü thread yine dirilir). */
+  const WATCHDOG_MS = 300_000;
+
+  it('periyodik yeniden kurar → ölü native thread kendini iyileştirir', async () => {
+    M.grammarAvailable = true;
+    _setVoskReadyForTest(true);
+    enableWakeWord(wakeWordsFor('Mavi', 'both'), { companion: true });
+    await vi.advanceTimersByTimeAsync(10);
+    expect(M.grammarStarts).toHaveLength(1);           // ilk kurulum
+
+    // Watchdog bir tur: idle + açık → yeniden kur (thread ölmüş olsaydı geri gelir).
+    await vi.advanceTimersByTimeAsync(WATCHDOG_MS);
+    expect(M.grammarStarts.length).toBeGreaterThanOrEqual(2);
+    // İkinci tur da çalışır (süreklilik).
+    const afterFirst = M.grammarStarts.length;
+    await vi.advanceTimersByTimeAsync(WATCHDOG_MS);
+    expect(M.grammarStarts.length).toBeGreaterThan(afterFirst);
+  });
+
+  it('aktif oturum sürerken (idle değil) re-arm YAPMAZ (dinlemeyi kesmez)', async () => {
+    M.grammarAvailable = true;
+    _setVoskReadyForTest(true);
+    enableWakeWord(wakeWordsFor('Mavi', 'both'), { companion: true });
+    await vi.advanceTimersByTimeAsync(10);
+    const baseline = M.grammarStarts.length;
+
+    M.voiceStatus = 'listening';                        // kullanıcı konuşuyor
+    await vi.advanceTimersByTimeAsync(WATCHDOG_MS);
+    expect(M.grammarStarts.length).toBe(baseline);      // re-arm yok
+  });
+
+  it('KİLİT: asistan KONUŞURKEN re-arm YAPMAZ (mikrofon takası "dut" sesiyle cevabı böler)', async () => {
+    // SAHA 2026-07-24: durum 'idle'a dönse bile TTS sürebiliyor; eski guard yalnız
+    // voice status'e bakıyordu → uzun cevabın üstüne wake thread takası biniyordu.
+    M.grammarAvailable = true;
+    _setVoskReadyForTest(true);
+    enableWakeWord(wakeWordsFor('Mavi', 'both'), { companion: true });
+    await vi.advanceTimersByTimeAsync(10);
+    const baseline = M.grammarStarts.length;
+
+    M.voiceStatus = 'idle';       // durum idle…
+    M.ttsSpeaking = true;         // …ama asistan hâlâ konuşuyor
+    await vi.advanceTimersByTimeAsync(WATCHDOG_MS);
+    expect(M.grammarStarts.length, 'konuşma sürerken mikrofon takası yapıldı (bip sesi cevabı böler)').toBe(baseline);
+
+    // Konuşma bitince self-heal yine çalışır (amaç korunur).
+    M.ttsSpeaking = false;
+    await vi.advanceTimersByTimeAsync(WATCHDOG_MS);
+    expect(M.grammarStarts.length, 'konuşma bitti ama self-heal artık hiç çalışmıyor').toBeGreaterThan(baseline);
+  });
+
+  it('disable watchdog\'u durdurur (interval sızmaz)', async () => {
+    M.grammarAvailable = true;
+    _setVoskReadyForTest(true);
+    enableWakeWord(wakeWordsFor('Mavi', 'both'), { companion: true });
+    await vi.advanceTimersByTimeAsync(10);
+    disableWakeWord();
+    const baseline = M.grammarStarts.length;
+
+    await vi.advanceTimersByTimeAsync(WATCHDOG_MS * 2);
+    expect(M.grammarStarts.length).toBe(baseline);      // disable sonrası re-arm yok
+  });
+});
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Wake watchdog DÜRÜSTLÜĞÜ (kütük #460)
+ *
+ * SAHA 2026-08-06: konsolda `[WakeWord] watchdog → wake thread yeniden
+ * kuruluyor (self-heal)` ×4 görüldü ve kütüğe "wake thread 32 dk'da 4 kez
+ * ÖLDÜ" diye geçti. GERÇEK: kodda hiçbir canlılık ölçümü YOK — koşullar
+ * sağlandığında thread sağlıklı olsa bile 5 dakikada bir KOŞULSUZ yeniden
+ * kuruluyor. 32 dakikada 4 kez, tam olarak tasarlanan davranıştır.
+ *
+ * Canlılık JS'ten ölçülemiyor: native yalnız 'wakeWord' (tetik anı) olayını
+ * yayınlar; "ayakta ama henüz duymadı" ile "öldü" ayırt edilemez. Bu yüzden
+ * davranış KANITSIZ değiştirilmedi — ÖLÇÜLEBİLİR yapıldı. */
+describe('#460 · wake watchdog kanıtsız "iyileşme" iddia etmez', () => {
+  it('🔒 canlılığın ÖLÇÜLMEDİĞİ açıkça bildirilir', () => {
+    // Kanıtsız iyimserlik üretmemek için sabit `false` — bir gün native
+    // canlılık sinyali gelirse bu kilit bilinçli olarak güncellenecektir.
+    expect(getWakeWatchdogStats().livenessMeasured).toBe(false);
+  });
+
+  it('🔒 sayaçlar sıfırdan başlar ve periyot bildirilir', () => {
+    const s = getWakeWatchdogStats();
+    expect(s.rearmCount).toBe(0);
+    expect(s.wakesSinceRearm).toBe(0);
+    expect(s.wakesInPrevWindow).toBe(0);
+    expect(s.lastRearmAt).toBe(0);
+    // Periyodun kendisi ölçümle birlikte taşınır — yoksa "4 kez" yorumlanamaz.
+    expect(s.rearmIntervalMs).toBeGreaterThan(0);
+  });
+
+  it('🔒 test sıfırlaması sayaçları da temizler (testler arası sızıntı yok)', () => {
+    _resetWakeWordForTest();
+    expect(getWakeWatchdogStats().rearmCount).toBe(0);
   });
 });

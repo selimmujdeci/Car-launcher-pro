@@ -89,8 +89,9 @@ describe('T3 — CanAdapter cleanup', () => {
     expect(cl().activeListeners('canData')).toBe(1);
     ca.stop();
     expect(cl().activeListeners('canData')).toBe(0);
-    // canStatus bilinçli fire-and-forget (production davranışı) — handle saklanmaz.
-    expect(cl().activeListeners('canStatus')).toBe(1);
+    // ARCH-04: status handle da aynı lifecycle owner tarafından bırakılır;
+    // stop sonrası geç/native callback için açık dinleyici kalmaz.
+    expect(cl().activeListeners('canStatus')).toBe(0);
   });
 
   it('onData unsub bir fonksiyon döner; çift stop güvenli', async () => {

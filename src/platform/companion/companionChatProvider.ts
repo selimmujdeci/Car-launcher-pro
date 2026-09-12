@@ -22,30 +22,161 @@
  * sanitize gelir (prompt injection yapısal engelli).
  *
  * Proaktif konuşmalar bu hatta DEĞİLDİR (§2.8): V1'de şablon kalır.
+ *
+ * ── §PRESENCE — MAVI-F1 (2026-08-29): "Yol Arkadaşı" ARTIK BİR BEYİN ŞALTERİ DEĞİL ──
+ *
+ * ÖLÇÜLEN KUSUR: `companionEnabled !== true` DÖRT ayrı yerde (`runCompanionBrain` ·
+ * `tryCompanionBrain` · `runCompanionChat` · `tryCompanionChat`) erken `null`
+ * döndürüyordu. `voiceService` bu `null`'ı "beyin yok" sayıp YEREL zincire
+ * düşüyordu → bir KİŞİLİK ayarı kapalıyken Mavi doğal dil anlamayı, sohbeti ve
+ * beyin kararlı CarOS komutlarını KAYBEDİYOR, yalnız regex parser'a iniyordu.
+ * Yani ürün tanımının tersi: "Yol Arkadaşı kapalı" = "Mavi aptal".
+ *
+ * YENİ İNVARYANT (tek Mavi):
+ *   · `companionEnabled` **YETENEK KAPATMAZ**. Doğal dil anlama · sohbet cevabı ·
+ *     navigation/media/phone/settings/vehicle niyetleri · LLM erişimi · mevcut
+ *     fallback zinciri HER İKİ DURUMDA da aynıdır.
+ *   · `companionEnabled` YALNIZ **PRESENCE**'ı yönetir: konuşma tonu, sohbet
+ *     sürekliliği ve KENDİLİĞİNDEN konuşma isteği (proaktiflik `companionEngine`de).
+ *
+ * İKİNCİ BEYİN YOK: `presence` ayrı bir sağlayıcı/zincir/hafıza AÇMAZ; aynı tek
+ * beyne giden sistem prompt'unun TON satırlarını değiştirir, o kadar.
+ *
+ * GÜVENLİK DEĞİŞMEDİ: `assistantSafetyKernel` PRE/POST gate, `AiSafetyGate`,
+ * onay politikası ve tek-cevap sözleşmesi presence'tan BAĞIMSIZDIR — companion
+ * kapalı olmak bir güvenlik mekanizması DEĞİLDİR ve hiç olmamıştı.
  */
 
 import { useStore } from '../../store/useStore';
-import { resolveCompanionIdentity, type CompanionIdentity } from './companionIdentity';
-import { interpretFuel, interpretBatteryCharge, interpretEngineTempConcern, interpretTripDuration, interpretRangeVsRoute, interpretDtcStatus } from './companionContext';
+import { resolveCompanionIdentity, type CompanionIdentity, type CompanionSettingsInput } from './companionIdentity';
+import {
+  interpretFuel, interpretBatteryCharge, interpretEngineTempConcern, interpretTripDuration,
+  interpretTripSession, interpretMotionState,
+  interpretRangeVsRoute, interpretDtcStatus, interpretDiagnosticTrend,
+  classifyDriverStyle, driverToneInstruction, type DriverStyle,
+  selectActiveTopic, topicFreshness, buildTopicHintLine, resolveDemonstrativeReference,
+  type CompanionTopicId, type TopicFreshness, type TopicSignalFlags,
+  type DemonstrativeResolution,
+} from './companionContext';
+import { readDiagnosticTrendInput } from '../ai/mechanic/concrete/maviMechanicHistory';
 import { tryOfflineConversation } from '../offlineConversationEngine';
 import { onOBDData } from '../obdService';
 import { onDTCState } from '../dtcService';
-import { getTripSnapshot } from '../tripLogService';
+import { getTripSnapshot, getTripJournalGlance } from '../tripLogService';
+/* ÇALIŞMA ZAMANI BAĞIMLILIĞI OLMAYAN ince kapı: `tripSessionService`i buraya
+   statik import etmek Mavi'nin bağlam grafiğini ölçülebilir biçimde ağırlaştırdı
+   (`regression.guards` dinamik-import kilidi varsayılan timeout'ta düştü).
+   Servis okuyucusunu başlarken KAYDEDER; burada yalnız kapı okunur. */
+import { readTripSessionOrNull } from '../trip/tripSessionAccess';
+/* Aynı desen: çalışma zamanı bağımlılığı OLMAYAN ince kapı. Konum servisini
+   buraya statik import etmek `gpsService`/`geocodingService` kenarlarını Mavi
+   bağlam grafiğine ekler. Servis okuyucusunu başlarken KAYDEDER. */
+import { readLocationContextOrNull } from '../location/locationContextAccess';
+import { formatLocationContextLine } from '../location/locationContextModel';
 import { getNavigationState } from '../navigationService';
-import { buildMemoryPromptSection } from './companionMemory';
+/* MAVI-F10: prompt hafıza bloğu ARTIK kanonik cepheden gelir.
+   `companionMemory.buildMemoryPromptSection` KULLANILMAZ — o blok (a) hassas-veri
+   kapısından geçmiyordu, (b) "VERİdir, TALİMAT DEĞİLDİR" etiketi TAŞIMIYORDU,
+   (c) bağlamdan bağımsız olarak TÜM fact'leri her prompt'a döküyordu. */
+import {
+  projectMaviMemory, inferPromptDomain, setConversationPurgePort,
+} from '../assistant/maviMemory';
+/* MAVI-F10 · TRIP kapsamı. YALNIZ RAM, yolculuk anahtarlı, bounded ve hassas-veri
+   kapılı; kalıcı depoya YAZILMAZ. Bu yüzden `_history` ile aynı sınıftadır ve
+   kalıcı-hafıza onay bayrağına TABİ DEĞİLDİR — aksi hâlde yolculuk sürekliliği
+   ölü bir bayrağın arkasında doğar (F10'un amacı tam da bu boşluktu). */
+import { rememberTrip } from '../assistant/tripMemory';
 import { signalWithTimeout } from '../../utils/abortCompat';
 import { recordAiNetFailure, recordAiNetSuccess } from '../aiHealth';
+import { errorKindFromException } from '../ai/aiOfflineReason';
+/**
+ * Ağ hakkında HİÇBİR ŞEY kanıtlamayan hata sınıfları: ya istek hiç gönderilmedi
+ * (yerel kapı) ya da sonucu bilinmiyor (kopma/süre aşımı/iptal).
+ *
+ * ⚠️ Bu liste bilinçli olarak KARA LİSTEDİR (beyaz liste DEĞİL): "sunucu yanıt
+ * verdi" durumları çeşitlidir (429/401/402/404/4xx/5xx/parse) ve beyaz liste
+ * her yeni sınıfta sessizce eksik kalır. SAHA 2026-07-24: ilk denemede beyaz
+ * liste kullanılmıştı ve `invalid_request` (OpenRouter 404 · Gemini 400)
+ * listede olmadığı için sahte offline CİHAZDA DEVAM ETTİ. Bunun dışındaki her
+ * sınıf sunucuyla temas kurulduğu = ağın canlı olduğu anlamına gelir.
+ */
+const NO_NET_EVIDENCE_KINDS: ReadonlySet<string> = new Set([
+  'no_provider', 'no_api_key', 'offline', 'circuit_open', 'network', 'timeout', 'aborted',
+]);
+
+/**
+ * CEVAP TOKEN BÜTÇELERİ — "uzun anlatım yarıda kesiliyor" KÖKÜ (SAHA 2026-07-24).
+ *
+ * Cihazda kullanıcının anahtarıyla ÖLÇÜLDÜ (`gemini-3.1-flash-lite`, "Türkiye'nin
+ * coğrafi bölgelerini detaylıca anlat"):
+ *   maxOutputTokens=220  → `finishReason=MAX_TOKENS`, metin "…5. İç Anadolu Bölgesi:"
+ *                          diye CÜMLE ORTASINDA bitiyor (bir ölçümde metin BOŞ bile geldi)
+ *   maxOutputTokens=1200 → `finishReason=STOP`, 970-1058 karakter TAM cevap
+ *
+ * Yani kesilme TTS'te DEĞİL, cevabın KENDİSİNDEYDİ: model bütçeyi doldurup
+ * susuyor, TTS o yarım metni sonuna kadar okuyup bitiriyordu. Kullanıcı bunu
+ * "Mavi cümlenin ortasında kesiliyor" olarak yaşıyordu.
+ *
+ * SÜRÜŞ değerleri bilinçli olarak DÜŞÜK ama "yarım cümle" üretmeyecek kadar
+ * geniş: sürüşte kısalık bir güvenlik tercihidir (ISO 15008 dikkat bütçesi),
+ * ancak yarıda kesilen cümle hem güvensiz hem de tekrar sordurur.
+ */
+/* ── Cevap şekillendirme ──────────────────────────────────────
+ * MAVI-F13/3: token bütçesi, karakter tavanı ve cümle-sınırında kırpma
+ * `companionAnswerShaping`e TAŞINDI (SAF — durum·I/O·sağlayıcı bilgisi YOK).
+ * Bütçeler ve kırpma kuralı DEĞİŞMEDİ; yalnız sahibi netleşti: bu bir
+ * sağlayıcı işi değil, dikkat bütçesi politikasıdır. */
+import {
+  geminiChatEndpoint, GEMINI_MODEL_CHAIN,
+  geminiThinkingConfig, noteGeminiThinkingRejectedIf400,
+  _resetGeminiThinkingForTest,
+} from '../ai/gateway/models';
 import { tavilySearch } from '../webSearchService';
 import { getWeatherNarrative, refreshWeather, onWeatherState, weatherQueryNamesCity, type WeatherState } from '../weatherService';
-import type { SemanticResult } from '../ai/semanticAiService';
+// MAVI-F5: beyin intent listesinin TEK KAYNAĞI (elle liste YASAK).
+import { brainIntentAllowlist } from '../capability/fabric/carosCapabilityCatalog';
+/* MAVI-F13/4: filler kapısı (`isGenericFiller`) ARTIK `companionBrainParser`
+ * içindedir — kapı PARSE SINIRINDA olmalıydı ve oraya taşındı. */
+import { isAiGatewayEnabled } from '../ai/gateway/aiGatewayFlag';
 import {
-  buildSafetyContext, evaluatePreGate, verifyResponse,
-  type SafetyContext,
+  buildSafetyContext, evaluatePreGate, verifyResponse, type SafetyContext,
 } from '../assistant/assistantSafetyKernel';
+/* MAVI-F13/3 · cevap şekillendirme (SAF): token bütçesi + karakter tavanı +
+   cümle-sınırında kırpma. Sağlayıcı işi değil, dikkat bütçesi politikası. */
+import {
+  answerTokens, trimForSpeech,
+  brainPersonaRole, reaskReply, netDownReply,
+} from './companionAnswerShaping';
+/* MAVI-F13/4 · beyin çıktısı ayrıştırma (SAF · sağlayıcıdan bağımsız). */
+import {
+  parseBrainJson, MAX_PLAN_ITEMS,
+  type BrainRaw, type CompanionBrainResult,
+} from './companionBrainParser';
+/* MAVI-F13/3 · proaktif alt sistemin test-sıfırlama kapısı (tek kapı). */
+import { _resetProactiveAlertForTest } from './companionProactiveAlert';
+/* MAVI-F13/3 · sağlayıcı sağlık/kota defteri (yaprak: ağ·rota·konuşma YOK). */
+import {
+  monotonicNow as _now,
+  isProviderCoolingDown, noteProviderRateLimited,
+  isGroundingCoolingDown, noteGroundingRateLimited, cooldownFromGemini429,
+  noteProviderAuthFailure, noteGatewayFailureKind, noteGeminiAuthFailure,
+  clearAuthFailure, resolveProviderFailureAnswer, RATE_LIMIT_REPLY,
+  _resetProviderHealthForTest,
+} from './companionProviderHealth';
+/* MAVI-F13/3 · deterministik offline sınıflama + hazır cevap (yaprak · SAF). */
+import {
+  classifySmalltalk, offlineCategoryReply, _resetOfflineRepliesForTest,
+  normalizeKeywordText as norm,
+} from './companionOfflineReplies';
+// Bağımlılıksız YAZMA çekirdeği (ağır obd/store zinciri modül grafiğine GİRMEZ —
+// diagnosticTrailCore bilinçli olarak import'suzdur).
+import { pushTrail } from '../diagnosticTrailCore';
+// #699: Anthropic CORS duvarını aşan taşıma (native varsa native, yoksa fetch).
+import { aiPostJson } from '../ai/nativeHttp';
 
 /* ── Tipler ─────────────────────────────────────────────────── */
 
-export type CompanionChatRoute = 'companion_gemini' | 'companion_groq' | 'companion_haiku' | 'companion_offline' | 'companion_rate_limited' | 'companion_key_invalid' | 'companion_safety';
+export type CompanionChatRoute = 'companion_gemini' | 'companion_groq' | 'companion_haiku' | 'companion_gateway' | 'companion_offline' | 'companion_rate_limited' | 'companion_key_invalid' | 'companion_net_down' | 'companion_safety' | 'companion_reask' | 'companion_no_credit';
 
 export interface CompanionChatResult {
   response: string;
@@ -80,6 +211,19 @@ export interface CompanionChatOpts {
    */
   chain?: ReadonlyArray<{ provider: 'gemini' | 'groq' | 'haiku'; apiKey: string }>;
   /**
+   * MAVI-F4 · TOKEN AKIŞI TÜKETİCİSİ (opsiyonel).
+   *
+   * Verilirse ve seçilen yol GERÇEKTEN akış destekliyorsa (yalnız gateway →
+   * OpenRouter/Gemini SSE) her token bu kancaya iletilir. **Bu sağlayıcı katmanı
+   * KONUŞMAZ:** token'ı ne seslendirir ne yorumlar — yalnız yukarı taşır.
+   * Seslendirme kararı ve yapısal/konuşulabilir ayrımı `voice/maviResponseStream`
+   * sorumluluğundadır (LLM akışı OTORİTE DEĞİLDİR).
+   *
+   * Akış desteklemeyen yollarda (doğrudan Gemini `generateContent` · Groq ·
+   * Haiku · offline) kanca HİÇ çağrılmaz — sahte streaming üretilmez.
+   */
+  onToken?: (token: string) => void;
+  /**
    * Single Brain karar bütçesi (ms). voiceService 2.5sn iletir: beyin bu süre
    * içinde ACTION/CHAT kararı veremezse fetch iptal edilir → yerel graceful
    * fallback zinciri zamanında devreye girer. Verilmezse GEMINI_TIMEOUT_MS.
@@ -107,44 +251,12 @@ export function _withAltHint(top: string, alternatives?: string[]): string {
   return `${top}\n\n(Not: ses tanıma kesin değil; olası alternatifler: ${others.join(' / ')}. En anlamlı olanı dikkate alıp yanıtla.)`;
 }
 
-/* ── Offline kategori ipuçları (ANA YOL DEĞİL — yalnız fallback) ── */
-
-/** offlineConversationEngine.norm ile aynı normalize (bağımlılık almadan). */
-function norm(s: string): string {
-  return s.toLowerCase()
-    .replace(/ı/g, 'i').replace(/ö/g, 'o').replace(/ü/g, 'u')
-    .replace(/ç/g, 'c').replace(/ş/g, 's').replace(/ğ/g, 'g')
-    .replace(/[^a-z0-9\s]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-type SmalltalkKind = 'greeting' | 'howareyou' | 'bored' | 'chat' | 'fatigue' | 'thanks';
-
-const SMALLTALK: ReadonlyArray<{ kind: SmalltalkKind; kw: readonly string[] }> = [
-  { kind: 'howareyou', kw: ['nasilsin', 'nasil misin', 'naber', 'ne haber', 'ne var ne yok',
-                            'iyi misin', 'keyifler nasil', 'keyfin nasil', 'gunun nasil'] },
-  { kind: 'greeting',  kw: ['merhaba', 'selam', 'gunaydin', 'iyi aksamlar', 'iyi geceler'] },
-  { kind: 'bored',     kw: ['canim sikildi', 'sikildim', 'cok sikici', 'moralim bozuk',
-                            'kotu hissediyorum', 'can sikiyor'] },
-  { kind: 'chat',      kw: ['sohbet edelim', 'sohbet et', 'muhabbet edelim', 'konusalim',
-                            'bir sey anlat', 'bana bir sey anlat', 'hikaye anlat', 'anlat bana',
-                            'benimle konus'] },
-  { kind: 'fatigue',   kw: ['yorgunum', 'yoruldum', 'uykum geldi', 'uykum var'] },
-  { kind: 'thanks',    kw: ['tesekkurler', 'tesekkur ederim', 'sagol', 'eyvallah'] },
-];
-
-/** Offline fallback kategori ipucu; eşleşme yoksa null. ROUTE KARARI DEĞİLDİR. */
-export function classifySmalltalk(raw: string): SmalltalkKind | null {
-  const n = norm(raw);
-  if (!n) return null;
-  for (const { kind, kw } of SMALLTALK) {
-    for (const k of kw) {
-      if (n === k || n.includes(k)) return kind;
-    }
-  }
-  return null;
-}
+/* ── Offline kategori ipuçları (ANA YOL DEĞİL — yalnız fallback) ──────────
+ * MAVI-F13/3: anahtar kelime sınıflaması ve hazır cevap tablosu
+ * `companionOfflineReplies`e TAŞINDI (yaprak · import·I/O·zaman YOK). Bir
+ * sağlayıcı işi değil, ağ yokken konuşulacak deterministik yedektir.
+ * Genel API buradan yeniden dışa verilir → mevcut tüketiciler değişmedi. */
+export { classifySmalltalk } from './companionOfflineReplies';
 
 /* ── RAM sohbet geçmişi (persist YOK — gizlilik §2.5) ───────── */
 
@@ -158,104 +270,157 @@ function pushHistory(role: ChatTurn['role'], text: string): void {
   if (_history.length > MAX_HISTORY_TURNS) _history = _history.slice(-MAX_HISTORY_TURNS);
 }
 
-/* ── 429 rate-limit soğuma penceresi ────────────────────────── */
-
-export const RATE_LIMIT_COOLDOWN_MS = 60_000;
-// Gemini BEYİN/sohbet çağrısı (düzenli generateContent) kotası soğuması — Gemini
-// adayını zincirde atlar.
-// ⚠️ SAĞLAYICI-BAZLI (SAHA 2026-07-04, "ilk istek online sonrakiler offline"):
-// eskiden TEK paylaşılan pencereydi — Groq/Haiku 429'u da bunu kuruyordu ve
-// GEMINI 60sn kilitleniyordu (çapraz kirlenme). Artık her sağlayıcının kendi
-// penceresi var; birinin kotası diğerini asla susturmaz.
-let _rateLimitedUntil = 0;      // yalnız GEMINI
-let _groqRateLimitedUntil  = 0; // yalnız GROQ
-let _haikuRateLimitedUntil = 0; // yalnız HAIKU
-
 /**
- * Gemini 429 gövdesinden gerçek bekleme süresini okur (google.rpc.RetryInfo
- * retryDelay: "7s" gibi). RPM-tipi kotalarda Google çoğu zaman 5-30sn söyler —
- * sabit 60sn pencere asistanı gereksiz uzun "offline" bırakıyordu (SAHA
- * 2026-07-04: "ilk istek online, sonrakiler offline"). Okunamazsa/yoksa
- * varsayılan pencere; taban 5sn, tavan RATE_LIMIT_COOLDOWN_MS.
+ * MAVI-F10 · TURN kapsamının temizleme yolu. **Bu modül `_history`nin TEK
+ * sahibidir** — kanonik hafıza cephesi burada bir KOPYA tutmaz, yalnız bu portu
+ * çağırır. Kullanıcı "bunu unut" dediğinde ilgili turlar geçmişten de düşer;
+ * aksi hâlde unutulan bilgi 8 tur daha prompt'a gitmeye devam ederdi (F10
+ * öncesi ölçülen kusur).
+ *
+ * `needle` BOŞ ise "hepsini unut" demektir → geçmiş tamamen temizlenir.
+ * Düşürülen tur adedini döner (sahte başarı yok).
  */
-async function _cooldownFrom429(resp: Response): Promise<number> {
+function _purgeHistoryMatching(needle: string): number {
   try {
-    const data = await resp.json() as { error?: { details?: { retryDelay?: string }[] } };
-    const d = data.error?.details?.find((x) => typeof x?.retryDelay === 'string');
-    const m = d?.retryDelay?.match(/^(\d+(?:\.\d+)?)s$/);
-    if (m) return Math.min(RATE_LIMIT_COOLDOWN_MS, Math.max(5_000, Math.round(parseFloat(m[1]) * 1000)));
-  } catch { /* gövde okunamadı → varsayılan pencere */ }
-  return RATE_LIMIT_COOLDOWN_MS;
+    const before = _history.length;
+    if (!needle) { _history = []; return before; }
+    const words = needle.split(' ').filter((w) => w.length > 3);
+    _history = _history.filter((t) => {
+      const low = t.text.toLocaleLowerCase('tr');
+      if (low.includes(needle)) return false;
+      return !words.some((w) => low.includes(w));
+    });
+    return before - _history.length;
+  } catch { return 0; }
 }
 
-/* Kota penceresinde dürüst cevap (SAHA 2026-07-04): zincirdeki TÜM adaylar
- * soğumadayken kullanıcı "offline'a düştü" sanıyordu — asistan sahte aptallaşma
- * yerine gerçek nedeni söyler; pencere kapanınca kendiliğinden normale döner. */
-const RATE_LIMIT_REPLY =
-  'Yapay zeka kotam şu an dolu, bir dakikaya kalmaz toparlarım — birazdan tekrar sor.';
+/* Portu MODÜL YÜKLENİRKEN kaydeder: `_history` yalnız bu modül yüklendiğinde
+   VARDIR, dolayısıyla port da tam o anda anlamlı olur. Yan etki bir timer,
+   abonelik veya I/O DEĞİLDİR — tek bir referans ataması. */
+setConversationPurgePort(_purgeHistoryMatching);
 
-/* Geçersiz anahtar dürüstlüğü (SAHA 2026-07-05, "online asistan offline'a
- * düşüyor"): cihazdaki anahtar boş kalınca .env'e gömülü ESKİ anahtar devreye
- * girdi ve Google her isteğe 400 API_KEY_INVALID döndü — asistan bunu sessizce
- * yutup offline'a düşüyordu; kullanıcı "anahtarlar düzgün, internet var" diye
- * saatlerce yanlış yerde arıyordu. Kota cevabıyla AYNI ilke: sahte aptallaşma
- * yerine GERÇEK neden söylenir. 400/403 gövdesi API_KEY_INVALID taşıyorsa
- * işaretlenir; o turda beyin cevabı çıkmazsa dürüst anahtar uyarısı konuşulur. */
-const KEY_INVALID_REPLY =
-  'Yapay zeka anahtarım geçersiz görünüyor. Ayarlar ekranından Gemini anahtarını kontrol etmen gerekiyor.';
-let _geminiKeyInvalidAtMs = 0;
-
-/** Gemini 400/403 gövdesini sınıflandırır — anahtar hatasıysa işaretler.
- *  Gövde okunamazsa sınıflandırma YAPILMAZ (yanlış alarm > sessizlikten kötü). */
-async function _noteGeminiAuthFailure(resp: Response): Promise<void> {
-  if (resp.status !== 400 && resp.status !== 403) return;
-  try {
-    const data = await resp.json() as {
-      error?: { message?: string; details?: { reason?: string }[] };
-    };
-    const reason = data.error?.details?.find((d) => typeof d?.reason === 'string')?.reason;
-    if (reason === 'API_KEY_INVALID' || /api key not valid/i.test(data.error?.message ?? '')) {
-      _geminiKeyInvalidAtMs = _now();
-    }
-  } catch { /* gövde okunamadı — sınıflandırma yapılmaz */ }
-}
-// google_search GROUNDING kotası soğuması AYRI (SAHA 2026-07-04): grounding ücretsiz
-// katmanda çok küçük kotalı, sık 429 verir. Eskiden bu 429 _rateLimitedUntil'ı
-// kurup TÜM Gemini beynini 60sn öldürüyordu → "bir kere çalışıp sonra ölüyor".
-// Ayrı pencere: grounding kotası bitince yalnız grounding atlanır (→ Tavily), beyin
-// karar/sentez çağrıları (düzenli generateContent, 200 dönüyor) çalışmaya devam eder.
-let _groundingCooldownUntil = 0;
-
-function _now(): number {
-  return typeof performance !== 'undefined' ? performance.now() : 0;
-}
-
-/**
- * Tanı raporu için AI sağlayıcı kota (429) pencereleri anlık görüntüsü.
- * Her sağlayıcı için kalan soğuma süresi (ms; 0 = açık/kotasız). PII yok.
- * Sağlayıcı-bazlı pencereler (çapraz kirlenme yok) — SAHA 2026-07-04 dersi.
- */
-export function getProviderQuotaSnapshot(): {
-  geminiCooldownMs: number; groqCooldownMs: number; haikuCooldownMs: number;
-} {
-  const now = _now();
-  const left = (until: number): number => (until > now ? Math.round(until - now) : 0);
-  return {
-    geminiCooldownMs: left(_rateLimitedUntil),
-    groqCooldownMs:   left(_groqRateLimitedUntil),
-    haikuCooldownMs:  left(_haikuRateLimitedUntil),
-  };
-}
+/* ── Sağlayıcı sağlık/kota defteri ────────────────────────────────────────
+ * MAVI-F13/3: 429 soğuma pencereleri (sağlayıcı-bazlı), grounding penceresi,
+ * kimlik reddi (401/403) ve kredi bitişi (402) işaretleri ile bunların dürüst
+ * cevap metinleri `companionProviderHealth`e TAŞINDI. Bu bir sağlayıcı ÇAĞRISI
+ * değil, çağrının SONUCUNU sınıflayan bir sağlık defteridir: ağa çıkmaz, rota
+ * seçmez, konuşmaz, telemetri yazmaz.
+ * `RATE_LIMIT_COOLDOWN_MS` ve `getProviderQuotaSnapshot` buradan yeniden dışa
+ * verilir → LAB/tanı tüketicileri (maviConsoleSources · diagnosticSections)
+ * değişmedi. */
+export { RATE_LIMIT_COOLDOWN_MS, getProviderQuotaSnapshot } from './companionProviderHealth';
 
 /** @internal — testler arası izolasyon. */
 export function _resetCompanionChatForTest(): void {
   _history = [];
-  _offlineCounter = 0;
-  _rateLimitedUntil = 0;
-  _groqRateLimitedUntil = 0;
-  _haikuRateLimitedUntil = 0;
-  _groundingCooldownUntil = 0;
-  _geminiKeyInvalidAtMs = 0;
+  /* MAVI-F13/3: offline yedek ve sağlayıcı sağlık defteri ARTIK kendi
+     sahiplerinde — kökten tek tek sıfırlamak yerine tek kapı çağrılır. */
+  _resetOfflineRepliesForTest();
+  _resetProviderHealthForTest();
+  _geminiModelIdx = 0;   // model zinciri testler arası SIZMASIN
+  /* MAVI-F13/3: proaktif alt sistemin durumu ARTIK onun sahipliğinde —
+     kökten tek tek sıfırlamak yerine tek kapı çağrılır. */
+  _resetProactiveAlertForTest();
+  _topicTurn = 0;              // kısa süreli bağlam testler arası SIZMASIN
+  _activeTopic = null;
+  _activeTopicTurn = 0;
+  _hintTopic = null;
+  _hintFreshness = 'expired';
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * KISA SÜRELİ KONUŞMA BAĞLAMI — durum sahibi (YALNIZ RAM)
+ *
+ * Bu modül sohbet durumunun (`_history`) zaten sahibi; aktif konu da buraya
+ * konur → İKİNCİ bir konuşma-durumu deposu KURULMAZ.
+ *
+ * SINIRLAR (görev sözleşmesi):
+ *  · YALNIZ RAM — `safeStorage`/localStorage'a YAZILMAZ, tek oturumluk.
+ *  · Timer/poll/abonelik YOK — bitiş PASİF (okuma anında tur farkı bakılır).
+ *  · Konu kimliği ALLOWLIST birliğinden; serbest metin/ham veri TAŞIMAZ.
+ *  · Sayaç TUR tabanlıdır (repo'da zaman-tabanlı konuşma TTL'i YOK; ölçü
+ *    MAX_HISTORY_TURNS'ten türetildi — bkz. companionContext.TOPIC_MAX_TURN_AGE).
+ * ════════════════════════════════════════════════════════════════════════ */
+
+/** Kaçıncı bağlam turundayız (her giden istekte 1 artar). Yalnız RAM. */
+let _topicTurn = 0;
+/** Aktif konu ve hangi turda yazıldığı. */
+let _activeTopic: CompanionTopicId | null = null;
+let _activeTopicTurn = 0;
+/**
+ * Bu turun prompt'una girecek ÖNCEKİ konu — tur başında (yeni yorumlar
+ * yazılmadan ÖNCE) fotoğraflanır. Böylece "takip sorusu" semantiği doğru olur:
+ * prompt, bu turda üretilen konuyu değil BİR ÖNCEKİNİ ipucu olarak görür.
+ */
+let _hintTopic: CompanionTopicId | null = null;
+let _hintFreshness: TopicFreshness = 'expired';
+
+/**
+ * Yeni bir bağlam turu açar: önceki konuyu (varsa ve TAZE ise) bu turun ipucu
+ * olarak fotoğraflar. PASİF bitiş: süresi geçmiş konu burada bırakılır.
+ */
+function _beginTopicTurn(): void {
+  _topicTurn++;
+  const turnsAgo = _activeTopic !== null ? _topicTurn - _activeTopicTurn : Infinity;
+  const fresh = topicFreshness(turnsAgo);
+  if (_activeTopic === null || fresh === 'expired') {
+    _hintTopic = null;
+    _hintFreshness = 'expired';
+    if (fresh === 'expired') _activeTopic = null;   // bayat konu RAM'den de düşer
+    return;
+  }
+  _hintTopic = _activeTopic;
+  _hintFreshness = fresh;
+}
+
+/** Bu turda üretilen yorumlardan aktif konuyu yazar (konu yoksa eskisi KORUNUR). */
+function _writeActiveTopic(flags: TopicSignalFlags): void {
+  const next = selectActiveTopic(flags);
+  if (next === null) return;                        // yorum yok → uydurma konu YOK
+  _activeTopic = next;
+  _activeTopicTurn = _topicTurn;
+  /* MAVI-F10: konu YOLCULUK hafızasına da düşer — "bu yolculukta neyi
+     konuştuk" sorusunun tek bounded kanıtı. Taşınan ALLOWLIST KİMLİĞİDİR
+     (serbest metin/transkript DEĞİL). Yolculuk yoksa sessizce düşer. */
+  try { rememberTrip(next, 'topic', Date.now()); } catch { /* fail-soft */ }
+}
+
+/**
+ * Aktif konu anlık görüntüsü — CAROS LAB / test gözlemi. PII YOK: yalnız
+ * allowlist kimliği, tazelik sınıfı ve tur farkı.
+ */
+/**
+ * @internal — testler için GERÇEK prompt funnel'ı. Kopya/paralel bir prompt
+ * kurucusu DEĞİLDİR: üretimdeki sıranın (önce `buildInterpretedVehicleContext`,
+ * sonra `buildCompanionSystemPrompt`) birebir aynısını çalıştırır. Bu sayede
+ * "yazan → okuyan" dikey akışı gerçek zincir üzerinde doğrulanır.
+ */
+export function _buildPromptForTest(isDriving = false): string {
+  const settings = useStore.getState().settings;
+  const ctx = buildInterpretedVehicleContext();       // ← yazan (tur açar + konu yazar)
+  return buildCompanionSystemPrompt(                  // ← okuyan (ipucu satırı)
+    resolveIdentityWithDriverStyle(settings), isDriving, ctx,
+  );
+}
+
+export function getActiveTopicSnapshot(): {
+  topic: CompanionTopicId | null; freshness: TopicFreshness; turnsAgo: number | null;
+} {
+  const turnsAgo = _activeTopic !== null ? _topicTurn - _activeTopicTurn : null;
+  return {
+    topic: _activeTopic,
+    freshness: turnsAgo === null ? 'expired' : topicFreshness(turnsAgo),
+    turnsAgo,
+  };
+}
+
+/**
+ * Belirsiz zamirli eylem isteğini değerlendirir — çağıran bu sonuç
+ * `needsClarification` ise HİÇBİR eylem yürütmemelidir (fail-closed).
+ * Aktif konu yalnız SORUYU zenginleştirir; otomatik çözüm ÜRETMEZ.
+ */
+export function evaluateDemonstrativeRequest(text: string): DemonstrativeResolution {
+  return resolveDemonstrativeReference(text, _activeTopic);
 }
 
 /* ── Yorumlanmış araç bağlamı (HAM VERİ DEĞİL) ──────────────── */
@@ -284,6 +449,13 @@ function vehicleCapabilityNote(vt?: string): string {
  * ile aynı (senkron son-değer yakalama).
  */
 function buildInterpretedVehicleContext(): string {
+  // TUR BAŞI: önceki konuyu bu turun ipucu olarak fotoğrafla (yeni yorumlar
+  // yazılmadan ÖNCE) → prompt "takip sorusu" bağlamını doğru görür.
+  _beginTopicTurn();
+  const topicFlags: {
+    engineTemperature: boolean; diagnosticTrend: boolean;
+    fuelLevel: boolean; batteryCharge: boolean;
+  } = { engineTemperature: false, diagnosticTrend: false, fuelLevel: false, batteryCharge: false };
   const parts: string[] = [];
   let vehicleType: string | undefined;
   let capturedRangeKm: number | undefined; // rota köprüsü (adım 4) için son menzil
@@ -300,20 +472,55 @@ function buildInterpretedVehicleContext(): string {
       // EV menzili d.range'den gelir (estimatedRangeKm yakıt-tabanlı, EV'de -1).
       const charging = d.chargingState === 'charging' || d.chargingState === 'fast_charging';
       const battery = interpretBatteryCharge(d.batteryLevel, d.range >= 0 ? d.range : undefined, charging);
-      if (fuel) parts.push(fuel);
-      if (battery) parts.push(battery);
-      if (temp) parts.push(temp);
+      if (fuel) { parts.push(fuel); topicFlags.fuelLevel = true; }
+      if (battery) { parts.push(battery); topicFlags.batteryCharge = true; }
+      if (temp) { parts.push(temp); topicFlags.engineTemperature = true; }
     });
     unsub();
   } catch { /* OBD bağlı değil — bağlamsız sohbet */ }
+  /* (1b) KONUM — "neredeyiz?" sorusunun cevabı bağlamda OLMALI.
+   *
+   * Bu satır olmadan model nerede olduğunu BİLMİYORDU ve "haritayı açıyorum"
+   * diye savuşturuyordu (halüsinasyon değil, bağlam açlığı). Kanıt yetersizse
+   * satır HİÇ eklenmez → Mavi konum uydurmak yerine bilmediğini söyler.
+   *
+   * ⚠️ HAM KOORDİNAT BURAYA GİRMEZ: `formatLocationContextLine` yalnız
+   * şehir/ilçe/yol taşır; `LocationContext` tipinde lat/lon alanı YOKTUR. */
+  try {
+    const locLine = formatLocationContextLine(readLocationContextOrNull());
+    if (locLine) parts.push(locLine);
+  } catch { /* konum katmanı yok — konumsuz bağlam (uydurma YOK) */ }
+
   // (2) Yolculuk süresi (World View): aktif trip varsa "ne zamandır yoldayız".
   //     getTripSnapshot CANLI current verir (onTripState immediate-emit null'dur).
+  /*     OTURUM ÖNCELİKLİ: `tripLogService` tek yolculuğu anlatır ve mola onu
+   *     kapattığı için mola sonrası SIFIRDAN sayardı ("40 dakikadır yoldayız"
+   *     yerine "yeni çıktık"). `tripSessionService` molaları birleştirir ve
+   *     hareket/mola ayrımını taşır. Oturum okunamazsa ESKİ satır aynen
+   *     kullanılır (fail-soft — bağlam sessizce kaybolmaz). */
   try {
-    const trip = getTripSnapshot().current;
-    if (trip) {
-      const t = interpretTripDuration(trip.liveDurationMin, trip.liveDistanceKm);
-      if (t) parts.push(t);
+    let line: string | null = null;
+    const ses = readTripSessionOrNull();
+    if (ses) {
+      line = interpretTripSession({
+        elapsedMin: ses.elapsedMs / 60_000,
+        movingMin:  ses.movingMs / 60_000,
+        stoppedMin: ses.stoppedMs / 60_000,
+        distanceKm: ses.distanceMeters / 1000,
+      });
     }
+
+    if (line === null) {
+      const trip = getTripSnapshot().current;
+      if (trip) line = interpretTripDuration(trip.liveDurationMin, trip.liveDistanceKm);
+    }
+    if (line) parts.push(line);
+
+    /* (2b) ŞU ANKİ hareket durumu — kanonik Seyir Defteri projeksiyonu.
+     *      Birikmiş süreden TÜRETİLEMEZ (40 dk yolda olan araç şu an ışıkta
+     *      duruyor olabilir) ve ölçülemediğinde AÇIKÇA bilinmiyor denir. */
+    const motion = interpretMotionState(getTripJournalGlance().state);
+    if (motion) parts.push(motion);
   } catch { /* trip servisi yok — süresiz bağlam */ }
   // (4) Menzil vs. aktif rota: "yakıtım X'e yeter mi" gerçek veriyle. Yalnız
   //     navigasyon aktifken + geçerli menzil varken (aksi hâlde bağlama girmez).
@@ -340,6 +547,16 @@ function buildInterpretedVehicleContext(): string {
       if (dtc) parts.push(dtc);
     }
   } catch { /* DTC servisi yok — arıza bağlamı atlanır */ }
+  // (5b) ARAÇ HAFIZASI — geçmişte tekrarlayan arıza EĞİLİMİ. Kaynak: aiCore'un
+  //      ZATEN yayınladığı `ai.mechanic.report` olay halkası (yeni depo/abonelik/
+  //      timer YOK, senkron okuma). Ham kod prompt'a GİRMEZ: interpretDiagnosticTrend
+  //      yalnız kodun AİLESİNİ (P/B/C/U) Türkçe sistem adına çevirir. Geçmiş yoksa
+  //      satır üretilmez (boşta sıfır token maliyeti).
+  try {
+    const trendInput = readDiagnosticTrendInput();
+    const trend = interpretDiagnosticTrend(trendInput.historyCount, trendInput.lastDtcCode);
+    if (trend) { parts.push(trend); topicFlags.diagnosticTrend = true; }
+  } catch { /* olay halkası okunamadı — araç hafızası atlanır */ }
   // (6) Bakım uyarısı: BİLİNÇLİ OLARAK EKLENMEDİ (plan V2 kapsam kararı).
   //     vehicleMaintenanceService.getMaintenanceAssessment() zincirinin ucu
   //     sensitiveKeyStore (async şifreli depolama) — senkron anlık-değer yolu
@@ -351,22 +568,105 @@ function buildInterpretedVehicleContext(): string {
   //     çalışan bir katman (ör. companionEngine/proaktif motor) besleyebilir.
   // (3) Araç-tipi yetenek notu — olmayan özellik (EV'de RPM/yakıt) için Gemini'yi
   //     yapısal olarak susturur. EV'de canlı yorum boş olsa bile not eklenir.
+  // TUR SONU: bu turda üretilen yorumlardan aktif konuyu yaz (yorum yoksa
+  // eski konu KORUNUR — sahte konu üretilmez).
+  _writeActiveTopic(topicFlags);
   const note = vehicleCapabilityNote(vehicleType);
   return note ? [note, ...parts].join(' ') : parts.join(' ');
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+ * PROAKTİF KRİTİK ARIZA UYARISI — MAVI-F13/3'te AYRI ALT SİSTEME TAŞINDI
+ *
+ * `companion/companionProactiveAlert.ts`. Buraya ait değildi: AĞA ÇIKMAZ, model
+ * çağırmaz, sağlayıcı bilmez — kendi durumu, kapıları ve gözlem yüzeyi olan
+ * bağımsız bir alt sistemdir. Sözleşme (debounce · karakter tavanı · fail-closed
+ * güvenlik kapısı · susturma kaydı) BİREBİR korundu.
+ *
+ * Genel API buradan yeniden dışa verilir → mevcut tüketiciler değişmedi.
+ * ════════════════════════════════════════════════════════════════════════ */
+export {
+  PROACTIVE_ALERT_DEBOUNCE_MS, PROACTIVE_ALERT_MAX_CHARS, PROACTIVE_MIN_CONFIDENCE,
+  triggerProactiveDiagnosticAlert, getProactiveAlertDiagnostics,
+  _testShouldEmitProactiveTrail, _testEmitProactiveTrail,
+  _resetProactiveTrailAggregation, _resetProactiveAlertForTest,
+  type ProactiveVerdictLike, type ProactiveAlertResult, type ProactiveAlertOpts,
+} from './companionProactiveAlert';
+
+/**
+ * Aktif yolculuğun sert-manevra sayaçlarından sürüş stilini SENKRON okur.
+ * Kaynak: `tripLogService` `harshBrakeEvents` / `harshAccelEvents` (canlı, RAM).
+ * Aktif yolculuk yoksa / servis okunamazsa → `undefined` (stil BİLİNMİYOR;
+ * "sakin" VARSAYILMAZ — kanıtsız olumlu hüküm de uydurmadır).
+ */
+function readDriverStyle(): DriverStyle | undefined {
+  try {
+    const trip = getTripSnapshot().current;
+    if (!trip) return undefined;
+    return classifyDriverStyle(trip.harshBrakeEvents, trip.harshAccelEvents) ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Kimlik çözümü + Driver DNA enjeksiyonu — sohbet/beyin yollarının TEK kapısı.
+ * Düz `resolveCompanionIdentity(settings)` yerine bu kullanılır ki üslup talimatı
+ * her prompt'ta tutarlı olsun (dağınık kimlik kurulumu YOK).
+ */
+function resolveIdentityWithDriverStyle(settings: CompanionSettingsInput): CompanionIdentity {
+  return resolveCompanionIdentity(settings, undefined, readDriverStyle());
+}
+
 /* ── Gemini sohbet çağrısı ──────────────────────────────────── */
 
-const GEMINI_CHAT_ENDPOINT =
-  // gemini-flash-latest: yeni "AQ." anahtarların ücretsiz katmanı sabit-adlı eski
-  // modellerde (gemini-2.0-flash) anında 429 veriyor; flash-latest çalışıyor
-  // (SAHA 2026-07-03: kullanıcı anahtarıyla canlı doğrulandı). Model tek noktadan.
-  'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent';
+// Model adı TEK KAYNAKTAN (models.ts GEMINI_MODEL_CHAIN). SAHA 2026-07-24: eski
+// gömülü `gemini-flash-latest` kullanıcının anahtarında 429 (kota dolu) veriyor,
+// aynı anahtarla `gemini-2.5-flash` 200 dönüyor → model adı URL'e gömülü kaldığı
+// için asistan sebepsiz susuyordu. Kota MODEL-BAZLI olduğundan zincir şart.
+/**
+ * Zincirdeki AKTİF Gemini modeli (oturum-içi). Kota MODEL-BAZLI olduğu için bir
+ * model 429/404/503 verdiğinde sağlayıcıyı tamamen susturmak yerine SIRADAKİ
+ * modele geçilir — asistan kesintisiz kalır.
+ */
+let _geminiModelIdx = 0;
+
+function _geminiEndpoint(): string {
+  return geminiChatEndpoint(GEMINI_MODEL_CHAIN[_geminiModelIdx]);
+}
+
+/** Aktif Gemini modelinin adı (tanı/log için — anahtar içermez). */
+export function getActiveGeminiModel(): string {
+  return String(GEMINI_MODEL_CHAIN[_geminiModelIdx]);
+}
+
+/**
+ * Model-bazlı arıza (429 kota · 404 emekli · 503 yoğunluk) → sıradaki modele geç.
+ * @returns true = model değişti (istek YENİDEN denenebilir); false = zincir bitti.
+ */
+function _advanceGeminiModel(status: number): boolean {
+  if (status !== 429 && status !== 404 && status !== 503) return false;
+  if (_geminiModelIdx >= GEMINI_MODEL_CHAIN.length - 1) return false;
+  _geminiModelIdx++;
+  // Sessiz model değişimi YASAK: sahada "neden başka model?" kanıtla yanıtlanır.
+  console.warn(
+    `GEMINI_MODEL_SWITCH: status=${status} → ${getActiveGeminiModel()}` +
+    ` (zincir ${_geminiModelIdx + 1}/${GEMINI_MODEL_CHAIN.length})`,
+  );
+  return true;
+}
+
+/** @internal — testler arası izolasyon. */
+export function _resetGeminiModelForTest(): void {
+  _geminiModelIdx = 0;
+  _resetGeminiThinkingForTest();   // yetenek hafızası sahibinde sıfırlanır
+}
 // SAHA 2026-07-04: gemini-flash-latest artık gemini-3.5-flash'a çözülüyor; SICAK
 // çağrı ~1-1.8sn ama DERİN SOĞUK BAŞLANGIÇ ~7sn (kullanıcı anahtarıyla ölçüldü).
 // 6sn tavan soğuk başlangıcı kesip null→REASK ("of orayı kaçırdım") üretiyordu.
 // 9sn'ye çıkarıldı; asıl çözüm warmupGemini (aşağıda) — mikrofon açılınca modeli
-// ısıtır, gerçek komut sıcak gelir. "Bir saniye..." ara sözü bekleme hissini örter.
+// ısıtır, gerçek komut sıcak gelir. MAVI-F2: bekleme artık ara sözle ÖRTÜLMEZ
+// (I11) — ısıtma, gecikmeyi gizlemenin değil GERÇEKTEN AZALTMANIN yoludur.
 const GEMINI_TIMEOUT_MS = 9000;
 
 /**
@@ -379,17 +679,25 @@ export async function warmupGemini(apiKey: string): Promise<void> {
   if (!apiKey || !apiKey.trim()) return;
   // Kota soğumasındayken ısıtma da atlanır — 429 penceresinde ekstra istek hem
   // boşa kota yakar hem pencereyi tazeleyebilir (SAHA 2026-07-04).
-  if (_now() < _rateLimitedUntil) return;
+  if (isProviderCoolingDown('gemini')) return;
+  /* SAHA 2026-09-11: ısıtma oturumun İLK Gemini çağrısıdır ve sonucu TAMAMEN
+     atılıyordu. Alanı reddeden bir modelde 400 alıyor, ama öğrendiğini
+     kaydetmediği için ARDINDAN gelen her yol (gateway · beyin) aynı reddi
+     SIFIRDAN keşfediyordu → ölçülen turda 0,63 + 0,68 sn boşa gitti.
+     Isıtma zaten yapılan bir istektir; sonucunu OKUMAK ek maliyet getirmez ve
+     tüm zinciri tek seferde öğretir. Isıtmanın best-effort doğası KORUNUR. */
   try {
-    await fetch(GEMINI_CHAT_ENDPOINT, {
+    const model = getActiveGeminiModel();
+    const resp = await fetch(_geminiEndpoint(), {
       method:  'POST',
       headers: { 'Content-Type': 'application/json', 'X-goog-api-key': apiKey },
       body:    JSON.stringify({
         contents: [{ role: 'user', parts: [{ text: 'ping' }] }],
-        generationConfig: { maxOutputTokens: 1, thinkingConfig: { thinkingBudget: 0 } },
+        generationConfig: { maxOutputTokens: 1, ...geminiThinkingConfig(model) },
       }),
       signal: signalWithTimeout(GEMINI_TIMEOUT_MS),
     });
+    await noteGeminiThinkingRejectedIf400(model, resp);
   } catch { /* ısıtma best-effort — sonuç/hata önemsiz */ }
 }
 
@@ -399,7 +707,37 @@ export async function warmupGemini(apiKey: string): Promise<void> {
  * tavsiyesiyle güvenlik reddi. Kişilik tonu kullanıcı seçimine saygılıdır
  * ("profesyonel" seçen kullanıcıya "kanka" denmez).
  */
-function buildCompanionSystemPrompt(id: CompanionIdentity, isDriving: boolean, vehicleContext: string): string {
+/**
+ * MAVI-F1 · Mavi'nin PRESENCE (varlık) kipi — bir yetenek sınıfı DEĞİLDİR.
+ *
+ *  · `companion` → Yol Arkadaşı açık: sıcak, sohbeti sürdüren, yolculuğa eşlik eden ton.
+ *  · `assistant` → Yol Arkadaşı kapalı: aynı Mavi, aynı yetenekler; sakin ve
+ *    işlevsel ton, kendiliğinden sohbet uzatmaz.
+ */
+export type MaviPresenceMode = 'companion' | 'assistant';
+
+/**
+ * Şu anki presence kipi. Ayar okunamazsa NÖTR (`assistant`) kabul edilir —
+ * bu fail-soft yön DOĞRUDUR: bilinmeyen durumda Mavi daha az konuşur, daha az
+ * değil daha çok susar. YETENEK kararı DEĞİLDİR (yetenekler her iki kipte aynı).
+ */
+export function currentPresenceMode(): MaviPresenceMode {
+  try {
+    return useStore.getState().settings.companionEnabled === true ? 'companion' : 'assistant';
+  } catch {
+    return 'assistant';
+  }
+}
+
+/**
+ * @param userText MAVI-F10 · hafıza izdüşümünü daraltmak için KULLANICININ bu
+ *   turdaki metni. Prompt'a GİRMEZ; yalnız hangi hafıza ALANININ taşınacağını
+ *   belirler (navigasyon sorusu → rota tercihleri, müzik sorusu → müzik…).
+ *   Verilmezse alan `general` olur ve süzgeç uygulanmaz (bilgi kaybı YOK).
+ */
+function buildCompanionSystemPrompt(
+  id: CompanionIdentity, isDriving: boolean, vehicleContext: string, userText = '',
+): string {
   // Hitap her cümlede TEKRARLANMAZ — "her cümlede isim" robotik algının
   // ana kaynaklarından (saha geri bildirimi 2026-06-11).
   const callsign = id.userCallsign
@@ -415,9 +753,18 @@ function buildCompanionSystemPrompt(id: CompanionIdentity, isDriving: boolean, v
   // "tek cümle robot" değil (ISO 15008 dikkat sınırı korunur).
   const driving = isDriving
     ? 'Sürücü ŞU AN ARAÇ KULLANIYOR: kısa tut — çoğu zaman birkaç kelimelik doğal tepki yeter ("Tamam, hallettim."), gerekirse en fazla 2-3 kısa cümle. Dikkatini dağıtma.'
-    : 'Araç PARK HALİNDE — acele yok: en fazla 3 doğal cümleyle, ama daha sohbet odaklı, derinlemesine ve içten konuşabilirsin.';
+    // PARK: sabit cümle tavanı KALDIRILDI (SAHA 2026-07-24 — kullanıcı "uzun
+    // anlatımlar yarıda kesiliyor"). Uzunluk artık SORUYA uyar: sohbet kısa,
+    // "anlat/açıkla/detaylıca" gibi istekler kapsamlı. Sürüş kısıtı DEĞİŞMEDİ.
+    : 'Araç PARK HALİNDE — acele yok: sohbet odaklı, derinlemesine ve içten konuş. Uzunluğu SORUYA göre ayarla: sıradan sohbette 2-4 cümle yeter, ama kullanıcı açıkça anlatım/açıklama/detay isterse (ör. "anlat", "açıkla", "detaylıca") konuyu BÖLMEDEN, baştan sona kapsamlı anlat — yarıda bırakma.';
+  /* MAVI-F1 · PRESENCE: `id.enabled` (= companionEnabled) YALNIZ açılış kimliğini
+   * ve sohbet sürdürme isteğini değiştirir. YETENEK, güvenlik, onay ve araç
+   * bağlamı satırları HER İKİ KİPTE de AYNIDIR (aşağıda ortak). */
+  const opening = id.enabled
+    ? `Sen "${id.assistantName}" adında, araçta sürücüye eşlik eden Türkçe konuşan bir yol arkadaşısın — bu arabanın ruhusun, bir çağrı merkezi robotu değilsin.`
+    : `Sen "${id.assistantName}" adında, araçtaki Türkçe konuşan asistansın — bu arabanın ruhusun, bir çağrı merkezi robotu değilsin. Sürücü şu an sohbet arkadaşlığı değil, işini gören bir asistan istiyor.`;
   const lines = [
-    `Sen "${id.assistantName}" adında, araçta sürücüye eşlik eden Türkçe konuşan bir yol arkadaşısın — bu arabanın ruhusun, bir çağrı merkezi robotu değilsin.`,
+    opening,
     'Doğal ve akıcı konuş; robotik, kalıp ya da tek kelimelik cevaplar verme.',
     '"İşleminiz tamamlandı", "Talebiniz alındı" gibi resmi kalıplar YASAK — "Tamam, hallettim.", "Oldu bil." gibi doğal tepkiler ver.',
     persona[id.personality],
@@ -430,6 +777,26 @@ function buildCompanionSystemPrompt(id: CompanionIdentity, isDriving: boolean, v
     'Aynı açılış kalıplarını ve cümleleri tekrar etme.',
     'Liste, madde işareti, emoji, markdown kullanma; yalnız düz konuşma metni.',
   ];
+  /* MAVI-F1 · PRESENCE KAPALI: sohbet YETENEĞİ değil, sohbeti UZATMA İSTEĞİ kısılır.
+   * Sorulan her şey (sohbet dahil) yine cevaplanır; Mavi yalnız kendiliğinden konu
+   * açmaz ve karşılık soru sorarak muhabbeti sürdürmez. Güvenlik/araç uyarıları bu
+   * satırdan ETKİLENMEZ — onlar aşağıdaki araç bağlamı bloğunda ve ayrı kanaldadır. */
+  if (!id.enabled) {
+    lines.push(
+      'Sohbet edebilirsin ve sorulan her şeye doğal biçimde cevap verirsin, ama sohbeti KENDİN UZATMA: ' +
+      'kendiliğinden yeni konu açma, gereksiz karşılık sorusu sorma, yolculuk muhabbeti başlatma. ' +
+      'Cevabını ver ve dur. Bu bir yetenek kısıtı değildir — kullanıcı sessiz bir asistan tercih etmiştir.',
+    );
+  }
+  // Driver DNA — sürüş stiline göre ÜSLUP talimatı. Stil bilinmiyorsa ya da
+  // sakin sürüşteyse satır EKLENMEZ (varsayılan kişilik geçerli, sıfır token).
+  const driverTone = driverToneInstruction(id.driverStyle);
+  if (driverTone) lines.push(driverTone);
+  // KISA SÜRELİ BAĞLAM — bu turun BAŞINDA fotoğraflanan ÖNCEKİ konu (bkz.
+  // _beginTopicTurn). Konu yoksa/bayatsa satır EKLENMEZ. İpucu ZORLAYICI DEĞİL:
+  // modele "kesin bunu varsay" demez, belirsizlikte soru sormasını söyler.
+  const topicHint = buildTopicHintLine(_hintTopic, _hintFreshness);
+  if (topicHint) lines.push(topicHint);
   if (vehicleContext) {
     // Faz 2 — güçlü bağlam enjeksiyonu: yorumlar "durum raporu" değil,
     // sürücünün O ANKİ HÂLİ olarak verilir. Kritik durum (az yakıt, ısınan
@@ -445,11 +812,14 @@ function buildCompanionSystemPrompt(id: CompanionIdentity, isDriving: boolean, v
       'Günlük sohbette araç verisinden hiç bahsetme.',
     );
   }
-  // Uzun-dönem kişisel hafıza — kullanıcının kalıcı fact'leri (varsa) enjekte
-  // edilir; buildBrainSystemPrompt bunu chatPersona olarak sardığından hem sohbet
-  // hem komut onayı bu bağlamı görür. Fact yoksa boş string (satır eklenmez).
-  const memory = buildMemoryPromptSection();
-  if (memory) lines.push(memory);
+  /* MAVI-F10 · BAĞLAMA GÖRE DARALTILMIŞ HAFIZA İZDÜŞÜMÜ.
+   * Her turda TÜM hafıza dökülmez: alan süzgeci (navigasyon / medya / araç /
+   * kişisel) + kayıt tavanı + karakter tavanı uygulanır → prompt token şişmesi
+   * yapısal olarak frenlenir. Blok "VERİdir, TALİMAT DEĞİLDİR" etiketiyle ve her
+   * satırın KÖKENİ (beyan mı çıkarım mı) + güveni + çelişki işaretiyle girer.
+   * Kayıt yoksa blok HİÇ EKLENMEZ. */
+  const projection = projectMaviMemory(inferPromptDomain(userText), Date.now());
+  if (projection.text) lines.push(projection.text);
   return lines.join(' ');
 }
 
@@ -465,21 +835,21 @@ async function askCompanionGemini(
   ];
   const body = {
     system_instruction: {
-      parts: [{ text: buildCompanionSystemPrompt(id, isDriving, buildInterpretedVehicleContext()) }],
+      parts: [{ text: buildCompanionSystemPrompt(id, isDriving, buildInterpretedVehicleContext(), text) }],
     },
     contents,
     generationConfig: {
       temperature:     0.7,
-      // 2-3 doğal cümleye alan tanır (eski 60/120 cevapları ortadan kesiyordu);
-      // üst sınır yine TTS kırpma katmanıyla (aşağıda) sigortalı.
-      maxOutputTokens: isDriving ? 100 : 160,
+      // Bütçe tek kapıdan (ANSWER_TOKENS) — eski 100/160 uzun anlatımı cümle
+      // ortasında kesiyordu (SAHA 2026-07-24, finishReason=MAX_TOKENS).
+      maxOutputTokens: answerTokens('chat', isDriving),
       // flash-latest düşünen model: düşünme kapalı — küçük bütçeyi yemesin,
       // araç içi gecikme kısa kalsın (SAHA 2026-07-03).
-      thinkingConfig:  { thinkingBudget: 0 },
+      ...geminiThinkingConfig(getActiveGeminiModel()),
     },
   };
 
-  const resp = await fetch(GEMINI_CHAT_ENDPOINT, {
+  const resp = await fetch(_geminiEndpoint(), {
     method:  'POST',
     headers: { 'Content-Type': 'application/json', 'X-goog-api-key': apiKey },
     body:    JSON.stringify(body),
@@ -488,26 +858,20 @@ async function askCompanionGemini(
   if (resp.status === 429) {
     // Rate limit: soğuma penceresi boyunca Gemini denenmez (kullanıcı faturası
     // + art arda başarısız istek gecikmesi). Süre Google'ın söylediği kadar.
-    _rateLimitedUntil = _now() + await _cooldownFrom429(resp);
+    noteProviderRateLimited('gemini', await cooldownFromGemini429(resp));
     return null;
   }
-  if (!resp.ok) { await _noteGeminiAuthFailure(resp); return null; }
-  _geminiKeyInvalidAtMs = 0; // Gemini 200 döndü — anahtar geçerli, işaret temizlenir
+  if (!resp.ok) { await noteGeminiAuthFailure(resp); return null; }
+  clearAuthFailure(); // Gemini 200 döndü — anahtar geçerli, işaret temizlenir
 
   const data = await resp.json() as {
     candidates?: { content?: { parts?: { text?: string }[] } }[]
   };
   const raw = (data.candidates?.[0]?.content?.parts?.[0]?.text ?? '').trim();
   if (!raw) return null;
-  // TTS güvenliği: tek satıra indir, aşırı uzunsa kırp (dikkat dağıtma — §2.1).
-  // Kırpma cümle sınırında yapılır — yarıda kesilen cümle robotik algı yaratır.
-  const flat = raw.replace(/\s+/g, ' ').trim();
-  if (flat.length <= 300) return flat;
-  const head = flat.slice(0, 297);
-  const lastSentenceEnd = Math.max(
-    head.lastIndexOf('. '), head.lastIndexOf('! '), head.lastIndexOf('? '),
-  );
-  return lastSentenceEnd > 120 ? head.slice(0, lastSentenceEnd + 1) : `${head}...`;
+  // TTS güvenliği: tek satıra indir, tavanı aşarsa CÜMLE SINIRINDA kırp.
+  // Tavan bağlama duyarlı (sürüş 300 / park 2400) — bkz. ANSWER_CHAR_LIMIT.
+  return trimForSpeech(raw, isDriving);
 }
 
 /* ── Groq sohbet çağrısı (OpenAI-uyumlu) ───────────────────── */
@@ -538,7 +902,7 @@ async function askCompanionGroq(
     // 2-3 doğal cümleye alan tanır; üst sınır TTS kırpma katmanıyla sigortalı.
     max_tokens:  isDriving ? 100 : 160,
     messages: [
-      { role: 'system' as const, content: buildCompanionSystemPrompt(id, isDriving, buildInterpretedVehicleContext()) },
+      { role: 'system' as const, content: buildCompanionSystemPrompt(id, isDriving, buildInterpretedVehicleContext(), text) },
       ...historyToOpenAI(),
       { role: 'user' as const, content: text },
     ],
@@ -556,7 +920,7 @@ async function askCompanionGroq(
 
   if (resp.status === 429) {
     // Rate limit: KENDİ penceresi — Gemini'yi kilitlemez (çapraz kirlenme yasak).
-    _groqRateLimitedUntil = _now() + RATE_LIMIT_COOLDOWN_MS;
+    noteProviderRateLimited('groq');
     return null;
   }
   if (!resp.ok) return null;
@@ -564,14 +928,8 @@ async function askCompanionGroq(
   const data = await resp.json() as { choices?: { message?: { content?: string } }[] };
   const raw = (data.choices?.[0]?.message?.content ?? '').trim();
   if (!raw) return null;
-  // TTS güvenliği: tek satıra indir, aşırı uzunsa cümle sınırında kırp.
-  const flat = raw.replace(/\s+/g, ' ').trim();
-  if (flat.length <= 300) return flat;
-  const head = flat.slice(0, 297);
-  const lastSentenceEnd = Math.max(
-    head.lastIndexOf('. '), head.lastIndexOf('! '), head.lastIndexOf('? '),
-  );
-  return lastSentenceEnd > 120 ? head.slice(0, lastSentenceEnd + 1) : `${head}...`;
+  // TTS güvenliği: tek satıra indir, tavanı aşarsa cümle sınırında kırp (bağlama duyarlı).
+  return trimForSpeech(raw, isDriving);
 }
 
 /* ── Hava sorusu — beyin öncesi/web-kesişimi kısayolu ─────────
@@ -644,7 +1002,7 @@ async function askCompanionBrainGroq(
     response_format: { type: 'json_object' as const },
     messages: [
       // supportsGrounding: Tavily anahtarı varsa true → internet sorularında type:"web" döner
-      { role: 'system' as const, content: buildBrainSystemPrompt(id, isDriving, buildInterpretedVehicleContext(), canGround) },
+      { role: 'system' as const, content: buildBrainSystemPrompt(id, isDriving, buildInterpretedVehicleContext(), canGround, text) },
       ...historyToOpenAI(),
       { role: 'user' as const, content: text },
     ],
@@ -661,14 +1019,15 @@ async function askCompanionBrainGroq(
   });
 
   // 429: KENDİ penceresi — Gemini'yi kilitlemez (çapraz kirlenme yasak).
-  if (resp.status === 429) { _groqRateLimitedUntil = _now() + RATE_LIMIT_COOLDOWN_MS; return null; }
-  if (!resp.ok) return null;
+  if (resp.status === 429) { noteProviderRateLimited('groq'); return null; }
+  // #698: kimlik reddi/bakiye SESSİZCE yutulmaz — dürüst cevabı besler.
+  if (!resp.ok) { noteProviderAuthFailure('groq', resp.status); return null; }
 
   const data = await resp.json() as { choices?: { message?: { content?: string } }[] };
   const raw  = (data.choices?.[0]?.message?.content ?? '').trim();
   // Groq'tan gelen type:"web" kararı: canlı internet erişimi yok.
   // Kişiliğe uygun doğal bir sohbet yanıtına dönüştür (No Dead-Ends koruması).
-  const parsed = parseBrainJson(raw);
+  const parsed = parseBrainJson(raw, isDriving);
   if (parsed && parsed.kind === 'web') {
     // Hava sorgusu mu? → arama harcamadan ÖNCE yerel hava servisi denenir
     // (Groq'un "canlı bilgilere bakamıyorum" demesi böyle önlenir — hava zaten
@@ -678,7 +1037,7 @@ async function askCompanionBrainGroq(
     // İNTERNET kararı → ÖNCE Gemini google_search, GROUNDING soğumasındaysa Tavily.
     // Grounding kendi penceresindeyse (429 verdi) tekrar çağırıp boş yere 429 yemeyiz —
     // doğrudan Tavily'ye düşeriz (grounding cooldown BEYİN cooldown'ından ayrı).
-    if (hasGeminiSearch && _now() >= _groundingCooldownUntil) {
+    if (hasGeminiSearch && !isGroundingCoolingDown()) {
       const grounded = await askGroundedGemini(parsed.query, searchKey as string, id, isDriving);
       if (grounded) return { kind: 'chat', response: grounded, route: 'companion_groq' };
     }
@@ -724,6 +1083,149 @@ async function tryGroqBrainAndRecord(
   return result;
 }
 
+/* ── AI Gateway beyin çağrısı (sağlayıcı-BAĞIMSIZ) ────────────── *
+ * Zincirdeki diğer adaylardan tek farkı: HANGİ MODELE gittiğini BİLMEZ.
+ * Gateway hangi sağlayıcıyı (bugün OpenRouter, yarın Gemini Direct/Ollama)
+ * kullanacağına kendi karar verir; burada sağlayıcı adı, endpoint, anahtar ya
+ * da HTTP DETAYI GEÇMEZ. Prompt/geçmiş/parse AYNEN diğer adaylarla aynıdır —
+ * yalnız TAŞIMA değişir.
+ *
+ * Grounding: gateway'in google_search muadili YOKTUR → system prompt Groq'un
+ * anahtarsız hâliyle aynı biçimde (supportsGrounding=false) kurulur; beyin
+ * yine de "web" derse yerel hava servisi denenir, o da yoksa DÜRÜST cevap
+ * verilir (uydurma yok). Kota penceresi YOK: gateway kendi devre kesicisini
+ * ve tekrar politikasını içeride yönetir.
+ *
+ * Modüller DİNAMİK import edilir → bayrak KAPALIYKEN gateway kodu hiç
+ * yüklenmez (sıfır import-time maliyet, eski yolda performans etkisi yok). */
+
+const GATEWAY_BRAIN_TIMEOUT_MS = 6000;
+
+/* `GATEWAY_NO_LIVE_INFO_REPLY` KALDIRILDI (SAHA 2026-09-11). "Şu an canlı
+ * bilgilere bakamıyorum" bir YETENEK beyanı gibi görünüyordu, oysa bu hattın
+ * arama yeteneği olmaması SİSTEMİN yeteneksizliği DEĞİLDİ: sıradaki aday
+ * (Gemini beyin hattı → grounded/Tavily) aramayı yapabiliyor. Sabit, yorumla
+ * susturulmadı — kod olarak SİLİNDİ; yerine tur sıradaki adaya bırakılır. */
+
+async function askCompanionBrainGateway(
+  text: string,
+  id: CompanionIdentity,
+  isDriving: boolean,
+  timeoutMs?: number,
+  onToken?: (token: string) => void,
+  /* SİSTEMİN arama yeteneği (bu HATTIN değil) — bkz. aşağıdaki prompt notu. */
+  canGround = false,
+): Promise<{ result: BrainRaw | null; netFailure: boolean; errorKind: string }> {
+  const [{ getDefaultAiGateway }, { askGatewayChat }, { isMaviOrchestratorEnabled }] = await Promise.all([
+    import('../ai/gateway/concrete/defaultAiGateway'),
+    import('../ai/gateway/gatewayChatBridge'),
+    import('../ai/gateway/aiGatewayFlag'),
+  ]);
+
+  const decisionMs = Math.min(timeoutMs ?? GATEWAY_BRAIN_TIMEOUT_MS, GATEWAY_BRAIN_TIMEOUT_MS);
+  const chatParams = {
+    gateway:     getDefaultAiGateway(),
+    /* ── SAHA 2026-09-11 · MAVİ "İNTERNET ERİŞİMİM YOK" DİYORDU ──────────────
+     * Burada `supportsGrounding` SABİT `false` geçiliyordu ve o bayrak modele
+     * şunu SÖYLETİYOR: "Senin canlı/güncel internet erişimin YOK ... ASLA
+     * type:'web' döndürme". Yani cevap modelin bir gözlemi değil, BİZİM
+     * talimatımızdı — üstelik YANLIŞ bir talimat: yeteneksiz olan bu HAT'tır,
+     * SİSTEM değil (arama anahtarı varsa Gemini beyin hattı aramayı yapabilir).
+     * Cihazda ölçüldü: ağ ayaktayken (google/tavily/gemini erişilebilir) Mavi
+     * "internet erişimim olmadığı için güncel bilgi alamıyorum" diyordu.
+     * Artık SİSTEMİN yeteneği bildirilir: model gerektiğinde type:'web' döner,
+     * bu hat turu tüketmez (ede551b8) ve aramayı yapabilen aday devralır. */
+    system:      buildBrainSystemPrompt(id, isDriving, buildInterpretedVehicleContext(), canGround, text),
+    history:     historyToOpenAI(),
+    user:        text,
+    timeoutMs:   decisionMs,
+    maxTokens:   answerTokens('brain', isDriving),
+    temperature: 0.4,
+    /* MAVI-F4: TEK gerçek akış yolu. `onToken` verilmezse istek akış kipine bile
+     * geçmez (`aiGateway` `stream: onToken !== undefined` kurar) → davranış
+     * bugünküyle BİREBİR aynı kalır. */
+    ...(onToken ? { onToken } : {}),
+  };
+
+  /* ALT TERCİH: orchestrator açıkken aynı prompt/geçmiş orkestre edilmiş
+     yürütücüden geçer (sağlayıcı/model zinciri). Kapalıyken davranış BİREBİR
+     mevcut tek-sağlayıcı gateway yolu. Her iki yol da AYNI sonucu döndürür. */
+  const outcome = isMaviOrchestratorEnabled()
+    ? (await (await import('../ai/orchestrator/concrete/maviOrchestratedChat'))
+        .askOrchestratedChat({
+          ...chatParams,
+          classifyText: text,
+          /* MAVI-F13 · TEK İZDÜŞÜM. `buildBrainSystemPrompt` KANONİK araç
+           * bağlamını ve KANONİK F10 hafıza izdüşümünü ZATEN içeriyor →
+           * orkestratör İKİNCİ bir bağlam/hafıza bloğu EKLEMEZ. */
+          systemCarriesCanonicalProjection: true,
+        })).outcome
+    : await askGatewayChat(chatParams);
+
+  // errorKind yukarı taşınır: kesici bütçe timeout'unu gerçek ulaşılamazlıktan
+  // ayrı ve yüksek eşikte sayar (aiHealth) — gateway yolu da bu ayrımdan yararlanır.
+  if (!outcome.ok) return { result: null, netFailure: outcome.netFailure, errorKind: outcome.errorKind };
+  return { result: parseBrainJson(outcome.text, isDriving), netFailure: false, errorKind: 'none' };
+}
+
+/**
+ * Gateway beyin çağrısını yapıp başarılıysa geçmişe/devre-kesiciye işler.
+ * `tryGroqBrainAndRecord` ile aynı desen; ek olarak `netFailure` bilgisini
+ * yukarı taşır (gateway throw etmediği için kesici semantiği bayrakla korunur).
+ */
+async function tryGatewayBrainAndRecord(
+  brainInput: string,
+  cleanText:  string,
+  id:         CompanionIdentity,
+  isDriving:  boolean,
+  timeoutMs?: number,
+  onToken?:   (token: string) => void,
+  canGround = false,
+): Promise<{ result: CompanionBrainResult | null; netFailure: boolean; errorKind: string }> {
+  const { result, netFailure, errorKind } =
+    await askCompanionBrainGateway(brainInput, id, isDriving, timeoutMs, onToken, canGround);
+  if (!result) return { result: null, netFailure, errorKind };
+
+  recordAiNetSuccess(); // beyin cevap verdi → ağ sağlıklı, kesici sayacı sıfır
+
+  if (result.kind === 'web') {
+    // Canlı bilgi kararı: önce yerel hava servisi (GERÇEK veri, ağ araması gerekmez).
+    const localWeather = await tryLocalWeatherAnswer(result.query, cleanText);
+    if (localWeather) {
+      pushHistory('user', cleanText);
+      pushHistory('model', localWeather);
+      return { result: { kind: 'chat', response: localWeather, route: 'companion_gateway' }, netFailure: false, errorKind: 'none' };
+    }
+    /* ── SAHA 2026-09-11 · "internetten bilgi çekemiyor" ─────────────────────
+     * Burada `GATEWAY_NO_LIVE_INFO_REPLY` ("Şu an canlı bilgilere bakamıyorum")
+     * dönülüyor ve TUR KAPATILIYORDU. Ama bu hat yalnız SOHBET üretir: web
+     * araması yeteneği YOKTUR. Turu kapatmak, aramayı GERÇEKTEN yapabilen
+     * sıradaki adayı (Gemini beyin hattı → grounded/Tavily) devre dışı
+     * bırakıyordu.
+     *
+     * Uzun süre görünmedi çünkü bu hattın Gemini sağlayıcısı `thinkingConfig`
+     * reddi yüzünden her turda 400 alıp düşüyordu; akış kendiliğinden gerçek
+     * beyne ulaşıyordu. O 400 düzeltilince (20f32cf1) hat cevap vermeye başladı
+     * ve arama yolu sessizce kapandı — yani bu cevap hiçbir zaman bir YETENEK
+     * beyanı değildi, bir ARIZANIN gölgesiydi.
+     *
+     * DOĞRU DAVRANIŞ: yapamadığı işi "yapılamaz" diye ilan etmek yerine TURU
+     * TÜKETME — sıradaki adaya bırak (CLAUDE.md §8: yetenek yokluğu, sahte
+     * terminal cevaba dönüştürülmez). Geçmişe de YAZILMAZ: konuşulmamış bir
+     * cevap bağlamı kirletmemeli. */
+    return { result: null, netFailure: false, errorKind: 'no_live_info_capability' };
+  }
+
+  // parseBrainJson CHAT'e her zaman 'companion_gemini' yazar (paylaşılan parser) —
+  // gateway'den geldiğinde düzeltilir, aksi halde tanı/log'da yanlış görünür.
+  const fixed: CompanionBrainResult =
+    result.kind === 'chat' ? { ...result, route: 'companion_gateway' } : result;
+
+  pushHistory('user', cleanText);
+  pushHistory('model', fixed.kind === 'chat' ? fixed.response : fixed.semantic.feedback);
+  return { result: fixed, netFailure: false, errorKind: 'none' };
+}
+
 /**
  * Groq grounding: Tavily ile web'i arar, sonuçları Groq'a verip doğal Türkçe
  * yanıt sentezletir. Hata/boş sonuçta null → çağıran dürüst fallback yapar.
@@ -749,7 +1251,7 @@ async function groundGroqWithTavily(
     `Sen ${id.assistantName} adlı araç asistanısın. Aşağıdaki GÜNCEL web arama sonuçlarına ` +
     `DAYANARAK kullanıcının sorusunu kısa, doğal Türkçe ile yanıtla. ` +
     `Sadece sonuçlardaki bilgiyi kullan, uydurma. Emin değilsen belirt. ` +
-    `${isDriving ? 'Sürüş halinde: 1-2 cümle, çok kısa.' : 'En fazla 3-4 cümle.'} ` +
+    `${isDriving ? 'Sürüş halinde: 1-2 cümle, çok kısa.' : 'Sıradan sohbette 2-4 cümle; detay/anlatım istenirse konuyu yarıda bırakmadan kapsamlı anlat.'} ` +
     `Kaynak numarası/URL okuma.`;
 
   const body = {
@@ -810,37 +1312,50 @@ async function askCompanionBrainHaiku(
   const body = {
     model:      HAIKU_COMPANION_MODEL,
     max_tokens: isDriving ? 160 : 220,
-    system:     buildBrainSystemPrompt(id, isDriving, buildInterpretedVehicleContext(), canGround),
+    system:     buildBrainSystemPrompt(id, isDriving, buildInterpretedVehicleContext(), canGround, text),
     messages: [
       ...historyToOpenAI(),
       { role: 'user' as const, content: text },
     ],
   };
 
-  const resp = await fetch(HAIKU_COMPANION_ENDPOINT, {
-    method:  'POST',
-    headers: {
+  /* #699: `fetch` DEĞİL native taşıma. `api.anthropic.com` WebView'dan CORS
+     başlığı döndürmediği için `fetch` bu çağrıyı HTTP durumu bile oluşmadan
+     öldürüyordu → geçerli anahtarla Haiku halkası HİÇ çalışmıyordu (cihazda
+     kanıtlandı). Native yoksa (tarayıcı/dev) aynı istek `fetch`e düşer. */
+  const resp = await aiPostJson(
+    HAIKU_COMPANION_ENDPOINT,
+    {
       'Content-Type':      'application/json',
       'x-api-key':         apiKey,
       'anthropic-version': '2023-06-01',
+      /* #699 İKİNCİ KAPI: native taşıma yoksa (tarayıcı / `npm run dev`) istek
+         `fetch`e düşer ve CORS duvarına ÇARPARDI. Bu header Anthropic'in
+         tarayıcıdan doğrudan erişim izni; cihazda ölçüldü — headersiz `fetch`
+         THROW ederken bu header'la GERÇEK 401 döndü. `credentialVerifiers`
+         bunu ZATEN biliyordu, beyin çağrısı bilmiyordu (bilgi var, besleyen
+         yok). Native yolda zararsızdır: sunucu fazladan header'ı yok sayar. */
+      'anthropic-dangerous-direct-browser-access': 'true',
     },
-    body:   JSON.stringify(body),
-    signal: signalWithTimeout(decisionMs), // Chrome <103 WebView güvenli (abortCompat)
-  });
+    body,
+    decisionMs,
+    signalWithTimeout(decisionMs), // Chrome <103 WebView güvenli (abortCompat)
+  );
 
   // 429: KENDİ penceresi — Gemini'yi kilitlemez (çapraz kirlenme yasak).
-  if (resp.status === 429) { _haikuRateLimitedUntil = _now() + RATE_LIMIT_COOLDOWN_MS; return null; }
-  if (!resp.ok) return null;
+  if (resp.status === 429) { noteProviderRateLimited('haiku'); return null; }
+  // #698: kimlik reddi/bakiye SESSİZCE yutulmaz — dürüst cevabı besler.
+  if (!resp.ok) { noteProviderAuthFailure('haiku', resp.status); return null; }
 
   const data = await resp.json() as { content?: { type?: string; text?: string }[] };
   const raw  = (data.content?.find((c) => c.type === 'text')?.text ?? '').trim();
-  const parsed = parseBrainJson(raw);
+  const parsed = parseBrainJson(raw, isDriving);
   if (parsed && parsed.kind === 'web') {
     // Hava sorgusu mu? → yerel hava servisi aramadan ÖNCE denenir (bkz. Groq).
     const localWeather = await tryLocalWeatherAnswer(parsed.query, text);
     if (localWeather) return { kind: 'chat', response: localWeather, route: 'companion_haiku' };
     // İNTERNET → ÖNCE Gemini google_search, GROUNDING soğumasındaysa Tavily (bkz. Groq).
-    if (hasGeminiSearch && _now() >= _groundingCooldownUntil) {
+    if (hasGeminiSearch && !isGroundingCoolingDown()) {
       const grounded = await askGroundedGemini(parsed.query, searchKey as string, id, isDriving);
       if (grounded) return { kind: 'chat', response: grounded, route: 'companion_haiku' };
     }
@@ -906,7 +1421,7 @@ async function groundHaikuWithTavily(
     `Sen ${id.assistantName} adlı araç asistanısın. Aşağıdaki GÜNCEL web arama sonuçlarına ` +
     `DAYANARAK kullanıcının sorusunu kısa, doğal Türkçe ile yanıtla. ` +
     `Sadece sonuçlardaki bilgiyi kullan, uydurma. Emin değilsen belirt. ` +
-    `${isDriving ? 'Sürüş halinde: 1-2 cümle, çok kısa.' : 'En fazla 3-4 cümle.'} ` +
+    `${isDriving ? 'Sürüş halinde: 1-2 cümle, çok kısa.' : 'Sıradan sohbette 2-4 cümle; detay/anlatım istenirse konuyu yarıda bırakmadan kapsamlı anlat.'} ` +
     `Kaynak numarası/URL okuma.`;
 
   const body = {
@@ -917,12 +1432,18 @@ async function groundHaikuWithTavily(
   };
 
   try {
-    const resp = await fetch(HAIKU_COMPANION_ENDPOINT, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
-      body:    JSON.stringify(body),
-      signal:  signalWithTimeout(HAIKU_COMPANION_TIMEOUT_MS),
-    });
+    const resp = await aiPostJson(
+      HAIKU_COMPANION_ENDPOINT,
+      {
+        'Content-Type':      'application/json',
+        'x-api-key':         apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true', // #699 ikinci kapı (bkz. yukarısı)
+      },
+      body,
+      HAIKU_COMPANION_TIMEOUT_MS,
+      signalWithTimeout(HAIKU_COMPANION_TIMEOUT_MS),
+    );
     if (!resp.ok) return search.answer || null;
     const data = await resp.json() as { content?: { type?: string; text?: string }[] };
     const out = (data.content?.find((c) => c.type === 'text')?.text ?? '').replace(/\s+/g, ' ').trim();
@@ -932,50 +1453,10 @@ async function groundHaikuWithTavily(
   }
 }
 
-/* ── Offline fallback yanıtları ─────────────────────────────── */
-
-// Deterministik rotasyon (Math.random yok → testler kararlı, tekrar hissi az)
-let _offlineCounter = 0;
-
-const OFFLINE_REPLIES: Record<SmalltalkKind, { full: string[]; short: string }> = {
-  greeting: {
-    full: ['Merhaba! Yolculuk boyunca buradayım.', 'Selam! Hazırsan yola devam.'],
-    short: 'Merhaba!',
-  },
-  howareyou: {
-    full: ['İyiyim, teşekkürler. Sen nasılsın, yolculuk nasıl gidiyor?',
-           'Gayet iyiyim. Bir şeye ihtiyacın olursa söylemen yeter.'],
-    short: 'İyiyim, teşekkürler!',
-  },
-  bored: {
-    full: ['Anlıyorum. İstersen biraz müzik açalım, yol daha keyifli geçer.',
-           'Olur öyle. Müzik ya da kısa bir mola iyi gelebilir.'],
-    short: 'İstersen müzik açalım.',
-  },
-  chat: {
-    full: ['Tabii, buradayım. Aklında ne var?',
-           'Seve seve. Ne konuşmak istersin?'],
-    short: 'Buradayım, dinliyorum.',
-  },
-  fatigue: {
-    full: ['Yorgunluk yolun doğası. İlk uygun yerde kısa bir mola iyi gelir.',
-           'Kendini ağır hissediyorsan mola verelim, acele etme.'],
-    short: 'Uygun yerde mola verelim.',
-  },
-  thanks: {
-    full: ['Rica ederim, her zaman.', 'Ne demek, iyi yolculuklar!'],
-    short: 'Rica ederim!',
-  },
-};
-
-function offlineCategoryReply(kind: SmalltalkKind, isDriving: boolean): string {
-  const entry = OFFLINE_REPLIES[kind];
-  if (isDriving) return entry.short;
-  const reply = entry.full[_offlineCounter % entry.full.length];
-  _offlineCounter++;
-  return reply;
-}
-
+/* ── Offline fallback yanıtları ──────────────────────────────────────────
+ * MAVI-F13/3: cevap tablosu ve deterministik rotasyon `companionOfflineReplies`
+ * modülünde (yaprak · SAF). Burada yalnız ZİNCİR KOMPOZİSYONU kalır: hangi
+ * yedeğin hangi sırayla denendiği bir sağlayıcı kararıdır. */
 /**
  * Offline fallback zinciri:
  *  1. offlineConversationEngine (zengin: araç Q&A + sohbet + saat/tarih)
@@ -1001,94 +1482,46 @@ function offlineCompanionReply(raw: string, opts: CompanionChatOpts): string | n
  * tanıyamadığı her cümlede bu beyin tek yetkilidir; offline'da eski
  * fallback zinciri aynen geçerlidir. */
 
-const BRAIN_INTENTS = new Set<string>([
-  'SEARCH_POI',
-  'OPEN_NAVIGATION', 'NAVIGATE_ADDRESS',
-  'FIND_NEARBY_GAS', 'FIND_NEARBY_PARKING',
-  'OPEN_MUSIC', 'PLAY_MUSIC_SEARCH', 'PAUSE_MEDIA',
-  'MEDIA_NEXT', 'MEDIA_PREV', 'VOLUME_UP', 'VOLUME_DOWN',
-  'OPEN_PHONE', 'OPEN_SETTINGS', 'SHOW_WEATHER',
-  // SAHA 2026-07-03: "kamerayı aç", "radyoyu aç", "whatsapp aç" gibi GENEL uygulama
-  // açma beyinde YOKTU → beyin sahte "açıyorum" deyip iş yapmıyordu. OPEN_APP eklendi
-  // (appName ile herhangi bir yüklü uygulama; resolveAppByName isimle çözer).
-  'OPEN_APP',
-  // İÇ EKRAN/PANEL aç-kapat (trafik, klima, arıza kodları, yolculuk defteri, Gemini
-  // QR…) — screenRegistry drawerBus/settingsFocusBus ile çözer. Uygulamanın kendi
-  // yüzeyine sesli erişim (OPEN_APP yüklü Android uygulaması; OPEN_SCREEN iç ekran).
-  'OPEN_SCREEN',
-  'CHECK_VEHICLE_HEALTH', 'CHECK_MAINTENANCE',
-  // Tema/görünüm (saha 2026-06-11: ASR bozuk "tema değiştir" yerel parser'ı
-  // kaçırınca beyin devralabilmeli — eskiden listede yoktu, sohbete düşüyordu)
-  'CYCLE_THEME', 'ENABLE_NIGHT_MODE',
-  // SAHA 2026-07-03: "parlaklığı aç", "wifi'yi kapat" gibi AYAR komutları beyinde
-  // YOKTU → beyin sahte "açıyorum" deyip iş yapmıyordu. SET_SETTING eklendi
-  // (parlaklık/wifi/bluetooth/ses; alanlar parseBrainJson + fromSemanticResult ile taşınır).
-  'SET_SETTING',
-  // Yaygın istekler (VALID_INTENTS'te wired, beyinde eksikti → sohbete düşüyordu):
-  'OPEN_FAVORITES', 'ENABLE_DRIVING_MODE', 'TOGGLE_SLEEP_MODE',
-  // Uzun-dönem kişisel hafıza — kullanıcı AÇIKÇA "şunu unutma / aklında tut"
-  // derse REMEMBER; "unut / hepsini unut" → FORGET (companionMemory store).
-  'REMEMBER', 'FORGET',
-  // V1 (ASSISTANT_VEHICLE_INTEGRATION_PLAN.md): araç SENSÖR DEĞERİ sorgusu.
-  // Beyin DEĞER UYDURMAZ — yalnız QUERY_SENSOR + sensorQuery döner, gerçek
-  // değeri sensorQueryService.querySensor okur (yerel parser zaten kaçırdı,
-  // buraya yalnız TANIMADIĞI sensör adı düşer).
-  'QUERY_SENSOR',
-]);
-
-export interface CompanionBrainAction {
-  kind:     'action';
-  semantic: SemanticResult; // fromSemanticResult ile AppIntent'e dönüşür
-}
-export interface CompanionBrainChat {
-  kind:     'chat';
-  response: string;
-  route:    CompanionChatRoute;
-}
-export type CompanionBrainResult = CompanionBrainAction | CompanionBrainChat;
-
 /**
- * Beynin "internet/grounding" kararı — DIŞA AÇIK DEĞİL. tryCompanionBrain bunu
- * ikinci grounded çağrıyla (Google Search) gerçek bir cevaba (CompanionBrainChat)
- * çözer; voiceService yalnız chat/action görür (dokunulmaz). query = aranacak
- * güncel bilgi.
+ * MAVI-F5: Beynin üretebileceği intent kümesi. **ARTIK ELLE YAZILMAZ** —
+ * capability kataloğundan TÜRETİLİR.
+ *
+ * ── NEDEN (ölçülen kusur, 2026-08-29) ───────────────────────────────────────
+ * Aynı bilgi ÜÇ ayrı sabit listede tutuluyordu ve üçü de FARKLIYDI:
+ *   · `BRAIN_INTENTS` (burası, canlı yol)      → 29
+ *   · `ai/semanticAiService.VALID_INTENTS`     → 29 (5'i burada var, orada YOK)
+ *   · `aiVoiceService.VALID_INTENTS`           → 26 (8'i burada var, orada YOK)
+ * Bir intent eklendiğinde üçünün de güncellenmesi gerekiyordu; olmayınca beyin
+ * geçerli bir komut üretiyor, doğrulayıcı onu sessizce DÜŞÜRÜYORDU.
+ *
+ * Artık katalog TEK KAYNAKTIR. Katalogda henüz karşılığı OLMAYAN intentler
+ * aşağıda AÇIKÇA listelenir — böylece "kapsam dışı" ile "unutulmuş" ayrımı
+ * görünür kalır (F5 kapsam ölçümü bu ayrımı sayar).
  */
-interface CompanionBrainWeb {
-  kind:  'web';
-  query: string;
-}
-type BrainRaw = CompanionBrainResult | CompanionBrainWeb;
+/* Katalogda HENÜZ karşılığı olmayan intentler `carosCapabilityCatalog`ta
+ * AÇIKÇA listelenir (`LEGACY_ONLY_BRAIN_INTENTS`) — böylece bu dosyada ikinci
+ * bir kopya oluşmaz. Kilit testleri de kaynak metnini kazımak yerine
+ * `brainIntentAllowlist()`ü çağırır. */
+const BRAIN_INTENTS = new Set<string>(brainIntentAllowlist());
 
-/* Faz 3 — Persona Integration: kişilik beynin EN TEPESİNDE durur; hem sohbet
- * cevabının ("say") hem komut onayının ("feedback") tonunu belirler.
- * resolveCompanionIdentity dört değerden birini garanti eder; bilinmeyen
- * değer samimi'ye düşer (fail-soft). */
-const BRAIN_PERSONA_ROLE: Record<string, string> = {
-  sessiz:      'KİŞİLİĞİN (en öncelikli ton kuralı): SESSİZ YARDIMCI — az ve öz konuşursun, yalnız gerekeni söylersin.',
-  samimi:      'KİŞİLİĞİN (en öncelikli ton kuralı): MAHALLE ARKADAŞI — sıcak, senli benli, eski dost rahatlığında konuşursun.',
-  neseli:      'KİŞİLİĞİN (en öncelikli ton kuralı): NEŞELİ YOL ARKADAŞI — enerjik ve pozitifsin, yeri gelince espri yaparsın.',
-  profesyonel: 'KİŞİLİĞİN (en öncelikli ton kuralı): MAKAM ASİSTANI — kısa, net ve saygılı konuşursun; argo ve laubalilik asla.',
-};
-
-/* Faz 3 — No Dead-Ends: beyin/ağ tamamen başarısız olsa bile kullanıcı "Hata"
- * duymaz; seçili kişiliğe uygun deterministik "tekrar rica" cümlesi söylenir
- * (yalnız ONLINE deneme başarısızken — offline'da null = eski dürüst zincir). */
-const REASK_BY_PERSONALITY: Record<string, string> = {
-  sessiz:      'Anlayamadım, tekrar eder misin?',
-  samimi:      'Kusura bakma, tam yakalayamadım — bir daha söylesene.',
-  neseli:      'Of, orayı kaçırdım! Hadi bir daha söyle.',
-  profesyonel: 'Tam anlayamadım, tekrar alabilir miyim?',
-};
-const REASK_DEFAULT = 'Tam anlayamadım, bir daha söyler misin?';
-
+/* ── Beyin sonuç tipleri ve persona metinleri ─────────────────────────────
+ * MAVI-F13/4: sonuç tipleri `companionBrainParser`e, persona'ya bağlı
+ * deterministik metinler (`BRAIN_PERSONA_ROLE` · REASK · NET_DOWN)
+ * `companionAnswerShaping`e TAŞINDI. İkisi de SAF: sağlayıcı bilmez, ağa
+ * çıkmaz, durum tutmaz. */
 /**
  * Beyin system prompt'u.
  * @param supportsGrounding true → Gemini (google_search grounding mevcut);
  *                          false → Groq gibi modeller (canlı internet YOK).
  */
-function buildBrainSystemPrompt(id: CompanionIdentity, isDriving: boolean, vehicleContext: string, supportsGrounding = true): string {
-  const chatPersona = buildCompanionSystemPrompt(id, isDriving, vehicleContext);
-  const personaRole = BRAIN_PERSONA_ROLE[id.personality] ?? BRAIN_PERSONA_ROLE.samimi;
+function buildBrainSystemPrompt(
+  id: CompanionIdentity, isDriving: boolean, vehicleContext: string,
+  supportsGrounding = true,
+  /** MAVI-F10 · hafıza izdüşümünü daraltan bağlam metni (prompt'a GİRMEZ). */
+  userText = '',
+): string {
+  const chatPersona = buildCompanionSystemPrompt(id, isDriving, vehicleContext, userText);
+  const personaRole = brainPersonaRole(id.personality);
   return [
     `Sen "${id.assistantName}" adlı Türkçe araç içi asistansın.`,
     'Sen bir KOMUT ROBOTU DEĞİL, sürücüyle yol arkadaşlığı eden, aracın ve yolculuğun O ANKİ durumunu (DÜNYA GÖRÜŞÜN / World View — aşağıda verilir) sürekli bilen bir YARDIMCI PİLOTSUN. Bir komutu yerine getirirken bile bu bağlamı gözetir, önem taşıyan bir şey varsa kendiliğinden ve doğal biçimde değinirsin.',
@@ -1105,6 +1538,13 @@ function buildBrainSystemPrompt(id: CompanionIdentity, isDriving: boolean, vehic
     '',
     'KOMUT ise: {"type":"action","intent":"...","query":"...","destination":"...","category":"...","feedback":"kısa Türkçe onay (≤8 kelime)","confidence":0.0-1.0}',
     `intent yalnız şunlardan biri: ${[...BRAIN_INTENTS].join(' | ')}`,
+    /* MAVI-F6: BİLEŞİK KOMUT. Tek cümlede birden fazla BAĞIMSIZ iş varsa model
+     * tek intent seçip diğerlerini DÜŞÜRMEK yerine `actions` dizisi döner.
+     * Kör bölme YASAK: bağlaç görmek tek başına yeterli değildir — her eleman
+     * KENDİ BAŞINA yürütülebilir bir iş olmalıdır. */
+    'BİRDEN FAZLA İŞ varsa: {"type":"action","actions":[{"intent":"...",...},{"intent":"...",...}]} — her eleman KENDİ alanlarını taşır, en fazla 5 adım.',
+    'Dizi SADECE gerçekten AYRI işler için kullanılır. Tek iş varsa dizi KULLANMA. Aynı işi iki kez YAZMA. Kendini düzeltme ("yok, şuraya") TEK adım üretir — son hâli yaz.',
+    '"Eve rota aç, müziği kıs ve annemi ara" → {"type":"action","actions":[{"intent":"OPEN_NAVIGATION","destination":"home"},{"intent":"VOLUME_DOWN"},{"intent":"OPEN_PHONE","contactName":"annem"}],"feedback":"Üç işi yapıyorum","confidence":0.9}',
     'Müzik istekleri ("X\'ten müzik aç", "X çal", "X dinleyelim") → PLAY_MUSIC_SEARCH + query=DÜZELTİLMİŞ sanatçı/şarkı adı.',
     'Yer/mekan aramaları → SEARCH_POI + category + query. Adres/yere gitme → NAVIGATE_ADDRESS + destination.',
     'Tema/görünüm değiştirme ("temayı değiştir", "başka tema") → CYCLE_THEME; gece/karanlık mod → ENABLE_NIGHT_MODE.',
@@ -1123,7 +1563,7 @@ function buildBrainSystemPrompt(id: CompanionIdentity, isDriving: boolean, vehic
     'AYAR değiştirme → SET_SETTING + şu alanlar: settingKey ("brightness"|"wifi"|"bluetooth"|"volume"), settingKind ("number"|"bool"), settingAction ("inc"|"dec"|"on"|"off"|"toggle"|"set"), settingValue (opsiyonel, yüzde/enum).',
     'Örnekler: "ekran parlaklığını aç/artır" → SET_SETTING settingKey="brightness" settingKind="number" settingAction="inc". "parlaklığı kıs/azalt" → settingAction="dec". "wifi\'yi kapat" → settingKey="wifi" settingKind="bool" settingAction="off". "sesi aç" → settingKey="volume" settingKind="number" settingAction="inc".',
     // ── ÖZELLİK AÇ/KAPA TOGGLE\'LARI (SET_SETTING settingKind="bool") ──
-    'Uygulama ÖZELLİĞİ aç/kapat → SET_SETTING settingKind="bool" settingAction ("on"|"off"|"toggle") + settingKey şunlardan biri: performanceMode (performans/güç modu), offlineMap (çevrimdışı harita), autoThemeEnabled (otomatik gece-gündüz teması), autoBrightnessEnabled (otomatik parlaklık), breakReminderEnabled (mola hatırlatma), dockAutoHide (dock otomatik gizle), smartContextEnabled (akıllı bağlam), obdAutoSleep (obd uyku), autoNavOnStart (açılışta navigasyon), companionEnabled (yol arkadaşı/asistan), companionWakeWordEnabled (uyanma kelimesi/"beni dinle"), use24Hour (24 saat), showSeconds (saniye göster).',
+    'Uygulama ÖZELLİĞİ aç/kapat → SET_SETTING settingKind="bool" settingAction ("on"|"off"|"toggle") + settingKey şunlardan biri: performanceMode (performans/güç modu), offlineMap (çevrimdışı harita), autoThemeEnabled (otomatik gece-gündüz teması), autoBrightnessEnabled (otomatik parlaklık), breakReminderEnabled (mola hatırlatma), dockAutoHide (dock otomatik gizle), smartContextEnabled (akıllı bağlam), obdAutoSleep (obd uyku), autoNavOnStart (açılışta navigasyon), companionEnabled (YOL ARKADAŞI SOHBET KİPİ — yalnız sohbet sıcaklığını ve kendiliğinden konuşmayı yönetir; seni KAPATMAZ, kapalıyken de her komutu anlar ve cevap verirsin), companionWakeWordEnabled (uyanma kelimesi/"beni dinle"), use24Hour (24 saat), showSeconds (saniye göster).',
     'Özel modlar için özel intent kullan: gece modu → ENABLE_NIGHT_MODE; uyku modu → TOGGLE_SLEEP_MODE; sürüş modu → ENABLE_DRIVING_MODE. Bunları SET_SETTING yapma.',
     'Trafik/harita/navigasyon açma ("trafik panelini aç", "haritayı aç", "trafiğe bak") → OPEN_NAVIGATION.',
     // ── UZUN-DÖNEM KİŞİSEL HAFIZA (REMEMBER / FORGET) ──
@@ -1134,6 +1574,10 @@ function buildBrainSystemPrompt(id: CompanionIdentity, isDriving: boolean, vehic
     'ÇOK ÖNEMLİ — SENSÖR DEĞERİ UYDURMA: kullanıcı aracın GERÇEK ZAMANLI bir sensör/veri değerini sorarsa ("yağ sıcaklığı kaç", "turbo basıncı ne kadar", "akü voltajı nedir", "şasi numarası ne", "motor devri kaç") ASLA kafadan bir sayı/değer UYDURMA — sen bu veriye erişemezsin. Bunun yerine → QUERY_SENSOR + sensorQuery=sorulan sensörün adı (soru ekleri olmadan, sade: "yağ sıcaklığı", "turbo basıncı", "akü voltajı", "şasi numarası"). Gerçek değeri araç okur, sen asla söylemezsin.',
     'AYRIM: hız/yakıt/motor sıcaklığı/genel araç durumu gibi TEMEL sorular zaten yerel olarak cevaplanıyor (bu cümleler sana hiç ulaşmaz); buraya ulaşan sensör soruları senin BİLMEDİĞİN/tanımadığın özel sensörlerdir — yine de değer UYDURMA, QUERY_SENSOR döndür.',
     // ── SAHTE ONAY YASAĞI (SAHA 2026-07-03 — en kritik) ──
+    // ── MAVI-F4 · İLK CÜMLE ANLAM TAŞIR ──
+    'İLK CÜMLE DOLU OLSUN: cevabına "Tabii", "Elbette", "Hemen söyleyeyim", "Şunu belirteyim ki" gibi içi boş girişlerle BAŞLAMA. İlk cümlen doğrudan istenen bilgiyi/cevabı versin ("Yaklaşık 83 kilometre kaldı." gibi), nezaket varsa SONRA gelsin. Sesli okunduğunda kullanıcı ilk saniyede işe yarar bir şey duymalı.',
+    // ── MAVI-F2 · GECİKME ÖRTME YASAĞI (I11) ──
+    'GECİKME ÖRTME YASAK: "bakıyorum", "düşünüyorum", "kontrol ediyorum", "bir saniye" gibi hiçbir bilgi taşımayan bekletme cümlesi ASLA kurma — ne "say" içinde ne "feedback" içinde. Sohbette doğrudan cevabı ver. Gerçek bir işlem başlıyorsa "feedback" NE YAPILDIĞINI söyler ("Kadıköy rotası açılıyor", "Yağ sıcaklığı okunuyor") ama BİTTİĞİNİ İDDİA ETMEZ ("rotayı açtım" DEME).',
     'ÇOK ÖNEMLİ — SAHTE ONAY YASAK: bir ARAÇ EYLEMİ (aç/kapat/ayarla/göster) istendiğinde SADECE yukarıdaki intent listesinden GERÇEK bir karşılığı varsa type:"action" döndür. Karşılığı YOKSA sakın type:"chat" ile "tamam, açıyorum / açılıyor / hallettim" gibi YAPMIŞ GİBİ cevap verme — bu KULLANICIYI KANDIRMAKTIR. Onun yerine dürüstçe söyle: type:"chat" say="Bunu şu an yapamıyorum" (kişiliğine uygun). Var olmayan bir eylemi asla onaylama.',
     '',
     // ── İNTERNET / GÜNCEL BİLGİ (grounding) — supportsGrounding'e göre değişir ──
@@ -1179,8 +1623,8 @@ function buildBrainSystemPrompt(id: CompanionIdentity, isDriving: boolean, vehic
     '"benzin tercihimi unut" → {"type":"action","intent":"FORGET","memoryText":"benzin","feedback":"Unuttum","confidence":0.9}',
     '"hakkımda ne biliyorsun" → {"type":"chat","say":"..."} (hafızandaki fact\'lerden doğal biçimde anlat)',
     // QUERY_SENSOR — sensör DEĞERİNİ ASLA uydurma, yalnız soruyu taşı.
-    '"yağ sıcaklığı kaç" → {"type":"action","intent":"QUERY_SENSOR","sensorQuery":"yağ sıcaklığı","feedback":"Bakıyorum","confidence":0.9}',
-    '"şasi numarası nedir" → {"type":"action","intent":"QUERY_SENSOR","sensorQuery":"şasi numarası","feedback":"Bakıyorum","confidence":0.85}',
+    '"yağ sıcaklığı kaç" → {"type":"action","intent":"QUERY_SENSOR","sensorQuery":"yağ sıcaklığı","feedback":"Yağ sıcaklığı okunuyor","confidence":0.9}',
+    '"şasi numarası nedir" → {"type":"action","intent":"QUERY_SENSOR","sensorQuery":"şasi numarası","feedback":"Şasi numarası okunuyor","confidence":0.85}',
     // OPEN_SCREEN — uygulamanın iç ekranları/panelleri.
     '"trafiği aç" → {"type":"action","intent":"OPEN_SCREEN","screen":"trafik","screenAction":"open","feedback":"Trafik paneli açılıyor","confidence":0.92}',
     '"klimayı aç" → {"type":"action","intent":"OPEN_SCREEN","screen":"klima","screenAction":"open","feedback":"Klima açılıyor","confidence":0.9}',
@@ -1209,71 +1653,16 @@ function buildBrainSystemPrompt(id: CompanionIdentity, isDriving: boolean, vehic
   ].join('\n');
 }
 
-interface BrainJson {
-  type?:        string;
-  intent?:      string;
-  query?:       string;
-  destination?: string;
-  category?:    string;
-  settingKey?:    string;
-  settingKind?:   string;
-  settingAction?: string;
-  settingValue?:  string;
-  appName?:     string;
-  screen?:      string;
-  screenAction?: string;
-  contactName?: string;
-  memoryText?:  string;
-  sensorQuery?: string;
-  feedback?:    string;
-  confidence?:  number;
-  say?:         string;
-}
-
-function parseBrainJson(raw: string): BrainRaw | null {
-  try {
-    const cleaned = raw.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
-    const obj = JSON.parse(cleaned) as BrainJson;
-    if (obj.type === 'web' && typeof obj.query === 'string' && obj.query.trim()) {
-      return { kind: 'web', query: obj.query.replace(/\s+/g, ' ').trim().slice(0, 200) };
-    }
-    if (obj.type === 'chat' && typeof obj.say === 'string' && obj.say.trim()) {
-      const flat = obj.say.replace(/\s+/g, ' ').trim();
-      return { kind: 'chat', response: flat.length > 300 ? `${flat.slice(0, 297)}...` : flat, route: 'companion_gemini' };
-    }
-    if (obj.type === 'action' && typeof obj.intent === 'string' && BRAIN_INTENTS.has(obj.intent)) {
-      return {
-        kind: 'action',
-        semantic: {
-          intent:      obj.intent as SemanticResult['intent'],
-          category:    obj.category as SemanticResult['category'],
-          query:       typeof obj.query === 'string' ? obj.query : undefined,
-          destination: typeof obj.destination === 'string' ? obj.destination : undefined,
-          // SET_SETTING alanları — beyin parlaklık/wifi/bluetooth/ses ayarını taşır.
-          settingKey:    typeof obj.settingKey === 'string' ? obj.settingKey : undefined,
-          settingKind:   typeof obj.settingKind === 'string' ? obj.settingKind : undefined,
-          settingAction: typeof obj.settingAction === 'string' ? obj.settingAction : undefined,
-          settingValue:  typeof obj.settingValue === 'string' ? obj.settingValue : undefined,
-          // OPEN_APP — açılacak uygulamanın serbest adı ("kamera", "radyo", "whatsapp").
-          appName:     typeof obj.appName === 'string' ? obj.appName : undefined,
-          // OPEN_SCREEN — iç ekran adı + eylem ("trafik" / "gemini qr", open|close).
-          screen:      typeof obj.screen === 'string' ? obj.screen : undefined,
-          screenAction: typeof obj.screenAction === 'string' ? obj.screenAction : undefined,
-          // OPEN_PHONE — aranacak kişi adı ("Selim", "annem"); rehberde aranır.
-          contactName: typeof obj.contactName === 'string' ? obj.contactName : undefined,
-          // REMEMBER/FORGET — kalıcı kişisel fact metni (companionMemory).
-          memoryText:  typeof obj.memoryText === 'string' ? obj.memoryText : undefined,
-          // QUERY_SENSOR — sorulan sensörün adı (DEĞER YOK — şemada bilinçli eksik).
-          sensorQuery: typeof obj.sensorQuery === 'string' ? obj.sensorQuery : undefined,
-          feedback:    typeof obj.feedback === 'string' && obj.feedback ? obj.feedback : 'Yapılıyor',
-          confidence:  typeof obj.confidence === 'number' ? obj.confidence : 0.85,
-          source:      'direct_ai',
-        },
-      };
-    }
-    return null;
-  } catch { return null; }
-}
+/* ── Beyin çıktısı ayrıştırma ─────────────────────────────────────────────
+ * MAVI-F13/4: `BrainJson` şeması, `parseBrainJson` ve `semanticFromBrainAction`
+ * `companionBrainParser`e TAŞINDI (SAF: durum·I/O·ağ·sağlayıcı bilgisi YOK).
+ * Ayrıştırma sağlayıcıya özgü DEĞİLDİR — dört çağrı yeri de (Gemini · Groq ·
+ * Haiku · gateway) aynı fonksiyonu paylaşıyordu. Genel API buradan yeniden
+ * dışa verilir → mevcut tüketiciler değişmedi. */
+export { MAX_PLAN_ITEMS };
+export type {
+  CompanionBrainAction, CompanionBrainChat, CompanionBrainResult,
+} from './companionBrainParser';
 
 async function askCompanionBrain(
   text: string,
@@ -1286,36 +1675,82 @@ async function askCompanionBrain(
     ..._history.map((t) => ({ role: t.role, parts: [{ text: t.text }] })),
     { role: 'user', parts: [{ text }] },
   ];
-  const body = {
+  /* `withThinking=false` → `thinkingConfig` alanı HİÇ gönderilmez. Bazı "lite"
+     modeller bu alanı reddedip `400 Request contains an invalid argument` döner
+     (SAHA 2026-07-24: `gemini-flash-lite-latest` · `gemini-3.5-flash-lite`),
+     AYNI model alansız 200 verir. Model adından çıkarım yapılamadığı için
+     (`gemini-3.1-flash-lite` alanı KABUL eder) 400'de alan düşürülüp bir kez
+     yeniden denenir — sabit uyumluluk listesi tutmaya gerek kalmaz. */
+  const mkBody = (model: string): string => JSON.stringify({
     system_instruction: {
       // Gemini grounding'i destekler → supportsGrounding: true (varsayılan)
-      parts: [{ text: buildBrainSystemPrompt(id, isDriving, buildInterpretedVehicleContext(), true) }],
+      parts: [{ text: buildBrainSystemPrompt(id, isDriving, buildInterpretedVehicleContext(), true, text) }],
     },
     contents,
     generationConfig: {
       responseMimeType: 'application/json',
       temperature:      0.4,
-      maxOutputTokens:  isDriving ? 160 : 220,
-      thinkingConfig:   { thinkingBudget: 0 }, // düşünen model bütçe koruması (SAHA 2026-07-03)
+      maxOutputTokens:  answerTokens('brain', isDriving),
+      // düşünen model bütçe koruması (SAHA 2026-07-03) — alan TEK KAPIDAN
+      ...geminiThinkingConfig(model),
     },
-  };
+  });
+
   // Single Brain karar bütçesi: voiceService 2.5sn iletir. GEMINI_TIMEOUT_MS
   // tavanına clamp'lenir → beyin ASLA 6sn'den uzun bloklamaz; süre dolunca fetch
   // abort olur, çağıran (tryCompanionBrain) recordAiNetFailure + fallback'e düşer.
   const decisionMs = Math.min(timeoutMs ?? GEMINI_TIMEOUT_MS, GEMINI_TIMEOUT_MS);
-  const resp = await fetch(GEMINI_CHAT_ENDPOINT, {
+  const send = (): Promise<Response> => fetch(_geminiEndpoint(), {
     method:  'POST',
     headers: { 'Content-Type': 'application/json', 'X-goog-api-key': apiKey },
-    body:    JSON.stringify(body),
+    /* Alan desteği AKTİF MODELE göre, İSTEK ANINDA sorulur: zincir ilerlediğinde
+       yeni model için doğru gövde gider (eski davranış bayrağı taşıyordu). */
+    body:    mkBody(getActiveGeminiModel()),
     signal:  signalWithTimeout(decisionMs), // Chrome <103 WebView güvenli (abortCompat)
   });
+
+  /**
+   * Bir istek + PARAMETRE UYUMSUZLUĞU kurtarması (model başına EN FAZLA bir kez).
+   *
+   * ⚠️ 400 İKİ AYRI ŞEY olabilir: (a) `API_KEY_INVALID` — anahtar gerçekten
+   * geçersiz, KULLANICIYA DÜRÜSTÇE söylenmeli, yeniden denemek o mesajı yutar;
+   * (b) `INVALID_ARGUMENT` — bizim gönderdiğimiz alan modelce desteklenmiyor.
+   * Yalnız (b) yeniden denenir; gövde okunamıyorsa muhafazakâr davranıp DENEME.
+   *
+   * SAHA 2026-09-11: bu kurtarma eskiden YALNIZ ilk istekte vardı ve öğrendiğini
+   * TUR SONUNDA UNUTUYORDU (`_thinkingSupported` fonksiyon-yereldi). Zincirin
+   * ilk iki modeli alanı reddettiği için bu, HER TURDA fazladan bir başarısız
+   * round-trip demekti. Artık öğrenilen bilgi oturum boyunca hatırlanır ve
+   * kurtarma zincirin HER adımında geçerlidir (aksi halde alanı reddeden ikinci
+   * bir model 400 ile zinciri komple düşürürdü).
+   */
+  const sendWithThinkingRecovery = async (): Promise<Response> => {
+    const model = getActiveGeminiModel();
+    const r = await send();
+    /* Sınıflandırma kuralı TEK YERDE (models.ts): "400 = alan reddi mi, yoksa
+       geçersiz anahtar mı" sorusunun ikinci bir kopyası burada tutulmaz. */
+    if (!await noteGeminiThinkingRejectedIf400(model, r)) return r;
+    console.warn(`GEMINI_THINKING_UNSUPPORTED: ${model} → thinkingConfig düşürüldü`);
+    return send();
+  };
+
+  let resp = await sendWithThinkingRecovery();
+  // MODEL-BAZLI ARIZA → SIRADAKİ MODEL (SAHA 2026-07-24): kota model bazlıdır;
+  // `gemini-flash-latest` 429 verirken AYNI anahtarla başka model 200 dönüyordu.
+  // Sağlayıcıyı komple susturmak yerine önce zincirdeki sonraki modeli dene —
+  // sağlayıcı cooldown'ı YALNIZ zincir tükendiğinde uygulanır.
+  // Bütçe zaten `decisionMs` ile sınırlı; en fazla zincir uzunluğu kadar deneme.
+  while (!resp.ok && _advanceGeminiModel(resp.status)) {
+    resp = await sendWithThinkingRecovery();
+  }
+
   // 429: Google'ın söylediği kadar bekle (retryDelay) — sabit 60sn asistanı
   // gereksiz uzun "offline" bırakıyordu (SAHA 2026-07-04).
-  if (resp.status === 429) { _rateLimitedUntil = _now() + await _cooldownFrom429(resp); return null; }
-  if (!resp.ok) { await _noteGeminiAuthFailure(resp); return null; }
-  _geminiKeyInvalidAtMs = 0; // Gemini 200 döndü — anahtar geçerli, işaret temizlenir
+  if (resp.status === 429) { noteProviderRateLimited('gemini', await cooldownFromGemini429(resp)); return null; }
+  if (!resp.ok) { await noteGeminiAuthFailure(resp); return null; }
+  clearAuthFailure(); // Gemini 200 döndü — anahtar geçerli, işaret temizlenir
   const data = await resp.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
-  return parseBrainJson((data.candidates?.[0]?.content?.parts?.[0]?.text ?? '').trim());
+  return parseBrainJson((data.candidates?.[0]?.content?.parts?.[0]?.text ?? '').trim(), isDriving);
 }
 
 /* ── GROUNDED yanıt (Google Search) — güncel/internet bilgisi ──
@@ -1326,10 +1761,10 @@ async function askCompanionBrain(
 const GROUNDED_TIMEOUT_MS = 8000;
 
 function buildGroundedSystemPrompt(id: CompanionIdentity, isDriving: boolean): string {
-  const personaRole = BRAIN_PERSONA_ROLE[id.personality] ?? BRAIN_PERSONA_ROLE.samimi;
+  const personaRole = brainPersonaRole(id.personality);
   const brevity = isDriving
     ? 'Sürücü ŞU AN ARAÇ KULLANIYOR: en fazla 2 kısa cümle, en kritik bilgiyi ver.'
-    : 'En fazla 4-5 akıcı cümle; haber/özet istenirse en önemli 2-3 gelişmeyi tek paragrafta topla.';
+    : 'Sıradan soruda 3-5 akıcı cümle; detaylı anlatım istenirse yarıda bırakmadan kapsamlı anlat. Haber/özet istenirse en önemli gelişmeleri tek paragrafta topla.';
   return [
     `Sen "${id.assistantName}" adlı, araçta sürücüye eşlik eden Türkçe konuşan bir sesli asistansın.`,
     'Sana verilen Google arama sonuçlarını kullanarak kullanıcının sorusunu GÜNCEL ve DOĞRU yanıtla.',
@@ -1353,10 +1788,10 @@ async function askGroundedGemini(
       { role: 'user', parts: [{ text: query }] },
     ],
     tools: [{ google_search: {} }],
-    generationConfig: { temperature: 0.3, maxOutputTokens: isDriving ? 140 : 360, thinkingConfig: { thinkingBudget: 0 } },
+    generationConfig: { temperature: 0.3, maxOutputTokens: answerTokens('grounded', isDriving), ...geminiThinkingConfig(getActiveGeminiModel()) },
   };
   try {
-    const resp = await fetch(GEMINI_CHAT_ENDPOINT, {
+    const resp = await fetch(_geminiEndpoint(), {
       method:  'POST',
       headers: { 'Content-Type': 'application/json', 'X-goog-api-key': apiKey },
       body:    JSON.stringify(body),
@@ -1364,7 +1799,7 @@ async function askGroundedGemini(
     });
     // GROUNDING 429 → yalnız GROUNDING soğuması (beyin cooldown'ını KİRLETME).
     // Beyin karar/sentez çağrıları çalışmaya devam eder; grounding atlanır → Tavily.
-    if (resp.status === 429) { _groundingCooldownUntil = _now() + await _cooldownFrom429(resp); return null; }
+    if (resp.status === 429) { noteGroundingRateLimited(await cooldownFromGemini429(resp)); return null; }
     if (!resp.ok) return null;
     const data = await resp.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
     // Grounded cevap birden çok text parçasına bölünebilir → hepsini birleştir.
@@ -1382,7 +1817,7 @@ async function askGroundedGemini(
     // grounding timeout'u kesici sayacını kirletir ve FAIL_THRESHOLD=2 breaker'ı
     // 90sn açıp TÜM AI'yı offline'a kilitleyebilir ("iki istekte offline" bug'ı).
     // 429 ile aynı: yalnız grounding'i soğut → Tavily'ye düş.
-    _groundingCooldownUntil = _now() + RATE_LIMIT_COOLDOWN_MS;
+    noteGroundingRateLimited();
     return null;
   }
 }
@@ -1412,15 +1847,15 @@ async function groundGeminiViaTavily(
   const sysPrompt =
     `Sen ${id.assistantName} adlı araç asistanısın. Aşağıdaki GÜNCEL web arama sonuçlarına ` +
     `DAYANARAK kullanıcının sorusunu kısa, doğal Türkçe ile yanıtla. Sadece sonuçlardaki bilgiyi ` +
-    `kullan, uydurma. ${isDriving ? 'Sürüş halinde: 1-2 cümle.' : 'En fazla 3-4 cümle.'} Kaynak numarası/URL okuma.`;
+    `kullan, uydurma. ${isDriving ? 'Sürüş halinde: 1-2 cümle.' : 'Sıradan sohbette 2-4 cümle; detay/anlatım istenirse yarıda bırakmadan kapsamlı anlat.'} Kaynak numarası/URL okuma.`;
   try {
-    const resp = await fetch(GEMINI_CHAT_ENDPOINT, {
+    const resp = await fetch(_geminiEndpoint(), {
       method:  'POST',
       headers: { 'Content-Type': 'application/json', 'X-goog-api-key': apiKey },
       body:    JSON.stringify({
         system_instruction: { parts: [{ text: sysPrompt }] },
         contents: [{ role: 'user', parts: [{ text: `Soru: ${userText}\n\n${ctxBlock}` }] }],
-        generationConfig: { temperature: 0.3, maxOutputTokens: isDriving ? 120 : 240, thinkingConfig: { thinkingBudget: 0 } },
+        generationConfig: { temperature: 0.3, maxOutputTokens: answerTokens('synth', isDriving), ...geminiThinkingConfig(getActiveGeminiModel()) },
       }),
       signal: signalWithTimeout(GEMINI_TIMEOUT_MS),
     });
@@ -1438,25 +1873,42 @@ async function groundGeminiViaTavily(
  * dener. Zincirin tamamı düşerse offline sohbet fallback'i (yalnız chat)
  * döner; o da yoksa null → eski zincir devam eder.
  */
+/**
+ * Beyin zinciri adayı. `gateway` SAĞLAYICI-BAĞIMSIZ hattır (hangi modele
+ * gittiğini bilmez, anahtarını kendi çözer); diğerleri doğrudan sağlayıcı
+ * çağrılarıdır ve kendi kota pencerelerini kullanır.
+ */
+type BrainCandidate = { provider: 'gemini' | 'groq' | 'haiku' | 'gateway'; apiKey: string };
+
 async function runCompanionBrain(
   raw: string,
   opts: CompanionChatOpts,
   allowOnline: boolean,
 ): Promise<CompanionBrainResult | null> {
+  /* MAVI-F1: `companionEnabled` KAPISI KALDIRILDI (bkz. modül başlığı §PRESENCE).
+   * Beyin, Mavi'nin doğal dil anlama ve karar üretme çekirdeğidir; bir kişilik
+   * ayarı onu kapatamaz. Presence yalnız TONU etkiler (buildCompanionSystemPrompt). */
   const settings = useStore.getState().settings;
-  if (settings.companionEnabled !== true) return null;
   const trimmed = raw.trim();
   if (!trimmed) return null;
   const isDriving = opts.isDriving === true;
 
   // Geriye uyum: chain verilmezse opts.provider/apiKey ile eski tek-sağlayıcı
   // davranışı üretilir (testler ve tryCompanionChat gibi diğer çağıranlar için).
-  const chain: ReadonlyArray<{ provider: 'gemini' | 'groq' | 'haiku'; apiKey: string }> =
+  const baseChain: ReadonlyArray<{ provider: 'gemini' | 'groq' | 'haiku'; apiKey: string }> =
     opts.chain && opts.chain.length > 0
       ? opts.chain
       : (opts.provider === 'gemini' || opts.provider === 'groq' || opts.provider === 'haiku') && opts.apiKey
         ? [{ provider: opts.provider, apiKey: opts.apiKey }]
         : [];
+
+  // AI GATEWAY (bayrak — VARSAYILAN KAPALI): açıkken zincirin BAŞINA sağlayıcı-
+  // bağımsız gateway adayı eklenir; mevcut adaylar KALDIRILMAZ, arkada yedek
+  // olarak durur (rollback tek şalter). Kapalıyken `chain` birebir eski dizidir
+  // → tek satır davranış değişmez. Gateway anahtarını kendi çözer (BYOK), bu
+  // yüzden apiKey alanı boştur ve anahtarsız kullanıcıda da zincire girebilir.
+  const chain: ReadonlyArray<BrainCandidate> =
+    isAiGatewayEnabled() ? [{ provider: 'gateway', apiKey: '' }, ...baseChain] : baseChain;
 
   // Safety Kernel PRE-GATE: allowOnline=false ise online zincir HİÇ denenmez;
   // offline fallback doğal olarak devreye girer (provider sırası korunur).
@@ -1465,9 +1917,12 @@ async function runCompanionBrain(
   // TÜM adaylar kota soğumasından atlandı (hiçbiri denenmedi) → aşağıda dürüst
   // kota cevabı (offline motorun söyleyecek sözü yoksa).
   let rateLimitedOnly = false;
+  /* Bu turda ağ GERÇEKTEN ölü müydü? (throw/timeout var VE hiçbir sağlayıcıdan
+     HTTP yanıtı gelmedi). Blok içindeki ölçüm dışarı TAŞINIR — #669. */
+  let netDeathOnly = false;
 
   if (netUsable) {
-    const id = resolveCompanionIdentity(settings);
+    const id = resolveIdentityWithDriverStyle(settings);
     // ⚠️ AĞ hatası ≠ SAĞLAYICI hatası (SAHA 2026-07-04, "internetim var ama offline
     // sanıyor"): sunucudan HTTP yanıtı gelen HER durum (429 kota, 400/401, bozuk
     // JSON parse) ağın CANLI olduğunun kanıtıdır — devre kesiciye YAZILMAZ. Kesici
@@ -1475,6 +1930,42 @@ async function runCompanionBrain(
     // Eski davranış: sağlayıcı null'ları da sayılıyordu → 2 cümlede breaker açılıp
     // 90sn TÜM asistanı (STT dahil) offline'a kilitliyordu.
     let sawNetFailure = false;
+    // ⚠️ TIMEOUT ≠ ULAŞILAMAZLIK (SAHA 2026-07-24, "sohbet ederken bir süre sonra
+    // offline'a düşüyor"): buradaki throw'ların çoğu bizim KENDİ süre bütçemizin
+    // (opts.timeoutMs — sürüşte 4.5sn) doldurduğu AbortError'dır. Gemini soğuk
+    // başlangıçta ~7sn döndüğü için bu neredeyse HER komutta oluyor, 2 komutta
+    // devre açılıp asistanı 90sn kapatıyordu. Hata TÜRÜ kesiciye taşınır; kesici
+    // bütçe timeout'unu ayrı ve yüksek eşikte sayar (aiHealth).
+    let netFailureKind: string | null = null;
+    /* ⚠️ CORS/opaque HATA ≠ AĞ ÖLÜMÜ (SAHA 2026-07-24, canlı cihazda CDP ile
+     * YAKALANDI): `api.anthropic.com` tarayıcıdan çağrıldığında (429 veya
+     * tarayıcı-erişim kısıtı) yanıtta CORS başlığı gelmediği için fetch
+     * **TypeError: Failed to fetch** atar. `errorKindFromException` bunu
+     * kaçınılmaz olarak 'network' sayar → SERT kova → 2 turda 90sn offline.
+     * Sahadan alınan iz: aynı turda openrouter 404 · gemini 400 · gemini 429 ·
+     * groq 429 HTTP yanıtları geldi (ağ APAÇIK CANLI), ardından tek bir
+     * anthropic TypeError'ı `OFFLINE_REASON: NETWORK_UNREACHABLE` tetikledi;
+     * 10 sn sonra groq 200 döndü — yani asistan CANLI ağda 90sn kilitlendi.
+     *
+     * KURAL: bu turda HERHANGİ bir sağlayıcıdan HTTP yanıtı alındıysa ağın
+     * canlı olduğu KANITLANMIŞTIR — o turda hiçbir hata "ağ öldü" sayılamaz.
+     * (Kod bu ilkeyi zaten biliyordu ama yalnız sağlayıcı bazında uyguluyordu.) */
+    let sawHttpResponse = false;
+    // SERT sınıf (network/unknown) bir kez görüldüyse 'timeout' onu EZEMEZ:
+    // zincirde biri gerçekten koptuysa tüm tur sert kovada sayılır.
+    const noteNetFailureKind = (kind: string): void => {
+      if (netFailureKind === null || netFailureKind === 'timeout') netFailureKind = kind;
+    };
+    // Künyede hangi sağlayıcının düştüğü görünsün (sahada "provider=?" teşhisi
+    // imkânsız kılıyordu — sessiz offline yasağının ruhu künyenin DOLU olmasıdır).
+    let netFailureProvider: string | undefined;
+    const noteNetFailure = (e: unknown, provider?: string): void => {
+      sawNetFailure = true;
+      const kind = errorKindFromException(e);
+      // Künye, kovayı belirleyen (sert) hatayla aynı sağlayıcıyı göstermeli.
+      if (netFailureKind === null || netFailureKind === 'timeout') netFailureProvider = provider;
+      noteNetFailureKind(kind);
+    };
     // Kota teşhisi (SAHA 2026-07-04, "ilk istek online sonrakiler offline"):
     // adaylar 429 soğumasından atlanınca kullanıcı sahte "offline" yaşıyordu —
     // hepsi soğumadaysa aşağıda dürüst kota cevabı verilir.
@@ -1488,20 +1979,54 @@ async function runCompanionBrain(
       // KENDİ soğuma penceresindeki aday ATLANIR (sıradaki denenir). Pencereler
       // sağlayıcı-bazlıdır: birinin 429'u diğerini asla kilitlemez — eski paylaşılan
       // pencere Groq 429'unda Gemini'yi de susturuyordu (çapraz kirlenme).
-      if (cand.provider === 'gemini' && _now() < _rateLimitedUntil)      { skippedByCooldown = true; continue; }
-      if (cand.provider === 'groq'   && _now() < _groqRateLimitedUntil)  { skippedByCooldown = true; continue; }
-      if (cand.provider === 'haiku'  && _now() < _haikuRateLimitedUntil) { skippedByCooldown = true; continue; }
+      /* SAHA 2026-09-11: `gateway` bu kapıdan MUAFTI ("kendi devre kesicisi var"),
+         ama o kesici kredi/kimlik arızasını KAPSAMIYORDU → kredisi bitmiş hat
+         her turun başında yeniden denenip 0,45 sn gecikme ekliyordu. Kapı artık
+         TÜM adaylar için aynı; gateway penceresi YALNIZ `auth`/`insufficient_credit`
+         görüldüğünde kurulur (429/timeout davranışı DEĞİŞMEZ). */
+      if (isProviderCoolingDown(cand.provider)) {
+        skippedByCooldown = true; continue;
+      }
       aiAttempted = true;
 
       try {
+        if (cand.provider === 'gateway') {
+          // Sağlayıcı-bağımsız hat: gateway kendi tekrar/timeout/devre-kesici
+          // politikasını içeride uygular. Başarısızsa zincirdeki eski adaylar
+          // (Gemini/Groq/Haiku) aynen denenmeye devam eder.
+          /* SİSTEMİN arama yeteneği: Groq/Haiku yollarındaki `canGround` ile
+             AYNI kural (searchKey VEYA tavilyKey) — üçüncü bir tanım YOK. */
+          const _sysCanGround =
+            (!!opts.searchKey && opts.searchKey.trim().length > 8) ||
+            (!!opts.tavilyKey && opts.tavilyKey.trim().length > 8);
+          const gw = await tryGatewayBrainAndRecord(
+            brainInput, trimmed, id, isDriving, opts.timeoutMs, opts.onToken, _sysCanGround);
+          if (gw.result) return gw.result;
+          // GERÇEK ağ ölümü → kesiciye say. Gateway throw ETMEZ; hata türü tipli
+          // bayrakla taşınır, tür de kesiciye iletilir (timeout ayrı eşikte sayılır).
+          /* #698: gateway'in ZATEN ürettiği ayrım (auth ↔ insufficient_credit —
+             kütük #421'de sahada ölçülmüştü) dürüst cevap dalına TAŞINIR.
+             Eskiden bu sınıflandırma burada okunmuyordu: kredisi bitmiş bir
+             hesapta kullanıcı "kredi yükle" yerine "tekrar söyle" duyuyordu. */
+          noteGatewayFailureKind(gw.errorKind ?? '');
+          if (gw.netFailure) { sawNetFailure = true; noteNetFailureKind(gw.errorKind); }
+          // Sunucudan yanıt gelmiş her hata sınıfı = ağ CANLI kanıtı (yerel kapı
+          // ve sonucu-bilinmeyen sınıflar kanıt SAYILMAZ — bkz. NO_NET_EVIDENCE_KINDS).
+          else if (!NO_NET_EVIDENCE_KINDS.has(gw.errorKind)) sawHttpResponse = true;
+          continue;
+        }
+
         if (cand.provider === 'gemini') {
           // Gemini attarsa (timeout/ağ hatası) zincirdeki sıradakini de
           // deneyebilmek için yalnız Gemini çağrısı kendi try/catch'inde izole
           // edilir — dıştaki catch yalnız TÜM zincir tükendiğinde bir kez sayar.
           let result: BrainRaw | null = null;
+          let threw = false;
           try {
             result = await askCompanionBrain(brainInput, cand.apiKey, id, isDriving, opts.timeoutMs);
-          } catch { result = null; sawNetFailure = true; /* GERÇEK ağ hatası (throw) — sıradaki aday denenecek */ }
+          } catch (e) { result = null; threw = true; noteNetFailure(e, 'gemini'); /* GERÇEK ağ hatası (throw) — sıradaki aday denenecek */ }
+          // THROW YOKSA sunucudan yanıt alındı (200/429/4xx/parse) → ağ CANLI.
+          if (!threw) sawHttpResponse = true;
 
           if (result) {
             recordAiNetSuccess(); // ağ sağlıklı — devre kesici sayacı sıfırla
@@ -1517,7 +2042,7 @@ async function runCompanionBrain(
               }
               // Grounding yalnız KENDİ soğuma penceresi dışındaysa denenir — kota
               // 429'unda tekrar tekrar 1sn yemeyip doğrudan Tavily'ye geçilir.
-              if (_now() >= _groundingCooldownUntil) {
+              if (!isGroundingCoolingDown()) {
                 const grounded = await askGroundedGemini(result.query, cand.apiKey, id, isDriving);
                 if (grounded) {
                   pushHistory('user', trimmed);
@@ -1558,24 +2083,33 @@ async function runCompanionBrain(
 
         if (cand.provider === 'groq') {
           const result = await tryGroqBrainAndRecord(brainInput, cand.apiKey, id, isDriving, opts.timeoutMs, opts.tavilyKey, opts.searchKey);
+          sawHttpResponse = true; // throw etmedi → sunucudan yanıt geldi (ağ canlı)
           if (result) return result;
           continue; // null = HTTP-yanıtlı sağlayıcı hatası → ağ canlı, sayma
         }
 
         // cand.provider === 'haiku' — zincirin son halkası
         const result = await tryHaikuBrainAndRecord(brainInput, cand.apiKey, id, isDriving, opts.timeoutMs, opts.tavilyKey, opts.searchKey);
+        sawHttpResponse = true; // throw etmedi → sunucudan yanıt geldi (ağ canlı)
         if (result) return result;
         // null → HTTP-yanıtlı sağlayıcı hatası; ağ canlı, sayma
-      } catch { sawNetFailure = true; /* bu adayda GERÇEK ağ hatası (throw) — sıradakine geç */ }
+      } catch (e) { noteNetFailure(e, cand.provider); /* bu adayda GERÇEK ağ hatası (throw) — sıradakine geç */ }
     }
 
     // Yalnız GERÇEK ağ hatası (throw/timeout) görüldüyse bir KEZ say — kesici
     // her adayda ayrı ayrı değil, tüm zincir tükendiğinde bir kez tetiklenir.
     // Sağlayıcı-null'ları (429/4xx/parse) buraya HİÇ girmez: internet varken
     // kesici açılmaz, asistan "internet yok" moduna düşmez.
-    if (sawNetFailure) recordAiNetFailure();
+    // AĞ CANLI KANITI KAZANIR: bu turda bir sağlayıcı HTTP yanıtı verdiyse (429/4xx/
+    // 5xx/parse), başka bir sağlayıcının CORS/opaque TypeError'ı ağ ölümü SAYILMAZ.
+    if (sawNetFailure && !sawHttpResponse) {
+      recordAiNetFailure({ provider: netFailureProvider, exceptionType: netFailureKind ?? 'unknown' });
+    }
 
     rateLimitedOnly = !aiAttempted && skippedByCooldown;
+    /* AĞ CANLI KANITI KAZANIR: bir sağlayıcı HTTP yanıtı verdiyse ağ ölü DEĞİLDİR
+       (429/4xx/5xx/parse hataları buraya girmez) — o durumda REASK doğrudur. */
+    netDeathOnly = aiAttempted && sawNetFailure && !sawHttpResponse;
   }
 
   // Offline fallback: yalnız sohbet (komut kararı offline'da yerel parser'ındır)
@@ -1586,8 +2120,21 @@ async function runCompanionBrain(
   // 400 API_KEY_INVALID yediyse kullanıcı "internet gitti" değil GERÇEK nedeni
   // duyar (kota cevabıyla aynı ilke). İşaret taze olmalı (bu turun hatası) —
   // eski bir turdan kalma bayrak yeni turda konuşturmaz.
-  if (aiAttempted && _geminiKeyInvalidAtMs > 0 && _now() - _geminiKeyInvalidAtMs < 10_000) {
-    return { kind: 'chat', response: KEY_INVALID_REPLY, route: 'companion_key_invalid' };
+  /* #698: KREDİ bitişi anahtar geçersizliğinden ÖNCE sorulur — ikisi AYRI eylem
+     gerektirir (bakiye yükle ↔ anahtar yenile) ve kredi bitişi daha spesifiktir. */
+  const failure = aiAttempted ? resolveProviderFailureAnswer() : null;
+  if (failure !== null) {
+    /* Künye DOLU olmalı (sessiz arıza yasağının ruhu): hangi sağlayıcının
+       reddettiği tanı izine yazılır. Anahtarın KENDİSİ asla yazılmaz — yalnız
+       sağlayıcı ADI (gizlilik kuralı: VAR/YOK ve ADET). Künyeyi KÖK yazar:
+       sağlık defteri telemetri kanalına bağlanmaz. */
+    if (failure.kind === 'key_invalid') {
+      pushTrail('action', 'mavi kimlik reddi', `provider=${failure.provider}`);
+    }
+    return {
+      kind: 'chat', response: failure.response,
+      route: failure.kind === 'no_credit' ? 'companion_no_credit' : 'companion_key_invalid',
+    };
   }
 
   // Kota soğuması: sahte aptallaşma yerine DÜRÜST cevap (SAHA 2026-07-04, "ilk
@@ -1604,9 +2151,30 @@ async function runCompanionBrain(
   // kişiliğe uygun bir tekrar-rica duyar (takip dinlemesi açılır → tekrar söyler).
   // AI HİÇ denenmediyse (offline) null korunur: eski dürüst zincir
   // (yerel öneriler + offline müzik kapısı) bozulmaz.
+  /* Ağ ölüyse "tekrar söyle" DEME (#669) — tekrar söylemek işe yaramaz ve
+     kullanıcıyı döngüye sokar; gerçek nedeni söyle. */
+  if (netDeathOnly) {
+    /* Ton kişiliğe uyar (persona sözleşmesi korunur), içerik DÜRÜSTTÜR. */
+    const personality = resolveIdentityWithDriverStyle(settings).personality;
+    const reply = netDownReply(personality);
+    return { kind: 'chat', response: reply, route: 'companion_net_down' };
+  }
+
+  /* SAHA (#697) — "Mavi HER ŞEYE 'of orayı kaçırdım' diyor": bu dal
+     `companion_offline` rotasıyla dönüyordu ve çağıran (voiceService) onu
+     GEÇERLİ bir sohbet cevabı sayıp turu KAPATIYORDU. Sonuç: online zincir
+     null döndüğü her turda YEREL KOMUT PARSER'I ("müzik aç", "haritayı aç",
+     "sesi kıs") HİÇ ÇALIŞMIYOR, kullanıcı çalışabilecek komutlarda bile
+     tekrar-rica duyuyordu. Bu bir "no dead-end" değil, ÇIKMAZIN KENDİSİYDİ.
+
+     Metin ve persona sözleşmesi AYNEN korunur; değişen tek şey ROTA: artık
+     `companion_reask` — çağıran bunu "beyin karar veremedi, YEREL ZİNCİRİ
+     dene; hiçbir şey tutmazsa BUNU söyle" olarak okur (bkz. voiceService
+     `_pendingReask`). Böylece tekrar-rica çıkmazın sonunda söylenir, başında
+     değil. */
   if (aiAttempted) {
-    const reask = REASK_BY_PERSONALITY[resolveCompanionIdentity(settings).personality] ?? REASK_DEFAULT;
-    return { kind: 'chat', response: reask, route: 'companion_offline' };
+    const reask = reaskReply(resolveIdentityWithDriverStyle(settings).personality);
+    return { kind: 'chat', response: reask, route: 'companion_reask' };
   }
   return null;
 }
@@ -1618,7 +2186,7 @@ async function runCompanionBrain(
  *   doğrulanır (offline/rate/key/safety metni zaten yereldir → dokunulmaz). */
 
 const ONLINE_ROUTES: ReadonlySet<CompanionChatRoute> = new Set<CompanionChatRoute>([
-  'companion_gemini', 'companion_groq', 'companion_haiku',
+  'companion_gemini', 'companion_groq', 'companion_haiku', 'companion_gateway',
 ]);
 
 /** Online CHAT cevabını POST-GATE'ten geçirir; değişirse yeni sonuç döner. */
@@ -1647,8 +2215,7 @@ export async function tryCompanionBrain(
   raw: string,
   opts: CompanionChatOpts = {},
 ): Promise<CompanionBrainResult | null> {
-  const settings = useStore.getState().settings;
-  if (settings.companionEnabled !== true) return null;
+  // MAVI-F1: `companionEnabled` KAPISI KALDIRILDI — bkz. modül başlığı §PRESENCE.
   if (!raw.trim()) return null;
   const isDriving = opts.isDriving === true;
 
@@ -1667,7 +2234,45 @@ export async function tryCompanionBrain(
   if (safetyReply) return { kind: 'chat', response: safetyReply, route: 'companion_safety' };
 
   const result = await runCompanionBrain(raw, opts, allowOnline);
-  return _postGateBrain(result, ctx, isDriving);
+  const gated = _postGateBrain(result, ctx, isDriving);
+  _noteSessionAction(gated);
+  return gated;
+}
+
+/**
+ * KISA DÖNEM HAFIZA (Faz-2 wiring): bu oturumda Mavi'nin GERÇEKTEN YAPTIĞI
+ * işleri kaydeder — konuşma metnini DEĞİL.
+ *
+ * Neden yalnız aksiyonlar: ham konuşma zaten `_history` ile taşınıyor; onu
+ * hafızaya da yazmak veriyi ÇOĞALTIR. "Bu oturumda ne yaptım" ise ayrı ve
+ * yararlı bir sinyaldir ("onu tekrar aç" gibi devam cümleleri için).
+ *
+ * Gizlilik: yalnız hafıza özelliği AÇIK ve İZİN VERİLMİŞKEN yazılır
+ * (kullanamayacağımız veriyi toplamayız); depo YALNIZ RAM'dir; her kayıt
+ * hassas-veri kapısından geçer. Hata isteği ETKİLEMEZ (fail-soft).
+ */
+function _noteSessionAction(result: CompanionBrainResult | null): void {
+  if (!result || result.kind !== 'action') return;
+  const feedback = result.semantic?.feedback;
+  if (typeof feedback !== 'string' || !feedback.trim()) return;
+  /* MAVI-F10 · YOLCULUK HAFIZASI: bu yolculukta GERÇEKTEN yapılan iş kaydedilir
+   * (spec §14.4). Kayıt RAM'dedir, yolculuk anahtarlıdır, hassas-veri kapısından
+   * geçer ve `kind: 'action'`tır.
+   *
+   * ⚠️ **Bir TERCİH DEĞİLDİR (F6/F7 sınırı):** bir eylemin yapılmış/gözlenmiş
+   * olması kullanıcının onu TERCİH ETTİĞİ anlamına gelmez. Bu kayıt uzun döneme
+   * kendiliğinden TERFİ ETMEZ ve çıkarım üretmez. */
+  try { rememberTrip(feedback, 'action', Date.now()); } catch { /* fail-soft */ }
+  void (async () => {
+    try {
+      const [{ isMaviMemoryEnabled, getMaviMemoryConsent }, { rememberShortTerm }] = await Promise.all([
+        import('../ai/gateway/aiGatewayFlag'),
+        import('../ai/memory/shortTermMemory'),
+      ]);
+      if (!isMaviMemoryEnabled() || getMaviMemoryConsent() !== 'memory') return;
+      rememberShortTerm(feedback, _now());
+    } catch { /* hafıza yazımı asistanı ETKİLEMEZ */ }
+  })();
 }
 
 /* ── ASR müzik sorgu onarımı (yerel parser yakaladığında) ───── *
@@ -1688,9 +2293,9 @@ export async function repairMusicQuery(query: string, apiKey: string): Promise<s
         'En olası GERÇEK adı döndür; emin değilsen metni AYNEN döndür. SADECE JSON: {"q":"..."}',
       }] },
       contents: [{ role: 'user', parts: [{ text: q }] }],
-      generationConfig: { responseMimeType: 'application/json', temperature: 0, maxOutputTokens: 50, thinkingConfig: { thinkingBudget: 0 } },
+      generationConfig: { responseMimeType: 'application/json', temperature: 0, maxOutputTokens: 50, ...geminiThinkingConfig(getActiveGeminiModel()) },
     };
-    const resp = await fetch(GEMINI_CHAT_ENDPOINT, {
+    const resp = await fetch(_geminiEndpoint(), {
       method:  'POST',
       headers: { 'Content-Type': 'application/json', 'X-goog-api-key': apiKey },
       body:    JSON.stringify(body),
@@ -1730,8 +2335,8 @@ async function runCompanionChat(
   opts: CompanionChatOpts,
   allowOnline: boolean,
 ): Promise<CompanionChatResult | null> {
+  // MAVI-F1: `companionEnabled` KAPISI KALDIRILDI — bkz. modül başlığı §PRESENCE.
   const settings = useStore.getState().settings;
-  if (settings.companionEnabled !== true) return null;
 
   const trimmed = raw.trim();
   if (!trimmed) return null;
@@ -1745,35 +2350,40 @@ async function runCompanionChat(
     opts.provider === 'gemini' &&
     !!opts.apiKey &&
     opts.hasNet === true &&
-    _now() >= _rateLimitedUntil;
+    !isProviderCoolingDown('gemini');
 
   const groqUsable =
     allowOnline &&
     opts.provider === 'groq' &&
     !!opts.apiKey &&
     opts.hasNet === true &&
-    _now() >= _groqRateLimitedUntil; // Groq KENDİ penceresi (Gemini'ninki değil)
+    !isProviderCoolingDown('groq'); // Groq KENDİ penceresi (Gemini'ninki değil)
 
   if (geminiUsable) {
     try {
-      const reply = await askCompanionGemini(trimmed, opts.apiKey as string, resolveCompanionIdentity(settings), isDriving);
+      const reply = await askCompanionGemini(trimmed, opts.apiKey as string, resolveIdentityWithDriverStyle(settings), isDriving);
       if (reply) {
         recordAiNetSuccess(); // ağ sağlıklı — devre kesici sayacı sıfırla
         pushHistory('user', trimmed);
         pushHistory('model', reply);
         return { response: reply, route: 'companion_gemini' };
       }
-    } catch { recordAiNetFailure(); /* timeout / ağ — sessizce offline'a düş */ }
+    } catch (e) {
+      // SESSİZ OFFLINE YASAK (SAHA 2026-07-22): sebep kodu + künye kaydedilir.
+      recordAiNetFailure({ provider: 'gemini', exceptionType: errorKindFromException(e) });
+    }
   } else if (groqUsable) {
     try {
-      const reply = await askCompanionGroq(trimmed, opts.apiKey as string, resolveCompanionIdentity(settings), isDriving);
+      const reply = await askCompanionGroq(trimmed, opts.apiKey as string, resolveIdentityWithDriverStyle(settings), isDriving);
       if (reply) {
         recordAiNetSuccess(); // ağ sağlıklı — devre kesici sayacı sıfırla
         pushHistory('user', trimmed);
         pushHistory('model', reply);
         return { response: reply, route: 'companion_groq' };
       }
-    } catch { recordAiNetFailure(); /* timeout / ağ — sessizce offline'a düş */ }
+    } catch (e) {
+      recordAiNetFailure({ provider: 'groq', exceptionType: errorKindFromException(e) });
+    }
   }
 
   // ── Offline fallback: internet yok · key yok · hata/timeout · 429 ──
@@ -1791,8 +2401,7 @@ export async function tryCompanionChat(
   raw: string,
   opts: CompanionChatOpts = {},
 ): Promise<CompanionChatResult | null> {
-  const settings = useStore.getState().settings;
-  if (settings.companionEnabled !== true) return null;
+  // MAVI-F1: `companionEnabled` KAPISI KALDIRILDI — bkz. modül başlığı §PRESENCE.
   if (!raw.trim()) return null;
   const isDriving = opts.isDriving === true;
 

@@ -4,11 +4,17 @@
  * Periyodik sıcaklık okuma (30s), kademeli kısıtlama ve self-healing soğuma.
  *
  * Sıcaklık kaynakları (öncelik sırasıyla):
- *   1. injectDeviceTemp() — native plugin entegrasyonu (CarLauncher gelecek sürüm)
- *   2. OBD batteryTemp   — EV akü paketi (araç içi sıcaklık proxy)
- *   3. Battery API       — şarj durumu heuristic (sıcaklık yoksa)
+ *   1. SoC die (sysfs, native readThermal) — AYRI ölçek, aşağıya bak
+ *   2. injectDeviceTemp() — kaos/test enjeksiyonu
+ *   3. OBD batteryTemp   — EV akü paketi (araç içi sıcaklık proxy)
+ *   4. Battery API       — şarj durumu heuristic (sıcaklık yoksa)
  *   NOT (2026-06-11): OBD engineTemp kaynak DEĞİLDİR — motor suyu (90-105°C)
  *   cihaz ısısı sanılıp head unit'i kalıcı L2/L3 kısıtlamaya sokuyordu.
+ *   NOT (2026-07-27): AYNI TUZAK sysfs için de geçerli — SoC die sıcaklığı bu
+ *   SoC'de boşta 73-79 °C, yük altında 82-94 °C'dir. Ham die değeri aşağıdaki
+ *   KASA kademelerine beslenirse cihaz KALICI L3'e düşer (parlaklık %30 +
+ *   minimum yük modu). Bu yaşandı ve geri alındı: die kaynağı KENDİ eşiklerini
+ *   (SOC_DIE_L1/L2/L3 = 100/105/110 °C) kullanır ve yalnız o bölgede müdahale eder.
  *
  * Kademeler ve histerezis:
  *   Giriş:  ≥45°C → L1  |  ≥55°C → L2  |  ≥65°C → L3
@@ -34,6 +40,8 @@ import { showToast }                                    from './errorBus';
 import { speakAlert }                                   from './ttsService';
 import { useStore }                                     from '../store/useStore';
 import { safeSetRaw, safeGetRaw }                       from '../utils/safeStorage';
+import { isNative }                                     from './bridge';
+import { CarLauncher }                                  from './nativePlugin';
 import { runtimeManager }                               from '../core/runtime/AdaptiveRuntimeManager';
 import { RuntimeMode }                                  from '../core/runtime/runtimeTypes';
 
@@ -58,6 +66,20 @@ type ThermalCallback = (snap: ThermalSnapshot) => void;
 ══════════════════════════════════════════════════════════════════════════ */
 
 const POLL_MS     = 30_000;      // Battery API kontrol periyodu (ms)
+
+/* ── SoC ÇEKİRDEK (die) kademeleri — KASA eşiklerinden AYRI ölçek ──────────
+ * Aynı cihazda ölçüldü (kütük #139/#141): boşta 73-79 °C, yük altında 82-94 °C.
+ * Eşikler bu NORMAL aralığın üstünden başlar → yanlış kısıtlama yapılmaz. */
+const SOC_DIE_L1  = 100;         // °C — die uyarı
+const SOC_DIE_L2  = 105;         // °C — die sıcak
+const SOC_DIE_L3  = 110;         // °C — die kritik
+const SOC_DIE_HYST = 3;          // °C — serbest bırakma payı
+
+/* Die kademesini PAYLAŞILAN kasa ölçeğine eşleyen temsilci değerler. */
+const SCALE_L0    = 30;
+const SCALE_L1    = 46;
+const SCALE_L2    = 56;
+const SCALE_L3    = 66;
 const STORAGE_KEY = 'tw-state';  // safeStorage anahtarı
 const RESTORE_TTL = 5 * 60_000;  // Eski snapshot'ı yoksay (5 dk)
 
@@ -107,6 +129,10 @@ let _earlyWarningRadarPaused = false;
 
 // useSyncExternalStore için
 let _storeSnap: ThermalSnapshot = { level: 0, tempC: NaN, source: 'unknown', ts: 0 };
+/** Son HAM SoC die okuması (°C). NaN = hiç okunmadı. */
+let _socDieTempC: number = NaN;
+/** Kademeyi die kaynağı mı yükseltti — yalnız kendi kararımızı geri alırız. */
+let _socEscalated = false;
 const _storeListeners  = new Set<() => void>();
 const _thermalCallbacks = new Set<ThermalCallback>();
 
@@ -490,6 +516,126 @@ function _subscribeOBD(): void {
    Sıcaklık okuma — Battery API (30s periyodik)
 ══════════════════════════════════════════════════════════════════════════ */
 
+/**
+ * _pollNativeThermal — cihazın sysfs termal bölgelerinden GERÇEK CPU sıcaklığı okur.
+ *
+ * NEDEN VAR (saha kanıtı, kütük #139 · DEBT-013): Bu güç sınıfındaki head unit'lerde
+ * Android termal HAL ÖLÜ (`HAL Ready: false`) ve `injectDeviceTemp()` üretimde HİÇ
+ * çağrılmıyordu → `thermalWatchdog` `source:'unknown'`da kalıyor, cihaz 93 °C'ye
+ * çıkarken L1/L2/L3 eşikleri hiç tetiklenmiyordu. Tek okunabilir kaynak sysfs'tir.
+ *
+ * FAIL-CLOSED: native yoksa, çağrı düşerse veya hiçbir bölge okunamazsa **hiçbir şey
+ * yapılmaz** — sıcaklık TAHMİN EDİLMEZ, mevcut kaynak (OBD/battery) bozulmaz.
+ * Yeni timer AÇMAZ; mevcut 30 sn'lik tick'e biner.
+ */
+/* ══════════════════════════════════════════════════════════════════════════
+ * SAF yardımcılar (SoC die) — I/O yok, modül durumu yok → tam test edilebilir.
+ * ════════════════════════════════════════════════════════════════════════ */
+
+/** `readThermal()` bölgesinin test edilebilir dar görünümü. */
+export interface ThermalZoneLike { readonly type?: string; readonly tempC?: number }
+
+/**
+ * Bir sysfs bölge etiketi SoC ÇEKİRDEK (die) sınıfı mı?
+ *
+ * ZERO-TRUST: yalnız AÇIKÇA die/işlemci olduğunu söyleyen etiketler kabul edilir.
+ * `battery` · `ambient` · `board` · `case` · `pmic` · `charger` gibi KASA/ÇEVRE
+ * sensörleri farklı ölçektedir; die eşikleriyle (100/105/110 °C) değerlendirilirse
+ * gerçek aşırı ısınma KAÇIRILIR. Etiket yoksa veya tanınmıyorsa `false` — bölge
+ * UNAVAILABLE sayılır, TAHMİN EDİLMEZ.
+ */
+export function isDieZone(type: string | undefined): boolean {
+  if (typeof type !== 'string' || type.length === 0) return false;
+  const t = type.toLowerCase();
+  // Önce dışlama: kasa/çevre/güç sensörleri asla die değildir.
+  if (/batt|ambient|board|case|skin|pmic|charger|usb|modem|wifi|bms/.test(t)) return false;
+  return /cpu|soc|die|gpu|ddr|thermal_zone_?(cpu|gpu)|tsens|bigcore|littlecore/.test(t);
+}
+
+/**
+ * Okunabilir die bölgeleri arasından EN SICAK olanı seçer.
+ * Die sınıfı bölge yoksa `null` — etiketsiz bölge die YERİNE GEÇMEZ.
+ */
+export function selectDieTempC(zones: readonly ThermalZoneLike[] | undefined): number | null {
+  if (!Array.isArray(zones)) return null;
+  let best: number | null = null;
+  for (const z of zones) {
+    if (typeof z?.tempC !== 'number' || !Number.isFinite(z.tempC)) continue;
+    if (!isDieZone(z.type)) continue;
+    if (best === null || z.tempC > best) best = z.tempC;
+  }
+  return best;
+}
+
+/**
+ * Die sıcaklığını KENDİ kademesine çevirir (kasa ölçeğinden AYRI).
+ * `prevLevel` verilirse serbest bırakmada histerezis uygulanır.
+ */
+export function dieLevelFor(tempC: number, prevLevel: ThermalLevel = 0): ThermalLevel {
+  if (!Number.isFinite(tempC)) return 0;
+  if (tempC >= SOC_DIE_L3) return 3;
+  if (tempC >= SOC_DIE_L2) return 2;
+  if (tempC >= SOC_DIE_L1) return 1;
+  // Histerezis: yükselttiysek, eşiğin SOC_DIE_HYST altına inene dek bırakma.
+  if (prevLevel > 0 && tempC >= SOC_DIE_L1 - SOC_DIE_HYST) return prevLevel;
+  return 0;
+}
+
+async function _pollNativeThermal(): Promise<void> {
+  if (!isNative) return;
+  try {
+    const res = await CarLauncher.readThermal();
+    if (!res?.available || !Array.isArray(res.zones)) return;
+
+    const die = selectDieTempC(res.zones);
+    if (die === null) return;   // die sınıfı sensör okunamadı → UNAVAILABLE, sessiz çık
+    _socDieTempC = die;         // gözlem için HAM değer daima saklanır
+
+    /* ── ÖLÇEK KAPISI (kritik) ────────────────────────────────────────────────
+     * Bu dosyanın kademeleri (L1 45 · L2 55 · L3 65 °C) KASA/ORTAM sıcaklığı
+     * içindir. sysfs ise SoC ÇEKİRDEK (die) sıcaklığı verir — tamamen başka bir
+     * ölçek. Ham die değerini doğrudan beslemek, 2026-06-11'de motor suyu
+     * (90-105 °C) için düzeltilen hatanın AYNISINI üretir: cihaz kalıcı L3'e
+     * düşer (parlaklık %30 + minimum yük modu). 2026-07-27'de tam olarak bu
+     * yaşandı ve geri alındı.
+     *
+     * KALİBRASYON (uydurma DEĞİL — aynı cihazda ölçüldü, kütük #139/#141):
+     *   uygulama KAPALI : 73–79 °C   → bu SoC için NORMAL boşta
+     *   uygulama AÇIK   : 82–94 °C   → NORMAL yük altı
+     * Bu yüzden die kademeleri gözlenen normal aralığın ÜSTÜNDEN başlar.
+     * Aşağıdaki eşiklerin altında die kaynağı watchdog'a HİÇ DOKUNMAZ —
+     * OBD/battery kaynağını ezmez.
+     */
+    const prev: ThermalLevel = _socEscalated ? _level : 0;
+    const nextLevel: ThermalLevel = dieLevelFor(die, prev);
+
+    if (nextLevel === 0) {
+      // Yalnız BİZ yükselttiysek serbest bırak (histerezis payıyla) — başka
+      // kaynağın kararını sıfırlamayız.
+      if (_socEscalated) {
+        _socEscalated = false;
+        _injectedPriority = false;
+        _applyTemp(SCALE_L0, 'injected');
+      }
+      return;
+    }
+
+    // Die tehlike bölgesinde: kademeyi PAYLAŞILAN ölçeğe eşleyerek uygula.
+    // Not: burada `_tempC` eşlenmiş değeri gösterir; HAM die için
+    // `getSocDieTempC()` kullanılır (gözlemlenebilirlik ayrı tutulur).
+    _socEscalated = true;
+    _injectedPriority = true;
+    _applyTemp(nextLevel === 3 ? SCALE_L3 : nextLevel === 2 ? SCALE_L2 : SCALE_L1, 'injected');
+  } catch {
+    /* fail-soft: native yok / metot yok / okuma reddedildi → kaynak değişmez */
+  }
+}
+
+/** Son okunan HAM SoC die sıcaklığı (°C) — eşlenmiş değer değil. NaN = okunmadı. */
+export function getSocDieTempC(): number {
+  return _socDieTempC;
+}
+
 async function _pollBatteryAPI(): Promise<void> {
   if (_injectedPriority || isFinite(_tempC)) return; // daha iyi kaynak varsa atla
 
@@ -565,8 +711,13 @@ export function startThermalWatchdog(): void {
 
   _subscribeOBD();
 
+  void _pollNativeThermal();
   void _pollBatteryAPI();
-  _tickTimer = setInterval(() => { void _pollBatteryAPI(); }, POLL_MS);
+  // YENİ TIMER AÇILMADI: native termal okuma MEVCUT 30 sn'lik tick'e biner.
+  _tickTimer = setInterval(() => {
+    void _pollNativeThermal();
+    void _pollBatteryAPI();
+  }, POLL_MS);
 }
 
 /**

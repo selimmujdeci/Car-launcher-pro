@@ -70,7 +70,7 @@ vi.mock('../core/runtime/AdaptiveRuntimeManager', () => ({
     // obdPollingMs 60_000: 8h soak'ta tick sayısı 480'de kalsın (50ms olsaydı 576k tick).
     getConfig: vi.fn(() => ({ obdPollingMs: 60_000, gpsUpdateMs: 200, uiFpsTarget: 60, enableBlur: false, enableAnimations: false, loggingLevel: 'silent' })),
     subscribe:     vi.fn(() => () => {}),
-    reportFailure: vi.fn(),
+    reportFailure: vi.fn(), reportRecovery: vi.fn(),
   },
   AdaptiveRuntimeManager: { getInstance: vi.fn() },
 }));

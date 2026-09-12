@@ -1,0 +1,1509 @@
+{
+  "measuredAt": "2026-09-07T14:35:38.145025+00:00",
+  "elapsedSec": 11.5,
+  "scope": "Three fixed AOIs reused from MAPDATA #1321/source benchmark; production-unbound measurement only.",
+  "methodWarnings": [
+    "Overture segment and OSM way are different segmentation units; raw counts are not gain.",
+    "POI/road unique candidates are not independently verified real-world truth.",
+    "Overture ML buildings retain GAP_EVIDENCE only after GEOMETRY RESCUE FAIL.",
+    "OSM map API was used only for three bounded research snapshots, never as a production bulk adapter."
+  ],
+  "sources": {
+    "osm": {
+      "endpoint": "https://api.openstreetmap.org/api/0.6/map",
+      "license": "ODbL-1.0"
+    },
+    "overture": {
+      "release": "2026-08-19.0",
+      "root": "s3://overturemaps-us-west-2/release/2026-08-19.0"
+    },
+    "geonames": {
+      "url": "https://download.geonames.org/export/dump/TR.zip",
+      "license": "CC-BY-4.0"
+    }
+  },
+  "regions": [
+    {
+      "id": "TARSUS",
+      "label": "Tarsus",
+      "bbox": [
+        34.85985,
+        36.9157,
+        34.86435,
+        36.9193
+      ],
+      "osm": {
+        "roads": {
+          "wayCount": 40,
+          "namedWayCount": 8,
+          "uniqueNames": [
+            "0451. Sokak",
+            "0469. Sokak",
+            "1965. Sokak",
+            "1968. Sokak",
+            "1971. Sokak",
+            "1975. Sokak",
+            "Mavi Bulvar"
+          ],
+          "classCounts": {
+            "residential": 38,
+            "tertiary": 2
+          },
+          "junctionNodesDegree2Plus": 64,
+          "junctionNodesDegree3Plus": 2,
+          "bridgeWays": 0,
+          "tunnelWays": 0,
+          "linkWays": 0,
+          "roundaboutWays": 0,
+          "lanesKnownWays": 0,
+          "maxspeedKnownWays": 0,
+          "onewayKnownWays": 0,
+          "turnRestrictionRelations": 0
+        },
+        "addresses": {
+          "addressCount": 0,
+          "housenumberCount": 0,
+          "explicitStreetCount": 0,
+          "nearestNamedRoadWithin30m": 0,
+          "explicitStreetMatchesNearest": 0,
+          "phoneLikeOrTooLongHousenumber": 0,
+          "rows": []
+        },
+        "pois": {
+          "count": 2,
+          "namedCount": 1,
+          "categoryCount": 2,
+          "topCategories": {
+            "leisure=park": 1,
+            "amenity=place_of_worship": 1
+          }
+        },
+        "places": {
+          "count": 0,
+          "namedCount": 0
+        },
+        "boundaries": {
+          "objectsInMapResponse": 4,
+          "note": "Map API ilişkileri AOI dışında tamamlayabilir; bu sayı tam boundary coverage ölçüsü değildir."
+        },
+        "freshness": {
+          "oldestObservedRecord": "2013-04-10T11:44:38Z",
+          "latestObservedRecord": "2026-01-09T13:04:24Z"
+        }
+      },
+      "overture": {
+        "buildings": {
+          "id": "TARSUS",
+          "bbox": [
+            34.85985,
+            36.9157,
+            34.86435,
+            36.9193
+          ],
+          "osm": {
+            "closedBuildingWays": 11,
+            "buildingRelations": 0,
+            "footprintObjects": 11,
+            "medianClosedWayAreaM2": 162.42980004200203,
+            "latestObservedRecordTimestamp": "2026-01-09T13:04:24Z",
+            "geometryPayloadSha256": "e84707c4db0e02e6cde43c4501d4cc89e922766f2a114579e68fd6c688e2e75f"
+          },
+          "overture": {
+            "total": 123,
+            "sourceFamilies": {
+              "ML_DERIVED": 112,
+              "OSM_DERIVED": 11
+            },
+            "osmDerived": 11,
+            "mlDerived": 112,
+            "otherFamilies": 0,
+            "medianAreaM2": {
+              "osmDerived": 162.4296341274524,
+              "mlDerived": 73.56315160975043,
+              "otherFamilies": null
+            },
+            "osmIdAgreement": 11,
+            "osmBaselineIdentityOverlapRate": 1,
+            "osmIdDuplicateRateWithinOverture": 0,
+            "osmGeometryAgreement": {
+              "n": 11,
+              "medianAreaRatio": 0.9999989798701114,
+              "minAreaRatio": 0.9999985288048809,
+              "medianCentroidM": 0,
+              "maxCentroidM": 7.900879950284434e-10,
+              "medianIouApprox": 1,
+              "minIouApprox": 1,
+              "grossShapeMismatch": 0
+            }
+          },
+          "verifiedAlternative": {
+            "count": 0,
+            "uniqueIncremental": 0,
+            "verification": "NO_RECORDS"
+          }
+        },
+        "roads": {
+          "rawSegmentCount": 100,
+          "nonRoadSegmentCount": 0,
+          "distinctMappedOsmWayIds": 40,
+          "osmWaysRepresentedInCurrentAoi": 40,
+          "sourceDatasetRecordCounts": {
+            "OpenStreetMap": 97,
+            "TomTom": 3
+          },
+          "osmAndTomTomEnrichedSegments": 0,
+          "nonOsmSourceSegments": 3,
+          "novelGeometryCandidates": [
+            {
+              "id": "ea7b2fde-6709-4a4b-9dcf-46d2cbbd707e",
+              "name": null,
+              "class": "unknown",
+              "sourceDatasets": [
+                "TomTom"
+              ],
+              "lengthM": 77.23773050714024,
+              "medianDistanceToOsmM": 25.621302814564775,
+              "maxDistanceToOsmM": 43.32009633094748
+            }
+          ],
+          "independentlyVerifiedRealNewRoads": null,
+          "geometryAgreementToMappedOsm": {
+            "sampleCount": 359,
+            "medianDirectedDistanceM": 0.0,
+            "p95DirectedDistanceM": 4.656612873077393e-10,
+            "maxDirectedDistanceM": 0.0030125170772670926
+          },
+          "exactGeometryDuplicateRate": 0.0,
+          "class": {
+            "counts": {
+              "residential": 86,
+              "tertiary": 11,
+              "unknown": 3
+            },
+            "comparableSegments": 97,
+            "conflictingSegments": 0
+          },
+          "names": {
+            "namedSegmentCount": 25,
+            "uniqueNames": [
+              "0451. Sokak",
+              "0469. Sokak",
+              "1965. Sokak",
+              "1968. Sokak",
+              "1971. Sokak",
+              "1975. Sokak",
+              "Mavi Bulvar"
+            ],
+            "uniqueNameCount": 7,
+            "additionalOnMappedOsmSegments": [],
+            "conflicts": []
+          },
+          "topology": {
+            "uniqueConnectorIds": 80,
+            "sharedConnectorIdsDegree2Plus": 59,
+            "decisionConnectorIdsDegree3Plus": 52,
+            "note": "Overture segmentasyonu ile OSM way segmentasyonu eşdeğer birim değildir."
+          },
+          "navigationAttributes": {
+            "bridgeFlagSegments": 0,
+            "tunnelFlagSegments": 0,
+            "linkFlagSegments": 0,
+            "speedLimitSegments": 0,
+            "accessRestrictionSegments": 0,
+            "prohibitedTransitionSegments": 0,
+            "surfaceSegments": 0,
+            "widthRuleSegments": 0,
+            "laneCountField": "NOT_IN_OVERTURE_SEGMENT_SCHEMA"
+          },
+          "freshness": {
+            "release": "2026-08-19.0",
+            "oldestSourceUpdate": "2013-04-10T11:44:38Z",
+            "latestSourceUpdate": "2026-07-31T06:34:59Z"
+          }
+        },
+        "addresses": {
+          "addressCount": 0,
+          "housenumberCount": 0,
+          "streetAndNumberCount": 0,
+          "uniqueIncrementalCandidateCount": 0,
+          "uniqueIncrementalCandidateIds": [],
+          "phoneLikeOrTooLongHousenumber": 0,
+          "independentlyVerifiedIncrementalAddresses": 0
+        },
+        "places": {
+          "count": 0,
+          "namedCount": 0,
+          "categoryCount": 0,
+          "topCategories": {},
+          "sourceDatasetRecordCounts": {},
+          "exactNameWithin75mOsmDuplicates": 0,
+          "spatialWithin20mButNameUnmatched": 0,
+          "uniqueIncrementalCandidateCount": 0,
+          "qualityQualifiedCandidateCount": 0,
+          "independentlyVerifiedIncrementalPois": null,
+          "withinSourceDuplicateCount": 0,
+          "withinSourceDuplicateRate": null,
+          "addressBearingPlaceCount": 0,
+          "closedPermanentCount": 0,
+          "lowConfidenceBelow050Count": 0,
+          "confidence": {
+            "knownCount": 0,
+            "median": null,
+            "p10": null,
+            "p90": null
+          },
+          "suspiciousOrLowQualityCount": 0,
+          "qualifiedSample": [],
+          "freshness": {
+            "release": "2026-08-19.0",
+            "oldestSourceUpdate": null,
+            "latestSourceUpdate": null
+          }
+        },
+        "divisions": {
+          "intersectingAreaCount": 7,
+          "areas": [
+            {
+              "id": "e2e70875-f55c-482e-86c6-26a62d9cfbf3",
+              "name": "Mersin",
+              "subtype": "region",
+              "adminLevel": 1,
+              "class": "maritime",
+              "isLand": false,
+              "isTerritorial": true,
+              "sourceDatasets": [
+                "Esri Community Maps",
+                "OpenStreetMap"
+              ]
+            },
+            {
+              "id": "331f0573-c9a8-400b-a5c8-cba28764ad33",
+              "name": "Mersin",
+              "subtype": "region",
+              "adminLevel": 1,
+              "class": "land",
+              "isLand": true,
+              "isTerritorial": false,
+              "sourceDatasets": [
+                "Esri Community Maps",
+                "OpenStreetMap"
+              ]
+            },
+            {
+              "id": "63444af8-fdcc-4b3f-bffd-954567a71714",
+              "name": "Tarsus",
+              "subtype": "county",
+              "adminLevel": 2,
+              "class": "land",
+              "isLand": true,
+              "isTerritorial": true,
+              "sourceDatasets": [
+                "OpenStreetMap"
+              ]
+            },
+            {
+              "id": "c5916c7c-20fa-456c-b98a-221b9c04e756",
+              "name": "Bağlar Mahallesi",
+              "subtype": "macrohood",
+              "adminLevel": null,
+              "class": "land",
+              "isLand": true,
+              "isTerritorial": true,
+              "sourceDatasets": [
+                "OpenStreetMap"
+              ]
+            },
+            {
+              "id": "9c726f2d-f4e2-4115-bcf8-267a038f00a3",
+              "name": "Gazipaşa Mahallesi",
+              "subtype": "macrohood",
+              "adminLevel": null,
+              "class": "land",
+              "isLand": true,
+              "isTerritorial": true,
+              "sourceDatasets": [
+                "OpenStreetMap"
+              ]
+            },
+            {
+              "id": "e365df79-a684-45a0-aa84-f86107a4e091",
+              "name": "Türkiye",
+              "subtype": "country",
+              "adminLevel": 0,
+              "class": "land",
+              "isLand": true,
+              "isTerritorial": false,
+              "sourceDatasets": [
+                "Esri Community Maps",
+                "OpenStreetMap"
+              ]
+            },
+            {
+              "id": "2de03ee4-e94d-4668-89a5-1c00aba2fa93",
+              "name": "Türkiye",
+              "subtype": "country",
+              "adminLevel": 0,
+              "class": "maritime",
+              "isLand": false,
+              "isTerritorial": true,
+              "sourceDatasets": [
+                "Esri Community Maps",
+                "OpenStreetMap"
+              ]
+            }
+          ],
+          "sourceDatasetRecordCounts": {
+            "Esri Community Maps": 4,
+            "OpenStreetMap": 7
+          },
+          "independentOfOsm": false
+        }
+      },
+      "geonames": {
+        "count": 0,
+        "featureClassCounts": {},
+        "osmExactNameWithin100mDuplicates": 0,
+        "uniqueIncrementalCandidateCount": 0,
+        "independentlyVerifiedIncrementalPlaces": 0,
+        "latestRecordModificationDate": null,
+        "candidateRows": []
+      }
+    },
+    {
+      "id": "MERSIN",
+      "label": "Mersin dense urban",
+      "bbox": [
+        34.6304,
+        36.8093,
+        34.6374,
+        36.8149
+      ],
+      "osm": {
+        "roads": {
+          "wayCount": 89,
+          "namedWayCount": 64,
+          "uniqueNames": [
+            "117. Cadde",
+            "141. Cadde",
+            "5316. Sokak",
+            "5318. Sokak",
+            "5320. Sokak",
+            "5324. Sokak",
+            "5326 Sokak",
+            "5333. Sokak",
+            "5339. Sokak",
+            "5341. Sokak",
+            "5343. Sokak",
+            "5345. Sokak",
+            "5347 Sokak",
+            "5347. Sokak",
+            "5351 Sokak",
+            "5415. Sokak",
+            "5421. Sokak",
+            "5423. Sokak",
+            "5424. Sokak",
+            "5425. Sokak",
+            "5426. Sokak",
+            "5427. Sokak",
+            "5433. Sokak",
+            "5434. Sokak",
+            "5436. Sokak",
+            "5501. Sokak",
+            "5502. Sokak",
+            "5504. Sokak",
+            "5506. Sokak",
+            "5508. Sokak",
+            "5510. Sokak",
+            "5511. Sokak",
+            "5512. Sokak",
+            "5515. Sokak",
+            "5516. Sokak",
+            "5517. Sokak",
+            "5518. Sokak",
+            "5519. Sokak",
+            "5520. Sokak",
+            "5521. Sokak",
+            "5522. Sokak",
+            "5523. Sokak",
+            "5524. Sokak",
+            "5528. Sokak",
+            "5651. Sokak",
+            "5653. Sokak",
+            "Fasih Kayabalı Caddesi",
+            "Gazi Mustafa Kemal Bulvarı",
+            "Mersinli Ahmet Caddesi",
+            "Yenikent Sitesi",
+            "Zafer Parkı"
+          ],
+          "classCounts": {
+            "cycleway": 2,
+            "footway": 10,
+            "pedestrian": 2,
+            "residential": 57,
+            "service": 5,
+            "tertiary": 10,
+            "tertiary_link": 1,
+            "trunk": 2
+          },
+          "junctionNodesDegree2Plus": 141,
+          "junctionNodesDegree3Plus": 10,
+          "bridgeWays": 0,
+          "tunnelWays": 0,
+          "linkWays": 1,
+          "roundaboutWays": 0,
+          "lanesKnownWays": 1,
+          "maxspeedKnownWays": 2,
+          "onewayKnownWays": 12,
+          "turnRestrictionRelations": 0
+        },
+        "addresses": {
+          "addressCount": 1,
+          "housenumberCount": 1,
+          "explicitStreetCount": 1,
+          "nearestNamedRoadWithin30m": 0,
+          "explicitStreetMatchesNearest": 1,
+          "phoneLikeOrTooLongHousenumber": 0,
+          "rows": [
+            {
+              "id": "way/656425057",
+              "housenumber": "44 A",
+              "street": "117. Cadde",
+              "nearestNamedRoad": "117. Cadde",
+              "nearestNamedRoadDistanceM": 57.25288517172883,
+              "explicitStreetMatchesNearest": true
+            }
+          ]
+        },
+        "pois": {
+          "count": 39,
+          "namedCount": 24,
+          "categoryCount": 18,
+          "topCategories": {
+            "leisure=park": 7,
+            "amenity=school": 5,
+            "leisure=pitch": 4,
+            "amenity=fuel": 3,
+            "shop=supermarket": 3,
+            "amenity=place_of_worship": 3,
+            "shop=bakery": 2,
+            "leisure=playground": 2,
+            "amenity=bicycle_parking": 1,
+            "amenity=toilets": 1,
+            "amenity=charging_station": 1,
+            "amenity=car_wash": 1
+          }
+        },
+        "places": {
+          "count": 1,
+          "namedCount": 1
+        },
+        "boundaries": {
+          "objectsInMapResponse": 9,
+          "note": "Map API ilişkileri AOI dışında tamamlayabilir; bu sayı tam boundary coverage ölçüsü değildir."
+        },
+        "freshness": {
+          "oldestObservedRecord": "2011-05-13T08:18:13Z",
+          "latestObservedRecord": "2026-07-13T06:52:45Z"
+        }
+      },
+      "overture": {
+        "buildings": {
+          "id": "MERSIN",
+          "bbox": [
+            34.6304,
+            36.8093,
+            34.6374,
+            36.8149
+          ],
+          "osm": {
+            "closedBuildingWays": 28,
+            "buildingRelations": 0,
+            "footprintObjects": 28,
+            "medianClosedWayAreaM2": 389.2228545344458,
+            "latestObservedRecordTimestamp": "2026-06-25T13:16:56Z",
+            "geometryPayloadSha256": "4bd5d85f262c26ecadcea54f919ca57d606146bd26693ee066da9d3dc833cfdb"
+          },
+          "overture": {
+            "total": 435,
+            "sourceFamilies": {
+              "ML_DERIVED": 407,
+              "OSM_DERIVED": 28
+            },
+            "osmDerived": 28,
+            "mlDerived": 407,
+            "otherFamilies": 0,
+            "medianAreaM2": {
+              "osmDerived": 389.22201514658957,
+              "mlDerived": 135.47959393738736,
+              "otherFamilies": null
+            },
+            "osmIdAgreement": 28,
+            "osmBaselineIdentityOverlapRate": 1,
+            "osmIdDuplicateRateWithinOverture": 0,
+            "osmGeometryAgreement": {
+              "n": 28,
+              "medianAreaRatio": 0.9999989283136883,
+              "minAreaRatio": 0.9999966207503119,
+              "medianCentroidM": 0,
+              "maxCentroidM": 7.900879950284434e-10,
+              "medianIouApprox": 1,
+              "minIouApprox": 1,
+              "grossShapeMismatch": 0
+            }
+          },
+          "verifiedAlternative": {
+            "count": 0,
+            "uniqueIncremental": 0,
+            "verification": "NO_RECORDS"
+          }
+        },
+        "roads": {
+          "rawSegmentCount": 186,
+          "nonRoadSegmentCount": 2,
+          "distinctMappedOsmWayIds": 91,
+          "osmWaysRepresentedInCurrentAoi": 89,
+          "sourceDatasetRecordCounts": {
+            "OpenStreetMap": 183,
+            "TomTom": 3
+          },
+          "osmAndTomTomEnrichedSegments": 0,
+          "nonOsmSourceSegments": 3,
+          "novelGeometryCandidates": [
+            {
+              "id": "c0b07f86-11ed-40fd-9d18-97995de2ca80",
+              "name": null,
+              "class": "unknown",
+              "sourceDatasets": [
+                "TomTom"
+              ],
+              "lengthM": 126.07819012699743,
+              "medianDistanceToOsmM": 29.11713235131386,
+              "maxDistanceToOsmM": 49.315882754500315
+            }
+          ],
+          "independentlyVerifiedRealNewRoads": null,
+          "geometryAgreementToMappedOsm": {
+            "sampleCount": 887,
+            "medianDirectedDistanceM": 0.0,
+            "p95DirectedDistanceM": 6.585445079827193e-10,
+            "maxDirectedDistanceM": 137.5279270660218
+          },
+          "exactGeometryDuplicateRate": 0.0,
+          "class": {
+            "counts": {
+              "cycleway": 2,
+              "footway": 9,
+              "pedestrian": 2,
+              "residential": 119,
+              "service": 6,
+              "tertiary": 31,
+              "trunk": 14,
+              "unknown": 3
+            },
+            "comparableSegments": 183,
+            "conflictingSegments": 0
+          },
+          "names": {
+            "namedSegmentCount": 156,
+            "uniqueNames": [
+              "117. Cadde",
+              "141. Cadde",
+              "5316. Sokak",
+              "5318. Sokak",
+              "5320. Sokak",
+              "5324. Sokak",
+              "5326 Sokak",
+              "5333. Sokak",
+              "5339. Sokak",
+              "5341. Sokak",
+              "5343. Sokak",
+              "5345. Sokak",
+              "5347 Sokak",
+              "5347. Sokak",
+              "5351 Sokak",
+              "5353 Sokak",
+              "5415. Sokak",
+              "5421. Sokak",
+              "5423. Sokak",
+              "5424. Sokak",
+              "5425. Sokak",
+              "5426. Sokak",
+              "5427. Sokak",
+              "5433. Sokak",
+              "5434. Sokak",
+              "5436. Sokak",
+              "5501. Sokak",
+              "5502. Sokak",
+              "5504. Sokak",
+              "5506. Sokak",
+              "5508. Sokak",
+              "5510. Sokak",
+              "5511. Sokak",
+              "5512. Sokak",
+              "5515. Sokak",
+              "5516. Sokak",
+              "5517. Sokak",
+              "5518. Sokak",
+              "5519. Sokak",
+              "5520. Sokak",
+              "5521. Sokak",
+              "5522. Sokak",
+              "5523. Sokak",
+              "5524. Sokak",
+              "5528. Sokak",
+              "5651. Sokak",
+              "5653. Sokak",
+              "Fasih Kayabalı Caddesi",
+              "Gazi Mustafa Kemal Bulvarı",
+              "Mersinli Ahmet Caddesi",
+              "Yenikent Sitesi",
+              "Zafer Parkı"
+            ],
+            "uniqueNameCount": 52,
+            "additionalOnMappedOsmSegments": [],
+            "conflicts": [
+              {
+                "overtureId": "5834843b-0ed1-4b0f-9f93-f60170b4a911",
+                "overtureName": "5353 Sokak",
+                "osmNames": [
+                  "5326 Sokak"
+                ]
+              }
+            ]
+          },
+          "topology": {
+            "uniqueConnectorIds": 186,
+            "sharedConnectorIdsDegree2Plus": 133,
+            "decisionConnectorIdsDegree3Plus": 92,
+            "note": "Overture segmentasyonu ile OSM way segmentasyonu eşdeğer birim değildir."
+          },
+          "navigationAttributes": {
+            "bridgeFlagSegments": 0,
+            "tunnelFlagSegments": 0,
+            "linkFlagSegments": 1,
+            "speedLimitSegments": 14,
+            "accessRestrictionSegments": 29,
+            "prohibitedTransitionSegments": 0,
+            "surfaceSegments": 12,
+            "widthRuleSegments": 0,
+            "laneCountField": "NOT_IN_OVERTURE_SEGMENT_SCHEMA"
+          },
+          "freshness": {
+            "release": "2026-08-19.0",
+            "oldestSourceUpdate": "2011-05-13T08:18:13Z",
+            "latestSourceUpdate": "2026-07-13T06:52:45Z"
+          }
+        },
+        "addresses": {
+          "addressCount": 0,
+          "housenumberCount": 0,
+          "streetAndNumberCount": 0,
+          "uniqueIncrementalCandidateCount": 0,
+          "uniqueIncrementalCandidateIds": [],
+          "phoneLikeOrTooLongHousenumber": 0,
+          "independentlyVerifiedIncrementalAddresses": 0
+        },
+        "places": {
+          "count": 75,
+          "namedCount": 75,
+          "categoryCount": 48,
+          "topCategories": {
+            "automotive_repair": 8,
+            "car_dealer": 5,
+            "UNKNOWN": 4,
+            "advertising_agency": 3,
+            "auto_detailing": 3,
+            "park": 3,
+            "accommodation": 3,
+            "storage_facility": 3,
+            "home_developer": 2,
+            "wedding_planning": 2,
+            "high_school": 2,
+            "college_university": 1,
+            "hospital": 1,
+            "delicatessen": 1,
+            "cheese_shop": 1
+          },
+          "sourceDatasetRecordCounts": {
+            "AllThePlaces": 1,
+            "Foursquare": 3,
+            "Microsoft": 1,
+            "Overture": 75,
+            "meta": 70
+          },
+          "exactNameWithin75mOsmDuplicates": 4,
+          "spatialWithin20mButNameUnmatched": 8,
+          "uniqueIncrementalCandidateCount": 71,
+          "qualityQualifiedCandidateCount": 31,
+          "independentlyVerifiedIncrementalPois": null,
+          "withinSourceDuplicateCount": 0,
+          "withinSourceDuplicateRate": 0.0,
+          "addressBearingPlaceCount": 75,
+          "closedPermanentCount": 0,
+          "lowConfidenceBelow050Count": 16,
+          "confidence": {
+            "knownCount": 75,
+            "median": 0.690294086933136,
+            "p10": 0.37997597455978394,
+            "p90": 0.9605834484100342
+          },
+          "suspiciousOrLowQualityCount": 18,
+          "qualifiedSample": [
+            {
+              "id": "282ca0f2-976b-485f-ac01-c2f6b2a80e86",
+              "name": "Koza Gida",
+              "category": "delicatessen",
+              "confidence": 0.8950564861297607,
+              "operatingStatus": null,
+              "sourceDatasets": [
+                "Overture",
+                "meta"
+              ],
+              "nearestOsmPoiDistanceM": 61.43461252389944,
+              "hasAddress": true
+            },
+            {
+              "id": "58ddfb55-7b18-4fff-9763-263955637365",
+              "name": "Mersin Akdeniz Fevzi Cakmak Ortaokulu",
+              "category": "elementary_school",
+              "confidence": 0.9105287790298462,
+              "operatingStatus": null,
+              "sourceDatasets": [
+                "Overture",
+                "meta"
+              ],
+              "nearestOsmPoiDistanceM": 18.306495605629145,
+              "hasAddress": true
+            },
+            {
+              "id": "b5667999-3c55-4b51-a9e2-5c2c0ff8188a",
+              "name": "Arslan Köy",
+              "category": "home_developer",
+              "confidence": 0.7703245878219604,
+              "operatingStatus": null,
+              "sourceDatasets": [
+                "Overture",
+                "meta"
+              ],
+              "nearestOsmPoiDistanceM": 37.11492827083596,
+              "hasAddress": true
+            },
+            {
+              "id": "485731ac-7a9a-450d-a835-e4c26c93bc17",
+              "name": "Cadde 117 Kebap Salonu",
+              "category": "fast_food_restaurant",
+              "confidence": 0.7761274576187134,
+              "operatingStatus": null,
+              "sourceDatasets": [
+                "Overture",
+                "meta"
+              ],
+              "nearestOsmPoiDistanceM": 18.914436295181503,
+              "hasAddress": true
+            },
+            {
+              "id": "8bfd7c30-5d34-4d86-862a-229dacdb4fe6",
+              "name": "Hatun Tuhafiye",
+              "category": "wedding_planning",
+              "confidence": 0.8988583087921143,
+              "operatingStatus": null,
+              "sourceDatasets": [
+                "Overture",
+                "meta"
+              ],
+              "nearestOsmPoiDistanceM": 30.375819239080588,
+              "hasAddress": true
+            },
+            {
+              "id": "261f760a-a970-45e7-90ca-31baa43fc677",
+              "name": "Fatih Eğitim Kültür Derneği",
+              "category": "real_estate_agent",
+              "confidence": 0.8607194423675537,
+              "operatingStatus": null,
+              "sourceDatasets": [
+                "Overture",
+                "meta"
+              ],
+              "nearestOsmPoiDistanceM": 78.5483585731808,
+              "hasAddress": true
+            },
+            {
+              "id": "4a60faed-4921-4fe9-a782-0775e21e553a",
+              "name": "İKRA Tekstil",
+              "category": "fashion",
+              "confidence": 0.8307957649230957,
+              "operatingStatus": null,
+              "sourceDatasets": [
+                "Overture",
+                "meta"
+              ],
+              "nearestOsmPoiDistanceM": 15.123358428449833,
+              "hasAddress": true
+            },
+            {
+              "id": "8c21a795-0434-45c8-9339-a5862069fe75",
+              "name": "GvN Plus Life Spa Center",
+              "category": "spas",
+              "confidence": 0.9388105869293213,
+              "operatingStatus": null,
+              "sourceDatasets": [
+                "Overture",
+                "meta"
+              ],
+              "nearestOsmPoiDistanceM": 44.07094613129149,
+              "hasAddress": true
+            },
+            {
+              "id": "6a54ce47-1f93-4405-bd8a-810b9e9665b7",
+              "name": "Ali yıldız gençlik ve spor kulübü",
+              "category": "gym",
+              "confidence": 0.9546040892601013,
+              "operatingStatus": null,
+              "sourceDatasets": [
+                "Overture",
+                "meta"
+              ],
+              "nearestOsmPoiDistanceM": 66.76839008532885,
+              "hasAddress": true
+            },
+            {
+              "id": "2d399a93-0dfb-47ac-b7d9-67e46416a5dc",
+              "name": "MAKSA Reklam Malzemeleri",
+              "category": "advertising_agency",
+              "confidence": 0.9933577233552933,
+              "operatingStatus": null,
+              "sourceDatasets": [
+                "Overture",
+                "meta"
+              ],
+              "nearestOsmPoiDistanceM": 48.38390900867922,
+              "hasAddress": true
+            },
+            {
+              "id": "20834d92-0fc6-49cc-819e-9e5a22c36a4b",
+              "name": "Mithat Paşa mahallesi",
+              "category": "high_school",
+              "confidence": 0.7109568119049072,
+              "operatingStatus": null,
+              "sourceDatasets": [
+                "Overture",
+                "meta"
+              ],
+              "nearestOsmPoiDistanceM": 75.48698425480148,
+              "hasAddress": true
+            },
+            {
+              "id": "77997e14-a9fd-421d-9f4a-7870be57922e",
+              "name": "Kurt Oto Yikama",
+              "category": "auto_detailing",
+              "confidence": 0.7671809196472168,
+              "operatingStatus": null,
+              "sourceDatasets": [
+                "Overture",
+                "meta"
+              ],
+              "nearestOsmPoiDistanceM": 70.43313865017768,
+              "hasAddress": true
+            },
+            {
+              "id": "df777dca-e91d-4ce9-b7fc-116f4b254df9",
+              "name": "Bursa Mehmetler Oto Dizayn",
+              "category": "automotive_repair",
+              "confidence": 0.8627792000770569,
+              "operatingStatus": null,
+              "sourceDatasets": [
+                "Overture",
+                "meta"
+              ],
+              "nearestOsmPoiDistanceM": 94.22404461872772,
+              "hasAddress": true
+            },
+            {
+              "id": "f24d9280-698c-4779-b6bc-babf1f04f7b3",
+              "name": "Mersin Tarsus Şelalesi",
+              "category": "water_park",
+              "confidence": 0.7121587991714478,
+              "operatingStatus": null,
+              "sourceDatasets": [
+                "Overture",
+                "meta"
+              ],
+              "nearestOsmPoiDistanceM": 36.35039830759084,
+              "hasAddress": true
+            },
+            {
+              "id": "6bccdc94-c7dd-4990-9326-25708aa8aacf",
+              "name": "MEHMETLER OTO SHOWROOM",
+              "category": "car_dealer",
+              "confidence": 0.77,
+              "operatingStatus": null,
+              "sourceDatasets": [
+                "Foursquare",
+                "Overture"
+              ],
+              "nearestOsmPoiDistanceM": 76.49762964072225,
+              "hasAddress": true
+            },
+            {
+              "id": "9cf70b77-a3f1-4ec3-b862-15d2cf7be848",
+              "name": "Konfor Oto",
+              "category": "auto_customization",
+              "confidence": 0.9946360665559769,
+              "operatingStatus": null,
+              "sourceDatasets": [
+                "Overture",
+                "meta"
+              ],
+              "nearestOsmPoiDistanceM": 77.53054334128218,
+              "hasAddress": true
+            },
+            {
+              "id": "5b427009-6e80-4c08-8e75-a4fa07ebf352",
+              "name": "Kral Otogaz",
+              "category": "automotive_repair",
+              "confidence": 0.7384600639343262,
+              "operatingStatus": null,
+              "sourceDatasets": [
+                "Overture",
+                "meta"
+              ],
+              "nearestOsmPoiDistanceM": 87.62775885637875,
+              "hasAddress": true
+            },
+            {
+              "id": "d0f120c3-8010-400e-ae77-688c38b74d2e",
+              "name": "Yapı Kredi",
+              "category": "banks",
+              "confidence": 0.8,
+              "operatingStatus": null,
+              "sourceDatasets": [
+                "AllThePlaces",
+                "Overture"
+              ],
+              "nearestOsmPoiDistanceM": 35.38875506224071,
+              "hasAddress": true
+            },
+            {
+              "id": "c13288ce-e798-4d8b-b567-48db78f33d41",
+              "name": "Moto Kacar",
+              "category": "bicycle_shop",
+              "confidence": 0.9367411732673645,
+              "operatingStatus": null,
+              "sourceDatasets": [
+                "Overture",
+                "meta"
+              ],
+              "nearestOsmPoiDistanceM": 31.810188743819875,
+              "hasAddress": true
+            },
+            {
+              "id": "5857dffa-772f-4743-ba34-92e01070df10",
+              "name": "Mersin Yeni Mah",
+              "category": "accommodation",
+              "confidence": 0.7407004237174988,
+              "operatingStatus": null,
+              "sourceDatasets": [
+                "Overture",
+                "meta"
+              ],
+              "nearestOsmPoiDistanceM": 44.953466955975166,
+              "hasAddress": true
+            }
+          ],
+          "freshness": {
+            "release": "2026-08-19.0",
+            "oldestSourceUpdate": "2025-06-25T07:45:51.027Z",
+            "latestSourceUpdate": "2026-08-14T19:46:07Z"
+          }
+        },
+        "divisions": {
+          "intersectingAreaCount": 9,
+          "areas": [
+            {
+              "id": "e2e70875-f55c-482e-86c6-26a62d9cfbf3",
+              "name": "Mersin",
+              "subtype": "region",
+              "adminLevel": 1,
+              "class": "maritime",
+              "isLand": false,
+              "isTerritorial": true,
+              "sourceDatasets": [
+                "Esri Community Maps",
+                "OpenStreetMap"
+              ]
+            },
+            {
+              "id": "331f0573-c9a8-400b-a5c8-cba28764ad33",
+              "name": "Mersin",
+              "subtype": "region",
+              "adminLevel": 1,
+              "class": "land",
+              "isLand": true,
+              "isTerritorial": false,
+              "sourceDatasets": [
+                "Esri Community Maps",
+                "OpenStreetMap"
+              ]
+            },
+            {
+              "id": "e365df79-a684-45a0-aa84-f86107a4e091",
+              "name": "Türkiye",
+              "subtype": "country",
+              "adminLevel": 0,
+              "class": "land",
+              "isLand": true,
+              "isTerritorial": false,
+              "sourceDatasets": [
+                "Esri Community Maps",
+                "OpenStreetMap"
+              ]
+            },
+            {
+              "id": "2de03ee4-e94d-4668-89a5-1c00aba2fa93",
+              "name": "Türkiye",
+              "subtype": "country",
+              "adminLevel": 0,
+              "class": "maritime",
+              "isLand": false,
+              "isTerritorial": true,
+              "sourceDatasets": [
+                "Esri Community Maps",
+                "OpenStreetMap"
+              ]
+            },
+            {
+              "id": "1874a47e-67a2-418a-b02f-a56f5290c52d",
+              "name": "Üçocak Mahallesi",
+              "subtype": "macrohood",
+              "adminLevel": null,
+              "class": "land",
+              "isLand": true,
+              "isTerritorial": true,
+              "sourceDatasets": [
+                "OpenStreetMap"
+              ]
+            },
+            {
+              "id": "7d6f4617-a635-449c-858d-ec514841f265",
+              "name": "Siteler Mahallesi",
+              "subtype": "macrohood",
+              "adminLevel": null,
+              "class": "land",
+              "isLand": true,
+              "isTerritorial": true,
+              "sourceDatasets": [
+                "OpenStreetMap"
+              ]
+            },
+            {
+              "id": "28f8d107-96e9-40c4-b706-871f672a4187",
+              "name": "Mithatpaşa Mahallesi",
+              "subtype": "macrohood",
+              "adminLevel": null,
+              "class": "land",
+              "isLand": true,
+              "isTerritorial": true,
+              "sourceDatasets": [
+                "OpenStreetMap"
+              ]
+            },
+            {
+              "id": "8d872b43-e9e4-4195-a2f5-65b8522d47b0",
+              "name": "Yeni Mahallesi",
+              "subtype": "macrohood",
+              "adminLevel": null,
+              "class": "land",
+              "isLand": true,
+              "isTerritorial": true,
+              "sourceDatasets": [
+                "OpenStreetMap"
+              ]
+            },
+            {
+              "id": "7e241c77-3e6d-459e-9e8e-e6acfa19c242",
+              "name": "Akdeniz",
+              "subtype": "county",
+              "adminLevel": 2,
+              "class": "land",
+              "isLand": true,
+              "isTerritorial": true,
+              "sourceDatasets": [
+                "OpenStreetMap"
+              ]
+            }
+          ],
+          "sourceDatasetRecordCounts": {
+            "Esri Community Maps": 4,
+            "OpenStreetMap": 9
+          },
+          "independentOfOsm": false
+        }
+      },
+      "geonames": {
+        "count": 1,
+        "featureClassCounts": {
+          "P": 1
+        },
+        "osmExactNameWithin100mDuplicates": 0,
+        "uniqueIncrementalCandidateCount": 1,
+        "independentlyVerifiedIncrementalPlaces": null,
+        "latestRecordModificationDate": "2025-05-11",
+        "candidateRows": [
+          {
+            "geonameId": "10631434",
+            "name": "Mithatpaşa",
+            "asciiName": "Mithatpasa",
+            "alternateNames": "Mithatpasa,Mithatpaşa",
+            "position": [
+              34.63377,
+              36.81354
+            ],
+            "featureClass": "P",
+            "featureCode": "PPLX",
+            "admin1": "32",
+            "admin2": "9542422",
+            "population": 0,
+            "modificationDate": "2025-05-11"
+          }
+        ]
+      }
+    },
+    {
+      "id": "ERDEMLI",
+      "label": "Erdemli low-density",
+      "bbox": [
+        34.29,
+        36.6318,
+        34.298,
+        36.6382
+      ],
+      "osm": {
+        "roads": {
+          "wayCount": 20,
+          "namedWayCount": 18,
+          "uniqueNames": [
+            "12016. Sokak",
+            "12017. Sokak",
+            "12018. Sokak",
+            "12019. Sokak",
+            "12020. Sokak",
+            "Adana-Silifke Otoyolu",
+            "Avganlar Sokak",
+            "Güvereliler Sokak",
+            "Güzeloluk Kavşağı",
+            "Viyadük",
+            "Yeşil Camii Sokak"
+          ],
+          "classCounts": {
+            "construction": 6,
+            "residential": 12,
+            "unclassified": 2
+          },
+          "junctionNodesDegree2Plus": 18,
+          "junctionNodesDegree3Plus": 1,
+          "bridgeWays": 3,
+          "tunnelWays": 0,
+          "linkWays": 0,
+          "roundaboutWays": 0,
+          "lanesKnownWays": 0,
+          "maxspeedKnownWays": 0,
+          "onewayKnownWays": 6,
+          "turnRestrictionRelations": 0
+        },
+        "addresses": {
+          "addressCount": 0,
+          "housenumberCount": 0,
+          "explicitStreetCount": 0,
+          "nearestNamedRoadWithin30m": 0,
+          "explicitStreetMatchesNearest": 0,
+          "phoneLikeOrTooLongHousenumber": 0,
+          "rows": []
+        },
+        "pois": {
+          "count": 1,
+          "namedCount": 1,
+          "categoryCount": 1,
+          "topCategories": {
+            "amenity=place_of_worship": 1
+          }
+        },
+        "places": {
+          "count": 0,
+          "namedCount": 0
+        },
+        "boundaries": {
+          "objectsInMapResponse": 0,
+          "note": "Map API ilişkileri AOI dışında tamamlayabilir; bu sayı tam boundary coverage ölçüsü değildir."
+        },
+        "freshness": {
+          "oldestObservedRecord": "2019-03-10T14:20:27Z",
+          "latestObservedRecord": "2026-07-26T17:29:27Z"
+        }
+      },
+      "overture": {
+        "buildings": {
+          "id": "ERDEMLI",
+          "bbox": [
+            34.29,
+            36.6318,
+            34.298,
+            36.6382
+          ],
+          "osm": {
+            "closedBuildingWays": 1,
+            "buildingRelations": 0,
+            "footprintObjects": 1,
+            "medianClosedWayAreaM2": 267.8590439138088,
+            "latestObservedRecordTimestamp": "2021-11-01T10:01:48Z",
+            "geometryPayloadSha256": "019ef2239d18fa69fba860d72f600c6e993b4af43032d18e67ae3e977ee741c5"
+          },
+          "overture": {
+            "total": 113,
+            "sourceFamilies": {
+              "ML_DERIVED": 112,
+              "OSM_DERIVED": 1
+            },
+            "osmDerived": 1,
+            "mlDerived": 112,
+            "otherFamilies": 0,
+            "medianAreaM2": {
+              "osmDerived": 267.8588516614383,
+              "mlDerived": 98.11085205834198,
+              "otherFamilies": null
+            },
+            "osmIdAgreement": 1,
+            "osmBaselineIdentityOverlapRate": 1,
+            "osmIdDuplicateRateWithinOverture": 0,
+            "osmGeometryAgreement": {
+              "n": 1,
+              "medianAreaRatio": 0.9999992822629107,
+              "minAreaRatio": 0.9999992822629107,
+              "medianCentroidM": 0,
+              "maxCentroidM": 0,
+              "medianIouApprox": 1,
+              "minIouApprox": 1,
+              "grossShapeMismatch": 0
+            }
+          },
+          "verifiedAlternative": {
+            "count": 0,
+            "uniqueIncremental": 0,
+            "verification": "NO_RECORDS"
+          }
+        },
+        "roads": {
+          "rawSegmentCount": 30,
+          "nonRoadSegmentCount": 0,
+          "distinctMappedOsmWayIds": 32,
+          "osmWaysRepresentedInCurrentAoi": 20,
+          "sourceDatasetRecordCounts": {
+            "OpenStreetMap": 29,
+            "TomTom": 1
+          },
+          "osmAndTomTomEnrichedSegments": 0,
+          "nonOsmSourceSegments": 1,
+          "novelGeometryCandidates": [
+            {
+              "id": "5743466e-d83d-4e50-8976-5867312a7a52",
+              "name": null,
+              "class": "unknown",
+              "sourceDatasets": [
+                "TomTom"
+              ],
+              "lengthM": 129.3100182114638,
+              "medianDistanceToOsmM": 72.30922710673232,
+              "maxDistanceToOsmM": 104.65939050736196
+            }
+          ],
+          "independentlyVerifiedRealNewRoads": null,
+          "geometryAgreementToMappedOsm": {
+            "sampleCount": 426,
+            "medianDirectedDistanceM": 0.0,
+            "p95DirectedDistanceM": 616.9337709463787,
+            "maxDirectedDistanceM": 1645.9213819538984
+          },
+          "exactGeometryDuplicateRate": 0.0,
+          "class": {
+            "counts": {
+              "motorway": 4,
+              "residential": 22,
+              "tertiary": 1,
+              "unclassified": 2,
+              "unknown": 1
+            },
+            "comparableSegments": 28,
+            "conflictingSegments": 4
+          },
+          "names": {
+            "namedSegmentCount": 27,
+            "uniqueNames": [
+              "12016. Sokak",
+              "12017. Sokak",
+              "12018. Sokak",
+              "12019. Sokak",
+              "12020. Sokak",
+              "Adana-Silifke Otoyolu",
+              "Avganlar Sokak",
+              "Güvereliler Sokak",
+              "Güzeloluk Kavşağı",
+              "Köypınarı Caddesi",
+              "Yeşil Camii Sokak"
+            ],
+            "uniqueNameCount": 11,
+            "additionalOnMappedOsmSegments": [],
+            "conflicts": []
+          },
+          "topology": {
+            "uniqueConnectorIds": 34,
+            "sharedConnectorIdsDegree2Plus": 15,
+            "decisionConnectorIdsDegree3Plus": 13,
+            "note": "Overture segmentasyonu ile OSM way segmentasyonu eşdeğer birim değildir."
+          },
+          "navigationAttributes": {
+            "bridgeFlagSegments": 4,
+            "tunnelFlagSegments": 0,
+            "linkFlagSegments": 1,
+            "speedLimitSegments": 0,
+            "accessRestrictionSegments": 4,
+            "prohibitedTransitionSegments": 0,
+            "surfaceSegments": 4,
+            "widthRuleSegments": 0,
+            "laneCountField": "NOT_IN_OVERTURE_SEGMENT_SCHEMA"
+          },
+          "freshness": {
+            "release": "2026-08-19.0",
+            "oldestSourceUpdate": "2019-03-10T14:21:03Z",
+            "latestSourceUpdate": "2026-07-26T17:29:27Z"
+          }
+        },
+        "addresses": {
+          "addressCount": 0,
+          "housenumberCount": 0,
+          "streetAndNumberCount": 0,
+          "uniqueIncrementalCandidateCount": 0,
+          "uniqueIncrementalCandidateIds": [],
+          "phoneLikeOrTooLongHousenumber": 0,
+          "independentlyVerifiedIncrementalAddresses": 0
+        },
+        "places": {
+          "count": 1,
+          "namedCount": 1,
+          "categoryCount": 1,
+          "topCategories": {
+            "construction_services": 1
+          },
+          "sourceDatasetRecordCounts": {
+            "Overture": 1,
+            "meta": 1
+          },
+          "exactNameWithin75mOsmDuplicates": 0,
+          "spatialWithin20mButNameUnmatched": 0,
+          "uniqueIncrementalCandidateCount": 1,
+          "qualityQualifiedCandidateCount": 0,
+          "independentlyVerifiedIncrementalPois": null,
+          "withinSourceDuplicateCount": 0,
+          "withinSourceDuplicateRate": 0.0,
+          "addressBearingPlaceCount": 1,
+          "closedPermanentCount": 0,
+          "lowConfidenceBelow050Count": 0,
+          "confidence": {
+            "knownCount": 1,
+            "median": 0.5225973129272461,
+            "p10": 0.5225973129272461,
+            "p90": 0.5225973129272461
+          },
+          "suspiciousOrLowQualityCount": 0,
+          "qualifiedSample": [],
+          "freshness": {
+            "release": "2026-08-19.0",
+            "oldestSourceUpdate": "2026-08-10T00:00:00.000Z",
+            "latestSourceUpdate": "2026-08-14T19:46:07Z"
+          }
+        },
+        "divisions": {
+          "intersectingAreaCount": 5,
+          "areas": [
+            {
+              "id": "e2e70875-f55c-482e-86c6-26a62d9cfbf3",
+              "name": "Mersin",
+              "subtype": "region",
+              "adminLevel": 1,
+              "class": "maritime",
+              "isLand": false,
+              "isTerritorial": true,
+              "sourceDatasets": [
+                "Esri Community Maps",
+                "OpenStreetMap"
+              ]
+            },
+            {
+              "id": "331f0573-c9a8-400b-a5c8-cba28764ad33",
+              "name": "Mersin",
+              "subtype": "region",
+              "adminLevel": 1,
+              "class": "land",
+              "isLand": true,
+              "isTerritorial": false,
+              "sourceDatasets": [
+                "Esri Community Maps",
+                "OpenStreetMap"
+              ]
+            },
+            {
+              "id": "e365df79-a684-45a0-aa84-f86107a4e091",
+              "name": "Türkiye",
+              "subtype": "country",
+              "adminLevel": 0,
+              "class": "land",
+              "isLand": true,
+              "isTerritorial": false,
+              "sourceDatasets": [
+                "Esri Community Maps",
+                "OpenStreetMap"
+              ]
+            },
+            {
+              "id": "2de03ee4-e94d-4668-89a5-1c00aba2fa93",
+              "name": "Türkiye",
+              "subtype": "country",
+              "adminLevel": 0,
+              "class": "maritime",
+              "isLand": false,
+              "isTerritorial": true,
+              "sourceDatasets": [
+                "Esri Community Maps",
+                "OpenStreetMap"
+              ]
+            },
+            {
+              "id": "82a732a7-a502-436f-81c4-feda64e9ec0b",
+              "name": "Erdemli",
+              "subtype": "county",
+              "adminLevel": 2,
+              "class": "land",
+              "isLand": true,
+              "isTerritorial": true,
+              "sourceDatasets": [
+                "OpenStreetMap"
+              ]
+            }
+          ],
+          "sourceDatasetRecordCounts": {
+            "Esri Community Maps": 4,
+            "OpenStreetMap": 5
+          },
+          "independentOfOsm": false
+        }
+      },
+      "geonames": {
+        "count": 0,
+        "featureClassCounts": {},
+        "osmExactNameWithin100mDuplicates": 0,
+        "uniqueIncrementalCandidateCount": 0,
+        "independentlyVerifiedIncrementalPlaces": 0,
+        "latestRecordModificationDate": null,
+        "candidateRows": []
+      }
+    }
+  ]
+}

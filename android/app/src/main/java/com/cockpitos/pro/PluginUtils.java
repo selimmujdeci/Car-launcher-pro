@@ -43,12 +43,22 @@ public final class PluginUtils {
 
     /** Bitmap'i 200×200 JPEG base64 data URI string'ine çevirir. */
     public static String bitmapToDataUri(Bitmap src) {
+        return bitmapToDataUri(src, 200);
+    }
+
+    /** Encodes an already sampled bitmap without upscaling it. */
+    public static String bitmapToDataUri(Bitmap src, int targetPx) {
         try {
-            Bitmap scaled = Bitmap.createScaledBitmap(src, 200, 200, true);
+            int largest = Math.max(src.getWidth(), src.getHeight());
+            float scale = Math.min(1f, Math.max(32, targetPx) / (float) largest);
+            Bitmap scaled = scale < 1f
+                ? Bitmap.createScaledBitmap(src, Math.max(1, Math.round(src.getWidth() * scale)), Math.max(1, Math.round(src.getHeight() * scale)), true)
+                : src;
             ByteArrayOutputStream stream = new ByteArrayOutputStream();
             scaled.compress(Bitmap.CompressFormat.JPEG, 75, stream);
             String b64 = android.util.Base64.encodeToString(
                 stream.toByteArray(), android.util.Base64.NO_WRAP);
+            if (scaled != src) scaled.recycle();
             return "data:image/jpeg;base64," + b64;
         } catch (Exception ignored) {
             return "";
@@ -69,6 +79,11 @@ public final class PluginUtils {
      * Context yalnızca content çözümleyici için parametre olarak alınır.
      */
     public static Bitmap loadBitmapFromUri(Context ctx, String uriStr) {
+        return loadBitmapFromUri(ctx, uriStr, 0);
+    }
+
+    /** Bounds-first sampled decode. targetPx=0 retains legacy full-size compatibility. */
+    public static Bitmap loadBitmapFromUri(Context ctx, String uriStr, int targetPx) {
         if (uriStr == null || uriStr.isEmpty()) return null;
         try {
             Uri uri = Uri.parse(uriStr);
@@ -77,13 +92,12 @@ public final class PluginUtils {
             scheme = scheme.toLowerCase();
 
             if ("content".equals(scheme) || "file".equals(scheme) || "android.resource".equals(scheme)) {
-                InputStream is = ctx.getContentResolver().openInputStream(uri);
-                if (is == null) return null;
-                try {
-                    return android.graphics.BitmapFactory.decodeStream(is);
-                } finally {
-                    try { is.close(); } catch (Exception ignored) {}
-                }
+                if (targetPx <= 0) { InputStream is = ctx.getContentResolver().openInputStream(uri); if (is == null) return null; try { return android.graphics.BitmapFactory.decodeStream(is); } finally { try { is.close(); } catch (Exception ignored) {} } }
+                android.graphics.BitmapFactory.Options bounds = new android.graphics.BitmapFactory.Options(); bounds.inJustDecodeBounds = true;
+                InputStream first = ctx.getContentResolver().openInputStream(uri); if (first == null) return null; try { android.graphics.BitmapFactory.decodeStream(first, null, bounds); } finally { try { first.close(); } catch (Exception ignored) {} }
+                int sample = 1; while (Math.max(bounds.outWidth / sample, bounds.outHeight / sample) > targetPx * 2) sample *= 2;
+                android.graphics.BitmapFactory.Options opts = new android.graphics.BitmapFactory.Options(); opts.inSampleSize = sample; opts.inPreferredConfig = android.graphics.Bitmap.Config.RGB_565;
+                InputStream second = ctx.getContentResolver().openInputStream(uri); if (second == null) return null; try { return android.graphics.BitmapFactory.decodeStream(second, null, opts); } finally { try { second.close(); } catch (Exception ignored) {} }
             } else if ("http".equals(scheme) || "https".equals(scheme)) {
                 java.net.HttpURLConnection conn = (java.net.HttpURLConnection)
                     new java.net.URL(uriStr).openConnection();

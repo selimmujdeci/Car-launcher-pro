@@ -47,7 +47,7 @@ vi.mock('../core/runtime/AdaptiveRuntimeManager', () => ({
     getMode:   vi.fn(() => 'BALANCED'),
     getConfig: vi.fn(() => ({ obdPollingMs: 50, gpsUpdateMs: 200, uiFpsTarget: 60, enableBlur: false, enableAnimations: false, loggingLevel: 'silent' })),
     subscribe:     vi.fn(() => () => {}),
-    reportFailure: vi.fn(),
+    reportFailure: vi.fn(), reportRecovery: vi.fn(),
   },
   AdaptiveRuntimeManager: { getInstance: vi.fn() },
 }));

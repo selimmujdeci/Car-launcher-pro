@@ -14,6 +14,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // Aktif kod yolu kaynakları (transform-time sabit — paralel flake'e bağışık).
 import superAdminSrc from '../platform/superadmin/superAdminService.ts?raw';
 import vehicleCodeRouteSrc from '../../website/src/app/api/vehicle/code/route.ts?raw';
+import vehicleLinkRouteSrc from '../../website/src/app/api/vehicle/link/route.ts?raw';
 
 /* ── Supabase admin client mock — .from() hedeflerini yakalar ─────────────── */
 const fromCalls: string[] = [];
@@ -62,9 +63,28 @@ describe('isim drift — eski adlar aktif kod yolunda YOK', () => {
     expect(superAdminSrc).toMatch(/from\(\s*['"]runtime_policies['"]/);
   });
 
-  it('website vehicle/code API: from(\'linking_codes\') kalmadı; vehicle_linking_codes var', () => {
+  /**
+   * KİLİT GÜNCELLENDİ (FLEET-CONNECTIVITY-P0):
+   * `/api/vehicle/code` artık KAPALI (410) — hiçbir tabloyu sorgulamıyor,
+   * çünkü `vehicle_linking_codes`'a İKİNCİ bir yazma yolu açıyordu ve head
+   * unit bu rotayı hiç çağırmıyordu (doğrudan `refresh_linking_code` RPC'si).
+   * Drift riski ortadan kalktı; kilit kaldırılmadı, iki yönde GÜÇLENDİRİLDİ:
+   *   (a) eski ad `linking_codes` bu yolda hâlâ YOK,
+   *   (b) rota artık HİÇBİR tabloyu sorgulamıyor (ikinci otorite geri gelmesin),
+   *   (c) kanonik eşleştirme otoritesi `pair_vehicle_to_user` RPC'sinde DURUYOR.
+   */
+  it('website vehicle/code API: KAPALI — ne eski ne yeni tablo adı sorgulanıyor', () => {
     // 'vehicle_linking_codes' eşleşmesin diye tırnak-hemen-sonrası guard.
     expect(vehicleCodeRouteSrc).not.toMatch(/from\(\s*['"]linking_codes['"]/);
-    expect(vehicleCodeRouteSrc).toMatch(/from\(\s*['"]vehicle_linking_codes['"]/);
+    // Kapalı rota hiçbir tabloya dokunmaz → ikinci yazma yolu YOK.
+    expect(vehicleCodeRouteSrc).not.toMatch(/\.from\(/);
+    expect(vehicleCodeRouteSrc).not.toMatch(/\.rpc\(/);
+    expect(vehicleCodeRouteSrc).toMatch(/status:\s*(410|ROUTE\.status)/);
+  });
+
+  it('kanonik eşleştirme otoritesi pair_vehicle_to_user RPC\'sinde duruyor', () => {
+    expect(vehicleLinkRouteSrc).toMatch(/\.rpc\(\s*['"]pair_vehicle_to_user['"]/);
+    // Kod doğrulaması istemcide tabloyu okuyarak YAPILMAZ (RLS atlanmasın).
+    expect(vehicleLinkRouteSrc).not.toMatch(/from\(\s*['"]vehicle_linking_codes['"]/);
   });
 });

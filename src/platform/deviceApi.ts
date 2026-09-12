@@ -18,6 +18,11 @@ import { isNative } from './bridge';
 import { CarLauncher } from './nativePlugin';
 import { showToast } from './errorBus';
 import { subscribeMotion } from './sensors';
+/* ARCH-06/F2 — TIMER YÖNETİŞİMİ: ham `setInterval` yerine ARM tik-wheel'i.
+   SAHİPLİK DEĞİŞMEDİ: geri çağrı, periyot kararı ve cleanup bu modülde
+   KALIR; ARM yalnız tier/mod BÜTÇESİNİ uygular (düşük-uçta yavaşlatır,
+   yüksek tier'da periyodu AYNEN korur). Yeni merkezî callback mantığı YOK. */
+import { runtimeManager } from '../core/runtime/AdaptiveRuntimeManager';
 
 /* ── Types ───────────────────────────────────────────────── */
 
@@ -102,7 +107,8 @@ export function updateDeviceStatus(partial: Partial<DeviceStatus>): void {
  *  güncel tutar (kullanıcı WiFi/BT açıp kapatınca ikon birkaç sn içinde değişir). */
 const DEVICE_POLL_MS = 8_000;
 
-let _pollTimer: ReturnType<typeof setInterval> | null = null;
+/** ARM görev kaydını söken thunk. */
+let _pollTimer: (() => void) | null = null;
 let _pollRefs = 0;
 
 function _refreshDeviceStatus(): void {
@@ -117,13 +123,19 @@ function _startPolling(): void {
   _pollRefs++;
   if (_pollTimer !== null || !isNative) return;
   _refreshDeviceStatus();                                   // mount'ta anında ilk okuma
-  _pollTimer = setInterval(_refreshDeviceStatus, DEVICE_POLL_MS);
+  _pollTimer = runtimeManager.scheduleTask({
+    id: 'device.statusPoll', periodMs: DEVICE_POLL_MS,       /* ARM sözlüğü YALNIZ 'SAFETY' | 'NORMAL' taşır. 'NORMAL' zaten
+         tier/mod çarpanına TABİ olan sınıftır — bütçelenebilir görev
+         tam olarak budur. ARM API'si F2'de GENİŞLETİLMEDİ. */
+      criticality: 'NORMAL',
+    fn: _refreshDeviceStatus, deferIdle: true,
+  });
 }
 
 function _stopPolling(): void {
   _pollRefs = Math.max(0, _pollRefs - 1);
   if (_pollRefs === 0 && _pollTimer !== null) {
-    clearInterval(_pollTimer);
+    _pollTimer();          // ARM görev kaydını söker (unschedule thunk)
     _pollTimer = null;
   }
 }

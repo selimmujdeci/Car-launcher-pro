@@ -40,6 +40,50 @@ public final class SerialPortHandler {
      * Generic Linux/UART:     ttyS0..ttyS4
      * USB-to-serial (fallback): ttyUSB0..ttyUSB3, ttyACM0
      */
+    /** Sistem sahipliği kararının önbelleği — port taraması sıcak yolda çalışır. */
+    private static final java.util.concurrent.ConcurrentHashMap<String, Boolean> _ownedCache =
+        new java.util.concurrent.ConcurrentHashMap<>();
+
+    /**
+     * SAHADA ÖLÇÜLMÜŞ port sahipliği — init.rc okunamasa bile geçerli son savunma.
+     *
+     * Anahtar: `ro.hardware` veya `ro.product.device` · Değer: DOKUNULMAZ portlar.
+     * K24 (Allwinner ceres-b3 / sun50iw10p1), 2026-08-05 canlı ölçüm:
+     *   ttyS1 = OEM Bluetooth HCI (gocsdk_8800 @1.5 Mbaud) — açılırsa BT TAMAMEN ölür
+     *   ttyS3 = GNSS/GPS HAL
+     *   ttyS0 = kernel konsolu
+     * Bu ünitede CAN, UART'tan DEĞİL OEM broadcast'inden gelir
+     * (bkz. SystemCanBroadcastAdapter) — port taraması burada zaten kazanç sağlamaz,
+     * yalnız zarar verir.
+     *
+     * ── ttyS2 EKLENDİ (SAHA 2026-09-03, ölçülmüş sert reset zinciri) ──────────
+     * Aynı sınıf hata, bu kez ttyS2'de ve sonucu çok daha ağır: cihaz komple
+     * resetleniyordu. Canlı yakalanan zincir:
+     *   21:14:01.897  CanBusManager başlatıldı
+     *   21:14:02.111  Bağlandı → UART:/dev/ttyS2 @ 115200      ← port AÇILDI
+     *   21:14:02.220  Heartbeat gönderildi                      ← MCU'ya yazım başladı
+     *   21:14:04.287  Heartbeat gönderildi
+     *   21:14:16      cihaz ÖLDÜ (kernel log'unda TEK satır uyarı yok)
+     * Kernel'de hiçbir panic/oops/watchdog izi olmaması, gücün YAZILIMDAN DEĞİL
+     * MCU tarafından kesildiğinin kanıtıdır. ttyS2 bu ünitede OEM'in MCU kontrol
+     * hattıdır: `nwdapp_UartCommunication` aynı hatta kendi çerçevelerini yazar
+     * (ör. `F004001800001C`). İki yazıcı = bozulan protokol = MCU kartı resetler.
+     * Kullanıcı gözlemiyle birebir örtüşür: uygulama KAPALIYKEN cihaz günlerce
+     * ayakta, AÇILINCA dakikalar içinde reset.
+     */
+    private static final String[][] KNOWN_OWNED_PORTS = {
+        { "sun50iw10p1", "/dev/ttyS1", "/dev/ttyS2", "/dev/ttyS3", "/dev/ttyS0" },
+        { "ceres-b3",    "/dev/ttyS1", "/dev/ttyS2", "/dev/ttyS3", "/dev/ttyS0" },
+    };
+
+    /** UART sahipliğinin yazılı olduğu init dosyaları (head unit ROM'ları). */
+    private static final String[] INIT_RC_FILES = {
+        "/vendor/etc/init/hw/init.sun50iw10p1.rc",   // Allwinner K24 / ceres-b3
+        "/vendor/etc/init/hw/init.rk30board.rc",     // Rockchip
+        "/vendor/etc/init/hw/init.mt8167.rc",        // MediaTek
+        "/init.rc",
+    };
+
     private static final String[] PORT_CANDIDATES = {
         "/dev/ttyS1",
         "/dev/ttyS2",
@@ -86,6 +130,19 @@ public final class SerialPortHandler {
 
     public boolean open(int baudRate) {
         for (String port : PORT_CANDIDATES) {
+            // SAHA 2026-08-05 (K24 / Allwinner sun50iw10p1): SAHİPLİ PORTA DOKUNMA.
+            // Bu ünitede /dev/ttyS1, OEM Bluetooth yığınının (gocsdk_8800, 1.5 Mbaud)
+            // HCI hattıdır. Port taraması onu açınca iki süreç aynı UART'tan okuyor,
+            // HCI çerçeveleri bölünüyor ve OEM daemon'ı "Cur BT Init Failed" verip
+            // kendini öldürüyor; yeniden başlarken de `svc bluetooth disable` çağırıyor.
+            // Sonuç: head unit'in Bluetooth'u TAMAMEN ölüyor ve hiçbir OBD adaptörü
+            // (bizimki dahil) bulunamıyor. Aynı tuzak ttyS0 (kernel konsolu) ve
+            // GPS/GNSS portu için de geçerlidir.
+            if (isPortOwnedBySystem(port)) {
+                Log.w(TAG, "Port ATLANDI (sistem sahipli, ör. OEM Bluetooth UART): " + port);
+                continue;
+            }
+
             // İzin bypass — root varsa chmod, yoksa doğrudan dene
             tryGrantAccess(port);
 
@@ -111,6 +168,123 @@ public final class SerialPortHandler {
 
     public boolean isOpen()   { return _bis != null; }
     public String  openPort() { return _openPort; }
+
+
+    // ── Sistem sahipli port koruması (saha 2026-08-05) ──────────────────────
+
+    /**
+     * Port başka bir sistem bileşenine mi ait — açmadan ÖNCE sorulur.
+     *
+     * İki kanıt kullanılır, ikisi de cihazdan okunur (sabit liste DEĞİL, çünkü
+     * port haritası her head unit'te farklıdır):
+     *
+     *  1. Kernel komut satırı: `console=ttyS0,115200` → o port seri konsoldur.
+     *  2. Açık dosya tanıtıcıları: başka bir süreç portu zaten tutuyorsa
+     *     (OEM Bluetooth daemon'ı, GNSS servisi, CAN servisi) o port bize ait
+     *     değildir. UART tek sahiplidir; ikinci okuyucu veriyi böler.
+     *
+     * Fail-soft: /proc okunamazsa false döner (eski davranış korunur).
+     */
+    static boolean isPortOwnedBySystem(String portPath) {
+        Boolean cached = _ownedCache.get(portPath);
+        if (cached != null) return cached;
+
+        boolean owned = false;
+        final String name = portPath.substring(portPath.lastIndexOf('/') + 1);
+
+        // ── Kanıt 1: kernel konsolu ────────────────────────────────────────
+        // `console=ttyS0,115200` → o port çekirdek log hattıdır; açmak hem
+        // anlamsız veri verir hem konsolu bozar.
+        try {
+            String cmdline = readSmallFile("/proc/cmdline");
+            if (cmdline != null && cmdline.contains("console=" + name)) owned = true;
+        } catch (Throwable ignored) {}
+
+        // ── Kanıt 3: sahada ölçülmüş platform haritası ─────────────────────
+        // init.rc okunamazsa (SELinux enforcing, farklı ROM yolu) devreye girer.
+        if (!owned) {
+            try {
+                String hw  = systemProp("ro.hardware");
+                String dev = systemProp("ro.product.device");
+                for (String[] row : KNOWN_OWNED_PORTS) {
+                    String plat = row[0];
+                    if ((hw != null && hw.contains(plat)) || (dev != null && dev.contains(plat))) {
+                        for (int i = 1; i < row.length; i++) {
+                            if (row[i].equals(portPath)) { owned = true; break; }
+                        }
+                    }
+                    if (owned) break;
+                }
+            } catch (Throwable ignored) {}
+        }
+
+        // ── Kanıt 2: init servis tanımları ─────────────────────────────────
+        // Head unit ROM'ları UART'ı argüman olarak servise verir, ör.:
+        //   service gocsdk_8800 /system/bin/gocsdk_8800 /dev/ttyS1 1500000
+        // Bu satır o portun OEM Bluetooth yığınına ait olduğunu SÖYLER.
+        // Sahada (K24 / Allwinner sun50iw10p1) tam olarak bu port taranıp
+        // açılıyordu; iki okuyucu HCI çerçevelerini bölünce OEM daemon'ı
+        // "Cur BT Init Failed" verip `svc bluetooth disable` çağırıyor ve
+        // head unit'in Bluetooth'u tamamen ölüyordu (hiçbir OBD adaptörü
+        // bulunamıyor). Aynı desen GNSS/MCU servisleri için de korur.
+        if (!owned) {
+            for (String rc : INIT_RC_FILES) {
+                String body = readSmallFile(rc);
+                if (body == null) continue;
+                if (initRcClaimsPort(body, portPath)) { owned = true; break; }
+            }
+        }
+
+        _ownedCache.put(portPath, owned);
+        return owned;
+    }
+
+    /** init.rc gövdesinde `service <ad> <binary> <port>` deseni portu sahipleniyor mu. */
+    private static boolean initRcClaimsPort(String rcBody, String portPath) {
+        int from = 0;
+        while (true) {
+            int i = rcBody.indexOf("service ", from);
+            if (i < 0) return false;
+            int end = rcBody.indexOf(0x0A, i);
+            if (end < 0) end = rcBody.length();
+            String line = rcBody.substring(i, end);
+            // Tam eşleşme: "/dev/ttyS1" ile "/dev/ttyS10" karışmasın.
+            int j = line.indexOf(portPath);
+            if (j >= 0) {
+                int after = j + portPath.length();
+                char c = after < line.length() ? line.charAt(after) : ' ';
+                if (!Character.isLetterOrDigit(c)) return true;
+            }
+            from = end;
+        }
+    }
+
+    /** `ro.*` sistem özelliği — reflection ile (SystemProperties gizli API, fail-soft). */
+    private static String systemProp(String key) {
+        try {
+            Class<?> sp = Class.forName("android.os.SystemProperties");
+            java.lang.reflect.Method get = sp.getMethod("get", String.class);
+            Object v = get.invoke(null, key);
+            return v == null ? null : v.toString();
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /** Fail-soft okuma: yoksa/izin yoksa null (koruma devreye girmez, eski davranış). */
+    private static String readSmallFile(String path) {
+        java.io.FileInputStream in = null;
+        try {
+            in = new java.io.FileInputStream(path);
+            byte[] buf = new byte[4096];
+            int n = in.read(buf);
+            return n > 0 ? new String(buf, 0, n) : null;
+        } catch (Throwable t) {
+            return null;
+        } finally {
+            try { if (in != null) in.close(); } catch (Throwable ignored) {}
+        }
+    }
 
     // ── İzin bypass ─────────────────────────────────────────────────────────
 

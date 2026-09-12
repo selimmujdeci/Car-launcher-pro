@@ -1,0 +1,1 @@
+import {readFileSync} from 'node:fs';const es=JSON.parse(readFileSync('field-runs/nav-device-20260906/trace-before-1.json')).result.value.events;console.log(JSON.stringify(es.filter(e=>e.op==='setStyle'),null,2));

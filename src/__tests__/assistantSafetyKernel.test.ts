@@ -41,6 +41,7 @@ import {
   SAFETY_TEMPLATES,
   type SafetyContext,
 } from '../platform/assistant/assistantSafetyKernel';
+import { ANSWER_CHAR_LIMIT } from '../platform/companion/companionAnswerShaping';
 import { useCognitiveStore } from '../store/useCognitiveStore';
 import { useSystemStore } from '../store/useSystemStore';
 
@@ -173,6 +174,36 @@ describe('POST-GATE / verifyResponse', () => {
     const mid = 'Bu orta uzunlukta bir cevap. '.repeat(8); // ~232 char < 400
     const pg = verifyResponse(mid, {}, { isDriving: false });
     expect(pg.action).toBe('passed');
+  });
+
+  /* ── SAHA 2026-09-10 · "7 bölgeyi detaylı anlat" yarıda kesiliyordu ────────
+   * Ölçülen zincir (gerçek cihaz, CDP): model 850 karakterlik TAM cevabı
+   * `finishReason:STOP` ile üretti → TTS'e 254 karakter gitti (iki bölge).
+   * Sebep bu post-gate'in SABİT 400 tavanıydı; sahibin (companionAnswerShaping)
+   * park tavanı 5000 olduğu hâlde SONRA çalışıp onu eziyordu. */
+  it('SAHA: park halinde 850 karakterlik detaylı cevap KESİLMEZ', () => {
+    const detayli = 'Marmara Bölgesi sanayinin kalbidir. '.repeat(24); // ~840 char
+    expect(detayli.length).toBeGreaterThan(400);
+    const pg = verifyResponse(detayli, {}, { isDriving: false });
+    expect(pg.action).toBe('passed');
+    expect(pg.response).toBe(detayli);
+  });
+
+  /* SIRALAMA SÖZLEŞMESİ: uzunluk politikasının sahibi companionAnswerShaping'tir.
+     Bu kernel park halinde ondan DAHA SIKI bir tavan tutamaz — tuttuğu anda
+     sahibin kararı sessizce ezilir (mükerrer otorite, CLAUDE.md §6). */
+  it('park tavanı SAHİBİNDEN türetilir (ikinci politika tutulmaz)', () => {
+    const tamTavan = 'Bir cümle. '.repeat(Math.floor(ANSWER_CHAR_LIMIT.parked / 11));
+    expect(tamTavan.length).toBeLessThanOrEqual(ANSWER_CHAR_LIMIT.parked);
+    expect(verifyResponse(tamTavan, {}, { isDriving: false }).action).toBe('passed');
+  });
+
+  /* Sürüş tavanı bu düzeltmeden ETKİLENMEZ — dikkat bütçesi pazarlıksız. */
+  it('sürüş tavanı GEVŞEMEDİ (aynı metin sürüşte KISALIR)', () => {
+    const detayli = 'Marmara Bölgesi sanayinin kalbidir. '.repeat(24);
+    const pg = verifyResponse(detayli, {}, { isDriving: true });
+    expect(pg.action).toBe('truncated');
+    expect(pg.response.length).toBeLessThanOrEqual(200);
   });
 
   it('geçersiz girdi throw ETMEZ (fail-soft)', () => {

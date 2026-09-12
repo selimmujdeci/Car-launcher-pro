@@ -5,12 +5,22 @@ const {
   getGPSState, 
   stopGPSTracking, 
   startDeadReckoningGuard,
-  isDeadReckoningActive
+  isDeadReckoningActive,
+  getGPSLocationTruthDiagnostics,
 } = gpsService;
 
 // Mocking performance.now() to control time in Fusion Ramp and Jump Guard
 let mockPerfNow = 1000;
 vi.spyOn(performance, 'now').mockImplementation(() => mockPerfNow);
+
+/** Native background ingress artık epoch + observation time olmadan canlı fix kabul etmez. */
+function feed(data: { lat: number; lng: number; speed: number; bearing: number; accuracy: number }): void {
+  feedBackgroundLocation({
+    ...data,
+    gpsGeneration: getGPSLocationTruthDiagnostics().generation,
+    observationTimestamp: Date.now() + Math.floor(mockPerfNow),
+  });
+}
 
 describe('GPS Fusion — Jump Guard & Fusion Ramp', () => {
   beforeEach(async () => {
@@ -25,7 +35,7 @@ describe('GPS Fusion — Jump Guard & Fusion Ramp', () => {
 
   it('Jump Guard: accuracy > 30m ve jump > 100m ise fix reddedilmeli', () => {
     // 1. İlk geçerli fix (İstanbul)
-    feedBackgroundLocation({
+    feed({
       lat: 41.0082, lng: 28.9784, speed: 50, bearing: 0, accuracy: 5
     });
     const firstLoc = getGPSState().location;
@@ -33,7 +43,7 @@ describe('GPS Fusion — Jump Guard & Fusion Ramp', () => {
 
     // 2. Çok uzak bir fix (Ankara ~350km) ama kötü accuracy (50m)
     mockPerfNow += 1000;
-    feedBackgroundLocation({
+    feed({
       lat: 39.9334, lng: 32.8597, speed: 50, bearing: 0, accuracy: 50
     });
 
@@ -45,13 +55,13 @@ describe('GPS Fusion — Jump Guard & Fusion Ramp', () => {
 
   it('Jump Guard: accuracy <= 30m ise büyük jump kabul edilmeli (Teleport/Fast Move)', () => {
     // 1. İlk geçerli fix
-    feedBackgroundLocation({
+    feed({
       lat: 41.0082, lng: 28.9784, speed: 50, bearing: 0, accuracy: 5
     });
 
     // 2. Uzak fix ama mükemmel accuracy (5m)
     mockPerfNow += 1000;
-    feedBackgroundLocation({
+    feed({
       lat: 39.9334, lng: 32.8597, speed: 50, bearing: 0, accuracy: 5
     });
 
@@ -66,7 +76,7 @@ describe('GPS Fusion — Jump Guard & Fusion Ramp', () => {
     const cleanup = startDeadReckoningGuard();
 
     // 2. İlk fix
-    feedBackgroundLocation({
+    feed({
       lat: 41.0000, lng: 28.0000, speed: 36, bearing: 90, accuracy: 5 // 10 m/s, doğu
     });
 
@@ -90,7 +100,7 @@ describe('GPS Fusion — Jump Guard & Fusion Ramp', () => {
 
     // 4. Yeni GPS fix gelsin (zıplama yapmış olsun: 41.0000 -> 41.0010)
     mockPerfNow += 100;
-    feedBackgroundLocation({
+    feed({
       lat: 41.0010, lng: 28.0000, speed: 36, bearing: 90, accuracy: 5
     });
 

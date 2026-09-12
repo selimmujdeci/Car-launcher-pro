@@ -20,6 +20,27 @@ const _BOUNDS = {
   voltage:       [8,   16]  as const,  // V
 } as const;
 
+// ── 0xFF "veri yok" sentinel'leri (SAHA 2026-08-05 · kütük #399) ─────────────
+// Fiziksel sınır TEK BAŞINA yetmez: SAE J1979'da bazı PID'ler tek bayt taşır ve ECU
+// "veri yok" için tam-ölçek baytı (0xFF) döndürebilir. Bu bayt formülden geçince
+// _BOUNDS içinde kalan bir sayıya dönüşür ve sanitizasyonu SESSİZCE geçer.
+// ÖLÇÜLDÜ: araç gerçekte ~94 km/h giderken ekranda "Hız 255 km/h" (PID 0x0D → A=0xFF).
+//
+// Sentinel yalnızca İLGİLİ ALANI düşürür, paketi DEĞİL — aynı turda gelen sağlam
+// alanlar (RPM, sıcaklık…) korunur (fail-soft).
+//
+// KAPSAM BİLİNÇLİ OLARAK DAR: yalnız 0xFF'in fiziksel olarak İMKÂNSIZ bir değere
+// karşılık geldiği alanlar elenir.
+//   • speed      0xFF → 255 km/h — aftermarket OBD ile ölçülebilir bir hız değil.
+//   • intakeTemp 0xFF → 215 °C   — emme havası bu sıcaklığa çıkamaz.
+// ELENMEYENLER (0xFF gerçek bir okumayla ÇAKIŞIR — eleme yanlış-pozitif üretirdi):
+//   • fuelLevel     0xFF → %100  = dolu depo (gerçek ve sık).
+//   • boostPressure 0xFF → 255 kPa mutlak = güçlü turboda ulaşılabilir.
+const _SENTINEL = {
+  speed:      255 as const,  // km/h — PID 0x0D, A=0xFF
+  intakeTemp: 215 as const,  // °C   — PID 0x0F, A=0xFF → 255-40
+} as const;
+
 // RPM jump guard: ELM327 polls every 3s; >5000 RPM change in one cycle
 // is impossible in any production engine (max realistic blip: ~2000 RPM/s).
 //
@@ -63,7 +84,10 @@ export function sanitizeNativeOBDPacket(
 
   if (data.speed !== undefined && data.speed >= 0) {
     const [lo, hi] = _BOUNDS.speed;
-    if (data.speed <= hi && data.speed >= lo) {
+    if (data.speed === _SENTINEL.speed) {
+      // 0xFF = "veri yok". Alan düşürülür; ObdHealthMonitor bunu red olarak sayar
+      // (LAB'da görünür). Sürücüye uydurma hız göstermektense hiç göstermemek doğrudur.
+    } else if (data.speed <= hi && data.speed >= lo) {
       patch.speed = data.speed;
       accepted = true;
     } else {
@@ -112,7 +136,7 @@ export function sanitizeNativeOBDPacket(
     }
   }
 
-  if (data.intakeTemp !== undefined && data.intakeTemp >= 0) {
+  if (data.intakeTemp !== undefined && data.intakeTemp >= 0 && data.intakeTemp !== _SENTINEL.intakeTemp) {
     const [lo, hi] = _BOUNDS.intakeTemp;
     if (data.intakeTemp >= lo && data.intakeTemp <= hi) {
       patch.intakeTemp = data.intakeTemp;

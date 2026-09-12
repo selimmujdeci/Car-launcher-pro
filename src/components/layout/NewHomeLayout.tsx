@@ -14,13 +14,13 @@ import { next, previous } from '../../platform/media/carosMediaLayer';
 import {
   useOBDVehicleType,
   useOBDFuelLevel,
-  useOBDEngineTemp,
   useOBDRPM,
   useOBDRange,
   useOBDBatteryLevel,
   useOBDBatteryTemp,
   useOBDMotorPower,
 } from '../../platform/obdService';
+import { useLiveVehicleSignal } from '../../hooks/useCanonicalVehicleSignal';
 import { useGPSLocation } from '../../platform/gpsService';
 import { useUnifiedVehicleStore } from '../../platform/vehicleDataLayer';
 import { useClock } from '../../hooks/useClock';
@@ -35,6 +35,7 @@ import { ExpeditionLayout } from '../themes/ExpeditionLayout';
 import { HorizonLayout } from '../themes/HorizonLayout';
 import { ProLayout } from '../themes/ProLayout';
 import type { SmartSnapshot } from '../../platform/smartEngine';
+import { useDisplaySpeed } from '../../hooks/useDisplaySpeed';
 
 /* ══════════════════════════════════════════
    ULTRA PREMIUM — Lüks Araba Kokpiti
@@ -161,19 +162,32 @@ function HBtn({ onClick, children }: { onClick: () => void; children: React.Reac
 
 /* ─── NAV CARD ───────────────────────────────────────────────── */
 const NavCard = memo(function NavCard({ onOpenMap, fullMapOpen, onVoice }: { onOpenMap: () => void; fullMapOpen?: boolean; onVoice: () => void }) {
-  const [query, setQuery] = useState('');
+  /* ── IME-GÜVENLİ ARAMA GİRİŞİ (saha 2026-08-03) ──────────────────────────
+   * KUSUR: giriş KONTROLLÜ idi (`value={query}`). Android'de `ş ç ğ ı ö ü`
+   * çoğu düzende uzun-basma/tahmin ile yazılır; bu sırada IME metni
+   * "composing" (henüz kesinleşmemiş) tutar. Kontrollü input'ta araya giren
+   * herhangi bir React render'ı DOM değerini geri yazar ve kompozisyonu
+   * İPTAL EDER → harf ekranda belirir ve anında kaybolur.
+   * Bu bileşen `useGPSLocation()` ve `useRouteState()` dinlediği için her GPS
+   * tick'inde (~2 Hz) render oluyordu → çakışma neredeyse kesindi.
+   *
+   * ÇÖZÜM: giriş KONTROLSÜZ (`defaultValue`). React artık DOM değerine hiç
+   * dokunmaz → IME kompozisyonu bölünemez. Metin ref'ten okunur; `hasText`
+   * yalnız buton görünürlüğü içindir ve render etse bile değeri EZMEZ. */
+  const [hasText, setHasText] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const gps = useGPSLocation();
   const route = useRouteState();
 
   const handleSubmit = useCallback(() => {
-    const q = query.trim();
+    const q = (inputRef.current?.value ?? '').trim();
     if (!q) return;
     const loc = gps?.latitude != null ? { lat: gps.latitude, lng: gps.longitude! } : undefined;
     resolveAndNavigate(q, loc);
-    setQuery('');
+    if (inputRef.current) inputRef.current.value = '';
+    setHasText(false);
     inputRef.current?.blur();
-  }, [query, gps]);
+  }, [gps]);
 
   return (
     <div className="flex flex-col h-full overflow-hidden relative"
@@ -201,14 +215,14 @@ const NavCard = memo(function NavCard({ onOpenMap, fullMapOpen, onVoice }: { onO
             <Search className="w-3.5 h-3.5 flex-shrink-0" style={{ color: '#a8b8c8' }} />
             <input
               ref={inputRef}
-              value={query}
-              onChange={e => setQuery(e.target.value)}
+              defaultValue=""
+              onChange={e => setHasText(e.target.value.length > 0)}
               onKeyDown={e => { if (e.key === 'Enter') handleSubmit(); }}
               placeholder="Nereye gidiyorsunuz?"
               className="flex-1 bg-transparent outline-none text-sm font-medium"
-              style={{ color: query ? '#e2e8f0' : '#a8b8c8' }}
+              style={{ color: hasText ? '#e2e8f0' : '#a8b8c8' }}
             />
-            {query.length > 0 && (
+            {hasText && (
               <button onClick={handleSubmit} className="flex-shrink-0 active:scale-90 transition-all">
                 <Navigation className="w-3.5 h-3.5" style={{ color: 'var(--oem-accent)' }} />
               </button>
@@ -261,13 +275,16 @@ const SpeedCard = memo(function SpeedCard() {
   // yeniden render edilmez, sadece değişen field'ı okuyan chip güncellenir.
   const vehicleType  = useOBDVehicleType();
   const rpm          = useOBDRPM();
-  const engineTemp   = useOBDEngineTemp();
+  /* P0-OBD-03: kanonik otorite (CAN → OBD → yok) + tazelik kapısı. Dar abonelik
+     korundu: hook üç ilkel seçici kullanır, kütlesel abonelik AÇMAZ.
+     `null` → `-1` eşlemesi aşağıdaki `< 0` sentinel sözleşmesini KORUR. */
+  const engineTemp   = useLiveVehicleSignal('coolantTemp') ?? -1;
   const fuelLevel    = useOBDFuelLevel();
   const batteryLevel = useOBDBatteryLevel();
   const batteryTemp  = useOBDBatteryTemp();
   const motorPower   = useOBDMotorPower();
 
-  const rawSpeed = useUnifiedVehicleStore((s) => s.speed);
+  const rawSpeed = useDisplaySpeed();        // kütük #417: tek gösterim otoritesi
   const speedKmh = rawSpeed ?? 0;
 
   // Araç-tipi farkındalığı (Zero Redundancy): tam EV'de motor devri/sıcaklığı/

@@ -54,7 +54,23 @@ public class CarLauncherForegroundService extends Service {
 
     // ── GPS sabitleri ──────────────────────────────────────────────────────
     private static final long  GPS_INTERVAL_MS   = 1_000L;   // 1s — anlık km takibi
-    private static final float GPS_MIN_DIST_M    = 2f;       // 2m minimum hareket
+    /**
+     * Konum güncellemesi için minimum yer değiştirme.
+     *
+     * ⚠️ 2f → 0f (SAHADA ÖLÇÜLDÜ 2026-08-08, Siverek): `minDistance = 2 m` yalnız
+     * TESLİMATI filtreler, GPS alıcısını uyutmaz — yani pil kazancı yok denecek
+     * kadar azdır, ama bedeli ağırdır: araç DURUNCA (kırmızı ışık, trafik) hiçbir
+     * fix teslim edilmez. Ölçüm: park hâlinde `fixAgeMs = 25.325` — sinyal ±2 m
+     * doğrulukla gayet iyiyken. Üst katman bunu haklı olarak "bayat" sayıyor ve
+     * zincirleme şu dört kusuru üretiyordu:
+     *   · `FullMapView` 5 s sonra DR'ye düşüyor (duran araç için anlamsız)
+     *   · 30 s sonra "⚠ Konum Kayboldu — GPS Sinyali Yok" uyarısı basıyor
+     *   · `mapMatchModel` → `MATCH_UNCERTAIN` / `HEADING_UNKNOWN` (güven 0,89 → 0,4)
+     *   · kamera yön otoritesini kaybediyor
+     * 0 = "her `GPS_INTERVAL_MS`'te teslim et"; duran araçta da 1 Hz akış sürer.
+     * OEM navigasyonların (Google dâhil) davranışı budur.
+     */
+    private static final float GPS_MIN_DIST_M    = 0f;
     private static final float MOVING_KMH        = 5f;
     private static final long  PARKED_TIMEOUT_MS = 5 * 60_000L;
     private static final long  BREAK_INTERVAL_MS = 120 * 60_000L;
@@ -84,8 +100,34 @@ public class CarLauncherForegroundService extends Service {
 
     public static void setDashcamRecording(boolean active) { sDashcamRecording = active; }
 
+    /**
+     * Aktif navigasyon oturumu var mı — park kısmasının TEK istisnası.
+     *
+     * Park kısması (bkz. {@link #stopGpsHighAccuracy}) navigasyondan HABERSİZDİ:
+     * 5 dakikayı aşan bir duruşta (yoğun trafik, uzun ışık, feribot kuyruğu)
+     * sürüş devam ederken 1 Hz GPS kapanıyordu. Geri dönüş de park referansından
+     * 60 m uzaklaşmaya bağlı olduğu için araç kalktıktan sonra ilk ~60 m
+     * navigasyon KÖR gidiyordu (rota takibi, manevra sayacı, kamera yönü).
+     * Navigasyon kullanıcı başlatımlı ve sınırlı bir etkinliktir; sürerken
+     * konum tazeliği pil tasarrufundan önceliklidir.
+     */
+    private static volatile boolean sNavigationActive = false;
+
+    /**
+     * JS navigasyon oturumu başlayınca/bitince çağrılır. Başlarken 1 Hz akışı
+     * DERHAL geri getirir — kısılmış hâlde başlayan bir rotanın ilk manevrasını
+     * kaçırmamak için (idempotent).
+     */
+    public static void setNavigationActive(boolean active) {
+        sNavigationActive = active;
+        if (!active) return;
+        CarLauncherForegroundService svc = instance;
+        if (svc != null) svc.resumeGpsHighAccuracy();
+    }
+
     public interface LocationCallback {
-        void onLocation(double lat, double lng, float speedKmh, float bearing, float accuracy);
+        void onLocation(double lat, double lng, float speedKmh, float bearing, float accuracy,
+                        long observationTimestampMs, long gpsGeneration);
     }
     public interface BreakCallback {
         void onBreakReminder(long drivingMinutes);
@@ -93,10 +135,16 @@ public class CarLauncherForegroundService extends Service {
 
     private static volatile LocationCallback sLocationCallback;
     private static volatile BreakCallback    sBreakCallback;
+    /** JS canonical GPS session generation; -1 means no live JS session is bound. */
+    private static volatile long sGpsGeneration = -1L;
 
     public static void setCallbacks(LocationCallback lc, BreakCallback bc) {
         sLocationCallback = lc;
         sBreakCallback    = bc;
+    }
+
+    public static void setGpsGeneration(long generation) {
+        sGpsGeneration = generation;
     }
 
     // ── Servis durumu ──────────────────────────────────────────────────────
@@ -155,6 +203,7 @@ public class CarLauncherForegroundService extends Service {
     public void onCreate() {
         super.onCreate();
         instance = this;
+        ForegroundServiceBoundary.markStarted();
         lastGpsMotionMs = System.currentTimeMillis();
         createNotificationChannels();
         startForeground(NOTIF_ID, buildNotification("GPS takibi aktif", false));
@@ -175,6 +224,7 @@ public class CarLauncherForegroundService extends Service {
     @Override
     public void onDestroy() {
         instance = null;
+        ForegroundServiceBoundary.markStopped();
         stopWatchdog();
         stopLocationUpdates();
         mainHandler.removeCallbacksAndMessages(null);
@@ -244,8 +294,46 @@ public class CarLauncherForegroundService extends Service {
                 // Sessiz fail: gönderilmese bile sistemi durdurmaz
             }
         }
+        _keepFanOn();
+
         // Her 1 saniyede bir tekrarla
         mainHandler.postDelayed(watchdogRunnable, WATCHDOG_INTERVAL_MS);
+    }
+
+    /* ── Fan koruyucu (K24 / nwdpower) ────────────────────────────────────────
+     *
+     * SAHA 2026-09-03 (K2401 / ceres-b3): bu ünitede aktif soğutma FANI var ama
+     * OEM güç servisi onu KAPALI tutuyor — PMU 91-95 °C, CPU 87 °C ölçülürken
+     * bile fan çalışmadı ve cihaz tekrarlayan ani reset'ler yaşadı. sysfs düğümü
+     * dünyaya yazılabilir (`-rw-rw-rw-`) ve `fan_on` yazınca gpio 0'a düşüyor
+     * (ters mantık: 0 = FAN AÇIK). OEM servisi ayarı geri aldığı için TEK SEFER
+     * yazmak YETMEZ — periyodik olarak yeniden yazılır.
+     *
+     * KURALLAR:
+     *  · Yeni timer YOK — mevcut 1 Hz MCU heartbeat'ine bağlanır, 5 sn'de bir yazar.
+     *  · Düğüm YOKSA hiçbir şey yapılmaz → bu ÜNİTEYE ÖZGÜ, diğer head unit'lerde
+     *    tamamen ölü koddur (yanlış cihazda GPIO kurcalamaz).
+     *  · Sonda newline OLMAMALI: sürücü ham tamponu karşılaştırıyor, `echo` ile
+     *    gelen `\n` eşleşmeyi bozuyor (sahada ölçüldü).
+     *  · Fail-soft: yazım hatası heartbeat'i ve servisi ASLA etkilemez.
+     */
+    private static final String FAN_CTRL_PATH   = "/sys/devices/platform/nwdpower/fan_ctrl";
+    private static final int    FAN_WRITE_TICKS = 5;   // 1 Hz heartbeat → 5 sn
+    private int _fanTick = 0;
+
+    private void _keepFanOn() {
+        if (++_fanTick < FAN_WRITE_TICKS) return;
+        _fanTick = 0;
+        try {
+            java.io.File node = new java.io.File(FAN_CTRL_PATH);
+            if (!node.exists()) return;                 // bu üniteye özgü — yoksa çık
+            try (java.io.FileOutputStream fos = new java.io.FileOutputStream(node)) {
+                fos.write("fan_on".getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+                fos.flush();
+            }
+        } catch (Throwable ignored) {
+            /* fail-soft: izin yok / düğüm kayboldu / SELinux reddetti → sessiz geç */
+        }
     }
 
     /** Servisin hâlâ aktif olup olmadığını kontrol eder. */
@@ -266,7 +354,8 @@ public class CarLauncherForegroundService extends Service {
                 if (cb != null) {
                     // WebView aktif — normal yol
                     cb.onLocation(loc.getLatitude(), loc.getLongitude(),
-                                  speedKmh, loc.getBearing(), loc.getAccuracy());
+                                  speedKmh, loc.getBearing(), loc.getAccuracy(),
+                                  loc.getTime(), sGpsGeneration);
                 } else {
                     // WebView ölü — native heartbeat
                     nativeHeartbeat(loc.getLatitude(), loc.getLongitude(), speedKmh);
@@ -468,7 +557,11 @@ public class CarLauncherForegroundService extends Service {
         // NOT: bu, mevcut break-reminder zaman aşımı ile aynı eşiği (PARKED_TIMEOUT_MS) kullanır —
         // uzun trafik ışığı/dur-kalk gibi 5 dk'yı aşan duraklamalarda (nadir) GPS de durur; hareket
         // NETWORK_PROVIDER ile algılanıp otomatik yeniden açılır (aşağıdaki uzaklaşma kontrolü dahil).
-        if (gpsHighAccuracyActive && (now - lastGpsMotionMs) > PARKED_TIMEOUT_MS) {
+        // NAVİGASYON İSTİSNASI: rota sürerken duruş "park" DEĞİLDİR — uzun ışık ya da
+        // trafik olabilir. Kısmak, kalkışta ilk ~60 m'yi kör bırakıyordu (bkz.
+        // sNavigationActive). Oturum bitince bu dal yeniden normal çalışır.
+        if (gpsHighAccuracyActive && !sNavigationActive
+            && (now - lastGpsMotionMs) > PARKED_TIMEOUT_MS) {
             stopGpsHighAccuracy(loc);
             return;
         }

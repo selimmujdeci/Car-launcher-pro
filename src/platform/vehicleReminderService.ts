@@ -9,7 +9,17 @@ import type { MaintenanceInfo } from '../store/useStore';
 
 /* ── Tipler ──────────────────────────────────────────────── */
 
-export type ReminderUrgency = 'ok' | 'soon' | 'urgent' | 'overdue';
+/**
+ * `unknown` = kararı verecek VERİ YOK (saha 2026-08-05 · kütük #420).
+ *
+ * SAHADA ÖLÇÜLDÜ: "SON DEĞİŞİMDEKİ SAYAÇ" alanı BOŞ iken ekran yeşil
+ * **"Tüm bakımlar güncel"** diyordu. Kök: yağ hesabı `lastOilChangeKm ?? 0` +
+ * `nextOilChangeKm ?? 10000` varsayılanlarıyla, hiç veri yokken bile "ok"
+ * üretiyordu; tarihi girilmemiş muayene/sigorta/kasko ise listeye HİÇ
+ * eklenmediği için boşluk görünmüyordu. İkisi birleşince ürün, bilmediği bir
+ * şeyi "sağlıklı" diye iddia ediyordu — kanıtsız bilgi üretme yasağının ihlali.
+ */
+export type ReminderUrgency = 'ok' | 'soon' | 'urgent' | 'overdue' | 'unknown';
 
 export interface ReminderItem {
   id: 'oil_change' | 'inspection' | 'insurance' | 'kasko';
@@ -49,45 +59,45 @@ function kmUrgency(kmLeft: number): ReminderUrgency {
 export function computeReminders(m: MaintenanceInfo, currentKm = 0): ReminderItem[] {
   const items: ReminderItem[] = [];
 
-  // Yağ değişimi — lastOilChangeKm: son değişimdeki sayaç, nextOilChangeKm: aralık
-  const oilKmLeft = (m.lastOilChangeKm ?? 0) + (m.nextOilChangeKm ?? 10000) - currentKm;
-  items.push({
-    id: 'oil_change',
-    label: 'Yağ Değişimi',
-    urgency: kmUrgency(oilKmLeft),
-    detail: oilKmLeft > 0
-      ? `${Math.round(oilKmLeft).toLocaleString('tr-TR')} km kaldı`
-      : 'Gecikmiş',
-  });
-
-  // Muayene
-  if (m.inspectionDate) {
-    const d = daysUntil(m.inspectionDate);
+  // Yağ değişimi — lastOilChangeKm: son değişimdeki sayaç, nextOilChangeKm: aralık.
+  // Kütük #420: son değişim sayacı YOKSA kalan km hesaplanamaz. Eskiden `?? 0`
+  // varsayımıyla sahte bir "ok" üretiliyordu; artık bilinmiyor olarak RAPORLANIR.
+  const oilBaseKnown = m.lastOilChangeKm != null && Number.isFinite(m.lastOilChangeKm);
+  if (!oilBaseKnown) {
     items.push({
-      id: 'inspection',
-      label: 'Muayene',
-      urgency: dateUrgency(d),
-      detail: d >= 0 ? `${d} gün kaldı` : `${Math.abs(d)} gün gecikti`,
+      id: 'oil_change',
+      label: 'Yağ Değişimi',
+      urgency: 'unknown',
+      detail: 'Son değişim sayacı girilmedi',
+    });
+  } else {
+    const oilKmLeft = (m.lastOilChangeKm as number) + (m.nextOilChangeKm ?? 10000) - currentKm;
+    items.push({
+      id: 'oil_change',
+      label: 'Yağ Değişimi',
+      urgency: kmUrgency(oilKmLeft),
+      detail: oilKmLeft > 0
+        ? `${Math.round(oilKmLeft).toLocaleString('tr-TR')} km kaldı`
+        : 'Gecikmiş',
     });
   }
 
-  // Sigorta
-  if (m.insuranceExpiry) {
-    const d = daysUntil(m.insuranceExpiry);
+  // Tarihe bağlı kalemler — Kütük #420: girilmemiş tarih artık GİZLENMEZ,
+  // `unknown` olarak listelenir. Görünmeyen boşluk, "sorun yok" sanılıyordu.
+  const dated: Array<{ id: ReminderItem['id']; label: string; value?: string }> = [
+    { id: 'inspection', label: 'Muayene', value: m.inspectionDate },
+    { id: 'insurance',  label: 'Sigorta', value: m.insuranceExpiry },
+    { id: 'kasko',      label: 'Kasko',   value: m.kaskoExpiry },
+  ];
+  for (const { id, label, value } of dated) {
+    if (!value) {
+      items.push({ id, label, urgency: 'unknown', detail: 'Tarih girilmedi' });
+      continue;
+    }
+    const d = daysUntil(value);
     items.push({
-      id: 'insurance',
-      label: 'Sigorta',
-      urgency: dateUrgency(d),
-      detail: d >= 0 ? `${d} gün kaldı` : `${Math.abs(d)} gün gecikti`,
-    });
-  }
-
-  // Kasko
-  if (m.kaskoExpiry) {
-    const d = daysUntil(m.kaskoExpiry);
-    items.push({
-      id: 'kasko',
-      label: 'Kasko',
+      id,
+      label,
       urgency: dateUrgency(d),
       detail: d >= 0 ? `${d} gün kaldı` : `${Math.abs(d)} gün gecikti`,
     });
@@ -96,12 +106,37 @@ export function computeReminders(m: MaintenanceInfo, currentKm = 0): ReminderIte
   return items;
 }
 
+/**
+ * Bakım durumu hakkında POZİTİF bir iddia ("hepsi güncel") üretilebilir mi?
+ * Kütük #420: yalnız EN AZ BİR gerçek veri varsa ve hiçbiri sorunlu değilse.
+ * Hepsi `unknown` ise ürünün söyleyebileceği tek dürüst şey "veri girilmedi"dir.
+ */
+export function canClaimAllHealthy(items: ReminderItem[]): boolean {
+  const known = items.filter((i) => i.urgency !== 'unknown');
+  return known.length > 0 && known.every((i) => i.urgency === 'ok');
+}
+
 /** Sesli asistan için kısa özet metin döner. */
 export function getMaintenanceSummary(m: MaintenanceInfo, currentKm = 0): string {
-  const items = computeReminders(m, currentKm);
-  const issues = items.filter((i) => i.urgency !== 'ok');
-  if (issues.length === 0) return 'Tüm bakımlar güncel, sorun yok.';
-  return issues.map((i) => `${i.label}: ${i.detail}`).join('. ');
+  const items   = computeReminders(m, currentKm);
+  const issues  = items.filter((i) => i.urgency !== 'ok' && i.urgency !== 'unknown');
+  const unknown = items.filter((i) => i.urgency === 'unknown');
+
+  // Kütük #420: bilinmeyeni "sorun yok" diye sunmak YASAK.
+  if (issues.length === 0) {
+    if (unknown.length === items.length) {
+      return 'Bakım bilgisi girilmemiş — durum bilinmiyor.';
+    }
+    const tail = unknown.length > 0
+      ? ` Bilinmeyen: ${unknown.map((i) => i.label).join(', ')}.`
+      : '';
+    return `Girilen bakımlar güncel.${tail}`;
+  }
+
+  const head = issues.map((i) => `${i.label}: ${i.detail}`).join('. ');
+  return unknown.length > 0
+    ? `${head}. Bilinmeyen: ${unknown.map((i) => i.label).join(', ')}.`
+    : head;
 }
 
 /** Acil veya gecikmiş hatırlatıcı var mı? */

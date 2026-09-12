@@ -1,0 +1,23 @@
+{
+  "release": "2026-08-19.0",
+  "retrievedFrom": "s3://overturemaps-us-west-2/release/2026-08-19.0",
+  "tileBbox": [
+    34.8486328125,
+    36.91476428895592,
+    34.87060546875,
+    36.93233006150314
+  ],
+  "nearBbox": [
+    34.85985,
+    36.9157,
+    34.86435,
+    36.9193
+  ],
+  "elapsedSec": 300.9,
+  "counts": {
+    "buildings": 2627,
+    "segments": 1559,
+    "addresses": 0,
+    "places": 337
+  }
+}

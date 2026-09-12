@@ -21,6 +21,8 @@
 import { downloadRegion }  from '../../platform/offlineDataService';
 import { cacheLRUManager } from '../storage/CacheLRUManager';
 import { isFeatureEnabled, recordFault } from '../../platform/safety/SafetyBrain';
+/* NAV v3 · F1 — karo matematiğinin TEK kaynağı (L1 MapStore). */
+import { lngLatToTileRawUnclamped } from '../../platform/navigation/map/store/tileGrid';
 
 /* ── Sabitler ────────────────────────────────────────────────────────────── */
 
@@ -43,12 +45,17 @@ function _recordCorridorAbortIfNeeded(e: unknown): void {
 
 export interface TileCoord { z: number; x: number; y: number }
 
+/**
+ * NAV v3 · F1: formül TEK kaynakta —
+ * `navigation/map/store/tileGrid.lngLatToTileRawUnclamped`.
+ *
+ * Eski gövde `n = 1 << z` kullanıyordu; tek kaynak `2 ** z` kullanır. Bu
+ * modülün kullandığı `z ∈ [TILE_ZOOM_MIN, TILE_ZOOM_MAX] = [10, 13]`
+ * aralığında iki ifade **AYNI** değeri verir; `1 << z` yalnız `z ≥ 31`de
+ * negatife dönerdi (erişilemeyen bir kusurdu, artık yapısal olarak yok).
+ */
 function _tileXY(lat: number, lon: number, z: number): { x: number; y: number } {
-  const n  = 1 << z;
-  const x  = Math.floor(((lon + 180) / 360) * n);
-  const lr = (lat * Math.PI) / 180;
-  const y  = Math.floor(((1 - Math.log(Math.tan(lr) + 1 / Math.cos(lr)) / Math.PI) / 2) * n);
-  return { x, y };
+  return lngLatToTileRawUnclamped(lon, lat, z);
 }
 
 /* ── Haversine (metre) ───────────────────────────────────────────────────── */

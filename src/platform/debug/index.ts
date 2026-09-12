@@ -1,5 +1,13 @@
-export const DEBUG_ENABLED =
-  import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEBUG_PANEL === 'true';
+import { DEVELOPER_FEATURES_ENABLED } from './developerFeatures';
+
+export { DEVELOPER_FEATURES_ENABLED } from './developerFeatures';
+
+/**
+ * GERİYE UYUMLU TAKMA AD. Onlarca çağrı noktası `DEBUG_ENABLED` kullanıyor;
+ * karar ARTIK burada hesaplanmaz — tek otorite `developerFeatures.ts`'tir.
+ * Yeni kod `DEVELOPER_FEATURES_ENABLED` kullanmalıdır.
+ */
+export const DEBUG_ENABLED = DEVELOPER_FEATURES_ENABLED;
 
 /**
  * DEBUG_ENABLED guard'lı bilgi logu — çıplak `console.log` yerine kullanılır.
@@ -10,7 +18,8 @@ export const DEBUG_ENABLED =
  */
 export function logInfo(...args: unknown[]): void {
   if (!DEBUG_ENABLED) return;
-  // eslint-disable-next-line no-console -- merkezi, guard'lı debug log noktası
+  // Merkezi, DEBUG_ENABLED guard'lı TEK debug log noktası. (`no-console` kuralı bu
+  // projede etkin değil; etkinleştirilirse istisna tam BURADA tanımlanmalı.)
   console.log(...args);
 }
 

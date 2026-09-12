@@ -11,6 +11,8 @@
 
 import { signalWithTimeout } from '../utils/abortCompat';
 import { useState, useEffect } from 'react';
+import { injectOfficialHazard } from './hazardService';
+import type { HazardType } from '../store/useHazardStore';
 
 /* ── Tipler ──────────────────────────────────────────────── */
 
@@ -110,6 +112,78 @@ function jamFactorToLevel(jf: number): TrafficLevel {
   if (jf < 5)   return 'moderate';
   if (jf < 8)   return 'heavy';
   return 'standstill';
+}
+
+/**
+ * NAV-5: tek nokta jamFactor'ü (rota trafik renklendirmesi örneklemesi için). HERE anahtarı
+ * yoksa null (BYOK). Küçük bbox (~3km) → ilk flow sonucunun jamFactor'ü. Fail-soft, bounded.
+ */
+export async function fetchHereJamFactorAt(lat: number, lng: number): Promise<number | null> {
+  if (!HERE_KEY || !Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  const d = 0.03; // ~3 km bbox (nokta çevresi)
+  const url =
+    `https://data.traffic.hereapi.com/v7/flow` +
+    `?apiKey=${HERE_KEY}` +
+    `&in=bbox:${lng - d},${lat - d},${lng + d},${lat + d}` +
+    `&locationReferencing=shape`;
+  try {
+    const res = await fetch(url, { signal: signalWithTimeout(6000) });
+    if (!res.ok) return null;
+    const data = await res.json() as { results?: HereFlowResult[] };
+    const jf = data.results?.[0]?.currentFlow?.jamFactor;
+    return typeof jf === 'number' ? jf : null;
+  } catch { return null; }
+}
+
+/* ── NAV-4: HERE Traffic Incidents v7 → resmi tehlike (kaza/yol kapama) ──── */
+
+interface HereIncidentResult {
+  incidentDetails?: { id?: string; type?: string; criticality?: string };
+  location?: { shape?: { links?: { points?: { lat: number; lng: number }[] }[] } };
+}
+
+/** HERE olay tipi → CarOS HazardType (yalnız sürücüye anlamlı olanlar; gerisi atlanır). */
+const _HERE_INCIDENT_MAP: Record<string, HazardType | undefined> = {
+  accident:        'ACCIDENT',
+  construction:    'CONSTRUCTION',
+  roadClosure:     'CONSTRUCTION',
+  laneRestriction: 'CONSTRUCTION',
+  plannedEvent:    'CONSTRUCTION',
+  roadHazard:      'ROAD_DAMAGE',
+  disabledVehicle: 'ROAD_DAMAGE',
+  weather:         'WEATHER',
+  // congestion / massTransit / other → hazard olarak GÖSTERİLMEZ (yoğunluk zaten flow'da)
+};
+
+/**
+ * Aracın bbox'ındaki resmi trafik olaylarını çeker ve Hazard motoruna enjekte eder
+ * (banner + NAV-3 sesli anons). Flow'dan BAĞIMSIZ, best-effort. Dönüş: enjekte edilen sayı.
+ */
+async function fetchHereIncidents(lat: number, lng: number): Promise<number> {
+  const delta = 0.15; // ~15 km bbox
+  const url =
+    `https://data.traffic.hereapi.com/v7/incidents` +
+    `?apiKey=${HERE_KEY}` +
+    `&in=bbox:${lng - delta},${lat - delta},${lng + delta},${lat + delta}` +
+    `&locationReferencing=shape`;
+
+  const res = await fetch(url, { signal: signalWithTimeout(8000) });
+  if (!res.ok) throw new Error(`HERE Incidents HTTP ${res.status}`);
+  const data  = await res.json() as { results?: HereIncidentResult[] };
+  const items = data.results ?? [];
+
+  let injected = 0;
+  for (const it of items.slice(0, 20)) {           // bounded — payload/CPU bütçesi
+    const rawType = it.incidentDetails?.type;
+    const type    = rawType ? _HERE_INCIDENT_MAP[rawType] : undefined;
+    if (!type) continue;                            // ilgisiz/yoğunluk → atla
+    const pt = it.location?.shape?.links?.[0]?.points?.[0];
+    if (!pt || !Number.isFinite(pt.lat) || !Number.isFinite(pt.lng)) continue;
+    const id = it.incidentDetails?.id ?? `${type}_${pt.lat.toFixed(4)}_${pt.lng.toFixed(4)}`;
+    injectOfficialHazard(id, pt.lat, pt.lng, type, 'HERE');
+    injected++;
+  }
+  return injected;
 }
 
 /* ── TomTom Traffic Flow ─────────────────────────────────── */
@@ -237,6 +311,12 @@ function push(partial: Partial<TrafficState>): void {
 
 async function loadTraffic(lat?: number, lng?: number): Promise<void> {
   push({ loading: true, error: null });
+
+  // NAV-4: RESMİ OLAYLAR (kaza/yol kapama) — flow'dan BAĞIMSIZ, best-effort. Hazard motoruna
+  // enjekte edilir (banner + NAV-3 sesli). Flow başarısız olsa bile olaylar çekilir. Fire-forget.
+  if (HERE_KEY && lat != null && lng != null) {
+    fetchHereIncidents(lat, lng).catch((e) => console.warn('[Traffic] HERE incidents başarısız:', e));
+  }
 
   // 1. HERE
   if (HERE_KEY && lat != null && lng != null) {

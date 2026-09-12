@@ -3,7 +3,6 @@
  *
  * Bileşenler:
  *   TurnPanel        — üst sol: futurist-glass + SVG ok + mesafe + sokak
- *   RoadSignsPanel   — üst orta: yol tabelası (futurist-gradient-blue)
  *   LaneGuidance     — alt orta: manevra tipine göre dinamik şerit rehberi
  *   SpeedPanel       — sağ: futurist-glass, limit aşımında glow-red + pulse
  *   NavInfoBar       — alt: futurist-gradient-dark, glowing progress bar
@@ -16,20 +15,19 @@ import {
   memo, useState, useCallback, useEffect, useRef, useMemo, type ReactNode,
 } from 'react';
 import {
-  MapPin, Home, Briefcase, Fuel, ChevronDown, Star, Plus, Trash2,
+  MapPin, Home, Briefcase, Fuel, Star,
   Play, X, Loader2, AlertCircle, CheckCircle2, GitBranch,
 } from 'lucide-react';
 import {
   useNavigation,
   startNavigation,
-  stopNavigation,
+  endNavigation,
   formatDistance,
   formatEta,
   NavStatus,
 } from '../../platform/navigationService';
 import {
   useRouteState,
-  clearRoute,
   selectAltRoute,
   computeFuelEstimate,
 } from '../../platform/routingService';
@@ -42,11 +40,28 @@ import { _haversineMeters } from '../../platform/gps/gpsMath';
 import { speakNavigation } from '../../platform/ttsService';
 import { useUnifiedVehicleStore } from '../../platform/vehicleDataLayer/UnifiedVehicleStore';
 import type { Address } from '../../platform/addressBookService';
-import { useSpeedLimitByLocation } from '../../platform/speedLimitService';
+import { SavedLocationsPanel } from './hud/SavedLocationsPanel';
+import { useEffectiveSpeedLimit } from '../../platform/navigation/useEffectiveSpeedLimit';
+import { useNavigationHonesty } from '../../hooks/useNavigationHonesty';
+import { formatManeuverDistance as fmtTurn } from './hud/formatManeuverDistance';
+import { resolveLaneRow, type LanePresentation } from '../../platform/navigation/core/laneGuidanceModel';
+import {
+  resolveHudPresentation, type HudPresentation,
+} from '../../platform/navigation/core/hudPresentationModel';
+import { ManeuverPanel } from './hud/ManeuverPanel';
+import { DrivingSpeed } from './hud/DrivingSpeed';
+import { TripSummary } from './hud/TripSummary';
+import { NavigationStatus } from './hud/NavigationStatus';
+import { DrivingControls } from './hud/DrivingControls';
+import {
+  HONEST_SILENT, type NavigationHonestyVerdict,
+} from '../../platform/navigation/core/navigationHonestyModel';
 import { useSafetyStore } from '../../store/useSafetyStore';
 import { startSafetyObserver, stopSafetyObserver } from '../../platform/safetyService';
 import { useHazardStore, type HazardType } from '../../store/useHazardStore';
 import { useCognitiveStore } from '../../store/useCognitiveStore';
+import { useHudLayout } from '../../hooks/useDenseHud';
+import { useDisplaySpeed } from '../../hooks/useDisplaySpeed';
 
 /* ── Türkçe talimat ────────────────────────────────────────── */
 
@@ -144,13 +159,13 @@ const HAZARD_LABELS_HUD: Record<HazardType, string> = {
 /* ── HazardBanner — üst merkez, sadece PREPARE/ATTENTION ────── */
 
 const HazardBanner = memo(function HazardBanner() {
-  const hazardStatus    = useHazardStore((s) => s.hazardStatus);
   const activeHazards   = useHazardStore((s) => s.activeHazards);
   const hazardIntensity = useHazardStore((s) => s.hazardIntensity);
   // Sadece location — object yerine tek field subscribe
   const vehicleLoc      = useUnifiedVehicleStore((s) => s.location);
   const cogMode         = useCognitiveStore((s) => s.currentMode);
   const hideCrmBadge    = cogMode === 'CRITICAL' || cogMode === 'LIMP_HOME';
+  const hazardStatus    = useHazardStore((s) => s.hazardStatus);
 
   if (hazardStatus !== 'PREPARE' && hazardStatus !== 'ATTENTION') return null;
   if (activeHazards.length === 0) return null;
@@ -180,7 +195,8 @@ const HazardBanner = memo(function HazardBanner() {
 
   return (
     <div
-      className="absolute z-30 pointer-events-none flex flex-col items-center"
+      data-editable="nav.hazard" data-editable-type="card"
+      className="absolute z-[var(--z-map-hud)] pointer-events-none flex flex-col items-center"
       style={{ top: 'calc(var(--sat, 0px) + 72px)', left: '50%', transform: 'translateX(-50%)' }}
     >
       {/* Amber pulse + topluluk mavi-pulse keyframe'leri */}
@@ -274,7 +290,7 @@ const LimpHomeHUD = memo(function LimpHomeHUD({
     <div style={{
       position:       'absolute',
       inset:          0,
-      zIndex:         50,
+      zIndex:         'var(--z-map-limp)',
       display:        'flex',
       flexDirection:  'column',
       background:     '#000000',
@@ -406,95 +422,117 @@ const LimpHomeHUD = memo(function LimpHomeHUD({
   );
 });
 
-/* ── FadeMount — kognitif mod bastırma için smooth unmount ───────────────── */
-// visible false olduğunda 150ms opacity geçişi → sonra tamamen unmount (MALI-400).
-// Absolute-positioned children'ların layout'unu etkilemez (wrapper position:static).
-
-function FadeMount({ visible, children }: { visible: boolean; children: ReactNode }) {
-  const [mounted, setMounted] = useState(visible);
-  const [opacity, setOpacity] = useState(visible ? 1 : 0);
-  useEffect(() => {
-    if (visible) {
-      setMounted(true);
-      const raf = requestAnimationFrame(() => setOpacity(1));
-      return () => cancelAnimationFrame(raf);
-    }
-    setOpacity(0);
-    const t = setTimeout(() => setMounted(false), 150);
-    return () => clearTimeout(t);
-  }, [visible]);
-  if (!mounted) return null;
-  return <div style={{ opacity, transition: 'opacity 150ms ease' }}>{children}</div>;
-}
-
-/* ── Dönüş mesafe formatlayıcı ──────────────────────────── */
-
-function fmtTurn(m: number): string {
-  if (!Number.isFinite(m) || m < 0) return '—';
-  if (m <  20)   return 'ŞİMDİ';
-  if (m < 100)   return `${Math.round(m / 10) * 10} m`;
-  if (m < 1000)  return `${Math.round(m / 50) * 50} m`;
-  return `${(m / 1000).toFixed(1)} km`;
-}
-
-
 /* ══════════════════════════════════════════════════════════ */
 /* ── LaneArrow — OEM cinematic lane hint ───────────────── */
 /* ══════════════════════════════════════════════════════════ */
 // Per screens.jsx 428-447 — 56×56 rounded tile, amber gradient + line-warm border
 // when active, surface-2 + line when inactive.
 
-function LaneArrow({ dir, active }: { dir: 'left' | 'right' | 'straight'; active?: boolean }) {
-  const rot = dir === 'left' ? -90 : dir === 'right' ? 90 : 0;
-  return (
-    <div style={{
-      width: 34, height: 34, borderRadius: 10,
-      background: active
-        ? 'linear-gradient(135deg, oklch(82% 0.10 65 / 0.32), oklch(60% 0.10 50 / 0.10))'
-        : 'var(--oem-surface-2, rgba(48,55,73,0.55))',
-      border: '1px solid ' + (active
-        ? 'var(--oem-line-warm, oklch(66% 0.10 55 / 0.42))'
-        : 'var(--oem-line, rgba(255,240,210,0.08))'),
-      color: active ? 'var(--oem-amber, oklch(80% 0.13 60))' : 'var(--oem-ink-3, rgba(240,235,224,0.52))',
-      display: 'grid', placeItems: 'center',
-      boxShadow: active
-        ? '0 0 20px oklch(70% 0.10 60 / 0.30), 0 1px 0 rgba(255,240,210,0.10) inset'
-        : '0 1px 0 rgba(255,240,210,0.04) inset',
-    }}>
-      <svg viewBox="0 0 24 24" style={{ width: 17, height: 17, transform: `rotate(${rot}deg)`, color: 'currentColor' }}>
-        <path d="M12 4v16M6 10l6-6 6 6" fill="none" stroke="currentColor" strokeWidth="2"
-          strokeLinecap="round" strokeLinejoin="round" />
+/* ── Şerit oku — GÖRSEL DİL: automotive, düz dolgu ────────────────────────
+ * Eski hâlde `linear-gradient` + `0 0 20px` GLOW vardı. Canonical hedef
+ * (`field-runs/carto-2026-09-06/f-Maneuver.png`) düz dolgu · ince kenar ·
+ * gölgesiz kutular kullanır; parlama sürüş ekranında dikkat çalar ve güneş
+ * altında kontrastı DÜŞÜRÜR. Vurgu artık YALNIZ dolgu/kenar/mürekkep
+ * tonuyla taşınır. */
+const LANE_BOX = 34;
+
+function LaneArrowGlyph({ lane }: { lane: LanePresentation }) {
+  const common = {
+    fill: 'none', stroke: 'currentColor', strokeWidth: 2,
+    strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const,
+  };
+  if (lane.dir === 'unknown') {
+    /* Gösterge tanınmadı → düz ok UYDURULMAZ, nötr işaret çizilir. */
+    return (
+      <svg viewBox="0 0 24 24" style={{ width: 17, height: 17 }} aria-hidden>
+        <path d="M8 12h8" {...common} />
       </svg>
+    );
+  }
+  if (lane.dir === 'uturn') {
+    /* U dönüşü kendi şeklini alır. Eski kod bunu DÜZ ok çiziyordu. */
+    return (
+      <svg viewBox="0 0 24 24" style={{ width: 17, height: 17 }} aria-hidden>
+        <path d="M9 20V10a4 4 0 0 1 8 0v6m0 0l-3-3m3 3l3-3" {...common} />
+      </svg>
+    );
+  }
+  return (
+    <svg viewBox="0 0 24 24"
+      style={{ width: 17, height: 17, transform: `rotate(${lane.angleDeg}deg)` }} aria-hidden>
+      <path d="M12 4v16M6 10l6-6 6 6" {...common} />
+    </svg>
+  );
+}
+
+function LaneArrow({ lane }: { lane: LanePresentation }) {
+  const selected = lane.emphasis === 'ROUTE_SELECTED';
+  const blocked  = lane.emphasis === 'NOT_ALLOWED';
+  return (
+    <div
+      data-testid="lane-arrow"
+      data-lane-emphasis={lane.emphasis}
+      data-lane-dir={lane.dir}
+      style={{
+        width: LANE_BOX, height: LANE_BOX, borderRadius: 10,
+        /* DÜZ dolgu — gradient yok. */
+        background: selected
+          ? 'var(--oem-amber-weak, rgba(224,162,60,0.20))'
+          : 'var(--oem-surface-2, rgba(48,55,73,0.55))',
+        border: '1px solid ' + (selected
+          ? 'var(--oem-line-warm, rgba(224,162,60,0.42))'
+          : 'var(--oem-line, rgba(255,240,210,0.08))'),
+        color: selected
+          ? 'var(--oem-amber, #E0A23C)'
+          : blocked
+            ? 'var(--oem-ink-3, rgba(240,235,224,0.52))'
+            : 'var(--oem-ink-2, rgba(240,235,224,0.74))',
+        /* Kullanılamayan şerit GERİ ÇEKİLİR ama gizlenmez: sürücü kavşakta
+           kaç şerit olduğunu görmelidir. */
+        opacity: blocked ? 0.45 : 1,
+        display: 'grid', placeItems: 'center',
+        /* GLOW YOK. */
+      }}>
+      <LaneArrowGlyph lane={lane} />
     </div>
   );
 }
 
-/* ── LaneGuidance — derive arrows from current step ────── */
-// 3 arrows (left, straight, right) with the matching direction(s) active.
+/* ── LaneGuidance — YALNIZ GERÇEK şerit verisinden ────────────────────────────
+ *
+ * Bileşen şerit oklarını bir zamanlar MANEVRA TİPİNDEN türetiyordu ("sağa dön"
+ * → sağ ok yanar); bu, sürücüye kavşakta gerçek şerit bilgisi varmış izlenimi
+ * verir ve ürünün "kanıtsız bilgi üretme YASAĞI"nın doğrudan ihlaliydi.
+ * Kural değişmedi: gerçek `lanes` verisi varsa GÖSTERİLİR, yoksa panel HİÇ
+ * ÇIKMAZ. Yanlış şerit bilgisi vermek, hiç vermemekten KÖTÜDÜR.
+ *
+ * 2026-09-07: vurgu semantiği `laneGuidanceModel`e taşındı. Eski hâl OSRM'in
+ * İKİ ayrı gerçeğini (`valid` · `active`) tek boolean'a çöküyordu; artık
+ * ROUTE_SELECTED / ALLOWED / NOT_ALLOWED ayrı ayrı görünüyor.
+ */
 function LaneGuidance({ step }: { step: RouteStep }) {
-  const mod = step.maneuverModifier ?? '';
-  const t   = step.maneuverType ?? '';
-  if (t === 'arrive') return null;
-  const goesLeft  = mod.includes('left');
-  const goesRight = mod.includes('right');
-  const goesStr   = !goesLeft && !goesRight;
+  const row = resolveLaneRow(step.lanes);
+  // KANIT YOK → PANEL YOK.
+  if (!row) return null;
+  if (step.maneuverType === 'arrive') return null;
+
   return (
     <div
-      className="oem-glass rounded-[1.5rem]"
+      className="rounded-[1.5rem]"
+      data-testid="lane-guidance"
+      data-lane-count={row.length}
       style={{
         padding: '10px 14px',
         background: 'var(--oem-surface-1, rgba(38,44,60,0.78))',
         border: '1px solid var(--oem-line-strong, rgba(255,240,210,0.18))',
-        boxShadow: 'var(--oem-shadow-card, 0 24px 48px -22px rgba(0,0,0,0.55))',
       }}>
       <div className="text-[10px] font-black uppercase tracking-[0.20em] mb-2"
         style={{ color: 'var(--oem-ink-2, rgba(240,235,224,0.74))' }}>
         Şerit Yönlendirme
       </div>
-      <div className="flex gap-2 justify-center">
-        <LaneArrow dir="left"     active={goesLeft} />
-        <LaneArrow dir="straight" active={goesStr} />
-        <LaneArrow dir="right"    active={goesRight} />
+      {/* Çok şeritli kavşakta 800×480'de taşma olmaz: satır sarar, ortalanır. */}
+      <div className="flex gap-2 justify-center flex-wrap">
+        {row.map((ln, i) => <LaneArrow key={i} lane={ln} />)}
       </div>
     </div>
   );
@@ -502,167 +540,6 @@ function LaneGuidance({ step }: { step: RouteStep }) {
 
 
 /* ══════════════════════════════════════════════════════════ */
-/* ── TurnPanel — OEM Cinematic Glass ─────────────────────── */
-/* ══════════════════════════════════════════════════════════ */
-// Per screens.jsx lines 340-358 — amber gradient icon box, 34px distance,
-// 19px street name (font-medium), "Sonra X km düz devam" subtitle.
-
-const TurnPanel = memo(function TurnPanel({
-  step, distToTurn, nextStep, hazardActive = false,
-}: {
-  step: RouteStep; distToTurn: number; nextStep?: RouteStep; hazardActive?: boolean;
-}) {
-  const isArrive = step.maneuverType === 'arrive';
-  const turnLabel = isArrive ? '—' : fmtTurn(distToTurn);
-
-  // "Sonra X km …" devam satırı — gösterilen manevradan SONRAKİ yol uzunluğu
-  // OSRM'de step.distance'tır (adımın manevrası + ardından kat edilen mesafe);
-  // nextStep bu mesafenin SONUNDAKİ manevradır (ok + sokak adı oradan gelir).
-  const continuation = nextStep && !isArrive && step.distance > 0
-    ? fmtTurn(step.distance)
-    : null;
-
-  return (
-    <div
-      className="absolute z-30 pointer-events-none flex flex-col gap-3"
-      style={{
-        left: 'max(16px, var(--sal, 0px))',
-        top: 'calc(var(--sat, 0px) + 14px)',
-        width: 288,
-        maxWidth: 'calc(100vw - 2 * 16px)',
-      }}
-    >
-      {/* Ana dönüş kartı — OEM glass + amber icon tile */}
-      <div
-        className="oem-glass rounded-[1.5rem] overflow-hidden"
-        style={{
-          padding: '14px 18px',
-          background: 'var(--oem-surface-1, rgba(38,44,60,0.78))',
-          border: '1px solid var(--oem-line-strong, rgba(255,240,210,0.18))',
-          boxShadow: 'var(--oem-shadow-raised, 0 32px 64px -26px rgba(0,0,0,0.65))',
-          backdropFilter: 'blur(calc(var(--rt-blur, 1) * 20px)) saturate(120%)',
-          WebkitBackdropFilter: 'blur(calc(var(--rt-blur, 1) * 20px)) saturate(120%)',
-        }}
-      >
-        <div className="flex items-center gap-3 mb-2.5">
-          {/* Icon tile — amber gradient (hazard → warmer deep) */}
-          <div
-            style={{
-              width: 46, height: 46, borderRadius: 14,
-              background: isArrive
-                ? 'linear-gradient(135deg, oklch(78% 0.13 158 / 0.32), oklch(48% 0.13 158 / 0.10))'
-                : hazardActive
-                  ? 'linear-gradient(135deg, oklch(72% 0.14 35 / 0.34), oklch(50% 0.13 30 / 0.12))'
-                  : 'linear-gradient(135deg, oklch(82% 0.10 65 / 0.30), oklch(60% 0.10 50 / 0.10))',
-              border: '1px solid var(--oem-line-warm, oklch(66% 0.10 55 / 0.42))',
-              display: 'grid', placeItems: 'center',
-              color: isArrive
-                ? 'oklch(78% 0.13 158)'
-                : hazardActive
-                  ? 'oklch(80% 0.14 50)'
-                  : 'var(--oem-amber, oklch(80% 0.13 60))',
-              boxShadow: '0 0 24px oklch(70% 0.10 60 / 0.18), 0 1px 0 rgba(255,240,210,0.10) inset',
-              flexShrink: 0,
-              transition: 'background 0.8s ease, color 0.8s ease',
-            }}
-          >
-            <FuturistArrow mod={step.maneuverModifier} type={step.maneuverType} size="sm" />
-          </div>
-          {/* Distance + maneuver label */}
-          <div className="min-w-0">
-            <div className="text-[11px] font-black uppercase tracking-[0.20em] leading-none"
-              style={{ color: 'var(--oem-ink-2, rgba(240,235,224,0.74))' }}>
-              {isArrive ? 'HEDEF' : `${turnLabel} sonra`}
-            </div>
-            <h3 className="text-white tabular-nums mt-1"
-              style={{
-                fontSize: 21,
-                fontWeight: 900,
-                lineHeight: 1.05,
-                letterSpacing: '-0.01em',
-              }}>
-              {toTurkish(step.maneuverModifier, step.maneuverType)}
-            </h3>
-          </div>
-        </div>
-
-        {/* Street name — 19px font-medium */}
-        {step.streetName && (
-          <div className="truncate"
-            style={{
-              fontSize: 16,
-              fontWeight: 500,
-              color: 'var(--oem-ink, #F0EBE0)',
-              letterSpacing: '-0.005em',
-            }}>
-            {step.streetName}
-          </div>
-        )}
-
-        {/* "Sonra X km düz devam" hint */}
-        {continuation && nextStep && (
-          <div className="flex items-center gap-3 mt-3 pt-3"
-            style={{ borderTop: '1px solid var(--oem-line, rgba(255,240,210,0.08))' }}>
-            <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
-              style={{
-                background: 'rgba(255,255,255,0.04)',
-                border: '1px solid var(--oem-line, rgba(255,240,210,0.08))',
-                color: 'var(--oem-ink-3, rgba(240,235,224,0.52))',
-              }}>
-              <FuturistArrow mod={nextStep.maneuverModifier} type={nextStep.maneuverType} size="xs" />
-            </div>
-            <span className="text-[14px] truncate" style={{ color: 'var(--oem-ink-2, rgba(240,235,224,0.74))' }}>
-              Sonra <span className="font-bold" style={{ color: 'var(--oem-ink, #F0EBE0)' }}>{continuation}</span>{' '}
-              {nextStep.streetName
-                ? <>üzerinde <span className="font-bold" style={{ color: 'var(--oem-ink, #F0EBE0)' }}>{nextStep.streetName}</span></>
-                : 'düz devam'}
-            </span>
-          </div>
-        )}
-      </div>
-
-      {/* Şerit yönlendirme — derive from current step direction */}
-      <LaneGuidance step={step} />
-    </div>
-  );
-});
-
-
-/* ══════════════════════════════════════════════════════════ */
-/* ── RoadSignsPanel — üst orta yol tabelası ─────────────── */
-/* ══════════════════════════════════════════════════════════ */
-
-const RoadSignsPanel = memo(function RoadSignsPanel({
-  streetName, destName,
-}: { streetName?: string; destName?: string; }) {
-  const label = streetName || destName;
-  if (!label) return null;
-
-  return (
-    <div
-      className="absolute z-30 pointer-events-none"
-      style={{ top: 'calc(var(--sat, 0px) + 14px)', left: '50%', transform: 'translateX(-50%)' }}
-    >
-      <div
-        className="flex flex-col items-center rounded-[14px] overflow-hidden"
-        style={{
-          background: 'linear-gradient(155deg,#1e3a8a,#1e40af)',
-          minWidth: 140,
-          padding: '8px 20px 6px',
-          boxShadow: '0 6px 24px rgba(0,0,0,0.55), 0 0 0 2px rgba(255,255,255,0.18), inset 0 1px 0 rgba(255,255,255,0.15)',
-        }}
-      >
-        <span
-          className="text-white font-black uppercase tracking-widest leading-tight text-center truncate"
-          style={{ fontSize: 13, maxWidth: 180 }}
-        >
-          {label}
-        </span>
-        <ChevronDown className="w-4 h-4 text-white mt-1" style={{ opacity: 0.85 }} />
-      </div>
-    </div>
-  );
-});
 
 
 /* LaneGuidance bileşeni kaldırıldı — ekranı dağıtıyordu, TurnPanel yeterli rehberlik sağlıyor */
@@ -671,111 +548,6 @@ const RoadSignsPanel = memo(function RoadSignsPanel({
 /* ══════════════════════════════════════════════════════════ */
 /* ══════════════════════════════════════════════════════════ */
 /* ── SafetyTensionBar — fren + reaksiyon mesafesi göstergesi */
-/* ══════════════════════════════════════════════════════════ */
-
-/**
- * Sürücüye "görünmez durma mesafesini" ve eğri uyarısını sezgisel olarak gösterir.
- * Mavi → reaksiyon  |  Amber/Kırmızı → fren yolu
- * CAUTION / INTERVENTION → önerilen güvenli hız etiketi gösterilir.
- */
-const SafetyTensionBar = memo(function SafetyTensionBar() {
-  const brakingDistanceM  = useSafetyStore((s) => s.brakingDistanceM);
-  const reactionDistanceM = useSafetyStore((s) => s.reactionDistanceM);
-  const isCritical        = useSafetyStore((s) => s.isBrakingCritical);
-  const safetyState       = useSafetyStore((s) => s.safetyState);
-  const recommendedSpeed  = useSafetyStore((s) => s.recommendedSpeedKmh);
-
-  const totalM    = brakingDistanceM + reactionDistanceM;
-  if (totalM < 1) return null;
-
-  const MAX_REF    = 150;
-  const totalFrac  = Math.min(1, totalM / MAX_REF);
-  const rxFrac     = reactionDistanceM / totalM;
-  const isCaution  = safetyState === 'CAUTION';
-  const isIntv     = safetyState === 'INTERVENTION';
-
-  // Eğri uyarısı: CAUTION/INTERVENTION → önerilen hız etiketi
-  const showCurveWarn = (isCaution || isIntv) && recommendedSpeed > 0;
-  const warnColor     = isIntv ? '#ef4444' : '#f59e0b';
-
-  return (
-    <div style={{ width: 82, paddingTop: 6 }}>
-      {/* Eğri uyarısı etiketi — CAUTION/INTERVENTION */}
-      {showCurveWarn ? (
-        <div style={{
-          fontSize:      8,
-          fontWeight:    900,
-          textAlign:     'center',
-          letterSpacing: '0.10em',
-          color:         warnColor,
-          marginBottom:  3,
-          fontFamily:    'monospace',
-        }}>
-          MAX {Math.round(recommendedSpeed)} km/h
-        </div>
-      ) : (
-        <div style={{
-          fontSize:      8,
-          fontWeight:    700,
-          textAlign:     'center',
-          letterSpacing: '0.12em',
-          color:         isCritical ? '#fca5a5' : 'rgba(255,255,255,0.30)',
-          marginBottom:  3,
-          fontFamily:    'monospace',
-        }}>
-          {Math.round(totalM)}m DUR
-        </div>
-      )}
-
-      {/* Tension bar */}
-      <div style={{ height: 3, borderRadius: 2, background: 'rgba(255,255,255,0.06)', overflow: 'hidden' }}>
-        <div style={{
-          height:     '100%',
-          width:      `${totalFrac * 100}%`,
-          display:    'flex',
-          transition: 'width 0.35s ease',
-        }}>
-          <div style={{
-            flex:       rxFrac,
-            background: '#3b82f6',
-            transition: 'flex 0.35s ease',
-          }} />
-          <div style={{
-            flex:       1 - rxFrac,
-            background: isCritical ? '#ef4444' : '#f59e0b',
-            transition: 'flex 0.35s ease, background 0.35s ease',
-          }} />
-        </div>
-      </div>
-
-      {/* Segment etiketleri / eğri durumunda tek etiket */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 2 }}>
-        {showCurveWarn ? (
-          <span style={{
-            fontSize:      7,
-            color:         warnColor,
-            fontWeight:    900,
-            letterSpacing: '0.08em',
-            fontFamily:    'monospace',
-            width:         '100%',
-            textAlign:     'center',
-          }}>
-            {isIntv ? '⚠ YAVAŞLA' : '↓ EĞRİ'}
-          </span>
-        ) : (
-          <>
-            <span style={{ fontSize: 7, color: '#3b82f6', fontWeight: 700, letterSpacing: '0.08em', fontFamily: 'monospace' }}>
-              REA
-            </span>
-            <span style={{ fontSize: 7, color: isCritical ? '#ef4444' : '#f59e0b', fontWeight: 700, letterSpacing: '0.08em', fontFamily: 'monospace' }}>
-              FRN
-            </span>
-          </>
-        )}
-      </div>
-    </div>
-  );
-});
 
 /* ══════════════════════════════════════════════════════════ */
 /* ── RiskOverlay — INTERVENTION tam-ekran kırmızı çerçeve ── */
@@ -803,7 +575,7 @@ const RiskOverlay = memo(function RiskOverlay() {
         style={{
           position:        'fixed',
           inset:           0,
-          zIndex:          9999,
+          zIndex:          'var(--z-map-alert)',
           border:          '4px solid rgba(239,68,68,0.90)',
           animation:       '_riskHeartbeat 1.5s ease-in-out infinite',
           borderRadius:    0,
@@ -814,281 +586,14 @@ const RiskOverlay = memo(function RiskOverlay() {
 });
 
 /* ── SpeedPanel — futurist-glass, dynamic glow ───────────── */
-/* ══════════════════════════════════════════════════════════ */
-
-const SpeedPanel = memo(function SpeedPanel({
-  speedKmh, speedLimitKmh,
-}: {
-  speedKmh: number; speedLimitKmh?: number | null;
-}) {
-  const hasLimit     = typeof speedLimitKmh === 'number' && speedLimitKmh > 0;
-  const overSpeed    = hasLimit && speedKmh > (speedLimitKmh as number) + 5;
-  const roundedSpeed = Math.round(speedKmh);
-  const safetyState  = useSafetyStore((s) => s.safetyState);
-
-  const isCaution = safetyState === 'CAUTION';
-  const isIntv    = safetyState === 'INTERVENTION';
-
-  // Glow önceliği: aşım > intervention > caution > normal
-  // Normal durum: sakin cam (renkli glow YOK) — OEM dili. Uyarı durumları semantik kalır.
-  const glowClass = overSpeed
-    ? 'futurist-glow-red animate-futurist-pulse'
-    : isIntv
-      ? 'futurist-glow-red'
-      : isCaution
-        ? 'futurist-glow-amber'
-        : '';
-
-  // Hız rakamı rengi: intervention/aşım → kırmızı, caution → amber, normal → beyaz
-  const digitColor = (overSpeed || isIntv) ? '#f87171'
-    : isCaution ? '#fbbf24'
-    : '#ffffff';
-
-  return (
-    <div
-      className="absolute right-4 z-30 pointer-events-none flex flex-col items-center gap-2.5"
-      style={{ top: 'calc(var(--sat, 0px) + 80px)' }}
-    >
-      {/* Hız göstergesi — futurist-glass + dinamik glow */}
-      <div
-        className={`futurist-glass flex flex-col items-center px-4 py-2.5 rounded-[1.25rem] ${glowClass}`}
-        style={{ minWidth: 76 }}
-      >
-        <span
-          className="font-black tabular-nums leading-none futurist-text-glow"
-          style={{
-            fontSize:      38,
-            color:         digitColor,
-            letterSpacing: '-0.05em',
-            transition:    'color 0.4s ease',
-          }}
-        >
-          {roundedSpeed}
-        </span>
-        <span className="font-black uppercase tracking-[0.2em] text-[10px] mt-1 opacity-60"
-          style={{ color: 'var(--oem-ink-2, rgba(240,235,224,0.74))' }}>
-          KM/H
-        </span>
-
-        {/* Safety Tension Bar — fren + reaksiyon mesafesi */}
-        <SafetyTensionBar />
-      </div>
-
-      {/* Hız limiti tabelası — sadece geçerli bir limit varsa göster (boş tabela hiç çizilmesin) */}
-      {hasLimit && (
-        <div className="w-[52px] h-[52px] rounded-full flex items-center justify-center bg-white border-[5px] border-red-600 shadow-[0_8px_32px_rgba(0,0,0,0.6)] border-glow-red">
-          <span className="text-black font-black text-[19px] tracking-[-0.02em]">
-            {speedLimitKmh}
-          </span>
-        </div>
-      )}
-    </div>
-  );
-});
 
 
 /* ══════════════════════════════════════════════════════════ */
 /* ── NavInfoBar — futurist-gradient-dark, glowing progress ─ */
-/* ══════════════════════════════════════════════════════════ */
-
-const NavInfoBar = memo(function NavInfoBar({
-  etaSeconds, remainingMeters, totalMeters, onStop, isOffline, compact = false, limp = false,
-}: {
-  etaSeconds: number; remainingMeters: number; totalMeters: number; onStop: () => void;
-  isOffline?: boolean;
-  /** CRITICAL modda: yalnızca MESAFE + VARIŞ + SONLANDIR kalır */
-  compact?: boolean;
-  /** LIMP_HOME modda: sadece MESAFE + SONLANDIR */
-  limp?: boolean;
-}) {
-  const arrival    = new Date(Date.now() + etaSeconds * 1_000);
-  const arrivalStr = `${arrival.getHours().toString().padStart(2, '0')}:${arrival.getMinutes().toString().padStart(2, '0')}`;
-  const progress   = totalMeters > 0 ? Math.max(0, Math.min(1, 1 - remainingMeters / totalMeters)) : 0;
-  const fuelPct    = useUnifiedVehicleStore(s => s.fuel);
-
-  const fuelColor = fuelPct == null ? 'var(--oem-ink-3, rgba(240,235,224,0.52))'
-    : fuelPct > 25 ? 'var(--oem-good, oklch(80% 0.10 158))'
-    : fuelPct > 10 ? '#f59e0b'
-    : '#ef4444';
-
-  // Format distance into number + unit for the cinematic two-tone style
-  const distFmt = formatDistance(remainingMeters);
-  const distMatch = distFmt.match(/^([\d.,]+)\s*(\S+)$/);
-  const distNum  = distMatch ? distMatch[1] : distFmt;
-  const distUnit = distMatch ? distMatch[2] : '';
-
-  return (
-    <div
-      className="absolute z-30 pointer-events-auto rounded-[1.75rem] overflow-hidden"
-      style={{
-        bottom: 'env(safe-area-inset-bottom, 0px)',
-        left:   '50%',
-        transform: 'translateX(-50%)',
-        maxWidth: 720,
-        width:    'calc(100% - 32px)',
-        background: 'var(--oem-surface-1, rgba(38,44,60,0.78))',
-        border: '1px solid var(--oem-line-strong, rgba(255,240,210,0.18))',
-        backdropFilter: 'blur(calc(var(--rt-blur, 1) * 22px)) saturate(120%)',
-        WebkitBackdropFilter: 'blur(calc(var(--rt-blur, 1) * 22px)) saturate(120%)',
-        boxShadow: '0 -20px 50px rgba(0,0,0,0.55), 0 1px 0 rgba(255,240,210,0.10) inset',
-      }}
-    >
-      {/* Glowing progress bar — top edge */}
-      <div className="h-[4px] bg-white/[0.04] relative overflow-hidden">
-        <div
-          className="h-full transition-all duration-1000 relative z-10"
-          style={{
-            width: `${progress * 100}%`,
-            background: 'linear-gradient(90deg, oklch(72% 0.11 55), oklch(86% 0.10 70))',
-            boxShadow: '0 0 15px var(--oem-amber-glow, rgba(224,162,60,0.4))',
-          }}
-        />
-        <div
-          className="absolute inset-0 opacity-20"
-          style={{ background: 'linear-gradient(90deg, transparent, var(--oem-amber-soft, rgba(224,162,60,0.3)), transparent)' }}
-        />
-      </div>
-
-      {/* Offline rozeti */}
-      {isOffline && (
-        <div className="flex justify-center pt-2">
-          <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-[var(--oem-warn-soft)] backdrop-blur-md border border-[var(--oem-warn)]">
-            <AlertCircle className="w-3 h-3 text-[color:var(--oem-warn)]" />
-            <span className="text-[9px] text-[color:var(--oem-warn)] font-black uppercase tracking-[0.1em]">Çevrimdışı Mod</span>
-          </div>
-        </div>
-      )}
-
-      {/* 3-column ETA strip — Varış | Mesafe | Varışta yakıt + stop button */}
-      <div className="flex items-center gap-4 px-5 py-3">
-        {/* Column 1: Varış (Arrival time) */}
-        {!limp && (
-          <>
-            <div className="flex flex-col min-w-0">
-              <span className="text-[10px] font-black uppercase tracking-[0.22em] leading-none"
-                style={{ color: 'var(--oem-ink-2, rgba(240,235,224,0.74))' }}>
-                Varış
-              </span>
-              <span className="tabular-nums mt-2"
-                style={{
-                  fontSize: 'clamp(22px, 3.0vw, 31px)',
-                  fontWeight: 300,
-                  lineHeight: 1,
-                  letterSpacing: '-0.02em',
-                  color: 'var(--oem-ink, #F0EBE0)',
-                }}>
-                {arrivalStr}
-              </span>
-            </div>
-            <div className="h-[38px] w-px" style={{ background: 'var(--oem-line-strong, rgba(255,240,210,0.18))' }} />
-          </>
-        )}
-
-        {/* Column 2: Mesafe (Distance) */}
-        <div className="flex flex-col min-w-0">
-          <span className="text-[10px] font-black uppercase tracking-[0.22em] leading-none"
-            style={{ color: 'var(--oem-ink-2, rgba(240,235,224,0.74))' }}>
-            Mesafe
-          </span>
-          <span className="tabular-nums mt-2"
-            style={{
-              fontSize: 'clamp(28px, 4.2vw, 42px)',
-              fontWeight: 300,
-              lineHeight: 1,
-              letterSpacing: '-0.02em',
-              color: 'var(--oem-ink, #F0EBE0)',
-            }}>
-            {distNum}
-            {distUnit && (
-              <span style={{ fontSize: 16, color: 'var(--oem-ink-3, rgba(240,235,224,0.52))', marginLeft: 4 }}>
-                {distUnit}
-              </span>
-            )}
-          </span>
-        </div>
-
-        {/* Column 3: Varışta yakıt (Battery/Fuel at arrival) — hidden in compact/limp */}
-        {!compact && !limp && (
-          <>
-            <div className="h-[38px] w-px" style={{ background: 'var(--oem-line-strong, rgba(255,240,210,0.18))' }} />
-            <div className="flex flex-col min-w-0">
-              <span className="text-[10px] font-black uppercase tracking-[0.22em] leading-none"
-                style={{ color: 'var(--oem-ink-2, rgba(240,235,224,0.74))' }}>
-                Varışta yakıt
-              </span>
-              <span className="tabular-nums mt-2"
-                style={{
-                  fontSize: 'clamp(22px, 3.0vw, 31px)',
-                  fontWeight: 300,
-                  lineHeight: 1,
-                  letterSpacing: '-0.02em',
-                  color: fuelColor,
-                }}>
-                {fuelPct != null ? `%${Math.round(fuelPct)}` : '—'}
-              </span>
-            </div>
-          </>
-        )}
-
-        {/* SÜRE (etaSeconds) — kompakt/limp dışı, alanı doldur */}
-        {!compact && !limp && (
-          <span className="hidden lg:inline text-[11px] font-bold ml-2"
-            style={{ color: 'var(--oem-ink-3, rgba(240,235,224,0.52))' }}>
-            ≈ {formatEta(etaSeconds)}
-          </span>
-        )}
-
-        <div className="flex-1" />
-
-        {/* Stop button — keep functionality intact */}
-        <button
-          onClick={onStop}
-          aria-label="Navigasyonu sonlandır"
-          className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 active:scale-90 transition-all"
-          style={{
-            background: 'rgba(239,68,68,0.10)',
-            border: '1px solid rgba(239,68,68,0.28)',
-            color: '#fca5a5',
-          }}
-        >
-          <X className="w-4 h-4" />
-        </button>
-      </div>
-    </div>
-  );
-});
 
 
 /* ══════════════════════════════════════════════════════════ */
 /* ── ReroutingBanner ─────────────────────────────────────── */
-/* ══════════════════════════════════════════════════════════ */
-
-function ReroutingBanner() {
-  useEffect(() => {
-    speakNavigation('Rota yeniden hesaplanıyor');
-  }, []);
-  return (
-    <div
-      className="absolute left-4 z-30 pointer-events-none"
-      style={{ top: 'calc(var(--sat, 0px) + 14px)' }}
-    >
-      <div className="futurist-glass futurist-glow-amber flex items-center gap-4 px-5 py-4 rounded-[1.75rem]">
-        <div
-          className="w-14 h-14 rounded-2xl flex items-center justify-center flex-shrink-0"
-          style={{ background: 'linear-gradient(160deg,#E0A23C,#C9831A)' }}
-        >
-          <Loader2 className="w-8 h-8 animate-spin" style={{ color: '#1A140A' }} />
-        </div>
-        <div className="flex flex-col justify-center">
-          <span className="text-white font-black text-[22px] leading-tight tracking-[-0.02em] uppercase tracking-widest">
-            Yeniden Rotalanıyor…
-          </span>
-          <span className="font-bold text-sm mt-0.5" style={{ color: '#E0A23C' }}>Yeni rota hesaplanıyor</span>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 /* ══════════════════════════════════════════════════════════ */
 /* ── ArrivalOverlay ──────────────────────────────────────── */
@@ -1096,7 +601,7 @@ function ReroutingBanner() {
 
 function ArrivalOverlay({ destName }: { destName: string }) {
   return (
-    <div className="absolute inset-0 z-40 flex items-center justify-center pointer-events-none">
+    <div className="absolute inset-0 z-[var(--z-map-prompt)] flex items-center justify-center pointer-events-none">
       <div
         className="flex flex-col items-center gap-5 px-10 py-8 rounded-[2.5rem] shadow-[var(--oem-shadow-pop)] bg-[var(--oem-surface-0)] backdrop-blur-[28px] border border-[var(--oem-good)] animate-in zoom-in-95 fade-in duration-500"
       >
@@ -1126,11 +631,15 @@ function ArrivalOverlay({ destName }: { destName: string }) {
 function ErrorOverlay({ message, onClose }: { message: string; onClose: () => void }) {
   return (
     <div
-      className="absolute left-4 z-30 pointer-events-auto"
+      className="absolute left-4 z-[var(--z-map-hud)] pointer-events-auto"
       style={{ top: 'calc(var(--sat, 0px) + 14px)' }}
     >
-      <div className="futurist-glass flex items-center gap-4 px-5 py-4 rounded-[1.75rem] max-w-sm"
-        style={{ borderColor: 'rgba(239,68,68,0.35)' }}>
+      <div className="oem-glass flex items-center gap-4 px-5 py-4 rounded-[1.75rem] max-w-sm"
+        style={{
+          background: 'var(--oem-surface-1, rgba(38,44,60,0.86))',
+          border: '1px solid rgba(239,68,68,0.35)',
+          boxShadow: 'var(--oem-shadow-raised, 0 28px 56px -26px rgba(0,0,0,0.62))',
+        }}>
         <div
           className="w-14 h-14 rounded-2xl flex items-center justify-center flex-shrink-0"
           style={{ background: 'linear-gradient(160deg,rgba(239,68,68,0.25),rgba(185,28,28,0.18))' }}
@@ -1158,12 +667,21 @@ function ErrorOverlay({ message, onClose }: { message: string; onClose: () => vo
 
 const PreviewCard = memo(function PreviewCard({
   destName, distMeters, durSeconds, loading, error, onStart, onCancel, routeReady, gpsValid,
+  honesty = HONEST_SILENT,
 }: {
   destName: string; distMeters: number; durSeconds: number;
   loading: boolean; error: string | null;
   onStart: () => void; onCancel: () => void;
   routeReady: boolean; gpsValid: boolean;
+  /**
+   * P0-NAV-02 — BAŞLAMADAN ÖNCE görülmesi gereken tek hüküm: rota doğrulama.
+   * Mesafe/ETA cipleri burada KASTEN gösterilmez; kartta yazan sayı
+   * sağlayıcının rota TOPLAMIDIR, ilerlemeden türetilmiş kalan mesafe değil —
+   * onlara ait uyarıyı buraya koymak yanlış sayıyı işaretlemek olurdu.
+   */
+  honesty?: NavigationHonestyVerdict;
 }) {
+  const routeChip = honesty.chips.find((c) => c.id === 'route') ?? null;
   const { altDistances, altDurations, altRealIndices, altHasToll, hasToll, totalDurationSeconds: mainDurS } = useRouteState();
   const hasAlts = altDistances.length > 0;
 
@@ -1173,7 +691,8 @@ const PreviewCard = memo(function PreviewCard({
 
   return (
     <div
-      className="absolute inset-x-4 z-30 pointer-events-auto animate-in zoom-in-95 fade-in duration-500"
+      data-editable="nav.summary" data-editable-type="card"
+      className="absolute inset-x-4 z-[var(--z-map-hud)] pointer-events-auto animate-in zoom-in-95 fade-in duration-500"
       style={{ bottom: 'calc(var(--lp-dock-h, 68px) + 20px)' }}
     >
       <div className="rounded-[2.5rem] p-6 overflow-hidden relative shadow-[var(--oem-shadow-pop)] bg-[var(--oem-surface-0)] backdrop-blur-[28px] border border-[var(--oem-line)]">
@@ -1187,6 +706,19 @@ const PreviewCard = memo(function PreviewCard({
           </div>
           <div className="flex-1 min-w-0 pt-1">
             <div className="text-[color:var(--oem-ink)] font-black text-2xl truncate leading-tight tracking-tight">{destName}</div>
+            {routeChip !== null && (
+              <div
+                data-testid="preview-honesty-route"
+                title={routeChip.detail}
+                aria-label={routeChip.detail}
+                className="mt-1 inline-flex rounded-full px-2.5 py-0.5 text-[9px] font-black uppercase tracking-[0.1em] border"
+                style={routeChip.level === 'DEGRADED'
+                  ? { color: 'var(--oem-warn)', background: 'var(--oem-warn-soft)', borderColor: 'var(--oem-warn)' }
+                  : { color: 'var(--oem-ink-3, rgba(240,235,224,0.52))', background: 'var(--oem-surface-2)', borderColor: 'var(--oem-line-strong)' }}
+              >
+                {routeChip.label}
+              </div>
+            )}
             {loading && (
               <div className="flex items-center gap-2 text-sm mt-2 font-bold uppercase tracking-widest"
                 style={{ color: 'rgba(224,162,60,0.75)' }}>
@@ -1356,11 +888,22 @@ function QuickCard({ icon, label, color, onTap, disabled = false, active = false
     <button
       onClick={onTap}
       disabled={disabled}
+      /* ── CHROME TURU 2026-09-06 (saha: "sol quick destinations çok büyük") ──
+       * ÖNCE dolgu SABİT KOYUYDU (`rgba(10,14,26,0.28)`) — gece haritada doğru,
+       * ama GÜNDÜZ açık zeminde kart koyu bir blok olarak okunuyordu ve
+       * kartografiyle yarışıyordu. Dolgu artık OEM yüzey token'ından gelir →
+       * tema neyse kart da o (gündüz açık · gece koyu). Kenar da token'a
+       * bağlandı; sabit beyaz kenar açık zeminde görünmüyordu zaten.
+       * Boyut ve dokunma hedefi DEĞİŞMEDİ (`h-8` + güneş modu 52 px tabanı). */
       className="flex items-center gap-2 h-8 px-3 rounded-xl active:scale-95 transition-all disabled:opacity-35 backdrop-blur-[18px]"
       style={{
         color,
-        background: active ? 'rgba(224,162,60,0.18)' : 'rgba(10,14,26,0.28)',
-        border:     `1px solid ${active ? 'rgba(224,162,60,0.45)' : 'rgba(255,255,255,0.10)'}`,
+        background: active
+          ? 'rgba(224,162,60,0.16)'
+          : 'var(--oem-surface-1, rgba(10,14,26,0.28))',
+        border: `1px solid ${active
+          ? 'rgba(224,162,60,0.42)'
+          : 'var(--oem-line, rgba(255,255,255,0.10))'}`,
       }}
     >
       <span className="flex-shrink-0">{icon}</span>
@@ -1368,7 +911,9 @@ function QuickCard({ icon, label, color, onTap, disabled = false, active = false
       {km && (
         <span
           className="ml-auto text-[13px] font-black tabular-nums whitespace-nowrap px-1.5 py-0.5 rounded-md leading-none"
-          style={{ color, background: 'rgba(0,0,0,0.45)' }}
+          /* Rozet dolgusu da temaya bağlandı: sabit `rgba(0,0,0,0.45)` gündüz
+             haritada kartın içinde ikinci bir koyu blok üretiyordu. */
+          style={{ color, background: 'var(--oem-surface-2, rgba(0,0,0,0.45))' }}
         >
           {km}
         </span>
@@ -1447,12 +992,10 @@ const QuickDestinations = memo(function QuickDestinations({
   const recentDestinations = useStore(s => s.settings.recentDestinations);
   const homeLocation       = useStore(s => s.settings.homeLocation);
   const workLocation       = useStore(s => s.settings.workLocation);
-  const customLocations    = useStore(s => s.settings.customLocations ?? []);
   const updateSettings     = useStore(s => s.updateSettings);
   const [fuelLoading, setFuelLoading] = useState(false);
   const [fuelError, setFuelError]     = useState('');
   const [customOpen, setCustomOpen]   = useState(false);
-  const [addError, setAddError]       = useState('');
 
   // ── Hızlı hedef km'leri — TEK kaynak (_haversineMeters) + TEK format (formatDistance) ──
   // Kuş-uçuşu (düz çizgi) mesafe; rota mesafesi değil. GPS yoksa null → km gizlenir.
@@ -1468,14 +1011,20 @@ const QuickDestinations = memo(function QuickDestinations({
   );
   // Benzinlik: en yakın ÖNBELLEKTEKİ istasyona mesafe (ağ çağrısı yok). Önbellek yoksa
   // (ilk kullanım) null → kullanıcı bir kez Benzinlik'e basınca cache dolar, km belirir.
+  // `fuelLoading` kurala göre "gereksiz" görünür ama BİLİNÇLİDİR: `_nearestCached`
+  // React dışındaki bir MODÜL ÖNBELLEĞİNİ okur, o yüzden memo'nun yeniden hesaplanması
+  // için gözlenebilir bir sinyal gerekir. Yükleme bitince (`fuelLoading` false'a döner)
+  // önbellek dolmuştur ve mesafe belirir — dep'i kaldırmak "km hiç görünmüyor"
+  // regresyonunu geri getirir.
   const fuelDistM = useMemo(() => {
     if (gpsLat == null || gpsLon == null) return null;
     const f = _nearestCached(gpsLat, gpsLon);
     return f ? _haversineMeters(gpsLat, gpsLon, f.lat, f.lon) : null;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gpsLat, gpsLon, fuelLoading]);
 
   const navigate = useCallback((dest: Address) => {
-    startNavigation(dest);
+    startNavigation(dest, false, 'USER_QUICK');   // kütük #429: ev/iş/hızlı hedef
     const entry = { lat: dest.latitude, lng: dest.longitude, name: dest.name, timestamp: Date.now() };
     updateSettings({
       recentDestinations: [
@@ -1494,25 +1043,6 @@ const QuickDestinations = memo(function QuickDestinations({
     if (!gpsLat || !gpsLon) return;
     updateSettings({ workLocation: { lat: gpsLat, lng: gpsLon, name: 'İş' } });
   }, [gpsLat, gpsLon, updateSettings]);
-
-  const addCurrentLocation = useCallback(() => {
-    if (!gpsLat || !gpsLon) {
-      setAddError('GPS sinyali yok');
-      setTimeout(() => setAddError(''), 2500);
-      return;
-    }
-    const ts   = Date.now();
-    const name = `Konum ${customLocations.length + 1}`;
-    const next = [
-      { id: `loc-${ts}`, lat: gpsLat, lng: gpsLon, name, timestamp: ts },
-      ...customLocations,
-    ].slice(0, 20);
-    updateSettings({ customLocations: next });
-  }, [gpsLat, gpsLon, customLocations, updateSettings]);
-
-  const removeCustomLocation = useCallback((id: string) => {
-    updateSettings({ customLocations: customLocations.filter(l => l.id !== id) });
-  }, [customLocations, updateSettings]);
 
   const handleFuel = useCallback(async () => {
     if (!gpsLat || !gpsLon || fuelLoading) return;
@@ -1534,8 +1064,29 @@ const QuickDestinations = memo(function QuickDestinations({
 
   return (
     <div
-      className="absolute left-3 z-20 pointer-events-auto animate-in fade-in slide-in-from-left-2 duration-400"
-      style={{ bottom: 'calc(var(--lp-dock-h, 68px) + 10px)' }}
+      className="absolute left-3 z-[var(--z-map-label)] pointer-events-auto animate-in fade-in slide-in-from-left-2 duration-400"
+      /* ── SOL ALT KÖŞENİN İKİ SAHİBİ VARDI (kütük #605) ────────────────────
+       *
+       * ÖLÇÜLEN KUSUR: bu sütun `--lp-dock-h + 10` ile alta çapalıydı;
+       * `MapHudControls`in "Yol durumu bildir" düğmesi (48×48, amber, blur)
+       * ise `--lp-dock-h + 18` ile AYNI köşeye çapalıydı. İkisi de görünür,
+       * ikisinin de sahibi ayrı → düğme en alttaki kartın (ÖZEL KONUMLAR)
+       * üstüne biniyordu. Kullanıcı bunu "sahipsiz yarı saydam kare" diye
+       * bildirdi — etiketi olmadığı için düğme olarak okunmuyordu bile.
+       *
+       * Gerçek tarayıcı ölçümü (2026-08-16, kırpma+görünürlük farkındalıklı):
+       *   904×406  → ÖZEL KONUMLAR %30 / düğme %15 örtüşme
+       *   1024×600 → %28 / %14
+       *   1280×480 → %22 / %11
+       * Üç çözünürlükte de var → telefona özel DEĞİL, düzeltme genel.
+       *
+       * ÇÖZÜM: sütun, düğmenin kapladığı şeridin ÜSTÜNDEN başlar.
+       * 18 (düğmenin alt boşluğu) + 48 (düğme) + 10 (görsel oluk) = 76.
+       * Değerler `MapHudControls`in KENDİ stil sabitlerinden türetilmiştir;
+       * kilit testi ikisinin sessizce ayrışmadığını denetler. Düğme yerinde
+       * BIRAKILDI: sürüşte en kolay erişilen köşe odur ve navigasyonda bu
+       * sütun zaten çizilmez. */
+      style={{ bottom: 'calc(var(--lp-dock-h, 68px) + 76px)' }}
     >
       <div className="flex flex-col gap-1">
         <QuickCard
@@ -1575,123 +1126,13 @@ const QuickDestinations = memo(function QuickDestinations({
         )}
       </div>
 
-      {/* Özel Konumlar paneli */}
       {customOpen && (
-        <div
-          className="absolute left-full ml-2 rounded-2xl overflow-hidden animate-in fade-in slide-in-from-left-2 duration-200"
-          style={{
-            bottom:        0,
-            width:         260,
-            maxHeight:     320,
-            background:    'rgba(10,14,26,0.45)',
-            backdropFilter:'blur(22px)',
-            border:        '1px solid rgba(255,255,255,0.10)',
-            boxShadow:     '0 20px 50px rgba(0,0,0,0.5)',
-          }}
-        >
-          {/* Başlık */}
-          <div className="flex items-center justify-between px-3 py-2 border-b border-white/[0.08]">
-            <div className="flex items-center gap-2">
-              <Star className="w-3.5 h-3.5" style={{ color: '#E0A23C' }} />
-              <span className="text-[11px] font-black uppercase tracking-widest text-white">
-                Özel Konumlar
-              </span>
-            </div>
-            <button
-              onClick={() => setCustomOpen(false)}
-              aria-label="Kapat"
-              className="w-6 h-6 rounded-lg flex items-center justify-center active:scale-90 transition-all bg-white/[0.04] border border-white/[0.06]"
-            >
-              <X className="w-3.5 h-3.5 text-[color:var(--oem-ink-3,rgba(240,235,224,0.52))]" />
-            </button>
-          </div>
-
-          {/* Konum Ekle butonu */}
-          <button
-            onClick={addCurrentLocation}
-            disabled={!gpsLat || !gpsLon}
-            className="w-full flex items-center gap-2 px-3 py-2.5 border-b border-white/[0.06] active:scale-[0.98] transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-            style={{ background: 'rgba(224,162,60,0.08)' }}
-          >
-            <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
-              style={{ background: 'rgba(224,162,60,0.18)', border: '1px solid rgba(224,162,60,0.35)' }}>
-              <Plus className="w-4 h-4" style={{ color: '#E0A23C' }} />
-            </div>
-            <div className="flex flex-col items-start min-w-0">
-              <span className="text-[12px] font-black uppercase tracking-wider leading-none" style={{ color: '#E8B86A' }}>
-                Konum Ekle
-              </span>
-              <span className="text-[9px] font-bold text-[color:var(--oem-ink-3,rgba(240,235,224,0.52))] mt-1">
-                Bulunduğun yeri kaydet
-              </span>
-            </div>
-          </button>
-
-          {addError && (
-            <div className="mx-2 mt-2 px-2 py-1 rounded-lg text-[10px] font-mono text-center bg-red-900/60 border border-red-700/50 text-red-300">
-              {addError}
-            </div>
-          )}
-
-          {/* Liste */}
-          <div className="overflow-y-auto" style={{ maxHeight: 220 }}>
-            {customLocations.length === 0 ? (
-              <div className="px-3 py-5 text-center">
-                <MapPin className="w-5 h-5 text-[color:var(--oem-ink-3,rgba(240,235,224,0.52))] mx-auto mb-2" />
-                <span className="text-[10px] font-bold text-[color:var(--oem-ink-3,rgba(240,235,224,0.52))] uppercase tracking-wider">
-                  Henüz kayıtlı konum yok
-                </span>
-              </div>
-            ) : (
-              customLocations.map((loc) => (
-                <div
-                  key={loc.id}
-                  className="flex items-center gap-2 px-3 py-2 border-b border-white/[0.04] last:border-0 hover:bg-white/[0.03]"
-                >
-                  <button
-                    onClick={() => {
-                      navigate({
-                        id:        loc.id,
-                        name:      loc.name,
-                        latitude:  loc.lat,
-                        longitude: loc.lng,
-                        type:      'history',
-                      });
-                      setCustomOpen(false);
-                    }}
-                    className="flex-1 flex items-center gap-2 min-w-0 active:scale-[0.98] transition-all text-left"
-                  >
-                    <div className="w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0"
-                      style={{ background: 'rgba(224,162,60,0.10)', border: '1px solid rgba(224,162,60,0.20)' }}>
-                      <MapPin className="w-3 h-3" style={{ color: '#E0A23C' }} />
-                    </div>
-                    <div className="flex flex-col min-w-0">
-                      <span className="text-[11px] font-black text-white truncate leading-none">
-                        {loc.name}
-                      </span>
-                      <span className="text-[9px] font-mono text-[color:var(--oem-ink-3,rgba(240,235,224,0.52))] mt-1 truncate">
-                        {loc.lat.toFixed(4)}, {loc.lng.toFixed(4)}
-                      </span>
-                    </div>
-                  </button>
-                  {/* Km — aynı kanonik kaynak (_haversineMeters) + format (formatDistance) */}
-                  {gpsLat != null && gpsLon != null && (
-                    <span className="text-[10px] font-black tabular-nums whitespace-nowrap flex-shrink-0" style={{ color: '#E0A23C' }}>
-                      {formatDistance(_haversineMeters(gpsLat, gpsLon, loc.lat, loc.lng))}
-                    </span>
-                  )}
-                  <button
-                    onClick={() => removeCustomLocation(loc.id)}
-                    aria-label="Sil"
-                    className="w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0 active:scale-90 transition-all bg-[var(--oem-danger-soft)] border border-[var(--oem-danger)]"
-                  >
-                    <Trash2 className="w-3 h-3 text-[color:var(--oem-danger)]" />
-                  </button>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
+        <SavedLocationsPanel
+          gpsLat={gpsLat}
+          gpsLon={gpsLon}
+          onNavigate={(dest) => { navigate(dest); setCustomOpen(false); }}
+          onClose={() => setCustomOpen(false)}
+        />
       )}
     </div>
   );
@@ -1706,6 +1147,11 @@ export interface NavigationHUDProps {
   onStart:    () => void;
   onCancel:   () => void;
   routeReady: boolean;
+  /**
+   * Haritayı araca ortalama yolu — `cameraFollowAuthority` bu çağrının
+   * İÇİNDE çalışır; HUD otoriteyi bypass etmez, yalnız tetikler.
+   */
+  onRecenter: () => void;
   /** GPS fix geçerli mi — false ise Start butonu disabled */
   gpsValid?:  boolean;
   onNavTab?:  (id: string) => void;
@@ -1716,25 +1162,35 @@ export const NavigationHUD = memo(function NavigationHUD({
   onCancel,
   routeReady,
   gpsValid = true,
+  onRecenter,
 }: NavigationHUDProps) {
   // Hız kaynağı: UnifiedVehicleStore.speed — worker SAB-polling (EMA + zero-hold +
   // anti-jitter) ile beslenir, worker stale olunca GPS location.speed'den devralınır.
   // Ham, filtresiz location.speed * 3.6 KULLANILMAZ (anlık 0 / spike sorunu).
-  const speedKmh = useUnifiedVehicleStore((s) => s.speed) ?? 0;
+  const speedKmh = useDisplaySpeed() ?? 0;   // kütük #417: tek gösterim otoritesi
   const location = useGPSLocation();
-  const dynamicLimit = useSpeedLimitByLocation(
-    location?.latitude  ?? null,
-    location?.longitude ?? null,
-  );
+  /* Hız limiti: mini haritayla AYNI otorite. Eskiden burada
+     `useSpeedLimitByLocation`in DÖNÜŞ değeri kullanılıyordu; o değer yalnız
+     sorgu SAHİBİ örnekte dolduğu için mini harita mount olduğunda tam ekran
+     levhası hiç çıkmıyordu (bkz. useEffectiveSpeedLimit başlık notu). */
+  const dynamicLimit = useEffectiveSpeedLimit();
+  /* P0-NAV-02 — motorun dürüstlük hükmü. İkinci otorite DEĞİL: yalnız
+     `distanceSource` + `EtaVerdict` + rota doğrulama hükmünü okur. */
+  const honesty = useNavigationHonesty();
+  /* Güvenlik durumu — `safetyStateMapper` otoritesinden; hız rakamının
+     SEMANTİK rengi için (yeni hesap yok). */
+  const safetyStateNow = useSafetyStore((s) => s.safetyState);
+
   const {
     status, destination, distanceMeters, etaSeconds,
     isOfflineResult, isRerouting, errorMessage,
   } = useNavigation();
   const route = useRouteState();
 
+  /* Açık kullanıcı eylemi — oturumu sonlandıran TEK giriş noktası.
+   * (Görünüm kapatmak bu yolu çağırmaz; bkz. FullMapView `onClose`.) */
   const handleStop = useCallback(() => {
-    stopNavigation();
-    clearRoute();
+    endNavigation();
     onCancel();
   }, [onCancel]);
 
@@ -1746,15 +1202,16 @@ export const NavigationHUD = memo(function NavigationHUD({
     return () => stopSafetyObserver();
   }, []);
 
-  // Phase H4 — Hazard state (selective subscription, minimal re-render)
-  const hazardStatus    = useHazardStore((s) => s.hazardStatus);
-  const isHazardAttn    = hazardStatus === 'ATTENTION';
-
   // CL2 — Kognitif bastırma bayrakları
   const cogMode     = useCognitiveStore((s) => s.currentMode);
   const suppFocused = cogMode !== 'IMMERSIVE' && cogMode !== 'AWARE'; // FOCUSED|CRITICAL|LIMP_HOME
   const suppCrit    = cogMode === 'CRITICAL' || cogMode === 'LIMP_HOME';
   const isLimp      = cogMode === 'LIMP_HOME';
+  // Telefon yatayı: HUD ölçüleri küçültülür (head unit'te DEĞİŞMEZ).
+  /* Üst bant şerit bütçesi + genişlik ekseni — AYNI hook, ikinci dinleyici YOK.
+     `short` bilerek kullanılmaz: yükseklik ekseninin tek tüketicisi yukarıdaki
+     `denseHud` kalır (kilit: "yoğunluk kapısı YÜKSEKLİĞE bakar"). */
+  const { narrow: narrowHud } = useHudLayout();
 
   // LIMP_HOME — tek seferlik otoriter TTS bildirimi
   useEffect(() => {
@@ -1776,53 +1233,80 @@ export const NavigationHUD = memo(function NavigationHUD({
   // → Panelde gösterilecek/seste okunacak talimat steps[i+1] (YAKLAŞAN manevra)
   //   olmalıdır; steps[i] az önce GEÇİLMİŞ manevradır. Tek adım kalmışsa
   //   (sentinel / arrive) kendisi gösterilir. currentStep yalnız "üzerinde
-  //   gidilen yol" (RoadSignsPanel streetName) ve steps-boş kapısı için kullanılır.
+  //   gidilen yol" bilgisi ve steps-boş kapısı için kullanılır. (Ayrı üst-orta
+//   sokak tabelası P0-NAV-04'te KALDIRILDI — girilecek yolla yarışıyordu.)
   const currentStep  = route.steps[route.currentStepIndex];
   const upcomingStep = route.steps[route.currentStepIndex + 1] ?? currentStep;
   const followStep   = route.steps[route.currentStepIndex + 2];
 
-  // ── Sesli yönlendirme — kademeli yaklaşım anonsları (saha fix 2026-06-12) ──
-  // ESKİDEN yalnız adım DEĞİŞİNCE konuşuyordu = anons dönüşün üzerinden geçerken
-  // geliyordu; sürücü "sağa dön / sola dön" uyarısını hiç duymuyordu.
-  // Şimdi Google tarzı üç kademe (her adım için en fazla 1'er kez):
-  //   ≤600 m → "550 metre sonra sola dönün"
-  //   ≤250 m → "200 metre sonra sola dönün"
-  //   ≤80 m  → "Şimdi sola dönün"
-  // Kademeler bitmask ile adım başına kilitlenir; adım değişince sıfırlanır.
-  // Mesafe useRouteState'ten her GPS tick'inde gelir (TurnPanel ile aynı kaynak).
-  const _spokenRef = useRef<{ step: number; tiers: number }>({ step: -1, tiers: 0 });
-  useEffect(() => {
-    if (!isActiveNav || isRerouting || !upcomingStep) return;
-    const d = route.distanceToNextTurnMeters;
-    if (!Number.isFinite(d) || d <= 0) return;
+  /* ── P0-NAV-04 · SUNUM HÜKMÜ ─────────────────────────────────────────────
+   * Yeni otorite DEĞİL: mevcut hükümleri (rehberlik durumu · manevra mesafesi
+   * ve KAYNAĞI · GPS doğruluğu · dürüstlük seviyesi · yerleşim) tek bir SAF
+   * modele verir ve "ekranda ne öne çıkacak" cevabını alır. Eşikler
+   * `cameraPolicyModel` (manevra bandı) ve `offRouteModel` (kullanılabilir
+   * doğruluk) otoritelerinden GELİR — burada icat edilmez. */
+  const hud: HudPresentation = resolveHudPresentation({
+    guidanceActive: status === NavStatus.ACTIVE || status === NavStatus.REROUTING,
+    rerouting: isRerouting,
+    distToTurnM: route.distanceToNextTurnMeters,
+    maneuverDistanceSource: route.distanceToNextTurnSource,
+    arriveManeuver: (route.steps[route.currentStepIndex + 1] ?? route.steps[route.currentStepIndex])
+      ?.maneuverType === 'arrive',
+    gpsUsable: gpsValid,
+    accuracyM: location?.accuracy ?? null,
+    honestyLevel: honesty.level,
+    /* Kusurun KAYNAĞI: üst şerit yalnız ROTA hükmü kusurluyken "Rota kusurlu"
+       der. ETA/mesafe kusuru dürüstlük şeridinde kendi chip'iyle görünür. */
+    routeVerdictDegraded: honesty.chips.some(
+      (c) => c.id === 'route' && c.level === 'DEGRADED'),
+    layout: narrowHud ? 'PORTRAIT' : 'LANDSCAPE',
+    hasLaneData: ((route.steps[route.currentStepIndex + 1] ?? route.steps[route.currentStepIndex])
+      ?.lanes?.length ?? 0) > 0,
+    hasNextManeuver: route.steps[route.currentStepIndex + 2] !== undefined,
+    /* P0-NAV-17: ŞU AN gösterilecek GERÇEK bir manevra var mı. Boş adım
+       listesinde (düz hat sentinel'i yazılmadan önce · 0 adımlı rota) içeriksiz
+       bir dönüş kartı kalıyordu — model artık bunu kapatıyor. */
+    hasManeuver: ((route.steps[route.currentStepIndex + 1] ?? route.steps[route.currentStepIndex])
+      ?.instruction ?? '').trim().length > 0,
+    /* Varıştan sonra eski yönlendirme EKRANDA KALMAZ. */
+    arrived: status === NavStatus.ARRIVED,
+  });
 
-    if (_spokenRef.current.step !== route.currentStepIndex) {
-      _spokenRef.current = { step: route.currentStepIndex, tiers: 0 };
-    }
-    const s = _spokenRef.current;
-    // Talimatı cümle ortasına uydur: "Sola dönün" → "sola dönün"
-    const inst = upcomingStep.instruction.charAt(0).toLowerCase() + upcomingStep.instruction.slice(1);
-
-    if (d <= 80 && !(s.tiers & 4)) {
-      s.tiers |= 4 | 2 | 1; // yakın kademede uzaktakiler de kapanır (üst üste konuşmaz)
-      speakNavigation(`Şimdi ${inst}`);
-    } else if (d <= 250 && !(s.tiers & 2)) {
-      s.tiers |= 2 | 1;
-      speakNavigation(`${Math.round(d / 50) * 50} metre sonra ${inst}`);
-    } else if (d <= 600 && !(s.tiers & 1)) {
-      s.tiers |= 1;
-      speakNavigation(`${Math.round(d / 50) * 50} metre sonra ${inst}`);
-    }
-  }, [route.distanceToNextTurnMeters, route.currentStepIndex, isRerouting, isActiveNav, upcomingStep]);
+  /* ── SESLİ YÖNLENDİRME BURADA DEĞİLDİR (NAVIGATION_DELIVERY_CORE_P0) ───────
+   * Kademeli anons mantığı ve "hangi kademe söylendi" durumu bu bileşendeydi.
+   * `NavigationHUD` yalnız `FullMapView` içinde mount edildiği için tam ekran
+   * kapatılınca **hazırlık · yaklaşma · dönüş anonslarının hepsi susuyordu**;
+   * ayrıca durum bir bileşen ref'i olduğundan görünüm yeniden açılınca aynı
+   * manevra **ikinci kez** seslendiriliyordu.
+   *
+   * Sahiplik `voiceGuidanceRuntime`e taşındı ve `navigationSessionRuntime`
+   * tick'inden beslenir (gerçek GPS + ölü hesaplama). Eşikler ve anons
+   * metinleri BİREBİR korundu — bu bileşen artık YALNIZ ÇİZER.
+   *
+   * ⚠️ Buraya bir daha `speakNavigation` EKLENMEYECEK: ekranla ilişkili her
+   * ses üretimi, ekran kapalıyken sessizlik demektir. */
 
   // İlk GPS tick'inde distanceMeters=0 olabilir — toplam mesafeye fallback
   const effectiveDist = (distanceMeters && distanceMeters > 10)
     ? distanceMeters
     : route.totalDistanceMeters;
 
-  const displayEta = route.totalDurationSeconds > 0
-    ? Math.round(route.totalDurationSeconds * Math.min(1, effectiveDist / Math.max(1, route.totalDistanceMeters)))
-    : (etaSeconds ?? 0);
+  /* ── TEK ETA OTORİTESİ (saha 2026-08-05 · kütük #403) ──────────────────────
+   * ÖLÇÜLEN ÇELİŞKİ: aynı anda ekran kartı "289,2 km · 3 sa 18 dk" derken
+   * motor `nav.etaSeconds` **4 sa 42 dk** diyordu — 1 saat 24 dakika fark.
+   * KÖK: burada İKİNCİ bir ETA türetiliyordu —
+   *   `route.totalDurationSeconds × (kalan mesafe / toplam mesafe)`
+   * Bu formül yolun her yerinde aynı ortalama hızı varsayar: şehir içi + otoyol
+   * karışık bir rotada sistematik olarak yanlıştır ve motorun gerçek hız
+   * geçmişi + duruş süresi + rota süre modeliyle hesapladığı ETA'yı EZİYORDU.
+   *
+   * ETA artık YALNIZ motordan gelir. Motor henüz ilk değerini üretmediyse
+   * (konum tick'i gelmeden) rotanın kendi toplam süresi gösterilir — bu bir
+   * ikinci otorite değil, aynı zincirin ilk halkasıdır ve ilk tick'te
+   * motorun değeriyle değişir. */
+  const displayEta = (etaSeconds != null && etaSeconds > 0)
+    ? etaSeconds
+    : route.totalDurationSeconds;
 
   return (
     <>
@@ -1842,56 +1326,70 @@ export const NavigationHUD = memo(function NavigationHUD({
             />
           )}
 
-          {isRerouting && <ReroutingBanner />}
+          {/* ── DURUM ŞERİDİ — TEK ve SAKİN (P0-NAV-04) ────────────────────
+           * Eskiden üç ayrı yer bağırıyordu: `ReroutingBanner` (tam kart),
+           * `GPS ±2m` çipi (manevra kartına biniyordu) ve dürüstlük cipleri.
+           * Artık baskın durum TEKTİR ve tek satırda görünür. */}
+          <NavigationStatus hud={hud} />
 
           {/* Tehlike Banner — PREPARE / ATTENTION durumunda görünür */}
           <HazardBanner />
 
-          {!isRerouting && currentStep && (
-            <>
-              {/* step = YAKLAŞAN manevra (upcomingStep) — distToTurn bu noktaya sayar.
-                * followStep = onun ardındaki manevra ("Sonra …" devam satırı). */}
-              <TurnPanel
-                step={upcomingStep}
-                distToTurn={route.distanceToNextTurnMeters}
-                nextStep={isLimp ? undefined : followStep}
-                hazardActive={isHazardAttn}
-              />
-              <FadeMount visible={!suppCrit}>
-                <RoadSignsPanel
-                  streetName={currentStep.streetName}
-                  destName={destination?.name}
-                />
-              </FadeMount>
-              {/* LaneGuidance kaldırıldı — ekranı dağıtıyordu, TurnPanel zaten dönüş yönünü gösteriyor */}
-              <SpeedPanel speedKmh={speedKmh} speedLimitKmh={dynamicLimit} />
-            </>
+          {/* ── BİRİNCİL: MANEVRA ──────────────────────────────────────────
+           * `hud.showManeuver` yeniden rota sırasında FALSE olur: geçersiz bir
+           * dönüşü göstermek, hiç göstermemekten tehlikelidir. */}
+          {hud.showManeuver && currentStep && (
+            <ManeuverPanel
+              step={upcomingStep}
+              distToTurnM={route.distanceToNextTurnMeters}
+              nextStep={isLimp ? undefined : followStep}
+              hud={hud}
+              lanes={hud.showLaneGuidance ? <LaneGuidance step={upcomingStep} /> : undefined}
+            />
           )}
 
-          {/* Steps boş (local daemon / düz çizgi) → yedek TurnPanel */}
-          {!isRerouting && !currentStep && destination && (
-            <>
-              <TurnPanel
-                step={{
-                  instruction:      'Devam Edin',
-                  streetName:       destination.name,
-                  distance:         effectiveDist,
-                  duration:         displayEta,
-                  maneuverType:     'straight',
-                  maneuverModifier: 'straight',
-                  coordinate:       [destination.longitude, destination.latitude],
-                }}
-                distToTurn={effectiveDist}
-              />
-              <RoadSignsPanel destName={destination.name} />
-              <SpeedPanel speedKmh={speedKmh} speedLimitKmh={dynamicLimit} />
-            </>
+          {/* Steps boş (local daemon / düz çizgi) → yedek manevra kartı */}
+          {hud.showManeuver && !currentStep && destination && (
+            <ManeuverPanel
+              step={{
+                instruction:      'Devam Edin',
+                streetName:       destination.name,
+                distance:         effectiveDist,
+                duration:         displayEta,
+                maneuverType:     'straight',
+                maneuverModifier: 'straight',
+                coordinate:       [destination.longitude, destination.latitude],
+                roundaboutExit:   null,
+                lanes:            null,  // yedek panelde GERÇEK şerit verisi YOKTUR
+                geometryPointCount: 0,
+              }}
+              distToTurnM={effectiveDist}
+              hud={hud}
+            />
           )}
+
+          {/* ── HIZ + KANITLI LİMİT ────────────────────────────────────────
+           * Otoriteler dokunulmadı: hız `useDisplaySpeed`, limit
+           * `useEffectiveSpeedLimit`. Burada yeniden hesap YOK. */}
+          {hud.showSpeed && !suppCrit && (
+            <DrivingSpeed
+              speedKmh={speedKmh}
+              speedLimit={dynamicLimit}
+              hud={hud}
+              caution={safetyStateNow === 'CAUTION'}
+              intervention={safetyStateNow === 'INTERVENTION'}
+            />
+          )}
+
+          {/* ── SÜRÜŞ KONTROLÜ — talep üzerine ─────────────────────────────
+           * Zoom kolonu aktif rehberlikte YOK; ortala yalnız kullanıcı
+           * kamerayı bıraktığında gelir (`cameraFollowAuthority` OKUNUR). */}
+          <DrivingControls hud={hud} onRecenter={onRecenter} />
 
           {/* Alternatif rotalar butonu + paneli — FOCUSED+ modda gizlenir */}
           {!isRerouting && !suppFocused && route.alternatives.length > 0 && (
             <div
-              className="absolute z-30 pointer-events-auto"
+              className="absolute z-[var(--z-map-hud)] pointer-events-auto"
               style={{ left: 16, bottom: 'calc(var(--lp-dock-h, 68px) + 96px)' }}
             >
               {showAlts && (
@@ -1902,7 +1400,12 @@ export const NavigationHUD = memo(function NavigationHUD({
                       <button
                         key={realIdx ?? i}
                         onClick={() => { selectAltRoute(realIdx ?? (i + 1)); setShowAlts(false); }}
-                        className="flex items-center gap-3 px-4 py-3 rounded-2xl text-left futurist-glass active:scale-95 transition-all"
+                        className="flex items-center gap-3 px-4 py-3 rounded-2xl text-left oem-glass active:scale-95 transition-all"
+                        style={{
+                          background: 'var(--oem-surface-1, rgba(38,44,60,0.86))',
+                          border: '1px solid var(--oem-line-strong, rgba(255,240,210,0.18))',
+                          boxShadow: 'var(--oem-shadow-card, 0 20px 44px -22px rgba(0,0,0,0.55))',
+                        }}
                       >
                         <div className="w-8 h-8 rounded-xl bg-[var(--oem-surface-2,rgba(48,55,73,0.60))] flex items-center justify-center flex-shrink-0">
                           <GitBranch className="w-4 h-4" style={{ color: '#E0A23C' }} />
@@ -1920,7 +1423,12 @@ export const NavigationHUD = memo(function NavigationHUD({
               )}
               <button
                 onClick={() => setShowAlts(v => !v)}
-                className="flex items-center gap-2 px-3 py-2 rounded-2xl futurist-glass active:scale-95 transition-all"
+                className="flex items-center gap-2 px-3 py-2 rounded-2xl oem-glass active:scale-95 transition-all"
+                style={{
+                  background: 'var(--oem-surface-1, rgba(38,44,60,0.86))',
+                  border: '1px solid var(--oem-line-strong, rgba(255,240,210,0.18))',
+                  boxShadow: 'var(--oem-shadow-card, 0 20px 44px -22px rgba(0,0,0,0.55))',
+                }}
               >
                 <GitBranch className="w-4 h-4" style={{ color: '#E0A23C' }} />
                 <span className="text-white font-bold text-xs uppercase tracking-wide">
@@ -1930,14 +1438,19 @@ export const NavigationHUD = memo(function NavigationHUD({
             </div>
           )}
 
-          <NavInfoBar
+          {/* ── YOLCULUK ÖZETİ (P0-NAV-04) ─────────────────────────────
+           * Eski dev alt bar dört sütunluydu ve dördüncüsü (`YAKIT —`) veri
+           * yokken DEKORATİF BİR TİRE idi. Artık üç sütun: varış · kalan süre
+           * · kalan mesafe. Dürüstlük şeridi bu kartın İÇİNDE, tek satır ve
+           * sakin — haritayı işgal etmez. */}
+          <TripSummary
             etaSeconds={displayEta}
             remainingMeters={effectiveDist}
             totalMeters={route.totalDistanceMeters}
+            honesty={honesty}
+            hud={hud}
             onStop={handleStop}
-            isOffline={isOfflineResult}
-            compact={suppCrit}
-            limp={isLimp}
+            offline={isOfflineResult}
           />
         </>
       )}
@@ -1954,6 +1467,7 @@ export const NavigationHUD = memo(function NavigationHUD({
           onCancel={onCancel}
           routeReady={routeReady}
           gpsValid={gpsValid}
+          honesty={honesty}
         />
       )}
 
@@ -1966,7 +1480,7 @@ export const NavigationHUD = memo(function NavigationHUD({
       {isShowError && (
         <ErrorOverlay
           message={errorMessage ?? 'Navigasyon başarısız oldu.'}
-          onClose={() => { stopNavigation(); onCancel(); }}
+          onClose={() => { endNavigation(); onCancel(); }}
         />
       )}
 

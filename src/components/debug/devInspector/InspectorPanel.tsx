@@ -163,14 +163,14 @@ export function InspectorPanel({ onClose }: { onClose: () => void }) {
     {/* ── Claude export overlay — K24 clipboard çalışmazsa seç & kopyala / ekran görüntüsü ── */}
     {exportText !== null && (
       <div className="fixed inset-0 flex flex-col"
-        style={{ zIndex: 9999, background: 'rgba(2,6,14,0.96)', padding: 12 }}>
+        style={{ zIndex: 9999, background: 'var(--oem-surface-0)', padding: 12 }}>
         <div className="flex items-center justify-between mb-2">
           <span className="text-[12px] font-mono font-bold" style={{ color: '#3b82f6' }}>
             Claude için teşhis — uzun bas → Tümünü seç → kopyala (veya ekran görüntüsü al)
           </span>
           <button onClick={() => setExportText(null)}
             className="flex items-center justify-center rounded"
-            style={{ color: '#fff', width: 26, height: 26, background: 'rgba(255,255,255,0.08)' }}>
+            style={{ color: '#fff', width: 26, height: 26, background: 'var(--oem-surface-2)' }}>
             <X size={15} />
           </button>
         </div>
@@ -201,7 +201,7 @@ export function InspectorPanel({ onClose }: { onClose: () => void }) {
           </button>
           <button onClick={() => setExportText(null)}
             className="text-[12px] font-mono py-2 px-4 rounded"
-            style={{ background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.6)' }}>
+            style={{ background: 'var(--oem-surface-2)', color: 'var(--oem-ink-2)' }}>
             Kapat
           </button>
         </div>
@@ -220,7 +220,7 @@ export function InspectorPanel({ onClose }: { onClose: () => void }) {
     >
       {/* ── Header ─────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between px-3 py-2 shrink-0"
-        style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+        style={{ borderBottom: '1px solid var(--oem-line)' }}>
         <span className="text-[11px] font-mono font-bold tracking-widest" style={{ color: '#3b82f6' }}>
           DEV INSPECTOR
         </span>
@@ -231,7 +231,7 @@ export function InspectorPanel({ onClose }: { onClose: () => void }) {
           </span>
           <button onClick={onClose}
             className="flex items-center justify-center rounded"
-            style={{ color: 'rgba(255,255,255,0.35)', width: 20, height: 20 }}>
+            style={{ color: 'var(--oem-ink-3)', width: 20, height: 20 }}>
             <X size={13} />
           </button>
         </div>
@@ -245,13 +245,13 @@ export function InspectorPanel({ onClose }: { onClose: () => void }) {
         const tierCol = caps.tier === 'low' ? '#ef4444' : caps.tier === 'mid' ? '#eab308' : '#22c55e';
         const Row = ({ k, v, c }: { k: string; v: string; c?: string }) => (
           <div className="flex items-center justify-between gap-2">
-            <span style={{ color: 'rgba(255,255,255,0.35)' }}>{k}</span>
-            <span className="truncate text-right" style={{ color: c ?? 'rgba(255,255,255,0.85)' }}>{v}</span>
+            <span style={{ color: 'var(--oem-ink-3)' }}>{k}</span>
+            <span className="truncate text-right" style={{ color: c ?? 'var(--oem-ink)' }}>{v}</span>
           </div>
         );
         return (
           <div className="shrink-0 px-3 py-2 grid grid-cols-2 gap-x-4 gap-y-1 text-[10px] font-mono"
-            style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(59,130,246,0.04)' }}>
+            style={{ borderBottom: '1px solid var(--oem-line)', background: 'rgba(59,130,246,0.04)' }}>
             <Row k="Mode" v={mode || '—'} c="#3b82f6" />
             <Row k="Tier" v={caps.tier} c={tierCol} />
             <Row k="FPS"  v={tab === 'fps' ? `${fps} (avg ${avgFps})` : 'fps tab →'} c={fpsCol(fps)} />
@@ -265,14 +265,14 @@ export function InspectorPanel({ onClose }: { onClose: () => void }) {
       })()}
 
       {/* ── Tabs ───────────────────────────────────────────────────────── */}
-      <div className="flex shrink-0" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+      <div className="flex shrink-0" style={{ borderBottom: '1px solid var(--oem-line)' }}>
         {(['workers', 'timeline', 'network', 'fps', 'hazards', 'intel', 'hal'] as Tab[]).map((t) => {
           const active = tab === t;
           return (
             <button key={t} onClick={() => setTab(t)}
               className="flex-1 py-1.5 text-[9px] font-mono uppercase tracking-wider transition-colors"
               style={{
-                color: active ? '#3b82f6' : 'rgba(255,255,255,0.22)',
+                color: active ? '#3b82f6' : 'var(--oem-ink-3)',
                 borderBottom: active ? '2px solid #3b82f6' : '2px solid transparent',
               }}>
               {t}
@@ -302,7 +302,7 @@ export function InspectorPanel({ onClose }: { onClose: () => void }) {
                 </span>
               )}
               {t === 'hal' && (
-                <span style={{ marginLeft: 3, color: halConnected ? '#22c55e' : 'rgba(255,255,255,0.3)' }}>
+                <span style={{ marginLeft: 3, color: halConnected ? '#22c55e' : 'var(--oem-ink-3)' }}>
                   {halConnected ? '●' : '○'}
                 </span>
               )}
@@ -319,13 +319,13 @@ export function InspectorPanel({ onClose }: { onClose: () => void }) {
         {tab === 'workers' && (
           <div className="space-y-1">
             {workers.length === 0
-              ? <p className="text-center py-8" style={{ color: 'rgba(255,255,255,0.2)' }}>No workers registered</p>
+              ? <p className="text-center py-8" style={{ color: 'var(--oem-ink-3)' }}>No workers registered</p>
               : workers.map(([key, { criticality, worker }]) => {
                   const alive = worker != null;
                   return (
                     <div key={key} className="flex items-center justify-between px-2 py-1.5 rounded"
-                      style={{ background: 'rgba(255,255,255,0.03)' }}>
-                      <span className="truncate flex-1" style={{ color: 'rgba(255,255,255,0.75)' }}>{key}</span>
+                      style={{ background: 'var(--oem-surface-2)' }}>
+                      <span className="truncate flex-1" style={{ color: 'var(--oem-ink-2)' }}>{key}</span>
                       <span className="text-[9px] mx-2"
                         style={{ color: criticality === 'CRITICAL' ? '#f87171' : '#fbbf24' }}>
                         {criticality}
@@ -343,7 +343,7 @@ export function InspectorPanel({ onClose }: { onClose: () => void }) {
         {tab === 'timeline' && (
           <div className="space-y-1">
             {timeline.length === 0
-              ? <p className="text-center py-8" style={{ color: 'rgba(255,255,255,0.2)' }}>
+              ? <p className="text-center py-8" style={{ color: 'var(--oem-ink-3)' }}>
                   BlackBox not started yet
                 </p>
               : timeline.map((s, i) => {
@@ -351,17 +351,17 @@ export function InspectorPanel({ onClose }: { onClose: () => void }) {
                   const ti    = Math.min(3, Math.max(0, Math.floor(s.env.therm)));
                   return (
                     <div key={`${s.ts}-${i}`} className="px-2 py-1.5 rounded"
-                      style={{ background: 'rgba(255,255,255,0.03)' }}>
-                      <div className="flex items-center gap-3" style={{ color: 'rgba(255,255,255,0.45)' }}>
+                      style={{ background: 'var(--oem-surface-2)' }}>
+                      <div className="flex items-center gap-3" style={{ color: 'var(--oem-ink-3)' }}>
                         <span className="text-[9px] w-7 text-right shrink-0"
-                          style={{ color: 'rgba(255,255,255,0.2)' }}>-{age}s</span>
-                        <span>spd:<span style={{ color: 'rgba(255,255,255,0.75)' }}>{s.signals.spd ?? '-'}</span></span>
-                        <span>rpm:<span style={{ color: 'rgba(255,255,255,0.75)' }}>{s.signals.rpm ?? '-'}</span></span>
-                        <span>fuel:<span style={{ color: 'rgba(255,255,255,0.75)' }}>{s.signals.fuel != null ? `${s.signals.fuel}%` : '-'}</span></span>
+                          style={{ color: 'var(--oem-ink-3)' }}>-{age}s</span>
+                        <span>spd:<span style={{ color: 'var(--oem-ink-2)' }}>{s.signals.spd ?? '-'}</span></span>
+                        <span>rpm:<span style={{ color: 'var(--oem-ink-2)' }}>{s.signals.rpm ?? '-'}</span></span>
+                        <span>fuel:<span style={{ color: 'var(--oem-ink-2)' }}>{s.signals.fuel != null ? `${s.signals.fuel}%` : '-'}</span></span>
                       </div>
                       <div className="flex items-center gap-3 mt-0.5 pl-10 text-[9px]">
                         <span style={{ color: THERM_HEX[ti] }}>{THERM_LABEL[ti]}</span>
-                        <span style={{ color: MEM_HEX[s.env.mem] ?? 'rgba(255,255,255,0.4)' }}>{s.env.mem}</span>
+                        <span style={{ color: MEM_HEX[s.env.mem] ?? 'var(--oem-ink-3)' }}>{s.env.mem}</span>
                       </div>
                     </div>
                   );
@@ -373,29 +373,29 @@ export function InspectorPanel({ onClose }: { onClose: () => void }) {
         {tab === 'network' && (
           <div className="space-y-1">
             <div className="flex items-center justify-between mb-2 px-1">
-              <span style={{ color: 'rgba(255,255,255,0.2)' }}>{network.length} entries</span>
+              <span style={{ color: 'var(--oem-ink-3)' }}>{network.length} entries</span>
               <button onClick={clearNetworkEntries}
                 className="text-[9px]"
-                style={{ color: 'rgba(255,255,255,0.3)' }}>
+                style={{ color: 'var(--oem-ink-3)' }}>
                 Clear
               </button>
             </div>
             {network.length === 0
-              ? <p className="text-center py-8" style={{ color: 'rgba(255,255,255,0.2)' }}>No requests captured</p>
+              ? <p className="text-center py-8" style={{ color: 'var(--oem-ink-3)' }}>No requests captured</p>
               : network.map((e) => (
                   <div key={e.id} className="flex items-center gap-2 px-2 py-1 rounded"
-                    style={{ background: 'rgba(255,255,255,0.03)' }}>
+                    style={{ background: 'var(--oem-surface-2)' }}>
                     <span className="w-10 text-center text-[9px] shrink-0"
                       style={{ color: e.failed ? '#ef4444' : '#a78bfa' }}>
                       {e.method}
                     </span>
-                    <span className="flex-1 truncate" style={{ color: 'rgba(255,255,255,0.55)' }}>{e.url}</span>
+                    <span className="flex-1 truncate" style={{ color: 'var(--oem-ink-3)' }}>{e.url}</span>
                     <span className="shrink-0 text-[10px]" style={{ color: statusColor(e.status) }}>
                       {e.status ?? '…'}
                     </span>
                     {e.durationMs != null && (
                       <span className="shrink-0 text-[9px] w-12 text-right"
-                        style={{ color: 'rgba(255,255,255,0.25)' }}>
+                        style={{ color: 'var(--oem-ink-3)' }}>
                         {e.durationMs}ms
                       </span>
                     )}
@@ -411,7 +411,7 @@ export function InspectorPanel({ onClose }: { onClose: () => void }) {
               style={{ color: fps < 30 ? '#ef4444' : fps < 50 ? '#eab308' : '#22c55e' }}>
               {fps}
             </div>
-            <p className="text-[9px] font-mono" style={{ color: 'rgba(255,255,255,0.25)' }}>
+            <p className="text-[9px] font-mono" style={{ color: 'var(--oem-ink-3)' }}>
               frames per second
             </p>
             {fpsHistory.current.length > 1 && (
@@ -426,7 +426,7 @@ export function InspectorPanel({ onClose }: { onClose: () => void }) {
                 ))}
               </div>
             )}
-            <p className="text-[9px] font-mono" style={{ color: 'rgba(255,255,255,0.15)' }}>
+            <p className="text-[9px] font-mono" style={{ color: 'var(--oem-ink-3)' }}>
               60fps target — last {fpsHistory.current.length}s
             </p>
           </div>
@@ -442,24 +442,24 @@ export function InspectorPanel({ onClose }: { onClose: () => void }) {
         {tab === 'hal' && (
           <div className="space-y-2 p-1">
             {/* Bağlantı durumu */}
-            <div className="px-2 py-2 rounded" style={{ background: 'rgba(255,255,255,0.03)' }}>
+            <div className="px-2 py-2 rounded" style={{ background: 'var(--oem-surface-2)' }}>
               <div className="flex items-center justify-between">
-                <span style={{ color: 'rgba(255,255,255,0.45)' }}>HAL Source</span>
+                <span style={{ color: 'var(--oem-ink-3)' }}>HAL Source</span>
                 <span style={{ color: halConnected ? '#22c55e' : '#ef4444', fontWeight: 600 }}>
                   {halConnected ? '● CONNECTED' : '○ DISCONNECTED'}
                 </span>
               </div>
               <div className="flex items-center justify-between mt-1">
-                <span style={{ color: 'rgba(255,255,255,0.45)' }}>Confidence</span>
-                <span style={{ color: halConnected ? '#22c55e' : 'rgba(255,255,255,0.25)' }}>
+                <span style={{ color: 'var(--oem-ink-3)' }}>Confidence</span>
+                <span style={{ color: halConnected ? '#22c55e' : 'var(--oem-ink-3)' }}>
                   {halConf.toFixed(2)} / 0.98
                 </span>
               </div>
             </div>
 
             {/* Aktif kaynak */}
-            <div className="px-2 py-2 rounded" style={{ background: 'rgba(255,255,255,0.03)' }}>
-              <div className="text-[9px] mb-1.5" style={{ color: 'rgba(255,255,255,0.25)' }}>
+            <div className="px-2 py-2 rounded" style={{ background: 'var(--oem-surface-2)' }}>
+              <div className="text-[9px] mb-1.5" style={{ color: 'var(--oem-ink-3)' }}>
                 ACTIVE SPEED SOURCE
               </div>
               {(['HAL', 'CAN', 'OBD', 'GPS'] as const).map((src) => {
@@ -479,10 +479,10 @@ export function InspectorPanel({ onClose }: { onClose: () => void }) {
                       background: isActive ? `${color}18` : 'transparent',
                       border: `1px solid ${isActive ? color : 'transparent'}`,
                     }}>
-                    <span style={{ color: isActive ? color : 'rgba(255,255,255,0.3)' }}>
+                    <span style={{ color: isActive ? color : 'var(--oem-ink-3)' }}>
                       {isActive ? '▶' : '·'} {src}
                     </span>
-                    <span style={{ color: isActive ? color : 'rgba(255,255,255,0.2)' }}>
+                    <span style={{ color: isActive ? color : 'var(--oem-ink-3)' }}>
                       {conf.toFixed(2)}
                     </span>
                   </div>
@@ -491,11 +491,11 @@ export function InspectorPanel({ onClose }: { onClose: () => void }) {
             </div>
 
             {/* Hiyerarşi notu */}
-            <div className="px-2 py-1.5 rounded" style={{ background: 'rgba(255,255,255,0.02)' }}>
-              <div className="text-[9px]" style={{ color: 'rgba(255,255,255,0.2)' }}>
+            <div className="px-2 py-1.5 rounded" style={{ background: 'var(--oem-surface-2)' }}>
+              <div className="text-[9px]" style={{ color: 'var(--oem-ink-3)' }}>
                 Fusion: HAL(0.98) › CAN(0.92) › OBD(0.85) › GPS(0.70)
               </div>
-              <div className="text-[9px] mt-0.5" style={{ color: 'rgba(255,255,255,0.15)' }}>
+              <div className="text-[9px] mt-0.5" style={{ color: 'var(--oem-ink-3)' }}>
                 timeout · HAL 3s · CAN 3s · OBD 2s · GPS 5s
               </div>
             </div>
@@ -505,21 +505,21 @@ export function InspectorPanel({ onClose }: { onClose: () => void }) {
 
       {/* ── Footer ─────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between gap-2 px-3 py-1.5 shrink-0"
-        style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-        <span className="text-[9px] font-mono shrink-0" style={{ color: 'rgba(255,255,255,0.12)' }}>
+        style={{ borderTop: '1px solid var(--oem-line)' }}>
+        <span className="text-[9px] font-mono shrink-0" style={{ color: 'var(--oem-ink-3)' }}>
           dev only
         </span>
         <div className="flex items-center gap-3 min-w-0">
           {/* Araç ekranı için: panoya değil ortak Tanı modalını açar (açıklama+rıza) */}
           <button onClick={() => setDiagOpen(true)}
             className="flex items-center gap-1 text-[10px] font-mono transition-colors truncate"
-            style={{ color: 'rgba(255,255,255,0.4)' }}>
+            style={{ color: 'var(--oem-ink-3)' }}>
             <Send size={11} />
             Tanı Gönder
           </button>
           <button onClick={handleCopy}
             className="flex items-center gap-1 text-[10px] font-mono transition-colors shrink-0"
-            style={{ color: copied ? '#22c55e' : 'rgba(255,255,255,0.4)' }}>
+            style={{ color: copied ? '#22c55e' : 'var(--oem-ink-3)' }}>
             {copied ? <CheckCheck size={11} /> : <Copy size={11} />}
             {copied ? 'Kopyalandı!' : 'Copy for Claude'}
           </button>

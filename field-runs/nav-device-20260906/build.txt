@@ -1,0 +1,1194 @@
+
+> cockpitos@1.0.3 build
+> npm run build:sw && node scripts/copy-sqljs-wasm.mjs && tsc -b && vite build
+
+
+> cockpitos@1.0.3 build:sw
+> tsc src/serviceWorker.ts --outDir public --target ES2020 --lib ES2020,WebWorker --strict --skipLibCheck
+
+sql.js WASM kopyalandı → public/wasm/sql-wasm.wasm (644 KB)
+plugin-legacy overrode 'build.target'. You should pass 'targets' as an option to this plugin with the list of legacy browsers to support instead.
+plugin-legacy 'modernTargets' option overrode the builtin targets of modern chunks. Some versions of browsers between legacy and modern may not be supported.
+vite v8.1.3 building client environment for production...
+[2K
+Found 1 warning while optimizing generated CSS:
+
+│   }
+│   .text-\[color\:var\(--\.\.\)\] {
+│     color: var(--..);
+┆                  ^-- Unexpected token Delim('.')
+┆
+│   }
+│   .text-\[color\:var\(--oem-accent\)\] {
+
+Found 1 warning while optimizing generated CSS:
+
+│   }
+│   .text-\[color\:var\(--\.\.\)\] {
+│     color: var(--..);
+┆                  ^-- Unexpected token Delim('.')
+┆
+│   }
+│   .text-\[color\:var\(--oem-accent\)\] {
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `vite:terser`. See https://rolldown.rs/reference/InputOptions.checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `vite:terser`. See https://rolldown.rs/reference/InputOptions.checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `vite:terser`. See https://rolldown.rs/reference/InputOptions.checks#plugintimings for more details.
+
+transforming...✓ 3391 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/assets/providers-legacy-CcBOD2Iz.js                            0.18 kB │ gzip:   0.14 kB
+dist/assets/chevron-left-legacy-DMU9LNX1.js                         0.19 kB │ gzip:   0.18 kB
+dist/assets/square-legacy-zeHU1lI9.js                               0.21 kB │ gzip:   0.18 kB
+dist/assets/trending-up-legacy-cTL4esdC.js                          0.23 kB │ gzip:   0.20 kB
+dist/assets/ban-legacy-Cosb1NRz.js                                  0.24 kB │ gzip:   0.20 kB
+dist/assets/smartphone-legacy-obHNERVi.js                           0.26 kB │ gzip:   0.22 kB
+dist/assets/lock-open-legacy-KuDqYEpn.js                            0.27 kB │ gzip:   0.23 kB
+dist/assets/music-legacy-DPD_i7h7.js                                0.28 kB │ gzip:   0.22 kB
+dist/assets/git-branch-legacy-DPvnlZLc.js                           0.29 kB │ gzip:   0.23 kB
+dist/assets/library-legacy-CzSy4Hrx.js                              0.29 kB │ gzip:   0.21 kB
+dist/assets/log-out-legacy-CowbLlrr.js                              0.29 kB │ gzip:   0.23 kB
+dist/assets/download-legacy-AYFPm6ve.js                             0.29 kB │ gzip:   0.23 kB
+dist/assets/history-legacy-BLISh7De.js                              0.30 kB │ gzip:   0.23 kB
+dist/assets/timer-legacy-Q-GMncTR.js                                0.30 kB │ gzip:   0.22 kB
+dist/assets/message-circle-legacy-CUg4fsY2.js                       0.30 kB │ gzip:   0.25 kB
+dist/assets/globe-legacy-Cxz3O73c.js                                0.30 kB │ gzip:   0.22 kB
+dist/assets/link-2-legacy-BNJiZuUs.js                               0.30 kB │ gzip:   0.24 kB
+dist/assets/abortCompat-legacy-CjMAELUs.js                          0.30 kB │ gzip:   0.19 kB
+dist/assets/database-legacy-BeofpqQB.js                             0.30 kB │ gzip:   0.24 kB
+dist/assets/arrow-right-left-legacy-B4HImuzC.js                     0.31 kB │ gzip:   0.23 kB
+dist/assets/circle-question-mark-legacy-DHMSsy5R.js                 0.31 kB │ gzip:   0.24 kB
+dist/assets/video-legacy-B6_btPGr.js                                0.31 kB │ gzip:   0.25 kB
+dist/assets/eye-legacy-BbjdMk_i.js                                  0.32 kB │ gzip:   0.24 kB
+dist/assets/esm-legacy-goPAOOFE.js                                  0.32 kB │ gzip:   0.23 kB
+dist/assets/TestControlPanel-legacy-DPmcTfTl.js                     0.33 kB │ gzip:   0.22 kB
+dist/assets/eraser-legacy-Cct-FJpm.js                               0.34 kB │ gzip:   0.26 kB
+dist/assets/inbox-legacy-DV1VaFQ8.js                                0.35 kB │ gzip:   0.26 kB
+dist/assets/scissors-legacy-ByHsCZx7.js                             0.37 kB │ gzip:   0.25 kB
+dist/assets/offlineAutoCache-legacy-CGGZtv31.js                     0.38 kB │ gzip:   0.25 kB
+dist/assets/useDevtoolsCapture-legacy-B9g9U8L_.js                   0.38 kB │ gzip:   0.23 kB
+dist/assets/trash-2-legacy-Dyy1ud8q.js                              0.39 kB │ gzip:   0.25 kB
+dist/assets/scale-legacy-CagnAfU7.js                                0.39 kB │ gzip:   0.26 kB
+dist/assets/esm-legacy-7_XmLq-H.js                                  0.40 kB │ gzip:   0.25 kB
+dist/assets/key-round-legacy-COAVtxUX.js                            0.41 kB │ gzip:   0.29 kB
+dist/assets/visionStore-legacy-DxICjwSc.js                          0.42 kB │ gzip:   0.25 kB
+dist/assets/definitions-legacy-zwjkzs-X.js                          0.43 kB │ gzip:   0.30 kB
+dist/assets/mic-off-legacy-B3e48uDF.js                              0.45 kB │ gzip:   0.29 kB
+dist/assets/clipboard-list-legacy-C2dXk0fC.js                       0.47 kB │ gzip:   0.29 kB
+dist/assets/eye-off-legacy-DL-R94co.js                              0.49 kB │ gzip:   0.31 kB
+dist/assets/users-legacy-B-fMIj8u.js                                0.51 kB │ gzip:   0.31 kB
+dist/assets/cable-legacy-_xFaVIl0.js                                0.55 kB │ gzip:   0.31 kB
+dist/assets/radar-legacy-BQOh9IZv.js                                0.56 kB │ gzip:   0.34 kB
+dist/assets/palette-legacy-BAG_CQN7.js                              0.57 kB │ gzip:   0.31 kB
+dist/assets/brain-legacy-BChVthM-.js                                0.64 kB │ gzip:   0.35 kB
+dist/assets/nativePlugin-legacy-B_mbUNDA.js                         0.66 kB │ gzip:   0.36 kB
+dist/assets/fingerprint-pattern-legacy-Byo7JLNk.js                  0.67 kB │ gzip:   0.39 kB
+dist/assets/cpu-legacy-blFFDEay.js                                  0.70 kB │ gzip:   0.32 kB
+dist/assets/CanMonitorScreen-legacy-C8ggtXsl.js                     0.79 kB │ gzip:   0.50 kB
+dist/assets/LiveDataScreen-legacy-CiUtQ4aT.js                       0.80 kB │ gzip:   0.52 kB
+dist/assets/esm-legacy-Co0BaivF.js                                  0.84 kB │ gzip:   0.40 kB
+dist/assets/models-legacy-jtE4GlU0.js                               0.86 kB │ gzip:   0.46 kB
+dist/assets/rolldown-runtime-legacy-g7qrfd2K.js                     1.07 kB │ gzip:   0.53 kB
+dist/assets/terminal-legacy-BgKLBmXp.js                             1.11 kB │ gzip:   0.54 kB
+dist/assets/shortTermMemory-legacy-DbeFN5Up.js                      1.40 kB │ gzip:   0.78 kB
+dist/assets/halStatusStore-legacy-BdAEp8IF.js                       1.42 kB │ gzip:   0.70 kB
+dist/assets/toolCallEvidence-legacy-CRgVGOTc.js                     1.45 kB │ gzip:   0.78 kB
+dist/assets/useDiscoveryObservations-legacy-0dvn1xWw.js             1.51 kB │ gzip:   0.83 kB
+dist/assets/SecureAccessModal-legacy-D2U4bkEL.js                    1.59 kB │ gzip:   0.84 kB
+dist/assets/vehicleProvenance-legacy-C8Hk3Cp7.js                    1.81 kB │ gzip:   0.97 kB
+dist/assets/useScreenSense-legacy-yLk8SkAP.js                       1.90 kB │ gzip:   1.00 kB
+dist/assets/hudPresentationModel-legacy-BtgObjBr.js                 2.11 kB │ gzip:   1.11 kB
+dist/assets/musicVoiceWiringTelemetry-legacy-DZ-ka5_N.js            2.23 kB │ gzip:   0.93 kB
+dist/assets/CanRawView-legacy-Bm8R0mXx.js                           2.49 kB │ gzip:   1.00 kB
+dist/assets/musicIntent-legacy-CHh4Wdx2.js                          2.66 kB │ gzip:   1.28 kB
+dist/assets/sensitiveMemoryGuard-legacy-DdFCnaFe.js                 2.68 kB │ gzip:   1.30 kB
+dist/assets/crashLogger-legacy-DyB0doTq.js                          2.82 kB │ gzip:   1.30 kB
+dist/assets/deviceCapabilities-legacy-4WYpF-Qc.js                   3.13 kB │ gzip:   1.33 kB
+dist/assets/phoneHubHardwareProbe-legacy-Cq9vblR2.js                3.19 kB │ gzip:   1.57 kB
+dist/assets/musicIntentTelemetry-legacy-B2dkuVjn.js                 3.22 kB │ gzip:   1.41 kB
+dist/assets/mediaIdentityMatching-legacy-7N5E61vg.js                3.23 kB │ gzip:   1.33 kB
+dist/assets/recentlyPlayed-legacy-CzxXndwF.js                       3.26 kB │ gzip:   1.38 kB
+dist/assets/listeningSession-legacy-BrQD3XOh.js                     3.31 kB │ gzip:   1.38 kB
+dist/assets/discoveredDataRepository-legacy-k5kHyfq0.js             3.36 kB │ gzip:   1.35 kB
+dist/assets/libraryQueueContext-legacy-CSDCyeiJ.js                  3.40 kB │ gzip:   1.56 kB
+dist/assets/ObdRawView-legacy-BHzuv8aX.js                           3.42 kB │ gzip:   1.49 kB
+dist/assets/searchRanking-legacy-DFKiRMMK.js                        3.46 kB │ gzip:   1.71 kB
+dist/assets/errorBus-legacy-J_Uq1N7z.js                             3.51 kB │ gzip:   1.48 kB
+dist/assets/addressSearchSources-legacy--_UxKnoH.js                 3.56 kB │ gzip:   1.75 kB
+dist/assets/radioBrowserProvider-legacy-C-w_mhSU.js                 3.67 kB │ gzip:   1.87 kB
+dist/assets/synapse-legacy-Cyj9aXgb.js                              3.75 kB │ gzip:   1.74 kB
+dist/assets/aiVoiceService-legacy-CR-0Vf9v.js                       3.81 kB │ gzip:   1.52 kB
+dist/assets/phoneHubProbeSources-legacy-Bir6T9Ba.js                 3.90 kB │ gzip:   1.68 kB
+dist/assets/rawTrafficModel-legacy-CtJN10N8.js                      4.12 kB │ gzip:   2.03 kB
+dist/assets/searchSelection-legacy-nRsiCrT-.js                      4.19 kB │ gzip:   2.12 kB
+dist/assets/audiusProvider-legacy-fJYkDekx.js                       4.37 kB │ gzip:   2.07 kB
+dist/assets/fleetKbService-legacy-uiSp49IO.js                       4.49 kB │ gzip:   1.91 kB
+dist/assets/jamendoProvider-legacy--hM55_od.js                      4.62 kB │ gzip:   2.47 kB
+dist/assets/carosLabClipboard-legacy-vMwk5m3x.js                    4.63 kB │ gzip:   2.15 kB
+dist/assets/voiceSearchIntent-legacy-D8wcgGz5.js                    4.64 kB │ gzip:   2.29 kB
+dist/assets/sourceCapabilities-legacy-DPQ_hDuq.js                   4.75 kB │ gzip:   1.35 kB
+dist/assets/archiveProvider-legacy-DPWcYOQp.js                      5.08 kB │ gzip:   2.29 kB
+dist/assets/openRouterKeyService-legacy-BBSVFYQX.js                 5.66 kB │ gzip:   2.20 kB
+dist/assets/web-legacy-Be1NfNtJ.js                                  5.85 kB │ gzip:   2.50 kB
+dist/assets/FleetScopeNotice-legacy-BkoTt9lv.js                     5.89 kB │ gzip:   2.82 kB
+dist/assets/evidenceViewerModel-legacy-CIRzyZCs.js                  5.91 kB │ gzip:   2.55 kB
+dist/assets/renaultTraficKwpProfile-legacy--Jf65s5b.js              5.92 kB │ gzip:   1.67 kB
+dist/assets/gatewayChatBridge-legacy-DhobSEaA.js                    6.05 kB │ gzip:   2.71 kB
+dist/assets/searchTelemetry-legacy-DrZXK95b.js                      6.11 kB │ gzip:   2.45 kB
+dist/assets/validationRecorder-legacy-PIgV0QUD.js                   6.15 kB │ gzip:   2.58 kB
+dist/assets/web-legacy-CEmOV2d-.js                                  6.35 kB │ gzip:   2.52 kB
+dist/assets/web-legacy-DYOWRVLC.js                                  6.36 kB │ gzip:   2.44 kB
+dist/assets/validationExport-legacy-BOSQMLXF.js                     6.42 kB │ gzip:   2.45 kB
+dist/assets/routeTrafficGradient-legacy-CEjiDHPH.js                 6.77 kB │ gzip:   2.94 kB
+dist/assets/RuntimeLifecycleContractScreen-legacy-BiPEcRMZ.js       6.97 kB │ gzip:   2.56 kB
+dist/assets/driverAssignmentSnapshot-legacy-BLY30IlQ.js             6.98 kB │ gzip:   2.86 kB
+dist/assets/SecurityTrustCapabilityScreen-legacy-mKdoDdZp.js        7.25 kB │ gzip:   2.73 kB
+dist/assets/searchRegistry-legacy-eoMg8Iim.js                       7.47 kB │ gzip:   3.11 kB
+dist/assets/maviMemorySources-legacy-Cw3qMMhs.js                    7.49 kB │ gzip:   2.77 kB
+dist/assets/cloudSttService-legacy-D18mASxR.js                      7.66 kB │ gzip:   3.33 kB
+dist/assets/musicCollectionAuthority-legacy-C_p1YGPF.js             7.72 kB │ gzip:   3.00 kB
+dist/assets/DashcamView-legacy-C2rUYObU.js                          7.76 kB │ gzip:   2.29 kB
+dist/assets/esm-legacy-qMyXok75.js                                  7.77 kB │ gzip:   2.90 kB
+dist/assets/vendor-zustand-legacy-DPlYLkuD.js                       7.80 kB │ gzip:   2.89 kB
+dist/assets/pollCost-legacy-BZAwsvX6.js                             7.91 kB │ gzip:   3.06 kB
+dist/assets/EcuInventoryScreen-legacy-jicYDaxz.js                   7.92 kB │ gzip:   3.13 kB
+dist/assets/lyricsPanelVisibility-legacy-DzR22NUn.js                7.92 kB │ gzip:   2.34 kB
+dist/assets/CapabilityGatesScreen-legacy-C6V-rBEw.js                7.94 kB │ gzip:   3.06 kB
+dist/assets/musicIntentSpeech-legacy-A9mEyqAW.js                    8.28 kB │ gzip:   2.94 kB
+dist/assets/dtcAuthority-legacy-n1CMK4yo.js                         8.31 kB │ gzip:   3.26 kB
+dist/assets/FleetIdentityScreen-legacy-CCW-ezZR.js                  8.35 kB │ gzip:   3.09 kB
+dist/assets/searchSources-legacy-CLfYrirJ.js                        8.39 kB │ gzip:   3.23 kB
+dist/assets/driverAuthentication-legacy-DaFmGMwy.js                 8.41 kB │ gzip:   2.61 kB
+dist/assets/sessionInspectorModel-legacy-C1bur0Oc.js                8.46 kB │ gzip:   3.33 kB
+dist/assets/FleetDriverAuthenticationScreen-legacy-CXI8kKpM.js      8.70 kB │ gzip:   3.20 kB
+dist/assets/FleetConnectivityScreen-legacy-BgP8SleS.js              8.89 kB │ gzip:   3.16 kB
+dist/assets/VehicleIdentityVinScreen-legacy-CTK3o2k_.js             8.91 kB │ gzip:   3.47 kB
+dist/assets/ObdSignalHealthScreen-legacy-lz4aJZvN.js                9.16 kB │ gzip:   3.52 kB
+dist/assets/musicIntentResolver-legacy-BOJZPSlX.js                  9.20 kB │ gzip:   3.46 kB
+dist/assets/DtcAuthorityScreen-legacy-BbaYDzPR.js                   9.31 kB │ gzip:   2.98 kB
+dist/assets/ProvenanceScreen-legacy-p0kMm4X9.js                     9.35 kB │ gzip:   3.47 kB
+dist/assets/debug-legacy-CuRp8XWR.js                                9.35 kB │ gzip:   3.40 kB
+dist/assets/PidDiscoveryScreen-legacy-ChaBZNYs.js                   9.66 kB │ gzip:   3.52 kB
+dist/assets/PerformanceView-legacy-C94LpCUU.js                      9.72 kB │ gzip:   3.16 kB
+dist/assets/maviLatencyTrace-legacy-06yzX4EZ.js                     9.84 kB │ gzip:   3.17 kB
+dist/assets/BlackBoxReplayView-legacy-Bkgmxcw2.js                   9.99 kB │ gzip:   3.39 kB
+dist/assets/PassengerQRModal-legacy-CR4BSvr1.js                    10.15 kB │ gzip:   4.03 kB
+dist/assets/visionCore-legacy-DVp2SvlY.js                          10.18 kB │ gzip:   4.32 kB
+dist/assets/RuntimeAuthorityMapScreen-legacy-2A0Q6_S8.js           10.27 kB │ gzip:   3.51 kB
+dist/assets/vinContext-legacy-C32EnexL.js                          10.43 kB │ gzip:   4.24 kB
+dist/assets/DeviceIdentityScreen-legacy-BF4Cr8Tt.js                10.44 kB │ gzip:   4.23 kB
+dist/assets/FleetKbScreen-legacy-BFUALtpE.js                       10.72 kB │ gzip:   3.83 kB
+dist/assets/DtcClearEvidenceScreen-legacy-hXEckk_c.js              10.77 kB │ gzip:   3.96 kB
+dist/assets/FleetDriverIdentityScreen-legacy-CsYbiC2U.js           10.78 kB │ gzip:   3.68 kB
+dist/assets/musicIndex-legacy-BwgaYYpx.js                          10.84 kB │ gzip:   3.81 kB
+dist/assets/EcuCapabilityScreen-legacy-j4giOQJs.js                 11.11 kB │ gzip:   3.92 kB
+dist/assets/musicSearchCoordinator-legacy-DVLt_Bq5.js              11.17 kB │ gzip:   4.38 kB
+dist/assets/LocationEngineScreen-legacy-DhFqa3fO.js                11.31 kB │ gzip:   3.89 kB
+dist/assets/ObdLiveTestPanel-legacy-FM0296iN.js                    11.31 kB │ gzip:   3.89 kB
+dist/assets/sensorQueryService-legacy-CdygAcN7.js                  11.54 kB │ gzip:   3.97 kB
+dist/assets/FleetPresenceHistoryScreen-legacy-BMyVML62.js          11.66 kB │ gzip:   3.77 kB
+dist/assets/ToolCallingScreen-legacy-D05HHgeU.js                   11.74 kB │ gzip:   4.06 kB
+dist/assets/playQueue-legacy-DczwKkLD.js                           11.88 kB │ gzip:   3.79 kB
+dist/assets/navFieldBridge-legacy-SqBJGg97.js                      12.03 kB │ gzip:   4.54 kB
+dist/assets/runtimeSchedulingSources-legacy-DK5IrM4O.js            12.06 kB │ gzip:   4.65 kB
+dist/assets/KnowledgeExplorerScreen-legacy-CpnO0Aq6.js             12.29 kB │ gzip:   4.25 kB
+dist/assets/phoneHubLink-legacy-CMX0MBth.js                        12.42 kB │ gzip:   4.63 kB
+dist/assets/sensitiveKeyStore-legacy-CS67YRZ-.js                   12.44 kB │ gzip:   4.11 kB
+dist/assets/StandardPidRegistry-legacy-CoFBCYUf.js                 12.57 kB │ gzip:   2.49 kB
+dist/assets/ServiceRoutineScreen-legacy-CvFk3Xpe.js                12.86 kB │ gzip:   4.58 kB
+dist/assets/musicLyricsAuthority-legacy-BIzxwqq-.js                13.13 kB │ gzip:   4.91 kB
+dist/assets/RuntimeModeScreen-legacy-DZ7ICzJh.js                   13.18 kB │ gzip:   4.77 kB
+dist/assets/DebugPanel-legacy-w_lXg-VL.js                          13.40 kB │ gzip:   4.76 kB
+dist/assets/musicPlaylistAuthority-legacy-apBpK67b.js              13.44 kB │ gzip:   4.17 kB
+dist/assets/aiHealth-legacy-rNvlaFUq.js                            13.64 kB │ gzip:   5.86 kB
+dist/assets/EvidenceViewerScreen-legacy-Dgq6nUSj.js                13.70 kB │ gzip:   4.48 kB
+dist/assets/sessionProjection-legacy-CkHof6Kj.js                   13.80 kB │ gzip:   5.31 kB
+dist/assets/AdminLoginForm-legacy-DTWNTg3s.js                      14.08 kB │ gzip:   5.04 kB
+dist/assets/smartRadioRuntime-legacy-D9ASOrb2.js                   14.27 kB │ gzip:   5.66 kB
+dist/assets/CapabilityLearningScreen-legacy-CWBud-oC.js            14.59 kB │ gzip:   5.34 kB
+dist/assets/ProfileCandidateScreen-legacy-D1v9p-Ll.js              14.78 kB │ gzip:   5.22 kB
+dist/assets/enforcement-legacy-BFd7N0iM.js                         14.86 kB │ gzip:   4.20 kB
+dist/assets/DiscoveryCapabilityScreen-legacy-IKjS6rip.js           15.30 kB │ gzip:   5.82 kB
+dist/assets/AiMechanicScreen-legacy-Dp3u1obk.js                    15.37 kB │ gzip:   5.27 kB
+dist/assets/pidTimingExperimentModel-legacy-u_BZkHNp.js            15.42 kB │ gzip:   6.10 kB
+dist/assets/EntertainmentPortal-legacy-CTG6bZIi.js                 15.42 kB │ gzip:   4.72 kB
+dist/assets/VisionOverlay-legacy-C5gGYcje.js                       15.44 kB │ gzip:   5.87 kB
+dist/assets/PredictionEngineScreen-legacy-_BQArhvZ.js              15.48 kB │ gzip:   5.29 kB
+dist/assets/RawObdTrafficScreen-legacy-DZP6oYGf.js                 15.50 kB │ gzip:   5.97 kB
+dist/assets/FleetDriverDnaScreen-legacy-CnbEDcLI.js                15.68 kB │ gzip:   5.43 kB
+dist/assets/DeepScanScreen-legacy-DF9743bU.js                      15.87 kB │ gzip:   5.57 kB
+dist/assets/SignalAuthorityScreen-legacy-DQEzYlgu.js               16.19 kB │ gzip:   5.59 kB
+dist/assets/FleetIntelligenceScreen-legacy-B1_npl7Q.js             16.34 kB │ gzip:   5.28 kB
+dist/assets/MaviReasoningEngineScreen-legacy-BSyeF4zh.js           16.45 kB │ gzip:   4.79 kB
+dist/assets/PidTimingExperimentScreen-legacy-BRH5EdhP.js           16.60 kB │ gzip:   5.79 kB
+dist/assets/BackgroundPowerScreen-legacy-DmQwRcvO.js               17.19 kB │ gzip:   6.05 kB
+dist/assets/capabilityStore-legacy-CDPYhvcm.js                     17.26 kB │ gzip:   6.31 kB
+dist/assets/ActionAuthorityScreen-legacy-DKfkRFVh.js               17.47 kB │ gzip:   5.36 kB
+dist/assets/driverPresence-legacy-ETJxWJqW.js                      17.86 kB │ gzip:   5.23 kB
+dist/assets/EarlyVehicleIdentityScreen-legacy-BDM3FMmP.js          18.12 kB │ gzip:   7.02 kB
+dist/assets/VoiceAssistant-legacy-1GSfCy3y.js                      18.18 kB │ gzip:   5.60 kB
+dist/assets/ObdDataBridgeScreen-legacy-BeEBvr5R.js                 18.19 kB │ gzip:   6.87 kB
+dist/assets/extendedPidService-legacy-DsT1nYXA.js                  18.30 kB │ gzip:   6.30 kB
+dist/assets/SplitScreen-legacy-DaIDdjOu.js                         18.32 kB │ gzip:   5.28 kB
+dist/assets/MemoryExplorerScreen-legacy-mnUa0Tk9.js                18.40 kB │ gzip:   6.86 kB
+dist/assets/apiCredentialManager-legacy-By3hHXxC.js                18.81 kB │ gzip:   6.35 kB
+dist/assets/CddlInventoryScreen-legacy-DlmuNjvl.js                 19.20 kB │ gzip:   6.42 kB
+dist/assets/CapabilityFabricScreen-legacy-C-BEyK5Y.js              19.38 kB │ gzip:   7.11 kB
+dist/assets/VehicleFingerprintScreen-legacy-C9SVX7Bh.js            19.72 kB │ gzip:   6.53 kB
+dist/assets/AdaptiveRuntimeManager-legacy-BCZkrRFL.js              19.98 kB │ gzip:   6.03 kB
+dist/assets/EcuEndpointInventoryScreen-legacy-B7hFmAnT.js          19.98 kB │ gzip:   7.75 kB
+dist/assets/OemEcuProfileScreen-legacy-BxvSIDss.js                 20.18 kB │ gzip:   6.07 kB
+dist/assets/RemoteCommandScreen-legacy-C0Oxni_Y.js                 20.22 kB │ gzip:   7.48 kB
+dist/assets/ThemeRuntimeScreen-legacy-CY_qix-5.js                  20.54 kB │ gzip:   7.29 kB
+dist/assets/safeStorage-legacy-BEJ8WTcD.js                         20.58 kB │ gzip:   7.22 kB
+dist/assets/maviActionAuthority-legacy-Dh_V3SG6.js                 20.59 kB │ gzip:   6.40 kB
+dist/assets/maviReasoningEngine-legacy-DauY8YbM.js                 20.71 kB │ gzip:   6.71 kB
+dist/assets/web-legacy-Bop0oMYL.js                                 20.86 kB │ gzip:   6.37 kB
+dist/assets/RouteLayerInspectorScreen-legacy-DHZ4k3uq.js           21.66 kB │ gzip:   7.50 kB
+dist/assets/dist-legacy-ap336pa1.js                                22.14 kB │ gzip:   6.93 kB
+dist/assets/GuardianRuntimeScreen-legacy-Bcm278Qw.js               22.15 kB │ gzip:   7.69 kB
+dist/assets/PhoneHubProbeScreen-legacy-DTSeifgD.js                 22.34 kB │ gzip:   7.55 kB
+dist/assets/EnforcementPointsScreen-legacy-BN_uzb9P.js             22.48 kB │ gzip:   8.22 kB
+dist/assets/oemProfileRegistry-legacy-B4J6z1xQ.js                  22.76 kB │ gzip:   7.24 kB
+dist/assets/AiEvidenceEngineScreen-legacy-C7KT2KRx.js              22.96 kB │ gzip:   6.82 kB
+dist/assets/AddressSearchEvidenceScreen-legacy-BLaqoElu.js         23.04 kB │ gzip:   8.13 kB
+dist/assets/selfTestEngine-legacy-BEY4-r_B.js                      23.36 kB │ gzip:   7.87 kB
+dist/assets/browser-legacy-BXhhIj15.js                             23.74 kB │ gzip:   9.05 kB
+dist/assets/manufacturerPidService-legacy-9O8vSgsB.js              23.78 kB │ gzip:   9.04 kB
+dist/assets/DecoderRegistryScreen-legacy-CWQn3CpO.js               25.05 kB │ gzip:   7.74 kB
+dist/assets/Mode06MonitorsScreen-legacy-D_gHM4lD.js                25.75 kB │ gzip:   8.91 kB
+dist/assets/navigationCoreSources-legacy-DkUXLnVa.js               26.01 kB │ gzip:   9.14 kB
+dist/assets/RecoveryMonitorScreen-legacy-D_Anz6xJ.js               26.85 kB │ gzip:   8.66 kB
+dist/assets/vehicleIdentityService-legacy-DV8Rx4jk.js              26.89 kB │ gzip:   9.04 kB
+dist/assets/PhoneHubLinkScreen-legacy-BTKEp6a9.js                  27.11 kB │ gzip:  10.01 kB
+dist/assets/SecuritySuite-legacy-Fx5JohD-.js                       28.58 kB │ gzip:   7.25 kB
+dist/assets/VdkReplayScreen-legacy-Chf-yTYg.js                     28.92 kB │ gzip:  10.40 kB
+dist/assets/RuntimeServiceRegistryScreen-legacy-KFht_AkY.js        29.45 kB │ gzip:   8.92 kB
+dist/assets/MaviLatencyScreen-legacy-DS49Qylf.js                   29.68 kB │ gzip:   9.82 kB
+dist/assets/PidDidExplorerScreen-legacy-BW3M5g0H.js                30.03 kB │ gzip:  10.56 kB
+dist/assets/MultiEcuDtcCoverageScreen-legacy-oj-tXzBA.js           30.10 kB │ gzip:  10.71 kB
+dist/assets/listeningSessionRuntime-legacy-CqO-ktYy.js             30.40 kB │ gzip:  10.24 kB
+dist/assets/DtcCoverageScreen-legacy-g8ZDmRqj.js                   30.76 kB │ gzip:   7.67 kB
+dist/assets/addressSearchLedgerStore-legacy-BkcpJ5-6.js            30.85 kB │ gzip:  11.36 kB
+dist/assets/SessionInspectorScreen-legacy-CJObjtaW.js              31.20 kB │ gzip:   9.76 kB
+dist/assets/TripEngineScreen-legacy-_SSXDAbd.js                    31.86 kB │ gzip:  10.80 kB
+dist/assets/AdapterDiagnosticsScreen-legacy-CoNlKn3a.js            32.01 kB │ gzip:  10.73 kB
+dist/assets/TripCostScreen-legacy-BZ5I4e2W.js                      32.12 kB │ gzip:   8.57 kB
+dist/assets/ValidationModeView-legacy-CgSJGNEK.js                  32.18 kB │ gzip:  10.83 kB
+dist/assets/KwpMonitorScreen-legacy-dZUa9rQH.js                    32.20 kB │ gzip:  10.76 kB
+dist/assets/NativeBoundaryHalScreen-legacy-CWnK5qvE.js             32.23 kB │ gzip:   9.41 kB
+dist/assets/musicIntentRouter-legacy-DRceKzts.js                   33.09 kB │ gzip:   9.42 kB
+dist/assets/defaultAiGateway-legacy-fc_hxRKE.js                    33.12 kB │ gzip:  10.60 kB
+dist/assets/mapSourceManager-legacy-DoDgBeff.js                    35.95 kB │ gzip:  10.50 kB
+dist/assets/DiscoveryDashboard-legacy-s6QYVlft.js                  37.83 kB │ gzip:  12.00 kB
+dist/assets/GapResolverScreen-legacy-CXcqqD4h.js                   39.52 kB │ gzip:  12.93 kB
+dist/assets/mediaCommandGateway-legacy-DhzPxa41.js                 39.81 kB │ gzip:  10.49 kB
+dist/assets/ttsService-legacy-c_a-PsvO.js                          39.99 kB │ gzip:  14.05 kB
+dist/assets/observationLedger-legacy-DPfWjU2H.js                   47.11 kB │ gzip:  13.28 kB
+dist/assets/dtcExtendedCatalog-legacy-CTbKQHZP.js                  47.32 kB │ gzip:   7.57 kB
+dist/assets/RuntimeSchedulingScreen-legacy-Ddqj-ukn.js             54.89 kB │ gzip:  17.86 kB
+dist/assets/traceRecorder-legacy-4_-LLgGw.js                       56.01 kB │ gzip:  16.93 kB
+dist/assets/platformCoreDeepScanWiring-legacy-DSHqryoe.js          70.10 kB │ gzip:  18.15 kB
+dist/assets/LongRoadFieldValidationScreen-legacy-kr7d1Iw0.js       74.01 kB │ gzip:  22.77 kB
+dist/assets/maviOrchestratedChat-legacy-DYjujPTf.js                74.43 kB │ gzip:  24.27 kB
+dist/assets/SuperAdminShell-legacy-X3cnNXPv.js                     74.57 kB │ gzip:  18.04 kB
+dist/assets/MaviConsoleScreen-legacy-BsVMmpVF.js                   76.69 kB │ gzip:  25.10 kB
+dist/assets/PerformanceProfilerScreen-legacy-DUYBc8_y.js           81.82 kB │ gzip:  24.20 kB
+dist/assets/NavigationCoreScreen-legacy-D0c9uzoY.js                86.61 kB │ gzip:  26.46 kB
+dist/assets/SttMicScreen-legacy-EsnmuvXg.js                        86.85 kB │ gzip:  26.09 kB
+dist/assets/PhoneHubFieldValidationScreen-legacy-D3UtarA4.js      100.11 kB │ gzip:  27.62 kB
+dist/assets/FullMapView-legacy-DhuXYeQl.js                        114.72 kB │ gzip:  33.58 kB
+dist/assets/MediaAuthorityScreen-legacy-DIYsScKv.js               134.96 kB │ gzip:  41.27 kB
+dist/assets/polyfills-legacy-iKbhtpRD.js                          168.50 kB │ gzip:  60.39 kB
+dist/assets/vendor-react-legacy-BJLzs74K.js                       189.74 kB │ gzip:  60.42 kB
+dist/assets/CarosLabShell-legacy-BRgna9Ef.js                      194.96 kB │ gzip:  69.48 kB
+dist/assets/SettingsPage-legacy-wVdLBUoa.js                       237.90 kB │ gzip:  62.75 kB
+dist/assets/DrawerPanel-legacy-D8Wp8jQF.js                        251.68 kB │ gzip:  62.77 kB
+dist/assets/zap-legacy-eYNA7DWI.js                                325.50 kB │ gzip:  71.34 kB
+dist/assets/admin-legacy-CsTHdYB8.js                              551.58 kB │ gzip: 125.95 kB
+dist/assets/vendor-maplibre-legacy-C1b2d963.js                    899.01 kB │ gzip: 232.05 kB
+dist/assets/main-legacy-D17K_4ES.js                               992.20 kB │ gzip: 246.17 kB
+dist/assets/useStore-legacy-Dsi7_jpT.js                         2,106.50 kB │ gzip: 650.70 kB
+
+[INEFFECTIVE_DYNAMIC_IMPORT] src/admin/lib/supabaseClient.ts is dynamically imported by src/admin/types/superadmin.ts but also statically imported by src/admin/components/auth/SuperAdminGuard.tsx, src/admin/components/vehicles/RemoteCommandPanel.tsx, src/admin/services/auth.service.ts, src/admin/services/companies.service.ts, src/admin/services/diagnostics.service.ts, ..., dynamic import will not move module into another chunk.
+
+[plugin builtin:vite-reporter] 
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rolldownOptions.output.codeSplitting to improve chunking: https://rolldown.rs/reference/OutputOptions.codeSplitting
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+[INEFFECTIVE_DYNAMIC_IMPORT] src/platform/thermalWatchdog.ts is dynamically imported by src/platform/system/SystemBoot.ts but also statically imported by src/components/debug/TestControlPanel.tsx, src/components/map/FullMapView.tsx, src/components/settings/expert/CognitiveInspector.tsx, src/hooks/useLayoutServices.ts, src/platform/gpsService.ts, ..., dynamic import will not move module into another chunk.
+
+[INEFFECTIVE_DYNAMIC_IMPORT] src/platform/gpsService.ts is dynamically imported by src/platform/commandListener.ts, src/platform/location/currentLocationService.ts, src/platform/location/locationContextService.ts, src/platform/navigation/incomingLocationBridge.ts but also statically imported by src/components/common/VehicleStatusIndicators.tsx, src/components/devtools/screens/LocationEngineScreen.tsx, src/components/layout/MainLayout.tsx, src/components/layout/NewHomeLayout.tsx, src/components/map/FullMapView.tsx, ..., dynamic import will not move module into another chunk.
+
+[INEFFECTIVE_DYNAMIC_IMPORT] src/platform/localMusicService.ts is dynamically imported by src/platform/media/authority/mediaAuthorityRuntime.ts, src/platform/mediaService.ts, src/platform/streamMusicService.ts but also statically imported by src/components/media/LocalMusicBrowser.tsx, src/platform/media/carosMediaLayer.ts, src/platform/mediaService.ts, dynamic import will not move module into another chunk.
+
+[INEFFECTIVE_DYNAMIC_IMPORT] src/platform/mediaService.ts is dynamically imported by src/platform/localMusicService.ts, src/platform/media/authority/backendAdapters.ts, src/platform/media/authority/mediaAuthorityRuntime.ts, src/platform/voice/voicePerceptionRuntime.ts but also statically imported by src/components/layout/MainLayout.tsx, src/components/layout/NewHomeLayout.tsx, src/components/media/LocalMusicBrowser.tsx, src/components/media/LocalVideoBrowser.tsx, src/components/media/MusicViewModel.ts, ..., dynamic import will not move module into another chunk.
+
+[INEFFECTIVE_DYNAMIC_IMPORT] src/platform/media/authority/queueRecoveryRuntime.ts is dynamically imported by src/platform/system/platformCoreMaviVoiceWiring.ts but also statically imported by src/platform/devtools/mediaAuthoritySources.ts, src/platform/media/authority/mediaAuthorityRuntime.ts, dynamic import will not move module into another chunk.
+
+[INEFFECTIVE_DYNAMIC_IMPORT] src/platform/media/authority/mediaAuthorityRuntime.ts is dynamically imported by src/platform/localMusicService.ts, src/platform/media/session/listeningSessionRuntime.ts, src/platform/mediaService.ts, src/platform/streamMusicService.ts, src/platform/system/platformCoreMaviVoiceWiring.ts but also statically imported by src/platform/devtools/mediaAuthoritySources.ts, src/platform/devtools/runtimeServiceRegistrySources.ts, src/platform/media/authority/queueRecoveryRuntime.ts, src/platform/system/SystemBoot.ts, dynamic import will not move module into another chunk.
+
+[INEFFECTIVE_DYNAMIC_IMPORT] src/platform/ai/gateway/aiGatewayFlag.ts is dynamically imported by src/platform/companion/companionChatProvider.ts but also statically imported by src/platform/ai/gateway/aiGatewayAccessRuntime.ts, src/platform/ai/gateway/openRouterKeyService.ts, src/platform/ai/mechanic/concrete/maviMechanic.ts, src/platform/ai/mechanic/concrete/maviMechanicHistory.ts, src/platform/ai/mechanic/concrete/maviMechanicKnowledge.ts, ..., dynamic import will not move module into another chunk.
+
+[INEFFECTIVE_DYNAMIC_IMPORT] src/platform/companion/companionChatProvider.ts is dynamically imported by src/platform/voiceService.ts but also statically imported by src/platform/companion/companionProactiveWiring.ts, src/platform/devtools/maviConsoleSources.ts, src/platform/devtools/maviScenarioRunner.ts, src/platform/diagnosticSections.ts, dynamic import will not move module into another chunk.
+
+[INEFFECTIVE_DYNAMIC_IMPORT] src/platform/streamMusicService.ts is dynamically imported by src/platform/mediaService.ts, src/platform/systemSettingsService.ts but also statically imported by src/platform/media/carosMediaLayer.ts, dynamic import will not move module into another chunk.
+
+[INEFFECTIVE_DYNAMIC_IMPORT] src/platform/media/pipedProvider.ts is dynamically imported by src/platform/media/search/searchRegistry.ts, src/platform/youtubeService.ts but also statically imported by src/platform/media/carosMediaLayer.ts, dynamic import will not move module into another chunk.
+
+[INEFFECTIVE_DYNAMIC_IMPORT] src/platform/youtubeService.ts is dynamically imported by src/platform/media/authority/backendAdapters.ts, src/platform/mediaService.ts, src/platform/systemSettingsService.ts but also statically imported by src/components/media/MediaScreen.tsx, src/components/themes/ExpeditionLayout.tsx, src/components/themes/HorizonLayout.tsx, src/components/themes/ProLayout.tsx, src/components/themes/TeslaLayout.tsx, ..., dynamic import will not move module into another chunk.
+
+[INEFFECTIVE_DYNAMIC_IMPORT] src/platform/media/carosMediaLayer.ts is dynamically imported by src/hooks/useVoiceCommandHandler.ts, src/platform/commandExecutor.ts, src/platform/media/authority/mediaAuthorityRuntime.ts, src/platform/media/intelligence/musicIntelligenceRuntime.ts, src/platform/media/intent/musicIntentRouter.ts, ... but also statically imported by src/components/layout/NewHomeLayout.tsx, src/components/media/MediaScreen.tsx, src/components/split/SplitScreen.tsx, src/components/theater/TheaterOverlay.tsx, src/components/themes/ExpeditionLayout.tsx, ..., dynamic import will not move module into another chunk.
+
+[INEFFECTIVE_DYNAMIC_IMPORT] src/platform/geocodingService.ts is dynamically imported by src/platform/location/currentLocationService.ts, src/platform/location/locationContextService.ts but also statically imported by src/platform/addressNavigationEngine.ts, src/platform/mapService.ts, dynamic import will not move module into another chunk.
+
+[INEFFECTIVE_DYNAMIC_IMPORT] src/platform/addressNavigationEngine.ts is dynamically imported by src/platform/commandListener.ts, src/platform/navigation/incomingLocationBridge.ts but also statically imported by src/components/common/AddressNavCard.tsx, src/components/layout/MainLayout.tsx, src/components/layout/NewHomeLayout.tsx, src/hooks/useVoiceCommandHandler.ts, src/platform/nearbyPoiNavigation.ts, ..., dynamic import will not move module into another chunk.
+
+[INEFFECTIVE_DYNAMIC_IMPORT] src/platform/offlineRoutingService.ts is dynamically imported by src/platform/system/SystemBoot.ts but also statically imported by src/platform/offlineSearchService.ts, src/platform/routingService.ts, dynamic import will not move module into another chunk.
+
+[INEFFECTIVE_DYNAMIC_IMPORT] src/platform/vehicleDataLayer/index.ts is dynamically imported by src/platform/system/SystemBoot.ts but also statically imported by src/components/layout/MainLayout.tsx, src/components/layout/NewHomeLayout.tsx, src/components/split/SplitScreen.tsx, src/platform/devtools/runtimeServiceRegistrySources.ts, src/platform/diagnostic/maintenanceBrain.ts, ..., dynamic import will not move module into another chunk.
+
+[INEFFECTIVE_DYNAMIC_IMPORT] src/platform/remoteLogService.ts is dynamically imported by src/platform/voiceDiagService.ts, src/platform/voiceService.ts but also statically imported by src/components/common/DiagnosticReportModal.tsx, src/components/common/GlobalDiagnosticButton.tsx, src/components/settings/SupportSnapshotCard.tsx, src/platform/obdDiagEmitter.ts, src/platform/system/SystemBoot.ts, dynamic import will not move module into another chunk.
+
+[INEFFECTIVE_DYNAMIC_IMPORT] src/platform/ai/credentials/credentialRegistry.ts is dynamically imported by src/platform/ai/credentials/apiCredentialManager.ts but also statically imported by src/components/settings/ApiCredentialsPanel.tsx, src/platform/ai/credentials/apiCredentialManager.ts, dynamic import will not move module into another chunk.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - vite:legacy-post-process (57%)
+  - vite:build-import-analysis (42%)
+See https://rolldown.rs/reference/InputOptions.checks#plugintimings for more details.
+
+[2K
+Found 1 warning while optimizing generated CSS:
+
+│   }
+│   .text-\[color\:var\(--\.\.\)\] {
+│     color: var(--..);
+┆                  ^-- Unexpected token Delim('.')
+┆
+│   }
+│   .text-\[color\:var\(--oem-accent\)\] {
+
+Found 1 warning while optimizing generated CSS:
+
+│   }
+│   .text-\[color\:var\(--\.\.\)\] {
+│     color: var(--..);
+┆                  ^-- Unexpected token Delim('.')
+┆
+│   }
+│   .text-\[color\:var\(--oem-accent\)\] {
+
+transforming...✓ 3391 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/admin.html                                              1.77 kB │ gzip:   0.82 kB
+dist/assets/VisionCompute.worker-DvAEpuMV.js                 4.37 kB
+dist/index.html                                              9.03 kB │ gzip:   3.67 kB
+dist/assets/VehicleCompute.worker-Dgs8-rQ_.js               20.55 kB
+dist/assets/NavigationCompute.worker-B9YRdy8I.js            75.90 kB
+dist/assets/emblem-MOt-C-AS.png                            142.64 kB
+dist/assets/frame1-CPnCxo3w.png                            150.43 kB
+dist/assets/frame6-BpPzo-R0.png                            235.89 kB
+dist/assets/frame2-C1ommkAG.png                            270.46 kB
+dist/assets/frame4-n8z9tNP4.png                            285.58 kB
+dist/assets/frame3-D-TXCLEH.png                            304.90 kB
+dist/assets/frame5-BKzmWyPW.png                            306.46 kB
+dist/assets/rover-CUGQ1ENm.png                             314.22 kB
+dist/assets/FullMapView-BMCUMVXe.css                         1.25 kB │ gzip:   0.52 kB
+dist/assets/admin-Dy70t4NP.css                             171.09 kB │ gzip:  25.82 kB
+dist/assets/main-DFjrHUjO.css                              360.18 kB │ gzip:  57.59 kB
+dist/assets/providers-jSxHoyHt.js                            0.09 kB │ gzip:   0.10 kB
+dist/assets/chevron-left-_CgjMACy.js                         0.12 kB │ gzip:   0.13 kB
+dist/assets/square-KM35lvgq.js                               0.13 kB │ gzip:   0.14 kB
+dist/assets/trending-up-CQpnQvOO.js                          0.16 kB │ gzip:   0.16 kB
+dist/assets/ban-C0TyuS2G.js                                  0.17 kB │ gzip:   0.16 kB
+dist/assets/esm-C11zXYTg.js                                  0.17 kB │ gzip:   0.16 kB
+dist/assets/smartphone-CYxdAs-J.js                           0.18 kB │ gzip:   0.17 kB
+dist/assets/lock-open-BKjaX5VD.js                            0.20 kB │ gzip:   0.18 kB
+dist/assets/TestControlPanel-DkmdAgn2.js                     0.20 kB │ gzip:   0.17 kB
+dist/assets/music-C68UuEPf.js                                0.21 kB │ gzip:   0.17 kB
+dist/assets/log-out-CUi-xNjH.js                              0.21 kB │ gzip:   0.17 kB
+dist/assets/git-branch-Bho6OC-i.js                           0.22 kB │ gzip:   0.18 kB
+dist/assets/abortCompat-DDmA6_cW.js                          0.22 kB │ gzip:   0.16 kB
+dist/assets/library-D9pHhUhm.js                              0.22 kB │ gzip:   0.17 kB
+dist/assets/download-DtUZ1rhc.js                             0.22 kB │ gzip:   0.18 kB
+dist/assets/history-DX07X4Al.js                              0.22 kB │ gzip:   0.18 kB
+dist/assets/timer-DIBQhs7I.js                                0.23 kB │ gzip:   0.18 kB
+dist/assets/message-circle-CztsrOyS.js                       0.23 kB │ gzip:   0.20 kB
+dist/assets/globe-28ES2dTu.js                                0.23 kB │ gzip:   0.18 kB
+dist/assets/link-2-Grn2sDx6.js                               0.23 kB │ gzip:   0.19 kB
+dist/assets/arrow-right-left-DZuI43WI.js                     0.23 kB │ gzip:   0.18 kB
+dist/assets/database-opWR5vPe.js                             0.23 kB │ gzip:   0.19 kB
+dist/assets/video-BlhgP5-M.js                                0.23 kB │ gzip:   0.20 kB
+dist/assets/circle-question-mark-BmbOjAC1.js                 0.24 kB │ gzip:   0.19 kB
+dist/assets/esm-yl7ZypXj.js                                  0.24 kB │ gzip:   0.19 kB
+dist/assets/eye-B-i-Hvqw.js                                  0.24 kB │ gzip:   0.19 kB
+dist/assets/useDevtoolsCapture-2pWbchB-.js                   0.25 kB │ gzip:   0.19 kB
+dist/assets/eraser-DhKEGHz2.js                               0.27 kB │ gzip:   0.21 kB
+dist/assets/inbox-DCnTqYXE.js                                0.27 kB │ gzip:   0.22 kB
+dist/assets/models-CtqYOe0y.js                               0.28 kB │ gzip:   0.20 kB
+dist/assets/nativePlugin-CRlEYkud.js                         0.29 kB │ gzip:   0.23 kB
+dist/assets/offlineAutoCache-OQG0xVJ7.js                     0.29 kB │ gzip:   0.21 kB
+dist/assets/scissors-Uk7EYerh.js                             0.30 kB │ gzip:   0.21 kB
+dist/assets/visionStore-Daz9u3Jc.js                          0.30 kB │ gzip:   0.21 kB
+dist/assets/trash-2-Cn8-iyLN.js                              0.31 kB │ gzip:   0.20 kB
+dist/assets/scale-CtOXUtHz.js                                0.32 kB │ gzip:   0.21 kB
+dist/assets/useDiscoveryObservations-Bvk-LB69.js             0.33 kB │ gzip:   0.23 kB
+dist/assets/key-round-CcEuPH6T.js                            0.34 kB │ gzip:   0.25 kB
+dist/assets/definitions-Bj05b-YF.js                          0.35 kB │ gzip:   0.25 kB
+dist/assets/phoneHubHardwareProbe-DERUS8l-.js                0.36 kB │ gzip:   0.22 kB
+dist/assets/mic-off-0LOd9x-j.js                              0.38 kB │ gzip:   0.24 kB
+dist/assets/esm-BjAox3GP.js                                  0.39 kB │ gzip:   0.27 kB
+dist/assets/clipboard-list-D3LAb5uI.js                       0.40 kB │ gzip:   0.25 kB
+dist/assets/eye-off-qJs4l9Ur.js                              0.42 kB │ gzip:   0.26 kB
+dist/assets/users-D1OBAL1o.js                                0.44 kB │ gzip:   0.27 kB
+dist/assets/cable-Cj8Pqgi8.js                                0.48 kB │ gzip:   0.26 kB
+dist/assets/radar-BrqnwhCC.js                                0.49 kB │ gzip:   0.29 kB
+dist/assets/palette-DThnRsfi.js                              0.50 kB │ gzip:   0.27 kB
+dist/assets/shortTermMemory-CvK4SDSb.js                      0.51 kB │ gzip:   0.36 kB
+dist/assets/brain-CEd4jICn.js                                0.56 kB │ gzip:   0.30 kB
+dist/assets/synapse-BdcMBQ3o.js                              0.58 kB │ gzip:   0.29 kB
+dist/assets/vehicleProvenance-BzTVVLDI.js                    0.59 kB │ gzip:   0.37 kB
+dist/assets/fingerprint-pattern-6UIdvGIU.js                  0.59 kB │ gzip:   0.34 kB
+dist/assets/cpu-BqeNF4L8.js                                  0.62 kB │ gzip:   0.27 kB
+dist/assets/addressSearchSources-DNhcFXUv.js                 0.63 kB │ gzip:   0.38 kB
+dist/assets/toolCallEvidence-By-8lZF4.js                     0.64 kB │ gzip:   0.38 kB
+dist/assets/errorBus-C6eVlQ90.js                             0.65 kB │ gzip:   0.42 kB
+dist/assets/CanMonitorScreen-WcfZ0z-p.js                     0.68 kB │ gzip:   0.44 kB
+dist/assets/rolldown-runtime-NMqb_1LM.js                     0.69 kB │ gzip:   0.42 kB
+dist/assets/LiveDataScreen-CEUUQZpV.js                       0.70 kB │ gzip:   0.47 kB
+dist/assets/useScreenSense-DtDJzm6-.js                       0.72 kB │ gzip:   0.41 kB
+dist/assets/radioBrowserProvider-B9hwtM03.js                 0.78 kB │ gzip:   0.51 kB
+dist/assets/musicVoiceWiringTelemetry-DZrio3mP.js            0.80 kB │ gzip:   0.41 kB
+dist/assets/web-DXyQ3-0U.js                                  0.84 kB │ gzip:   0.40 kB
+dist/assets/gatewayChatBridge-BYtnN6Vq.js                    0.88 kB │ gzip:   0.48 kB
+dist/assets/web-D_GCGYcJ.js                                  0.88 kB │ gzip:   0.46 kB
+dist/assets/terminal-ETOv-C6s.js                             1.04 kB │ gzip:   0.50 kB
+dist/assets/web-DPa9WTn9.js                                  1.09 kB │ gzip:   0.54 kB
+dist/assets/recentlyPlayed-D8bM60I5.js                       1.13 kB │ gzip:   0.56 kB
+dist/assets/searchSelection-C67BXEjf.js                      1.15 kB │ gzip:   0.71 kB
+dist/assets/audiusProvider-DgZ2DMs_.js                       1.18 kB │ gzip:   0.67 kB
+dist/assets/halStatusStore-DPGCLZV2.js                       1.22 kB │ gzip:   0.66 kB
+dist/assets/openRouterKeyService-CpjCmzbV.js                 1.22 kB │ gzip:   0.61 kB
+dist/assets/carosLabClipboard-BiwwIF1_.js                    1.26 kB │ gzip:   0.67 kB
+dist/assets/sensitiveMemoryGuard-mcFAtZSN.js                 1.42 kB │ gzip:   0.69 kB
+dist/assets/SecureAccessModal-x2IeIRjz.js                    1.43 kB │ gzip:   0.80 kB
+dist/assets/voiceSearchIntent-Cvaa3fft.js                    1.46 kB │ gzip:   0.84 kB
+dist/assets/routeTrafficGradient-C1w5MQI8.js                 1.49 kB │ gzip:   0.76 kB
+dist/assets/jamendoProvider-Dnb5Lbo3.js                      1.70 kB │ gzip:   1.08 kB
+dist/assets/listeningSession-BglDWI4g.js                     1.70 kB │ gzip:   0.81 kB
+dist/assets/crashLogger-DU_7ZpcA.js                          1.72 kB │ gzip:   0.84 kB
+dist/assets/musicIntent-z3xlK405.js                          1.75 kB │ gzip:   0.83 kB
+dist/assets/archiveProvider-BwwfAyWq.js                      1.78 kB │ gzip:   0.88 kB
+dist/assets/esm-D3QaW3mB.js                                  1.80 kB │ gzip:   0.68 kB
+dist/assets/musicIntentTelemetry-D0t2_0aY.js                 1.91 kB │ gzip:   0.90 kB
+dist/assets/searchRanking-CcLW5m2u.js                        1.96 kB │ gzip:   1.10 kB
+dist/assets/discoveredDataRepository-BuNv5ulW.js             2.01 kB │ gzip:   0.84 kB
+dist/assets/hudPresentationModel-sLm3PWGV.js                 2.04 kB │ gzip:   1.08 kB
+dist/assets/libraryQueueContext-DV2ExWoq.js                  2.11 kB │ gzip:   0.94 kB
+dist/assets/validationExport-PB9JyfDi.js                     2.27 kB │ gzip:   1.16 kB
+dist/assets/driverAssignmentSnapshot-CIPmEN0r.js             2.34 kB │ gzip:   0.94 kB
+dist/assets/CanRawView-BR60gNko.js                           2.36 kB │ gzip:   0.95 kB
+dist/assets/searchRegistry-RyqPAurw.js                       2.37 kB │ gzip:   0.94 kB
+dist/assets/phoneHubProbeSources-CRhR7ldq.js                 2.52 kB │ gzip:   1.06 kB
+dist/assets/cloudSttService-Bz2vwlA4.js                      2.53 kB │ gzip:   1.30 kB
+dist/assets/aiVoiceService-Bw3ptSR2.js                       2.57 kB │ gzip:   0.88 kB
+dist/assets/rawTrafficModel-BQlD-Bw3.js                      2.86 kB │ gzip:   1.43 kB
+dist/assets/mediaIdentityMatching-ny5W7_9R.js                3.15 kB │ gzip:   1.28 kB
+dist/assets/deviceCapabilities-cHNp-cbf.js                   3.15 kB │ gzip:   1.32 kB
+dist/assets/aiHealth-D6PoPO0-.js                             3.27 kB │ gzip:   1.44 kB
+dist/assets/ObdRawView-Ch0n8pCr.js                           3.32 kB │ gzip:   1.45 kB
+dist/assets/fleetKbService-BsaSeGP0.js                       3.34 kB │ gzip:   1.50 kB
+dist/assets/sourceCapabilities-zBgUm1ko.js                   3.41 kB │ gzip:   0.82 kB
+dist/assets/vendor-zustand-CxLtgLxY.js                       3.61 kB │ gzip:   1.65 kB
+dist/assets/pollCost-CYoKQwnH.js                             3.66 kB │ gzip:   1.29 kB
+dist/assets/sensitiveKeyStore-APXfJ6kE.js                    3.69 kB │ gzip:   1.51 kB
+dist/assets/searchTelemetry-CYdXEw6m.js                      3.74 kB │ gzip:   1.58 kB
+dist/assets/maviMemorySources-DYuGDLu5.js                    3.99 kB │ gzip:   1.62 kB
+dist/assets/validationRecorder-CR6ftYba.js                   4.04 kB │ gzip:   1.80 kB
+dist/assets/evidenceViewerModel-EAmKRBKW.js                  4.28 kB │ gzip:   1.85 kB
+dist/assets/FleetScopeNotice-CTYSViZm.js                     4.69 kB │ gzip:   2.18 kB
+dist/assets/debug-CnwdJa8C.js                                4.87 kB │ gzip:   2.07 kB
+dist/assets/dtcAuthority-DySMk0E6.js                         4.91 kB │ gzip:   2.14 kB
+dist/assets/musicCollectionAuthority-DvtVnX6S.js             4.98 kB │ gzip:   1.99 kB
+dist/assets/renaultTraficKwpProfile-U-vZmv2w.js              5.26 kB │ gzip:   1.63 kB
+dist/assets/searchSources-BMk6H2EQ.js                        5.29 kB │ gzip:   1.91 kB
+dist/assets/visionCore-a25Bq793.js                           5.42 kB │ gzip:   2.46 kB
+dist/assets/sensorQueryService-zXHX4lRy.js                   5.45 kB │ gzip:   1.78 kB
+dist/assets/SecurityTrustCapabilityScreen-taTl3woR.js        5.47 kB │ gzip:   2.05 kB
+dist/assets/lyricsPanelVisibility-ill62ba4.js                5.58 kB │ gzip:   1.42 kB
+dist/assets/musicSearchCoordinator-lcS2FETT.js               5.66 kB │ gzip:   2.20 kB
+dist/assets/RuntimeLifecycleContractScreen-CEif4pYa.js       5.75 kB │ gzip:   1.94 kB
+dist/assets/PassengerQRModal-B5O9KxER.js                     5.79 kB │ gzip:   2.11 kB
+dist/assets/sessionInspectorModel-BUBvcejN.js                5.91 kB │ gzip:   2.33 kB
+dist/assets/musicLyricsAuthority-DtboD-6q.js                 6.23 kB │ gzip:   2.44 kB
+dist/assets/musicIndex-BxoZHjKj.js                           6.32 kB │ gzip:   2.43 kB
+dist/assets/musicIntentResolver-Ce8_87mp.js                  6.54 kB │ gzip:   2.48 kB
+dist/assets/driverAuthentication-DHvddjsZ.js                 6.56 kB │ gzip:   1.94 kB
+dist/assets/EcuInventoryScreen-D7zDPdKG.js                   6.62 kB │ gzip:   2.50 kB
+dist/assets/CapabilityGatesScreen-BkNacOLj.js                6.64 kB │ gzip:   2.38 kB
+dist/assets/sessionProjection-Cy_Pjj95.js                    6.66 kB │ gzip:   2.76 kB
+dist/assets/phoneHubLink-DdkI7tbz.js                         7.04 kB │ gzip:   2.51 kB
+dist/assets/FleetIdentityScreen-Bu7CwH1A.js                  7.09 kB │ gzip:   2.46 kB
+dist/assets/playQueue-DVjzCfzy.js                            7.14 kB │ gzip:   2.46 kB
+dist/assets/EcuCapabilityScreen-D12doKuL.js                  7.21 kB │ gzip:   2.62 kB
+dist/assets/ObdLiveTestPanel-DO5jEuJ8.js                     7.23 kB │ gzip:   2.56 kB
+dist/assets/PidDiscoveryScreen-ChR9P4Y0.js                   7.27 kB │ gzip:   2.70 kB
+dist/assets/FleetDriverAuthenticationScreen-D-RAlxt1.js      7.39 kB │ gzip:   2.57 kB
+dist/assets/runtimeSchedulingSources-oqf5Up_0.js             7.47 kB │ gzip:   2.70 kB
+dist/assets/vinContext-BXHS50bg.js                           7.52 kB │ gzip:   3.26 kB
+dist/assets/DashcamView-Cv72wJo6.js                          7.56 kB │ gzip:   2.22 kB
+dist/assets/VehicleIdentityVinScreen-BHQv-ss6.js             7.59 kB │ gzip:   2.86 kB
+dist/assets/FleetConnectivityScreen-1BFnNIAj.js              7.61 kB │ gzip:   2.50 kB
+dist/assets/smartRadioRuntime-CJjHrpr2.js                    7.73 kB │ gzip:   3.28 kB
+dist/assets/ObdSignalHealthScreen-DEY6zAws.js                7.82 kB │ gzip:   2.91 kB
+dist/assets/DtcAuthorityScreen-B0n-SD_4.js                   7.86 kB │ gzip:   2.36 kB
+dist/assets/musicIntentSpeech-D0eQyGgE.js                    7.88 kB │ gzip:   2.91 kB
+dist/assets/ProvenanceScreen-Dc6y0hMF.js                     7.89 kB │ gzip:   2.86 kB
+dist/assets/DeviceIdentityScreen-DNLEnzVk.js                 8.03 kB │ gzip:   3.34 kB
+dist/assets/BlackBoxReplayView-CefkbLga.js                   8.28 kB │ gzip:   2.73 kB
+dist/assets/PerformanceView-CD1D9ADn.js                      8.30 kB │ gzip:   2.54 kB
+dist/assets/dist-d2JXbhyG.js                                 8.43 kB │ gzip:   3.32 kB
+dist/assets/ToolCallingScreen-BJheK8Ms.js                    8.70 kB │ gzip:   3.08 kB
+dist/assets/web-D3JEJBqQ.js                                  8.74 kB │ gzip:   2.91 kB
+dist/assets/DebugPanel-CGCohDVE.js                           8.80 kB │ gzip:   2.85 kB
+dist/assets/musicPlaylistAuthority-Bd4sxzBK.js               9.01 kB │ gzip:   2.89 kB
+dist/assets/AdminLoginForm-GocfAJ0B.js                       9.22 kB │ gzip:   3.01 kB
+dist/assets/FleetKbScreen-BfczLogV.js                        9.31 kB │ gzip:   3.24 kB
+dist/assets/DtcClearEvidenceScreen-DubqhlMC.js               9.33 kB │ gzip:   3.35 kB
+dist/assets/navFieldBridge-DpKaOVxP.js                       9.33 kB │ gzip:   3.51 kB
+dist/assets/KnowledgeExplorerScreen-Bm09wxm1.js              9.34 kB │ gzip:   3.34 kB
+dist/assets/FleetDriverIdentityScreen-C1_X24KZ.js            9.47 kB │ gzip:   3.05 kB
+dist/assets/maviLatencyTrace-CXrLj1yq.js                     9.84 kB │ gzip:   3.19 kB
+dist/assets/LocationEngineScreen-BGmsfq5u.js                 9.94 kB │ gzip:   3.22 kB
+dist/assets/apiCredentialManager-D1-3JHs9.js                10.03 kB │ gzip:   3.65 kB
+dist/assets/pidTimingExperimentModel-VdveYH0j.js            10.04 kB │ gzip:   4.13 kB
+dist/assets/RuntimeAuthorityMapScreen-RIRbSJYq.js           10.14 kB │ gzip:   3.46 kB
+dist/assets/ServiceRoutineScreen-ffoCxlgN.js                10.19 kB │ gzip:   3.58 kB
+dist/assets/FleetPresenceHistoryScreen-C8yTiuyH.js          10.27 kB │ gzip:   3.11 kB
+dist/assets/EvidenceViewerScreen-DqMQjJbJ.js                10.76 kB │ gzip:   3.56 kB
+dist/assets/RawObdTrafficScreen-CkrK2_IT.js                 10.84 kB │ gzip:   3.97 kB
+dist/assets/ProfileCandidateScreen-CjY0W2Ah.js              11.04 kB │ gzip:   4.09 kB
+dist/assets/CapabilityLearningScreen-C5Pb07oK.js            11.38 kB │ gzip:   4.35 kB
+dist/assets/StandardPidRegistry-DWaLaVVC.js                 11.61 kB │ gzip:   2.42 kB
+dist/assets/selfTestEngine-_X_9FJZN.js                      11.65 kB │ gzip:   4.71 kB
+dist/assets/RuntimeModeScreen-BEmTlZGp.js                   11.73 kB │ gzip:   4.14 kB
+dist/assets/DiscoveryCapabilityScreen-DAtJ928K.js           12.15 kB │ gzip:   4.80 kB
+dist/assets/PidTimingExperimentScreen-Bk3OXniQ.js           12.24 kB │ gzip:   3.87 kB
+dist/assets/VisionOverlay-Chs0zXh_.js                       12.37 kB │ gzip:   4.73 kB
+dist/assets/AiMechanicScreen-BOVbx_3k.js                    12.41 kB │ gzip:   4.31 kB
+dist/assets/safeStorage-ChmfMdUw.js                         12.50 kB │ gzip:   4.47 kB
+dist/assets/EntertainmentPortal-Bq9yB9sN.js                 12.70 kB │ gzip:   3.64 kB
+dist/assets/enforcement-BcGi6Ept.js                         12.71 kB │ gzip:   3.44 kB
+dist/assets/PredictionEngineScreen-DoIXlv6O.js              12.80 kB │ gzip:   4.41 kB
+dist/assets/vehicleIdentityService-Ic6mUKXA.js              13.18 kB │ gzip:   5.31 kB
+dist/assets/SignalAuthorityScreen-uZ8VqDIl.js               13.22 kB │ gzip:   4.63 kB
+dist/assets/FleetDriverDnaScreen-mgb06iaq.js                13.28 kB │ gzip:   4.47 kB
+dist/assets/capabilityStore-Rsz0blIG.js                     13.64 kB │ gzip:   5.22 kB
+dist/assets/AdaptiveRuntimeManager-6OFtDuUx.js              13.70 kB │ gzip:   4.39 kB
+dist/assets/FleetIntelligenceScreen-DYPlZPK1.js             13.85 kB │ gzip:   4.29 kB
+dist/assets/driverPresence-zTBu0TJv.js                      13.95 kB │ gzip:   3.92 kB
+dist/assets/MemoryExplorerScreen-DcCWUZrg.js                14.35 kB │ gzip:   5.56 kB
+dist/assets/DeepScanScreen-C37r759v.js                      14.44 kB │ gzip:   4.98 kB
+dist/assets/ActionAuthorityScreen-oM-gabAM.js               14.55 kB │ gzip:   4.39 kB
+dist/assets/BackgroundPowerScreen-BSivu8MZ.js               14.62 kB │ gzip:   5.17 kB
+dist/assets/EarlyVehicleIdentityScreen-DfrhjpFB.js          14.96 kB │ gzip:   6.00 kB
+dist/assets/MaviReasoningEngineScreen-DQTVbDsY.js           14.97 kB │ gzip:   4.12 kB
+dist/assets/VehicleFingerprintScreen-bNcJ9g4n.js            15.00 kB │ gzip:   5.18 kB
+dist/assets/CddlInventoryScreen-CWMeLCMy.js                 15.09 kB │ gzip:   5.30 kB
+dist/assets/ObdDataBridgeScreen-5TEWnwgI.js                 15.29 kB │ gzip:   5.94 kB
+dist/assets/SplitScreen-DSXBXgyz.js                         15.60 kB │ gzip:   4.16 kB
+dist/assets/extendedPidService-DTktb79E.js                  15.84 kB │ gzip:   5.55 kB
+dist/assets/maviActionAuthority-DriFzSdD.js                 16.12 kB │ gzip:   5.07 kB
+dist/assets/VoiceAssistant-BMXJvjon.js                      16.14 kB │ gzip:   4.86 kB
+dist/assets/EcuEndpointInventoryScreen-D2UwedFl.js          16.47 kB │ gzip:   6.72 kB
+dist/assets/maviReasoningEngine-Dv_NOfob.js                 16.57 kB │ gzip:   5.33 kB
+dist/assets/CapabilityFabricScreen-vVfiH5Z-.js              16.59 kB │ gzip:   6.15 kB
+dist/assets/ThemeRuntimeScreen-BdFchCTh.js                  16.65 kB │ gzip:   5.96 kB
+dist/assets/manufacturerPidService-Qq7UZ9Qo.js              16.84 kB │ gzip:   6.65 kB
+dist/assets/Mode06MonitorsScreen-DA0FmHJy.js                17.05 kB │ gzip:   5.97 kB
+dist/assets/OemEcuProfileScreen-2l7xKEOa.js                 17.31 kB │ gzip:   5.14 kB
+dist/assets/RemoteCommandScreen-C29zD2jn.js                 17.71 kB │ gzip:   6.54 kB
+dist/assets/oemProfileRegistry-Bo4pV3bx.js                  18.48 kB │ gzip:   6.06 kB
+dist/assets/AiEvidenceEngineScreen-D9z3ourz.js              18.53 kB │ gzip:   5.47 kB
+dist/assets/AddressSearchEvidenceScreen-Cjekgq81.js         18.67 kB │ gzip:   6.77 kB
+dist/assets/GuardianRuntimeScreen-DyuwXloB.js               19.17 kB │ gzip:   6.70 kB
+dist/assets/PhoneHubProbeScreen-BvUpCYZb.js                 19.26 kB │ gzip:   6.59 kB
+dist/assets/RouteLayerInspectorScreen-CHXZL3Pu.js           19.55 kB │ gzip:   6.82 kB
+dist/assets/EnforcementPointsScreen-1FHw5Fal.js             19.70 kB │ gzip:   7.28 kB
+dist/assets/PidDidExplorerScreen-DHU325mA.js                20.41 kB │ gzip:   7.21 kB
+dist/assets/DecoderRegistryScreen-BOYkTVOU.js               20.74 kB │ gzip:   6.38 kB
+dist/assets/listeningSessionRuntime-DY3_ez5-.js             20.84 kB │ gzip:   7.37 kB
+dist/assets/musicIntentRouter-iwMvMpPB.js                   20.97 kB │ gzip:   5.79 kB
+dist/assets/addressSearchLedgerStore-C9d76_Wi.js            21.07 kB │ gzip:   8.23 kB
+dist/assets/VdkReplayScreen-DVYT0b7a.js                     21.11 kB │ gzip:   7.60 kB
+dist/assets/PhoneHubLinkScreen-6BJIhAgP.js                  21.64 kB │ gzip:   7.88 kB
+dist/assets/defaultAiGateway-D4kZcWSW.js                    21.81 kB │ gzip:   6.96 kB
+dist/assets/navigationCoreSources-DkoNCblO.js               22.07 kB │ gzip:   7.77 kB
+dist/assets/RuntimeServiceRegistryScreen-CZ7hlNpr.js        23.69 kB │ gzip:   7.25 kB
+dist/assets/browser-DYqTB1y_.js                             23.74 kB │ gzip:   8.98 kB
+dist/assets/mediaCommandGateway-Bo-ddjbh.js                 23.76 kB │ gzip:   6.83 kB
+dist/assets/SecuritySuite-Capdo3Mk.js                       23.86 kB │ gzip:   5.15 kB
+dist/assets/RecoveryMonitorScreen-8kusm8Yj.js               24.18 kB │ gzip:   7.78 kB
+dist/assets/ValidationModeView-CJCIBbtv.js                  24.24 kB │ gzip:   8.25 kB
+dist/assets/TripEngineScreen-Dad9gi1i.js                    24.83 kB │ gzip:   8.17 kB
+dist/assets/MultiEcuDtcCoverageScreen-cUJuPzN_.js           26.09 kB │ gzip:   9.64 kB
+dist/assets/MaviLatencyScreen-Br2xdkmj.js                   26.42 kB │ gzip:   8.81 kB
+dist/assets/DiscoveryDashboard-BBwRWSuI.js                  26.60 kB │ gzip:   8.39 kB
+dist/assets/mapSourceManager-DS0mLkk-.js                    26.63 kB │ gzip:   7.47 kB
+dist/assets/KwpMonitorScreen-BMSqZzVa.js                    27.10 kB │ gzip:   9.36 kB
+dist/assets/AdapterDiagnosticsScreen-DU4JsT9Z.js            27.35 kB │ gzip:   9.31 kB
+dist/assets/SessionInspectorScreen-BrTRcxP6.js              27.68 kB │ gzip:   8.75 kB
+dist/assets/TripCostScreen-OipI_t0F.js                      27.69 kB │ gzip:   7.24 kB
+dist/assets/DtcCoverageScreen-DaAv70Jk.js                   28.47 kB │ gzip:   6.96 kB
+dist/assets/ttsService-DkMGjiWm.js                          28.56 kB │ gzip:  10.64 kB
+dist/assets/NativeBoundaryHalScreen-D9vS8ycE.js             29.73 kB │ gzip:   8.64 kB
+dist/assets/GapResolverScreen-DV17l1oB.js                   36.18 kB │ gzip:  11.90 kB
+dist/assets/observationLedger-DNY9G5wP.js                   40.51 kB │ gzip:  11.31 kB
+dist/assets/traceRecorder-BCYqoKBl.js                       41.63 kB │ gzip:  13.09 kB
+dist/assets/dtcExtendedCatalog-DEIFXJRV.js                  47.26 kB │ gzip:   7.53 kB
+dist/assets/RuntimeSchedulingScreen-hrSsjoUd.js             49.37 kB │ gzip:  16.41 kB
+dist/assets/platformCoreDeepScanWiring-QsRdqVum.js          55.16 kB │ gzip:  14.00 kB
+dist/assets/maviOrchestratedChat-C64nXOBT.js                58.83 kB │ gzip:  19.57 kB
+dist/assets/SuperAdminShell-_tgjv62q.js                     59.09 kB │ gzip:  14.20 kB
+dist/assets/LongRoadFieldValidationScreen-Bz2mgQhb.js       64.33 kB │ gzip:  20.16 kB
+dist/assets/MaviConsoleScreen-puGV53eU.js                   69.86 kB │ gzip:  23.56 kB
+dist/assets/PerformanceProfilerScreen-8u_wC5tR.js           72.24 kB │ gzip:  20.77 kB
+dist/assets/SttMicScreen-DzmwBbSZ.js                        75.16 kB │ gzip:  22.59 kB
+dist/assets/NavigationCoreScreen-B2FzZBTs.js                80.53 kB │ gzip:  24.78 kB
+dist/assets/PhoneHubFieldValidationScreen-BOqFrScY.js       87.46 kB │ gzip:  23.88 kB
+dist/assets/FullMapView-BwJF1ZZD.js                        102.16 kB │ gzip:  29.12 kB
+dist/assets/polyfills-BIJW8Ykf.js                          105.06 kB │ gzip:  37.85 kB
+dist/assets/MediaAuthorityScreen-CnTSj08F.js               125.49 kB │ gzip:  39.48 kB
+dist/assets/CarosLabShell-DMqeRzoh.js                      179.38 kB │ gzip:  65.50 kB
+dist/assets/vendor-react-CQiz5O3d.js                       189.28 kB │ gzip:  60.02 kB
+dist/assets/SettingsPage-dERPyJai.js                       215.59 kB │ gzip:  57.18 kB
+dist/assets/zap-DduHlePJ.js                                222.19 kB │ gzip:  57.28 kB
+dist/assets/DrawerPanel-DBRbTg3t.js                        232.42 kB │ gzip:  56.00 kB
+dist/assets/admin-CcBsJ21u.js                              323.43 kB │ gzip:  87.52 kB
+dist/assets/main-Ci1fXgY-.js                               575.66 kB │ gzip: 173.65 kB
+dist/assets/vendor-maplibre-DOI4K_qv.js                    795.74 kB │ gzip: 211.57 kB
+dist/assets/useStore-DWJECBn-.js                         1,789.85 kB │ gzip: 567.46 kB
+
+[INEFFECTIVE_DYNAMIC_IMPORT] src/admin/lib/supabaseClient.ts is dynamically imported by src/admin/types/superadmin.ts but also statically imported by src/admin/components/auth/SuperAdminGuard.tsx, src/admin/components/vehicles/RemoteCommandPanel.tsx, src/admin/services/auth.service.ts, src/admin/services/companies.service.ts, src/admin/services/diagnostics.service.ts, ..., dynamic import will not move module into another chunk.
+
+[plugin builtin:vite-reporter] 
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rolldownOptions.output.codeSplitting to improve chunking: https://rolldown.rs/reference/OutputOptions.codeSplitting
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+[INEFFECTIVE_DYNAMIC_IMPORT] src/platform/thermalWatchdog.ts is dynamically imported by src/platform/system/SystemBoot.ts but also statically imported by src/components/debug/TestControlPanel.tsx, src/components/map/FullMapView.tsx, src/components/settings/expert/CognitiveInspector.tsx, src/hooks/useLayoutServices.ts, src/platform/gpsService.ts, ..., dynamic import will not move module into another chunk.
+
+[INEFFECTIVE_DYNAMIC_IMPORT] src/platform/gpsService.ts is dynamically imported by src/platform/commandListener.ts, src/platform/location/currentLocationService.ts, src/platform/location/locationContextService.ts, src/platform/navigation/incomingLocationBridge.ts but also statically imported by src/components/common/VehicleStatusIndicators.tsx, src/components/devtools/screens/LocationEngineScreen.tsx, src/components/layout/MainLayout.tsx, src/components/layout/NewHomeLayout.tsx, src/components/map/FullMapView.tsx, ..., dynamic import will not move module into another chunk.
+
+[INEFFECTIVE_DYNAMIC_IMPORT] src/platform/localMusicService.ts is dynamically imported by src/platform/media/authority/mediaAuthorityRuntime.ts, src/platform/mediaService.ts, src/platform/streamMusicService.ts but also statically imported by src/components/media/LocalMusicBrowser.tsx, src/platform/media/carosMediaLayer.ts, src/platform/mediaService.ts, dynamic import will not move module into another chunk.
+
+[INEFFECTIVE_DYNAMIC_IMPORT] src/platform/mediaService.ts is dynamically imported by src/platform/localMusicService.ts, src/platform/media/authority/backendAdapters.ts, src/platform/media/authority/mediaAuthorityRuntime.ts, src/platform/voice/voicePerceptionRuntime.ts but also statically imported by src/components/layout/MainLayout.tsx, src/components/layout/NewHomeLayout.tsx, src/components/media/LocalMusicBrowser.tsx, src/components/media/LocalVideoBrowser.tsx, src/components/media/MusicViewModel.ts, ..., dynamic import will not move module into another chunk.
+
+[INEFFECTIVE_DYNAMIC_IMPORT] src/platform/media/authority/queueRecoveryRuntime.ts is dynamically imported by src/platform/system/platformCoreMaviVoiceWiring.ts but also statically imported by src/platform/devtools/mediaAuthoritySources.ts, src/platform/media/authority/mediaAuthorityRuntime.ts, dynamic import will not move module into another chunk.
+
+[INEFFECTIVE_DYNAMIC_IMPORT] src/platform/media/authority/mediaAuthorityRuntime.ts is dynamically imported by src/platform/localMusicService.ts, src/platform/media/session/listeningSessionRuntime.ts, src/platform/mediaService.ts, src/platform/streamMusicService.ts, src/platform/system/platformCoreMaviVoiceWiring.ts but also statically imported by src/platform/devtools/mediaAuthoritySources.ts, src/platform/devtools/runtimeServiceRegistrySources.ts, src/platform/media/authority/queueRecoveryRuntime.ts, src/platform/system/SystemBoot.ts, dynamic import will not move module into another chunk.
+
+[INEFFECTIVE_DYNAMIC_IMPORT] src/platform/ai/gateway/aiGatewayFlag.ts is dynamically imported by src/platform/companion/companionChatProvider.ts but also statically imported by src/platform/ai/gateway/aiGatewayAccessRuntime.ts, src/platform/ai/gateway/openRouterKeyService.ts, src/platform/ai/mechanic/concrete/maviMechanic.ts, src/platform/ai/mechanic/concrete/maviMechanicHistory.ts, src/platform/ai/mechanic/concrete/maviMechanicKnowledge.ts, ..., dynamic import will not move module into another chunk.
+
+[INEFFECTIVE_DYNAMIC_IMPORT] src/platform/companion/companionChatProvider.ts is dynamically imported by src/platform/voiceService.ts but also statically imported by src/platform/companion/companionProactiveWiring.ts, src/platform/devtools/maviConsoleSources.ts, src/platform/devtools/maviScenarioRunner.ts, src/platform/diagnosticSections.ts, dynamic import will not move module into another chunk.
+
+[INEFFECTIVE_DYNAMIC_IMPORT] src/platform/streamMusicService.ts is dynamically imported by src/platform/mediaService.ts, src/platform/systemSettingsService.ts but also statically imported by src/platform/media/carosMediaLayer.ts, dynamic import will not move module into another chunk.
+
+[INEFFECTIVE_DYNAMIC_IMPORT] src/platform/media/pipedProvider.ts is dynamically imported by src/platform/media/search/searchRegistry.ts, src/platform/youtubeService.ts but also statically imported by src/platform/media/carosMediaLayer.ts, dynamic import will not move module into another chunk.
+
+[INEFFECTIVE_DYNAMIC_IMPORT] src/platform/youtubeService.ts is dynamically imported by src/platform/media/authority/backendAdapters.ts, src/platform/mediaService.ts, src/platform/systemSettingsService.ts but also statically imported by src/components/media/MediaScreen.tsx, src/components/themes/ExpeditionLayout.tsx, src/components/themes/HorizonLayout.tsx, src/components/themes/ProLayout.tsx, src/components/themes/TeslaLayout.tsx, ..., dynamic import will not move module into another chunk.
+
+[INEFFECTIVE_DYNAMIC_IMPORT] src/platform/media/carosMediaLayer.ts is dynamically imported by src/hooks/useVoiceCommandHandler.ts, src/platform/commandExecutor.ts, src/platform/media/authority/mediaAuthorityRuntime.ts, src/platform/media/intelligence/musicIntelligenceRuntime.ts, src/platform/media/intent/musicIntentRouter.ts, ... but also statically imported by src/components/layout/NewHomeLayout.tsx, src/components/media/MediaScreen.tsx, src/components/split/SplitScreen.tsx, src/components/theater/TheaterOverlay.tsx, src/components/themes/ExpeditionLayout.tsx, ..., dynamic import will not move module into another chunk.
+
+[INEFFECTIVE_DYNAMIC_IMPORT] src/platform/geocodingService.ts is dynamically imported by src/platform/location/currentLocationService.ts, src/platform/location/locationContextService.ts but also statically imported by src/platform/addressNavigationEngine.ts, src/platform/mapService.ts, dynamic import will not move module into another chunk.
+
+[INEFFECTIVE_DYNAMIC_IMPORT] src/platform/addressNavigationEngine.ts is dynamically imported by src/platform/commandListener.ts, src/platform/navigation/incomingLocationBridge.ts but also statically imported by src/components/common/AddressNavCard.tsx, src/components/layout/MainLayout.tsx, src/components/layout/NewHomeLayout.tsx, src/hooks/useVoiceCommandHandler.ts, src/platform/nearbyPoiNavigation.ts, ..., dynamic import will not move module into another chunk.
+
+[INEFFECTIVE_DYNAMIC_IMPORT] src/platform/offlineRoutingService.ts is dynamically imported by src/platform/system/SystemBoot.ts but also statically imported by src/platform/offlineSearchService.ts, src/platform/routingService.ts, dynamic import will not move module into another chunk.
+
+[INEFFECTIVE_DYNAMIC_IMPORT] src/platform/vehicleDataLayer/index.ts is dynamically imported by src/platform/system/SystemBoot.ts but also statically imported by src/components/layout/MainLayout.tsx, src/components/layout/NewHomeLayout.tsx, src/components/split/SplitScreen.tsx, src/platform/devtools/runtimeServiceRegistrySources.ts, src/platform/diagnostic/maintenanceBrain.ts, ..., dynamic import will not move module into another chunk.
+
+[INEFFECTIVE_DYNAMIC_IMPORT] src/platform/remoteLogService.ts is dynamically imported by src/platform/voiceDiagService.ts, src/platform/voiceService.ts but also statically imported by src/components/common/DiagnosticReportModal.tsx, src/components/common/GlobalDiagnosticButton.tsx, src/components/settings/SupportSnapshotCard.tsx, src/platform/obdDiagEmitter.ts, src/platform/system/SystemBoot.ts, dynamic import will not move module into another chunk.
+
+[INEFFECTIVE_DYNAMIC_IMPORT] src/platform/ai/credentials/credentialRegistry.ts is dynamically imported by src/platform/ai/credentials/apiCredentialManager.ts but also statically imported by src/components/settings/ApiCredentialsPanel.tsx, src/platform/ai/credentials/apiCredentialManager.ts, dynamic import will not move module into another chunk.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - vite:legacy-post-process (42%)
+  - vite:terser (33%)
+  - vite:build-import-analysis (23%)
+See https://rolldown.rs/reference/InputOptions.checks#plugintimings for more details.
+
+✓ built in 8m 55s
+√ Copying web assets from dist to android\app\src\main\assets\public in 206.36ms
+√ Creating capacitor.config.json in android\app\src\main\assets in 775.40μs
+√ copy android in 240.40ms
+√ Updating Android plugins in 6.63ms
+[info] Found 6 Capacitor plugins for android:
+       @capacitor/app@8.1.0
+       @capacitor/clipboard@8.0.1
+       @capacitor/filesystem@7.1.8
+       @capacitor/geolocation@7.1.8
+       @capacitor/network@8.0.1
+       @capacitor/push-notifications@8.1.1
+√ update android in 59.12ms
+[info] Sync finished in 0.426s
+[gradle-build] "C:\Temp\caros-nav-device-20260906\android\gradlew.bat" assembleDebug  (cwd=C:\Temp\caros-nav-device-20260906\android)
+Starting a Gradle Daemon, 1 busy Daemon could not be reused, use --status for details
+
+> Configure project :app
+WARNING: Using flatDir should be avoided because it doesn't support any meta-data formats.
+
+> Configure project :capacitor-cordova-android-plugins
+WARNING: Using flatDir should be avoided because it doesn't support any meta-data formats.
+
+> Task :app:preBuild UP-TO-DATE
+> Task :app:preDebugBuild UP-TO-DATE
+> Task :app:mergeDebugNativeDebugMetadata NO-SOURCE
+> Task :phonehub-protocol:compileJava
+> Task :phonehub-protocol:processResources NO-SOURCE
+> Task :phonehub-protocol:classes
+> Task :phonehub-protocol:jar
+> Task :app:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :app:generateDebugBuildConfig
+> Task :capacitor-android:preBuild UP-TO-DATE
+> Task :capacitor-android:preDebugBuild UP-TO-DATE
+> Task :capacitor-app:preBuild UP-TO-DATE
+> Task :capacitor-app:preDebugBuild UP-TO-DATE
+> Task :capacitor-clipboard:preBuild UP-TO-DATE
+> Task :capacitor-clipboard:preDebugBuild UP-TO-DATE
+> Task :capacitor-cordova-android-plugins:preBuild UP-TO-DATE
+> Task :capacitor-cordova-android-plugins:preDebugBuild UP-TO-DATE
+> Task :capacitor-android:writeDebugAarMetadata
+> Task :capacitor-clipboard:writeDebugAarMetadata
+> Task :capacitor-app:writeDebugAarMetadata
+> Task :capacitor-filesystem:preBuild UP-TO-DATE
+> Task :capacitor-filesystem:preDebugBuild UP-TO-DATE
+> Task :capacitor-cordova-android-plugins:writeDebugAarMetadata
+> Task :capacitor-geolocation:preBuild UP-TO-DATE
+> Task :capacitor-geolocation:preDebugBuild UP-TO-DATE
+> Task :capacitor-filesystem:writeDebugAarMetadata
+> Task :capacitor-network:preBuild UP-TO-DATE
+> Task :capacitor-network:preDebugBuild UP-TO-DATE
+> Task :capacitor-geolocation:writeDebugAarMetadata
+> Task :capacitor-push-notifications:preBuild UP-TO-DATE
+> Task :capacitor-push-notifications:preDebugBuild UP-TO-DATE
+> Task :capacitor-network:writeDebugAarMetadata
+> Task :capacitor-push-notifications:writeDebugAarMetadata
+> Task :capacitor-android:processDebugNavigationResources
+> Task :capacitor-app:processDebugNavigationResources
+> Task :capacitor-clipboard:processDebugNavigationResources
+> Task :capacitor-cordova-android-plugins:processDebugNavigationResources
+> Task :capacitor-filesystem:processDebugNavigationResources
+> Task :capacitor-geolocation:processDebugNavigationResources
+> Task :capacitor-network:processDebugNavigationResources
+> Task :app:checkDebugAarMetadata
+> Task :capacitor-push-notifications:processDebugNavigationResources
+> Task :app:processDebugNavigationResources
+> Task :app:generateDebugResValues
+> Task :app:compileDebugNavigationResources
+> Task :app:processDebugGoogleServices
+> Task :capacitor-android:generateDebugResValues
+> Task :capacitor-android:generateDebugResources
+> Task :capacitor-android:packageDebugResources
+> Task :capacitor-app:generateDebugResValues
+> Task :capacitor-app:generateDebugResources
+> Task :capacitor-app:packageDebugResources
+> Task :capacitor-clipboard:generateDebugResValues
+> Task :capacitor-clipboard:generateDebugResources
+> Task :capacitor-clipboard:packageDebugResources
+> Task :capacitor-cordova-android-plugins:generateDebugResValues
+> Task :capacitor-cordova-android-plugins:generateDebugResources
+> Task :capacitor-cordova-android-plugins:packageDebugResources
+> Task :capacitor-filesystem:generateDebugResValues
+> Task :capacitor-filesystem:generateDebugResources
+> Task :capacitor-filesystem:packageDebugResources
+> Task :capacitor-geolocation:generateDebugResValues
+> Task :capacitor-geolocation:generateDebugResources
+> Task :capacitor-geolocation:packageDebugResources
+> Task :capacitor-network:generateDebugResValues
+> Task :capacitor-network:generateDebugResources
+> Task :capacitor-network:packageDebugResources
+> Task :capacitor-push-notifications:generateDebugResValues
+> Task :capacitor-push-notifications:generateDebugResources
+> Task :capacitor-push-notifications:packageDebugResources
+> Task :app:mapDebugSourceSetPaths
+> Task :app:generateDebugResources
+> Task :app:packageDebugResources
+> Task :app:createDebugCompatibleScreenManifests
+> Task :app:extractDeepLinksDebug
+> Task :capacitor-android:extractDeepLinksDebug
+> Task :capacitor-app:extractDeepLinksDebug
+> Task :capacitor-clipboard:extractDeepLinksDebug
+> Task :capacitor-cordova-android-plugins:extractDeepLinksDebug
+> Task :capacitor-filesystem:extractDeepLinksDebug
+> Task :capacitor-geolocation:extractDeepLinksDebug
+> Task :capacitor-cordova-android-plugins:processDebugManifest
+> Task :capacitor-filesystem:processDebugManifest
+> Task :capacitor-android:processDebugManifest
+> Task :capacitor-clipboard:processDebugManifest
+> Task :app:parseDebugLocalResources
+> Task :capacitor-network:extractDeepLinksDebug
+> Task :capacitor-app:processDebugManifest
+> Task :capacitor-geolocation:processDebugManifest
+> Task :capacitor-push-notifications:extractDeepLinksDebug
+> Task :capacitor-network:processDebugManifest
+> Task :capacitor-push-notifications:processDebugManifest
+> Task :capacitor-app:compileDebugLibraryResources
+> Task :capacitor-android:compileDebugLibraryResources
+> Task :capacitor-android:parseDebugLocalResources
+> Task :capacitor-app:parseDebugLocalResources
+> Task :app:processDebugMainManifest
+> Task :app:processDebugManifest
+> Task :app:processDebugManifestForPackage
+> Task :capacitor-clipboard:compileDebugLibraryResources
+> Task :capacitor-cordova-android-plugins:compileDebugLibraryResources
+> Task :capacitor-clipboard:parseDebugLocalResources
+> Task :capacitor-app:generateDebugRFile
+> Task :capacitor-filesystem:compileDebugLibraryResources
+> Task :capacitor-geolocation:compileDebugLibraryResources
+> Task :capacitor-filesystem:parseDebugLocalResources
+> Task :capacitor-cordova-android-plugins:parseDebugLocalResources
+> Task :capacitor-android:generateDebugRFile
+> Task :capacitor-clipboard:generateDebugRFile
+> Task :capacitor-geolocation:parseDebugLocalResources
+> Task :capacitor-network:compileDebugLibraryResources
+> Task :capacitor-cordova-android-plugins:generateDebugRFile
+> Task :capacitor-filesystem:generateDebugRFile
+> Task :capacitor-network:parseDebugLocalResources
+> Task :capacitor-geolocation:generateDebugRFile
+> Task :capacitor-push-notifications:compileDebugLibraryResources
+> Task :capacitor-push-notifications:parseDebugLocalResources
+> Task :capacitor-android:javaPreCompileDebug
+> Task :capacitor-app:javaPreCompileDebug
+> Task :capacitor-network:generateDebugRFile
+> Task :app:mergeDebugResources
+> Task :capacitor-push-notifications:generateDebugRFile
+
+> Task :capacitor-android:compileDebugJavaWithJavac
+Note: Some input files use unchecked or unsafe operations.
+Note: Recompile with -Xlint:unchecked for details.
+
+> Task :capacitor-clipboard:javaPreCompileDebug
+> Task :capacitor-filesystem:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :capacitor-cordova-android-plugins:javaPreCompileDebug
+> Task :capacitor-filesystem:javaPreCompileDebug
+> Task :capacitor-cordova-android-plugins:compileDebugJavaWithJavac NO-SOURCE
+> Task :capacitor-geolocation:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :capacitor-geolocation:javaPreCompileDebug
+> Task :capacitor-cordova-android-plugins:bundleLibCompileToJarDebug
+> Task :capacitor-network:javaPreCompileDebug
+> Task :capacitor-push-notifications:javaPreCompileDebug
+> Task :app:javaPreCompileDebug
+> Task :capacitor-android:bundleLibCompileToJarDebug
+> Task :app:mergeDebugShaders
+> Task :capacitor-app:compileDebugJavaWithJavac
+> Task :capacitor-app:bundleLibCompileToJarDebug
+> Task :capacitor-clipboard:compileDebugJavaWithJavac
+> Task :capacitor-clipboard:bundleLibCompileToJarDebug
+> Task :app:processDebugResources
+> Task :capacitor-network:compileDebugJavaWithJavac
+> Task :capacitor-network:bundleLibCompileToJarDebug
+
+> Task :capacitor-push-notifications:compileDebugJavaWithJavac
+Note: C:\Users\selim\Desktop\caros pro\node_modules\@capacitor\push-notifications\android\src\main\java\com\capacitorjs\plugins\pushnotifications\PushNotificationsPlugin.java uses or overrides a deprecated API.
+Note: Recompile with -Xlint:deprecation for details.
+
+> Task :app:compileDebugShaders NO-SOURCE
+> Task :app:generateDebugAssets UP-TO-DATE
+> Task :capacitor-push-notifications:bundleLibCompileToJarDebug
+> Task :capacitor-android:mergeDebugShaders
+> Task :capacitor-android:compileDebugShaders NO-SOURCE
+> Task :capacitor-android:generateDebugAssets UP-TO-DATE
+> Task :capacitor-android:mergeDebugAssets
+> Task :capacitor-app:mergeDebugShaders
+> Task :capacitor-app:compileDebugShaders NO-SOURCE
+> Task :capacitor-app:generateDebugAssets UP-TO-DATE
+> Task :capacitor-app:mergeDebugAssets
+> Task :capacitor-clipboard:mergeDebugShaders
+> Task :capacitor-clipboard:compileDebugShaders NO-SOURCE
+> Task :capacitor-clipboard:generateDebugAssets UP-TO-DATE
+> Task :capacitor-clipboard:mergeDebugAssets
+> Task :capacitor-cordova-android-plugins:mergeDebugShaders
+> Task :capacitor-cordova-android-plugins:compileDebugShaders NO-SOURCE
+> Task :capacitor-cordova-android-plugins:generateDebugAssets UP-TO-DATE
+> Task :capacitor-cordova-android-plugins:mergeDebugAssets
+> Task :capacitor-filesystem:mergeDebugShaders
+> Task :capacitor-filesystem:compileDebugShaders NO-SOURCE
+> Task :capacitor-filesystem:generateDebugAssets UP-TO-DATE
+> Task :capacitor-filesystem:mergeDebugAssets
+> Task :capacitor-geolocation:mergeDebugShaders
+> Task :capacitor-geolocation:compileDebugShaders NO-SOURCE
+> Task :capacitor-geolocation:generateDebugAssets UP-TO-DATE
+> Task :capacitor-geolocation:mergeDebugAssets
+> Task :capacitor-network:mergeDebugShaders
+> Task :capacitor-network:compileDebugShaders NO-SOURCE
+> Task :capacitor-network:generateDebugAssets UP-TO-DATE
+> Task :capacitor-network:mergeDebugAssets
+> Task :capacitor-push-notifications:mergeDebugShaders
+> Task :capacitor-push-notifications:compileDebugShaders NO-SOURCE
+> Task :capacitor-push-notifications:generateDebugAssets UP-TO-DATE
+> Task :capacitor-push-notifications:mergeDebugAssets
+> Task :capacitor-geolocation:compileDebugKotlin
+
+> Task :capacitor-filesystem:compileDebugKotlin
+w: file:///C:/Users/selim/Desktop/caros%20pro/node_modules/@capacitor/filesystem/android/src/main/kotlin/com/capacitorjs/plugins/filesystem/FilesystemPlugin.kt:335:31 'fun downloadFile(call: PluginCall): Unit' is deprecated. Use @capacitor/file-transfer plugin instead.
+w: file:///C:/Users/selim/Desktop/caros%20pro/node_modules/@capacitor/filesystem/android/src/main/kotlin/com/capacitorjs/plugins/filesystem/LegacyFilesystemImplementation.kt:66:29 Java type mismatch: inferred type is 'kotlin.String?', but 'kotlin.String' was expected.
+
+> Task :app:mergeDebugAssets
+> Task :capacitor-filesystem:compileDebugJavaWithJavac NO-SOURCE
+> Task :capacitor-geolocation:compileDebugJavaWithJavac NO-SOURCE
+> Task :capacitor-geolocation:bundleLibCompileToJarDebug
+> Task :capacitor-filesystem:bundleLibCompileToJarDebug
+> Task :capacitor-app:bundleLibRuntimeToJarDebug
+> Task :capacitor-clipboard:bundleLibRuntimeToJarDebug
+> Task :capacitor-filesystem:bundleLibRuntimeToJarDebug
+> Task :capacitor-geolocation:bundleLibRuntimeToJarDebug
+> Task :app:compileDebugKotlin
+> Task :app:compressDebugAssets
+> Task :capacitor-network:bundleLibRuntimeToJarDebug
+
+> Task :app:compileDebugJavaWithJavac
+Note: Some input files use or override a deprecated API.
+Note: Recompile with -Xlint:deprecation for details.
+
+> Task :capacitor-push-notifications:bundleLibRuntimeToJarDebug
+> Task :app:desugarDebugFileDependencies
+> Task :capacitor-cordova-android-plugins:bundleLibRuntimeToJarDebug
+> Task :capacitor-android:bundleLibRuntimeToJarDebug
+> Task :app:dexBuilderDebug
+> Task :app:processDebugJavaRes
+> Task :capacitor-android:processDebugJavaRes NO-SOURCE
+> Task :capacitor-app:processDebugJavaRes NO-SOURCE
+> Task :capacitor-clipboard:processDebugJavaRes NO-SOURCE
+> Task :capacitor-cordova-android-plugins:processDebugJavaRes NO-SOURCE
+> Task :capacitor-filesystem:processDebugJavaRes
+> Task :capacitor-geolocation:processDebugJavaRes
+> Task :capacitor-network:processDebugJavaRes NO-SOURCE
+> Task :capacitor-push-notifications:processDebugJavaRes NO-SOURCE
+> Task :capacitor-app:bundleLibRuntimeToDirDebug
+> Task :capacitor-clipboard:bundleLibRuntimeToDirDebug
+> Task :capacitor-network:bundleLibRuntimeToDirDebug
+> Task :capacitor-geolocation:bundleLibRuntimeToDirDebug
+> Task :app:checkDebugDuplicateClasses
+> Task :capacitor-push-notifications:bundleLibRuntimeToDirDebug
+> Task :capacitor-filesystem:bundleLibRuntimeToDirDebug
+> Task :capacitor-android:bundleLibRuntimeToDirDebug
+> Task :capacitor-cordova-android-plugins:bundleLibRuntimeToDirDebug
+> Task :app:mergeDebugGlobalSynthetics
+> Task :app:mergeProjectDexDebug
+> Task :app:mergeDebugJavaResource
+
+> Task :app:configureCMakeDebug[arm64-v8a]
+[CXX5304] This version only understands SDK XML versions up to 3 but an SDK XML file of version 4 was encountered. This can happen if you use versions of Android Studio and the command-line tools that were released at different times.
+[CXX5304] This version only understands SDK XML versions up to 3 but an SDK XML file of version 4 was encountered. This can happen if you use versions of Android Studio and the command-line tools that were released at different times.
+
+> Task :app:mergeLibDexDebug
+> Task :app:buildCMakeDebug[arm64-v8a]
+> Task :app:mergeExtDexDebug
+> Task :app:configureCMakeDebug[armeabi-v7a]
+> Task :app:buildCMakeDebug[armeabi-v7a]
+> Task :app:mergeDebugJniLibFolders
+> Task :capacitor-android:mergeDebugJniLibFolders
+> Task :capacitor-android:mergeDebugNativeLibs NO-SOURCE
+> Task :capacitor-android:copyDebugJniLibsProjectOnly
+> Task :capacitor-app:mergeDebugJniLibFolders
+> Task :capacitor-app:mergeDebugNativeLibs NO-SOURCE
+> Task :capacitor-app:copyDebugJniLibsProjectOnly
+> Task :capacitor-clipboard:mergeDebugJniLibFolders
+> Task :capacitor-clipboard:mergeDebugNativeLibs NO-SOURCE
+> Task :capacitor-clipboard:copyDebugJniLibsProjectOnly
+> Task :capacitor-cordova-android-plugins:mergeDebugJniLibFolders
+> Task :capacitor-cordova-android-plugins:mergeDebugNativeLibs NO-SOURCE
+> Task :capacitor-cordova-android-plugins:copyDebugJniLibsProjectOnly
+> Task :capacitor-filesystem:mergeDebugJniLibFolders
+> Task :capacitor-filesystem:mergeDebugNativeLibs NO-SOURCE
+> Task :capacitor-filesystem:copyDebugJniLibsProjectOnly
+> Task :capacitor-geolocation:mergeDebugJniLibFolders
+> Task :capacitor-geolocation:mergeDebugNativeLibs NO-SOURCE
+> Task :capacitor-geolocation:copyDebugJniLibsProjectOnly
+> Task :capacitor-network:mergeDebugJniLibFolders
+> Task :capacitor-network:mergeDebugNativeLibs NO-SOURCE
+> Task :capacitor-network:copyDebugJniLibsProjectOnly
+> Task :capacitor-push-notifications:mergeDebugJniLibFolders
+> Task :capacitor-push-notifications:mergeDebugNativeLibs NO-SOURCE
+> Task :capacitor-push-notifications:copyDebugJniLibsProjectOnly
+> Task :app:validateSigningDebug
+> Task :app:writeDebugAppMetadata
+> Task :app:writeDebugSigningConfigVersions
+> Task :capacitor-android:stripDebugDebugSymbols NO-SOURCE
+> Task :capacitor-android:copyDebugJniLibsProjectAndLocalJars
+> Task :capacitor-android:checkDebugAarMetadata
+> Task :capacitor-android:extractDebugAnnotations
+> Task :capacitor-android:extractDeepLinksForAarDebug
+> Task :capacitor-android:mergeDebugGeneratedProguardFiles
+> Task :capacitor-android:mergeDebugConsumerProguardFiles
+> Task :capacitor-android:prepareDebugArtProfile
+> Task :capacitor-android:prepareLintJarForPublish
+> Task :capacitor-android:mergeDebugJavaResource
+> Task :capacitor-app:checkDebugAarMetadata
+> Task :capacitor-android:syncDebugLibJars
+> Task :capacitor-android:bundleDebugAar
+> Task :capacitor-android:assembleDebug
+> Task :capacitor-app:stripDebugDebugSymbols NO-SOURCE
+> Task :capacitor-app:copyDebugJniLibsProjectAndLocalJars
+> Task :capacitor-app:extractDebugAnnotations
+> Task :capacitor-app:extractDeepLinksForAarDebug
+> Task :capacitor-app:mergeDebugGeneratedProguardFiles
+> Task :capacitor-app:mergeDebugConsumerProguardFiles
+> Task :capacitor-app:prepareDebugArtProfile
+> Task :app:mergeDebugNativeLibs
+> Task :capacitor-app:prepareLintJarForPublish
+> Task :capacitor-app:mergeDebugJavaResource
+> Task :capacitor-app:syncDebugLibJars
+> Task :capacitor-app:bundleDebugAar
+> Task :capacitor-app:assembleDebug
+> Task :capacitor-clipboard:stripDebugDebugSymbols NO-SOURCE
+> Task :capacitor-clipboard:checkDebugAarMetadata
+> Task :capacitor-clipboard:copyDebugJniLibsProjectAndLocalJars
+> Task :capacitor-clipboard:extractDebugAnnotations
+> Task :capacitor-clipboard:extractDeepLinksForAarDebug
+> Task :capacitor-clipboard:mergeDebugGeneratedProguardFiles
+> Task :capacitor-clipboard:mergeDebugConsumerProguardFiles
+> Task :capacitor-clipboard:prepareDebugArtProfile
+> Task :capacitor-clipboard:prepareLintJarForPublish
+> Task :capacitor-clipboard:mergeDebugJavaResource
+> Task :capacitor-cordova-android-plugins:checkDebugAarMetadata
+> Task :capacitor-clipboard:syncDebugLibJars
+> Task :capacitor-clipboard:bundleDebugAar
+> Task :capacitor-clipboard:assembleDebug
+> Task :capacitor-cordova-android-plugins:stripDebugDebugSymbols NO-SOURCE
+> Task :capacitor-cordova-android-plugins:copyDebugJniLibsProjectAndLocalJars
+> Task :capacitor-cordova-android-plugins:extractDebugAnnotations
+> Task :capacitor-cordova-android-plugins:extractDeepLinksForAarDebug
+> Task :capacitor-cordova-android-plugins:mergeDebugGeneratedProguardFiles
+> Task :capacitor-cordova-android-plugins:mergeDebugConsumerProguardFiles
+> Task :capacitor-cordova-android-plugins:prepareDebugArtProfile
+> Task :capacitor-cordova-android-plugins:prepareLintJarForPublish
+
+> Task :app:stripDebugDebugSymbols
+Unable to strip the following libraries, packaging them as they are: libjnidispatch.so. Run with --info option to learn more.
+
+> Task :capacitor-cordova-android-plugins:mergeDebugJavaResource
+> Task :capacitor-cordova-android-plugins:syncDebugLibJars
+> Task :capacitor-cordova-android-plugins:bundleDebugAar
+> Task :capacitor-cordova-android-plugins:assembleDebug
+> Task :capacitor-filesystem:stripDebugDebugSymbols NO-SOURCE
+> Task :capacitor-filesystem:checkDebugAarMetadata
+> Task :capacitor-filesystem:copyDebugJniLibsProjectAndLocalJars
+> Task :capacitor-filesystem:extractDebugAnnotations
+> Task :capacitor-filesystem:extractDeepLinksForAarDebug
+> Task :capacitor-filesystem:mergeDebugGeneratedProguardFiles
+> Task :capacitor-filesystem:mergeDebugConsumerProguardFiles
+> Task :capacitor-filesystem:prepareDebugArtProfile
+> Task :capacitor-filesystem:prepareLintJarForPublish
+> Task :capacitor-geolocation:stripDebugDebugSymbols NO-SOURCE
+> Task :capacitor-geolocation:checkDebugAarMetadata
+> Task :capacitor-geolocation:copyDebugJniLibsProjectAndLocalJars
+> Task :capacitor-filesystem:mergeDebugJavaResource
+> Task :capacitor-geolocation:extractDebugAnnotations
+> Task :capacitor-filesystem:syncDebugLibJars
+> Task :capacitor-filesystem:bundleDebugAar
+> Task :capacitor-filesystem:assembleDebug
+> Task :capacitor-geolocation:extractDeepLinksForAarDebug
+> Task :capacitor-geolocation:mergeDebugGeneratedProguardFiles
+> Task :capacitor-geolocation:mergeDebugConsumerProguardFiles
+> Task :capacitor-geolocation:prepareDebugArtProfile
+> Task :capacitor-geolocation:prepareLintJarForPublish
+> Task :capacitor-network:stripDebugDebugSymbols NO-SOURCE
+> Task :capacitor-network:checkDebugAarMetadata
+> Task :capacitor-network:copyDebugJniLibsProjectAndLocalJars
+> Task :capacitor-geolocation:mergeDebugJavaResource
+> Task :capacitor-network:extractDebugAnnotations
+> Task :capacitor-geolocation:syncDebugLibJars
+> Task :capacitor-geolocation:bundleDebugAar
+> Task :capacitor-geolocation:assembleDebug
+> Task :capacitor-network:extractDeepLinksForAarDebug
+> Task :capacitor-network:mergeDebugGeneratedProguardFiles
+> Task :capacitor-network:mergeDebugConsumerProguardFiles
+> Task :capacitor-network:prepareDebugArtProfile
+> Task :capacitor-network:prepareLintJarForPublish
+> Task :capacitor-network:mergeDebugJavaResource
+> Task :capacitor-push-notifications:checkDebugAarMetadata
+> Task :capacitor-network:syncDebugLibJars
+> Task :capacitor-network:bundleDebugAar
+> Task :capacitor-network:assembleDebug
+> Task :capacitor-push-notifications:stripDebugDebugSymbols NO-SOURCE
+> Task :capacitor-push-notifications:copyDebugJniLibsProjectAndLocalJars
+> Task :capacitor-push-notifications:extractDebugAnnotations
+> Task :capacitor-push-notifications:extractDeepLinksForAarDebug
+> Task :capacitor-push-notifications:mergeDebugGeneratedProguardFiles
+> Task :capacitor-push-notifications:mergeDebugConsumerProguardFiles
+> Task :capacitor-push-notifications:prepareDebugArtProfile
+> Task :capacitor-push-notifications:prepareLintJarForPublish
+> Task :phonehub-companion:preBuild UP-TO-DATE
+> Task :phonehub-companion:preDebugBuild UP-TO-DATE
+> Task :phonehub-companion:mergeDebugNativeDebugMetadata NO-SOURCE
+> Task :phonehub-companion:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :capacitor-push-notifications:mergeDebugJavaResource
+> Task :phonehub-companion:checkDebugAarMetadata
+> Task :capacitor-push-notifications:syncDebugLibJars
+> Task :capacitor-push-notifications:bundleDebugAar
+> Task :capacitor-push-notifications:assembleDebug
+> Task :phonehub-companion:processDebugNavigationResources
+> Task :phonehub-companion:compileDebugNavigationResources
+> Task :phonehub-companion:generateDebugResValues
+> Task :phonehub-companion:mapDebugSourceSetPaths
+> Task :phonehub-companion:generateDebugResources
+> Task :phonehub-companion:packageDebugResources
+> Task :phonehub-companion:createDebugCompatibleScreenManifests
+> Task :phonehub-companion:extractDeepLinksDebug
+> Task :phonehub-companion:parseDebugLocalResources
+> Task :phonehub-companion:processDebugMainManifest
+> Task :phonehub-companion:processDebugManifest
+> Task :phonehub-companion:javaPreCompileDebug
+> Task :phonehub-companion:processDebugManifestForPackage
+> Task :phonehub-companion:mergeDebugShaders
+> Task :phonehub-companion:compileDebugShaders NO-SOURCE
+> Task :phonehub-companion:generateDebugAssets UP-TO-DATE
+> Task :phonehub-companion:mergeDebugAssets
+> Task :phonehub-companion:compressDebugAssets
+> Task :phonehub-companion:desugarDebugFileDependencies
+> Task :phonehub-companion:mergeDebugJniLibFolders
+> Task :phonehub-companion:checkDebugDuplicateClasses
+> Task :phonehub-companion:mergeDebugNativeLibs NO-SOURCE
+> Task :phonehub-companion:stripDebugDebugSymbols NO-SOURCE
+> Task :phonehub-companion:validateSigningDebug
+> Task :phonehub-companion:writeDebugAppMetadata
+> Task :phonehub-companion:writeDebugSigningConfigVersions
+> Task :phonehub-companion:mergeLibDexDebug
+> Task :app:packageDebug
+> Task :app:createDebugApkListingFileRedirect
+> Task :app:assembleDebug
+> Task :phonehub-companion:mergeDebugResources
+> Task :phonehub-companion:mergeExtDexDebug
+> Task :phonehub-companion:processDebugResources
+
+> Task :phonehub-companion:compileDebugKotlin
+w: file:///C:/Temp/caros-nav-device-20260906/android/phonehub-companion/src/main/java/com/cockpitos/phonehub/companion/BondedDeviceRepository.kt:59:40 'static fun getDefaultAdapter(): BluetoothAdapter!' is deprecated. Deprecated in Java.
+w: file:///C:/Temp/caros-nav-device-20260906/android/phonehub-companion/src/main/java/com/cockpitos/phonehub/companion/CompanionLinkController.kt:102:40 'static fun getDefaultAdapter(): BluetoothAdapter!' is deprecated. Deprecated in Java.
+
+> Task :phonehub-companion:compileDebugJavaWithJavac NO-SOURCE
+> Task :phonehub-companion:dexBuilderDebug
+> Task :phonehub-companion:mergeDebugGlobalSynthetics
+> Task :phonehub-companion:processDebugJavaRes
+> Task :phonehub-companion:mergeProjectDexDebug
+> Task :phonehub-companion:mergeDebugJavaResource
+> Task :phonehub-companion:packageDebug
+> Task :phonehub-companion:createDebugApkListingFileRedirect
+> Task :phonehub-companion:assembleDebug
+
+[Incubating] Problems report is available at: file:///C:/Temp/carlauncher/android/build/reports/problems/problems-report.html
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 9.0.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/8.14.3/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD SUCCESSFUL in 1m 50s
+322 actionable tasks: 322 executed

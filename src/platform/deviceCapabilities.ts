@@ -95,20 +95,109 @@ function _supportsCssLayer(): boolean {
   }
 }
 
-/** Head unit tipi ekran: düşük çözünürlük / düşük DPR / ultra-wide. */
-function _lowEndScreen(): boolean {
-  if (typeof window === 'undefined') return false;
-  const w   = window.innerWidth  || (typeof screen !== 'undefined' ? screen.width  : 0) || 0;
-  const h   = window.innerHeight || (typeof screen !== 'undefined' ? screen.height : 0) || 0;
-  const dpr = window.devicePixelRatio || 1;
-  if (w === 0 || h === 0) return false;
-  if (dpr <= 1.0) return true;                              // head unit nadiren > 1.5 DPR
-  const maxDim = Math.max(w, h);
-  const minDim = Math.min(w, h);
+/**
+ * Head unit tipi ekran: düşük çözünürlük / düşük DPR / ultra-wide.
+ *
+ * ── KÜTÜK #599 · CİHAZDA ÖLÇÜLEN KUSUR (2026-08-16) ────────────────────────
+ * Eşikler (800×480 · 1024×600 · 1280×480) gerçek head unit panellerinin
+ * **FİZİKSEL** çözünürlükleridir, ama karşılaştırma `innerWidth/innerHeight`
+ * ile — yani **CSS px** ile — yapılıyordu. DPR>1 olan her cihazda CSS px
+ * fiziksel pikselin 1/dpr'ı olduğu için modern paneller bu eşiklerin ALTINA
+ * düşüyordu:
+ *
+ *   Xiaomi 23090RA98I — fiziksel 2712×1220, dpr 3 → CSS 904×407
+ *   → `maxDim(904) <= 1024 && minDim(407) <= 600` → **TRUE** (yanlış)
+ *
+ * Sonuç ölçüldü: `getDeviceTier()` → `low` → `TIER_FAST_MS.low = 1000ms`
+ * (250ms yerine) → OBD hız/RPM kadansı p50 **2361 ms**, en kötü **5570 ms**.
+ * 122 km/h'te bu, gösterge güncellemeleri arası ~80 metre demektir. Aynı
+ * yanlış sınıf `low` olan her yerde (blur/animasyon/UI Hz) da bedel ödetir.
+ *
+ * DÜZELTME: eşikler fiziksel piksel eşiği olduğu için karşılaştırma da
+ * **fiziksel pikselde** yapılır (`css × dpr`). Gerçek head unit'lerde sonuç
+ * DEĞİŞMEZ (1024×600@dpr1 → 1024×600; 1280×480@dpr1.5 → 1280×480 → yine
+ * yakalanır); yalnız yüksek-DPR panellerin sahte `low` sınıfı düşer.
+ *
+ * En/boy oranı kuralı dpr'dan bağımsızdır (oran sadeleşir) — olduğu gibi
+ * kalır, ama okuyanın "neden bu ölçüde değil" diye durmaması için fiziksel
+ * ölçüler üzerinden yazılır.
+ */
+/**
+ * Native'den ÖLÇÜLMÜŞ fiziksel panel boyutu (WindowManager). `null` = ölçüm YOK.
+ *
+ * NEDEN VAR (kütük #599): ekran sınıflandırması fiziksel pikseli `cssW × devicePixelRatio`
+ * ile TAHMİN ediyordu. `devicePixelRatio` head unit WebView'larında güvenilmezdir; yanlış
+ * dpr → yanlış fiziksel ölçü → cihaz SAHTE `low` sınıfına düştü → poll 1000 ms'e çıktı →
+ * OBD verisi bayat geldi. Tahminin yerine ÖLÇÜM konulabiliyorsa konulmalıdır.
+ */
+let _nativeScreen: { readonly widthPx: number; readonly heightPx: number } | null = null;
+
+/**
+ * Native ekran ölçümünü besler (yalnız `nativeCoreService` çağırır — TEK yazıcı).
+ *
+ * ⚠️ BU İKİNCİ OTORİTE DEĞİLDİR: cihaz sınıfına yine BU dosya karar verir; native veri
+ * kararın GİRDİSİDİR, kendisi değil. Rakip bir sınıflandırıcı kurulmaz.
+ *
+ * Önbellek geçersiz kılınır: ölçüm kararı değiştirebilir, eski `_tier` taşınamaz.
+ * Geçersiz/eksik ölçüm (0 veya negatif) YOK SAYILIR — sahte ölçüm, tahminden kötüdür.
+ */
+export function setNativeScreenMetrics(
+  m: { widthPx: number; heightPx: number } | null,
+): void {
+  const ok = m != null && Number.isFinite(m.widthPx) && Number.isFinite(m.heightPx)
+    && m.widthPx > 0 && m.heightPx > 0;
+  _nativeScreen = ok ? { widthPx: m!.widthPx, heightPx: m!.heightPx } : null;
+  _caps = null;
+  _tier = null;
+}
+
+/**
+ * Ekran sınıflandırmasının kaynağı — gözlem içindir (LAB).
+ * `'native'` = ölçüldü · `'estimated'` = cssW × dpr tahmini · `'none'` = pencere yok.
+ */
+export function getScreenMetricSource(): 'native' | 'estimated' | 'none' {
+  if (_nativeScreen) return 'native';
+  if (typeof window === 'undefined') return 'none';
+  return 'estimated';
+}
+
+/** Sınıflandırmada kullanılan fiziksel ölçü — gözlem içindir. Yoksa `null`. */
+export function getEffectiveScreenPx(): { widthPx: number; heightPx: number } | null {
+  if (_nativeScreen) return _nativeScreen;
+  if (typeof window === 'undefined') return null;
+  const cssW = window.innerWidth  || (typeof screen !== 'undefined' ? screen.width  : 0) || 0;
+  const cssH = window.innerHeight || (typeof screen !== 'undefined' ? screen.height : 0) || 0;
+  const dpr  = window.devicePixelRatio || 1;
+  if (cssW === 0 || cssH === 0) return null;
+  return { widthPx: Math.round(cssW * dpr), heightPx: Math.round(cssH * dpr) };
+}
+
+/** Fiziksel panel ölçüsü → düşük-uç mü? Eşikler TEK yerde (iki dal da bunu kullanır). */
+function _isLowEndPanel(wPx: number, hPx: number): boolean {
+  const maxDim = Math.max(wPx, hPx);
+  const minDim = Math.min(wPx, hPx);
   if (maxDim <= 1024 && minDim <= 600) return true;         // 800×480, 1024×600
   if (maxDim <= 1280 && minDim <= 480) return true;         // 1280×480
   if (maxDim / Math.max(1, minDim) >= 2.5) return true;     // ultra-wide 1920×720 vb.
   return false;
+}
+
+function _lowEndScreen(): boolean {
+  /* ÖLÇÜM VARSA TAHMİN KULLANILMAZ. Native yol `dpr` kestirmesini de ATLAR: aşağıdaki
+     `dpr <= 1.0 → low` kuralı, dpr'nin güvenilmezliğini telafi eden bir HEURİSTİKTİR.
+     Gerçek panel ölçüsü elde varken o kestirmeyi uygulamak, ölçümün üstüne tahmin
+     koymak olurdu (#599'un kökü tam buydu). */
+  if (_nativeScreen) return _isLowEndPanel(_nativeScreen.widthPx, _nativeScreen.heightPx);
+
+  if (typeof window === 'undefined') return false;
+  const cssW = window.innerWidth  || (typeof screen !== 'undefined' ? screen.width  : 0) || 0;
+  const cssH = window.innerHeight || (typeof screen !== 'undefined' ? screen.height : 0) || 0;
+  const dpr  = window.devicePixelRatio || 1;
+  if (cssW === 0 || cssH === 0) return false;
+  if (dpr <= 1.0) return true;                              // head unit nadiren > 1.5 DPR
+
+  // Eşikler FİZİKSEL panel çözünürlükleridir → ölçü de fiziksel olmalı.
+  return _isLowEndPanel(cssW * dpr, cssH * dpr);
 }
 
 function _hasWorkerSAB(): boolean {
@@ -208,4 +297,5 @@ export function supportsModuleWorker(): boolean {
 export function _resetCapabilitiesForTest(): void {
   _caps = null;
   _tier = null;
+  _nativeScreen = null;
 }

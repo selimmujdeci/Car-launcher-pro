@@ -8,11 +8,25 @@
 //   • Paylaşılan sabitler — layer ID'leri, stiller, rover/badge sabitleri, nominatim
 //
 // MapCore / MapLayerManager / MapInteractionManager hepsi BURADAN import eder.
-// Bu modül onlardan HİÇBİR ŞEY import etmez → döngüsel modül-init riski yok.
+//
+// ⚠️ Bu modül LEAF DEĞİLDİR (aşağıda `mapStyleBuilders`'tan `RASTER_PAINT_*`
+// alır). Eski başlık "hiçbir şey import etmez" diyordu; bu YANLIŞTI ve
+// `MAP_BG_*` token'larının buraya konmasına gerekçe olmuştu → #605'te ölçülen
+// açılış çökmesi. Döngüsüz sabitlerin evi `./_mapIds` modülüdür; yeni paylaşılan
+// sabit BURAYA DEĞİL, ORAYA konur.
 // Davranış değişikliği YOK (Zero-Change in Behavior) — yalnızca konum değişti.
+
+/* ── HARİTA ARKA PLAN TOKEN'LARI (tek kaynak) ──────────────────────────────
+ * Tanım `./_mapIds`e TAŞINDI (kütük #605 — döngüsel modül-init çökmesi).
+ * Buradan yeniden dışa verilir: mevcut tüketiciler (`MapLayerManager`,
+ * testler) import yolunu DEĞİŞTİRMEK ZORUNDA KALMASIN. */
+export { MAP_BG_NIGHT, MAP_BG_DAY } from './_mapIds';
 // ══════════════════════════════════════════════════════════════════════════
+import { MAP_BG_NIGHT, MAP_BG_DAY } from './_mapIds';   // bu dosyanın kendi kullanımı
 import maplibregl, { Map as MapLibreMap, Marker } from 'maplibre-gl';
 import { create } from 'zustand';
+import { RASTER_PAINT_DAY, RASTER_PAINT_NIGHT } from '../mapStyleBuilders';
+import type { RouteStep } from '../routingService';
 
 // ── Public config tipi ──────────────────────────────────────────────────────
 export interface MapConfig {
@@ -54,6 +68,8 @@ export interface RouteGeom {
   altIdx?: number[];
   altDurs?: number[];
   mainDur?: number;
+  /** Kök 1 (2026-08-18) — rota bandı üstü sokak adı etiketleri bunu okur. */
+  steps?: RouteStep[];
 }
 
 // ── Modül-seviyesi mutable state (tek nesne — modüller arası paylaşım) ───────
@@ -71,6 +87,9 @@ export const M = {
   markerNight:        false,
   markerNavActive:    false,
   lastRingPulseMs:    0,
+  /** Durakta statik halka değerleri UYGULANDI mı — her karede yeniden yazmamak
+   *  için (bkz. updateUserMarker nabız kapısı; ısınma ölçümü 2026-08-03). */
+  markerPulseStatic:  false,
 
   // Rota etkileşim motoru
   routeInteractionCleanup: null as (() => void) | null,
@@ -80,7 +99,7 @@ export const M = {
   lastJumpLat:        0,
   lastJumpLng:        0,
 
-  // Cinematic light trail (rAF)
+  // Cinematic light trail (80 ms zamanlayıcı; alan adı geriye dönük uyumluluk için korunur)
   flowRafId:          null as number | null,
   flowProgress:       0.0,
 
@@ -99,17 +118,21 @@ export const M = {
   lastMoodMs:         0,
   lastMoodSafetyState: '',
 
-  // External risk alert / camera lockdown
-  lastExternalRiskAlert: false,
+  /* Kamera kilitlenmesi (hazard lockdown). NOT: eski `lastExternalRiskAlert`
+     alanı KALDIRILDI — rota renginin ikinci sahibiydi ve tehlike sinyalinin
+     sessizce silinmesine yol açıyordu (K1). Renk kararı artık tek hakemdedir:
+     `map/core/routeColorModel` + `MapLayerManager.syncRouteColor`. */
   lastHazardZoom:     0,
 
   // Navigation focus mode
   focusModeActive:    false,
   lastIntersectionTier: 0,   // -1 = force re-apply
 
-  // Perspective + maneuver emphasis
+  /* Perspektif. NOT: eski `lastManeuverTier` alanı KALDIRILDI — o da rota
+     renginin ikinci sahibiydi (bkz. yukarıdaki not). Manevra kademesi artık
+     `setDrivingView` içinde yerel olarak hesaplanır ve renk hakemine GİRDİ
+     olarak geçer; kavşak bastırması kendi `lastIntersectionTier`ını kullanır. */
   lastPerspectiveScale: 1.0,
-  lastManeuverTier:   0,
 
   // Dynamic shadow elevation + blur
   lastShadowPitch:    -1.0,
@@ -143,18 +166,14 @@ export const OSM_STYLE: maplibregl.StyleSpecification = {
   },
   layers: [
     // Tile yüklenemeyince siyah kanvas yerine OEM sıcak grafit arka plan görünür
-    { id: 'background', type: 'background', paint: { 'background-color': '#131822' } },
+    { id: 'background', type: 'background', paint: { 'background-color': MAP_BG_NIGHT } },
     // OEM gece tonu: ham OSM raster'ı sıcak-koyu grafite indirger (--map-bg-1 #131822).
+    // KOPYALAMA YOK — tek kaynak `RASTER_PAINT_NIGHT`. Eskiden burada elle
+    // yazılmış bir kopya vardı ve yorumu "birebir aynı" dediği hâlde SÜRÜKLENMİŞTİ
+    // (contrast .42 / brightness .62 kalmış, diğer iki yer .52/.50 olmuştu) →
+    // hangi stilin yüklendiğine göre gece haritası farklı görünüyordu (saha 2026-08-02).
     { id: 'osm-tiles',  type: 'raster',     source: 'osm',
-      paint: {
-        // OKUNUR gece tonu — RASTER_PAINT_NIGHT ile birebir aynı (bkz. mapStyleBuilders).
-        'raster-opacity': 1,
-        'raster-contrast': 0.42,
-        'raster-brightness-min': 0,
-        'raster-brightness-max': 0.62,
-        'raster-saturation': -0.55,
-        'raster-hue-rotate': 15,
-      } },
+      paint: { ...RASTER_PAINT_NIGHT } },
   ],
 };
 
@@ -183,33 +202,14 @@ export const getOnlineTileStyle = (night = false): maplibregl.StyleSpecification
     {
       id: 'background',
       type: 'background' as const,
-      paint: { 'background-color': night ? '#131822' : '#e9eef3' },
+      paint: { 'background-color': night ? MAP_BG_NIGHT : MAP_BG_DAY },
     },
     {
       id: 'tiles-layer',
       type: 'raster' as const,
       source: 'map-tiles',
-      paint: night
-        ? {
-            // OKUNUR gece tonu — RASTER_PAINT_NIGHT ile birebir aynı (lock: mapDayNightStyle.test).
-            // Night UX Polish 2026-06-25: harita gece "en parlak blok" olmasın → ~%20 koyu
-            // (brightness 0.62→0.50) + contrast 0.42→0.52 (OSM koyu etiketleri okunur kalsın).
-            'raster-opacity': 1,
-            'raster-contrast': 0.52,
-            'raster-brightness-min': 0,
-            'raster-brightness-max': 0.50,
-            'raster-saturation': -0.55,
-            'raster-hue-rotate': 15,
-          }
-        : {
-            // Gündüz: ham OSM doğal açık renkleri — RASTER_PAINT_DAY ile birebir aynı
-            'raster-opacity': 1,
-            'raster-contrast': 0.05,
-            'raster-brightness-min': 0,
-            'raster-brightness-max': 1,
-            'raster-saturation': -0.05,
-            'raster-hue-rotate': 0,
-          },
+      // KOPYALAMA YOK — tek kaynak mapStyleBuilders sabitleri (lock: mapDayNightStyle.test).
+      paint: night ? { ...RASTER_PAINT_NIGHT } : { ...RASTER_PAINT_DAY },
     },
   ],
 });
@@ -232,6 +232,9 @@ export const ROUTE_GLOW_SEL  = 'car-route-glow-sel';   // Layer 1 — neon outer
 export const ROUTE_CASE      = 'car-route-casing';      // Layer 2 — contrast border
 export const SEL_LAYER       = 'selected-route-layer';  // Layer 3 — gradient core
 export const ROUTE_FLOW      = 'car-route-flow';        // Layer 4 — marching-ants flow
+/** Kök 1 (2026-08-18) — rota bandı üstü segment-bazlı sokak adı etiketleri (Google "pill" karşılığı). */
+export const ROUTE_STEP_LABELS_SRC   = 'car-route-step-labels-src';
+export const ROUTE_STEP_LABELS_LAYER = 'car-route-step-labels';
 export const ALT_SRC         = 'car-route-alt';
 export const ALT_FILL        = 'car-route-alt-fill';
 export const ALT_BADGE_SRC   = 'car-route-alt-badge';
@@ -240,6 +243,32 @@ export const DEBUG_SRC       = 'car-route-debug';
 export const DEBUG_LAYER     = 'car-route-debug-line';
 export const SEL_SRC         = 'selected-route-source';
 export const BADGE_IMAGE_ID  = 'alt-badge-bg'; // C7.3 — premium glassmorphic badge arkaplanı
+
+/**
+ * Yol numarası kalkanı imaj kimlikleri — TANIM `_mapIds.ts`'e TAŞINDI (#552).
+ *
+ * Sebep: bu dosya `mapStyleBuilders`'tan `RASTER_PAINT_*` alıyor, o da buradan
+ * kalkan id'lerini alıyordu → döngüsel bağımlılık. Yükleme `_mapState` ile
+ * başladığında `mapStyleBuilders`'ın paletleri `shieldImage: undefined` ile
+ * donuyor ve `road-shield` katmanı sahada reddediliyordu.
+ *
+ * Buradaki re-export YALNIZ geriye dönük uyum içindir (mevcut tüketiciler
+ * kırılmasın). Yeni kod doğrudan `_mapIds`'ten almalıdır.
+ */
+export { SHIELD_IMG_DAY, SHIELD_IMG_NIGHT } from './_mapIds';
+/** Rota sokak adı pill arkaplanı — tanım `_mapIds.ts` (aynı leaf ev). */
+export { ROUTE_PILL_IMG_DAY, ROUTE_PILL_IMG_NIGHT } from './_mapIds';
+
+/**
+ * Yola boyanmış manevra oku — kaynak ve katman kimlikleri.
+ *
+ * `fill` (zemin düzlemi) olarak çizilir, `symbol` olarak DEĞİL: poligon coğrafi
+ * uzaydadır, dolayısıyla kamera eğildiğinde perspektif onu asfalta kendiliğinden
+ * yatırır. Sembol olsaydı ok havada durur ve eğimle kayardı.
+ */
+export const PAINTED_ARROW_SRC  = 'painted-arrow-src';
+export const PAINTED_ARROW_FILL = 'painted-arrow-fill';
+export const PAINTED_ARROW_EDGE = 'painted-arrow-edge';
 
 // ── Paylaşılan sabitler — pulse / mood ───────────────────────────────────────
 export const PULSE_TRANSPARENT = 'rgba(255,255,255,0)';

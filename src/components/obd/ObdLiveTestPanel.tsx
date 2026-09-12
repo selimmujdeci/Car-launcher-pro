@@ -1,11 +1,11 @@
 import { memo, useEffect, useMemo, useState } from 'react';
 import { FlaskConical, Fingerprint } from 'lucide-react';
-import { useOBDState } from '../../platform/obdService';
+import { useOBDState, getFuelCalibrationState } from '../../platform/obdService';
 import type { OBDData } from '../../platform/obdTypes';
 import { STANDARD_PIDS, EXTENDED_CANDIDATE_PIDS } from '../../platform/obd/StandardPidRegistry';
 import type { StandardPidDef } from '../../platform/obd/StandardPidRegistry';
 import {
-  watchPid, getPidValue, isPidSupported, setDiagnosticBurst,
+  watchPid, getPidValue, isPidSupported, getPidStatus, setDiagnosticBurst,
 } from '../../platform/obd/extendedPidService';
 import type { ExtendedPidValue } from '../../platform/obd/extendedPidService';
 import { watchDid, getSupportedDids, isDidSupported } from '../../platform/obd/manufacturerPidService';
@@ -51,13 +51,16 @@ const CAT_LABEL: Record<StandardPidDef['category'], string> = {
   elektrik: 'Elektrik', emisyon: 'Emisyon', o2: 'O₂ Sensörleri', tork: 'Tork', mesafe: 'Mesafe',
 };
 
-type Status = 'fresh' | 'stale' | 'suspect' | 'unsupported' | 'discovering' | 'waiting' | 'nolink';
+type Status = 'fresh' | 'stale' | 'suspect' | 'unsupported' | 'nodata' | 'discovering' | 'waiting' | 'nolink';
 
 const STATUS_STYLE: Record<Status, { cls: string; label: string }> = {
   fresh:       { cls: 'text-[color:var(--oem-good)] border-[var(--oem-good)] bg-[var(--oem-good-soft)]',       label: 'TAZE' },
   stale:       { cls: 'text-[color:var(--oem-warn)] border-[var(--oem-warn)] bg-[var(--oem-warn-soft)]',       label: 'BAYAT' },
   suspect:     { cls: 'text-[color:var(--oem-danger)] border-[var(--oem-danger)] bg-[var(--oem-danger-soft)]', label: 'ŞÜPHELİ' },
   unsupported: { cls: 'text-[color:var(--oem-ink-3)] border-[var(--oem-line)] bg-[var(--oem-surface-2)]',      label: 'YOK' },
+  // PR-OBD-KWP-1: bitmap "destekli" dedi ama ECU ardışık NO_DATA döndü (native demote kanıtı)
+  // — "keşif yanılgısı" ile "hâlâ bekliyor"dan AYRI gerçek neden (Trafic 39/39 vakası).
+  nodata:      { cls: 'text-[color:var(--oem-warn)] border-[var(--oem-warn)] bg-[var(--oem-warn-soft)]',       label: 'VERMİYOR' },
   discovering: { cls: 'text-[color:var(--oem-info)] border-[var(--oem-info)] bg-[var(--oem-info-soft)]',       label: 'KEŞİF' },
   waiting:     { cls: 'text-[color:var(--oem-ink-3)] border-[var(--oem-line)] bg-[var(--oem-surface-2)]',      label: 'BEKLİYOR' },
   nolink:      { cls: 'text-[color:var(--oem-ink-3)] border-[var(--oem-line)] bg-[var(--oem-surface-2)]',      label: '—' },
@@ -102,15 +105,36 @@ function computeRow(
     const v = coreGet(obd);
     if (!Number.isFinite(v) || v < 0) return { valueText: '—', raw: '', status: 'unsupported' };
     const stale = obd.lastSeenMs > 0 && now - obd.lastSeenMs > STALE_MS;
+    // 2F ÖZEL: `obd.fuelLevel` GÖSTERİM değeridir (kalibrasyon ölçeği uygulanmış).
+    // Bu panel HAM PID akışını gösterir → kalibre araçta ölçeklenmiş sayıyı "PID 2F"
+    // diye sunmak yalan olur. Ham değer gösterilir, ölçek ayrı satırda belirtilir.
+    if (def.pid === '2F') {
+      const cal = getFuelCalibrationState();
+      if (cal.rawPct == null) return { valueText: '—', raw: '', status: 'unsupported' };
+      return {
+        valueText: fmtVal(cal.rawPct, def.unit),
+        raw: cal.scale === 1 ? '' : `ham ${cal.rawPct}% × ${cal.scale.toFixed(3)} → gösterim ${cal.displayPct ?? '—'}%`,
+        status: stale ? 'stale' : 'fresh',
+      };
+    }
     return { valueText: fmtVal(v, def.unit), raw: '', status: stale ? 'stale' : 'fresh' };
   }
   // Extended PID (yalnız geçerli çözülen değerler ext snapshot'ında bulunur)
+  // ⚠️ SIRA KRİTİK (saha 2026-07-17): bağlantı kontrolü değer kontrolünden ÖNCE gelmeli.
+  // Eskiden `if (e && !noData) return <değer>` ÖNCE geliyordu → extendedPidService._values
+  // bellek-içi önbelleği önceki oturumdan dolu olduğu için, OBD KOPUKKEN bile eski sayılar
+  // BAYAT rozetiyle gösteriliyordu. Bağlantı yokken bir sayı göstermek — rozeti ne olursa
+  // olsun — kullanıcıya yalan söylemektir; çekirdek dal bunu zaten doğru yapıyordu.
+  if (!connected) return { valueText: '—', raw: '', status: 'nolink' };
   const e = ext[def.pid];
-  if (e) {
+  // PR-OBD-KWP-1: native demote kanıtı — ECU bu PID'i VERMİYOR (bitmap yanılgısı dahil).
+  // Değer önbelleği olsa bile artık akmıyor demektir; gerçek nedeni göster.
+  const noData = getPidStatus(def.pid) === 'no_data';
+  if (e && !noData) {
     const age = now - e.updatedAt;
     return { valueText: fmtVal(e.value, def.unit), raw: e.raw, status: age > FRESH_MS ? 'stale' : 'fresh' };
   }
-  if (!connected) return { valueText: '—', raw: '', status: 'nolink' };
+  if (noData) return { valueText: '—', raw: e?.raw ?? '', status: 'nodata' };
   const sup = isPidSupported(def.pid);
   if (sup === false) return { valueText: '—', raw: '', status: 'unsupported' };
   if (sup === null)  return { valueText: '—', raw: '', status: 'discovering' };

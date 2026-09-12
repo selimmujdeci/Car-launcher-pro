@@ -1,0 +1,1152 @@
+{
+  "seed": 20260907,
+  "nMl": 80,
+  "nOsm": 15,
+  "poolSizes": {
+    "ml": 381,
+    "osm": 21,
+    "totalInMosaic": 402
+  },
+  "cells": [
+    {
+      "cell": 1,
+      "id": "a9ea04d0-6e92-491f-80dc-f99f8980a732",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6354644,
+        36.810032
+      ]
+    },
+    {
+      "cell": 2,
+      "id": "c1645f08-4d1b-48f1-b869-8f8d1dcc039d",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6358015,
+        36.8128252
+      ]
+    },
+    {
+      "cell": 3,
+      "id": "c04091b1-7580-481f-b96a-1e27afa89ce4",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6336624,
+        36.8097639
+      ]
+    },
+    {
+      "cell": 4,
+      "id": "8b4452eb-1cc2-4196-900a-b0e4fb9b9f3c",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6346578,
+        36.8140676
+      ]
+    },
+    {
+      "cell": 5,
+      "id": "e51e46bc-24ee-4e27-983c-d55aeed79f15",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6312788,
+        36.8118075
+      ]
+    },
+    {
+      "cell": 6,
+      "id": "313dc123-1d4a-45b7-baab-fa99ca4050ae",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6356943,
+        36.8101422
+      ]
+    },
+    {
+      "cell": 7,
+      "id": "9d6b2b12-40c2-4019-8a69-f1a03a1d0dab",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6363645,
+        36.812565
+      ]
+    },
+    {
+      "cell": 8,
+      "id": "948d7977-0469-41ad-b455-768e26a7b165",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6354304,
+        36.8146279
+      ]
+    },
+    {
+      "cell": 9,
+      "id": "2ee27f22-5382-4f80-bb16-7e2e7cbb68c5",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6329589,
+        36.811935
+      ]
+    },
+    {
+      "cell": 10,
+      "id": "e1ecf5ce-3f8f-4ade-90e0-48296bcdcd1f",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6373959,
+        36.8104529
+      ]
+    },
+    {
+      "cell": 11,
+      "id": "479ef370-23d8-479f-88d5-cd12c0402f3b",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6323437,
+        36.8130397
+      ]
+    },
+    {
+      "cell": 12,
+      "id": "3a805ef1-161b-4e98-a8f4-2a3e01cd515b",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6330234,
+        36.8146915
+      ]
+    },
+    {
+      "cell": 13,
+      "id": "31adcc5a-3619-48ab-a7d4-e3c00f911b93",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6324207,
+        36.8096334
+      ]
+    },
+    {
+      "cell": 14,
+      "id": "68ebbee1-488f-473d-bf3f-3773030f719b",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.636213,
+        36.81086
+      ]
+    },
+    {
+      "cell": 15,
+      "id": "cd84795d-584a-4a97-a689-38a7c7a93c21",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6352655,
+        36.8129598
+      ]
+    },
+    {
+      "cell": 16,
+      "id": "72501caf-a379-4e95-9575-c26130eb1f90",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6352466,
+        36.8144109
+      ]
+    },
+    {
+      "cell": 17,
+      "id": "3cec5ea1-3f69-4c65-afe9-b5efad4d44a9",
+      "origin": "OSM",
+      "datasets": [
+        "OpenStreetMap"
+      ],
+      "centroid": [
+        34.6335093,
+        36.810947
+      ]
+    },
+    {
+      "cell": 18,
+      "id": "48f1a1ef-6490-4112-8baa-3ca0938dbbac",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6355219,
+        36.8127017
+      ]
+    },
+    {
+      "cell": 19,
+      "id": "089abd35-e968-4a5d-8bd0-0dbb84ffe815",
+      "origin": "OSM",
+      "datasets": [
+        "OpenStreetMap"
+      ],
+      "centroid": [
+        34.631152,
+        36.8126065
+      ]
+    },
+    {
+      "cell": 20,
+      "id": "0941714a-2a66-41b4-b37d-b5bb1fbdabae",
+      "origin": "OSM",
+      "datasets": [
+        "OpenStreetMap"
+      ],
+      "centroid": [
+        34.6314148,
+        36.8098284
+      ]
+    },
+    {
+      "cell": 21,
+      "id": "ecf8879f-a16b-4440-ae64-1d6e1693f8f6",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6360773,
+        36.8100659
+      ]
+    },
+    {
+      "cell": 22,
+      "id": "4b91e2c9-f4ec-429f-af9f-81cfa4ff97e6",
+      "origin": "OSM",
+      "datasets": [
+        "OpenStreetMap"
+      ],
+      "centroid": [
+        34.6331067,
+        36.8110874
+      ]
+    },
+    {
+      "cell": 23,
+      "id": "2c9828ef-18aa-4043-954d-e4a40e2c7e6e",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6357953,
+        36.8125408
+      ]
+    },
+    {
+      "cell": 24,
+      "id": "ff9144ec-840c-41c6-b5c8-c0b1f195e80a",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6363308,
+        36.8146846
+      ]
+    },
+    {
+      "cell": 25,
+      "id": "0ba4ea8a-2377-45b5-b3cf-da51014e47fa",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6319319,
+        36.8106614
+      ]
+    },
+    {
+      "cell": 26,
+      "id": "608762bf-9d6d-4e03-a25d-2a63946992c8",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6342996,
+        36.8135375
+      ]
+    },
+    {
+      "cell": 27,
+      "id": "599ce9c2-8616-44ee-af20-e4ebb9a78546",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6375005,
+        36.8122568
+      ]
+    },
+    {
+      "cell": 28,
+      "id": "1c9af235-3c1c-4b76-bbec-653d8e358bc9",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6345342,
+        36.8138364
+      ]
+    },
+    {
+      "cell": 29,
+      "id": "f5d2203a-462b-4789-b7b3-f85fd8cb996d",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6364064,
+        36.8101209
+      ]
+    },
+    {
+      "cell": 30,
+      "id": "fe59f153-001c-4062-8fbd-3ae93c3c8bf9",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6318636,
+        36.8138928
+      ]
+    },
+    {
+      "cell": 31,
+      "id": "33f0e629-d3ce-41d3-acb1-21b2b032f3f6",
+      "origin": "OSM",
+      "datasets": [
+        "OpenStreetMap"
+      ],
+      "centroid": [
+        34.6329748,
+        36.8098587
+      ]
+    },
+    {
+      "cell": 32,
+      "id": "48086d59-e19d-4ff9-b413-c85fcc9c2dcd",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6338427,
+        36.8144789
+      ]
+    },
+    {
+      "cell": 33,
+      "id": "b42e87a7-642a-4d9b-bf81-b0ee770f691a",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6350884,
+        36.8104122
+      ]
+    },
+    {
+      "cell": 34,
+      "id": "26a877bc-561d-42f8-ab5a-a5403730c8a2",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6339002,
+        36.81404
+      ]
+    },
+    {
+      "cell": 35,
+      "id": "083572ee-b3be-44bd-a872-542523823456",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6362456,
+        36.810037
+      ]
+    },
+    {
+      "cell": 36,
+      "id": "7357f064-9303-4c32-bd11-e6109d64782d",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6374348,
+        36.8105884
+      ]
+    },
+    {
+      "cell": 37,
+      "id": "20044a1e-2182-42c6-80a1-02e52c08fe82",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6329844,
+        36.8103016
+      ]
+    },
+    {
+      "cell": 38,
+      "id": "013b7e9c-e35b-4634-9208-16899f1fd812",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6314175,
+        36.8103997
+      ]
+    },
+    {
+      "cell": 39,
+      "id": "96c7d9dd-00b2-43cc-af0d-185086d44f2e",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6369332,
+        36.8148486
+      ]
+    },
+    {
+      "cell": 40,
+      "id": "be722910-2dd4-492c-8d26-0996c9175166",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6343954,
+        36.8136784
+      ]
+    },
+    {
+      "cell": 41,
+      "id": "d0bf2728-b79a-4d7f-8f39-9c613a954890",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.631732,
+        36.8132133
+      ]
+    },
+    {
+      "cell": 42,
+      "id": "cb8cd7d3-9b43-49dd-9199-b625b9230cfa",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6345762,
+        36.8109351
+      ]
+    },
+    {
+      "cell": 43,
+      "id": "804cd6d8-0190-41bd-b449-808303da99da",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6366146,
+        36.8105663
+      ]
+    },
+    {
+      "cell": 44,
+      "id": "cda1a34c-bfc0-4fa6-9a5f-ff3a35d750fa",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6316634,
+        36.8137882
+      ]
+    },
+    {
+      "cell": 45,
+      "id": "8adbc328-94a5-4e2e-a3cc-98cd7f637c12",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6327297,
+        36.8137737
+      ]
+    },
+    {
+      "cell": 46,
+      "id": "2bab804a-1a7a-4b53-b87b-acb9690fdcb7",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6370646,
+        36.8107803
+      ]
+    },
+    {
+      "cell": 47,
+      "id": "d2a967a0-aac0-4ae0-8742-834ba7b5aa63",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6359406,
+        36.8101843
+      ]
+    },
+    {
+      "cell": 48,
+      "id": "3c4a280c-d41d-4572-b9ea-5f5998c0a7f1",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6357554,
+        36.8129725
+      ]
+    },
+    {
+      "cell": 49,
+      "id": "c02fa7bc-3205-4b91-8c58-be47d7fc0a39",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6348863,
+        36.8146945
+      ]
+    },
+    {
+      "cell": 50,
+      "id": "e03e4258-7911-4647-b51c-acddff1126b9",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6362844,
+        36.8121881
+      ]
+    },
+    {
+      "cell": 51,
+      "id": "d7401a61-a887-4716-bbbb-4890e35a3816",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6340512,
+        36.8137087
+      ]
+    },
+    {
+      "cell": 52,
+      "id": "e92b4325-d171-44a2-9529-76a81aa00824",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.633697,
+        36.8132598
+      ]
+    },
+    {
+      "cell": 53,
+      "id": "47814ded-21df-4f22-b178-6908ba0f918d",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6323942,
+        36.8112146
+      ]
+    },
+    {
+      "cell": 54,
+      "id": "162a6ab7-f437-4536-a7b3-be82cb3beeaf",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6317233,
+        36.8141868
+      ]
+    },
+    {
+      "cell": 55,
+      "id": "d8c02f2f-b3f9-44f3-bad9-d29c7218ea1e",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6333128,
+        36.8132231
+      ]
+    },
+    {
+      "cell": 56,
+      "id": "f050e9a8-4cba-418a-bfd0-9d48859dfc60",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6366971,
+        36.8094947
+      ]
+    },
+    {
+      "cell": 57,
+      "id": "2925dfa1-b3dd-4c48-bbe8-1e811763464b",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6339253,
+        36.8121084
+      ]
+    },
+    {
+      "cell": 58,
+      "id": "82816688-357e-4ebb-88ca-c40f1dc2789d",
+      "origin": "OSM",
+      "datasets": [
+        "OpenStreetMap"
+      ],
+      "centroid": [
+        34.6315223,
+        36.8096534
+      ]
+    },
+    {
+      "cell": 59,
+      "id": "d4250fc0-4350-4b1c-a793-e9b32b2fe4d2",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6324447,
+        36.8133823
+      ]
+    },
+    {
+      "cell": 60,
+      "id": "121903f6-e356-4ac0-af20-c05c70c71e2f",
+      "origin": "OSM",
+      "datasets": [
+        "OpenStreetMap"
+      ],
+      "centroid": [
+        34.6307898,
+        36.812879
+      ]
+    },
+    {
+      "cell": 61,
+      "id": "487a0a10-b9d0-4ac6-b1c6-6e10adf34e19",
+      "origin": "OSM",
+      "datasets": [
+        "OpenStreetMap"
+      ],
+      "centroid": [
+        34.6334114,
+        36.8095347
+      ]
+    },
+    {
+      "cell": 62,
+      "id": "1e2e6137-070e-4c47-8054-8763fed1b695",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6369512,
+        36.8101944
+      ]
+    },
+    {
+      "cell": 63,
+      "id": "d37b4131-fbb8-4d19-abed-d160e08bb322",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6363252,
+        36.8126614
+      ]
+    },
+    {
+      "cell": 64,
+      "id": "e46cb3de-42f2-4eaa-b027-eed6cf0401be",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6324924,
+        36.8128939
+      ]
+    },
+    {
+      "cell": 65,
+      "id": "ea6e6d3c-7339-4e0c-8d91-a6722c29a6e4",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6347976,
+        36.8139556
+      ]
+    },
+    {
+      "cell": 66,
+      "id": "3b8bccf4-80d5-47a6-bf94-8915ba024981",
+      "origin": "OSM",
+      "datasets": [
+        "OpenStreetMap"
+      ],
+      "centroid": [
+        34.6317656,
+        36.8109637
+      ]
+    },
+    {
+      "cell": 67,
+      "id": "798c27fa-7002-457f-bd6e-5d028879610f",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6314857,
+        36.8140877
+      ]
+    },
+    {
+      "cell": 68,
+      "id": "35e25e6d-49ec-4ca1-acf0-a1315fb90d7e",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6350689,
+        36.8127494
+      ]
+    },
+    {
+      "cell": 69,
+      "id": "e6ea76ec-243d-4095-9a1f-5367faa7a0c0",
+      "origin": "OSM",
+      "datasets": [
+        "OpenStreetMap"
+      ],
+      "centroid": [
+        34.6351708,
+        36.8100816
+      ]
+    },
+    {
+      "cell": 70,
+      "id": "c662bff8-f165-4751-93e8-754a82f65309",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6317358,
+        36.8136532
+      ]
+    },
+    {
+      "cell": 71,
+      "id": "aa29c45b-808e-4670-9dc9-92c98f566b51",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6317531,
+        36.8138313
+      ]
+    },
+    {
+      "cell": 72,
+      "id": "679f333f-c7e5-4510-830f-21300724ec30",
+      "origin": "OSM",
+      "datasets": [
+        "OpenStreetMap"
+      ],
+      "centroid": [
+        34.6369623,
+        36.8121273
+      ]
+    },
+    {
+      "cell": 73,
+      "id": "7215293d-ac95-4470-9c43-08a843cf5a2d",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6367644,
+        36.8113058
+      ]
+    },
+    {
+      "cell": 74,
+      "id": "e28520ad-8de2-4e98-83aa-3e2cd0606c99",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6351138,
+        36.8136492
+      ]
+    },
+    {
+      "cell": 75,
+      "id": "d5d02697-6e46-4bc4-99df-0e6a05d42f63",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6362218,
+        36.8127688
+      ]
+    },
+    {
+      "cell": 76,
+      "id": "fdce2977-c09b-400d-a302-6d6d3b9d8bae",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6369852,
+        36.8111081
+      ]
+    },
+    {
+      "cell": 77,
+      "id": "47b5a3f5-078b-4592-ab83-233fc4ddb56c",
+      "origin": "OSM",
+      "datasets": [
+        "OpenStreetMap"
+      ],
+      "centroid": [
+        34.6315916,
+        36.8122547
+      ]
+    },
+    {
+      "cell": 78,
+      "id": "21da8ade-455d-47ce-81b3-ff56540f68b4",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6362962,
+        36.8120463
+      ]
+    },
+    {
+      "cell": 79,
+      "id": "57a634a0-62e6-4608-aa95-629f22788fec",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6342229,
+        36.8142354
+      ]
+    },
+    {
+      "cell": 80,
+      "id": "7719f167-75f1-40a1-9b06-103efadb837b",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6311623,
+        36.8143765
+      ]
+    },
+    {
+      "cell": 81,
+      "id": "e898bd91-3120-4309-be28-fd71d482a6b9",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6337064,
+        36.813496
+      ]
+    },
+    {
+      "cell": 82,
+      "id": "86eb32d2-1289-4a14-b9c3-1a138f07d123",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6335548,
+        36.8129036
+      ]
+    },
+    {
+      "cell": 83,
+      "id": "3c2ed1b9-6bdc-4227-8d59-6e29fa2c23c0",
+      "origin": "OSM",
+      "datasets": [
+        "OpenStreetMap"
+      ],
+      "centroid": [
+        34.6349338,
+        36.811356
+      ]
+    },
+    {
+      "cell": 84,
+      "id": "d832468c-49c8-4bdd-b53e-aa52ed7c22ae",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6372904,
+        36.8105117
+      ]
+    },
+    {
+      "cell": 85,
+      "id": "348efd5c-274b-4bd3-bd05-d13466b5950e",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6313443,
+        36.8145487
+      ]
+    },
+    {
+      "cell": 86,
+      "id": "5ae8195f-5371-44fe-8c18-687209dc2b5f",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6339125,
+        36.8143997
+      ]
+    },
+    {
+      "cell": 87,
+      "id": "1d0222ff-5cff-4bee-8c65-c23120897b23",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6373354,
+        36.8107109
+      ]
+    },
+    {
+      "cell": 88,
+      "id": "f5176abe-db4d-4c04-8bf4-f0b4a83f6336",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6345067,
+        36.8135015
+      ]
+    },
+    {
+      "cell": 89,
+      "id": "44c61c62-68f7-4f8f-bf89-db607db72078",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6362297,
+        36.8105386
+      ]
+    },
+    {
+      "cell": 90,
+      "id": "6de10412-0ea5-4798-a664-f23b0895eb65",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6340905,
+        36.8100314
+      ]
+    },
+    {
+      "cell": 91,
+      "id": "59954a0d-b4ed-48c2-a97a-fb3ff0d42f35",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.6371125,
+        36.8148682
+      ]
+    },
+    {
+      "cell": 92,
+      "id": "a232bce5-4c49-42df-96b9-166a2ac29948",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.636582,
+        36.8097588
+      ]
+    },
+    {
+      "cell": 93,
+      "id": "6586e9a9-304d-4b21-a437-b38e0d5a8118",
+      "origin": "OSM",
+      "datasets": [
+        "OpenStreetMap"
+      ],
+      "centroid": [
+        34.6345604,
+        36.8127906
+      ]
+    },
+    {
+      "cell": 94,
+      "id": "4ad0ae01-c909-4cbc-95c9-29ccc51c3861",
+      "origin": "ML",
+      "datasets": [
+        "Microsoft ML Buildings"
+      ],
+      "centroid": [
+        34.635452,
+        36.8095874
+      ]
+    },
+    {
+      "cell": 95,
+      "id": "b8d6e16d-4bef-468d-b394-7e5d6f3347ec",
+      "origin": "OSM",
+      "datasets": [
+        "OpenStreetMap"
+      ],
+      "centroid": [
+        34.633325,
+        36.8145766
+      ]
+    }
+  ]
+}

@@ -183,8 +183,15 @@ export function calcLifetimeWear(profile?: VehicleProfile): number {
  * Anlık motor stres seviyesi (0.0–1.0).
  *
  * RPM stresi  (40%): [idleRpm..maxRpm] → [0..1]
- * Termik stres(25%): normalTemp+10°C altı = 0; üstü üstel artış
+ * Termik stres(25%): normalTemp+10°C altı = 0; üstü LİNEER artış (+30°C'de tavan)
  * Yük stresi  (35%): throttle / 100; eksikse RPM tahmini
+ *
+ * ⚠️ TERMİK EĞRİ LİNEERDİR VE BU BİR YER TUTUCUDUR (kütük #498).
+ * Bu yorum eskiden "üstel artış" diyordu; kod hiçbir zaman üstel olmadı —
+ * belge ile davranış ayrışmıştı. Karakterizasyon testi lineerliği ölçtü
+ * (eşit sıcaklık aralıkları eşit stres artışı üretiyor) ve yorum gerçeğe
+ * hizalandı. Gerçek aşınma eğrisi ÖLÇÜLMEDİ: üstele geçmek bir tahmin değil,
+ * bir ÖLÇÜM kararıdır — gerçek termik veri toplanana kadar lineer kalır.
  *
  * İdleRpm ve normalTemp, aktif VehicleProfile'dan okunur (U-2.1).
  */

@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "datasetId": "osm-tr-mersin-corridor-7639c7062845",
+  "country": "TR",
+  "source": "OpenStreetMap via official Overpass API",
+  "sourceTimestamp": "2026-06-01T08:52:28Z",
+  "buildTimestamp": "2026-09-07T21:09:22.592Z",
+  "policyVersion": "2b4f5de8",
+  "graphFormat": "RTG3",
+  "regions": [
+    {
+      "regionId": "tr-mersin-34e-west",
+      "bbox": [
+        34.62,
+        36.79,
+        34.652,
+        36.83
+      ],
+      "neighbors": [
+        "tr-mersin-34e-east"
+      ],
+      "graphFile": "tr-mersin-34e-west.rtg3",
+      "sha256": "194a36c2ceba040021df5839a4bccf959031cb3f297b2e05a32f511acf52ec0d",
+      "byteSize": 341612,
+      "nodeCount": 6584,
+      "edgeCount": 8437,
+      "sourceHash": "7639c70628458ee57351bee64045e762aaf0d20c1128dc66d9c50c04056c9a94"
+    },
+    {
+      "regionId": "tr-mersin-34e-east",
+      "bbox": [
+        34.647999999999996,
+        36.79,
+        34.68,
+        36.83
+      ],
+      "neighbors": [
+        "tr-mersin-34e-west"
+      ],
+      "graphFile": "tr-mersin-34e-east.rtg3",
+      "sha256": "a78b250c3dd7bea22b834936aacfb691bd8b2ea71251fdfe4cae8272c21d142c",
+      "byteSize": 126660,
+      "nodeCount": 2575,
+      "edgeCount": 3051,
+      "sourceHash": "7639c70628458ee57351bee64045e762aaf0d20c1128dc66d9c50c04056c9a94"
+    }
+  ]
+}

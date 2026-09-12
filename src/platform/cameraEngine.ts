@@ -27,13 +27,36 @@ export const CAMERA_CFG = {
   ZOOM_TURN_BOOST:  1.6,   // dönüşe yaklaşınca maksimum ek zoom
   ZOOM_TURN_ZONE_M: 180,   // boost'un başladığı mesafe (metre)
 
-  // ── Pitch curve (degrees) — Faz 3.3: scale realism ─────────────
-  // 50°+ değerler MapLibre'de siyah köşe oluşturur (tile ufku aşılır).
-  // Maksimum güvenli pitch ~48° — tüm değerler bunun altında tutulur.
-  PITCH_IDLE:     20,   //  0–10 km/h — park/bekleme (neredeyse düz)
-  PITCH_URBAN:    30,   // 10–50 km/h — şehir içi
-  PITCH_ROAD:     40,   // 50–100 km/h — karayolu
-  PITCH_HIGHWAY:  47,   // 100+ km/h — otoyol (tile sınırı altında)
+  /* ── Pitch curve (derece) — SÜRÜŞ KORİDORU ─────────────────────────────
+   * ÖLÇÜLEN KUSUR (2026-09-09 · `field-runs/nav-visual-20260909/camera-sweep.mjs`
+   * · üretim stili · gerçek OMT karoları · 904×406): şehir sürüş zoom'unda
+   * (z16,7) kamera sürücüye yalnız **193 m** ileri gösteriyordu — 50 km/sa'te
+   * **14 saniyelik** ufuk. Ekran bu yüzden "harita üzerine rota çizilmiş" gibi
+   * okunuyordu; kusur zoom'da değil PITCH'teydi (30°).
+   *
+   * ÖLÇÜLEN KAZANÇ ve MALİYET (aynı sahne, tek değişkenli):
+   *     pitch 30 → 193 m · karo 1 · parlak %4,83
+   *     pitch 38 → 236 m · karo 1 · parlak %4,51
+   *     pitch 45 → 299 m · karo 1 · parlak %4,27
+   *   `anchorY` 0,58 → 0,66 ile birlikte (bkz. `cameraPolicyModel.SPEED_BANDS`):
+   *     pitch 45 → **373 m** (+%93) · karo **1** · parlak %4,67
+   * Yani ileri görüş iki katına çıkarken KARO YÜKÜ ARTMIYOR ve ekrandaki
+   * mürekkep de artmıyor: bu, bütçesiz bir görsel süs değil, ölçülmüş bedava
+   * kazançtır. (FOV'u 50°'ye açmak 541 m verirdi ama karo 1 → 3 olurdu —
+   * o yol ÖLÇÜLDÜ ve bütçe gerekçesiyle SEÇİLMEDİ.)
+   *
+   * MİNİ HARİTA da aynı eğriyi kullanır (`MiniMapWidget` → `setDrivingView`).
+   * 440×210 yüzeyde ölçüldü: pitch 44'te ileri görüş 100 → 148 m, ufuk hâlâ
+   * ekranın 172 px ÜSTÜNDE (kadraja girmiyor), karo 1 → ayrı bir mini pitch
+   * politikası GEREKMEDİ.
+   *
+   * TAVAN DEĞİŞMEDİ: `MapCore.maxPitch = 50` aynen durur ve `PITCH_HIGHWAY`
+   * onun altındadır (`cartographyAuthority` sky/ufuk kilidi bunu ölçer —
+   * ufuk kadraja ~68,6°'de girer, orada `sky` kararı yeniden açılır). */
+  PITCH_IDLE:     26,   //  0–10 km/h — park/bekleme (yol perspektifi korunur)
+  PITCH_URBAN:    44,   // 10–50 km/h — şehir içi (asıl sürüş bandı)
+  PITCH_ROAD:     47,   // 50–100 km/h — karayolu
+  PITCH_HIGHWAY:  49,   // 100+ km/h — otoyol (maxPitch 50'nin ALTINDA)
   PITCH_TURN_MIN: 15,   // kavşak görünümü için minimum tilt
 
   // ── Look-ahead (metre) ──────────────────────────────────────────
@@ -45,13 +68,22 @@ export const CAMERA_CFG = {
   TOP_PAD_MAX:   0.70,  // otoyol
   TOP_PAD_SPEED: 110,   // bu km/h'de maksimuma ulaşır
 
+  /** Aracın ekranın ALT kenarına en az bu kadar px kalmalı (bkz. clampTopPadForVehicle). */
+  VEHICLE_MIN_BOTTOM_PX: 72,
+
   // ── Turn anticipation ──────────────────────────────────────────
   // Dönüşe yaklaşınca kamera dönüş bölgesini hafifçe önden gösterir.
   ANTICIPATION_START_M: 220,  // anticipation'ın başladığı mesafe
   ANTICIPATION_MAX_DEG:  18,  // maksimum bearing sapması (derece)
 
-  // ── Exponential Moving Average (per setDrivingView call ~150ms) ─
+  // ── Exponential Moving Average ──────────────────────────────────
   // alpha = 1.0 → anlık, 0.0 → hiç değişmez
+  //
+  // ⚠️ BU ALFALAR BİR TEMPOYA AİTTİR. Sahada `CALIBRATION_DT_MS` (150 ms)
+  // kadansında tek tek ayarlandılar. Sabit alfa, çağrı sıklığı değişince
+  // FİZİKSEL DAVRANIŞI da değiştirir — bkz. `CALIBRATION_DT_MS` yorumu.
+  // Bu yüzden `dampCameraToward` alfaları `rateAdjustAlpha` ile Δt'ye
+  // uyarlar; buradaki sayılar 150 ms'deki DEĞER olarak okunur.
   DAMP_ZOOM:    0.18,  // zoom yavaş değişir (kaymazsın)
   DAMP_PITCH:   0.11,  // pitch en kritik — çok kademeli
   DAMP_LOOK:    0.24,  // look-ahead orta hızda
@@ -65,6 +97,13 @@ export const CAMERA_CFG = {
   // ── Movement jitter filter ──────────────────────────────────────
   JITTER_SPEED_KMH:   5,    // bu hızın altında filtrele
   JITTER_THRESHOLD_M: 0.8,  // minimum GPS hareketi (metre)
+  /* Durakta yeniden ORTALAMA eşiği (m). 0.8 m tipik GPS gürültüsünün (±3–6 m)
+     ÇOK ALTINDA kaldığı için duran araçta kamera her fix'te yeniden ortalanıyor
+     ve harita kendiliğinden kayıyordu — cihazda ölçüldü (2026-08-03): araç
+     0 m hareket ederken merkez 1–5 m adımlarla sürekli kaydı.
+     Gürültü bandının üstünde bir eşik: durakta harita TAMAMEN durur; gerçek
+     hareket başlayınca (hız ≥ JITTER_SPEED_KMH) bu dal zaten çalışmaz. */
+  STANDSTILL_RECENTER_MIN_M: 6,
 
   // ── Low-speed bearing deadzone (Faz 3.4) ─────────────────────
   // Düşük hızda GPS heading güvenilmez; küçük değişimleri filtrele.
@@ -80,10 +119,47 @@ export const CAMERA_CFG = {
 
   // ── Cruise stabilization (Faz 3.4) ───────────────────────────
   // Sabit hızda (delta ≈ 0) kamera neredeyse kilitlenir → otoyol konforu.
-  CRUISE_THRESHOLD_KMH: 3.0,  // |delta| altında cruise tick sayılır
-  CRUISE_MIN_TICKS:     7,    // bu kadar ardışık tick → cruise mode aktif
+  CRUISE_THRESHOLD_KMH: 3.0,  // |delta| altında cruise sayılır
+  /** Bu kadar KESİNTİSİZ SÜRE sabit hız → cruise mode aktif (ms).
+   *  Eskiden 7 TICK idi; tick süresi çağrı yerine göre 16–500 ms arasında
+   *  değiştiği için aynı kural tam ekranda 1,05 sn, mini haritada 3,5 sn,
+   *  ölü hesaplama yolunda 0,11 sn anlamına geliyordu. Değer SÜREYE
+   *  çevrildi: 7 × 150 ms = 1050 ms → kalibrasyon temposunda DAVRANIŞ AYNI. */
+  CRUISE_MIN_MS:     1050,
   CRUISE_DAMP_ZOOM:  0.06,    // cruise'da zoom neredeyse sabit
   CRUISE_DAMP_PITCH: 0.05,    // cruise'da pitch neredeyse sabit
+
+  // ── Kadans (tick temposu) ────────────────────────────────────
+  /**
+   * Yukarıdaki TÜM alfa/eşik değerlerinin ölçüldüğü tick aralığı (ms).
+   *
+   * ── NEDEN AÇIKÇA YAZILI (ölçülen kusur) ──────────────────────────────────
+   * `dampCameraToward` üstel bir ortalama uygular ve alfa **çağrı başınadır**;
+   * yani aynı alfa farklı tempolarda farklı ZAMAN SABİTİ üretir:
+   *     τ = −Δt / ln(1 − α)
+   * `DAMP_PITCH = 0.11` için ölçüm:
+   *     Δt = 150 ms → τ ≈ 1,29 s   (sahada ayarlanan his)
+   *     Δt = 500 ms → τ ≈ 4,29 s   (**3,3× tembel**)
+   *     Δt =  16 ms → τ ≈ 0,14 s   (**9,4× hırçın**)
+   * Bu üç tempo da üründe CANLIDIR:
+   *   · `FullMapView` normal takip  → 150 ms  (FullMapView.tsx `cameraThrottleMs`)
+   *   · `MiniMapWidget`             → GPS fix hızı ≈ 500 ms (2 Hz tavanı)
+   *   · `FullMapView` ölü hesaplama → 16 ms   (`drInterval`)
+   * Sonuç: mini harita, tam ekranla "AYNI politika, AYNI argümanlar" ile
+   * çağırmasına rağmen ÖLÇÜLEBİLİR biçimde farklı hissettiriyordu — fark
+   * politikada değil, TEMPODAYDI ve hiçbir yerde görünmüyordu.
+   *
+   * Düzeltme: alfalar Δt'ye göre uyarlanır (`rateAdjustAlpha`). Bu değer
+   * uyarlamanın SIFIR NOKTASIDIR: Δt = 150 ms'te alfa aynen korunur, yani
+   * sahada doğrulanmış tam ekran davranışı BİREBİR değişmez.
+   */
+  CALIBRATION_DT_MS: 150,
+  /** Δt tabanı — bundan küçük aralık ölçüm gürültüsüdür (tek kare ≈ 16 ms). */
+  DT_MIN_MS: 16,
+  /** Δt tavanı. Uygulama arka plana alınıp dönünce Δt saniyeler olabilir;
+   *  uyarlanmış alfa 1'e gidip kamerayı SIÇRATIRDI. Tavan, uzun boşluktan
+   *  sonraki ilk kareyi "biraz gecikmiş bir tick" gibi ele alır. */
+  DT_MAX_MS: 600,
 } as const;
 
 /* ─── Types ──────────────────────────────────────────────────────────────── */
@@ -116,9 +192,15 @@ let _sm: SmoothState = {
 };
 
 // ── Momentum state (Faz 3.4) ─────────────────────────────────────────────────
-let _smoothDeltaSpeed   = 0;    // EMA-smoothed speed change per tick
+let _smoothDeltaSpeed   = 0;    // EMA-smoothed speed change per calibration interval
 let _prevEffectiveSpeed = -1.0; // -1 = ilk tick, delta yok
-let _cruiseCounter      = 0;    // ardışık cruise tick sayısı
+let _cruiseMs           = 0;    // kesintisiz sabit-hız süresi (ms)
+
+// ── Kadans gözlemi (yalnız OKUNUR — davranışı etkilemez) ─────────────────────
+let _lastDtMs: number | null = null;   // son uygulanan (kırpılmış) Δt
+let _tickCount = 0;                    // toplam damp çağrısı
+/** Δt kalibrasyondan bu oranın dışına çıktığı tick sayısı — kadans sapma kanıtı. */
+let _offCadenceTicks = 0;
 
 /**
  * Kamera smooth state'ini bilinen bir başlangıç noktasına sıfırla.
@@ -135,7 +217,48 @@ export function resetCameraSmooth(seed?: Partial<SmoothState>): void {
   // Momentum state'i de sıfırla — navigasyon oturumları arası carryover önle
   _smoothDeltaSpeed   = 0;
   _prevEffectiveSpeed = -1.0;
-  _cruiseCounter      = 0;
+  _cruiseMs           = 0;
+  _lastDtMs           = null;
+}
+
+/**
+ * Sabit-kadans alfasını GERÇEK Δt'ye uyarla.
+ *
+ * Üstel ortalamada kalan oran her tickte `(1 − α)` ile çarpılır. `n` tick'lik
+ * sürede kalan `(1 − α)^n`'dir; `n = Δt / Δt_kalibrasyon` alınırsa:
+ *
+ *     α(Δt) = 1 − (1 − α_kalibrasyon)^(Δt / Δt_kalibrasyon)
+ *
+ * Bu, `α = 1 − e^(−Δt/τ)` ile birebir aynı ailedir ve **Δt = Δt_kalibrasyon'da
+ * α'yı AYNEN döndürür** → sahada doğrulanmış tam ekran davranışı korunur.
+ *
+ * SAF fonksiyon: saat okumaz, durum tutmaz (test edilebilirlik şartı).
+ *
+ * @param alphaAtCalibration `CAMERA_CFG` içindeki 150 ms'lik alfa (0..1)
+ * @param dtMs               ölçülen tick aralığı — kırpılmış olarak beklenir
+ */
+export function rateAdjustAlpha(alphaAtCalibration: number, dtMs: number): number {
+  const a = alphaAtCalibration;
+  // Uç değerlerde üs alma gereksiz ve sayısal olarak risklidir.
+  if (!(a > 0)) return 0;
+  if (a >= 1)   return 1;
+  if (!Number.isFinite(dtMs) || dtMs <= 0) return a;   // ölçemiyorsak DOKUNMA
+  const n = dtMs / CAMERA_CFG.CALIBRATION_DT_MS;
+  return Math.max(0, Math.min(1, 1 - Math.pow(1 - a, n)));
+}
+
+/**
+ * Ölçülen Δt'yi güvenli banda kırp.
+ *
+ * Ölçülemeyen Δt (ilk tick, saat sıfırlaması, negatif fark) kalibrasyon
+ * değerine düşer → davranış bugünküyle AYNI kalır (fail-soft).
+ */
+export function clampCameraDt(dtMs: number | undefined | null): number {
+  const cfg = CAMERA_CFG;
+  if (dtMs === undefined || dtMs === null || !Number.isFinite(dtMs) || dtMs <= 0) {
+    return cfg.CALIBRATION_DT_MS;
+  }
+  return Math.max(cfg.DT_MIN_MS, Math.min(cfg.DT_MAX_MS, dtMs));
 }
 
 /* ─── Pure helpers ───────────────────────────────────────────────────────── */
@@ -224,6 +347,69 @@ export function computeCameraTarget(
 }
 
 /**
+ * Araç ekranın ALTINDAN taşarsa düzeltilmiş `topPad` döndürür; taşma yoksa `null`.
+ *
+ * ── NEDEN GEREKLİ (saha 2026-08-03, kullanıcı: "araba gidince görünmüyor,
+ *    geride kalıyor") ────────────────────────────────────────────────────────
+ * Sürüş kamerası aracın KENDİSİNİ değil, aracın `lookAheadM` metre ÖNÜNDEKİ
+ * noktayı merkeze alır ve `padding.top` ile o merkezi aşağı iter. MapLibre'de
+ * padding'li merkez ekranda `y = (H + topPad) / 2` noktasına düşer; araç bunun
+ * `lookAheadPx` kadar ALTINDA kalır.
+ *
+ * KUSUR: `topPadFrac` bir ORANDIR (H ile ölçeklenir) ama `lookAheadM` METREDİR —
+ * piksel karşılığı H'den BAĞIMSIZDIR. Yani ekran kısaldıkça araç aşağı taşar.
+ * Ölçüm (50 km/h, zoom≈16.4, ~1.45 m/px → lookAhead ≈ 137 m ≈ 94 px):
+ *   • Head unit H=600 → merkez 0.795·600 ≈ 477 px, araç ≈ 571 px → ekranda (dar).
+ *   • Telefon    H=400 → merkez 0.795·400 ≈ 318 px, araç ≈ 412 px → **EKRAN DIŞI**.
+ * Hız arttıkça `lookAheadM` de `topPadFrac` de büyür → semptom hızla kötüleşir;
+ * kullanıcının "araba gidince kayboluyor" tarifi tam olarak budur.
+ *
+ * ÇÖZÜM: look-ahead'i (yani sürücünün ileri görüşünü) KISALTMAK yerine merkezi
+ * yukarı çekeriz. `centerY = (H + topPad)/2` olduğundan topPad'i `2×taşma`
+ * kadar azaltmak merkezi — ve onunla birlikte aracı — `taşma` kadar yukarı taşır.
+ *
+ * @param vehicleScreenY  `map.project([lng, lat]).y` — gerçek, pitch'e uygun ölçüm
+ * @param containerHeight harita konteyner yüksekliği (px)
+ * @param topPad          uygulanan üst padding (px)
+ * @param minBottomPx     araç ile alt kenar arasında korunacak boşluk
+ * @returns yeni topPad (0 ≤ yeni < topPad) veya taşma yoksa `null`
+ */
+/**
+ * Araç ekranda DÜZGÜN çerçevelenmiş mi? (saf · test edilebilir)
+ *
+ * "Ekranda" yetmez: aracın alt kenara `minBottomPx` kadar payı da olmalı,
+ * yoksa alt bilgi çubuğunun altında kalır.
+ */
+export function isVehicleFramed(
+  screenX: number, screenY: number,
+  width: number, height: number,
+  minBottomPx: number = CAMERA_CFG.VEHICLE_MIN_BOTTOM_PX,
+): boolean {
+  if (!Number.isFinite(screenX) || !Number.isFinite(screenY)) return false;
+  if (!(width > 0) || !(height > 0)) return false;
+  return screenX >= 0 && screenX <= width && screenY >= 0 && screenY <= height - minBottomPx;
+}
+
+export function clampTopPadForVehicle(
+  vehicleScreenY: number,
+  containerHeight: number,
+  topPad: number,
+  minBottomPx: number = CAMERA_CFG.VEHICLE_MIN_BOTTOM_PX,
+): number | null {
+  // Ölçülemeyen girdide DOKUNMA — kamera sessizce bozulmaktansa olduğu gibi kalsın.
+  if (!Number.isFinite(vehicleScreenY) || !Number.isFinite(containerHeight) || !Number.isFinite(topPad)) return null;
+  if (containerHeight <= 0 || topPad <= 0) return null;
+
+  const maxY = containerHeight - minBottomPx;
+  if (vehicleScreenY <= maxY) return null;      // zaten ekranda — HU yolu buradan çıkar
+
+  const overflowPx = vehicleScreenY - maxY;
+  const next = Math.max(0, topPad - overflowPx * 2);
+  // Düzeltme fark yaratmıyorsa ikinci bir jumpTo'ya değmez.
+  return next < topPad ? next : null;
+}
+
+/**
  * Manevra bölgesine yaklaşınca bearing'i turn-anticipated hedefe doğru blend et.
  * computeLookAheadCenter'dan ayrılmış saf fonksiyon.
  * Faz 3.3: dampCameraToward'a geçirilir; bearing smooth state bu değere doğru akar.
@@ -252,40 +438,58 @@ export function computeAnticipatedBearing(
  * Kamerayı hedefe doğru üstel olarak yavaştır.
  * Faz 3.4 ekleri: momentum, adaptive damping, cruise stabilization.
  *
+ * ── KADANSTAN BAĞIMSIZ (bu tur) ─────────────────────────────────────────────
+ * Tüm alfalar ve cruise eşiği `dtMs` ile uyarlanır. `dtMs` verilmezse
+ * kalibrasyon aralığı varsayılır → çağıranı güncellenmemiş her yol bugünkü
+ * davranışı AYNEN sürdürür (geriye dönük uyumlu, fail-soft).
+ *
  * @param target            computeCameraTarget çıktısı
  * @param bearingTarget     Turn-anticipated bearing (opsiyonel)
  * @param effectiveSpeedKmh GPS/OBD hız (momentum hesabı için)
+ * @param dtMs              Bu çağrı ile bir öncekinin ARASINDAKİ ölçülen süre
  * @returns Güncel smooth state
  */
 export function dampCameraToward(
   target: CameraTarget,
   bearingTarget?: number,
   effectiveSpeedKmh?: number,
+  dtMs?: number,
 ): SmoothState {
   const cfg = CAMERA_CFG;
   const spd = effectiveSpeedKmh ?? 0;
 
+  const dt = clampCameraDt(dtMs);
+  _lastDtMs = dt;
+  _tickCount++;
+  if (dt < cfg.CALIBRATION_DT_MS * 0.5 || dt > cfg.CALIBRATION_DT_MS * 2) _offCadenceTicks++;
+
   // ── Delta-speed computation ──────────────────────────────────────────────
   // Ham delta GPS spikelarını yansıtabilir; EMA ile sönümlüyoruz.
+  /* Δt NORMALİZASYONU: ham fark "bu tick'te ne kadar hızlandık"tır ve tick
+     süresiyle ölçeklenir — 16 ms'lik bir tickte aynı ivme 150 ms'liğin ~1/9'u
+     kadar fark üretir. Momentum katsayıları (`ACC_*`) 150 ms'lik farka göre
+     ayarlandığından ham değer KALİBRASYON ARALIĞINA çevrilir; böylece
+     hızlanma etkisi tempoya değil GERÇEK İVMEYE bağlı olur. */
   let rawDelta = 0;
   if (_prevEffectiveSpeed >= 0 && effectiveSpeedKmh !== undefined) {
-    rawDelta = spd - _prevEffectiveSpeed;
+    rawDelta = (spd - _prevEffectiveSpeed) * (cfg.CALIBRATION_DT_MS / dt);
   }
   if (effectiveSpeedKmh !== undefined) _prevEffectiveSpeed = spd;
-  _smoothDeltaSpeed += (rawDelta - _smoothDeltaSpeed) * cfg.ACC_DELTA_DECAY;
+  _smoothDeltaSpeed += (rawDelta - _smoothDeltaSpeed) * rateAdjustAlpha(cfg.ACC_DELTA_DECAY, dt);
 
   // ── Cruise detection ─────────────────────────────────────────────────────
   // Sabit hızda kamera kilitlenir; ani transition yok.
+  // Ölçüt SÜREdir, tick sayısı değil — bkz. `CRUISE_MIN_MS`.
   if (Math.abs(_smoothDeltaSpeed) < cfg.CRUISE_THRESHOLD_KMH) {
-    _cruiseCounter = Math.min(_cruiseCounter + 1, cfg.CRUISE_MIN_TICKS + 2);
+    _cruiseMs = Math.min(_cruiseMs + dt, cfg.CRUISE_MIN_MS + 2 * cfg.CALIBRATION_DT_MS);
   } else {
-    _cruiseCounter = 0;
+    _cruiseMs = 0;
   }
-  const inCruise = _cruiseCounter >= cfg.CRUISE_MIN_TICKS;
+  const inCruise = _cruiseMs >= cfg.CRUISE_MIN_MS;
 
-  // ── Adaptive damp alphas ─────────────────────────────────────────────────
-  const dampZoom  = inCruise ? cfg.CRUISE_DAMP_ZOOM  : cfg.DAMP_ZOOM;
-  const dampPitch = inCruise ? cfg.CRUISE_DAMP_PITCH : cfg.DAMP_PITCH;
+  // ── Adaptive damp alphas (Δt uyarlanmış) ─────────────────────────────────
+  const dampZoom  = rateAdjustAlpha(inCruise ? cfg.CRUISE_DAMP_ZOOM  : cfg.DAMP_ZOOM,  dt);
+  const dampPitch = rateAdjustAlpha(inCruise ? cfg.CRUISE_DAMP_PITCH : cfg.DAMP_PITCH, dt);
 
   // ── Momentum-adjusted targets ────────────────────────────────────────────
   // Acceleration (+delta): zoom geri çekilir (dünya genişler), look-ahead uzar.
@@ -299,7 +503,7 @@ export function dampCameraToward(
   // ── EMA smooth: zoom / pitch / look-ahead ───────────────────────────────
   _sm.zoom       += (adjZoom      - _sm.zoom)       * dampZoom;
   _sm.pitch      += (target.pitch - _sm.pitch)      * dampPitch;
-  _sm.lookAheadM += (adjLook      - _sm.lookAheadM) * cfg.DAMP_LOOK;
+  _sm.lookAheadM += (adjLook      - _sm.lookAheadM) * rateAdjustAlpha(cfg.DAMP_LOOK, dt);
   _sm.deltaSpeed  = _smoothDeltaSpeed;
 
   // ── Bearing EMA — adaptive alpha + low-speed deadzone ───────────────────
@@ -312,10 +516,12 @@ export function dampCameraToward(
 
     if (!inDeadzone) {
       // Tiered alpha: otoyolda çok stabil, şehirde responsive
-      const bearAlpha =
+      const bearAlpha = rateAdjustAlpha(
         spd < 20 ? cfg.DAMP_BEARING_URBAN :
         spd < 80 ? cfg.DAMP_BEARING_ROAD  :
-                   cfg.DAMP_BEARING_HIGHWAY;
+                   cfg.DAMP_BEARING_HIGHWAY,
+        dt,
+      );
 
       _sm.bearing = ((_sm.bearing + diff * bearAlpha) + 360) % 360;
     }
@@ -328,6 +534,62 @@ export function dampCameraToward(
     bearing:    _sm.bearing,
     deltaSpeed: _sm.deltaSpeed,
   };
+}
+
+/* ─── Kadans gözlemi (CAROS LAB — salt okunur) ───────────────────────────── */
+
+export interface CameraDampingSnapshot {
+  /** Alfaların ölçüldüğü referans tick aralığı (ms). */
+  readonly calibrationDtMs: number;
+  /** Son çağrıda kullanılan (kırpılmış) Δt — `null` = hiç çağrılmadı. */
+  readonly lastDtMs: number | null;
+  /** Toplam sönümleme çağrısı. */
+  readonly tickCount: number;
+  /** Δt'nin kalibrasyonun 0,5×–2× bandı DIŞINDA kaldığı çağrı sayısı.
+   *  Sıfırdan büyükse üründe kalibre olmayan bir kamera temposu VARDIR. */
+  readonly offCadenceTicks: number;
+  /** Son Δt'de pitch sönümlemesinin GERÇEK zaman sabiti (sn) — `null` = ölçüm yok.
+   *  Tempo ne olursa olsun bu değerin kalibrasyon τ'suna yakın kalması,
+   *  uyarlamanın çalıştığının doğrudan kanıtıdır. */
+  readonly effectivePitchTauSec: number | null;
+  /** Kalibrasyon temposundaki pitch zaman sabiti (sn) — karşılaştırma çıpası. */
+  readonly calibrationPitchTauSec: number;
+  /** Kesintisiz sabit-hız süresi (ms) ve seyir kilidi durumu. */
+  readonly cruiseMs: number;
+  readonly inCruise: boolean;
+}
+
+/** τ = −Δt / ln(1 − α) — saniye cinsinden. */
+function _tauSec(alpha: number, dtMs: number): number {
+  if (!(alpha > 0) || alpha >= 1) return 0;
+  return (dtMs / 1000) / -Math.log(1 - alpha);
+}
+
+/**
+ * Senkron okuma — CAROS LAB için. Harita nesnesi, koordinat veya rota TAŞIMAZ.
+ * Değerler GERÇEK `dampCameraToward` çağrılarından gelir; sabit/uydurma yok.
+ */
+export function getCameraDampingSnapshot(): CameraDampingSnapshot {
+  const cfg = CAMERA_CFG;
+  return {
+    calibrationDtMs: cfg.CALIBRATION_DT_MS,
+    lastDtMs: _lastDtMs,
+    tickCount: _tickCount,
+    offCadenceTicks: _offCadenceTicks,
+    effectivePitchTauSec: _lastDtMs === null
+      ? null
+      : Number(_tauSec(rateAdjustAlpha(cfg.DAMP_PITCH, _lastDtMs), _lastDtMs).toFixed(3)),
+    calibrationPitchTauSec: Number(_tauSec(cfg.DAMP_PITCH, cfg.CALIBRATION_DT_MS).toFixed(3)),
+    cruiseMs: Math.round(_cruiseMs),
+    inCruise: _cruiseMs >= cfg.CRUISE_MIN_MS,
+  };
+}
+
+/** @internal — testler arası izolasyon (sayaçlar dahil). */
+export function _resetCameraDampingCountersForTest(): void {
+  _lastDtMs = null;
+  _tickCount = 0;
+  _offCadenceTicks = 0;
 }
 
 /**

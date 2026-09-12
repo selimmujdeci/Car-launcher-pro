@@ -1,4 +1,5 @@
 import { ALERT_THRESHOLDS, TIMING } from './constants';
+import { vehicleTitle } from '@/lib/vehicleDisplay';
 import { GeofenceEngine } from './geofenceEngine';
 import { generateId } from './utils';
 import type { VehicleUpdate, NotificationEvent, LiveVehicle } from '@/types/realtime';
@@ -18,7 +19,8 @@ export class NotificationEngine {
   process(update: VehicleUpdate, vehicle: LiveVehicle): NotificationEvent[] {
     const events: NotificationEvent[] = [];
     const { vehicleId, speed, fuel, engineTemp } = update;
-    const plate = vehicle.plate;
+    /* Bildirim metni de TEK otoriteden — plaka yoksa UUID DEĞİL, "Araç #kısaid". */
+    const plate = vehicleTitle(vehicle);
 
     // Speed rule
     if (speed > ALERT_THRESHOLDS.SPEED_LIMIT_KMH && this.canFire(vehicleId, 'speed')) {

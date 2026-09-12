@@ -1,11 +1,13 @@
 import { memo, useCallback } from 'react';
-import { Star, ShieldAlert, ChevronRight } from 'lucide-react';
+import { Star, ShieldAlert, ChevronRight, FlaskConical } from 'lucide-react';
 import type { AppItem } from '../../data/apps';
 import { getNativeIcon }    from '../../platform/appDiscovery';
 import { useRoleStore }     from '../../platform/roleSystem/RoleStore';
 import { openDrawer }       from '../../platform/drawerBus';
 import { useStore }         from '../../store/useStore';
 import { RuntimeMode }      from '../../core/runtime/runtimeTypes';
+import { isCarosLabAllowedFromEnv } from '../../platform/devtools/carosLabGate';
+import { openCarosLab }     from '../../platform/devtools/carosLabEntry';
 
 interface Props {
   apps: AppItem[];
@@ -86,6 +88,7 @@ const AppItemCard = memo(function AppItemCard({ app, isFav, index, animate, onTo
       style={animate ? { animationDelay: (Math.min(index, 5) * 15) + 'ms' } : undefined}
     >
       <button
+        data-editable="apps.tile" data-editable-type="card"
         onClick={handleLaunch}
         className="w-full aspect-square flex flex-col items-center justify-center gap-6 rounded-[3rem] glass-card border-white/10 hover:border-white/30 hover:scale-[1.03] active:scale-[0.92] transition-all duration-500 group shadow-lg"
       >
@@ -155,9 +158,55 @@ const AdminManagementCard = memo(function AdminManagementCard() {
   );
 });
 
+// ── CAROS LAB Card (FAZ A · geliştirici merkezi) ─────────────────────────────
+// Yalnız geliştirici kapısı AÇIKKEN render edilir (DEVELOPER_FEATURES_ENABLED).
+// Satış build'inde kapı kapalıdır → bu kart navigasyonda HİÇ görünmez.
+
+const CarosLabCard = memo(function CarosLabCard() {
+  return (
+    <button
+      data-testid="caros-lab-entry"
+      onClick={() => { openCarosLab(); }}
+      className="w-full flex items-center gap-4 mb-6"
+      style={{
+        background:   'rgba(34,211,238,0.06)',
+        border:       '1px solid rgba(34,211,238,0.2)',
+        borderRadius:  24,
+        padding:      '14px 18px',
+        textAlign:    'left',
+        cursor:       'pointer',
+      }}
+    >
+      <div
+        style={{
+          width: 44, height: 44, borderRadius: 12,
+          background: 'rgba(34,211,238,0.12)',
+          border:     '1px solid rgba(34,211,238,0.25)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          flexShrink: 0,
+        }}
+      >
+        <FlaskConical size={22} style={{ color: '#22d3ee' }} />
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <p style={{ fontSize: 15, fontWeight: 700, color: '#e5e7eb', letterSpacing: '0.02em' }}>
+          CAROS LAB
+        </p>
+        <p style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>
+          Geliştirici ve teşhis araçları — Vehicle · Communication · Runtime · AI · Developer
+        </p>
+      </div>
+      <ChevronRight size={18} style={{ color: '#4b5563', flexShrink: 0 }} />
+    </button>
+  );
+});
+
 export const AppGrid = memo(function AppGrid({ apps, favorites, onToggleFavorite, onLaunch, gridColumns = 3 }: Props) {
   const { can } = useRoleStore();
   const isSuperAdmin = can('accessAdminPanel');
+  // CAROS LAB kapısı: YALNIZ derleme bayrağı (DEVELOPER_FEATURES_ENABLED).
+  // Rol artık görünürlüğü etkilemez — geliştirme/test APK'sında driver rolünde de açık.
+  const carosLabAllowed = isCarosLabAllowedFromEnv();
 
   // Giriş animasyonu yalnız BALANCED ve üzeri modlarda. BASIC_JS/POWER_SAVE/
   // SAFE_MODE (Mali-400 / zayıf HU): animate-slide-up + animationDelay hiç
@@ -166,11 +215,12 @@ export const AppGrid = memo(function AppGrid({ apps, favorites, onToggleFavorite
   const animate = runtimeMode === RuntimeMode.PERFORMANCE || runtimeMode === RuntimeMode.BALANCED;
 
   return (
-    <div className="h-full overflow-y-auto overflow-x-hidden custom-scrollbar">
+    <div data-theme-surface="apps" data-editable="apps.screen" data-editable-type="panel"
+      className="h-full overflow-y-auto overflow-x-hidden custom-scrollbar">
       <div className="p-8 pb-12">
 
         {/* Başlık */}
-        <div className="flex items-center justify-between mb-10 px-4">
+        <div data-editable="apps.header" data-editable-type="header" className="flex items-center justify-between mb-10 px-4">
           <div>
             <h2 className="text-4xl font-black text-primary uppercase tracking-[0.2em] drop-shadow-sm">Uygulamalar</h2>
             <div className="h-1.5 w-16 bg-blue-500 rounded-full mt-3 shadow-[0_0_15px_rgba(59,130,246,0.6)]" />
@@ -183,8 +233,11 @@ export const AppGrid = memo(function AppGrid({ apps, favorites, onToggleFavorite
         {/* Super Admin Kartı — sadece super_admin rolünde görünür */}
         {isSuperAdmin && <AdminManagementCard />}
 
+        {/* CAROS LAB — yalnız geliştirici kapısı açıkken görünür (fail-closed) */}
+        {carosLabAllowed && <CarosLabCard />}
+
         {/* Grid */}
-        <div className={`grid ${COL_CLASS[gridColumns] ?? 'grid-cols-3'} gap-6`}>
+        <div data-editable="apps.grid" data-editable-type="panel" className={`grid ${COL_CLASS[gridColumns] ?? 'grid-cols-3'} gap-6`}>
           {apps.map((app, index) => (
             <AppItemCard
               key={app.id}

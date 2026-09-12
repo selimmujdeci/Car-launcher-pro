@@ -176,6 +176,47 @@ export function recordFault(faultId: FaultId): void {
   scheduleFlush();
 }
 
+/**
+ * ARIZA İYİLEŞMESİ — özelliğin GERÇEKTEN çalıştığı KANITLANINCA çağrılır.
+ *
+ * SAHA 2026-08-06 (Adana-Şanlıurfa, gerçek sürüş): cihazda
+ * `disabledFeatures: ["obdDataGateAutoReconnect", "corridorPrefetch"]` ve
+ * `OBD_DATA_GATE_TIMEOUT × 19` bulundu → OBD bütün gün hiç bağlanamadı.
+ *
+ * KÖK: mandal KENDİNİ KİLİTLİYORDU. Arıza kaydı VIN bilinmeden `__NO_VIN__`
+ * ortak kovasına yazılıyor; orada eşiği aşınca otomatik yeniden bağlanma
+ * KALICI kapanıyor — ama VIN'i okumak için gereken şey tam da o bağlantı.
+ * Yani "VIN yok → kapat → VIN asla okunamaz → sonsuza dek kapalı".
+ * Sayaçlar hiç azalmıyor ve başarıya bakan bir çıkış yolu yoktu.
+ *
+ * KORUMA ZAYIFLATILMADI: eşik, sayaçlar ve kalıcılık aynen durur. Yalnızca
+ * "özellik kanıtlanmış biçimde çalıştı" olayı sayacı sıfırlar — otomotivde
+ * standart arıza iyileşmesi (drive-cycle clearing) davranışı. Çağıran, geçici
+ * bir soket bağlantısını DEĞİL, sürdürülebilir GERÇEK veri akışını kanıt
+ * saymalıdır; aksi hâlde takılıp kalan bir adaptör aç/kapa döngüsü yaratır.
+ */
+export function recordFeatureRecovered(feature: FeatureId): void {
+  const vinKey = getCurrentVinKey();
+  const prof   = _root.profiles[vinKey];
+  if (!prof) return;
+
+  let changed = false;
+
+  // Bu özelliğe bağlı TÜM arıza kimliklerini temizle (tek arıza → tek özellik değil)
+  for (const [faultId, feat] of Object.entries(FAULT_TO_FEATURE) as [FaultId, FeatureId][]) {
+    if (feat !== feature) continue;
+    if (prof.faults[faultId]) { delete prof.faults[faultId]; changed = true; }
+  }
+
+  const at = prof.disabledFeatures.indexOf(feature);
+  if (at >= 0) { prof.disabledFeatures.splice(at, 1); changed = true; }
+
+  if (!changed) return;
+  prof.updatedAt = Date.now();
+  notifySafetyListeners();
+  scheduleFlush();
+}
+
 export function resetVinProfile(vin: string): void {
   const k = normalizeVinKey(vin);
   delete _root.profiles[k];

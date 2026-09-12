@@ -306,3 +306,156 @@
   .pwa-border      { border-color: var(--pwa-border); }
   .pwa-border-soft { border-color: var(--pwa-border-soft); }
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   KANIT KONSOLU — filo paneli tasarım sistemi (#662)
+   ──────────────────────────────────────────────────────────────────────────
+   Felsefe: KANIT YOKSA "SAĞLIKLI" DENMEZ. Renk bir süs değil bir HÜKÜMDÜR:
+   yeşil yalnız ölçülmüş + taze veriye verilir; kanıtsız metrik gri/donuk
+   kalır ve bunu AÇIKÇA söyler.
+
+   Kapsam: yalnız `[data-console]` taşıyan ağaç. Pazarlama sayfalarının
+   `--st-*` tokenları ve PWA'nın `--pwa-*` tokenları ETKİLENMEZ.
+   ══════════════════════════════════════════════════════════════════════════ */
+@layer base {
+  [data-console='night'] {
+    --cn-bg-void:    #0A0A0C;
+    --cn-bg-panel:   #131317;
+    --cn-bg-bezel:   #1B1C21;
+    --cn-line:       #28292F;
+    --cn-line-soft:  #1C1D22;
+    --cn-text-1:     #EEEEF0;
+    --cn-text-2:     #96979F;
+    --cn-text-3:     #57585F;
+    --cn-copper:     #C48350;
+    --cn-copper-ink: #D9A075;
+    --cn-verified:   #3ECF8E;
+    --cn-warning:    #EFA53E;
+    --cn-critical:   #EF5245;
+    --cn-unknown:    #5C5F68;
+    /* Durum zeminleri — rozet/şerit dolgusu (opak değil, kıl payı ton). */
+    --cn-verified-bg: rgba(62,207,142,0.10);
+    --cn-warning-bg:  rgba(239,165,62,0.10);
+    --cn-critical-bg: rgba(239,82,69,0.10);
+    --cn-unknown-bg:  rgba(92,95,104,0.12);
+    --cn-copper-bg:   rgba(196,131,80,0.12);
+    /* Gölge YOK — ince iç/dış ışık vurgusu. */
+    --cn-inlay: inset 0 1px 0 rgba(255,255,255,0.04);
+    color-scheme: dark;
+  }
+
+  [data-console='day'] {
+    --cn-bg-void:    #E7E6E2;
+    --cn-bg-panel:   #F2F1ED;
+    --cn-bg-bezel:   #DCDBD6;
+    --cn-line:       #CBCAC4;
+    --cn-line-soft:  #DFDED9;
+    --cn-text-1:     #1B1B1A;
+    --cn-text-2:     #5B5A55;
+    --cn-text-3:     #8C8B85;
+    --cn-copper:     #A85F2E;
+    --cn-copper-ink: #8F4E22;
+    --cn-verified:   #1C8F5A;
+    --cn-warning:    #B0741E;
+    --cn-critical:   #C13527;
+    --cn-unknown:    #9A998F;
+    --cn-verified-bg: rgba(28,143,90,0.10);
+    --cn-warning-bg:  rgba(176,116,30,0.10);
+    --cn-critical-bg: rgba(193,53,39,0.10);
+    --cn-unknown-bg:  rgba(154,153,143,0.16);
+    --cn-copper-bg:   rgba(168,95,46,0.10);
+    --cn-inlay: inset 0 1px 0 rgba(255,255,255,0.55);
+    color-scheme: light;
+  }
+
+  /* ⚠️ KAPSAM AYRIMI (#663): `[data-console]` YALNIZ TOKEN TANIMIDIR ve
+     `<html>` üzerinde durur. Zemin/mürekkep kuralı `[data-console-root]`a
+     bağlıdır — aksi hâlde attribute `<html>`e yazıldığı anda PAZARLAMA
+     sayfalarının zemini de konsol rengine döner ve site kimliği bozulur. */
+  [data-console-root] {
+    background-color: var(--cn-bg-void);
+    color: var(--cn-text-1);
+  }
+
+  /* Klavye odağı HER ZAMAN görünür (WCAG 2.4.7) — bakır halka. */
+  [data-console-root] :focus-visible {
+    outline: 2px solid var(--cn-copper);
+    outline-offset: 2px;
+  }
+
+  /* Hareket azaltma tercihi — ibre/akış animasyonları durur (WCAG 2.3.3). */
+  @media (prefers-reduced-motion: reduce) {
+    [data-console-root] *,
+    [data-console-root] *::before,
+    [data-console-root] *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer components {
+  /* Panel — keskin köşe, kıl payı çizgi, gölge yerine iç ışık. */
+  .cn-panel {
+    background-color: var(--cn-bg-panel);
+    border: 1px solid var(--cn-line);
+    border-radius: 2px;
+    box-shadow: var(--cn-inlay);
+  }
+  .cn-bezel {
+    background-color: var(--cn-bg-bezel);
+    border: 1px solid var(--cn-line);
+    border-radius: 2px;
+  }
+  /* Bölüm başlığı — küçük, harf aralıklı, mono. */
+  .cn-eyebrow {
+    font-family: var(--font-mono), 'JetBrains Mono', monospace;
+    font-size: 10px;
+    line-height: 1;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--cn-text-3);
+  }
+  /* Sayısal veri — daima mono, tabular. */
+  .cn-num {
+    font-family: var(--font-mono), 'JetBrains Mono', monospace;
+    font-variant-numeric: tabular-nums;
+  }
+  .cn-display {
+    font-family: var(--font-display), Fraunces, Georgia, serif;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  /* Kıl payı ayraç. */
+  .cn-hair { border-color: var(--cn-line); }
+}
+
+/* ── KONSOL YAZDIRMA (#662) — "PDF'e aktar" tarayıcının yazdır diyaloğudur ──
+   Ayrı bir PDF kütüphanesi EKLENMEDİ: her yeni bağımlılık lisans denetimi
+   ister ve paket boyutunu büyütür. Tarayıcının "PDF olarak kaydet" çıktısı
+   aynı işi görür; burada yalnız sayfanın yazdırmaya uygun hâli tanımlanır. */
+@media print {
+  [data-console-root] {
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+  /* Etkileşim yüzeyleri kâğıda basılmaz. */
+  [data-console-root] nav,
+  [data-console-root] button,
+  [data-console-root] select,
+  [data-console-root] input {
+    display: none !important;
+  }
+  [data-console-root] .cn-panel,
+  [data-console-root] .cn-bezel {
+    background: #ffffff !important;
+    border-color: #999999 !important;
+    box-shadow: none !important;
+    break-inside: avoid;
+  }
+  [data-console-root] .cn-print-keep {
+    display: block !important;
+  }
+}

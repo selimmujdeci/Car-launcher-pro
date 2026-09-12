@@ -16,7 +16,10 @@
 
 import { signalWithTimeout } from '../utils/abortCompat';
 import { sensitiveKeyStore } from './sensitiveKeyStore';
-import { duckMedia, unduckMedia } from './audioService';
+import { requestDuck, type DuckHandle } from './media/authority/duckRequest';
+import type { DuckReason } from './media/authority/duckPolicy';
+/* MAVI-F0: TTS sentez + ilk duyulabilir ses ölçümü (YALNIZ ÖLÇÜM). */
+import { markMaviLatency } from './assistant/maviLatencyTrace';
 
 const TTS_MODEL    = 'gemini-2.5-flash-preview-tts';
 const TTS_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${TTS_MODEL}:generateContent`;
@@ -150,7 +153,11 @@ async function _synthesize(text: string): Promise<string | null> {
  * offline / anahtar yok / hata → `false` (çağıran native TTS yedeğine düşmeli).
  * `onEnd` yalnız ses gerçekten çaldıysa, bitiş/hata anında bir kez çağrılır.
  */
-export async function speakOnline(text: string, onEnd?: () => void): Promise<boolean> {
+export async function speakOnline(
+  text: string,
+  onEnd?: () => void,
+  duckReason: DuckReason = 'MAVI',
+): Promise<boolean> {
   const t = text.trim();
   if (!t) return false;
   if (typeof Audio === 'undefined') return false;
@@ -160,27 +167,31 @@ export async function speakOnline(text: string, onEnd?: () => void): Promise<boo
   if (!url) return false;
   // Bu çağrı uçuştayken daha yeni bir konuşma istendi → bu sonucu çalma (QUEUE_FLUSH).
   if (seq !== _seq) return false;
+  markMaviLatency('tts_audio_ready');   // MAVI-F0: sentezlenmiş ses verisi hazır
 
   if (_active) { try { _active.pause(); } catch { /* zaten durmuş */ } }
   const audio = new Audio(url);
   _active = audio;
 
   let settled = false;
-  let ducked  = false;
+  let duck: DuckHandle | null = null;
   const settle = () => {
     if (settled) return;
     settled = true;
-    if (ducked) { unduckMedia(); ducked = false; }
+    if (duck !== null) { duck.release(); duck = null; }
     if (_active === audio) _active = null;
     audio.onended = null;
     audio.onerror = null;
+    audio.onplaying = null;              // MAVI-F0: zero-leak
     onEnd?.();
   };
 
   try {
+    // MAVI-F0: `playing` platformun GERÇEK başlangıç bildirimidir; `play()` yalnız İSTEK.
+    audio.onplaying = () => { markMaviLatency('first_audio_confirmed'); };
+    markMaviLatency('first_audio_requested');
     const p = audio.play();
-    ducked = true;
-    duckMedia();
+    duck = requestDuck(duckReason);
     audio.onended = settle;
     audio.onerror = settle;
     if (p && typeof p.catch === 'function') p.catch(() => settle());

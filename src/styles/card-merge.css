@@ -1,0 +1,36 @@
+/* card-merge.css — GÖRSEL KART BİRLEŞTİRME (#656).
+ *
+ * Kullanıcı isteği: *"iki kartı tek kart yapma (görsel birleştirme)"*.
+ *
+ * Yerleşim tarafı (layoutSolver) ardışık birleşik kartları bir GRUBA toplar ve
+ * çizim tarafı o grubu `data-merged="true"` taşıyan tek bir kapsayıcıda,
+ * aralarında BOŞLUK BIRAKMADAN çizer. Geriye tek iş kalır: grup TEK kart gibi
+ * görünsün — iç köşeler düzleşsin, üyeler arasına ince bir ayraç girsin.
+ *
+ * NEDEN AYRI DOSYA: kural tema-bağımsızdır. Expedition ve Glass Pro'nun kendi
+ * <style> bloklarına ayrı ayrı yazılsaydı iki kopya oluşur ve biri düzeltilip
+ * öteki eskide kalırdı (bu depoda defalarca ölçülmüş "ikinci otorite" deseni).
+ *
+ * NEDEN `!important`: kartların köşe yarıçapı INLINE STYLE ile gelir
+ * (`plateStyle`, `glass-card`), ve inline bildirimi yalnız `!important` yener.
+ * Aynı gerekçe `themeManifest.editableSelector` notunda cihazda ölçülmüştü.
+ *
+ * KAPSAM SINIRI: seçici YALNIZ `data-merged="true"` kapsayıcılarını hedefler.
+ * Tek kartlık gruplar bu özniteliği TAŞIMAZ → birleştirme kullanılmadığında
+ * ekran bire bir eskisi gibi kalır (varsayılan davranış korunur).
+ */
+
+/* Üstteki üyenin ALT köşeleri, alttaki üyenin ÜST köşeleri düzleşir. */
+[data-merged='true'] > *:not(:first-child) > * {
+  border-top-left-radius: 0 !important;
+  border-top-right-radius: 0 !important;
+}
+
+[data-merged='true'] > *:not(:last-child) > * {
+  border-bottom-left-radius: 0 !important;
+  border-bottom-right-radius: 0 !important;
+  /* Ayraç: iki kart tek gövde gibi görünürken içerikleri yine ayrışsın.
+     Renk sabit değil yarı saydam nötr → hem gece hem gündüz paletinde çalışır
+     ve kullanıcının seçtiği kart rengini boyamaz. */
+  border-bottom: 1px solid rgba(128, 128, 128, 0.22) !important;
+}

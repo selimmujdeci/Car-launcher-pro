@@ -122,6 +122,16 @@ export const OFFLINE_PHASE_SEQUENCE: readonly OfflinePhase[] = [
   'report_generation',
 ];
 
+/**
+ * TÜM fazlar — aktif + offline. `DEEP_SCAN_PHASE_SEQUENCE` (orchestrator) ile AYNI
+ * içerik ve sıradadır; kilit testi bunu doğrular. Model katmanı orchestrator'ı import
+ * EDEMEZ (döngü) → sekans burada bağımsız türetilir.
+ */
+export const ALL_DEEP_SCAN_PHASES: readonly DeepScanPhase[] = [
+  ...ACTIVE_PHASES,
+  ...OFFLINE_PHASES,
+];
+
 /** Faz offline mı (tip daraltıcı — aktif faz yüzeylerinde çalışma-zamanı ikinci kilidi). */
 export function isOfflinePhase(phase: DeepScanPhase): phase is OfflinePhase {
   return !isActivePhase(phase);
@@ -397,4 +407,342 @@ export function normalizeFingerprintHash(value: unknown): string | null {
   if (v.length === 17) return null;                  // VIN uzunluğu — asla kabul etme
   if (!/^[0-9a-fA-F]{8,64}$/.test(v)) return null;
   return v.toLowerCase();
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * COMPLETION TRUTH — Coverage Ledger + TEK karar otoritesi (SAF)
+ *
+ * SORUN (düzeltilen): handler'ı olmayan faz `{ status:'skipped' }` üretiyordu ve
+ * `skipped` başarı EŞDEĞERİ sayılıyordu → pipeline sonuna ulaşıyor, `completeScan()`
+ * çağrılıyor ve `hasCompletedFullScan` GERÇEK KAPSAM OLMADAN true oluyordu.
+ *
+ * ÇÖZÜM: her tarama için tipli, bounded bir KAPSAM KÜTÜĞÜ tutulur; `full` kararı
+ * YALNIZ `evaluateDeepScanCompletion()` tarafından verilir. Dağınık `status === 'completed'`
+ * kontrolü YASAK — tek karar otoritesi budur. Bilinmeyen faz durumu FAIL-CLOSED'dur.
+ * ════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * Bir fazın KAPSAM açısından sonucu (tipli — serbest metin yok).
+ * `unknown`: tanınmayan/eksik durum → fail-closed (full completion'ı ENGELLER).
+ */
+export type DeepScanPhaseCompletionStatus =
+  | 'completed'
+  | 'skipped'
+  | 'handler_unavailable'
+  | 'failed'
+  | 'timeout'
+  | 'budget_exhausted'
+  | 'partial'
+  | 'cancelled'
+  | 'unknown';
+
+/** Taramanın nihai kapsam kararı. */
+export type DeepScanFinalVerdict = 'full' | 'partial' | 'incomplete' | 'failed' | 'cancelled';
+
+/** `hasCompletedFullScan` üretme yetkisi (tipli — boolean bayrak dağılımı yok). */
+export type DeepScanCompletionEligibility = 'eligible' | 'ineligible';
+
+/** Neden full sayılmadı — KAPALI KÜME (bounded, PII-güvenli, persist edilebilir). */
+export type DeepScanIncompleteReason =
+  | 'no_required_phases'
+  | 'required_phase_not_attempted'
+  | 'required_phase_handler_unavailable'
+  | 'required_phase_skipped'
+  | 'required_phase_failed'
+  | 'required_phase_timeout'
+  | 'required_phase_budget_exhausted'
+  | 'required_phase_partial'
+  | 'required_phase_cancelled'
+  | 'required_phase_unknown_status'
+  | 'scan_cancelled'
+  | 'scan_failed'
+  | 'safety_blocked'
+  | 'persistence_not_finalized'
+  | 'completion_evidence_missing';
+
+/** Kütüğe yazılan tek faz kaydı. */
+export interface DeepScanPhaseLedgerEntry {
+  readonly phase:  DeepScanPhase;
+  readonly status: DeepScanPhaseCompletionStatus;
+}
+
+/**
+ * KAPSAM KÜTÜĞÜ — bir taramanın gerçekte NE KADARININ yapıldığının tipli kanıtı.
+ * Bounded: her dizi en fazla faz sayısı kadar öğe taşır; ham veri/VIN/kimlik TAŞIMAZ.
+ */
+export interface DeepScanCoverageLedger {
+  readonly scanId:                string | null;
+  readonly requiredPhases:        readonly DeepScanPhase[];
+  readonly attemptedPhases:       readonly DeepScanPhase[];
+  readonly completedPhases:       readonly DeepScanPhase[];
+  readonly skippedPhases:         readonly DeepScanPhase[];
+  readonly failedPhases:          readonly DeepScanPhase[];
+  readonly unavailablePhases:     readonly DeepScanPhase[];
+  readonly timedOutPhases:        readonly DeepScanPhase[];
+  readonly budgetExhaustedPhases: readonly DeepScanPhase[];
+  readonly partialPhases:         readonly DeepScanPhase[];
+  readonly cancelledPhases:       readonly DeepScanPhase[];
+  readonly unknownPhases:         readonly DeepScanPhase[];
+  /** Tarama kullanıcı/handler tarafından iptal edildi mi. */
+  readonly scanCancelled:         boolean;
+  /** Tarama kritik faz hatasıyla `failed`'a düştü mü. */
+  readonly scanFailed:            boolean;
+  /** Güvenlik/kontak kapısı (ignition unknown, safety block) taramayı durdurdu mu. */
+  readonly safetyBlocked:         boolean;
+  /** Persistence finalizasyonu BAŞARIYLA tamamlandı mı (fail-closed: varsayılan false). */
+  readonly persistenceFinalized:  boolean;
+}
+
+/** Kapsam sayımları — persist edilir, LAB'da gösterilebilir (ham veri YOK). */
+export interface DeepScanCoverageSummary {
+  readonly requiredCount:         number;
+  readonly attemptedCount:        number;
+  readonly completedCount:        number;
+  readonly skippedCount:          number;
+  readonly failedCount:           number;
+  readonly unavailableCount:      number;
+  readonly timedOutCount:         number;
+  readonly budgetExhaustedCount:  number;
+  readonly partialCount:          number;
+  readonly unknownCount:          number;
+}
+
+/** `evaluateDeepScanCompletion()` çıktısı — taramanın KAPSAM GERÇEĞİ. */
+export interface DeepScanCompletionOutcome {
+  readonly scanId:                string | null;
+  readonly completionEligibility: DeepScanCompletionEligibility;
+  readonly finalVerdict:          DeepScanFinalVerdict;
+  /** YALNIZ `finalVerdict === 'full'` iken true. Persistence bunun dışında true YAZAMAZ. */
+  readonly hasCompletedFullScan:  boolean;
+  readonly incompleteReasons:     readonly DeepScanIncompleteReason[];
+  readonly coverage:              DeepScanCoverageSummary;
+}
+
+/** Kütük dizilerinin üst sınırı — bounded (faz sayısı). */
+export const MAX_LEDGER_PHASES = ALL_DEEP_SCAN_PHASES.length;
+/** Bounded: en fazla bu kadar farklı neden taşınır (kapalı küme zaten sınırlı). */
+export const MAX_INCOMPLETE_REASONS = 16;
+
+/** Faz adı geçerli mi (bilinmeyen/uydurma ad kütüğe GİRMEZ). */
+function _isPhase(v: unknown): v is DeepScanPhase {
+  return typeof v === 'string' && (ALL_DEEP_SCAN_PHASES as readonly string[]).includes(v);
+}
+
+/**
+ * Ham faz sonucu durumunu KAPSAM durumuna çevirir. Tanınmayan her değer
+ * `unknown` olur (FAIL-CLOSED — "bilmiyorsak başarı sayma").
+ */
+export function toPhaseCompletionStatus(raw: unknown): DeepScanPhaseCompletionStatus {
+  switch (raw) {
+    case 'success':
+    case 'completed':           return 'completed';
+    case 'skipped':             return 'skipped';
+    case 'handler_unavailable': return 'handler_unavailable';
+    case 'error':
+    case 'failed':              return 'failed';
+    case 'timeout':             return 'timeout';
+    case 'budget_exhausted':    return 'budget_exhausted';
+    case 'partial':             return 'partial';
+    case 'cancelled':           return 'cancelled';
+    default:                    return 'unknown';
+  }
+}
+
+/**
+ * Kütük ÖNCELİK sırası (kötüden iyiye). Aynı faz birden çok kovada görünürse
+ * (bozuk girdi) EN KÖTÜ durum kazanır — fail-closed birleştirme.
+ */
+const _LEDGER_PRIORITY: readonly DeepScanPhaseCompletionStatus[] = [
+  'unknown', 'cancelled', 'failed', 'timeout', 'budget_exhausted',
+  'partial', 'handler_unavailable', 'skipped', 'completed',
+];
+
+/** Kütük kurucusunun girdisi — hepsi opsiyonel; eksik alan fail-closed yorumlanır. */
+export interface DeepScanCoverageLedgerInput {
+  readonly scanId?:               string | null;
+  /** Verilmezse TÜM fazlar zorunlu sayılır (fail-closed — opsiyonel faz modeli YOK). */
+  readonly requiredPhases?:       readonly DeepScanPhase[];
+  readonly entries?:              readonly DeepScanPhaseLedgerEntry[];
+  readonly scanCancelled?:        boolean;
+  readonly scanFailed?:           boolean;
+  readonly safetyBlocked?:        boolean;
+  readonly persistenceFinalized?: boolean;
+}
+
+/**
+ * Kütüğü kurar: faz adlarını doğrular, tekilleştirir (en kötü durum kazanır),
+ * kovalara ayırır, dondurur. SAF — girdiyi mutate etmez, I/O yapmaz.
+ */
+export function buildDeepScanCoverageLedger(
+  input: DeepScanCoverageLedgerInput = {},
+): DeepScanCoverageLedger {
+  const byPhase = new Map<DeepScanPhase, DeepScanPhaseCompletionStatus>();
+  const entries = Array.isArray(input.entries) ? input.entries : [];
+  for (const e of entries) {
+    if (!e || typeof e !== 'object' || !_isPhase(e.phase)) continue;
+    if (byPhase.size >= MAX_LEDGER_PHASES && !byPhase.has(e.phase)) continue;  // bounded
+    const next = toPhaseCompletionStatus(e.status);
+    const prev = byPhase.get(e.phase);
+    if (prev === undefined) { byPhase.set(e.phase, next); continue; }
+    // En kötü kazanır (öncelik dizisinde daha erken olan).
+    byPhase.set(e.phase, _LEDGER_PRIORITY.indexOf(next) < _LEDGER_PRIORITY.indexOf(prev) ? next : prev);
+  }
+
+  const required: DeepScanPhase[] = [];
+  const seenRequired = new Set<DeepScanPhase>();
+  const rawRequired = Array.isArray(input.requiredPhases) ? input.requiredPhases : ALL_DEEP_SCAN_PHASES;
+  for (const p of rawRequired) {
+    if (!_isPhase(p) || seenRequired.has(p)) continue;
+    seenRequired.add(p);
+    required.push(p);
+  }
+
+  const bucket = (s: DeepScanPhaseCompletionStatus): DeepScanPhase[] =>
+    [...byPhase.entries()].filter(([, v]) => v === s).map(([k]) => k);
+
+  return Object.freeze({
+    scanId:                typeof input.scanId === 'string' ? input.scanId : null,
+    requiredPhases:        Object.freeze(required),
+    attemptedPhases:       Object.freeze([...byPhase.keys()]),
+    completedPhases:       Object.freeze(bucket('completed')),
+    skippedPhases:         Object.freeze(bucket('skipped')),
+    failedPhases:          Object.freeze(bucket('failed')),
+    unavailablePhases:     Object.freeze(bucket('handler_unavailable')),
+    timedOutPhases:        Object.freeze(bucket('timeout')),
+    budgetExhaustedPhases: Object.freeze(bucket('budget_exhausted')),
+    partialPhases:         Object.freeze(bucket('partial')),
+    cancelledPhases:       Object.freeze(bucket('cancelled')),
+    unknownPhases:         Object.freeze(bucket('unknown')),
+    scanCancelled:         input.scanCancelled === true,
+    scanFailed:            input.scanFailed === true,
+    safetyBlocked:         input.safetyBlocked === true,
+    persistenceFinalized:  input.persistenceFinalized === true,   // FAIL-CLOSED varsayılan
+  }) as DeepScanCoverageLedger;
+}
+
+/** Faz kapsam durumu → "neden full değil" gerekçesi. `completed` → gerekçe YOK. */
+function _reasonFor(status: DeepScanPhaseCompletionStatus): DeepScanIncompleteReason | null {
+  switch (status) {
+    case 'completed':           return null;
+    case 'skipped':             return 'required_phase_skipped';
+    case 'handler_unavailable': return 'required_phase_handler_unavailable';
+    case 'failed':              return 'required_phase_failed';
+    case 'timeout':             return 'required_phase_timeout';
+    case 'budget_exhausted':    return 'required_phase_budget_exhausted';
+    case 'partial':             return 'required_phase_partial';
+    case 'cancelled':           return 'required_phase_cancelled';
+    case 'unknown':             return 'required_phase_unknown_status';
+    default: {
+      // Exhaustive kilit: yeni bir durum eklenip burada UNUTULURSA derleme hatası verir;
+      // çalışma zamanında da fail-closed davranır (asla `null` dönmez → full olamaz).
+      const _never: never = status;
+      void _never;
+      return 'required_phase_unknown_status';
+    }
+  }
+}
+
+function _has(list: readonly DeepScanPhase[], phase: DeepScanPhase): boolean {
+  return list.includes(phase);
+}
+
+/**
+ * ★ TEK KARAR OTORİTESİ — bir taramanın full completion üretip üretemeyeceğini belirler.
+ *
+ * DETERMİNİSTİK · SAF · FAIL-CLOSED. `hasCompletedFullScan` YALNIZ buradan `true`
+ * dönebilir; başka hiçbir katman kendi başına "tam tarandı" iddia ETMEZ.
+ *
+ * `full` için ŞART: zorunlu faz kümesi BOŞ DEĞİL · her zorunlu faz denendi ·
+ * her zorunlu faz `completed` · hiçbiri skipped/handler_unavailable/timeout/
+ * budget_exhausted/failed/partial/cancelled/unknown değil · tarama iptal/hata ile
+ * bitmedi · güvenlik kapısı taramayı kesmedi · persistence finalizasyonu başarılı.
+ */
+export function evaluateDeepScanCompletion(
+  ledger: DeepScanCoverageLedger,
+): DeepScanCompletionOutcome {
+  const reasons = new Set<DeepScanIncompleteReason>();
+
+  const required = Array.isArray(ledger?.requiredPhases) ? ledger.requiredPhases : [];
+  const attempted = Array.isArray(ledger?.attemptedPhases) ? ledger.attemptedPhases : [];
+
+  // BOŞ zorunlu küme = kanıt yok → "her şey tamam" DEĞİL (fail-closed karar).
+  if (required.length === 0) reasons.add('no_required_phases');
+
+  let requiredCompleted = 0;
+  for (const phase of required) {
+    if (!_has(attempted, phase)) { reasons.add('required_phase_not_attempted'); continue; }
+    // Öncelik sırasıyla ilk eşleşen kova fazın durumudur (en kötü kazanır).
+    let status: DeepScanPhaseCompletionStatus = 'unknown';
+    if      (_has(ledger.unknownPhases,         phase)) status = 'unknown';
+    else if (_has(ledger.cancelledPhases,       phase)) status = 'cancelled';
+    else if (_has(ledger.failedPhases,          phase)) status = 'failed';
+    else if (_has(ledger.timedOutPhases,        phase)) status = 'timeout';
+    else if (_has(ledger.budgetExhaustedPhases, phase)) status = 'budget_exhausted';
+    else if (_has(ledger.partialPhases,         phase)) status = 'partial';
+    else if (_has(ledger.unavailablePhases,     phase)) status = 'handler_unavailable';
+    else if (_has(ledger.skippedPhases,         phase)) status = 'skipped';
+    else if (_has(ledger.completedPhases,       phase)) status = 'completed';
+    // else: denendi ama hiçbir kovada yok → tanımsız → `unknown` kalır (fail-closed).
+
+    const reason = _reasonFor(status);
+    if (reason === null) requiredCompleted += 1;
+    else reasons.add(reason);
+  }
+
+  if (ledger.scanCancelled === true)        reasons.add('scan_cancelled');
+  if (ledger.scanFailed === true)           reasons.add('scan_failed');
+  if (ledger.safetyBlocked === true)        reasons.add('safety_blocked');
+  if (ledger.persistenceFinalized !== true) reasons.add('persistence_not_finalized');
+
+  const eligible = reasons.size === 0;
+
+  let verdict: DeepScanFinalVerdict;
+  if (ledger.scanCancelled === true)   verdict = 'cancelled';
+  else if (ledger.scanFailed === true) verdict = 'failed';
+  else if (eligible)                   verdict = 'full';
+  else if (requiredCompleted > 0)      verdict = 'partial';
+  else                                 verdict = 'incomplete';
+
+  const coverage: DeepScanCoverageSummary = Object.freeze({
+    requiredCount:        required.length,
+    attemptedCount:       attempted.length,
+    completedCount:       ledger.completedPhases.length,
+    skippedCount:         ledger.skippedPhases.length,
+    failedCount:          ledger.failedPhases.length,
+    unavailableCount:     ledger.unavailablePhases.length,
+    timedOutCount:        ledger.timedOutPhases.length,
+    budgetExhaustedCount: ledger.budgetExhaustedPhases.length,
+    partialCount:         ledger.partialPhases.length,
+    unknownCount:         ledger.unknownPhases.length,
+  });
+
+  const reasonList = [...reasons].slice(0, MAX_INCOMPLETE_REASONS);
+
+  return Object.freeze({
+    scanId:                ledger.scanId ?? null,
+    completionEligibility: (eligible ? 'eligible' : 'ineligible') as DeepScanCompletionEligibility,
+    finalVerdict:          verdict,
+    hasCompletedFullScan:  verdict === 'full',
+    incompleteReasons:     Object.freeze(reasonList),
+    coverage,
+  }) as DeepScanCompletionOutcome;
+}
+
+/**
+ * Kanıt YOKKEN kullanılacak fail-closed sonuç: hiçbir çağıran "kütük vermedim ama
+ * tamamlandı say" diyemesin. Persistence, `completion` alanı gelmediğinde bunu kullanır.
+ */
+export function missingCompletionOutcome(scanId: string | null = null): DeepScanCompletionOutcome {
+  return Object.freeze({
+    scanId,
+    completionEligibility: 'ineligible' as DeepScanCompletionEligibility,
+    finalVerdict:          'incomplete' as DeepScanFinalVerdict,
+    hasCompletedFullScan:  false,
+    incompleteReasons:     Object.freeze(['completion_evidence_missing' as DeepScanIncompleteReason]),
+    coverage: Object.freeze({
+      requiredCount: 0, attemptedCount: 0, completedCount: 0, skippedCount: 0,
+      failedCount: 0, unavailableCount: 0, timedOutCount: 0,
+      budgetExhaustedCount: 0, partialCount: 0, unknownCount: 0,
+    }),
+  }) as DeepScanCompletionOutcome;
 }

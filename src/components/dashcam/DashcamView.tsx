@@ -47,7 +47,7 @@ function DashcamViewInner({ onClose }: Props) {
   }, [state.active]);
 
   return (
-    <div className="flex flex-col h-full glass-card border-none !shadow-none text-[color:var(--oem-ink)] select-none" data-editable="dashcam" data-editable-type="card">
+    <div className="flex flex-col h-full glass-card border-none !shadow-none text-[color:var(--oem-ink)] select-none" data-theme-surface="dashcam" data-editable="dashcam" data-editable-type="card">
 
       {/* ── Header ───────────────────────────────────────── */}
       <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--oem-line)] flex-shrink-0">
@@ -73,7 +73,8 @@ function DashcamViewInner({ onClose }: Props) {
       <div className="flex-1 flex gap-4 p-4 min-h-0">
 
         {/* Camera preview */}
-        <div className="flex-[2] min-h-0 relative bg-[var(--oem-surface-2)] rounded-2xl overflow-hidden border border-[var(--oem-line)]">
+        <div className="flex-[2] min-h-0 relative bg-[var(--oem-surface-2)] rounded-2xl overflow-hidden border border-[var(--oem-line)]"
+          data-editable="dashcam.viewport" data-editable-type="panel">
           {state.active ? (
             <video
               ref={videoRef}

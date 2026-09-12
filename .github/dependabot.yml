@@ -1,5 +1,5 @@
 # Dependabot — CarOS Pro
-# Politika (CLAUDE.md + AI.md ile uyumlu):
+# Politika (CLAUDE.md ile uyumlu):
 #  - Saha stabilitesi önceliklidir → major bump'lar OTOMATİK PR AÇMAZ (ignore).
 #  - Yalnız güvenlik + minör/yama güncellemeleri, gruplu, düşük limit.
 #  - Copyleft/NC bağımlılık yasağı ayrıca license-check workflow'unda zorlanır.

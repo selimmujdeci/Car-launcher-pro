@@ -27,6 +27,7 @@ describe('inAppBrowser — API konsol host\'ları yeni sekmede açılır', () =>
     'https://console.anthropic.com/settings/keys',
     'https://aistudio.google.com/apikey',
     'https://app.tavily.com',
+    'https://openrouter.ai/keys',
   ];
 
   consoleHosts.forEach((url) => {

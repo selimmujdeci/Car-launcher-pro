@@ -24,11 +24,17 @@ export const KEY_BEAM_CODE_LENGTH = 8;
 export const KEY_BEAM_TTL_MS = 5 * 60_000;
 
 /**
- * QR beam ile aktarılabilen API anahtar formatları — SettingsPage/AIVoicePanel'in
- * clipboard-algılama regex'leriyle AYNI: Gemini · Groq · Haiku · Tavily.
- * (Eskiden yalnız Gemini kabul ediliyordu → Tavily/Groq/Haiku QR ile getirilemiyordu.)
+ * QR beam ile aktarılabilen API anahtar formatları — `credentialRegistry`deki
+ * `clipboardPattern` desenleriyle AYNI olmak ZORUNDADIR: Gemini · OpenRouter ·
+ * Groq · Haiku · Tavily. (Eskiden yalnız Gemini kabul ediliyordu → Tavily/Groq/
+ * Haiku QR ile getirilemiyordu; OpenRouter ise 2026-07-26'ya kadar eksikti:
+ * panelde QR düğmesi hiç görünmüyordu ve gelse bile format REDDEDİLİRDİ.)
+ *
+ * ⚠️ DEĞİŞMEZ: `keyBeamKind` taşıyan HER kayıt defteri tanımının anahtar biçimi
+ * burada da kabul edilmelidir — aksi hâlde QR akışı sessizce "format tanınmadı"
+ * ile ölür. Bu eşleşme `keyBeamCrypto.test.ts` içinde kilitlidir.
  */
-export const API_KEY_BEAM_REGEX = /^(AIza[A-Za-z0-9_-]{35,}|AQ\.[A-Za-z0-9_.-]{20,}|gsk_[A-Za-z0-9]{20,}|sk-ant-[A-Za-z0-9_-]{20,}|tvly-[A-Za-z0-9_-]{10,})$/;
+export const API_KEY_BEAM_REGEX = /^(AIza[A-Za-z0-9_-]{35,}|AQ\.[A-Za-z0-9_.-]{20,}|sk-or-v1-[A-Za-z0-9]{20,}|gsk_[A-Za-z0-9]{20,}|sk-ant-[A-Za-z0-9_-]{20,}|tvly-[A-Za-z0-9_-]{10,})$/;
 
 // ── Base64 / Base64url yardımcıları ───────────────────────────────────────────
 

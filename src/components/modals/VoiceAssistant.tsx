@@ -24,6 +24,14 @@ import { isNative } from '../../platform/bridge';
 import { VOICE_TUNING } from '../../platform/voiceTuning';
 import { useLivingThemeState } from '../../hooks/useLivingThemeState';
 import type { AnimationLevel } from '../../platform/livingThemeState';
+/* MAVI-F11: durum etiketi ARTIK BURADA ÜRETİLMEZ. Tek kanonik kaynak
+   `maviSurfaceState`tir — çünkü bu dosya kendi etiketini üretirken tam ekran
+   yüzeyde modelin İÇ İŞLEYİŞİNİ anlatan bir cümle yazıyordu: bu bir iç akıl
+   yürütme göstergesidir ve F2/I7 ile YASAKTIR. */
+import { useMaviSurface } from '../../hooks/useMaviSurface';
+import {
+  surfaceShouldAutoClose, noteFullScreenBlocked,
+} from '../../platform/assistant/maviSurfaceState';
 
 /* ── Waveform animation ─────────────────────────────────────── */
 
@@ -37,6 +45,12 @@ export function voiceOverlayShouldAutoClose(followUp: boolean): boolean {
   return !followUp;
 }
 
+/* MAVI-F11 · GENİŞLETİLMİŞ kilit `maviSurfaceState.surfaceShouldAutoClose`
+ * içindedir (yeniden dışa aktarılmaz — bu dosya bir COMPONENT modülüdür).
+ * `voiceOverlayShouldAutoClose` onun DAR hâlidir ve davranışı AYNEN korunur
+ * (`followUp` → asla kapanmaz); genişletilmiş hâl buna `CONFIRMATION` ve
+ * `ACTION` durumlarını EKLER. */
+
 const Waveform = memo(function Waveform({ active, level }: { active: boolean; level: AnimationLevel }) {
   const bars = [3, 7, 11, 6, 9, 13, 5, 10, 7, 4, 8, 12, 6, 9, 5];
   // Living theme — static tier'da (Mali-400/K24, SAFE/POWER_SAVE) sonsuz pulse YOK:
@@ -49,7 +63,7 @@ const Waveform = memo(function Waveform({ active, level }: { active: boolean; le
         <div
           key={i}
           className={`w-[3px] rounded-full transition-all duration-300 ${
-            active ? 'bg-blue-400' : 'bg-slate-700'
+            active ? 'bg-blue-400' : 'bg-[var(--oem-ink-4)]'
           }`}
           style={{
             height: active ? `${h * 3}px` : '4px',
@@ -69,13 +83,13 @@ const ConfidenceBar = memo(function ConfidenceBar({ value }: { value: number }) 
   const color = pct >= 80 ? 'bg-emerald-400' : pct >= 60 ? 'bg-amber-400' : 'bg-red-400';
   return (
     <div className="flex items-center gap-2 w-full">
-      <div className="flex-1 h-1 bg-white/10 rounded-full overflow-hidden">
+      <div className="flex-1 h-1 bg-[var(--oem-line)] rounded-full overflow-hidden">
         <div
           className={`h-full rounded-full transition-all duration-500 ${color}`}
           style={{ width: `${pct}%` }}
         />
       </div>
-      <span className="text-[10px] text-slate-500 font-mono w-7 text-right">{pct}%</span>
+      <span className="text-[10px] text-[color:var(--oem-ink-3)] font-mono w-7 text-right">{pct}%</span>
     </div>
   );
 });
@@ -96,6 +110,7 @@ const PulseRing = memo(function PulseRing({ active }: { active: boolean }) {
 
 const VoiceOverlay = memo(function VoiceOverlay({ onClose, autoStart }: { onClose: () => void; autoStart?: boolean }) {
   const voice       = useVoiceState();
+  const surface     = useMaviSurface();      // MAVI-F11: kanonik yüzey durumu
   const { level }   = useLivingThemeState(); // companion wave animasyon kademesi
 
   const isListening   = voice.status === 'listening';
@@ -129,7 +144,10 @@ const VoiceOverlay = memo(function VoiceOverlay({ onClose, autoStart }: { onClos
     // Eskiden success(2200ms)/error(3000ms) otokapat bu bayrağı yok sayıp pencereyi
     // kapatıyordu → kullanıcı cevabını söyleyemeden "kapanıyordu". Döngü, kullanıcı
     // susunca (_endConvSession → followUp=false, status idle) normal şekilde kapanır.
-    if (!voiceOverlayShouldAutoClose(voice.followUp)) return;
+    /* MAVI-F11: kilit GENİŞLETİLDİ — `followUp`a EK OLARAK onay bekleyen ve
+       süren iş durumları da otomatik kapanmayı engeller. Dar hâl
+       (`voiceOverlayShouldAutoClose`) bunun içinde AYNEN korunur. */
+    if (!surfaceShouldAutoClose(surface)) return;
     if (isSuccess) {
       const id = setTimeout(onClose, 2200);
       return () => clearTimeout(id);
@@ -146,19 +164,23 @@ const VoiceOverlay = memo(function VoiceOverlay({ onClose, autoStart }: { onClos
       const id = setTimeout(onClose, 200);    // dinleme bitti, sonuç yok → kapan
       return () => clearTimeout(id);
     }
-  }, [isSuccess, isError, voice.status, voice.followUp, onClose]);
+  }, [isSuccess, isError, voice.status, voice.followUp, surface, onClose]);
 
   const handleQuickCmd = useCallback((cmd: string) => {
     processTextCommand(cmd);
   }, []);
 
-  /* ── Status label ── */
+  /* ── Durum etiketi — MAVI-F11 · KANONİK KAYNAK ──────────────────────────
+   * ESKİ HÂLİ `processing` durumunda modelin İÇ İŞLEYİŞİNİ anlatan bir cümle
+   * basıyordu. Bu bir iç akıl yürütme göstergesidir ve F2/I7 ile yasaktır
+   * (kullanıcıya modelin ne yaptığı anlatılmaz). Yeni etiket
+   * `maviSurfaceState`ten gelir ve `UNDERSTANDING` için nötr bir ALINDI
+   * bildirimi ("Seni duydum") üretir. Yasak sözcük listesi kilitlidir.
+   * Throttle bir Mavi durumu değil bir HIZ KAPISIDIR → yerel kalır. */
   const statusLabel =
-    isListening   ? 'Dinliyorum…' :
-    isProcessing  ? 'AI düşünüyor…' :
-    isSuccess     ? 'Anlaşıldı' :
-    isError       ? 'Anlaşılamadı' :
-    isThrottled   ? 'Bekleyin' : 'Sesli Asistan';
+    isThrottled ? 'Bekleyin'
+    : surface.label !== '' ? surface.label
+    : 'Sesli Asistan';
 
   const statusColor =
     isListening   ? 'text-blue-400' :
@@ -174,10 +196,20 @@ const VoiceOverlay = memo(function VoiceOverlay({ onClose, autoStart }: { onClos
     isError       ? 'bg-red-400' :
     isThrottled   ? 'bg-amber-400 animate-pulse' : 'bg-slate-700';
 
+  /* MAVI-F11 · NAVİGASYON/MÜZİK KAPANMAZ (spec §21.2 — pazarlıksız).
+   * Tam ekran yüzey YALNIZ `EXPANDED` (park) kipinde açılır; sürüşte (COMPACT)
+   * arka plan tıklama-yakalayıcı ve karartma DEVRE DIŞI kalır → altındaki
+   * navigasyon/müzik ekranı görünür ve dokunulabilir olmaya devam eder.
+   * Reddedilen tam ekran istekleri bounded sayaca yazılır (LAB). */
+  const fullScreen = surface.allowsFullScreen;
+  if (!fullScreen) noteFullScreenBlocked();
+
   return (
     <div
-      className="fixed inset-0 z-[70] flex flex-col items-center justify-center px-4"
-      onClick={(e) => { if (e.target === e.currentTarget) { stopListening(); onClose(); } }}
+      className={fullScreen
+        ? 'fixed inset-0 z-[70] flex flex-col items-center justify-center px-4'
+        : 'fixed inset-x-0 bottom-0 z-[70] flex flex-col items-center justify-end px-4 pb-4 pointer-events-none'}
+      onClick={(e) => { if (fullScreen && e.target === e.currentTarget) { stopListening(); onClose(); } }}
     >
       {/* Backdrop — çok şeffaf, sadece hafif karartma */}
       <div
@@ -188,8 +220,12 @@ const VoiceOverlay = memo(function VoiceOverlay({ onClose, autoStart }: { onClos
       {/* Panel — ortada, küçük */}
       <div className="relative w-full max-w-xs flex flex-col gap-3 pointer-events-auto">
 
-        {/* ── Main card — çok şeffaf cam kart ── */}
-        <div className="bg-[#0d1628]/35 backdrop-blur-2xl border border-white/[0.12] rounded-3xl shadow-[0_16px_48px_rgba(0,0,0,0.5)] overflow-hidden">
+        {/* ── Main card — tema-duyarlı OEM yüzey (aydınlık temada beyaz, koyuda koyu;
+             eskiden sabit koyu #0d1628 → aydınlık OEM HMI'de "gece modu" gibi duruyordu) ── */}
+        <div
+          className="rounded-3xl overflow-hidden relative"
+          style={{ background: 'var(--oem-surface-0)', border: '1px solid var(--oem-line)', boxShadow: 'var(--oem-shadow-pop)' }}
+        >
           {/* Top shimmer */}
           <div className="absolute top-0 left-1/4 right-1/4 h-px bg-gradient-to-r from-transparent via-blue-400/40 to-transparent" />
 
@@ -202,14 +238,14 @@ const VoiceOverlay = memo(function VoiceOverlay({ onClose, autoStart }: { onClos
                   {statusLabel}
                 </span>
                 {!isNative && (
-                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-500 border border-slate-700 font-mono tracking-wide">
+                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-[var(--oem-surface-1)] text-[color:var(--oem-ink-3)] border border-[color:var(--oem-line)] font-mono tracking-wide">
                     GOOGLE-FREE
                   </span>
                 )}
               </div>
               <button
                 onClick={() => { stopListening(); onClose(); }}
-                className="w-7 h-7 rounded-lg bg-white/[0.05] flex items-center justify-center text-slate-500 hover:text-slate-300 hover:bg-white/10 transition-all active:scale-90"
+                className="w-7 h-7 rounded-lg bg-[var(--oem-surface-1)] flex items-center justify-center text-[color:var(--oem-ink-3)] hover:text-[color:var(--oem-ink)] transition-all active:scale-90"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -241,7 +277,7 @@ const VoiceOverlay = memo(function VoiceOverlay({ onClose, autoStart }: { onClos
                   {voice.lastCommand.feedback}
                 </p>
                 {voice.transcript && (
-                  <p className="text-slate-500 text-xs">"{voice.transcript}"</p>
+                  <p className="text-[color:var(--oem-ink-3)] text-xs">"{voice.transcript}"</p>
                 )}
                 <ConfidenceBar value={voice.lastCommand.confidence} />
               </div>
@@ -254,13 +290,13 @@ const VoiceOverlay = memo(function VoiceOverlay({ onClose, autoStart }: { onClos
                 </p>
                 {voice.suggestions.length > 0 && (
                   <div className="flex flex-col w-full gap-1.5">
-                    <span className="text-slate-600 text-[9px] uppercase tracking-widest">Bunu mu dediniz?</span>
+                    <span className="text-[color:var(--oem-ink-3)] text-[9px] uppercase tracking-widest">Bunu mu dediniz?</span>
                     <div className="flex flex-wrap gap-2">
                       {voice.suggestions.map((s) => (
                         <button
                           key={s.example}
                           onClick={() => handleQuickCmd(s.example)}
-                          className="px-3 py-1.5 rounded-xl bg-white/[0.06] border border-white/[0.1] text-slate-300 text-xs font-medium active:scale-95 transition-transform hover:bg-white/10"
+                          className="px-3 py-1.5 rounded-xl bg-[var(--oem-surface-1)] border border-[color:var(--oem-line)] text-[color:var(--oem-ink)] text-xs font-medium active:scale-95 transition-transform"
                         >
                           {s.label}
                         </button>
@@ -299,6 +335,7 @@ const VoiceOverlay = memo(function VoiceOverlay({ onClose, autoStart }: { onClos
 
 const VoiceDrivePill = memo(function VoiceDrivePill({ onClose }: { onClose: () => void }) {
   const voice = useVoiceState();
+  const surface = useMaviSurface();          // MAVI-F11: kanonik yüzey durumu
   const isListening  = voice.status === 'listening';
   const isProcessing = voice.status === 'processing';
   const isSuccess    = voice.status === 'success';
@@ -335,7 +372,8 @@ const VoiceDrivePill = memo(function VoiceDrivePill({ onClose }: { onClose: () =
     // otokapat 1800ms'de stopListening() çağırıp _endConvSession ile takip döngüsünü
     // ÖLDÜRÜYORDU → kullanıcının cevabı hiç alınmıyordu. Cevap TTS'i bitince mikrofon
     // yeniden açılır (status → listening); döngü kullanıcı susunca normal kapanır.
-    if (!voiceOverlayShouldAutoClose(voice.followUp)) return;
+    /* MAVI-F11: genişletilmiş kilit (onay/süren iş de kapanmayı engeller). */
+    if (!surfaceShouldAutoClose(surface)) return;
     if (voice.status === 'idle') {
       if (!startedRef.current) return; // warmup sürüyor → henüz kapatma
       const id = setTimeout(() => { onCloseRef.current(); }, 80);
@@ -345,18 +383,22 @@ const VoiceDrivePill = memo(function VoiceDrivePill({ onClose }: { onClose: () =
       const id = setTimeout(() => { stopListening(); onCloseRef.current(); }, 1800);
       return () => clearTimeout(id);
     }
-  }, [isSuccess, isError, voice.status, voice.followUp]);
+  }, [isSuccess, isError, voice.status, voice.followUp, surface]);
 
   // idle iken hiçbir şey render etme — "Hazır" görüntüsü yok
   if (voice.status === 'idle') return null;
 
+  /* MAVI-F11: etiketler KANONİK modelden gelir (tek kaynak). Eski süreç-anlatan
+     etiket yerine nötr ALINDI bildirimi kullanılır — süreç anlatımı da bir
+     iç-durum göstergesidir ve sürüşte gereksiz dikkat yüküdür.
+     İKİ İSTİSNA BİLİNÇLİDİR ve daha DÜRÜSTTÜR:
+       · başarıda yürütücünün GERÇEK geri bildirimi ("Klima açılıyor"),
+       · hatada GERÇEK sebep (izin / model / dil paketi) — genel "Anlaşılamadı"
+         kullanıcının neden çalışmadığını göremediği eski kusurdu. */
   const label =
-    isListening  ? 'Dinliyorum…' :
-    isProcessing ? 'İşleniyor…' :
-    isSuccess    ? (voice.lastCommand?.feedback ?? 'Anlaşıldı') :
-    // Hata: GERÇEK sebebi göster (izin / Vosk model / dil paketi). Eskiden hep "Anlaşılamadı"
-    // yazıyordu → kullanıcı mikrofonun neden çalışmadığını göremiyordu ("hiç tepki vermiyor").
-    isError      ? (voice.error ?? 'Anlaşılamadı') : '';
+    isSuccess ? (voice.lastCommand?.feedback ?? surface.label)
+    : isError ? (voice.error ?? surface.label)
+    : surface.label;
 
   const accent =
     isListening  ? 'rgba(96,165,250,1)'   :
@@ -366,10 +408,12 @@ const VoiceDrivePill = memo(function VoiceDrivePill({ onClose }: { onClose: () =
 
   return (
     <div
-      className="fixed top-4 left-1/2 -translate-x-1/2 z-[9500] flex items-center gap-2.5 py-2.5 pr-5 pl-3.5 rounded-full bg-[rgba(6,10,24,0.92)] backdrop-blur-xl"
+      className="fixed top-4 left-1/2 -translate-x-1/2 z-[9500] flex items-center gap-2.5 py-2.5 pr-5 pl-3.5 rounded-full"
       style={{
-        border: `1px solid ${accent}44`,
-        boxShadow: `0 4px 24px rgba(0,0,0,0.55), 0 0 0 1px ${accent}22`,
+        background: 'var(--oem-surface-0)',
+        color: 'var(--oem-ink)',
+        border: `1px solid ${accent}55`,
+        boxShadow: `var(--oem-shadow-pop), 0 0 0 1px ${accent}22`,
       }}
       // BARGE-IN: asistan cevabı konuşurken pile dokunmak KESER + yeni tur açar
       // (kapatmaz). Diğer durumlarda dokunmak eskiden olduğu gibi kapatır.
@@ -390,12 +434,12 @@ const VoiceDrivePill = memo(function VoiceDrivePill({ onClose }: { onClose: () =
           <Mic className="w-3.5 h-3.5" style={{ color: accent }} />
         </div>
       </div>
-      <span className="text-[13px] font-semibold text-slate-200 tracking-[-0.2px] max-w-[240px] whitespace-nowrap overflow-hidden text-ellipsis">
+      <span className="text-[13px] font-semibold text-[color:var(--oem-ink)] tracking-[-0.2px] max-w-[240px] whitespace-nowrap overflow-hidden text-ellipsis">
         {label}
       </span>
       <button
         onClick={(e) => { e.stopPropagation(); stopListening(); onClose(); }}
-        className="ml-1 bg-white/[0.06] border border-white/10 rounded-full w-[22px] h-[22px] flex items-center justify-center cursor-pointer text-slate-400"
+        className="ml-1 bg-[var(--oem-surface-1)] border border-[color:var(--oem-line-strong)] rounded-full w-[22px] h-[22px] flex items-center justify-center cursor-pointer text-[color:var(--oem-ink-3)]"
       >
         <X className="w-2.5 h-2.5" />
       </button>
@@ -594,7 +638,7 @@ export const VoiceMicButton = memo(function VoiceMicButton({ floating }: { float
     ? 'bg-red-500/25 border-red-400/50'
     : isThrottled
     ? 'bg-amber-500/25 border-amber-400/50 shadow-[0_0_12px_3px_rgba(245,158,11,0.3)]'
-    : 'bg-[#0d1628]/80 backdrop-blur-md border-white/[0.13]';
+    : 'bg-[var(--oem-surface-0)] border-[color:var(--oem-line-strong)]';
 
   if (floating) {
     return (

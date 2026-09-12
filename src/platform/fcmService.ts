@@ -16,7 +16,10 @@ import { logInfo } from './debug';
 import { sensitiveKeyStore }  from './sensitiveKeyStore';
 // Statik import — dynamic import INEFFECTIVE_DYNAMIC_IMPORT uyarısını tetikler
 import { getSupabaseClient }  from './supabaseClient';
-import { startCommandListener, stopCommandListener } from './commandListener';
+import {
+  startCommandListener, stopCommandListener,
+  isCommandListenerActive, triggerPendingPoll,
+} from './commandListener';
 import { drainNativeCommandQueue }                   from './nativeCommandBridge';
 
 const WAKE_TIMEOUT_MS = 30_000; // 30s işlem yoksa WS kapat
@@ -29,6 +32,14 @@ let _isWaking         = false; // async start devam ederken ikinci çağrıyı e
 // ── Wake on push ─────────────────────────────────────────────────────────────
 
 function wakeCommandListener(): void {
+  /* Dinleyici zaten canlıysa (pushService kalıcı açmış olabilir) YENİDEN
+     KURULMAZ — yalnız bekleyen komutlar ANINDA yoklanır (#647). Aksi hâlde
+     bu modül ötekinin bağlantısını kesip dedup kümesini sıfırlardı. */
+  if (isCommandListenerActive()) {
+    triggerPendingPoll();
+    return;
+  }
+
   // Zaten uyanıksa timer'ı sıfırla
   if (_wakeTimer) {
     clearTimeout(_wakeTimer);

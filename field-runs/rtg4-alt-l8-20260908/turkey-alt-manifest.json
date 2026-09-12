@@ -1,0 +1,2906 @@
+{
+  "schemaVersion": 1,
+  "kind": "RTG4_ALT_LANDMARKS",
+  "datasetId": "osm-tr-c841556847bd",
+  "graphPolicyVersion": "2b4f5de8",
+  "graphManifestSha256": "877677000c0d8705111562c077e5dff57941f58fc1ee326068e3cc24dba21404",
+  "buildTimestamp": "2026-09-08T18:53:02.456Z",
+  "landmarkCount": 8,
+  "scaleM": 50,
+  "unreachableBucket": 65535,
+  "metric": "ONEWAY_ONLY_BASE_COST_M",
+  "metricContract": "Ön işleme metriği yalnız tek-yön uygular; dönüş yasağı, via-way zinciri ve destination-only cezası UYGULANMAZ. Kanonik A* maliyeti bu metrikten küçük olamaz → üretilen sınır fazla tahmin etmez (kabul edilebilir).",
+  "selection": "BACKBONE_CONSTRAINED_FARTHEST_POINT_REACHABILITY_VERIFIED",
+  "acceptRatio": 0.5,
+  "rejectedCandidates": [
+    {
+      "nodeId": "6830749657",
+      "settledForward": 1,
+      "settledBackward": -1
+    }
+  ],
+  "globalNodeCount": 20913743,
+  "landmarkSetId": "e4c617d7a31103bdc80652ce5b9e1df4",
+  "landmarks": [
+    {
+      "index": 0,
+      "nodeId": "2268371841",
+      "lat": 40.044761657714844,
+      "lon": 26.190561294555664,
+      "settledForward": 20579371,
+      "settledBackward": 20579377
+    },
+    {
+      "index": 1,
+      "nodeId": "13007484904",
+      "lat": 36.91764450073242,
+      "lon": 35.07999801635742,
+      "settledForward": 20579371,
+      "settledBackward": 20579377
+    },
+    {
+      "index": 2,
+      "nodeId": "7079681090",
+      "lat": 41.06321334838867,
+      "lon": 39.33115005493164,
+      "settledForward": 20579371,
+      "settledBackward": 20579377
+    },
+    {
+      "index": 3,
+      "nodeId": "779136441",
+      "lat": 41.794708251953125,
+      "lon": 32.56571960449219,
+      "settledForward": 20579371,
+      "settledBackward": 20579377
+    },
+    {
+      "index": 4,
+      "nodeId": "50808443",
+      "lat": 36.23234939575195,
+      "lon": 29.433053970336914,
+      "settledForward": 20579371,
+      "settledBackward": 20579377
+    },
+    {
+      "index": 5,
+      "nodeId": "3496099971",
+      "lat": 36.777462005615234,
+      "lon": 39.9302978515625,
+      "settledForward": 20579371,
+      "settledBackward": 20579377
+    },
+    {
+      "index": 6,
+      "nodeId": "130072375",
+      "lat": 40.74213790893555,
+      "lon": 43.494468688964844,
+      "settledForward": 20579371,
+      "settledBackward": 20579377
+    },
+    {
+      "index": 7,
+      "nodeId": "12945956633",
+      "lat": 38.756675720214844,
+      "lon": 31.71561050415039,
+      "settledForward": 20579371,
+      "settledBackward": 20579377
+    }
+  ],
+  "slices": [
+    {
+      "regionId": "tr-51-79",
+      "file": "regions/tr-51-79.alt",
+      "sha256": "c4f5b18fed7afdcd6eddee9fdd4b89781e5021f8b082ef53e4cdaa52d5bccf4f",
+      "byteSize": 18488,
+      "nodeCount": 577
+    },
+    {
+      "regionId": "tr-51-80",
+      "file": "regions/tr-51-80.alt",
+      "sha256": "f29547ebd429ad85a6266725a6951c20f72633033ddc2668dfe7619c2283a6f9",
+      "byteSize": 290872,
+      "nodeCount": 9089
+    },
+    {
+      "regionId": "tr-52-76",
+      "file": "regions/tr-52-76.alt",
+      "sha256": "d8109b56f3e9a1d80480689d938b6a6e62a9be4f3880f2177291ea12f65d4797",
+      "byteSize": 1099832,
+      "nodeCount": 34369
+    },
+    {
+      "regionId": "tr-52-77",
+      "file": "regions/tr-52-77.alt",
+      "sha256": "46d9af6f7a17e09aa709bf27c095872dadc265d58ef1968f517f8c1a4ac22149",
+      "byteSize": 185528,
+      "nodeCount": 5797
+    },
+    {
+      "regionId": "tr-52-78",
+      "file": "regions/tr-52-78.alt",
+      "sha256": "bbfc07f59febeb81a2e6a939762327727379fd34837cedbace651d5ea870e240",
+      "byteSize": 141080,
+      "nodeCount": 4408
+    },
+    {
+      "regionId": "tr-52-79",
+      "file": "regions/tr-52-79.alt",
+      "sha256": "e18d29c6195531c453ca065e367c3d7c4d1ec4cbc05662485f475cdbbe681173",
+      "byteSize": 2054936,
+      "nodeCount": 64216
+    },
+    {
+      "regionId": "tr-52-80",
+      "file": "regions/tr-52-80.alt",
+      "sha256": "e79373d3d867d3f4375fdb1483e3a1887ffe2d5604123d76775a987ddd0cf6e7",
+      "byteSize": 1267800,
+      "nodeCount": 39618
+    },
+    {
+      "regionId": "tr-52-81",
+      "file": "regions/tr-52-81.alt",
+      "sha256": "09698b3b41cd70498ca1a1d0cddecc206f34eea30e94b2e156ce92f30f01dd82",
+      "byteSize": 1325912,
+      "nodeCount": 41434
+    },
+    {
+      "regionId": "tr-52-82",
+      "file": "regions/tr-52-82.alt",
+      "sha256": "5078a0c97f031ad20509358b5f1d384272f833932e0393a714e5d939b7da5436",
+      "byteSize": 438648,
+      "nodeCount": 13707
+    },
+    {
+      "regionId": "tr-52-83",
+      "file": "regions/tr-52-83.alt",
+      "sha256": "ad9c7250669c5ad37012431ddc23b968fa7a04aceacd49c22ee729f7d31aae85",
+      "byteSize": 185336,
+      "nodeCount": 5791
+    },
+    {
+      "regionId": "tr-53-76",
+      "file": "regions/tr-53-76.alt",
+      "sha256": "76c12f03d7993a79f2dff3f8507aff04fdc421b16a2a100612bb98c646ede9d2",
+      "byteSize": 2887736,
+      "nodeCount": 90241
+    },
+    {
+      "regionId": "tr-53-77",
+      "file": "regions/tr-53-77.alt",
+      "sha256": "60c431e93a3f7e0195ab4eddda283a9725db71b73482d9fc2cf38dea7fb7b346",
+      "byteSize": 1826008,
+      "nodeCount": 57062
+    },
+    {
+      "regionId": "tr-53-78",
+      "file": "regions/tr-53-78.alt",
+      "sha256": "6f8cc805117504cdedfe6023df2e036d1824aaf7db80c0953056f71df0804d6e",
+      "byteSize": 1720568,
+      "nodeCount": 53767
+    },
+    {
+      "regionId": "tr-53-79",
+      "file": "regions/tr-53-79.alt",
+      "sha256": "6c4f1d129b4d1ccef96986d78e189c04158940b85a57b9cb137d9b7c9aea8bbb",
+      "byteSize": 1947160,
+      "nodeCount": 60848
+    },
+    {
+      "regionId": "tr-53-80",
+      "file": "regions/tr-53-80.alt",
+      "sha256": "1a2e8655171466988bf3896cf0c6365ca3ab779c34892037abc1389cbcc0b3b5",
+      "byteSize": 1959640,
+      "nodeCount": 61238
+    },
+    {
+      "regionId": "tr-53-81",
+      "file": "regions/tr-53-81.alt",
+      "sha256": "3f18c7b3010dfdbbe05ff8a179f00bee23a76cd0dec696b58a8ab83e2109e06f",
+      "byteSize": 3071320,
+      "nodeCount": 95978
+    },
+    {
+      "regionId": "tr-53-82",
+      "file": "regions/tr-53-82.alt",
+      "sha256": "b210e572e2f09fa1894e3f29133c3959b133f8c38754b237f6f7b0b6372c95a2",
+      "byteSize": 1760216,
+      "nodeCount": 55006
+    },
+    {
+      "regionId": "tr-53-83",
+      "file": "regions/tr-53-83.alt",
+      "sha256": "d512d2becae4a657bbd0fc6048e752f7585eb824a847eb7c5c3cc41a0eba1774",
+      "byteSize": 1986616,
+      "nodeCount": 62081
+    },
+    {
+      "regionId": "tr-53-84",
+      "file": "regions/tr-53-84.alt",
+      "sha256": "bcffc29cc997e3951d4c89a90c2733761974cdf12a9c77a270688f36ab8cfcf9",
+      "byteSize": 31512,
+      "nodeCount": 984
+    },
+    {
+      "regionId": "tr-54-73",
+      "file": "regions/tr-54-73.alt",
+      "sha256": "9206bd55a0d04fa9798f540221114dc287245af72edc0e900ba4ca9618ebbfef",
+      "byteSize": 171256,
+      "nodeCount": 5351
+    },
+    {
+      "regionId": "tr-54-74",
+      "file": "regions/tr-54-74.alt",
+      "sha256": "8c895a07c2644ccd3818e6e67974ad9245abcf477722cb6c3cc958a55ea15d1e",
+      "byteSize": 2103960,
+      "nodeCount": 65748
+    },
+    {
+      "regionId": "tr-54-75",
+      "file": "regions/tr-54-75.alt",
+      "sha256": "ca77bf598e2ebd87850c752fbfe4f3d66d9e28151d85f62f905ab5cdee4c7ae8",
+      "byteSize": 2019960,
+      "nodeCount": 63123
+    },
+    {
+      "regionId": "tr-54-76",
+      "file": "regions/tr-54-76.alt",
+      "sha256": "3ddad7da16ab44ebce6a2756f3dc1f33f29822d4cc489c0f5782354bafecfab1",
+      "byteSize": 8439416,
+      "nodeCount": 263731
+    },
+    {
+      "regionId": "tr-54-77",
+      "file": "regions/tr-54-77.alt",
+      "sha256": "53bea7e13a295f48a24e226076def682079451a0fea0e551e1a104f29abab6db",
+      "byteSize": 4230680,
+      "nodeCount": 132208
+    },
+    {
+      "regionId": "tr-54-78",
+      "file": "regions/tr-54-78.alt",
+      "sha256": "5aca9c9412fb7106496ba57ff5da034e284918493868506a0c045d92d0f19184",
+      "byteSize": 2712568,
+      "nodeCount": 84767
+    },
+    {
+      "regionId": "tr-54-79",
+      "file": "regions/tr-54-79.alt",
+      "sha256": "ed0e7f3bb42822bbc4f6e0003b5eedd56abc1a9e973321d583e220b45296050b",
+      "byteSize": 1913336,
+      "nodeCount": 59791
+    },
+    {
+      "regionId": "tr-54-80",
+      "file": "regions/tr-54-80.alt",
+      "sha256": "5832d2605d5983449eb998912e7b361ef4b30336839f8c01341c5f103a9cfc26",
+      "byteSize": 1676792,
+      "nodeCount": 52399
+    },
+    {
+      "regionId": "tr-54-81",
+      "file": "regions/tr-54-81.alt",
+      "sha256": "0715abec77c34fcf9ad16b8283d8a17614c3c8dc3a5d68da80bf0768edddd064",
+      "byteSize": 1685016,
+      "nodeCount": 52656
+    },
+    {
+      "regionId": "tr-54-82",
+      "file": "regions/tr-54-82.alt",
+      "sha256": "1dfde9b6ceea984ec5059ecb2d5b0aad3f3db8570bec7664bf9cd2d12c7c6147",
+      "byteSize": 1828248,
+      "nodeCount": 57132
+    },
+    {
+      "regionId": "tr-54-83",
+      "file": "regions/tr-54-83.alt",
+      "sha256": "b55ef22d88eb64f8c9d783a4fd0cb220884464fe07c48176798a5866c7ad5bf4",
+      "byteSize": 2183832,
+      "nodeCount": 68244
+    },
+    {
+      "regionId": "tr-54-84",
+      "file": "regions/tr-54-84.alt",
+      "sha256": "e356da46f36ec64a16a761afb4d99ac764ef9b841b3095ac04f73ba46f202c17",
+      "byteSize": 147064,
+      "nodeCount": 4595
+    },
+    {
+      "regionId": "tr-55-73",
+      "file": "regions/tr-55-73.alt",
+      "sha256": "2e983a62b585954ded469d60677e522ad81e5f9e82465fad7911c69855a26e17",
+      "byteSize": 337208,
+      "nodeCount": 10537
+    },
+    {
+      "regionId": "tr-55-74",
+      "file": "regions/tr-55-74.alt",
+      "sha256": "6e13ccddc585b00509b39dce79ada5691485a7e3fb0698374a44614e32799616",
+      "byteSize": 2027320,
+      "nodeCount": 63353
+    },
+    {
+      "regionId": "tr-55-75",
+      "file": "regions/tr-55-75.alt",
+      "sha256": "4bcce83cb0bbba7ca413fa3c04a5e7e3c8ca546062d3f2cc2c4bb200681c9444",
+      "byteSize": 3160504,
+      "nodeCount": 98765
+    },
+    {
+      "regionId": "tr-55-76",
+      "file": "regions/tr-55-76.alt",
+      "sha256": "9443973238c30b586e77fee077421b37047006e4e79920d86434307f59e6ef7e",
+      "byteSize": 2956312,
+      "nodeCount": 92384
+    },
+    {
+      "regionId": "tr-55-77",
+      "file": "regions/tr-55-77.alt",
+      "sha256": "5eb02432f9157a321b7a0de26e5b93cdb3c5dbd04479fc493af43a80c986dba5",
+      "byteSize": 2121208,
+      "nodeCount": 66287
+    },
+    {
+      "regionId": "tr-55-78",
+      "file": "regions/tr-55-78.alt",
+      "sha256": "cd8a199b299e9ede299042d6c9f324b97cc5f856d23ed920a8c06d053bed45bb",
+      "byteSize": 2245784,
+      "nodeCount": 70180
+    },
+    {
+      "regionId": "tr-55-79",
+      "file": "regions/tr-55-79.alt",
+      "sha256": "5a75da8d4b444a1e2e047244ddc6274d7ccdb031673a9c491d13393c119dbca4",
+      "byteSize": 2589624,
+      "nodeCount": 80925
+    },
+    {
+      "regionId": "tr-55-80",
+      "file": "regions/tr-55-80.alt",
+      "sha256": "01043d9abb42b0a7f8de73a7da9bca093488c9de56a50ae4be92fb46cc5195af",
+      "byteSize": 2044632,
+      "nodeCount": 63894
+    },
+    {
+      "regionId": "tr-55-81",
+      "file": "regions/tr-55-81.alt",
+      "sha256": "056b8b2619617ecb599cc013f7bfa69e35d5531066dac68b11d517163f3cf90d",
+      "byteSize": 970744,
+      "nodeCount": 30335
+    },
+    {
+      "regionId": "tr-55-82",
+      "file": "regions/tr-55-82.alt",
+      "sha256": "60546ae069759df5aab2edff7d83a6478c945105f79126068d31849ac269cefd",
+      "byteSize": 3191864,
+      "nodeCount": 99745
+    },
+    {
+      "regionId": "tr-55-83",
+      "file": "regions/tr-55-83.alt",
+      "sha256": "97c1d0ec6a26f6472e2f404794f01886be41900146d68795dfc5d491ff436980",
+      "byteSize": 1286840,
+      "nodeCount": 40213
+    },
+    {
+      "regionId": "tr-55-84",
+      "file": "regions/tr-55-84.alt",
+      "sha256": "3cc6297f70ca8e0f913f4b494fb3a119173034b89d8504a6da8cc723362398ae",
+      "byteSize": 9304,
+      "nodeCount": 290
+    },
+    {
+      "regionId": "tr-56-73",
+      "file": "regions/tr-56-73.alt",
+      "sha256": "499afbbb8d123ec4f181203184f1a4348f5faf956efc47b7005d9d9fbf1821a3",
+      "byteSize": 855416,
+      "nodeCount": 26731
+    },
+    {
+      "regionId": "tr-56-74",
+      "file": "regions/tr-56-74.alt",
+      "sha256": "553d800e342487f83754b53264bbca87e91ceff5cc622b8ecae8feba70fcb29c",
+      "byteSize": 2027928,
+      "nodeCount": 63372
+    },
+    {
+      "regionId": "tr-56-75",
+      "file": "regions/tr-56-75.alt",
+      "sha256": "121dad7c5b610bbb81b96e602fd9edbeccda7ba6710c5cf611cf0e363d9517ff",
+      "byteSize": 2743480,
+      "nodeCount": 85733
+    },
+    {
+      "regionId": "tr-56-76",
+      "file": "regions/tr-56-76.alt",
+      "sha256": "751cc024562c785e9eeac677006bb02d9105f831f60a1cfff68724c5239aa319",
+      "byteSize": 3181016,
+      "nodeCount": 99406
+    },
+    {
+      "regionId": "tr-56-77",
+      "file": "regions/tr-56-77.alt",
+      "sha256": "39862231cfcacb8961d9aa681e410e9d443178ce7d7816f0053cdad45393a10f",
+      "byteSize": 1517112,
+      "nodeCount": 47409
+    },
+    {
+      "regionId": "tr-56-78",
+      "file": "regions/tr-56-78.alt",
+      "sha256": "8ba22bfed173754e5b5110cb7a02ecf5126e20e05b700158037ce418056decb9",
+      "byteSize": 1864888,
+      "nodeCount": 58277
+    },
+    {
+      "regionId": "tr-56-79",
+      "file": "regions/tr-56-79.alt",
+      "sha256": "572474023747829db0aa2d002433dcec7737b43fc336112283b07fe7fb485f7e",
+      "byteSize": 1669400,
+      "nodeCount": 52168
+    },
+    {
+      "regionId": "tr-56-80",
+      "file": "regions/tr-56-80.alt",
+      "sha256": "f3be8aab8e764b82dec421ddfd2281c0d99b11ab607fd66a66ce535e04ff43c6",
+      "byteSize": 1551768,
+      "nodeCount": 48492
+    },
+    {
+      "regionId": "tr-56-82",
+      "file": "regions/tr-56-82.alt",
+      "sha256": "c9cb043ae8227d1e4a5c8a0ccf4f8e576fb8d5243168c9d592136d92e5c6e062",
+      "byteSize": 2986040,
+      "nodeCount": 93313
+    },
+    {
+      "regionId": "tr-56-83",
+      "file": "regions/tr-56-83.alt",
+      "sha256": "acb0bc1b7e8dc63faf4bdb1ea08d7f6f54a14a5ac869fbd5b3f0ff9c7dd76f73",
+      "byteSize": 218552,
+      "nodeCount": 6829
+    },
+    {
+      "regionId": "tr-56-84",
+      "file": "regions/tr-56-84.alt",
+      "sha256": "a7c94962d598686606984d01b06ae1503039276e6127cb87e5600f8af85c5203",
+      "byteSize": 2648,
+      "nodeCount": 82
+    },
+    {
+      "regionId": "tr-57-73",
+      "file": "regions/tr-57-73.alt",
+      "sha256": "2e00ef92d902ad03cb12a79203ed8a8dcc0c13188c6826e5df8aecbf296a06fb",
+      "byteSize": 1695224,
+      "nodeCount": 52975
+    },
+    {
+      "regionId": "tr-57-74",
+      "file": "regions/tr-57-74.alt",
+      "sha256": "34d3c5b13dc28715413c8667ed276a49d48b2e2007a628a47ab47157145bbfb6",
+      "byteSize": 1302168,
+      "nodeCount": 40692
+    },
+    {
+      "regionId": "tr-57-75",
+      "file": "regions/tr-57-75.alt",
+      "sha256": "a30bd2045889c18b30ce336d20d32fd221cfe2f14ed8d95423b750de4978e82a",
+      "byteSize": 1722488,
+      "nodeCount": 53827
+    },
+    {
+      "regionId": "tr-57-76",
+      "file": "regions/tr-57-76.alt",
+      "sha256": "480c477a8d8b2c7aed6d1d5bf095ec9a54354edb7f7f05a9d242ee242ccad9e0",
+      "byteSize": 2113368,
+      "nodeCount": 66042
+    },
+    {
+      "regionId": "tr-57-77",
+      "file": "regions/tr-57-77.alt",
+      "sha256": "4caf8fca8e396c29e387c212f33bea00a9c1835a2b0c5e480e36eb308e6b40ed",
+      "byteSize": 1569976,
+      "nodeCount": 49061
+    },
+    {
+      "regionId": "tr-57-78",
+      "file": "regions/tr-57-78.alt",
+      "sha256": "8c5c0317b02b3d5c3825ff9add181509f4b55a64c2f6a4ea63b398b7fa8ecd82",
+      "byteSize": 1761432,
+      "nodeCount": 55044
+    },
+    {
+      "regionId": "tr-57-79",
+      "file": "regions/tr-57-79.alt",
+      "sha256": "6f29bf33a903492d693d3018f486b5994566f5e07a638e47bc0c52760b96fe06",
+      "byteSize": 1874168,
+      "nodeCount": 58567
+    },
+    {
+      "regionId": "tr-57-80",
+      "file": "regions/tr-57-80.alt",
+      "sha256": "4d5cb65ddaeef5515cd3ba1e630954c11ff74b7f4955bd3e3a5fc4c3e216f59a",
+      "byteSize": 3196632,
+      "nodeCount": 99894
+    },
+    {
+      "regionId": "tr-57-81",
+      "file": "regions/tr-57-81.alt",
+      "sha256": "184f98ddcd035c47d7911541749cf0d724f24707626cb42e0d2af148fb385d58",
+      "byteSize": 1884120,
+      "nodeCount": 58878
+    },
+    {
+      "regionId": "tr-57-82",
+      "file": "regions/tr-57-82.alt",
+      "sha256": "9dfca5cc27bcc3187e508fb9fe66352e4c9bbd40caac31355154b26c5a3d2956",
+      "byteSize": 12176568,
+      "nodeCount": 380517
+    },
+    {
+      "regionId": "tr-58-72",
+      "file": "regions/tr-58-72.alt",
+      "sha256": "3c927aa22016aa92d5f6e7a02e62d61ed20b8c2772aa93b8cab5bc4b2f0624b3",
+      "byteSize": 867512,
+      "nodeCount": 27109
+    },
+    {
+      "regionId": "tr-58-73",
+      "file": "regions/tr-58-73.alt",
+      "sha256": "b9178db6dbf6bde1280c68d304b0b7692520eadd71946316735094bab6ce3d58",
+      "byteSize": 2489912,
+      "nodeCount": 77809
+    },
+    {
+      "regionId": "tr-58-74",
+      "file": "regions/tr-58-74.alt",
+      "sha256": "263956246e0cb89e1f29772c664f683f40c6c8b3754d46181571da4f8fa5c848",
+      "byteSize": 1147224,
+      "nodeCount": 35850
+    },
+    {
+      "regionId": "tr-58-75",
+      "file": "regions/tr-58-75.alt",
+      "sha256": "53ce94d45dcc09dc677a92c77bb4dbbf491fb5e5e0d041622d7d4c6d7ac0d024",
+      "byteSize": 2981304,
+      "nodeCount": 93165
+    },
+    {
+      "regionId": "tr-58-76",
+      "file": "regions/tr-58-76.alt",
+      "sha256": "9851a5b350891a78e1c029cde76ef5efb3896a8e7405fa095130379aa05b1e86",
+      "byteSize": 1128184,
+      "nodeCount": 35255
+    },
+    {
+      "regionId": "tr-58-77",
+      "file": "regions/tr-58-77.alt",
+      "sha256": "d208630cda3df539b3c131e8df7c93a2706504e3f6431f4220487b6d441827fb",
+      "byteSize": 2342296,
+      "nodeCount": 73196
+    },
+    {
+      "regionId": "tr-58-78",
+      "file": "regions/tr-58-78.alt",
+      "sha256": "9bdc2778ccc4ef745d7ebc1c6686292086d5e2c18b32b3c16535bfdd8bc9c30d",
+      "byteSize": 1353208,
+      "nodeCount": 42287
+    },
+    {
+      "regionId": "tr-58-79",
+      "file": "regions/tr-58-79.alt",
+      "sha256": "6c49d4cc437b6b96642116d431ccc14b507421589975cc146bc16c0843ec218b",
+      "byteSize": 1454744,
+      "nodeCount": 45460
+    },
+    {
+      "regionId": "tr-58-80",
+      "file": "regions/tr-58-80.alt",
+      "sha256": "9269bb21832818a09833fc9799d8d9cc8b6804065c198328ed90bc0004b6ea0d",
+      "byteSize": 4435704,
+      "nodeCount": 138615
+    },
+    {
+      "regionId": "tr-58-81",
+      "file": "regions/tr-58-81.alt",
+      "sha256": "84ec77144722166a40d50fef311bef0e9398b037de236161e1eddb0ad578467e",
+      "byteSize": 9556920,
+      "nodeCount": 298653
+    },
+    {
+      "regionId": "tr-58-82",
+      "file": "regions/tr-58-82.alt",
+      "sha256": "68854a3caf8fec6fc27718a9a9b6bbe205a77de47562599b3087c41d491bd3e1",
+      "byteSize": 6804888,
+      "nodeCount": 212652
+    },
+    {
+      "regionId": "tr-59-72",
+      "file": "regions/tr-59-72.alt",
+      "sha256": "2f69c4d39625891a208e6b8bd7219ce7ad00ebe05f539b525bfc216d3d2e1ddc",
+      "byteSize": 1034488,
+      "nodeCount": 32327
+    },
+    {
+      "regionId": "tr-59-73",
+      "file": "regions/tr-59-73.alt",
+      "sha256": "fbc2fa527eb9ea86b3399bd2fb243270d023760b9af2108a6cd57da332ce39a5",
+      "byteSize": 821400,
+      "nodeCount": 25668
+    },
+    {
+      "regionId": "tr-59-74",
+      "file": "regions/tr-59-74.alt",
+      "sha256": "20eb3501872e360202ab37ae47dd6fbaa20aabc7670598dcc23c466d29887534",
+      "byteSize": 959512,
+      "nodeCount": 29984
+    },
+    {
+      "regionId": "tr-59-75",
+      "file": "regions/tr-59-75.alt",
+      "sha256": "f4abd4e0d287ede60cc86ac79abd985853673d787de1aeae740ece3cea07bdce",
+      "byteSize": 1121400,
+      "nodeCount": 35043
+    },
+    {
+      "regionId": "tr-59-76",
+      "file": "regions/tr-59-76.alt",
+      "sha256": "9ebef8ef9eaa38909884559b3b251a77e08e01f1a493e21bf1d6d1ba588d137e",
+      "byteSize": 1616152,
+      "nodeCount": 50504
+    },
+    {
+      "regionId": "tr-59-77",
+      "file": "regions/tr-59-77.alt",
+      "sha256": "8a2b29e1b9948cac2bf4a8f476e6c0824e851204f2ad73374200600a798c553f",
+      "byteSize": 1027320,
+      "nodeCount": 32103
+    },
+    {
+      "regionId": "tr-59-78",
+      "file": "regions/tr-59-78.alt",
+      "sha256": "f60bc7fa14fa3389f2899c4db9d04016fc7908b6b050a2412b0b77d312e9c38e",
+      "byteSize": 1250488,
+      "nodeCount": 39077
+    },
+    {
+      "regionId": "tr-59-79",
+      "file": "regions/tr-59-79.alt",
+      "sha256": "679e209ab6d34aa130829b9179ebc424158c82d7bd76e19323504b0b4df5208d",
+      "byteSize": 1224440,
+      "nodeCount": 38263
+    },
+    {
+      "regionId": "tr-59-80",
+      "file": "regions/tr-59-80.alt",
+      "sha256": "79639f71de19aefdcba49005846bc3f0f965c7756d757c412fe3afdf3c7cde51",
+      "byteSize": 2193752,
+      "nodeCount": 68554
+    },
+    {
+      "regionId": "tr-59-81",
+      "file": "regions/tr-59-81.alt",
+      "sha256": "56949ceb828639d74c663c365d2abc82e00f43709046f80186fd05d5fa218309",
+      "byteSize": 5671608,
+      "nodeCount": 177237
+    },
+    {
+      "regionId": "tr-59-82",
+      "file": "regions/tr-59-82.alt",
+      "sha256": "c8cf8a3eff32ad296434f83f82b73b530368e9808278da645883f49780f4e3f4",
+      "byteSize": 1028696,
+      "nodeCount": 32146
+    },
+    {
+      "regionId": "tr-60-72",
+      "file": "regions/tr-60-72.alt",
+      "sha256": "3de6e3868343f94ba23e24d708525ff303e04ce2bcd6eacb85ecd0dcf1e20b79",
+      "byteSize": 1132952,
+      "nodeCount": 35404
+    },
+    {
+      "regionId": "tr-60-73",
+      "file": "regions/tr-60-73.alt",
+      "sha256": "858605b5900998293e32f29f68fb6e7aaa8f2ea2f418318fca346680ad77652d",
+      "byteSize": 1173272,
+      "nodeCount": 36664
+    },
+    {
+      "regionId": "tr-60-74",
+      "file": "regions/tr-60-74.alt",
+      "sha256": "efad974e4f568d8334f4770b8486f6531a198966b8ab61ff81c137c9b0f14785",
+      "byteSize": 1077304,
+      "nodeCount": 33665
+    },
+    {
+      "regionId": "tr-60-75",
+      "file": "regions/tr-60-75.alt",
+      "sha256": "781674ffcfba0d1ef0108df2ab5ec7567bb2515a24f62d0268bef2c221d7eac3",
+      "byteSize": 1622104,
+      "nodeCount": 50690
+    },
+    {
+      "regionId": "tr-60-76",
+      "file": "regions/tr-60-76.alt",
+      "sha256": "53bd73201634e1682d542aadeec5a04a42392bbb8d6277af8fe642e820a1dbe5",
+      "byteSize": 1170264,
+      "nodeCount": 36570
+    },
+    {
+      "regionId": "tr-60-77",
+      "file": "regions/tr-60-77.alt",
+      "sha256": "09dfc1d9850016819e96568c703e26b36d86471ff17955924a6ff5748fc126bb",
+      "byteSize": 1454168,
+      "nodeCount": 45442
+    },
+    {
+      "regionId": "tr-60-78",
+      "file": "regions/tr-60-78.alt",
+      "sha256": "f5c777c606550c399f9427041b5f7ad616991f53bebeb5e1b371de94504d285d",
+      "byteSize": 1007288,
+      "nodeCount": 31477
+    },
+    {
+      "regionId": "tr-60-79",
+      "file": "regions/tr-60-79.alt",
+      "sha256": "bbec46c4ebd928556e81407b48d4a3ba08ebd01b17f1d9abfa9d2ec5023d52ea",
+      "byteSize": 1841048,
+      "nodeCount": 57532
+    },
+    {
+      "regionId": "tr-60-80",
+      "file": "regions/tr-60-80.alt",
+      "sha256": "1ec7f1aac9e35a60d6172c2306bb32426bd11019315e5deb681ac12de9320b8c",
+      "byteSize": 1886264,
+      "nodeCount": 58945
+    },
+    {
+      "regionId": "tr-60-81",
+      "file": "regions/tr-60-81.alt",
+      "sha256": "1c45ee149e37054d1d16bb016f72b2ad21564442fc647c49fdc5133b865399d1",
+      "byteSize": 7696440,
+      "nodeCount": 240513
+    },
+    {
+      "regionId": "tr-60-82",
+      "file": "regions/tr-60-82.alt",
+      "sha256": "d7bec29512a16e747a90dd2acd631e69cf9dc23f449d7ce09662f9bdc0aabe0c",
+      "byteSize": 1346104,
+      "nodeCount": 42065
+    },
+    {
+      "regionId": "tr-61-72",
+      "file": "regions/tr-61-72.alt",
+      "sha256": "85270c73f000ecd8369d8cf29ae90a0df4db59bb191d0759aaa98158282ae7b7",
+      "byteSize": 14744,
+      "nodeCount": 460
+    },
+    {
+      "regionId": "tr-61-73",
+      "file": "regions/tr-61-73.alt",
+      "sha256": "eae466b78db4e7fbb0958497318802ad48b6891965a5e0de841662ddee35b8bd",
+      "byteSize": 4165368,
+      "nodeCount": 130167
+    },
+    {
+      "regionId": "tr-61-74",
+      "file": "regions/tr-61-74.alt",
+      "sha256": "7528dd514e9d4fc3d47f19f9e9cceca1e60116ceeef1a6c6cdd3de3f078a816e",
+      "byteSize": 2431864,
+      "nodeCount": 75995
+    },
+    {
+      "regionId": "tr-61-75",
+      "file": "regions/tr-61-75.alt",
+      "sha256": "a9d7c6d185a96f4742f627818a008221bd92d61fbd3d16faa730c84ae5b68a1e",
+      "byteSize": 2198808,
+      "nodeCount": 68712
+    },
+    {
+      "regionId": "tr-61-76",
+      "file": "regions/tr-61-76.alt",
+      "sha256": "b2793736ad800543d96bd2e41902426c251d01b7766775ccd19d3201b83cbf09",
+      "byteSize": 588920,
+      "nodeCount": 18403
+    },
+    {
+      "regionId": "tr-61-77",
+      "file": "regions/tr-61-77.alt",
+      "sha256": "f9fa0d2b98cd51970feb457baf47df9aec557afac4f1d3644632897044cda5bf",
+      "byteSize": 2820632,
+      "nodeCount": 88144
+    },
+    {
+      "regionId": "tr-61-78",
+      "file": "regions/tr-61-78.alt",
+      "sha256": "04e5d2abbe1db5001050e0a1d4aa847a8c530055f4f146a98186587509fc800d",
+      "byteSize": 705272,
+      "nodeCount": 22039
+    },
+    {
+      "regionId": "tr-61-79",
+      "file": "regions/tr-61-79.alt",
+      "sha256": "b2f3a7ed95dea45ef9bb290f478369f3fc60294652f7dc735ad284b2fe02631e",
+      "byteSize": 1774328,
+      "nodeCount": 55447
+    },
+    {
+      "regionId": "tr-61-80",
+      "file": "regions/tr-61-80.alt",
+      "sha256": "4b4426626b595af90abff6ff35a849359623da52957859d1d4b94a1081453d5b",
+      "byteSize": 1322072,
+      "nodeCount": 41314
+    },
+    {
+      "regionId": "tr-61-81",
+      "file": "regions/tr-61-81.alt",
+      "sha256": "a61319fefdea9adcf15eefa657cfa0a4ea0cf82ba19f17241d86375c7c285aad",
+      "byteSize": 4919096,
+      "nodeCount": 153721
+    },
+    {
+      "regionId": "tr-61-82",
+      "file": "regions/tr-61-82.alt",
+      "sha256": "6f9bfb0407e16568c6e87778eb4409f0da2ac50aa15c8c90c9e73503f3f8a22d",
+      "byteSize": 1156248,
+      "nodeCount": 36132
+    },
+    {
+      "regionId": "tr-62-73",
+      "file": "regions/tr-62-73.alt",
+      "sha256": "ecf432127f000f837054045486ded92306009af34422a45a131b233e832583c8",
+      "byteSize": 2138424,
+      "nodeCount": 66825
+    },
+    {
+      "regionId": "tr-62-74",
+      "file": "regions/tr-62-74.alt",
+      "sha256": "b38ea0539a16a2e7acbd77f7cbf7ab41c2ef8ab18cff68f8f9b4554894ce213c",
+      "byteSize": 788920,
+      "nodeCount": 24653
+    },
+    {
+      "regionId": "tr-62-75",
+      "file": "regions/tr-62-75.alt",
+      "sha256": "cab4d2ec5936d3b28349538f43be929f7b6d7cac2573e1936b15508be1407a9d",
+      "byteSize": 601848,
+      "nodeCount": 18807
+    },
+    {
+      "regionId": "tr-62-76",
+      "file": "regions/tr-62-76.alt",
+      "sha256": "e498b385a16914fd19aaf908a3c318ffe854e81bf03b43e29fe609b88a623e4a",
+      "byteSize": 1340056,
+      "nodeCount": 41876
+    },
+    {
+      "regionId": "tr-62-77",
+      "file": "regions/tr-62-77.alt",
+      "sha256": "9be300f00b59a8ec5292c5112b4ec17302cf576018f5b5f51deee6ce6c1c3cf4",
+      "byteSize": 976792,
+      "nodeCount": 30524
+    },
+    {
+      "regionId": "tr-62-78",
+      "file": "regions/tr-62-78.alt",
+      "sha256": "96c07b3d22e0d1eb72b0a535e9a8ba915b6310af131cdc85f0ec6113bdbe545e",
+      "byteSize": 839320,
+      "nodeCount": 26228
+    },
+    {
+      "regionId": "tr-62-79",
+      "file": "regions/tr-62-79.alt",
+      "sha256": "3ba7dfa826d6fbb875fa54b48413e568247ee9b015986a5ad373054e837e6b15",
+      "byteSize": 646008,
+      "nodeCount": 20187
+    },
+    {
+      "regionId": "tr-62-80",
+      "file": "regions/tr-62-80.alt",
+      "sha256": "f1e496c24fbb68e74da35ceca59b646466a8383b69fc06c059e43fd1fd7b399e",
+      "byteSize": 1133560,
+      "nodeCount": 35423
+    },
+    {
+      "regionId": "tr-62-81",
+      "file": "regions/tr-62-81.alt",
+      "sha256": "d8bf0617bf7faa220619238b863385e762cb6491fa2781532ee6d21fda1ab30b",
+      "byteSize": 3673304,
+      "nodeCount": 114790
+    },
+    {
+      "regionId": "tr-62-82",
+      "file": "regions/tr-62-82.alt",
+      "sha256": "23ca971b0c6c0b2fb2bfc303160d6324897a5851d18cc0da4da2af04fdc1f91d",
+      "byteSize": 1602712,
+      "nodeCount": 50084
+    },
+    {
+      "regionId": "tr-63-73",
+      "file": "regions/tr-63-73.alt",
+      "sha256": "933738e69ed2867007a41c8c981e565dcbde3da3151d4b5a3df228d83c1688e2",
+      "byteSize": 2500280,
+      "nodeCount": 78133
+    },
+    {
+      "regionId": "tr-63-74",
+      "file": "regions/tr-63-74.alt",
+      "sha256": "e352391429eea0fa3cc2c2001c243a56f0063622fd4e7a4cf10ae3c578554ad9",
+      "byteSize": 1050232,
+      "nodeCount": 32819
+    },
+    {
+      "regionId": "tr-63-75",
+      "file": "regions/tr-63-75.alt",
+      "sha256": "b99025cbbe58b4214977a9d0328149cff3705fd65131c0544588511a047cc4cf",
+      "byteSize": 1138744,
+      "nodeCount": 35585
+    },
+    {
+      "regionId": "tr-63-76",
+      "file": "regions/tr-63-76.alt",
+      "sha256": "a9ee88cf87d44c351cd5e05559f53d7eefe4c80441ec44bcd213ad0d1fbcc128",
+      "byteSize": 844504,
+      "nodeCount": 26390
+    },
+    {
+      "regionId": "tr-63-77",
+      "file": "regions/tr-63-77.alt",
+      "sha256": "f39402bd5c305a9494c7f66c85e582cae76c0cb19daedb9aa25b184a9165d4de",
+      "byteSize": 436920,
+      "nodeCount": 13653
+    },
+    {
+      "regionId": "tr-63-78",
+      "file": "regions/tr-63-78.alt",
+      "sha256": "3fd7319df6fb7b173e55d006c03b95491e05969aad7a0cdcd5e92133b670a82a",
+      "byteSize": 523256,
+      "nodeCount": 16351
+    },
+    {
+      "regionId": "tr-63-79",
+      "file": "regions/tr-63-79.alt",
+      "sha256": "68fa31f05a6a58d5dfd68c561355454203496dac25b80875a9498961c8bef5b2",
+      "byteSize": 525272,
+      "nodeCount": 16414
+    },
+    {
+      "regionId": "tr-63-80",
+      "file": "regions/tr-63-80.alt",
+      "sha256": "852583f42c509cf7b4e646fa2c19a489b4ae862d6c6f2d418c51b0cb11fc4d88",
+      "byteSize": 1235832,
+      "nodeCount": 38619
+    },
+    {
+      "regionId": "tr-63-81",
+      "file": "regions/tr-63-81.alt",
+      "sha256": "8abc00a23f525093457f6b4588ff6fa89a6b7042fb8252b4460ace4aeee63695",
+      "byteSize": 2230776,
+      "nodeCount": 69711
+    },
+    {
+      "regionId": "tr-63-82",
+      "file": "regions/tr-63-82.alt",
+      "sha256": "1ce8fadd49ecb5769c954c910b2afb93896b2daa94aded666e5cb5abec08fb85",
+      "byteSize": 3234264,
+      "nodeCount": 101070
+    },
+    {
+      "regionId": "tr-63-83",
+      "file": "regions/tr-63-83.alt",
+      "sha256": "25d832b9da6caf37ff60c4e880204a603baf2a1dbf08b1c4c867520b00bda54d",
+      "byteSize": 57560,
+      "nodeCount": 1798
+    },
+    {
+      "regionId": "tr-64-72",
+      "file": "regions/tr-64-72.alt",
+      "sha256": "c8dd496e5aa777017209c878e6c21ad50911a0df90939979e71467b270a14f0b",
+      "byteSize": 1818200,
+      "nodeCount": 56818
+    },
+    {
+      "regionId": "tr-64-73",
+      "file": "regions/tr-64-73.alt",
+      "sha256": "3bff0dec91d88d7ca6ecc6d41c5d3871a1ca03bda8368993c789a121befcdb9f",
+      "byteSize": 2021752,
+      "nodeCount": 63179
+    },
+    {
+      "regionId": "tr-64-74",
+      "file": "regions/tr-64-74.alt",
+      "sha256": "973342cd8f5daa72bb3dc9c3bd91df7d2091b8762f78dd209115d3e32215ab25",
+      "byteSize": 865112,
+      "nodeCount": 27034
+    },
+    {
+      "regionId": "tr-64-75",
+      "file": "regions/tr-64-75.alt",
+      "sha256": "299b223503395c9b873270ccebf3534184e9536e0bfbe94bc1801c321b4230c2",
+      "byteSize": 2823704,
+      "nodeCount": 88240
+    },
+    {
+      "regionId": "tr-64-76",
+      "file": "regions/tr-64-76.alt",
+      "sha256": "0e85db4bc21aa75f90e06cf4326286ce4f294f3663588f674fd019e4014e303c",
+      "byteSize": 824952,
+      "nodeCount": 25779
+    },
+    {
+      "regionId": "tr-64-77",
+      "file": "regions/tr-64-77.alt",
+      "sha256": "3913d3dd2e15fd313b3501ba50a4f92c610256683450ef31470e64a969dec102",
+      "byteSize": 282968,
+      "nodeCount": 8842
+    },
+    {
+      "regionId": "tr-64-78",
+      "file": "regions/tr-64-78.alt",
+      "sha256": "4d10d1a8cf4e6a24f1ac6f6fcf58f2274b1be91ccb68601f4915d1f2091eb22e",
+      "byteSize": 619928,
+      "nodeCount": 19372
+    },
+    {
+      "regionId": "tr-64-79",
+      "file": "regions/tr-64-79.alt",
+      "sha256": "2aa4ead37c329876dee1dcd42e86bf48d3c8ee30a16f83ab1ec98c80f9569cc7",
+      "byteSize": 1295640,
+      "nodeCount": 40488
+    },
+    {
+      "regionId": "tr-64-80",
+      "file": "regions/tr-64-80.alt",
+      "sha256": "50261fb8cc6288214b5e8452dd85af2ce079fde9b03c714893418fbc78a27296",
+      "byteSize": 1761016,
+      "nodeCount": 55031
+    },
+    {
+      "regionId": "tr-64-81",
+      "file": "regions/tr-64-81.alt",
+      "sha256": "f0b7e99152af7920afae5a68d3d6f5d5905f386f24f8e2e037f8c04a3ad51bc7",
+      "byteSize": 1736280,
+      "nodeCount": 54258
+    },
+    {
+      "regionId": "tr-64-82",
+      "file": "regions/tr-64-82.alt",
+      "sha256": "7576e22dd3a96252b0834b32bb46771754f1c0ad30508d37c959fb0e03a296d0",
+      "byteSize": 2232344,
+      "nodeCount": 69760
+    },
+    {
+      "regionId": "tr-64-83",
+      "file": "regions/tr-64-83.alt",
+      "sha256": "3e56a11ad3c6b028d9ebf1479dec104ef2c1363ec27a8ad547565f857af53c5f",
+      "byteSize": 1594808,
+      "nodeCount": 49837
+    },
+    {
+      "regionId": "tr-65-72",
+      "file": "regions/tr-65-72.alt",
+      "sha256": "b582ec1292fcfe659ace825adbf4f1090bc2e1994e127f855b5787035acab05b",
+      "byteSize": 1488568,
+      "nodeCount": 46517
+    },
+    {
+      "regionId": "tr-65-73",
+      "file": "regions/tr-65-73.alt",
+      "sha256": "a146827f5cb08524787c39ad337f015c5412c1d5734d5316a7802ac1396de133",
+      "byteSize": 1168056,
+      "nodeCount": 36501
+    },
+    {
+      "regionId": "tr-65-74",
+      "file": "regions/tr-65-74.alt",
+      "sha256": "d39d12edf95faf64c432396a66e1eef7bcc29394cf43b8746077a06592a0ed94",
+      "byteSize": 783896,
+      "nodeCount": 24496
+    },
+    {
+      "regionId": "tr-65-75",
+      "file": "regions/tr-65-75.alt",
+      "sha256": "497bb3f61c75f7b3ff33427991f92b643e8907459721de193724b0f44a0e2683",
+      "byteSize": 2535192,
+      "nodeCount": 79224
+    },
+    {
+      "regionId": "tr-65-76",
+      "file": "regions/tr-65-76.alt",
+      "sha256": "5952f16289293de62bb7f5ab3805b897665cd333d7e01aee3fea7fed80af05a2",
+      "byteSize": 763640,
+      "nodeCount": 23863
+    },
+    {
+      "regionId": "tr-65-77",
+      "file": "regions/tr-65-77.alt",
+      "sha256": "30ac94b7a4a20240bba34ef176e78a74ab524c4f06bf025e4de44efb7254ae72",
+      "byteSize": 1257272,
+      "nodeCount": 39289
+    },
+    {
+      "regionId": "tr-65-78",
+      "file": "regions/tr-65-78.alt",
+      "sha256": "b255733984e4928f191526c5b4791668611a2009413d6fa9d0b89857f1ef6f95",
+      "byteSize": 705240,
+      "nodeCount": 22038
+    },
+    {
+      "regionId": "tr-65-79",
+      "file": "regions/tr-65-79.alt",
+      "sha256": "576f44a31e641c5ada74707127430fdb24e2fd3c63939b35e835990e97ba55d5",
+      "byteSize": 10380056,
+      "nodeCount": 324376
+    },
+    {
+      "regionId": "tr-65-80",
+      "file": "regions/tr-65-80.alt",
+      "sha256": "eff0c2111a76145a763269ef6a883e93cf690ee579dc0280681667e19514cf06",
+      "byteSize": 5468696,
+      "nodeCount": 170896
+    },
+    {
+      "regionId": "tr-65-81",
+      "file": "regions/tr-65-81.alt",
+      "sha256": "7b8b740fdd192c33f3e7f63923a40a1f6442801863c2101275efb7129ef7132b",
+      "byteSize": 1420248,
+      "nodeCount": 44382
+    },
+    {
+      "regionId": "tr-65-82",
+      "file": "regions/tr-65-82.alt",
+      "sha256": "6b36f54d30bfbe11791f128b93447f4da5a6ed7d09e61b71bee458d3e884158d",
+      "byteSize": 2489304,
+      "nodeCount": 77790
+    },
+    {
+      "regionId": "tr-65-83",
+      "file": "regions/tr-65-83.alt",
+      "sha256": "dcd2329cc6df2f02c3859991d9e4e686eb70821c28369fd3c0fbb14228c4d040",
+      "byteSize": 2014680,
+      "nodeCount": 62958
+    },
+    {
+      "regionId": "tr-66-72",
+      "file": "regions/tr-66-72.alt",
+      "sha256": "147d7a3156d243fde226ffac2a3f86c1f988a8c56d64b6ac2f473231fae58267",
+      "byteSize": 1015512,
+      "nodeCount": 31734
+    },
+    {
+      "regionId": "tr-66-73",
+      "file": "regions/tr-66-73.alt",
+      "sha256": "35772184d4551edfd7ade9156bac46773e1610f9b6f82f1b4946ecf32b9b3b99",
+      "byteSize": 1086296,
+      "nodeCount": 33946
+    },
+    {
+      "regionId": "tr-66-74",
+      "file": "regions/tr-66-74.alt",
+      "sha256": "86d80446d1376d9808a14d7a6ccce4eb1523d04b8d6716f7706a11a8b47b747b",
+      "byteSize": 1286808,
+      "nodeCount": 40212
+    },
+    {
+      "regionId": "tr-66-75",
+      "file": "regions/tr-66-75.alt",
+      "sha256": "df3262df0c659b9ce0ee090d4dcb8cdd5a9619f8c0f1c3cd5ecb008766aaa573",
+      "byteSize": 450360,
+      "nodeCount": 14073
+    },
+    {
+      "regionId": "tr-66-76",
+      "file": "regions/tr-66-76.alt",
+      "sha256": "55875a0a4e26ca84f855c9f163b461032fac98f8c3970a5e789ca434c47f28c8",
+      "byteSize": 732696,
+      "nodeCount": 22896
+    },
+    {
+      "regionId": "tr-66-77",
+      "file": "regions/tr-66-77.alt",
+      "sha256": "31023dfe0c8b790da1c08010ccf674ab8522be24329d2dd18a230421b45d7897",
+      "byteSize": 363896,
+      "nodeCount": 11371
+    },
+    {
+      "regionId": "tr-66-78",
+      "file": "regions/tr-66-78.alt",
+      "sha256": "62351358adf04a3a2384ea3423d62337dc28624efb9e6c7b4fb197a307b4df77",
+      "byteSize": 775096,
+      "nodeCount": 24221
+    },
+    {
+      "regionId": "tr-66-79",
+      "file": "regions/tr-66-79.alt",
+      "sha256": "73bb3e61cb32e403590be494913e206bfcc4eb2a6b1a243bebcd34aeabf5f43b",
+      "byteSize": 2658904,
+      "nodeCount": 83090
+    },
+    {
+      "regionId": "tr-66-80",
+      "file": "regions/tr-66-80.alt",
+      "sha256": "2ba773b89d3094808417683ccb3911347d0a2034e71eda7017424cdd7e50506d",
+      "byteSize": 3664376,
+      "nodeCount": 114511
+    },
+    {
+      "regionId": "tr-66-81",
+      "file": "regions/tr-66-81.alt",
+      "sha256": "97c6638077e4e8c9f8c010e76bdeeff214c4a0d6331a99f33552e80f00d9a5ba",
+      "byteSize": 1236792,
+      "nodeCount": 38649
+    },
+    {
+      "regionId": "tr-66-82",
+      "file": "regions/tr-66-82.alt",
+      "sha256": "ae2349c32ed2fe5545b5da0fdbf840b1f9fdbc906340d683884db57b8d82d87e",
+      "byteSize": 2025336,
+      "nodeCount": 63291
+    },
+    {
+      "regionId": "tr-66-83",
+      "file": "regions/tr-66-83.alt",
+      "sha256": "cf9479daaea917f92f0a822b1e37fa6cb938fabbaa539bf104d52daa793ac489",
+      "byteSize": 3408280,
+      "nodeCount": 106508
+    },
+    {
+      "regionId": "tr-66-84",
+      "file": "regions/tr-66-84.alt",
+      "sha256": "94289e43655034301deb7924b9e9ab560d7c2b12e2045135116a085c491527b2",
+      "byteSize": 126968,
+      "nodeCount": 3967
+    },
+    {
+      "regionId": "tr-67-72",
+      "file": "regions/tr-67-72.alt",
+      "sha256": "7a3da5790962887691871af2b1b73f677c154906da911df47b4ea95d684c4778",
+      "byteSize": 1407512,
+      "nodeCount": 43984
+    },
+    {
+      "regionId": "tr-67-73",
+      "file": "regions/tr-67-73.alt",
+      "sha256": "4838fab1656065ba85c141bcd9f6e5590466e10045b124eda46201c40f5415f2",
+      "byteSize": 2564152,
+      "nodeCount": 80129
+    },
+    {
+      "regionId": "tr-67-74",
+      "file": "regions/tr-67-74.alt",
+      "sha256": "5d09df9527523037b4791c84a756bc5bb9aa47aeba31caaf8e8fb67640dd17ab",
+      "byteSize": 479224,
+      "nodeCount": 14975
+    },
+    {
+      "regionId": "tr-67-75",
+      "file": "regions/tr-67-75.alt",
+      "sha256": "d3775ceb5436a725a2d7396462538d66c15b474afd9692c8c726027286726c71",
+      "byteSize": 726808,
+      "nodeCount": 22712
+    },
+    {
+      "regionId": "tr-67-76",
+      "file": "regions/tr-67-76.alt",
+      "sha256": "d798a0d4dc20d481a61533029723ae7b2a3051adcbe2b638ba5b6ad576b3ea0b",
+      "byteSize": 1098296,
+      "nodeCount": 34321
+    },
+    {
+      "regionId": "tr-67-77",
+      "file": "regions/tr-67-77.alt",
+      "sha256": "4f6ee52fac185b90178b7c19bdedf7ff3393b46aa416a6d3998ef9b072a9ab39",
+      "byteSize": 1047832,
+      "nodeCount": 32744
+    },
+    {
+      "regionId": "tr-67-78",
+      "file": "regions/tr-67-78.alt",
+      "sha256": "fed2286c29f1ba0bb10d5d9cadff813e9779b6466b82e5eadb6c0c78a1c72325",
+      "byteSize": 972792,
+      "nodeCount": 30399
+    },
+    {
+      "regionId": "tr-67-79",
+      "file": "regions/tr-67-79.alt",
+      "sha256": "ef07e2987f46e731114e32915eebeb162316aa86a124e2bc53fa494f43ac8620",
+      "byteSize": 1567192,
+      "nodeCount": 48974
+    },
+    {
+      "regionId": "tr-67-80",
+      "file": "regions/tr-67-80.alt",
+      "sha256": "4d080ac9d7f014e989f216f5adb18b77e6e9ef383ab91dff432923c51ea9a2cd",
+      "byteSize": 545624,
+      "nodeCount": 17050
+    },
+    {
+      "regionId": "tr-67-81",
+      "file": "regions/tr-67-81.alt",
+      "sha256": "c22fe1a7e43ec8ccc21c3ec78c25121808df220fc155548bdce777dbdfb7f72b",
+      "byteSize": 1532280,
+      "nodeCount": 47883
+    },
+    {
+      "regionId": "tr-67-82",
+      "file": "regions/tr-67-82.alt",
+      "sha256": "46b99918448864b44fac4cad6c9a05b14ce14bd3e234d941341a7dc3a59517e5",
+      "byteSize": 1984504,
+      "nodeCount": 62015
+    },
+    {
+      "regionId": "tr-67-83",
+      "file": "regions/tr-67-83.alt",
+      "sha256": "e30fa2887e78eea37de1ac13230e17ca6d9ec54ea4fbd70bdeede2e882f53d38",
+      "byteSize": 2773720,
+      "nodeCount": 86678
+    },
+    {
+      "regionId": "tr-67-84",
+      "file": "regions/tr-67-84.alt",
+      "sha256": "51945bcea799270fae447c457ddd15843d70f07212893692c821ebcbe7231636",
+      "byteSize": 6168,
+      "nodeCount": 192
+    },
+    {
+      "regionId": "tr-68-72",
+      "file": "regions/tr-68-72.alt",
+      "sha256": "affbf5ca77d3bf33b4c2a30c207dd76f90b58986319a070468f5bffe035dd6a7",
+      "byteSize": 388952,
+      "nodeCount": 12154
+    },
+    {
+      "regionId": "tr-68-73",
+      "file": "regions/tr-68-73.alt",
+      "sha256": "ff7b5329b886ceb61ca8b2f52ae6a716320495903bc077f23e6b99e8dc693685",
+      "byteSize": 4056504,
+      "nodeCount": 126765
+    },
+    {
+      "regionId": "tr-68-74",
+      "file": "regions/tr-68-74.alt",
+      "sha256": "8c89b73ff58bb5d0e9338b6adce0852c10f121f274b5d120c47a45875d764030",
+      "byteSize": 1305720,
+      "nodeCount": 40803
+    },
+    {
+      "regionId": "tr-68-75",
+      "file": "regions/tr-68-75.alt",
+      "sha256": "06fd54803048d3a5597a5cc2dac2931ec35cda94406840bdfb103529ef35e5f2",
+      "byteSize": 984568,
+      "nodeCount": 30767
+    },
+    {
+      "regionId": "tr-68-76",
+      "file": "regions/tr-68-76.alt",
+      "sha256": "de7b219e630fecbffe4db667c8c9270df5ece917ac7cc44fa305ee6658c9ee8c",
+      "byteSize": 1808536,
+      "nodeCount": 56516
+    },
+    {
+      "regionId": "tr-68-77",
+      "file": "regions/tr-68-77.alt",
+      "sha256": "d740fa8f6d1401072ac658634c4b87f3670ba1a0a5a62dd3ec94a7b388e8e463",
+      "byteSize": 1043192,
+      "nodeCount": 32599
+    },
+    {
+      "regionId": "tr-68-78",
+      "file": "regions/tr-68-78.alt",
+      "sha256": "42a5a764e3d63fec4fd4d1ad0569ba676c5e65da4a4cdae70a5e6ab9de52e669",
+      "byteSize": 1256696,
+      "nodeCount": 39271
+    },
+    {
+      "regionId": "tr-68-79",
+      "file": "regions/tr-68-79.alt",
+      "sha256": "7629c55883b203b4a2bce8bfcb3fa387f008a4fd62ff8e6cf3a6c9122bf20cc8",
+      "byteSize": 943896,
+      "nodeCount": 29496
+    },
+    {
+      "regionId": "tr-68-80",
+      "file": "regions/tr-68-80.alt",
+      "sha256": "40bb56e6bd967dd57886b4f6a402133840426535c1f53c05443d09966f928a32",
+      "byteSize": 987640,
+      "nodeCount": 30863
+    },
+    {
+      "regionId": "tr-68-81",
+      "file": "regions/tr-68-81.alt",
+      "sha256": "86fe0486124b4e3612b6a6478cb97f9796bc0de1ab0f3f5d9d8368f891fb8e83",
+      "byteSize": 1530744,
+      "nodeCount": 47835
+    },
+    {
+      "regionId": "tr-68-82",
+      "file": "regions/tr-68-82.alt",
+      "sha256": "90ecb827611ffbab9392fa9472bc92c56a286c8a7eaa1b66347c4c25af5f4c2d",
+      "byteSize": 2231864,
+      "nodeCount": 69745
+    },
+    {
+      "regionId": "tr-68-83",
+      "file": "regions/tr-68-83.alt",
+      "sha256": "69a2185869644f65ccbcfebf82b1b6ea5b2e959294231e7348821f960ebc6231",
+      "byteSize": 2727800,
+      "nodeCount": 85243
+    },
+    {
+      "regionId": "tr-69-73",
+      "file": "regions/tr-69-73.alt",
+      "sha256": "abb9d160c3cbff7453804ccc1617551b4c9d21571f7bdc8f241f42c95c7b2cd7",
+      "byteSize": 4467160,
+      "nodeCount": 139598
+    },
+    {
+      "regionId": "tr-69-74",
+      "file": "regions/tr-69-74.alt",
+      "sha256": "51c73053bfc08b65b006aa0f9ff8201996b67bbc627857cf8c69c23d9a2bc556",
+      "byteSize": 2903352,
+      "nodeCount": 90729
+    },
+    {
+      "regionId": "tr-69-75",
+      "file": "regions/tr-69-75.alt",
+      "sha256": "f3109af7ac4b0dd9015f2da0bb3c6351d13772f8179dad4f63de8fc8a6523bcb",
+      "byteSize": 1892696,
+      "nodeCount": 59146
+    },
+    {
+      "regionId": "tr-69-76",
+      "file": "regions/tr-69-76.alt",
+      "sha256": "302eb6a327d4d0b9d6615121d43ed7363065c4252ba9c990dd5a467c58ad14fb",
+      "byteSize": 1145784,
+      "nodeCount": 35805
+    },
+    {
+      "regionId": "tr-69-77",
+      "file": "regions/tr-69-77.alt",
+      "sha256": "185ac46cc29ee90ed3570c59bf498ce93cf279323017e580d44f80a07b560bce",
+      "byteSize": 1842424,
+      "nodeCount": 57575
+    },
+    {
+      "regionId": "tr-69-78",
+      "file": "regions/tr-69-78.alt",
+      "sha256": "97816916ec6523005d3be900a3336a4167e2d258cc78f4b9fad1e627356f83b8",
+      "byteSize": 691288,
+      "nodeCount": 21602
+    },
+    {
+      "regionId": "tr-69-79",
+      "file": "regions/tr-69-79.alt",
+      "sha256": "02c41bb1917b52db9b2e0917e5a9cafdaa4830c93e6a1201ac918bb26b533596",
+      "byteSize": 1171320,
+      "nodeCount": 36603
+    },
+    {
+      "regionId": "tr-69-80",
+      "file": "regions/tr-69-80.alt",
+      "sha256": "ed447f7d2b43dc8bd853ddc50620ad9ba962c5caa0e5a68633d5e264fe7d051c",
+      "byteSize": 1207064,
+      "nodeCount": 37720
+    },
+    {
+      "regionId": "tr-69-81",
+      "file": "regions/tr-69-81.alt",
+      "sha256": "93fe2c3104c8ae074cfd3481619fd94760857adf0e88266984629b9bf4cb7893",
+      "byteSize": 2164600,
+      "nodeCount": 67643
+    },
+    {
+      "regionId": "tr-69-82",
+      "file": "regions/tr-69-82.alt",
+      "sha256": "e40280b2e254ed5340ab3e656f40e8bee5ee526ef83dbf571ff6e1882af75db7",
+      "byteSize": 1876120,
+      "nodeCount": 58628
+    },
+    {
+      "regionId": "tr-69-83",
+      "file": "regions/tr-69-83.alt",
+      "sha256": "d9926815f451dac5ddbe5d4c256fbe8c79ccdb5c7faff18be6ff70ea3c5c4700",
+      "byteSize": 2935000,
+      "nodeCount": 91718
+    },
+    {
+      "regionId": "tr-69-84",
+      "file": "regions/tr-69-84.alt",
+      "sha256": "687fcd5ffcc92bf2cfa03c4e2db329b2d7ec47b101e1ea64ec8f5eee5b2cf204",
+      "byteSize": 98360,
+      "nodeCount": 3073
+    },
+    {
+      "regionId": "tr-70-73",
+      "file": "regions/tr-70-73.alt",
+      "sha256": "14f49c990f4ee6a314595c450c587c0e4e38273a72fe0f21de26fb07e66ade30",
+      "byteSize": 2088088,
+      "nodeCount": 65252
+    },
+    {
+      "regionId": "tr-70-74",
+      "file": "regions/tr-70-74.alt",
+      "sha256": "6e14906558cf2be9a6496492376e4645936d512b934c12c113261682fdad4f0f",
+      "byteSize": 3891288,
+      "nodeCount": 121602
+    },
+    {
+      "regionId": "tr-70-75",
+      "file": "regions/tr-70-75.alt",
+      "sha256": "09b6230c61698df58ebdcb0f696091fa4396212192fcf00f2ecc668b9a7230e6",
+      "byteSize": 724856,
+      "nodeCount": 22651
+    },
+    {
+      "regionId": "tr-70-76",
+      "file": "regions/tr-70-76.alt",
+      "sha256": "4d0c9fd031a6be9ca722ae73778afe89b90e6fbc9890d0e664b67401f50684d8",
+      "byteSize": 1149560,
+      "nodeCount": 35923
+    },
+    {
+      "regionId": "tr-70-77",
+      "file": "regions/tr-70-77.alt",
+      "sha256": "d9443dad21589da9b1c31ce427e27837a458b0969f78a2350d67ab7fa25c35e4",
+      "byteSize": 3532600,
+      "nodeCount": 110393
+    },
+    {
+      "regionId": "tr-70-78",
+      "file": "regions/tr-70-78.alt",
+      "sha256": "2632eb60a072ff3009f669b05259f3ac8670e802fcbac17a3a032710afdf21fb",
+      "byteSize": 883800,
+      "nodeCount": 27618
+    },
+    {
+      "regionId": "tr-70-79",
+      "file": "regions/tr-70-79.alt",
+      "sha256": "977719479c248d97ffac9f25977806a5eac73b459c0f8087b6b00cb5da5e88da",
+      "byteSize": 949688,
+      "nodeCount": 29677
+    },
+    {
+      "regionId": "tr-70-80",
+      "file": "regions/tr-70-80.alt",
+      "sha256": "edf2e0c73df4ec7cbe242fd63028a88e5ff8fd96d0bba5d876c29b95bbd1d6bc",
+      "byteSize": 1072408,
+      "nodeCount": 33512
+    },
+    {
+      "regionId": "tr-70-81",
+      "file": "regions/tr-70-81.alt",
+      "sha256": "cf10f65bef53b55406716f6b8b9a0b3875e9a6c26942b80721b41e87580b6acb",
+      "byteSize": 1546136,
+      "nodeCount": 48316
+    },
+    {
+      "regionId": "tr-70-82",
+      "file": "regions/tr-70-82.alt",
+      "sha256": "cf01d559d924cc71e939a464ae039e07ff8255e095ac943ebe7a4ec9021d65f8",
+      "byteSize": 2642872,
+      "nodeCount": 82589
+    },
+    {
+      "regionId": "tr-70-83",
+      "file": "regions/tr-70-83.alt",
+      "sha256": "510a2475809b66fa826e921684a8ea617a7f914379968c9d60b2c422184aa419",
+      "byteSize": 2481304,
+      "nodeCount": 77540
+    },
+    {
+      "regionId": "tr-70-84",
+      "file": "regions/tr-70-84.alt",
+      "sha256": "711577030cbe22c6d94ec6b903f87aba045327c3dfd205a18523870ad488b3b9",
+      "byteSize": 351704,
+      "nodeCount": 10990
+    },
+    {
+      "regionId": "tr-71-71",
+      "file": "regions/tr-71-71.alt",
+      "sha256": "e3d4722a2c4aec929a6047bf05261faacc9760b20b508ec2bb040865175a145e",
+      "byteSize": 165976,
+      "nodeCount": 5186
+    },
+    {
+      "regionId": "tr-71-72",
+      "file": "regions/tr-71-72.alt",
+      "sha256": "6b3b9c5570667f1c0ea4169a0e018752042d0e135d91ccd463aa040de626e222",
+      "byteSize": 1120568,
+      "nodeCount": 35017
+    },
+    {
+      "regionId": "tr-71-73",
+      "file": "regions/tr-71-73.alt",
+      "sha256": "f0fba36ba6656b1c7b80342b9299e0c1ddb312c441de1cc484b2cdd10c2f9f37",
+      "byteSize": 750232,
+      "nodeCount": 23444
+    },
+    {
+      "regionId": "tr-71-74",
+      "file": "regions/tr-71-74.alt",
+      "sha256": "cedc6ce63ad134f79e2aa21102428b8385d34d368a6f07565f840dc93f47b7e6",
+      "byteSize": 2282776,
+      "nodeCount": 71336
+    },
+    {
+      "regionId": "tr-71-75",
+      "file": "regions/tr-71-75.alt",
+      "sha256": "8d5313a0d30dd6a0421a126615db2706323668be47310a52c39c24930dda1d56",
+      "byteSize": 1578840,
+      "nodeCount": 49338
+    },
+    {
+      "regionId": "tr-71-76",
+      "file": "regions/tr-71-76.alt",
+      "sha256": "3ce23cf9a287412276f762fa6d906ec63ad451d4e24a9ed17518d8d81f77d532",
+      "byteSize": 981816,
+      "nodeCount": 30681
+    },
+    {
+      "regionId": "tr-71-77",
+      "file": "regions/tr-71-77.alt",
+      "sha256": "00483beefba9ac5faa4afe31e46d0e1bd9f378b7136e77c4bd32d516d1396b32",
+      "byteSize": 3766584,
+      "nodeCount": 117705
+    },
+    {
+      "regionId": "tr-71-78",
+      "file": "regions/tr-71-78.alt",
+      "sha256": "78c5c850dfd4a9f76cc760cde60e1998b42ae43bfac0d11fb86dbea1ce5af160",
+      "byteSize": 880760,
+      "nodeCount": 27523
+    },
+    {
+      "regionId": "tr-71-79",
+      "file": "regions/tr-71-79.alt",
+      "sha256": "077ee0826c0cff939358a30225428e4d6dc3e5fabd42605ed174c487d68992a8",
+      "byteSize": 899384,
+      "nodeCount": 28105
+    },
+    {
+      "regionId": "tr-71-80",
+      "file": "regions/tr-71-80.alt",
+      "sha256": "c8804829651bbbac45cd3d05ef4020ca3da4fa54570b482c865d1b27731052c4",
+      "byteSize": 1213592,
+      "nodeCount": 37924
+    },
+    {
+      "regionId": "tr-71-81",
+      "file": "regions/tr-71-81.alt",
+      "sha256": "9c2d83275a798606475a498299207eaf606dc5b6bffed6fa805e4900ad1dd483",
+      "byteSize": 2417496,
+      "nodeCount": 75546
+    },
+    {
+      "regionId": "tr-71-82",
+      "file": "regions/tr-71-82.alt",
+      "sha256": "3a792ef28afe0bae0622b4ab92076a82dee93a916d5377b388e510d5675d64e0",
+      "byteSize": 3380472,
+      "nodeCount": 105639
+    },
+    {
+      "regionId": "tr-71-83",
+      "file": "regions/tr-71-83.alt",
+      "sha256": "d8788fba53b7247db1c3dfa89c90dc6c8e6beca2acb407e647a7a0f4dba35aab",
+      "byteSize": 1663608,
+      "nodeCount": 51987
+    },
+    {
+      "regionId": "tr-72-71",
+      "file": "regions/tr-72-71.alt",
+      "sha256": "2a1afffabf4d1882bafd153bc3be9942145da59580859d965f74c443a3d9d5f3",
+      "byteSize": 1747544,
+      "nodeCount": 54610
+    },
+    {
+      "regionId": "tr-72-72",
+      "file": "regions/tr-72-72.alt",
+      "sha256": "b3a75aac0f52c9f6662bdc2e4f60744c3a2c027ce528cbab453e699fe5f5871e",
+      "byteSize": 6590136,
+      "nodeCount": 205941
+    },
+    {
+      "regionId": "tr-72-73",
+      "file": "regions/tr-72-73.alt",
+      "sha256": "8b5fbfc97ed497087d46ce5cbac6380f6b8290712ba5c80a7b38c3068c16cd59",
+      "byteSize": 4337304,
+      "nodeCount": 135540
+    },
+    {
+      "regionId": "tr-72-74",
+      "file": "regions/tr-72-74.alt",
+      "sha256": "a639eba2df95123fb9a949c6de33d8d8103645585123f2da287f29dd63cdfe4d",
+      "byteSize": 4800152,
+      "nodeCount": 150004
+    },
+    {
+      "regionId": "tr-72-75",
+      "file": "regions/tr-72-75.alt",
+      "sha256": "45b7a9fb55e8ed6f2676434a1ae353f0d91d9de7635bada3dc49e85eb994b5bb",
+      "byteSize": 2709400,
+      "nodeCount": 84668
+    },
+    {
+      "regionId": "tr-72-76",
+      "file": "regions/tr-72-76.alt",
+      "sha256": "234103d327b01d0b8358f988837dc2e2d7f633065346f696b894ef7c8318e07f",
+      "byteSize": 939416,
+      "nodeCount": 29356
+    },
+    {
+      "regionId": "tr-72-77",
+      "file": "regions/tr-72-77.alt",
+      "sha256": "719f1ba051141d7b626c9fdc489498da18e02656cfd82f99ff14a39cf4d8ea6b",
+      "byteSize": 916344,
+      "nodeCount": 28635
+    },
+    {
+      "regionId": "tr-72-78",
+      "file": "regions/tr-72-78.alt",
+      "sha256": "0ed43f70ce275ab82443d55c538d1e7eb26f6acf6114e1bca478516775455daa",
+      "byteSize": 855608,
+      "nodeCount": 26737
+    },
+    {
+      "regionId": "tr-72-79",
+      "file": "regions/tr-72-79.alt",
+      "sha256": "76209279619ac555f3901bf94ddfe348f590108bbd988236a9c1a7394723fd2f",
+      "byteSize": 746360,
+      "nodeCount": 23323
+    },
+    {
+      "regionId": "tr-72-80",
+      "file": "regions/tr-72-80.alt",
+      "sha256": "3cd0684701619598bdce285971ec45c583a967fc8b378c7ed9d6335425d5253f",
+      "byteSize": 2145080,
+      "nodeCount": 67033
+    },
+    {
+      "regionId": "tr-72-81",
+      "file": "regions/tr-72-81.alt",
+      "sha256": "ad146be253c8e2f471df5eb386f00da80ef8eb93027e56e7a1ceed642e0afd86",
+      "byteSize": 2215608,
+      "nodeCount": 69237
+    },
+    {
+      "regionId": "tr-72-82",
+      "file": "regions/tr-72-82.alt",
+      "sha256": "9c7025d65c66a87e2a2225c2ed26e7cf38a40f9a3f04b8d63772f188489d3adb",
+      "byteSize": 5484408,
+      "nodeCount": 171387
+    },
+    {
+      "regionId": "tr-72-83",
+      "file": "regions/tr-72-83.alt",
+      "sha256": "d98fd89eddf877179212db0870664cd35b0a66f3750306b53435b40340e57ea4",
+      "byteSize": 185208,
+      "nodeCount": 5787
+    },
+    {
+      "regionId": "tr-73-72",
+      "file": "regions/tr-73-72.alt",
+      "sha256": "33c653c657a45c840236556c90c5925294c9d316bb2c39b26f22bfc1610cecee",
+      "byteSize": 949016,
+      "nodeCount": 29656
+    },
+    {
+      "regionId": "tr-73-73",
+      "file": "regions/tr-73-73.alt",
+      "sha256": "c6d8f40f31ed04338e5506d76e2265520093b4a1ff3eeafa8d47a64cef4140ee",
+      "byteSize": 1902072,
+      "nodeCount": 59439
+    },
+    {
+      "regionId": "tr-73-74",
+      "file": "regions/tr-73-74.alt",
+      "sha256": "cb39e87ca92dbb19c602d7ca90539d9e1c69a71ede4821a54dd160a8c0c0e66e",
+      "byteSize": 3584472,
+      "nodeCount": 112014
+    },
+    {
+      "regionId": "tr-73-75",
+      "file": "regions/tr-73-75.alt",
+      "sha256": "54327fd6ea479b30f4202be70444ee0d3c80b267eb377b4bf6c563af34004645",
+      "byteSize": 4442424,
+      "nodeCount": 138825
+    },
+    {
+      "regionId": "tr-73-76",
+      "file": "regions/tr-73-76.alt",
+      "sha256": "967df1953cfa5d0f2dbf8d7d3c293a6d71b892afb73231bf245357e3e50cbca4",
+      "byteSize": 1501528,
+      "nodeCount": 46922
+    },
+    {
+      "regionId": "tr-73-77",
+      "file": "regions/tr-73-77.alt",
+      "sha256": "817446bc975b5ef81d742b91ea372805088a0379453df743b345dbc8c8d62fd9",
+      "byteSize": 431992,
+      "nodeCount": 13499
+    },
+    {
+      "regionId": "tr-73-78",
+      "file": "regions/tr-73-78.alt",
+      "sha256": "650f75b7477b8f6a898888ef55e0d56b1335dbd317298b8dc0869e81efcff283",
+      "byteSize": 565912,
+      "nodeCount": 17684
+    },
+    {
+      "regionId": "tr-73-79",
+      "file": "regions/tr-73-79.alt",
+      "sha256": "e94950c6493d400784a3dc863d722cfb490c25edfd4412e849a07acdd0cb2bc5",
+      "byteSize": 1079032,
+      "nodeCount": 33719
+    },
+    {
+      "regionId": "tr-73-80",
+      "file": "regions/tr-73-80.alt",
+      "sha256": "9d2c87cdda0faf79ef0f8661dc0723d90e0b23b737477d125b6fff4ee8a6d534",
+      "byteSize": 1823384,
+      "nodeCount": 56980
+    },
+    {
+      "regionId": "tr-73-81",
+      "file": "regions/tr-73-81.alt",
+      "sha256": "1e4ce51317756387f365e49d87b09becf2ed8068df62bdd71bcb93a958c4e7ba",
+      "byteSize": 4981528,
+      "nodeCount": 155672
+    },
+    {
+      "regionId": "tr-73-82",
+      "file": "regions/tr-73-82.alt",
+      "sha256": "7709331744769dadb4b0c3bd9b90e02a235f9faaaf5aea7d037d28b1eb0c0322",
+      "byteSize": 3332696,
+      "nodeCount": 104146
+    },
+    {
+      "regionId": "tr-74-73",
+      "file": "regions/tr-74-73.alt",
+      "sha256": "87556d9514b96cf65b3a7e5d3c27d8403f5be4f8ae271d4387c4dd1ceb38647a",
+      "byteSize": 2474104,
+      "nodeCount": 77315
+    },
+    {
+      "regionId": "tr-74-74",
+      "file": "regions/tr-74-74.alt",
+      "sha256": "c8096419809509e7eef2b3495903f9b9f7aa1a98bb484ca1e0895c21ec435958",
+      "byteSize": 5785560,
+      "nodeCount": 180798
+    },
+    {
+      "regionId": "tr-74-75",
+      "file": "regions/tr-74-75.alt",
+      "sha256": "4e1b9e06e48a52a2da24daccdb7b4a64c5deff085ffac13fa73bd008359ac715",
+      "byteSize": 3921528,
+      "nodeCount": 122547
+    },
+    {
+      "regionId": "tr-74-76",
+      "file": "regions/tr-74-76.alt",
+      "sha256": "73a00cdb34b016392507546569d74539654c813724667d62f6682846c00eff95",
+      "byteSize": 1623480,
+      "nodeCount": 50733
+    },
+    {
+      "regionId": "tr-74-77",
+      "file": "regions/tr-74-77.alt",
+      "sha256": "a8aaee4d479e90b833312d0484e65e52c85f4954502187fa9161200ca474eecd",
+      "byteSize": 563960,
+      "nodeCount": 17623
+    },
+    {
+      "regionId": "tr-74-78",
+      "file": "regions/tr-74-78.alt",
+      "sha256": "4d6474bf0e5cf403afbc00a1b3509859332be6e1bb109f190e338db3ba3a0f86",
+      "byteSize": 453496,
+      "nodeCount": 14171
+    },
+    {
+      "regionId": "tr-74-79",
+      "file": "regions/tr-74-79.alt",
+      "sha256": "fcb9af884aecbf41ca0d06ed5c859b3c5f65314e624447844911489ed4b59855",
+      "byteSize": 1310168,
+      "nodeCount": 40942
+    },
+    {
+      "regionId": "tr-74-80",
+      "file": "regions/tr-74-80.alt",
+      "sha256": "c1f3a1b199e27ed8e5717212cf01facc048f7fcdffed0f1404e7cf8af514d803",
+      "byteSize": 1580664,
+      "nodeCount": 49395
+    },
+    {
+      "regionId": "tr-74-81",
+      "file": "regions/tr-74-81.alt",
+      "sha256": "79ee99f3fde141e7176d97c692c862bf6ee11a0aca87183cfa5a06a37c334fe4",
+      "byteSize": 5899192,
+      "nodeCount": 184349
+    },
+    {
+      "regionId": "tr-74-82",
+      "file": "regions/tr-74-82.alt",
+      "sha256": "87545d987e33c88f1401cfc4c0351ce037d4f97f8248630a842b330495df1793",
+      "byteSize": 2129656,
+      "nodeCount": 66551
+    },
+    {
+      "regionId": "tr-75-72",
+      "file": "regions/tr-75-72.alt",
+      "sha256": "b75a31795488a558cf29171f5a2564f7f7e0d98746970a861bc91b2a73f08266",
+      "byteSize": 13112,
+      "nodeCount": 409
+    },
+    {
+      "regionId": "tr-75-73",
+      "file": "regions/tr-75-73.alt",
+      "sha256": "b133766ca3487b34e0153edc7cb2d74bc891be98221c92f2e384376812bd48a2",
+      "byteSize": 1266360,
+      "nodeCount": 39573
+    },
+    {
+      "regionId": "tr-75-74",
+      "file": "regions/tr-75-74.alt",
+      "sha256": "4905b7df097dfc89578420517e90d26b6111582e829471cdd088d198ada3333d",
+      "byteSize": 2628056,
+      "nodeCount": 82126
+    },
+    {
+      "regionId": "tr-75-75",
+      "file": "regions/tr-75-75.alt",
+      "sha256": "fe2dc70ce5f4654025af0cbc469cdf9e7c991dae7177c40bf235d383a85e6b8a",
+      "byteSize": 2684344,
+      "nodeCount": 83885
+    },
+    {
+      "regionId": "tr-75-76",
+      "file": "regions/tr-75-76.alt",
+      "sha256": "e1e397d53a474feaeaa5a7b3c80e39a80ce2ed48d4b88c0a1df3825a729ae9f4",
+      "byteSize": 2520760,
+      "nodeCount": 78773
+    },
+    {
+      "regionId": "tr-75-77",
+      "file": "regions/tr-75-77.alt",
+      "sha256": "a13bbd99194ccb0ee78ff14e6757a1d206998c7dc3f4845b3b0237079860d09d",
+      "byteSize": 2026104,
+      "nodeCount": 63315
+    },
+    {
+      "regionId": "tr-75-78",
+      "file": "regions/tr-75-78.alt",
+      "sha256": "bd30f1a3e63c67623203d2b054ec720879e037fb18172134c0df84c10d35267a",
+      "byteSize": 660120,
+      "nodeCount": 20628
+    },
+    {
+      "regionId": "tr-75-79",
+      "file": "regions/tr-75-79.alt",
+      "sha256": "bb0b1b498950cc7ff28f20c8411bd97a835e667786027db62942882f8025628a",
+      "byteSize": 1025048,
+      "nodeCount": 32032
+    },
+    {
+      "regionId": "tr-75-80",
+      "file": "regions/tr-75-80.alt",
+      "sha256": "a9ecb7efc23dd13265c94d537352370b47ba88c45c354616edef6846e2df9e5e",
+      "byteSize": 1565944,
+      "nodeCount": 48935
+    },
+    {
+      "regionId": "tr-75-81",
+      "file": "regions/tr-75-81.alt",
+      "sha256": "8a9c4cd392cfdc859a106b7035dc9c2de7ecb7c440975f4beb13b1733894a1a6",
+      "byteSize": 6613432,
+      "nodeCount": 206669
+    },
+    {
+      "regionId": "tr-75-82",
+      "file": "regions/tr-75-82.alt",
+      "sha256": "fd42cb6bd11fbff95c186896991badefdd70269e0caac449e76199716fd30b66",
+      "byteSize": 1208312,
+      "nodeCount": 37759
+    },
+    {
+      "regionId": "tr-76-73",
+      "file": "regions/tr-76-73.alt",
+      "sha256": "6b8154061637f90900fd2e732308e29c92faff74fb275445813e8e85e7450c0b",
+      "byteSize": 646488,
+      "nodeCount": 20202
+    },
+    {
+      "regionId": "tr-76-74",
+      "file": "regions/tr-76-74.alt",
+      "sha256": "8a958f05a2eb577bd2f4e6ec0cf24876483bbd469063dd53f11ad8605b1f9d1d",
+      "byteSize": 1191608,
+      "nodeCount": 37237
+    },
+    {
+      "regionId": "tr-76-75",
+      "file": "regions/tr-76-75.alt",
+      "sha256": "21b5f759ea32153e6e6d0d035787202bffcb63954100ccae281cd9be591a7671",
+      "byteSize": 2830200,
+      "nodeCount": 88443
+    },
+    {
+      "regionId": "tr-76-76",
+      "file": "regions/tr-76-76.alt",
+      "sha256": "1bfb409fb6c2cf01420e1e5fa4acc95480cb9864bd5e7381c77e14b5f0ec07a9",
+      "byteSize": 6119032,
+      "nodeCount": 191219
+    },
+    {
+      "regionId": "tr-76-77",
+      "file": "regions/tr-76-77.alt",
+      "sha256": "18884a67f01e0f770a9440b9118ab558fbabde7ccb599211e5cf2b44e9aad8df",
+      "byteSize": 1187064,
+      "nodeCount": 37095
+    },
+    {
+      "regionId": "tr-76-78",
+      "file": "regions/tr-76-78.alt",
+      "sha256": "af8d19da6cab5839902dc633d39766690cc444a7eda39d714b1b4479a88ce346",
+      "byteSize": 814840,
+      "nodeCount": 25463
+    },
+    {
+      "regionId": "tr-76-79",
+      "file": "regions/tr-76-79.alt",
+      "sha256": "82056c9e8185a120197bd50b87c4114f623eb3673ca04cf58ac98e036c99359b",
+      "byteSize": 868952,
+      "nodeCount": 27154
+    },
+    {
+      "regionId": "tr-76-80",
+      "file": "regions/tr-76-80.alt",
+      "sha256": "e532db06d792d76d05ab631d647b86240b8c9e08f64ae39def67deb385e22e5f",
+      "byteSize": 1589208,
+      "nodeCount": 49662
+    },
+    {
+      "regionId": "tr-76-81",
+      "file": "regions/tr-76-81.alt",
+      "sha256": "21349b203094b0d11870d02b9a8327fa9b1b6565438dd1d7b0b402b4eb41633a",
+      "byteSize": 6000792,
+      "nodeCount": 187524
+    },
+    {
+      "regionId": "tr-77-73",
+      "file": "regions/tr-77-73.alt",
+      "sha256": "afa226d1c8e3cfbed536fa6f75579ad24690852949aaff2c68996237551c9660",
+      "byteSize": 706968,
+      "nodeCount": 22092
+    },
+    {
+      "regionId": "tr-77-74",
+      "file": "regions/tr-77-74.alt",
+      "sha256": "50fac3bafd541aa5df6adaf435003645bfb91bf85045fa831a0a34b59b2d0d47",
+      "byteSize": 3335480,
+      "nodeCount": 104233
+    },
+    {
+      "regionId": "tr-77-75",
+      "file": "regions/tr-77-75.alt",
+      "sha256": "a63fc6d3dcb518adf045cd134d9c39a324122350eb7e41591c1587b2e99b053b",
+      "byteSize": 1484408,
+      "nodeCount": 46387
+    },
+    {
+      "regionId": "tr-77-76",
+      "file": "regions/tr-77-76.alt",
+      "sha256": "7936193d297adb4d486ce31dcf6e51ad424603f7de3239d01543b3ce186fb66d",
+      "byteSize": 4099736,
+      "nodeCount": 128116
+    },
+    {
+      "regionId": "tr-77-77",
+      "file": "regions/tr-77-77.alt",
+      "sha256": "fee85f850afcd303e9e63cef18b2169e5e25ed7ea95beb1688117f66a65db1dc",
+      "byteSize": 1589112,
+      "nodeCount": 49659
+    },
+    {
+      "regionId": "tr-77-78",
+      "file": "regions/tr-77-78.alt",
+      "sha256": "6c3895e8facc24d6f566e195cfed76ec6ca886b285cebad08caa3fd8aed3929d",
+      "byteSize": 960376,
+      "nodeCount": 30011
+    },
+    {
+      "regionId": "tr-77-79",
+      "file": "regions/tr-77-79.alt",
+      "sha256": "bdf385e05d1384d4d4100e0210dd8c2d7e8067530e58db531eea48b5d421712d",
+      "byteSize": 1164824,
+      "nodeCount": 36400
+    },
+    {
+      "regionId": "tr-77-80",
+      "file": "regions/tr-77-80.alt",
+      "sha256": "0f2428a7c2d95209b76d53dc3caec832ed684534cfc01606f568e7f9c6a3d909",
+      "byteSize": 1988248,
+      "nodeCount": 62132
+    },
+    {
+      "regionId": "tr-77-81",
+      "file": "regions/tr-77-81.alt",
+      "sha256": "592b3736374851cf668548ad9cf79200b649e3058bedf22bc6cc6eafbe4308f3",
+      "byteSize": 6340152,
+      "nodeCount": 198129
+    },
+    {
+      "regionId": "tr-77-82",
+      "file": "regions/tr-77-82.alt",
+      "sha256": "b33ac2b91346c3f81e72d5d29a9eb925f97d6d35e4b27c5a6561fe60f9820b45",
+      "byteSize": 356696,
+      "nodeCount": 11146
+    },
+    {
+      "regionId": "tr-78-73",
+      "file": "regions/tr-78-73.alt",
+      "sha256": "bfa6b26ec21547ddb7880a5e7c91bd18a7c5015d9ed032939d9b9b103aa67548",
+      "byteSize": 908600,
+      "nodeCount": 28393
+    },
+    {
+      "regionId": "tr-78-74",
+      "file": "regions/tr-78-74.alt",
+      "sha256": "969ed90ba4a813831315f4d2a1d98c32f928740b5f7d5a5ddb93589bbf7486a5",
+      "byteSize": 964216,
+      "nodeCount": 30131
+    },
+    {
+      "regionId": "tr-78-75",
+      "file": "regions/tr-78-75.alt",
+      "sha256": "d48e12f5b0440591c94cc730402f1c2bee37d4bfa9c5885b8aef9961aff89ade",
+      "byteSize": 806328,
+      "nodeCount": 25197
+    },
+    {
+      "regionId": "tr-78-76",
+      "file": "regions/tr-78-76.alt",
+      "sha256": "5179c840ac4b09a69932385208da53e732b9af0d07a9a1f29f6e770fe165c637",
+      "byteSize": 2557848,
+      "nodeCount": 79932
+    },
+    {
+      "regionId": "tr-78-77",
+      "file": "regions/tr-78-77.alt",
+      "sha256": "fd4c3eb68bee16118649ab44fdad0d93c8a6d5f3850f15a3a636b04397daf854",
+      "byteSize": 3993720,
+      "nodeCount": 124803
+    },
+    {
+      "regionId": "tr-78-78",
+      "file": "regions/tr-78-78.alt",
+      "sha256": "ef7cd1751dfc140fd8fcfd75e046e7177aecb9bbdb52312d777c12dde607cccb",
+      "byteSize": 1213464,
+      "nodeCount": 37920
+    },
+    {
+      "regionId": "tr-78-79",
+      "file": "regions/tr-78-79.alt",
+      "sha256": "989e3445ae25e20cda7615c9f2a106d38c0a65de599aae61d6aa0417470a2da2",
+      "byteSize": 1457816,
+      "nodeCount": 45556
+    },
+    {
+      "regionId": "tr-78-80",
+      "file": "regions/tr-78-80.alt",
+      "sha256": "db743fb5db3a455745af5717177343a1d01db56a29af2bc30ef3ee750910f612",
+      "byteSize": 1591704,
+      "nodeCount": 49740
+    },
+    {
+      "regionId": "tr-78-81",
+      "file": "regions/tr-78-81.alt",
+      "sha256": "85d58627b7b98ef71551f3440ce2d897583cdfb64de54236bfe05863a581d1f8",
+      "byteSize": 5755928,
+      "nodeCount": 179872
+    },
+    {
+      "regionId": "tr-78-82",
+      "file": "regions/tr-78-82.alt",
+      "sha256": "e6dc1cd8fc58133203a04f6efdeaf84dbe0be2c92508465711bfbe23beffa809",
+      "byteSize": 2245496,
+      "nodeCount": 70171
+    },
+    {
+      "regionId": "tr-79-73",
+      "file": "regions/tr-79-73.alt",
+      "sha256": "1840cae1fe515150cc8a0b6b092088384db53bc41de570779d387923458b4585",
+      "byteSize": 114424,
+      "nodeCount": 3575
+    },
+    {
+      "regionId": "tr-79-74",
+      "file": "regions/tr-79-74.alt",
+      "sha256": "b6710833ea695210ea75bda2844167ebef4e13758e2d0190a5b901a11b1956e9",
+      "byteSize": 929528,
+      "nodeCount": 29047
+    },
+    {
+      "regionId": "tr-79-75",
+      "file": "regions/tr-79-75.alt",
+      "sha256": "d9cb92eb2f7acd444dd20a8c3bd3afe2163377c4133334c96c7a59d9dfb4b6d9",
+      "byteSize": 1016952,
+      "nodeCount": 31779
+    },
+    {
+      "regionId": "tr-79-76",
+      "file": "regions/tr-79-76.alt",
+      "sha256": "7172ab5f81ec7de6d1d16129039040ab03be9f33db7dc57a793af47199c65f74",
+      "byteSize": 1455768,
+      "nodeCount": 45492
+    },
+    {
+      "regionId": "tr-79-77",
+      "file": "regions/tr-79-77.alt",
+      "sha256": "25e62c96219175b265eef21e463d8f79fd8ccfea8d4868ded60b9ecb2aa9e30f",
+      "byteSize": 1701208,
+      "nodeCount": 53162
+    },
+    {
+      "regionId": "tr-79-78",
+      "file": "regions/tr-79-78.alt",
+      "sha256": "cedb40822dc6ff264592f0032e6eb003943bc96e51a60652aed02f35f0e5f26b",
+      "byteSize": 1831288,
+      "nodeCount": 57227
+    },
+    {
+      "regionId": "tr-79-79",
+      "file": "regions/tr-79-79.alt",
+      "sha256": "8037339a4d2728d5d5293be54dbe7b11f3e3b2a52bbba4e344e10b4c2c74ce67",
+      "byteSize": 1347704,
+      "nodeCount": 42115
+    },
+    {
+      "regionId": "tr-79-80",
+      "file": "regions/tr-79-80.alt",
+      "sha256": "bd260015b2f71087c07bc5a34ecbd0427813e01a9b4b2c81a6c27c505f33b04c",
+      "byteSize": 1072280,
+      "nodeCount": 33508
+    },
+    {
+      "regionId": "tr-79-81",
+      "file": "regions/tr-79-81.alt",
+      "sha256": "7f6bad196bdfa053165f1437e0a424ce1f36dcc42490eeacab05b5d4630c26ed",
+      "byteSize": 9084440,
+      "nodeCount": 283888
+    },
+    {
+      "regionId": "tr-79-82",
+      "file": "regions/tr-79-82.alt",
+      "sha256": "06802065c889dafaba973cded049b72bce647732a3cc62177c6aedbf0db8611d",
+      "byteSize": 787832,
+      "nodeCount": 24619
+    },
+    {
+      "regionId": "tr-80-73",
+      "file": "regions/tr-80-73.alt",
+      "sha256": "b5dfec5a7a89dc1ab62fee84e9b9fa36605033a58a1578e8872c807b17c59c82",
+      "byteSize": 380440,
+      "nodeCount": 11888
+    },
+    {
+      "regionId": "tr-80-74",
+      "file": "regions/tr-80-74.alt",
+      "sha256": "53affaa9622650e23c935a3b31bfef8cce3b9af2303b24a42972198696e99378",
+      "byteSize": 769688,
+      "nodeCount": 24052
+    },
+    {
+      "regionId": "tr-80-75",
+      "file": "regions/tr-80-75.alt",
+      "sha256": "97e3e1bca377d39f960cdc9ffe465b0b6fb36be873aa121bff45a64f7b0cf1b7",
+      "byteSize": 2813688,
+      "nodeCount": 87927
+    },
+    {
+      "regionId": "tr-80-76",
+      "file": "regions/tr-80-76.alt",
+      "sha256": "8fa0097163223cf4ac361bef98791cb26122bc03a2f6a623cfc864219606bb11",
+      "byteSize": 1562296,
+      "nodeCount": 48821
+    },
+    {
+      "regionId": "tr-80-77",
+      "file": "regions/tr-80-77.alt",
+      "sha256": "afec37b01a1d583859ae8d3c41d7afbf40caee4b1c794cb11de53b6ccce77122",
+      "byteSize": 1570776,
+      "nodeCount": 49086
+    },
+    {
+      "regionId": "tr-80-78",
+      "file": "regions/tr-80-78.alt",
+      "sha256": "90c61b87cb9bde18efe3351d3b7f67c26f515f65896cc35a1a64d9181da11d33",
+      "byteSize": 1260056,
+      "nodeCount": 39376
+    },
+    {
+      "regionId": "tr-80-79",
+      "file": "regions/tr-80-79.alt",
+      "sha256": "1b23e3afa9f7ddbd9202f94fe499aa8c0b8a67acea43abd6056a9ccf2db9602e",
+      "byteSize": 937336,
+      "nodeCount": 29291
+    },
+    {
+      "regionId": "tr-80-80",
+      "file": "regions/tr-80-80.alt",
+      "sha256": "59fcd8780ca13d548ef8b6cd46b1b4e84855f6c56675c9aed4403c82f1d7500e",
+      "byteSize": 1293848,
+      "nodeCount": 40432
+    },
+    {
+      "regionId": "tr-80-81",
+      "file": "regions/tr-80-81.alt",
+      "sha256": "83e1384c2526e060573fc814c87abdb20bf3dd1cfabfdcac698c756419ca80bb",
+      "byteSize": 7747000,
+      "nodeCount": 242093
+    },
+    {
+      "regionId": "tr-80-82",
+      "file": "regions/tr-80-82.alt",
+      "sha256": "4a5543ad69be318cba916ccd16acac3f2e4654eed8f4f26d1677cd141772f3cf",
+      "byteSize": 458200,
+      "nodeCount": 14318
+    },
+    {
+      "regionId": "tr-81-73",
+      "file": "regions/tr-81-73.alt",
+      "sha256": "a482d0a7fae8e5edca8948f85d8b3df312ad946d28a2730dd822999a84af98b0",
+      "byteSize": 36536,
+      "nodeCount": 1141
+    },
+    {
+      "regionId": "tr-81-74",
+      "file": "regions/tr-81-74.alt",
+      "sha256": "917f832140780fbdeea617618efa1f7ef3e06514a8a4e0de92e625600fceafc3",
+      "byteSize": 1720728,
+      "nodeCount": 53772
+    },
+    {
+      "regionId": "tr-81-75",
+      "file": "regions/tr-81-75.alt",
+      "sha256": "d3f10db16c6bb7a038c1b08a6d386b03dcc46221d6c64361c6cc19e741ad0abb",
+      "byteSize": 1258104,
+      "nodeCount": 39315
+    },
+    {
+      "regionId": "tr-81-76",
+      "file": "regions/tr-81-76.alt",
+      "sha256": "12bafe1c0f95d69974bdebe04a462d186069f61bb9559abcfe9a090b209136f9",
+      "byteSize": 1285272,
+      "nodeCount": 40164
+    },
+    {
+      "regionId": "tr-81-77",
+      "file": "regions/tr-81-77.alt",
+      "sha256": "6c12e4c9a5af68c01fc469aa083cd5eec63acb74f639e0d59ea4e3e7a9d9b258",
+      "byteSize": 1661080,
+      "nodeCount": 51908
+    },
+    {
+      "regionId": "tr-81-78",
+      "file": "regions/tr-81-78.alt",
+      "sha256": "3f04b95f46f356f20ac9bccf2291541e14b514df5172ad3403891b0f993b23d1",
+      "byteSize": 661816,
+      "nodeCount": 20681
+    },
+    {
+      "regionId": "tr-81-79",
+      "file": "regions/tr-81-79.alt",
+      "sha256": "0b79a3dc38d43cc82997a8b53c7d41212773254e00f246cf5ea65105817043bf",
+      "byteSize": 812536,
+      "nodeCount": 25391
+    },
+    {
+      "regionId": "tr-81-80",
+      "file": "regions/tr-81-80.alt",
+      "sha256": "7c7c3b36838f68d5b23fe90bdd482cfcd5c7a11b1d767d8164bff51687cc48d9",
+      "byteSize": 940120,
+      "nodeCount": 29378
+    },
+    {
+      "regionId": "tr-81-81",
+      "file": "regions/tr-81-81.alt",
+      "sha256": "4a571b3bed98f875d6b8e3b422908ea4361eb020b2125748f19fdb4b6502f6ef",
+      "byteSize": 2146072,
+      "nodeCount": 67064
+    },
+    {
+      "regionId": "tr-81-82",
+      "file": "regions/tr-81-82.alt",
+      "sha256": "e7eb58e04e54b5f8b443536f23828a96bc0ee0f93dbd288e109e7b7a84b88a66",
+      "byteSize": 2307544,
+      "nodeCount": 72110
+    },
+    {
+      "regionId": "tr-82-74",
+      "file": "regions/tr-82-74.alt",
+      "sha256": "af159bc8d942b50f8c9e455790880f5509a3c49dd0c40cf12505d6e8b5dafb50",
+      "byteSize": 1348536,
+      "nodeCount": 42141
+    },
+    {
+      "regionId": "tr-82-75",
+      "file": "regions/tr-82-75.alt",
+      "sha256": "16a978e20cc46ad4097389b0fba2e406232e20b5b1de008422de54acd7d9327f",
+      "byteSize": 2811320,
+      "nodeCount": 87853
+    },
+    {
+      "regionId": "tr-82-76",
+      "file": "regions/tr-82-76.alt",
+      "sha256": "1afa9936a32d6b9f53d23d4f6c22f4b2a6c156b350866814184db81dc7a9ac0c",
+      "byteSize": 2109080,
+      "nodeCount": 65908
+    },
+    {
+      "regionId": "tr-82-77",
+      "file": "regions/tr-82-77.alt",
+      "sha256": "330b1cb77ccc9af9d34ea8e5b485909d9e0f2b611312f1b5cf0156c37d5b5154",
+      "byteSize": 1095352,
+      "nodeCount": 34229
+    },
+    {
+      "regionId": "tr-82-78",
+      "file": "regions/tr-82-78.alt",
+      "sha256": "28c31033fea8e5d3e33be2d599ca28b325257800dde197158fb0b9eec02de2bf",
+      "byteSize": 585944,
+      "nodeCount": 18310
+    },
+    {
+      "regionId": "tr-82-79",
+      "file": "regions/tr-82-79.alt",
+      "sha256": "345fa9aff70c5c889d475b5ac9ba63deb9ebbee1cb80769b7b6a96662b58a520",
+      "byteSize": 1683864,
+      "nodeCount": 52620
+    },
+    {
+      "regionId": "tr-82-80",
+      "file": "regions/tr-82-80.alt",
+      "sha256": "cd9f0ed3c1c87a19f7af6dc49510dce2a221f8a351f685dffb36d73447917130",
+      "byteSize": 676184,
+      "nodeCount": 21130
+    },
+    {
+      "regionId": "tr-82-81",
+      "file": "regions/tr-82-81.alt",
+      "sha256": "63fb5be5fc7423a759c3a9185e4c66c7a846f86a85e73e3011deae3d970c6652",
+      "byteSize": 953048,
+      "nodeCount": 29782
+    },
+    {
+      "regionId": "tr-82-82",
+      "file": "regions/tr-82-82.alt",
+      "sha256": "36b6b3a78d8f0878db98025450a57ed89c3d7cd60277ae634894b0d1e2812815",
+      "byteSize": 2124856,
+      "nodeCount": 66401
+    },
+    {
+      "regionId": "tr-83-74",
+      "file": "regions/tr-83-74.alt",
+      "sha256": "76437ae614ccc31770403b332918827a8f61d408ed17a09d2ca534d8d695eefb",
+      "byteSize": 952280,
+      "nodeCount": 29758
+    },
+    {
+      "regionId": "tr-83-75",
+      "file": "regions/tr-83-75.alt",
+      "sha256": "7ab6ce5bbb59e741a4fa5f89a0fba02697ac44e400be6a4160c7073bc6766a37",
+      "byteSize": 1774872,
+      "nodeCount": 55464
+    },
+    {
+      "regionId": "tr-83-76",
+      "file": "regions/tr-83-76.alt",
+      "sha256": "90b6003ce36dc06f17b7f92bb9d966a38d380afc659da43a2f41864a32d544cc",
+      "byteSize": 1591896,
+      "nodeCount": 49746
+    },
+    {
+      "regionId": "tr-83-77",
+      "file": "regions/tr-83-77.alt",
+      "sha256": "7da0efee275cf8057066beb0be7d46f8aab4e1d0e2060b282c797a48089d1f0d",
+      "byteSize": 994712,
+      "nodeCount": 31084
+    },
+    {
+      "regionId": "tr-83-78",
+      "file": "regions/tr-83-78.alt",
+      "sha256": "978a2ab2316a4e2563b93a9c25727880b6c4dca2fdfc8f79b3bde19129a6a755",
+      "byteSize": 875224,
+      "nodeCount": 27350
+    },
+    {
+      "regionId": "tr-83-79",
+      "file": "regions/tr-83-79.alt",
+      "sha256": "ac716989d4244e8bfe3635be4a5f72b5f27e0eac3e831a544f759f4cd215045a",
+      "byteSize": 781464,
+      "nodeCount": 24420
+    },
+    {
+      "regionId": "tr-83-80",
+      "file": "regions/tr-83-80.alt",
+      "sha256": "ca3d1df65456382db6f10c2d3c620e51ae276eeccba7ccfd5c0082bb076bebe1",
+      "byteSize": 787800,
+      "nodeCount": 24618
+    },
+    {
+      "regionId": "tr-83-81",
+      "file": "regions/tr-83-81.alt",
+      "sha256": "4e0a40c87624dec6fc62ba899feb92e2417c030a020a17c2c47b74ed872cd8e2",
+      "byteSize": 1205848,
+      "nodeCount": 37682
+    },
+    {
+      "regionId": "tr-83-82",
+      "file": "regions/tr-83-82.alt",
+      "sha256": "fc04adf55633ddcd592fa5c591586d49539327a1b4180b6bc477869806231d4c",
+      "byteSize": 2529688,
+      "nodeCount": 79052
+    },
+    {
+      "regionId": "tr-83-83",
+      "file": "regions/tr-83-83.alt",
+      "sha256": "5fb9586d88ae0e78786f7742785f1c780937829bd92797cc2606ee68bf05f81e",
+      "byteSize": 101112,
+      "nodeCount": 3159
+    },
+    {
+      "regionId": "tr-84-74",
+      "file": "regions/tr-84-74.alt",
+      "sha256": "5650237ec2e8c3d67db5488cb0087ac0a8a50030b07a223d30568b963b624a23",
+      "byteSize": 1566872,
+      "nodeCount": 48964
+    },
+    {
+      "regionId": "tr-84-75",
+      "file": "regions/tr-84-75.alt",
+      "sha256": "2ac9ba90311614ef5f8fea1e460be5544fa5255aa0fa8c34010ff92672092995",
+      "byteSize": 1303352,
+      "nodeCount": 40729
+    },
+    {
+      "regionId": "tr-84-76",
+      "file": "regions/tr-84-76.alt",
+      "sha256": "e85787963857a43109b2fee17384634d1952c53b66191dc6105c2858c4da61ac",
+      "byteSize": 1461592,
+      "nodeCount": 45674
+    },
+    {
+      "regionId": "tr-84-77",
+      "file": "regions/tr-84-77.alt",
+      "sha256": "e68f5e8bbad0939e48f5fffcdf8e148700dc07555d02d1e2f568d453de6cd0e8",
+      "byteSize": 948312,
+      "nodeCount": 29634
+    },
+    {
+      "regionId": "tr-84-78",
+      "file": "regions/tr-84-78.alt",
+      "sha256": "88c4f98ab334935dcaab3f63709c9be310d854caef5ebdd185f8812596d6eac0",
+      "byteSize": 794040,
+      "nodeCount": 24813
+    },
+    {
+      "regionId": "tr-84-79",
+      "file": "regions/tr-84-79.alt",
+      "sha256": "44c8ebd99f7f82e4a98e4f3460022a66b505ee50ea83fa6b2f703b50f7037018",
+      "byteSize": 579320,
+      "nodeCount": 18103
+    },
+    {
+      "regionId": "tr-84-80",
+      "file": "regions/tr-84-80.alt",
+      "sha256": "231d22f59ba7463e183ebba1b76a2d47faa7effc72eee1a171ff9f0e78d9545d",
+      "byteSize": 730296,
+      "nodeCount": 22821
+    },
+    {
+      "regionId": "tr-84-81",
+      "file": "regions/tr-84-81.alt",
+      "sha256": "7baefb5e24e9d2fd5fff50ed15285b5b7dac46430d55adb89197b14ab6c33062",
+      "byteSize": 800056,
+      "nodeCount": 25001
+    },
+    {
+      "regionId": "tr-84-82",
+      "file": "regions/tr-84-82.alt",
+      "sha256": "077b7021559dce3df4db9e1f99f0d9deef9b008e773c0db61c3467102014e3f6",
+      "byteSize": 1857432,
+      "nodeCount": 58044
+    },
+    {
+      "regionId": "tr-84-83",
+      "file": "regions/tr-84-83.alt",
+      "sha256": "9e9c93229e3e46b3c44d02de61f707a960c067f8d70b4f93b59ccdc5f99e8769",
+      "byteSize": 36824,
+      "nodeCount": 1150
+    },
+    {
+      "regionId": "tr-85-74",
+      "file": "regions/tr-85-74.alt",
+      "sha256": "d6f65f888fa4c49287186f196dc3352c9d149ee718041b1feb32dc1c846d5167",
+      "byteSize": 913304,
+      "nodeCount": 28540
+    },
+    {
+      "regionId": "tr-85-75",
+      "file": "regions/tr-85-75.alt",
+      "sha256": "faefd950cb0e3cddf15cc6e806ca479db544452f430ce0e44d1861887a4c54ec",
+      "byteSize": 558296,
+      "nodeCount": 17446
+    },
+    {
+      "regionId": "tr-85-76",
+      "file": "regions/tr-85-76.alt",
+      "sha256": "4e069047de9f2214c49bb728cb282b39e3eeb4b850582345eedff45a07bd35c0",
+      "byteSize": 956920,
+      "nodeCount": 29903
+    },
+    {
+      "regionId": "tr-85-77",
+      "file": "regions/tr-85-77.alt",
+      "sha256": "3df98fa146ad701f881f69a909f3b3ed69e81c16e9aadacacb54531be4047f8f",
+      "byteSize": 378936,
+      "nodeCount": 11841
+    },
+    {
+      "regionId": "tr-85-78",
+      "file": "regions/tr-85-78.alt",
+      "sha256": "c4cc93460bbebbfa4d39dea7b1aa6cd61f5c27c4310945b3e59b90a1673b0b51",
+      "byteSize": 1270104,
+      "nodeCount": 39690
+    },
+    {
+      "regionId": "tr-85-79",
+      "file": "regions/tr-85-79.alt",
+      "sha256": "fe22619fbc0ce7408ba08912e5f51fbd7d4e8860f7c5b13349a9b7ad35cd75cc",
+      "byteSize": 754296,
+      "nodeCount": 23571
+    },
+    {
+      "regionId": "tr-85-80",
+      "file": "regions/tr-85-80.alt",
+      "sha256": "a54040a17a85c3580316d5f4b9ae66a1b7329a4a9b6d3c11534c071c2e7372da",
+      "byteSize": 594776,
+      "nodeCount": 18586
+    },
+    {
+      "regionId": "tr-85-81",
+      "file": "regions/tr-85-81.alt",
+      "sha256": "1b3e0d7a8c635e8389fa615829876837388a796b27633aaa483bd6ad8333f6ee",
+      "byteSize": 499128,
+      "nodeCount": 15597
+    },
+    {
+      "regionId": "tr-85-82",
+      "file": "regions/tr-85-82.alt",
+      "sha256": "a330f739fac88a73c6f765293cdcb028046cb2f2092e83a8937c7e963cfba433",
+      "byteSize": 929816,
+      "nodeCount": 29056
+    },
+    {
+      "regionId": "tr-85-83",
+      "file": "regions/tr-85-83.alt",
+      "sha256": "18d461605642f132a60978126ce8e76baec7db53ad3ba3d3fd85d015e85ff7ba",
+      "byteSize": 149880,
+      "nodeCount": 4683
+    },
+    {
+      "regionId": "tr-86-74",
+      "file": "regions/tr-86-74.alt",
+      "sha256": "aa8fe3578e1c003b4169b05d9770e76abf5d0fba4369b4f5897e1dbec7fc0fc4",
+      "byteSize": 486840,
+      "nodeCount": 15213
+    },
+    {
+      "regionId": "tr-86-75",
+      "file": "regions/tr-86-75.alt",
+      "sha256": "1bb74957c0dd2763d6f45ed8051b364883a8334511099e707c72040d04141bea",
+      "byteSize": 604920,
+      "nodeCount": 18903
+    },
+    {
+      "regionId": "tr-86-76",
+      "file": "regions/tr-86-76.alt",
+      "sha256": "65e4a3ad2dd01bf12a4b439bf961431b68667d87c8f3cd6ad894fbd3860d5eee",
+      "byteSize": 1057528,
+      "nodeCount": 33047
+    },
+    {
+      "regionId": "tr-86-77",
+      "file": "regions/tr-86-77.alt",
+      "sha256": "1d1654e8001d8076cb9a141c70092ce3912fc6e241b26d71972a18dcb58955ac",
+      "byteSize": 1165464,
+      "nodeCount": 36420
+    },
+    {
+      "regionId": "tr-86-78",
+      "file": "regions/tr-86-78.alt",
+      "sha256": "efff7baa9ae6e64b1dc04ce67d99aafafdfc9c54762fe82e913d19278aa4e636",
+      "byteSize": 1105976,
+      "nodeCount": 34561
+    },
+    {
+      "regionId": "tr-86-79",
+      "file": "regions/tr-86-79.alt",
+      "sha256": "5532653b9ab0901894328f9344c692a8f05d4713a97c23779800c917a8c8b08e",
+      "byteSize": 1379064,
+      "nodeCount": 43095
+    },
+    {
+      "regionId": "tr-86-80",
+      "file": "regions/tr-86-80.alt",
+      "sha256": "80fdae7b49515cf71bcb1334a8f248d2623f2013203b81fa5cfb0028c34f8a94",
+      "byteSize": 755800,
+      "nodeCount": 23618
+    },
+    {
+      "regionId": "tr-86-81",
+      "file": "regions/tr-86-81.alt",
+      "sha256": "7342da3507cad24c4c991806eff17e635cde0b51e867602cf30c0cf998c6c8ff",
+      "byteSize": 734936,
+      "nodeCount": 22966
+    },
+    {
+      "regionId": "tr-86-82",
+      "file": "regions/tr-86-82.alt",
+      "sha256": "4f48d02fd1b6998bf0d4d79b2eaa10dae07c207d4916037abbd4489a26630b81",
+      "byteSize": 296536,
+      "nodeCount": 9266
+    },
+    {
+      "regionId": "tr-87-74",
+      "file": "regions/tr-87-74.alt",
+      "sha256": "6595aa2baae09935a8dcc674787e869d3f550cf71a4acb14d372265a7dfce3d5",
+      "byteSize": 399864,
+      "nodeCount": 12495
+    },
+    {
+      "regionId": "tr-87-75",
+      "file": "regions/tr-87-75.alt",
+      "sha256": "4f598d956d80eeb0dd6366f5c15166ad3303ee755b8d638f2c5c877c02e02bee",
+      "byteSize": 1432376,
+      "nodeCount": 44761
+    },
+    {
+      "regionId": "tr-87-76",
+      "file": "regions/tr-87-76.alt",
+      "sha256": "bf610be21419a1b5d0674d4763117ea0989025ecabbd9d5c76550335b6b3f562",
+      "byteSize": 421528,
+      "nodeCount": 13172
+    },
+    {
+      "regionId": "tr-87-77",
+      "file": "regions/tr-87-77.alt",
+      "sha256": "87c02a1f91e1de568e24c3cbacf889a1e522fbc9676a7d6e5b5c8d52642908b5",
+      "byteSize": 727832,
+      "nodeCount": 22744
+    },
+    {
+      "regionId": "tr-87-78",
+      "file": "regions/tr-87-78.alt",
+      "sha256": "bbde5381f17d66aa3d6d9bd1e376df8055c3080b463de5b29c7bd8961b58e8cb",
+      "byteSize": 586008,
+      "nodeCount": 18312
+    },
+    {
+      "regionId": "tr-87-79",
+      "file": "regions/tr-87-79.alt",
+      "sha256": "53bda50b993874312b6a87c25c19622a5da2bf8f70d50fb03f747e84bcd1c9f7",
+      "byteSize": 802648,
+      "nodeCount": 25082
+    },
+    {
+      "regionId": "tr-87-80",
+      "file": "regions/tr-87-80.alt",
+      "sha256": "ccadb59f5844baf2e418222de101e259267e4cb97e4e80c6b6b76b7118d16de8",
+      "byteSize": 364472,
+      "nodeCount": 11389
+    },
+    {
+      "regionId": "tr-87-81",
+      "file": "regions/tr-87-81.alt",
+      "sha256": "8bc8def2fee45ee6be6165d4627cf4df8ab9a412a471bdbbca0f7960cee05280",
+      "byteSize": 304280,
+      "nodeCount": 9508
+    },
+    {
+      "regionId": "tr-87-82",
+      "file": "regions/tr-87-82.alt",
+      "sha256": "47b7964121e8783c0e36021f168e2f0e35ada731087a62d68ce1a23dcf81df08",
+      "byteSize": 13336,
+      "nodeCount": 416
+    },
+    {
+      "regionId": "tr-88-73",
+      "file": "regions/tr-88-73.alt",
+      "sha256": "775647171f526d7185296755d876a55d747e3c444b9f0652cee7eb4d36a20c1e",
+      "byteSize": 100344,
+      "nodeCount": 3135
+    },
+    {
+      "regionId": "tr-88-74",
+      "file": "regions/tr-88-74.alt",
+      "sha256": "ca9446de2c0354d53dcfa32a77df8f0b5406541e4eeabd187808b1166412e505",
+      "byteSize": 788536,
+      "nodeCount": 24641
+    },
+    {
+      "regionId": "tr-88-75",
+      "file": "regions/tr-88-75.alt",
+      "sha256": "a190ff244199999cfb9a5e750cfcb8ed149595812e78d24dee0022e30f4c45d1",
+      "byteSize": 1694200,
+      "nodeCount": 52943
+    },
+    {
+      "regionId": "tr-88-76",
+      "file": "regions/tr-88-76.alt",
+      "sha256": "03f389e0fc15e5150a7a027d99348421af6888c0dc1cfc22a01db5d3986c47ae",
+      "byteSize": 1141432,
+      "nodeCount": 35669
+    },
+    {
+      "regionId": "tr-88-77",
+      "file": "regions/tr-88-77.alt",
+      "sha256": "7656d84cd07b5122d716fe4624c29a5e75c1757528e9131fe7514010e3570572",
+      "byteSize": 574104,
+      "nodeCount": 17940
+    },
+    {
+      "regionId": "tr-88-78",
+      "file": "regions/tr-88-78.alt",
+      "sha256": "6afc3ba25ca3cba28ffd1faac8abe0eb622dc37dd8d01c683b547a15155f2d07",
+      "byteSize": 764984,
+      "nodeCount": 23905
+    },
+    {
+      "regionId": "tr-88-79",
+      "file": "regions/tr-88-79.alt",
+      "sha256": "ca8393fc2c37801c43993c4b9b41896c3ef623a8d8f6a46b68a0a3c202b35e71",
+      "byteSize": 1326424,
+      "nodeCount": 41450
+    },
+    {
+      "regionId": "tr-88-80",
+      "file": "regions/tr-88-80.alt",
+      "sha256": "ebf0815a24dadee5291ef9d896344ba164853b0607d266492cdbb9d1e0ca8f4b",
+      "byteSize": 128696,
+      "nodeCount": 4021
+    },
+    {
+      "regionId": "tr-89-74",
+      "file": "regions/tr-89-74.alt",
+      "sha256": "c8ce00d9c49de92b7f7f6c19d3ecbbb87371bf79762ad91a0bf25b0e45df78c9",
+      "byteSize": 522168,
+      "nodeCount": 16317
+    },
+    {
+      "regionId": "tr-89-75",
+      "file": "regions/tr-89-75.alt",
+      "sha256": "dcad206ea8322e5f13222822801e8a166dbb14b20f544a4f0cef3d0981711c6d",
+      "byteSize": 258328,
+      "nodeCount": 8072
+    },
+    {
+      "regionId": "tr-89-76",
+      "file": "regions/tr-89-76.alt",
+      "sha256": "f7ffe67d5285cdc46216a4a9eda195ea4fdcbee9b1ef825aacf64533c3f4a9e9",
+      "byteSize": 111000,
+      "nodeCount": 3468
+    },
+    {
+      "regionId": "tr-89-78",
+      "file": "regions/tr-89-78.alt",
+      "sha256": "bb91d00a714433639c1dd1f6a15674c80d5de1e2dd46e52591cab1460c386235",
+      "byteSize": 5560,
+      "nodeCount": 173
+    },
+    {
+      "regionId": "tr-89-79",
+      "file": "regions/tr-89-79.alt",
+      "sha256": "86c5a5eb4e48aaf658cf26cbb41ca38768ad252199ff2cf8967c52a7090c611d",
+      "byteSize": 240376,
+      "nodeCount": 7511
+    }
+  ]
+}

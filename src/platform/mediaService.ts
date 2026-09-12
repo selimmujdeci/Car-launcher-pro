@@ -16,6 +16,12 @@ import { isNative } from './bridge';
 import { CarLauncher } from './nativePlugin';
 import type { NativeMediaInfo } from './nativePlugin';
 import { logError } from './crashLogger';
+import { isLegacyLocalPlayerEnabled } from './localMusicService';
+
+/* ARCH-06/F1 — T0 sayaçlar + medya hazırlık taşı. Çalma otoritesi native
+   tarafta KALIR; buraya hiçbir kadans/karar eklenmedi. */
+import { bumpPerf } from './perf/perfCounters';
+import { markBootMilestone } from './bootTimingRecorder';
 
 /* ── Issue 2: albumArt hash — köprü trafiği önleme ──────────
  * Base64 bir kapak ~20–80 KB. 5 saniyelik poll döngüsünde değişmemiş
@@ -114,9 +120,15 @@ let _lastAccentHash = 0;
 
 function _extractAndApplyAccent(albumArt: string): void {
   const hash = _djb2(albumArt);
-  if (hash === _lastAccentHash) return;
+  if (hash === _lastAccentHash) {
+    bumpPerf('artwork.hashDedupHit');
+    return;
+  }
   _lastAccentHash = hash;
 
+  /* ARCH-06/F1: GERÇEK decode sayısı. F5'te "aynı kapak kaç kez çözülüyor"
+     sorusunun tabanı budur — bu turda YALNIZ ÖLÇÜLÜR, optimize EDİLMEZ. */
+  bumpPerf('artwork.accentDecode');
   const img = new Image();
   img.crossOrigin = 'anonymous';
   img.onload = () => {
@@ -158,10 +170,36 @@ function _extractAndApplyAccent(albumArt: string): void {
 function _setupMediaSession(): void {
   if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) return;
   const ms = navigator.mediaSession;
-  ms.setActionHandler('play',          () => { play(); });
-  ms.setActionHandler('pause',         () => { pause(); });
-  ms.setActionHandler('nexttrack',     () => { next(); });
-  ms.setActionHandler('previoustrack', () => { previous(); });
+  // Hardware/notification MediaSession actions are requesters, never a second
+  // player path. The canonical media gateway retains dedup and native authority.
+  const route = (action: 'play' | 'pause' | 'next' | 'previous'): void => {
+    /* MUSIC F7.3 · Sonraki/önceki KUYRUK-FARKINDA katmandan geçer.
+     *
+     * ÖLÇÜLEN KUSUR: donanım/bildirim tuşları doğrudan kapının `next()`ine
+     * gidiyordu. Kapı, komutu kaynağın YETENEĞİNE göre değerlendirir ve
+     * backend'i kuyruksuz olan kaynaklarda (YouTube IFrame) dürüstçe
+     * `unsupported_capability` ile REDDEDER → direksiyon "sonraki" tuşu
+     * HİÇBİR ŞEY YAPMIYORDU; oysa üst katmanda (arama sonucu listesi)
+     * gerçek bir sıra vardı ve ekrandaki düğme onu ilerletiyordu.
+     *
+     * İki farklı "sonraki" davranışı KALDIRILDI: her ikisi de aynı
+     * kuyruk-farkında girişten geçer ve o giriş yine kanonik kapıya iner. */
+    if (action === 'next' || action === 'previous') {
+      void import('./media/carosMediaLayer').then((layer) => {
+        if (action === 'next') layer.next('native_mediasession');
+        else layer.previous('native_mediasession');
+      }).catch((error) => logError(`MediaSession:${action}`, error));
+      return;
+    }
+    void import('./media/authority/mediaCommandGateway').then((gateway) => {
+      if (action === 'play') return gateway.play(undefined, 'native_mediasession');
+      return gateway.pause(undefined, 'native_mediasession');
+    }).catch((error) => logError(`MediaSession:${action}`, error));
+  };
+  ms.setActionHandler('play',          () => { route('play'); });
+  ms.setActionHandler('pause',         () => { route('pause'); });
+  ms.setActionHandler('nexttrack',     () => { route('next'); });
+  ms.setActionHandler('previoustrack', () => { route('previous'); });
 }
 
 function _teardownMediaSession(): void {
@@ -288,6 +326,12 @@ export function updateMediaState(partial: Partial<MediaState>): void {
 
 export function getMediaState(): MediaState {
   return _current;
+}
+
+/** Read-only subscription port for presentation selectors; it creates no state owner. */
+export function subscribeMediaState(listener: () => void): () => void {
+  _listeners.add(listener);
+  return () => { _listeners.delete(listener); };
 }
 
 export function setSource(source: MediaSource): void {
@@ -417,20 +461,108 @@ export function pause(): void {
   _sendWithWarmup('pause').catch((e) => logError('Media:Pause', e));
 }
 
+/* ── MÜZİK HUB PAKET A: otorite yönlendirmesi ─────────────────────────────
+ * Uygulama-içi ses (yerel müzik + internet akışı) artık CarosPlaybackService
+ * tarafından çalınır. Transport komutları TEK kapıdan (MediaCommandGateway)
+ * geçmelidir — aksi halde bildirim/direksiyon tuşu ile UI farklı otoritelere
+ * konuşur ve durum ayrışır. Otorite yoksa eski yollar aynen devrededir. */
+const AUTHORITY_PACKAGES = new Set(['com.cockpitos.pro', 'com.cockpitos.pro.stream']);
+
+function _isAuthorityPackage(pkg: string): boolean {
+  return AUTHORITY_PACKAGES.has(pkg);
+}
+
+/**
+ * Medya komutunun GERÇEK sonucu.
+ *
+ * NEDEN VAR (saha 2026-08-08): "müzik değiştir" deyince Mavi "sonraki parça"
+ * diyordu ama parça DEĞİŞMİYORDU. Kök: `mediaCommandGateway` sonucu
+ * (`CommandTruth`) BİLİYORDU, ama `_routeToAuthority` onu `void` ile ATIYOR ve
+ * koşulsuz `true` dönüyordu → `next()` `void` idi → `commandExecutor` sonucu
+ * beklemeden "Sonraki parça" diyordu. Yani sistem gerçeği biliyordu ve
+ * söylemiyordu; bu CLAUDE.md'nin "SAHTE ONAY YASAK" kuralının ihlaliydi.
+ *
+ * `dispatched` ile `verified` BİLEREK ayrıdır: "komut kabul edildi" ile
+ * "parça gerçekten değişti" AYNI ŞEY DEĞİLDİR (Medya Otoritesi ekranının
+ * kendi sözleşmesi de böyle der).
+ */
+export interface MediaCommandResult {
+  /** Komut bir motora GERÇEKTEN gönderildi mi. */
+  readonly dispatched: boolean;
+  /** Etkisi DOĞRULANDI mı — `false` iken başarı İDDİA EDİLEMEZ. */
+  readonly verified: boolean;
+  /** Bounded hata kodu; `null` = hata yok. Ham metin/PII taşımaz. */
+  readonly failureCode: string | null;
+}
+
+const _MEDIA_NO_TARGET: MediaCommandResult =
+  { dispatched: false, verified: false, failureCode: 'no_target' };
+/** Doğrulama SAĞLAYAMAYAN yol (harici MediaSession) — yalan söylenmez. */
+const _MEDIA_SENT_UNVERIFIED: MediaCommandResult =
+  { dispatched: true, verified: false, failureCode: 'unverified_backend' };
+
+/**
+ * @returns Otorite komutu üstlendiyse GERÇEK sonucu; sahibi değilse `null`
+ *          (çağıran eski yola devam eder — yönlendirme DEĞİŞMEDİ).
+ */
+async function _routeToAuthority(
+  action: 'play' | 'pause' | 'next' | 'previous',
+  requester?: string,
+): Promise<MediaCommandResult | null> {
+  if (!isNative || !_isAuthorityPackage(_current.activePackage)) return null;
+  try {
+    const gw = await import('./media/authority/mediaCommandGateway');
+    const truth = await (
+      action === 'play'     ? gw.play(undefined, requester)
+      : action === 'pause'  ? gw.pause(undefined, requester)
+      : action === 'next'   ? gw.next(undefined, requester)
+      :                       gw.previous(undefined, requester)
+    );
+    /* YALNIZ 'VERIFIED' başarı sayılır. 'ACCEPTED_UNVERIFIED' backend'in
+       doğrulama sağlayamadığı durumdur ve başarı olarak SUNULAMAZ. */
+    return {
+      dispatched: true,
+      verified: truth.outcome === 'VERIFIED',
+      failureCode: truth.outcome === 'VERIFIED' ? null : (truth.failureCode ?? truth.outcome),
+    };
+  } catch (e) {
+    logError(`Media:Authority:${action}`, e);
+    return { dispatched: true, verified: false, failureCode: 'authority_error' };
+  }
+}
+
 export function togglePlayPause(): void {
+  // Otorite sahibi kaynak (yerel müzik / internet akışı) → tek kapı.
+  if (isNative && _isAuthorityPackage(_current.activePackage)) {
+    /* Davranış BİREBİR aynı (ateşle-unut); sonuç tipi değişti, akış değişmedi. */
+    void _routeToAuthority(_current.playing ? 'pause' : 'play');
+    return;
+  }
   // Stream (uygulama içi internet akışı) aktifse → streamMusicService (web + native).
   // isNative guard'ından ÖNCE: stream web'de de çalar.
   if (_current.activePackage === 'com.cockpitos.pro.stream') {
     import('./streamMusicService').then(({ streamTogglePlayPause }) => streamTogglePlayPause()).catch(() => {});
     return;
   }
+  /* MUSIC F7.1 · YouTube transportu TEK kapıdan geçer.
+   *
+   * ÖNCESİ: doğrudan `youtubeTogglePlayPause()` çağrılıyordu → ikinci transport
+   * otoritesi; komut `CommandTruth` üretmiyor, kapı gerçeği bilmiyordu.
+   * SONRASI: kapı `BackendTransport` üzerinden IFrame'i sürer. Kapı hiç
+   * yüklenemezse (modül hatası) eski doğrudan yol yalnız FAIL-SOFT yedektir —
+   * sessiz kalmak, çalmamaktan kötüdür. */
   if (_current.activePackage === 'com.cockpitos.pro.youtube') {
-    import('./youtubeService').then(({ youtubeTogglePlayPause }) => youtubeTogglePlayPause()).catch(() => {});
+    const wantPause = _current.playing;
+    import('./media/authority/mediaCommandGateway')
+      .then((gw) => (wantPause ? gw.pause() : gw.play()))
+      .catch(() => import('./youtubeService')
+        .then(({ youtubeTogglePlayPause }) => youtubeTogglePlayPause())
+        .catch(() => {}));
     return;
   }
   if (!isNative) return;
-  // Yerel müzik aktifse localMusicService'e yönlendir (circular import önlemek için lazy import)
-  if (_current.activePackage === 'com.cockpitos.pro') {
+  // Legacy rollback dışında yerel transport gateway'den çıkarılmaz.
+  if (isLegacyLocalPlayerEnabled() && _current.activePackage === 'com.cockpitos.pro') {
     import('./localMusicService').then(({ localTogglePlayPause }) => localTogglePlayPause()).catch(() => {});
     return;
   }
@@ -451,22 +583,92 @@ export function cycleRepeat(): void {
   updateMediaState({ repeat: next });
 }
 
-export function next(): void {
-  if (!isNative) return;
-  if (_current.activePackage === 'com.cockpitos.pro') {
-    import('./localMusicService').then(({ localNext }) => localNext()).catch(() => {});
-    return;
+/**
+ * Sonraki parça.
+ *
+ * YÖNLENDİRME DEĞİŞMEDİ — yalnız SONUÇ artık kaybolmuyor. Çağıranlar sonucu
+ * yok sayabilir (UI düğmeleri öyle yapar); sesli asistan ise `verified`
+ * olmadan başarı İDDİA ETMEZ.
+ */
+export async function next(requester?: string): Promise<MediaCommandResult> {
+  if (!isNative) return _MEDIA_NO_TARGET;
+  const viaAuthority = await _routeToAuthority('next', requester);
+  if (viaAuthority) return viaAuthority;
+  if (isLegacyLocalPlayerEnabled() && _current.activePackage === 'com.cockpitos.pro') {
+    try {
+      const { localNext } = await import('./localMusicService');
+      return localNext();
+    } catch (e) {
+      logError('Media:Next:Local', e);
+      return { dispatched: false, verified: false, failureCode: 'local_unavailable' };
+    }
   }
-  CarLauncher.sendMediaAction({ action: 'next' }).catch((e) => { logError('Media:Next', e); });
+  try {
+    await CarLauncher.sendMediaAction({ action: 'next' });
+    /* Harici MediaSession: gönderildi ama etkisi GÖZLENEMEZ → doğrulanmış
+       sayılmaz (ses yolları bizde değil). */
+    return _MEDIA_SENT_UNVERIFIED;
+  } catch (e) {
+    logError('Media:Next', e);
+    return { dispatched: false, verified: false, failureCode: 'send_failed' };
+  }
 }
 
-export function previous(): void {
-  if (!isNative) return;
-  if (_current.activePackage === 'com.cockpitos.pro') {
-    import('./localMusicService').then(({ localPrev }) => localPrev()).catch(() => {});
-    return;
+/**
+ * MAVI-F7 · Çalmayı başlat/devam ettir — **SONUÇ DÖNEN** sürüm.
+ *
+ * NEDEN AYRI FONKSİYON: `play()` UI düğmeleri ve MediaSession için `void`
+ * sözleşmesini korur (davranış DEĞİŞMEZ). Sesli asistan ise doğrulanmamış bir
+ * komuta "çalıyor" DİYEMEZ → `next()`/`previous()` ile BİREBİR aynı deseni
+ * kullanır: otorite sahibi kaynakta `playbackTruth` sonucu, aksi hâlde
+ * dürüstçe `unverified_backend`.
+ *
+ * **YENİ OTORİTE KURULMAZ:** tek medya gerçeği `mediaCommandGateway`dir.
+ */
+export async function playWithResult(): Promise<MediaCommandResult> {
+  const viaAuthority = await _routeToAuthority('play');
+  if (viaAuthority) return viaAuthority;
+  /* Otorite sahibi değil → mevcut yönlendirme AYNEN çalışır; ama etkisi
+     GÖZLENEMEZ, bu yüzden doğrulanmış SAYILMAZ. */
+  play();
+  return isNative || _isInAppPkg(_current.activePackage)
+    ? _MEDIA_SENT_UNVERIFIED
+    : _MEDIA_NO_TARGET;
+}
+
+/** MAVI-F7 · Duraklat — `playWithResult()` ile AYNI sözleşme. */
+export async function pauseWithResult(): Promise<MediaCommandResult> {
+  const viaAuthority = await _routeToAuthority('pause');
+  if (viaAuthority) return viaAuthority;
+  pause();
+  /* Otorite dışındaki yollarda (harici MediaSession · uygulama-içi toggle)
+     etkinin GÖZLENDİĞİ bir kanıt YOKTUR — "duraklattım" doğrulanmış SAYILMAZ. */
+  return isNative || _isInAppPkg(_current.activePackage)
+    ? _MEDIA_SENT_UNVERIFIED
+    : _MEDIA_NO_TARGET;
+}
+
+/** Önceki parça — `next()` ile AYNI sözleşme. */
+export async function previous(requester?: string): Promise<MediaCommandResult> {
+  if (!isNative) return _MEDIA_NO_TARGET;
+  const viaAuthority = await _routeToAuthority('previous', requester);
+  if (viaAuthority) return viaAuthority;
+  if (isLegacyLocalPlayerEnabled() && _current.activePackage === 'com.cockpitos.pro') {
+    try {
+      const { localPrev } = await import('./localMusicService');
+      return localPrev();
+    } catch (e) {
+      logError('Media:Prev:Local', e);
+      return { dispatched: false, verified: false, failureCode: 'local_unavailable' };
+    }
   }
-  CarLauncher.sendMediaAction({ action: 'previous' }).catch((e) => { logError('Media:Prev', e); });
+  try {
+    await CarLauncher.sendMediaAction({ action: 'previous' });
+    return _MEDIA_SENT_UNVERIFIED;
+  } catch (e) {
+    logError('Media:Prev', e);
+    return { dispatched: false, verified: false, failureCode: 'send_failed' };
+  }
 }
 
 /* ── React hook ──────────────────────────────────────────── */
@@ -474,8 +676,10 @@ export function previous(): void {
 export function useMediaState(): MediaState {
   return useSyncExternalStore(
     (onStoreChange) => {
-      _listeners.add(onStoreChange as any);
-      return () => { _listeners.delete(onStoreChange as any); };
+      // `() => void`, `(s: MediaState) => void` yerine geçebilir (daha az parametre
+      // alan işlev atanabilirdir) — cast'e gerek yok.
+      _listeners.add(onStoreChange);
+      return () => { _listeners.delete(onStoreChange); };
     },
     () => _current,
     () => _current,
@@ -595,6 +799,7 @@ function applyNativeMediaInfo(info: NativeMediaInfo): void {
       if (incomingHash !== _lastArtHash) {
         _lastArtHash = incomingHash;
         albumArt     = info.albumArt;
+        bumpPerf('artwork.sourceChanged');
         // Yeni albüm kapağı → ambient renk güncelle (async, sızıntısız)
         _extractAndApplyAccent(info.albumArt);
       }
@@ -742,11 +947,25 @@ export async function startMediaHub(): Promise<void> {
   // WEB MODU: tamamen pasif — fake polling yok
   if (!isNative) return;
 
+  // MÜZİK HUB PAKET A: native playback authority'yi başlat (event-driven state).
+  // Kurtarma kararı da burada uygulanır — OTOMATİK ÇALMA YOK.
+  void import('./media/authority/mediaAuthorityRuntime')
+    .then(({ startMediaAuthority }) => startMediaAuthority())
+    .catch((e) => logError('Media:AuthorityStart', e));
+
   // Gerçek zamanlı MediaSession event dinle
   try {
     const handle = await CarLauncher.addListener('mediaChanged', (info) => {
+      bumpPerf('bridge.mediaChanged.received');
       if (_current.permissionRequired) updateMediaState({ permissionRequired: false });
       applyNativeMediaInfo(info);
+      /* ARCH-06/F1 · MEDIA_AUTHORITY_AVAILABLE — GERÇEK native oturum kanıtı.
+         `MEDIA_AUTHORITY_INITIALIZED` yalnız "kod kuruldu" der; kullanılabilirlik
+         ancak native tarafın bir oturum bildirmesiyle KANITLANIR. Çalma
+         BAŞLATILMAZ — ölçüm için ürün davranışı değiştirilmez. */
+      if (_current.hasSession) {
+        markBootMilestone('MEDIA_AUTHORITY_AVAILABLE', 'mediaService:mediaChanged:hasSession');
+      }
     });
     _hubListenerStop = () => { try { handle.remove(); } catch { /* ignore */ } };
   } catch (e) {
@@ -772,6 +991,12 @@ export function stopMediaHub(): void {
     _hubListenerStop = null;
     try { stop(); } catch (e) { logError('Media:StopHub', e); }
   }
+  // MÜZİK HUB PAKET A: otorite aboneliğini bırak (Zero-Leak).
+  // Native servis kendi ömrünü sürdürür — çalan müzik burada KESİLMEZ.
+  void import('./media/authority/mediaAuthorityRuntime')
+    .then(({ stopMediaAuthority }) => stopMediaAuthority())
+    .catch(() => { /* teardown fail-soft */ });
+
   // Grace timer + interpolation temizle — unmount sonrası stale update olmasın
   if (_sessionFallbackTimer) { clearTimeout(_sessionFallbackTimer); _sessionFallbackTimer = null; }
   _stopInterpolation();

@@ -191,7 +191,7 @@ const GeofenceMap = memo(function GeofenceMap({
   const color = isOutside ? '#ef4444' : pct > 80 ? '#f59e0b' : '#22c55e';
 
   return (
-    <div className="w-full rounded-xl p-4"
+    <div className="w-full rounded-xl p-4" data-editable="security.panel" data-editable-type="panel"
       style={{ background: 'var(--oem-surface-2)', border: '1px solid var(--oem-line)' }}>
       {/* Merkez konum */}
       <div className="flex items-center gap-2 mb-3">
@@ -306,7 +306,7 @@ export const SecuritySuite = memo(function SecuritySuite() {
   ];
 
   return (
-    <div className="h-full flex flex-col glass-card border-none !shadow-none text-primary overflow-hidden" data-editable="security-suite" data-editable-type="card">
+    <div className="h-full flex flex-col glass-card border-none !shadow-none text-primary overflow-hidden" data-theme-surface="security" data-editable="security-suite" data-editable-type="card">
       {/* Başlık */}
       <div className="flex-shrink-0 px-8 py-6 border-b border-white/5">
         <div className="flex items-center gap-4">

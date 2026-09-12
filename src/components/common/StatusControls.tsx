@@ -5,6 +5,7 @@ import { CarLauncher } from '../../platform/nativePlugin';
 import { useDeviceStatus, refreshDeviceStatusNow } from '../../platform/deviceApi';
 import { setVolume } from '../../platform/systemSettingsService';
 import { useStore } from '../../store/useStore';
+import { VehicleStatusIndicators } from './VehicleStatusIndicators';
 
 /**
  * StatusControls — tema status bar'larının paylaştığı CANLI + TIKLANIR durum düğmeleri.
@@ -94,6 +95,9 @@ function StatusControlsInner({
           ? <BluetoothConnected style={{ ...px, color: palette.accent }} />
           : <Bluetooth          style={{ ...px, color: palette.ink2, opacity: 0.5 }} />}
       </button>
+
+      {/* OEM araç göstergeleri — OBD / GPS / AI (mevcut kaynaklardan; sahte "bağlı" yok) */}
+      <VehicleStatusIndicators palette={palette} size={size} />
 
       {/* Ses — uygulama içi popover */}
       <button onClick={() => setVolOpen((o) => !o)} style={btn} aria-label="Ses seviyesi" title={`Ses: ${volume}%`}>

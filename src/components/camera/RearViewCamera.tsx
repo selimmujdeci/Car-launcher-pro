@@ -209,6 +209,7 @@ export const RearViewCamera = memo(function RearViewCamera({ onClose }: RearView
   return (
     <div
       ref={containerRef}
+      data-theme-surface="camera" data-editable="camera.screen" data-editable-type="panel"
       className="fixed inset-0 z-[90] bg-black flex flex-col items-center justify-center"
     >
       {/* Video */}
@@ -225,7 +226,7 @@ export const RearViewCamera = memo(function RearViewCamera({ onClose }: RearView
 
       {/* Hata ekranı */}
       {error && (
-        <div className="flex flex-col items-center gap-4 text-center px-8">
+        <div data-editable="camera.error" data-editable-type="card" className="flex flex-col items-center gap-4 text-center px-8">
           <CameraOff className="w-16 h-16 text-[color:var(--oem-ink-3)]" />
           <div className="text-[color:var(--oem-ink)] text-base font-bold">{error}</div>
           <button
@@ -253,7 +254,8 @@ export const RearViewCamera = memo(function RearViewCamera({ onClose }: RearView
       )}
 
       {/* Üst bar */}
-      <div className="absolute top-0 inset-x-0 h-16 bg-gradient-to-b from-black/70 to-transparent flex items-center justify-between px-6 pointer-events-auto">
+      <div data-editable="camera.topbar" data-editable-type="header"
+        className="absolute top-0 inset-x-0 h-16 bg-gradient-to-b from-black/70 to-transparent flex items-center justify-between px-6 pointer-events-auto">
         <div className="flex items-center gap-2">
           <div className="w-2 h-2 rounded-full bg-[var(--oem-danger)] animate-pulse" />
           <span className="text-white text-sm font-bold tracking-wider">GERİ GÖRÜŞ</span>

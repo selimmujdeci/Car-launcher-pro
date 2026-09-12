@@ -28,12 +28,14 @@ export function TrafficPanel() {
   const meta = s ? SOURCE_META[s.source] : null;
 
   return (
-    <div className="p-4 space-y-3">
+    <div data-theme-surface="traffic" data-editable="traffic.screen" data-editable-type="panel"
+      className="p-4 space-y-3">
       {/* ── Başlık ── */}
-      <div className="flex items-center justify-between">
+      <div data-editable="traffic.header" data-editable-type="header" className="flex items-center justify-between">
         <h2 className="text-[color:var(--oem-ink)] text-xl font-bold">Trafik Durumu</h2>
         {meta && (
           <span
+            data-editable="traffic.badge" data-editable-type="card"
             className="flex items-center gap-1 text-[10px] border rounded px-2 py-0.5 uppercase tracking-widest font-bold"
             style={{ color: meta.color, borderColor: `${meta.color}40` }}
           >

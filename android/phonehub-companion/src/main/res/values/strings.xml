@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">CarOS Phone Hub</string>
+
+    <string name="notification_channel_name">Phone Hub bağlantısı</string>
+    <string name="notification_channel_description">CAROS ile aktif bağlantı durumu</string>
+    <string name="notification_title">CAROS Phone Hub</string>
+    <string name="notification_action_disconnect">Bağlantıyı kes</string>
+</resources>

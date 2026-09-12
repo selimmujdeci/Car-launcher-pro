@@ -2,7 +2,7 @@
 /**
  * fetch-vosk-model.mjs — Vosk Türkçe offline STT modelini indirir + doğrular.
  *
- * Model (57 MB binary) git'e ALINMAZ (bkz. .gitignore, docs/VOSK_MODEL_SETUP.md).
+ * Model (57 MB binary) git'e ALINMAZ (bkz. .gitignore, docs/operations/VOSK_MODEL_SETUP.md).
  * Bu script modeli bir mirror/URL'den indirir, açar ve içerik bütünlüğünü
  * scripts/vosk-model-tr.sha256 manifest'ine göre (her dosya SHA256) doğrular.
  *

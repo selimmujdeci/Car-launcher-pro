@@ -49,6 +49,38 @@ export const PIPED_SCHEME = 'piped://';
 const SEARCH_PER_INSTANCE_MS = 6000;
 const STREAM_PER_INSTANCE_MS = 9000;
 
+/* ── Harici yanıt sözleşmeleri (GÜVENİLMEZ — her alan opsiyonel) ────────────
+   Piped ve Invidious topluluk instance'larıdır: sürümleri farklı, alanları
+   eksik/farklı tipte gelebilir (ör. Invidious `bitrate`i STRING döndürür).
+   Bu arayüzler yanıtı BELGELER, garanti etmez — tüm erişimler korumalı. */
+
+interface PipedSearchItem {
+  /** `/watch?v=<id>` biçiminde göreli yol. */
+  url?:          unknown;
+  title?:        string;
+  uploaderName?: string;
+  thumbnail?:    unknown;
+}
+
+interface PipedAudioStream {
+  url?:     string;
+  bitrate?: number;
+}
+
+interface InvidiousVideo {
+  type?:    unknown;
+  videoId?: string;
+  title?:   string;
+  author?:  string;
+}
+
+interface InvidiousFormat {
+  type?:    unknown;
+  url?:     unknown;
+  /** Invidious bunu STRING döndürür — Number() ile normalize edilir. */
+  bitrate?: string | number;
+}
+
 type Pool = 'piped' | 'invidious';
 const _sticky: Record<Pool, string> = { piped: '', invidious: '' };
 
@@ -134,7 +166,7 @@ export const pipedProvider: MediaProvider = {
       const res = await fetch(`${base}/search?q=${encodeURIComponent(q)}&filter=${filter}`, { signal: sig });
       if (!res.ok) return null;
       const json = await res.json();
-      const arr  = (json?.items ?? []) as any[];
+      const arr  = (json?.items ?? []) as PipedSearchItem[];
       return arr.length ? arr : null; // boşsa diğer instance'ı dene
     }, signal);
     // Genel YouTube video araması — normal YouTube'da ne aranıp bulunuyorsa aynısı:
@@ -144,7 +176,8 @@ export const pipedProvider: MediaProvider = {
     if (!items) items = await fetchItems('music_songs');
     if (items) {
       return items
-        .filter((t) => typeof t.url === 'string' && t.url.includes('/watch?v='))
+        .filter((t): t is PipedSearchItem & { url: string } =>
+          typeof t.url === 'string' && t.url.includes('/watch?v='))
         .map((t) => _track(
           _videoId(t.url),
           t.title,
@@ -160,10 +193,11 @@ export const pipedProvider: MediaProvider = {
       const res = await fetch(`${base}/api/v1/search?q=${encodeURIComponent(q)}&type=video`, { signal: sig });
       if (!res.ok) return null;
       const json = await res.json();
-      const arr  = (Array.isArray(json) ? json : []).filter(
-        (v: any) => v?.type === 'video' && typeof v?.videoId === 'string' && v.videoId,
+      const arr  = (Array.isArray(json) ? json : [] as InvidiousVideo[]).filter(
+        (v: InvidiousVideo): v is InvidiousVideo & { videoId: string } =>
+          v?.type === 'video' && typeof v?.videoId === 'string' && Boolean(v.videoId),
       );
-      return arr.length ? (arr as any[]) : null;
+      return arr.length ? arr : null;
     }, signal);
     if (!invItems) return [];
     return invItems
@@ -189,7 +223,7 @@ export async function resolvePipedStream(videoId: string): Promise<string | null
     if (!res.ok) return null;
     const json = await res.json();
     if (json?.error) return null;
-    const audio = (json?.audioStreams ?? []) as any[];
+    const audio = (json?.audioStreams ?? []) as PipedAudioStream[];
     if (!audio.length) return null;
     const best = audio.slice().sort((a, b) => (b.bitrate ?? 0) - (a.bitrate ?? 0))[0];
     return best?.url ?? null;
@@ -202,8 +236,10 @@ export async function resolvePipedStream(videoId: string): Promise<string | null
     const res = await fetch(`${base}/api/v1/videos/${videoId}`, { signal: sig });
     if (!res.ok) return null;
     const json = await res.json();
-    const fmts = ((json?.adaptiveFormats ?? []) as any[]).filter(
-      (f) => typeof f?.type === 'string' && f.type.startsWith('audio/') && typeof f?.url === 'string' && f.url,
+    const fmts = ((json?.adaptiveFormats ?? []) as InvidiousFormat[]).filter(
+      (f): f is InvidiousFormat & { url: string } =>
+        typeof f?.type === 'string' && f.type.startsWith('audio/')
+        && typeof f?.url === 'string' && Boolean(f.url),
     );
     if (!fmts.length) return null;
     const best = fmts.slice().sort((a, b) => (Number(b.bitrate) || 0) - (Number(a.bitrate) || 0))[0];

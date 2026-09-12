@@ -16,7 +16,23 @@ import {
   computeCameraTarget,
   dampCameraToward,
   computeAnticipatedBearing,
+  clampTopPadForVehicle,
+  isVehicleFramed,
 } from '../cameraEngine';
+import {
+  resolveSpeedBand, SPEED_BANDS, resolveManeuverBand, resolveMaxZoomHint,
+  type SpeedBand, type CameraPolicyInput,
+} from '../navigation/core/cameraPolicyModel';
+import {
+  resolveTopPadForAnchor, updateAnchorBias, limitStep, limitAngleStep,
+  ANCHOR_MAX_STEP, ZOOM_MAX_STEP, PITCH_MAX_STEP_DEG, BEARING_MAX_STEP_DEG,
+} from './core/cameraCompositionModel';
+import {
+  resolveEntryBearing, type EntryBearingDecision,
+} from '../navigation/core/navigationEntryBearing';
+/* Kanonik işaret hareket durumu — kamera zoom tavanının GİRDİSİ.
+   Bu dosya durumu ÜRETMEZ, yalnız OKUR (tek otorite korunur). */
+import { getMarkerMotionSnapshot } from '../navigation/navMarkerMotionRuntime';
 import { useHazardStore } from '../../store/useHazardStore';
 import {
   M,
@@ -25,9 +41,36 @@ import {
   ROUTE_SHADOW,
   ROUTE_GLOW_SEL,
   ROUTE_CASE,
+  ROUTE_FLOW,
   SEL_LAYER,
 } from './_mapState';
-import { _updateFlowSpeed, _applyIntersectionSuppression } from './MapLayerManager';
+import {
+  _updateFlowSpeed, _applyIntersectionSuppression, resolveRouteWidths, syncRouteColor,
+} from './MapLayerManager';
+import { routeWidthExpression } from './core/routeWidthModel';
+import { safeSetPaint } from './_safeLayerOps';
+import { noteLegacyCameraOutcome } from '../navigation/cameraShadowRuntime';
+/* ARCH-06/F1 — YALNIZ SAYAÇ: kaç kamera komutu üretildi. Koordinat/bearing
+   ölçüm katmanına TAŞINMAZ; kamera otoritesi bu modülde KALIR. */
+import { bumpPerf } from '../perf/perfCounters';
+
+/**
+ * #617 — PARK/DURUŞ ÇERÇEVESİNİN TEK OTORİTESİ (sokak seviyesi).
+ *
+ * ÖLÇÜLEN KUSUR (cihazda, Xiaomi 23090RA98I): park zoom'u kodda ÜÇ ayrı yerde
+ * ÜÇ ayrı sayıyla yazılıydı — ilk kurulum **16**, "Ortala" düğmesi **16,5**,
+ * `exitDrivingView` **15,5**. Açılışta GPS oynaması kısa süre sürüş modunu
+ * açıp kapatınca `exitDrivingView` çalışıyor ve `easeTo({zoom: 15.5})` ile
+ * doğru çerçeveyi EZİYORDU. Arayüz bu telefonda 0,679 kat ölçeklendiği için
+ * (kutu 781 CSS px → ekranda 530 px) bir kademe eksik zoom ekranda ~1,5 kat
+ * daha geniş alan demek: yollar saç teli gibi ince ve sık görünüyor —
+ * kullanıcının "saçma sapan yükleniyor" dediği tablo. Ölçüm: ardışık
+ * açılışlarda 16 / 15,5 / 16 / 15,5 dönüşümlü.
+ *
+ * Sayı artık TEK yerde. Değiştirilecekse burada değiştirilir; çağrı yerlerine
+ * ikinci bir park zoom'u YAZILMAZ (kilit: `mapParkViewZoom.test.ts`).
+ */
+export const PARK_VIEW_ZOOM = 16;
 
 export function setMapCenter(map: MapLibreMap, center: LngLatLike, zoom?: number, animated = true) {
   if (!map) return;
@@ -121,6 +164,207 @@ export function _setupRouteInteractions(map: MapLibreMap): void {
  *  → map.isMoving() kalıcı true → MapLibre idle'da 90fps render (cihaz profili 2026-06-17). */
 let _drivingViewActive = false;
 
+/** Durakta haritanın rota yönünden bu kadar sapması TOLERE edilir (derece).
+ *  Üstünde kamera bir kez uygulanır ve yön düzeltilir; altında hiç iş yapılmaz
+ *  (salınım olmaz). Cihazda ölçülen bozuk durum 140.6° idi. */
+const STANDSTILL_BEARING_TOLERANCE_DEG = 15;
+
+/**
+ * ÖĞRENİLEN İLERİ-BAKIŞ TAVANI (m) — aracı ekranda tutmak için.
+ *
+ * ⚠️ İLK UYGULAMAM ISINMA ÜRETTİ (kullanıcı bildirdi 2026-08-03): çerçeve
+ * düzeltmesini HER KAREDE yineleyen bir döngüyle yapmıştım — araç çerçeve
+ * dışındayken kare başına 3 ek `jumpTo`, yani **kare başına 5 harita yeniden
+ * çizimi**. 6-7 Hz kamera temposunda bu GPU yükünü katlıyor.
+ *
+ * DOĞRUSU: düzeltmeyi her karede TEKRARLAMAK değil, SONUCUNU HATIRLAMAK.
+ * Taşma görülünce tavan yarılanır ve bundan SONRAKİ karelerde merkez zaten
+ * tavanlı hesaplanır → ek `jumpTo` GEREKMEZ. Bol paylı çerçevede tavan
+ * kademeli gevşer (hız/zoom değişince eski kısıt yapışıp kalmasın).
+ * Kararlı durumda maliyet: kare başına 1 `project()` — değişiklikten önceki
+ * hâlle aynı sayıda `jumpTo`.
+ */
+let _lookCapM = Number.POSITIVE_INFINITY;
+
+/** Kamera bağlamı değişince (yeni rota/oturum) tavan sıfırlanır. */
+export function resetLookAheadCap(): void { _lookCapM = Number.POSITIVE_INFINITY; }
+
+/**
+ * KAMERA KADANSI ÖLÇÜMÜ — sönümlemenin tempoya bağımlılığını kesen çapa.
+ *
+ * `cameraEngine`in üstel sönümlemesi çağrı BAŞINA çalışır; alfaları sahada
+ * 150 ms'lik tempoda ayarlandı. Ama `setDrivingView` üründe üç farklı tempoda
+ * çağrılıyor (tam ekran 150 ms · mini harita GPS fix hızı ≈ 500 ms · ölü
+ * hesaplama yolu 16 ms) → aynı alfa 3,3× tembel ve 9,4× hırçın kameralar
+ * üretiyordu (ölçüm ve tam gerekçe: `cameraEngine.CAMERA_CFG.CALIBRATION_DT_MS`).
+ *
+ * Saati BURASI okur, motor DEĞİL: `cameraEngine` saf ve deterministik kalır
+ * (testlerde Δt enjekte edilir). `performance.now()` monotoniktir → sistem
+ * saati geri alınsa bile Δt negatife düşmez.
+ *
+ * `null` = ölçüm yok (ilk kare / oturum sıfırlaması) → motor kalibrasyon
+ * aralığını varsayar, yani bugünkü davranış AYNEN sürer (fail-soft).
+ */
+let _lastDampTs: number | null = null;
+
+/** Kamera oturumu sıfırlandı → kadans ölçümü de sıfırlanır (yapay Δt yok). */
+function _resetCameraCadence(): void { _lastDampTs = null; }
+
+/* ── Akıcı takip kamerası (2026-08-13) ────────────────────────────────────── */
+
+/** Sabit hızlı geçiş. Tick'ler zincirlendiği için her adımda ivmelenip yavaşlayan
+ *  bir eğri (MapLibre varsayılanı) "nabız gibi atan" bir his üretirdi. */
+const _LINEAR_EASING = (t: number): number => t;
+
+/** `easeTo` süresi için güvenli alt/üst sınır (ms). Süre ölçülen tick'e eşitlenir;
+ *  tavan, uygulama arka plandan dönünce oluşan devasa Δt'nin kamerayı saniyelerce
+ *  süzülterek "geriden gelmesine" engel olur. */
+const CAMERA_EASE_MIN_MS = 60;
+const CAMERA_EASE_MAX_MS = 320;
+
+/** Son ölçülen tick'ten türeyen animasyon süresi. */
+let _lastEaseDtMs: number | null = null;
+function _cameraEaseDurationMs(): number {
+  const dt = _lastEaseDtMs;
+  if (dt === null || !Number.isFinite(dt)) return CAMERA_EASE_MIN_MS;
+  return Math.max(CAMERA_EASE_MIN_MS, Math.min(CAMERA_EASE_MAX_MS, dt));
+}
+
+/** Düşük-uç GPU (Mali-400 sınıfı head unit) — ara kare çizmek burada yüktür.
+ *  Kaynak `perf-low` sınıfıdır; `MapLayerManager` de AYNI kapıyı kullanır
+ *  (ikinci bir cihaz-sınıfı otoritesi doğmaz). */
+function _isLowEndCamera(): boolean {
+  try {
+    return typeof document !== 'undefined'
+      && document.documentElement.classList.contains('perf-low');
+  } catch {
+    return true; // okunamıyorsa UCUZ tarafta kal
+  }
+}
+
+/** Bu çağrı ile bir öncekinin arasındaki süre (ms); ilk çağrıda `undefined`. */
+function _nextCameraDt(): number | undefined {
+  let dt: number | undefined;
+  try {
+    const now = performance.now();
+    if (_lastDampTs !== null && now > _lastDampTs) dt = now - _lastDampTs;
+    _lastDampTs = now;
+  } catch {
+    /* saat okunamıyorsa Δt ölçülmez → motor kalibrasyon aralığını kullanır */
+  }
+  return dt;
+}
+
+/**
+ * Gölge gözlem ucu — ÜRÜN DAVRANIŞINI DEĞİŞTİRMEZ.
+ *
+ * Yalnız legacy'nin ürettiği skalerleri `cameraShadowRuntime`e bildirir.
+ * Harita nesnesi YALNIZ viewport oranı için okunur (yön tespiti); gölge
+ * katmanına harita GEÇMEZ ve koordinat GEÇMEZ. Her hata yutulur.
+ */
+function _reportShadow(
+  map: MapLibreMap,
+  applied: boolean,
+  zoom: number | null,
+  pitch: number | null,
+  bearing: number | null,
+  anchorY: number | null,
+  speedKmh: number,
+  lookAheadM: number | null,
+  standstillFix: boolean,
+): void {
+  try {
+    const cv = map.getCanvas();
+    const w = cv.clientWidth, h = cv.clientHeight;
+    noteLegacyCameraOutcome({
+      applied, zoom, pitch, bearing, anchorY, standstillFix, lookAheadM,
+      speedKmh,
+      orientation: h > w ? 'PORTRAIT' : 'LANDSCAPE',
+      /* Bu fonksiyon hem mini hem tam ekran tarafından çağrılır; ölçü
+         ayrımı yapılamadığı için viewport profili `FULL` raporlanır ve bu
+         sınır raporda açıkça yazılıdır (açık borç). */
+      viewport: 'FULL',
+    });
+  } catch { /* gölge gözlem kamerayı ASLA bozmaz */ }
+}
+
+/* ── P0-NAV-03 · KOMPOZİSYON DURUMU (tek kamera politikası) ─────────────────
+ * Aracın ekrandaki yeri artık `cameraPolicyModel.SPEED_BANDS[*].anchorY`den
+ * gelir; eski `CAMERA_CFG.TOP_PAD_*` eğrisi kompozisyon için KULLANILMAZ.
+ * Böylece iki paralel kompozisyon teke iner — `cameraShadowRuntime`ın ölçtüğü
+ * `anchorYDelta` bu turdan sonra sıfıra yaklaşmalıdır (cihaz kabul ölçütü).
+ *
+ * `cameraFollowAuthority` DOKUNULMADI: o "kamera sürülebilir mi"ye karar verir,
+ * burası yalnız "sürülüyorsa nasıl çerçevelenir"i hesaplar. */
+let _camPrevBand: SpeedBand | null = null;
+/** Ölçülen ileri-bakış payı (px) — analitik tahmin DEĞİL (bkz. model başlığı). */
+let _anchorBiasPx = 0;
+/** Bir önceki karede UYGULANAN anchor — kare başı sıçrama sınırı için. */
+let _prevAppliedAnchor: number | null = null;
+let _prevAppliedZoom: number | null = null;
+let _prevAppliedPitch: number | null = null;
+let _prevAppliedBearing: number | null = null;
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   GİRİŞ KAMERASI PENCERESİ — SAHA KUSURU 2026-09-05
+   ═══════════════════════════════════════════════════════════════════════════
+   ÖLÇÜLEN KUSUR (kullanıcı, gerçek head unit, navigasyon aktif, 0 km/h):
+   *"aracı ortala diyorum kamera yakın oluyor geri uzaklaşıyor tam ekranda"*.
+
+   KÖK NEDEN: `enterNavigationView` 1.000 ms'lik bir `easeTo` ile zoom 18'e
+   gider. Takip döngüsü (`setDrivingView`) ise ~120 ms'de bir kamera komutu
+   yazar ve **durakta** (`_standstillFix`) zoom'u haritanın O ANKİ değerinden
+   okur:
+
+       const _zoomEff = _standstillFix ? map.getZoom() : …
+
+   Giriş animasyonu daha bitmeden çalışan ilk takip karesi, animasyonun
+   ORTASINDAKİ ara zoom'u (ör. 16,2) okuyup `jumpTo` ile SABİTLİYOR — hem
+   animasyonu iptal ediyor hem de kamerayı geri çekiyor. Ekranda görülen tam
+   olarak budur: yaklaşmaya başlar, sonra geri çekilip donar.
+
+   Bu bir "iki kamera otoritesi" kusuru DEĞİLDİR (ikisi de bu dosyanın, yani
+   aynı sahibin): eksik olan, girişin bitmesini bekleyen KAPIYDI.
+
+   ÇÖZÜM: giriş animasyonu uçuştayken takip döngüsü KAMERA KOMUTU YAZMAZ.
+   Kapı iki koşulu birden ister — süre penceresi VE haritanın gerçekten hâlâ
+   easing'de olması. İkinci koşul şart: kullanıcı giriş sırasında haritayı
+   sürüklerse MapLibre easing'i keser, kapı da ANINDA kalkar (kullanıcı
+   girdisi hiçbir koşulda 1 sn kilitlenmez).
+
+   Marker güncellemesi, rota genişliği ve renk senkronu KAPI DIŞINDADIR —
+   yalnız kamera komutu ertelenir.                                           */
+
+/** Giriş animasyonunun bitiş anı (monotonik ms). 0 = giriş yok. */
+let _entryCamUntilMs = 0;
+
+/** Giriş kamerası uçuşta mı — takip döngüsünün kamera kapısı. */
+function _entryCameraInFlight(map: MapLibreMap): boolean {
+  if (_entryCamUntilMs === 0) return false;
+  if (performance.now() >= _entryCamUntilMs) { _entryCamUntilMs = 0; return false; }
+  /* Kullanıcı araya girdiyse (pan/zoom) MapLibre easing'i keser → kapı kalkar. */
+  try {
+    if (!map.isEasing()) { _entryCamUntilMs = 0; return false; }
+  } catch { _entryCamUntilMs = 0; return false; }
+  return true;
+}
+
+/** @internal — LAB/kilit gözlemi: kapı şu an açık mı (ms cinsinden kalan). */
+export function _entryCameraRemainingMs(): number {
+  return _entryCamUntilMs === 0 ? 0 : Math.max(0, _entryCamUntilMs - performance.now());
+}
+
+/** @internal — oturum/test sıfırlaması. */
+export function _resetCameraComposition(): void {
+  _entryCamUntilMs = 0;
+  _camPrevBand = null;
+  _anchorBiasPx = 0;
+  _prevAppliedAnchor = null;
+  _prevAppliedZoom = null;
+  _prevAppliedPitch = null;
+  _prevAppliedBearing = null;
+}
+
 export function setDrivingView(
   map: MapLibreMap,
   lat: number,
@@ -131,7 +375,22 @@ export function setDrivingView(
   turnApproachM?: number,
   obdSpeedKmh?: number,
   nextTurnBearing?: number,
-) {
+  /** Rotanın İLERİ yönü (araçtan bir sonraki rota noktasına). Durakta kamera
+   *  yönü BUNDAN alınır — bkz. `_standstillFix` gerekçesi. */
+  routeBearing?: number,
+  /**
+   * `turnApproachM`in KAYNAĞI (kanonik rota durumundan gelir — bu katman
+   * HESAPLAMAZ, yalnız TAŞIR). `ALONG_ROUTE` değilse manevra kamerası
+   * UYGULANMAZ; gerekçe `cameraPolicyModel.resolveManeuverBand` içindedir.
+   */
+  maneuverDistanceSource?: 'ALONG_ROUTE' | 'STRAIGHT_LINE' | 'UNKNOWN',
+  /**
+   * İşaret hareket durumu (kanonik `navMarkerMotionRuntime`den gelir — bu
+   * katman HESAPLAMAZ, yalnız TAŞIR). `GPS_DEGRADED`/`STALE` iken kamera
+   * zoom'u kanonik tavana (`GPS_DEGRADED_MAX_ZOOM`) KIRPILIR.
+   */
+  motionState?: CameraPolicyInput['motionState'],
+): boolean {
   // ⭐ SAHA KÖK NEDEN (2026-07-04, "harita sabit kalıyor + gitme yönüne dönmüyor"):
   // Buradaki eski `!map.isStyleLoaded()` guard'ı sürüş kamerasını YAPISAL olarak
   // öldürüyordu — isStyleLoaded() şu iki durumda false döner ve ikisi de sürüşte
@@ -142,27 +401,131 @@ export function setDrivingView(
   // jumpTo/easeTo kamera işlemleri stil GEREKTİRMEZ; aşağıdaki stil-bağımlı işler
   // zaten getLayer() + try/catch korumalı. Bu yüzden guard yalnız map varlığıdır.
   // (84237ff + 4bd4ed5 hareket-tespiti fix'leri semptomu tedavi ediyordu; katil buydu.)
-  if (!map) return;
+  if (!map) return false;   // harita yok → kamera uygulanmadı
   _drivingViewActive = true;
 
   // ── Dead Reckoning speed fusion ──────────────────────────────────────────
   const effectiveSpeed = speedKmh > 0 ? speedKmh : (obdSpeedKmh ?? 0);
 
-  // ── Movement jitter filter — düşük hızda GPS mikro titremeleri ───────────
-  if (effectiveSpeed < CAMERA_CFG.JITTER_SPEED_KMH) {
+  /* ── Movement jitter filter — düşük hızda GPS mikro titremeleri ───────────
+   *
+   * SAHA KUSURU (cihazda ölçüldü 2026-08-03): filtre YALNIZ "gereksiz
+   * güncellemeyi" değil, **yanlış duran kamerayı DÜZELTMEYİ de** engelliyordu.
+   * Kullanıcı rota çizdi, araç dururken (≈2 km/h, GPS oynaması < 0.8 m)
+   * `setDrivingView` her karede erken dönüyor → sürüş kamerası HİÇ
+   * uygulanmıyor → kamera en son nerede kaldıysa orada donuyordu. Ölçüm:
+   *   canvas 902×405 · araç ekran y = 857 → **alt kenardan 452 px AŞAĞIDA**
+   *   padTop = 0 (sürüş padding'i hiç uygulanmamış) · drivingMode = true
+   * Kullanıcının tarifi: "rota çizdim, böyle dengesiz duruyor" — araç
+   * görünmüyor, rota ekranın kenarında kalıyordu.
+   *
+   * DÜZELTME: titreşim filtresi yalnız kamera ZATEN DOĞRU çerçevelenmişken
+   * uygulanır. Araç güvenli alanın dışındaysa kare atlanmaz, kamera
+   * düzeltilir. (Bu, #330'daki look-ahead klipsinden AYRI bir kusurdur:
+   * orada kamera çalışıyor ama aracı aşağı itiyordu, burada HİÇ çalışmıyor.)
+   *
+   * ⚠️ İLK DENEMEDE REGRESYON ÜRETTİ (cihazda ölçüldü, aynı gün): yalnız
+   * "çerçeve bozuksa uygula" demek YETMEDİ — POZİTİF GERİ BESLEME doğdu.
+   * Araç 0 m hareket ederken kamera merkezi 7 sn'de 63 m'ye varan sıçramalar
+   * yaptı ve bearing -60° → 138° arası **~200° döndü**: çerçeve bozuk →
+   * kamera uygula → kamera durakta gürültülü GPS heading'ini kovalayıp döner
+   * → dönünce çerçeve yine bozulur → tekrar uygula … Kullanıcının tarifi:
+   * *"harita durduğum yerde durmadan hareket ediyor."*
+   *
+   * DOĞRU AYRIM: durakta düzeltmenin SEBEBİ çerçevedir, yön değil. O yüzden
+   * bu durumda YALNIZ yeniden ortalama yapılır; bearing/zoom/pitch MEVCUT
+   * değerlerinde DONDURULUR (aşağıdaki `_standstillFix`). Böylece tek bir
+   * düzeltme yeter, sonraki karelerde çerçeve doğru olduğu için filtre
+   * devreye girer ve kamera tamamen durur. */
+  /* ⚠️ İKİNCİ REGRESYON — ÖLÇÜM YANILTTI (cihazda, aynı gün):
+   * "durakta" kararı KONUM FARKINA bağlıydı (`< 0.8 m`). Ama sahada GPS
+   * doğruluğu **±3–6 m** ölçüldü (ekrandaki rozet: `GPS ±6m`): duran araçta
+   * bile ardışık fix'ler 0.8 m'yi RAHATÇA aşıyor → "durakta" dalı neredeyse
+   * hiç çalışmıyor → kamera normal yola girip gürültülü GPS heading'ini
+   * kovalıyor ve harita **kendi kendine dönüyor**. Doğrulama ölçümüm yanıltıcı
+   * çıkmıştı çünkü o an fix birebir tekrar ediyordu (konum farkı tam 0).
+   *
+   * DOĞRU SİNYAL KONUM DEĞİL HIZDIR: GPS heading'i ancak araç gerçekten
+   * hareket ederken anlamlıdır. Eşiğin altında bearing/zoom/pitch KOŞULSUZ
+   * dondurulur — konum gürültüsü ne yaparsa yapsın kamera DÖNMEZ. */
+  const _standstillFix = effectiveSpeed < CAMERA_CFG.JITTER_SPEED_KMH;
+
+  if (_standstillFix) {
     const dLat  = (lat - M.lastJumpLat) * 111_320;
     const dLng  = (lng - M.lastJumpLng) * 111_320 * Math.cos((lat * Math.PI) / 180);
-    if (Math.sqrt(dLat * dLat + dLng * dLng) < CAMERA_CFG.JITTER_THRESHOLD_M) return;
+    /* Durakta eşik GPS gürültü bandının üstünde olmalı (bkz. sabit yorumu):
+       0.8 m ile duran araçta kamera her fix'te yeniden ortalanıp harita kayıyordu. */
+    if (Math.sqrt(dLat * dLat + dLng * dLng) < CAMERA_CFG.STANDSTILL_RECENTER_MIN_M) {
+      let framed = false;
+      try {
+        const p = map.project([lng, lat]);
+        const cv = map.getCanvas();
+        framed = isVehicleFramed(p.x, p.y, cv.clientWidth, cv.clientHeight);
+      } catch { framed = false; } // ölçemiyorsak kamerayı uygula (fail-open)
+
+      /* ── YÖN de "doğru kamera"nın parçasıdır (cihazda ölçüldü 2026-08-03) ──
+       * Yalnız ÇERÇEVEYE bakmak yetmedi: araç ekranda doğru yerdeydi ama harita
+       * rotanın 140.6° TERSİNE bakıyordu (harita 8.5°, rota 149.1°) → sürücü
+       * "geri geri mi gideceğim" diye sordu. Kamera "zaten doğru" sayılıp her
+       * karede erken dönüldüğü için rota yönü hiç uygulanmıyordu.
+       * Doğru kamera = araç çerçevede VE harita rotaya bakıyor. */
+      const oriented =
+        !Number.isFinite(routeBearing ?? NaN) ||
+        Math.abs(((((routeBearing as number) - map.getBearing()) % 360) + 540) % 360 - 180)
+          <= STANDSTILL_BEARING_TOLERANCE_DEG;
+
+      if (framed && oriented) {
+        /* GÖLGE GÖZLEM (NAVIGATION_CAMERA_SHADOW): kamera bu karede
+           UYGULANMADI. Politikanın aynı anda ne diyeceğini kaydeder; ürün
+           davranışı DEĞİŞMEZ — bu çağrı hiçbir şey uygulamaz ve throw etmez. */
+        _reportShadow(map, false, null, null, null, null, effectiveSpeed, 0, true);
+        /* Kamera ZATEN doğru: iş yapılmadı ama HEDEFE ULAŞILDI. Çağıranın dedup
+           çapası yazılmalı — aksi hâlde durakta her karede boşuna yeniden
+           denenirdi. Bu, giriş kapısının sessiz-yutma kusurunun TERSİ durumdur. */
+        return true;   // çerçeve VE yön doğru → hiç iş yapma
+      }
+    }
   }
   M.lastJumpLat = lat;
   M.lastJumpLng = lng;
 
+  /* ── MANEVRA KAMERASI KAPISI (kanonik kural, burada İCAT EDİLMEZ) ────────
+   * ÖLÇÜLEN KUSUR: `turnApproachM` üretime `distanceToNextTurnSource`
+   * DENETLENMEDEN geliyordu (`FullMapView` yalnız `steps.length`e bakıyordu).
+   * Kaynak `STRAIGHT_LINE` iken kuş uçuşu mesafe virajlı yaklaşımda gerçek
+   * yol mesafesinden KISA çıkar → kamera kavşağa ERKEN girer, zoom ve yön
+   * öngörüsü olmayan bir manevraya göre kurulur.
+   *
+   * Kural ZATEN vardı ama yalnız GÖLGEDE koşuyordu: `cameraPolicyModel.
+   * resolveManeuverBand` kaynak `ALONG_ROUTE` değilse `'NONE'` döndürür ve
+   * `decideCameraPolicy` bunu `applyManeuverCamera: false` yapar — o karar
+   * üretimde HİÇ TÜKETİLMİYORDU (yalnız `cameraShadowRuntime` + LAB).
+   * Burada kapı KANONİK modelden okunur; ikinci bir eşik/kural KURULMAZ.
+   *
+   * Kaynak BİLDİRİLMEMİŞSE (eski çağrı) davranış DEĞİŞMEZ — `undefined`
+   * geriye dönük uyum için `ALONG_ROUTE` sayılır; kilit testi bu iki yolu
+   * ayrı ayrı denetler. */
+  const _maneuverBand = resolveManeuverBand(
+    turnApproachM ?? null,
+    maneuverDistanceSource ?? 'ALONG_ROUTE',
+  );
+  const _gatedTurnM = _maneuverBand === 'NONE' ? undefined : turnApproachM;
+
   // ── Camera target → smooth (Faz 3.1/3.3/3.4) ───────────────────────────
-  const target = computeCameraTarget(effectiveSpeed, turnApproachM);
+  const target = computeCameraTarget(effectiveSpeed, _gatedTurnM);
 
   // Turn anticipation + inertia + momentum model (Faz 3.4)
-  const anticipatedBearing = computeAnticipatedBearing(heading, turnApproachM, nextTurnBearing);
-  const smooth             = dampCameraToward(target, anticipatedBearing, effectiveSpeed);
+  const anticipatedBearing = computeAnticipatedBearing(heading, _gatedTurnM, nextTurnBearing);
+  /* Δt tam BURADA okunur, fonksiyonun tepesinde DEĞİL: yukarıdaki durakta
+     erken-dönüş yolu sönümleme yapmaz; orada saati tüketmek bir sonraki
+     gerçek tick'in Δt'sini SIFIRLAR ve kamerayı yapay biçimde hızlandırırdı. */
+  /* Aynı Δt hem sönümlemeyi hem `easeTo` süresini besler: animasyon TAM bir
+     tick sürer → bir sonraki başlarken önceki bitmiş olur (üst üste binme yok). */
+  const _tickDtMs          = _nextCameraDt();
+  _lastEaseDtMs            = _tickDtMs ?? null;
+  const smooth             = dampCameraToward(
+    target, anticipatedBearing, effectiveSpeed, _tickDtMs,
+  );
 
   // Route energy: hız + acceleration delta ile senkron pulse (Faz 3.4)
   _updateFlowSpeed(effectiveSpeed, smooth.deltaSpeed);
@@ -182,23 +545,247 @@ export function setDrivingView(
   }
   M.lastHazardZoom = _zoom;
 
+  /* DURAKTA DÜZELTME: yalnız yeniden ortalama. Bearing/zoom/pitch mevcut
+     değerlerinde DONDURULUR — durakta GPS heading'i gürültüdür ve onu
+     kovalamak haritayı kendi kendine döndürür (ölçülen regresyon: 7 sn'de
+     ~200° dönme, araç 0 m hareket ederken). Look-ahead da 0'lanır: aracı
+     çerçeveye almak istiyoruz, ileri bakmak değil. */
+  /* DURAKTA YÖN: dondurmak TEK BAŞINA yetmez — donan değer eski/rastgele bir
+     yön olabilir ve harita gideceğin yöne bakmaz. Kullanıcı bunu şöyle tarif
+     etti: *"geri geri mi gideceğim"* — rota ekranda ARKAYA doğru görünüyordu.
+     Doğru kaynak GPS heading'i (durakta gürültü) DEĞİL, ROTANIN İLERİ
+     YÖNÜdür: sabittir (geometriden gelir, titremez) ve sürücünün gerçekten
+     gideceği yönü gösterir. Rota yoksa mevcut bearing korunur. */
+  const _bearing = _standstillFix
+    ? (Number.isFinite(routeBearing ?? NaN) ? (routeBearing as number) : map.getBearing())
+    : limitAngleStep(_prevAppliedBearing, smooth.bearing, BEARING_MAX_STEP_DEG);
+  _prevAppliedBearing = _bearing;
+  /* P0-NAV-03 — kare başı SERT tavan. Sönümleme yumuşak bir yaklaşımdır ama
+     hedef bir karede büyük sıçrarsa ilk adım da büyüktür; bu sınır o adımı
+     keser. Durakta zaten dondurulmuş değerler kullanılır → sınırlayıcı YALNIZ
+     hareket hâlinde iş görür. */
+  /* ── GPS BOZUKKEN AŞIRI ZOOM YASAĞI (Faz 1'in AÇIK BORCU — kapatıldı) ────
+   * `decideCameraPolicy` bu tavanı (`maxZoomHint`) ZATEN üretiyordu ama karar
+   * üretimde HİÇ tüketilmiyordu (yalnız `cameraShadowRuntime` + LAB). Sonuç:
+   * GPS bozuk/bayatken kamera araca yaklaşmaya devam ediyor, konum hatasını
+   * BÜYÜTEREK gösteriyordu — sürücü yanlış yolda duruyormuş gibi görünüyordu.
+   *
+   * Tavan KANONİK modelden okunur (`resolveMaxZoomHint`); bu dosya kendi
+   * eşiğini KURMAZ. Durakta zaten haritanın kendi zoom'u korunur → kırpma
+   * YALNIZ hareket hâlinde iş görür. */
+  const _motionNow: CameraPolicyInput['motionState'] = motionState ?? (() => {
+    /* Kanonik hareket durumu SAHİBİNDEN okunur (`navMarkerMotionRuntime`);
+       bu dosya onu HESAPLAMAZ. Okunamazsa `UNKNOWN` → tavan YOK (mevcut
+       davranış korunur, fail-open DEĞİL fail-unchanged: kırpma bir EK
+       kısıttır, yokluğu eski davranışı verir). */
+    try { return getMarkerMotionSnapshot(performance.now()).state; }
+    catch { return 'UNKNOWN'; }
+  })();
+  const _maxZoom = resolveMaxZoomHint(_motionNow);
+  const _zoomWanted = _maxZoom === null ? _zoom : Math.min(_zoom, _maxZoom);
+  const _zoomEff = _standstillFix
+    ? map.getZoom()
+    : limitStep(_prevAppliedZoom, _zoomWanted, ZOOM_MAX_STEP);
+  const _pitchEff = _standstillFix
+    ? map.getPitch()
+    : limitStep(_prevAppliedPitch, _pitch, PITCH_MAX_STEP_DEG);
+  _prevAppliedZoom  = _zoomEff;
+  _prevAppliedPitch = _pitchEff;
+  /* Öğrenilen tavan BAŞTAN uygulanır — düzeltme sonraki karelere maliyet
+     çıkarmaz (bkz. `_lookCapM`). */
+  const _lookEff = _standstillFix ? 0 : Math.min(_lookAhead, _lookCapM);
+
   // Look-ahead centre — kilitli değerler ile hesaplanır
-  const _lookDeg   = _lookAhead / 111_320;
+  const _lookDeg   = _lookEff / 111_320;
   const _cosLat    = Math.max(0.001, Math.cos((lat * Math.PI) / 180));
-  const _bearRad   = (smooth.bearing * Math.PI) / 180;
+  const _bearRad   = (_bearing * Math.PI) / 180;
   const centerLat  = lat + _lookDeg * Math.cos(_bearRad);
   const centerLng  = lng + _lookDeg * Math.sin(_bearRad) / _cosLat;
 
-  const topPad = Math.round(containerHeight * target.topPadFrac);
+  /* ── KOMPOZİSYON: aracın yeri POLİTİKADAN gelir (P0-NAV-03) ───────────────
+   * Eski satır `containerHeight * target.topPadFrac` idi — `cameraPolicyModel`
+   * ile YARIŞAN ikinci bir kompozisyon eğrisi. Artık hedef doğrudan aracın
+   * ekrandaki oranıdır (`anchorY`) ve padding ondan TÜRETİLİR; ileri bakış payı
+   * tahmin edilmez, `map.project` ile ÖLÇÜLÜP geri beslenir (aşağıya bakınız). */
+  /* Ekran yönü FAIL-SOFT okunur: `getCanvas()` harita henüz kurulurken
+     atabilir ve bu çağrı kamera uygulamasının ÖNÜNDEDİR — korumasız bırakmak,
+     stil kapısı kusurunun (bu dosyanın §1 notu) aynısını geri getirirdi:
+     kamera bir yan okuma yüzünden hiç uygulanmaz. Ölçülemezse YATAY varsayılır
+     (head unit'lerin baskın hâli) ve kamera çalışmaya DEVAM eder. */
+  let _orientation: 'LANDSCAPE' | 'PORTRAIT' = 'LANDSCAPE';
+  try {
+    const _cvNow = map.getCanvas();
+    if (_cvNow && _cvNow.clientHeight > _cvNow.clientWidth) _orientation = 'PORTRAIT';
+  } catch { /* ölçülemedi → yatay varsayılır */ }
+  const _band = resolveSpeedBand(effectiveSpeed, _camPrevBand);
+  _camPrevBand = _band;
+  const _bandProfile = SPEED_BANDS.find((b) => b.id === _band) ?? SPEED_BANDS[0];
+  const _wantAnchor = _orientation === 'PORTRAIT'
+    ? _bandProfile.anchorYPortrait
+    : _bandProfile.anchorYLandscape;
+  /* Kare başı sıçrama tavanı: bant atlaması (CITY → CRUISE) anchor'ı bir karede
+     zıplatır; sönümlemeden ÖNCE gelen sert sınır haritanın kaymasını engeller. */
+  const _anchorY = limitStep(_prevAppliedAnchor, _wantAnchor, ANCHOR_MAX_STEP);
+  _prevAppliedAnchor = _anchorY;
 
-  // jumpTo: tek frame — rAF loop 150ms throttle zaten smooth hissettiriyor.
-  map.jumpTo({
-    center:  [centerLng, centerLat],
-    bearing: smooth.bearing,
-    zoom:    _zoom,
-    pitch:   _pitch,
-    padding: { top: topPad, bottom: 0, left: 0, right: 0 },
+  const _padDecision = resolveTopPadForAnchor({
+    anchorY: _anchorY,
+    containerHeight,
+    lookAheadPx: _anchorBiasPx,
   });
+  const topPad = Math.round(_padDecision.topPad);
+
+  /* ── KAMERA UYGULAMA: SIÇRAMA mı, AKIŞ mı (saha 2026-08-13) ────────────────
+   * Eski yorum *"rAF loop 150ms throttle zaten smooth hissettiriyor"* diyordu;
+   * ölçüldüğünde bu DOĞRU DEĞİLDİ: `jumpTo` bir animasyon üretmez, kamerayı o
+   * kareye ANINDA taşır. Kamera 150 ms'de bir uygulandığı için harita fiilen
+   * **6,7 fps**te güncelleniyordu — kullanıcının tarifi: *"harita akıcı değil,
+   * takıla takıla gidiyor."* Araç işaretçisi 60 ms'de (~16 fps) güncellendiği
+   * için işaretçi akarken zemin basamak basamak kayıyor, ayrışma daha da
+   * göze batıyordu.
+   *
+   * Düzeltme: kareler arasını MapLibre'ın kendisi doldursun — süresi ÖLÇÜLEN
+   * tick aralığına EŞİT, LİNEER bir `easeTo`. Süre tick'e eşit olduğu için
+   * her animasyon bir sonraki başlamadan tam biter; üst üste binen animasyon
+   * (bu dosyanın §126 notundaki 800 ms `easeTo` kusuru) OLUŞMAZ.
+   *
+   * ── BÜTÇE KAPILARI (yeni maliyet gelişigüzel açılmaz) ─────────────────────
+   *  · `perf-low` (Mali-400 sınıfı head unit) → ESKİ DAVRANIŞ (`jumpTo`).
+   *    Ara kareleri çizmek o GPU'da kazanç değil yüktür.
+   *  · DURAKTA → `jumpTo`. §126'da ölçülen gerçek zarar buydu: boşta süren
+   *    animasyon `map.isMoving()`i kalıcı `true` yapıp MapLibre'ı idle'da
+   *    90 fps render'a sokuyordu. Araç durmuşken interpolasyonun kazancı da
+   *    yoktur (zaten hareket yok).
+   * Yani ek maliyet YALNIZ araç gerçekten hareket ederken ve GPU'su olan
+   * cihazda doğar — tam da akıcılığın görüldüğü yerde. */
+  /* ── GİRİŞ KAMERASI KAPISI (bkz. `_entryCameraInFlight` gerekçesi) ───────
+   * Giriş animasyonu uçuştayken kamera komutu YAZILMAZ. Yazılsaydı durakta
+   * `map.getZoom()` animasyonun ortasındaki değeri okuyup sabitler ve kamera
+   * "yaklaşıp geri çekilir". Fonksiyonun geri kalanı (marker, rota genişliği,
+   * renk senkronu) ÇALIŞMAYA DEVAM EDER — yalnız kamera ertelenir.
+   *
+   * ⚠️ ERTELEME SESSİZ OLAMAZ (saha kusuru 2026-09-05, ikinci tur): çağıran
+   * (`FullMapView`) hedefi gönderdikten sonra `sentCam*` dedup çapalarını
+   * yazıyor. Kapı kamerayı yutup çağıran "gönderdim" diye işaretlerse, DURAKTA
+   * hiçbir girdi değişmediği için bir daha ÇAĞRILMAZ ve kamera rotanın tersine
+   * bakmaya devam eder — kullanıcının bildirdiği *"kamera yola göre bakmalı"*
+   * tablosu budur. Bu yüzden fonksiyon artık kameranın GERÇEKTEN uygulanıp
+   * uygulanmadığını DÖNER; çağıran çapayı yalnız uygulandıysa yazar. */
+  const _entryGate = _entryCameraInFlight(map);
+
+  const _smoothPan = !_standstillFix && !_isLowEndCamera();
+  const _cameraOpts = {
+    center:  [centerLng, centerLat] as [number, number],
+    bearing: _bearing,
+    zoom:    _zoomEff,
+    pitch:   _pitchEff,
+    padding: { top: topPad, bottom: 0, left: 0, right: 0 },
+  };
+  if (_entryGate) {
+    /* giriş animasyonu sürüyor — kamera komutu YOK */
+  } else if (_smoothPan) {
+    bumpPerf('map.cameraCommand');
+    map.easeTo({
+      ..._cameraOpts,
+      duration: _cameraEaseDurationMs(),
+      easing:   _LINEAR_EASING,   // sabit hız — her tick'te ivmelenip durmaz
+      essential: true,            // "reduce motion" bunu KAPATAMAZ (takip kamerası)
+    });
+  } else {
+    bumpPerf('map.cameraCommand');
+    map.jumpTo(_cameraOpts);
+  }
+
+  // ── Araç ekran-içi garantisi (saha 2026-08-03) ────────────────────────────
+  // Kamera aracın ÖNÜNÜ merkeze alır; `topPadFrac` orandır ama `lookAheadM`
+  // metredir → kısa ekranlarda (telefon yatayı ~400 px) araç ALT KENARDAN
+  // TAŞIYOR ve hız arttıkça büsbütün kayboluyordu. Tam gerekçe ve ölçüm:
+  // `cameraEngine.clampTopPadForVehicle`.
+  //
+  // Ölçüm `map.project` ile YAPILIR (tahmin değil): pitch/bearing/zoom hepsi
+  // hesaba katılmış GERÇEK ekran konumu. Taşma yoksa ikinci jumpTo ÇALIŞMAZ —
+  // head unit yolu bu bloktan maliyetsiz çıkar.
+  try {
+    /* Giriş animasyonu sürerken bu düzeltme de yazmaz: `jumpTo` girişi keser. */
+    const _vehY    = _entryGate ? Number.NaN : map.project([lng, lat]).y;
+    const _fixedPad = _entryGate ? null : clampTopPadForVehicle(_vehY, containerHeight, topPad);
+    let _padEff = topPad;
+    if (_fixedPad !== null) {
+      _padEff = _fixedPad;
+      bumpPerf('map.cameraCommand');
+      map.jumpTo({
+        center:  [centerLng, centerLat],
+        bearing: _bearing,
+        zoom:    _zoomEff,
+        pitch:   _pitchEff,
+        padding: { top: _fixedPad, bottom: 0, left: 0, right: 0 },
+      });
+    }
+
+    /* ── ARAÇ EKRANDA KALIR — PAZARLIKSIZ (saha 2026-08-03) ──────────────────
+     * Yukarıdaki padding klipsi TEK BAŞINA yetmiyor: padding 0'a kadar kısılsa
+     * bile ileri bakış yeterince büyükse araç ekranın ALTINDA kalır — klips
+     * DOYUMA ULAŞIP SESSİZCE BAŞARISIZ OLUR. Cihazda ölçüldü: `padding.top = 0`
+     * uygulanmışken araç ekran y ≈ 1217 px, canvas yüksekliği 405 px → araç
+     * ekranın 800 px ALTINDA. Kullanıcı bunu "araba gidince görünmüyor,
+     * geride kalıyor" ve "harita dengesiz duruyor" diye bildirdi.
+     *
+     * O ölçümdeki ileri bakış 121.8 m idi ve kaynağı PARK hâlindeki telefonda
+     * 55–61 km/h'lik SAHTE GPS hızıydı. Hız otoritesi ayrıca düzeltildi, ama
+     * kamera hiçbir hız değerine GÜVENMEK ZORUNDA KALMAMALI: hangi hız gelirse
+     * gelsin araç ekranda kalır. Bu bir görsel tercih değil, sürüş güvenliği
+     * invaryantıdır — sürücü kendi aracını göremezse ekran yanıltıcıdır.
+     *
+     * Yöntem: taşma GÖRÜLDÜĞÜNDE ileri-bakış tavanı (`_lookCapM`) yarılanır ve
+     * bir kez düzeltilir; sonraki karelerde merkez zaten tavanlı hesaplandığı
+     * için EK `jumpTo` gerekmez. Araç çerçevedeyse hiç iş yapılmaz — normal
+     * sürüşte maliyet kare başına tek `project()`. (İlk uygulamam bunu her
+     * karede yineleyen bir döngüyle yapıyordu ve cihazı ısıtıyordu.) */
+    const _cv = map.getCanvas();
+    const _h  = _cv.clientHeight;
+    const _p2 = map.project([lng, lat]);
+    const _framedNow = isVehicleFramed(_p2.x, _p2.y, _cv.clientWidth, _h);
+
+    if (!_framedNow && _lookEff > 0) {
+      // Taşma → tavanı YARILA ve BİR KEZ düzelt. Sonraki kareler tavanlı gelir.
+      _lookCapM = _lookEff * 0.5;
+      const _ld = _lookCapM / 111_320;
+      bumpPerf('map.cameraCommand');
+      map.jumpTo({
+        center: [
+          lng + (_ld * Math.sin(_bearRad)) / _cosLat,
+          lat + _ld * Math.cos(_bearRad),
+        ],
+        bearing: _bearing,
+        zoom:    _zoomEff,
+        pitch:   _pitchEff,
+        padding: { top: _padEff, bottom: 0, left: 0, right: 0 },
+      });
+    } else if (_framedNow && Number.isFinite(_lookCapM) && _p2.y < _h * 0.6) {
+      /* Bol pay var → tavanı kademeli gevşet. Hız düşünce veya zoom değişince
+         eski kısıt kalıcı olmasın; gevşeme yavaş olduğu için salınım yapmaz. */
+      _lookCapM = _lookCapM * 1.15 + 3;
+    }
+    /* GÖLGE GÖZLEM — legacy'nin GERÇEKTEN uyguladığı değerler.
+       `_p2.y` ZATEN yukarıda çerçeve denetimi için hesaplandı; gölge katmanı
+       için EK Map API çağrısı YAPILMAZ. Koordinat GEÇİRİLMEZ. */
+    /* ── ÖLÇÜLEN ANCHOR GERİ BESLEMESİ (P0-NAV-03) ────────────────────────
+     * `_p2.y` ZATEN ölçüldü (ek Map API çağrısı YOK). İstenen anchor ile
+     * gerçekleşen arasındaki fark küçük bir kazançla padding yanlılığına
+     * işlenir → pitch/zoom/ekran boyu ne olursa olsun kompozisyon yakınsar.
+     * Analitik `lookAheadPx` tahmini bilinçle KULLANILMADI: düz Mercator
+     * pitch'i saymaz ve hatayı aracı ekran DIŞINA iten yönde yapar. */
+    if (_h > 0 && !_standstillFix) {
+      _anchorBiasPx = updateAnchorBias({
+        prevBiasPx: _anchorBiasPx,
+        measuredAnchorY: _p2.y / _h,
+        desiredAnchorY: _anchorY,
+        containerHeight: _h,
+      }).biasPx;
+    }
+    _reportShadow(map, true, _zoomEff, _pitchEff, _bearing,
+      _h > 0 ? _p2.y / _h : null, effectiveSpeed, _lookEff, _standstillFix);
+  } catch { /* project() harita hazır değilken atabilir — kamera olduğu gibi kalır */ }
 
   // Smooth pitch tek kaynak — elevation + perspective aynı değeri kullanır ✓
   const pitch = smooth.pitch;
@@ -218,87 +805,110 @@ export function setDrivingView(
     const zoomSharpness = 1 - Math.max(0, Math.min(1, (_currentZoom - 12) / 6)) * 0.65;
     const shadowBlur    = Math.max(1.5, Math.round(pitchBlur * speedScale * zoomSharpness));
     const glowBlur      = Math.max(2.5, Math.round((8 + (pitch / 72) * 4) * speedScale * zoomSharpness));
-    try {
-      map.setPaintProperty(ROUTE_SHADOW,   'line-offset', shadowOffset);
-      map.setPaintProperty(ROUTE_SHADOW,   'line-blur',   shadowBlur);
-      map.setPaintProperty(ROUTE_GLOW_SEL, 'line-blur',   glowBlur);
-    } catch { /* style reloading */ }
+    safeSetPaint(map, ROUTE_SHADOW,   'line-offset', shadowOffset);
+    safeSetPaint(map, ROUTE_SHADOW,   'line-blur',   shadowBlur);
+    safeSetPaint(map, ROUTE_GLOW_SEL, 'line-blur',   glowBlur);
   }
 
   // ── Perspective correction ─────────────────────────────────────────────────
+  /* ⚠️ ESKİ HÂL BEŞ KATMANIN İKİSİNİ EZİYORDU (ölçülen kusur — bkz.
+   * `core/routeWidthModel` başlığı). Buradaki sayılar (8/32 · 14/38) kurulum
+   * sayılarından (4/10 · 6/14) TAMAMEN BAĞIMSIZDI ve `perspScale` kapısı
+   * durağan pitch'te bile ilk karede açıldığı için rota, navigasyon başlar
+   * başlamaz 3,2× kalınlaşıyordu. Dahası gölge · halo · akış kalınlıkları
+   * kurulumda kalıyordu → z18'de sıralama CASE 46 > CORE 39 > GLOW 24 >
+   * SHADOW 22 olup neon halo ile derinlik gölgesi TAMAMEN kayboluyordu
+   * (iki `line-blur` katmanı GPU yakıp ekrana hiçbir şey çizmiyordu).
+   *
+   * Artık BEŞİ de aynı politikadan, aynı çekirdekten türer; perspektif yalnız
+   * bir ÇARPANDIR. Kalınlıkların mutlak seviyesi bilerek KORUNDU (referans
+   * head unit'te çekirdek ve kılıf birebir aynı) — bu tur seviyeyi değil
+   * TUTARLILIĞI ve viewport duyarlılığını düzeltir. */
   const perspScale = 1 + (pitch / 72) * 0.4;
   if (Math.abs(perspScale - M.lastPerspectiveScale) >= 0.06 && map.getLayer(SEL_LAYER)) {
     M.lastPerspectiveScale = perspScale;
-    const cW = Math.round(8  * perspScale);  const cW18 = Math.round(32 * perspScale);
-    const kW = Math.round(14 * perspScale);  const kW18 = Math.round(38 * perspScale);
-    try {
-      map.setPaintProperty(SEL_LAYER,  'line-width', ['interpolate', ['linear'], ['zoom'], 12, cW, 18, cW18]);
-      map.setPaintProperty(ROUTE_CASE, 'line-width', ['interpolate', ['linear'], ['zoom'], 12, kW, 18, kW18]);
-    } catch { /* style reloading */ }
+    const rw = resolveRouteWidths(map, perspScale);
+    safeSetPaint(map, ROUTE_SHADOW,   'line-width', routeWidthExpression(rw.shadow));
+    safeSetPaint(map, ROUTE_GLOW_SEL, 'line-width', routeWidthExpression(rw.glow));
+    safeSetPaint(map, ROUTE_CASE,     'line-width', routeWidthExpression(rw.casing));
+    safeSetPaint(map, SEL_LAYER,      'line-width', routeWidthExpression(rw.core));
+    safeSetPaint(map, ROUTE_FLOW,     'line-width', routeWidthExpression(rw.flow));
   }
 
-  // ── Maneuver emphasis — tier-based route styling ───────────────────────────
-  const _mTier = !turnApproachM || turnApproachM >= 200 ? 0
-    : turnApproachM >= 50 ? 1
+  /* ── Maneuver tier — yalnız KADEME hesabı (renk kararı burada DEĞİL) ────────
+   * AYNI KAPI: rota vurgusunun manevraya yaklaşınca güçlenmesi de bir MANEVRA
+   * kararıdır. Kaynak yol-boyu değilse kademe YÜKSELMEZ — aksi hâlde kamera
+   * susarken rota rengi hâlâ "kavşak geliyor" derdi (iki yüzey, iki gerçek). */
+  const _mTier = !_gatedTurnM || _gatedTurnM >= 200 ? 0
+    : _gatedTurnM >= 50 ? 1
     : 2;
-  if (_mTier !== M.lastManeuverTier && map.getLayer(SEL_LAYER)) {
-    M.lastManeuverTier = _mTier;
-    try {
-      if (_mTier === 0) {
-        map.setPaintProperty(SEL_LAYER,      'line-opacity', 1.0);
-        map.setPaintProperty(ROUTE_CASE,     'line-color',   '#ffffff');
-        map.setPaintProperty(ROUTE_GLOW_SEL, 'line-color',   '#4285f4');
-      } else if (_mTier === 1) {
-        // Yaklaşıyor (200–50m): casing amber → sürücü dikkatini çeker
-        map.setPaintProperty(ROUTE_CASE,     'line-color',   '#f59e0b');
-      } else {
-        // Kritik (<50m): amber glow + casing — kontrast road suppression'dan gelir artık
-        map.setPaintProperty(ROUTE_CASE,     'line-color',   '#f59e0b');
-        map.setPaintProperty(ROUTE_GLOW_SEL, 'line-color',   '#f59e0b');
-        map.setPaintProperty(SEL_LAYER,      'line-opacity', 1.0); // Faz 3.2: tam opacity — lane clarity
-      }
-    } catch { /* style reloading */ }
-  }
+
+  /* ── ROTA RENGİ — TEK KARAR NOKTASI (PR-3a) ────────────────────────────────
+   * ⚠️ ESKİ HÂLDE BURADA İKİ AYRI BLOK VARDI ve ikisi de aynı iki özelliği
+   * (`ROUTE_CASE`/`ROUTE_GLOW_SEL` `line-color`) KENDİ önbelleğine bakarak
+   * yazıyordu — manevra bloğu `M.lastManeuverTier`, risk bloğu
+   * `M.lastExternalRiskAlert`. Hakem yoktu ve manevra bloğu ÖNCE koşuyordu:
+   *     risk 0,6 → amber · kademe 0→1 → amber · kademe 1→0 → BEYAZ
+   *     risk hâlâ 0,6 ama bayrak değişmediği için risk bloğu HİÇ çalışmaz
+   * → tehlike aktifken uyarı rengi KALICI olarak kayboluyordu (K1).
+   *
+   * Artık renk bir DURUM DEĞİŞİMİNDEN değil ANLIK DURUMDAN türer; öncelik
+   * `core/routeColorModel` içinde açıkça tehlike > manevra > normal'dir ve
+   * dedup tek anahtarladır. Boyayı yazan tek yer `MapLayerManager`tir. */
+  syncRouteColor(map, _mTier, useHazardStore.getState().globalRiskScore > 0.5);
+
+  /* Kamera GERÇEKTEN uygulandı mı — çağıranın dedup çapası buna bakar. */
+  return !_entryGate;
 
   // ── Intersection road suppression + tunnel glow (Faz 3.2) ──────────────────
+  /* Bu blok RENK değil OPAKLIK yazar (`line-opacity`) — renk hakemiyle
+     çakışmaz ve bilerek ayrı bırakıldı. */
   if (M.focusModeActive && _mTier !== M.lastIntersectionTier) {
     M.lastIntersectionTier = _mTier;
     _applyIntersectionSuppression(map, _mTier);
     const _glowOp = [0.20, 0.27, 0.36][_mTier] ?? 0.20;
-    if (map.getLayer(ROUTE_GLOW_SEL)) {
-      try { map.setPaintProperty(ROUTE_GLOW_SEL, 'line-opacity', _glowOp); } catch { /* ignore */ }
-    }
-  }
-
-  // ── External Risk Alert (Phase H3) ────────────────────────────────────────
-  const _hazardRisk = useHazardStore.getState().globalRiskScore;
-  const _isHighRisk = _hazardRisk > 0.5;
-  if (_isHighRisk !== M.lastExternalRiskAlert && map.getLayer(ROUTE_CASE)) {
-    M.lastExternalRiskAlert = _isHighRisk;
-    try {
-      if (_isHighRisk) {
-        map.setPaintProperty(ROUTE_CASE,     'line-color', '#f59e0b');
-        map.setPaintProperty(ROUTE_GLOW_SEL, 'line-color', '#f59e0b');
-      } else if (_mTier === 0) {
-        // Sadece tier 0'da (kavşak yokken) orijinal renklere dön
-        map.setPaintProperty(ROUTE_CASE,     'line-color', '#ffffff');
-        map.setPaintProperty(ROUTE_GLOW_SEL, 'line-color', '#4285f4');
-      }
-    } catch { /* style reloading */ }
+    safeSetPaint(map, ROUTE_GLOW_SEL, 'line-opacity', _glowOp);
   }
 }
+
+/* ── Giriş kamerası yön kararının GÖZLEM YANKISI (#625) ────────────────────
+ * Kararın gerekçesi CAROS LAB'da okunabilsin diye saklanır. Tek nesne,
+ * büyümez, geçmiş tutmaz; ürün akışını hiçbir şekilde etkilemez. */
+let _lastEntryBearing: (EntryBearingDecision & { at: number }) | null = null;
+
+/** Son giriş kamerası yön kararı — hiç girilmediyse null. */
+export function getLastEntryBearingDecision(): (EntryBearingDecision & { at: number }) | null {
+  return _lastEntryBearing;
+}
+
+/** Test yalıtımı — üretim yolunda ÇAĞRILMAZ. */
+export function _resetEntryBearingForTest(): void { _lastEntryBearing = null; }
 
 /**
  * Navigation entry animation — called ONCE when the user taps "Başlat".
  *
- * @param bearing  Initial bearing in degrees (first route step direction or GPS heading)
+ * ── #625: YÖN ARTIK KARARA BAĞLI ────────────────────────────────────────────
+ * Eskiden bu fonksiyon HER çağrı yerinde `headingRef.current ?? 0` ile, yani
+ * ham GPS heading (ya da kuzey) ile çağrılıyordu — dokümantasyonu "first route
+ * step direction or GPS heading" dediği hâlde rota yönü hiç kullanılmıyordu.
+ * Cihazda ölçülen sonuç: park hâlindeki araçta kamera rotanın 257° tersine
+ * kuruldu ve rotanın 309 noktasının **0'ı** ekranda kaldı; araç hareket
+ * etmediği için hiçbir kod bunu düzeltmedi (`setDrivingView`in yön düzeltmesi
+ * >5 km/h ister). Karar artık `resolveEntryBearing` içinde ve gerekçesiyle
+ * birlikte saklanıyor.
+ *
+ * @param gpsHeading      Ham GPS heading (derece) — durağan araçta ANLAMSIZDIR.
+ * @param routeBearing    Rotanın ileri yönü (`resolveRouteForwardBearing`), yoksa null.
+ * @param speedKmh        Anlık hız; bilinmiyorsa null → DURAĞAN varsayılır (fail-safe).
  */
 export function enterNavigationView(
   map: MapLibreMap,
   lat: number,
   lng: number,
-  bearing: number,
+  gpsHeading: number,
   containerHeight: number,
+  routeBearing?: number | null,
+  speedKmh?: number | null,
 ) {
   // easeTo kamera işlemi stil gerektirmez — isStyleLoaded() tile yüklenirken de
   // false döndüğünden "Başlat" anında giriş animasyonunu sessizce yutuyordu
@@ -309,8 +919,27 @@ export function enterNavigationView(
   const TARGET_PITCH   = 38;   // 40°+ üzerinde siyah köşe riski artar
   const DURATION_MS    = 1000; // Yumuşak giriş animasyonu
 
+  let _curBear: number | null = null;
+  try { _curBear = map.getBearing(); } catch { _curBear = null; }
+
+  const _decision = resolveEntryBearing({
+    routeBearing: routeBearing ?? null,
+    gpsHeading: Number.isFinite(gpsHeading) ? gpsHeading : null,
+    speedKmh: speedKmh ?? null,
+    currentBearing: _curBear,
+  });
+  _lastEntryBearing = { ..._decision, at: Date.now() };
+
+  /* `bearing === null` = "kamerayı döndürme". Mevcut yön okunamadıysa (harita
+     bozuk) 0'a düşmek zorundayız; ama bu artık bir VARSAYILAN değil, ölçülmüş
+     bir yokluğun son çaresidir. */
+  const bearing = _decision.bearing ?? _curBear ?? 0;
+
   // Smooth camera state'i giriş noktasıyla eşitle — ilk tick'te jump olmasın
   resetCameraSmooth({ zoom: TARGET_ZOOM, pitch: TARGET_PITCH, lookAheadM: 30, bearing });
+  /* Giriş animasyonu boyunca geçen süre bir "tick aralığı" DEĞİLDİR; ölçümü
+     sıfırla ki ilk takip karesi 1 sn'lik sahte bir Δt ile hesaplanmasın. */
+  _resetCameraCadence();
 
   const lookAheadDeg = 30 / 111_320;
   const headRad      = (bearing * Math.PI) / 180;
@@ -320,6 +949,11 @@ export function enterNavigationView(
 
   const topPad = Math.round(containerHeight * 0.48);
 
+  /* Takip döngüsüne "giriş uçuşta" de — yoksa ilk takip karesi bu animasyonu
+     ortasından kesip zoom'u sabitliyor (saha kusuru 2026-09-05). */
+  _entryCamUntilMs = performance.now() + DURATION_MS;
+
+  bumpPerf('map.cameraCommand');
   map.easeTo({
     center:  [centerLng, centerLat],
     bearing,
@@ -340,26 +974,29 @@ export function exitDrivingView(map: MapLibreMap) {
   // heading değişiminde easeTo başlar → isMoving kalıcı true → sürekli render.
   if (!_drivingViewActive) return;
   _drivingViewActive = false;
+  /* Sürüş bitti — bekleyen giriş kapısı varsa DÜŞÜRÜLÜR; aksi hâlde park
+     görünümüne dönüş 1 sn boyunca kamerasız kalırdı. */
+  _entryCamUntilMs = 0;
   M.lastPerspectiveScale  = 1.0;
-  M.lastManeuverTier      = 0;
   M.lastShadowPitch       = -1.0;
   M.lastShadowZoom        = -1.0;
   M.lastMoodScore         = -1.0;
-  M.lastExternalRiskAlert = false;
   M.lastHazardZoom        = 0;
   // Camera smooth state'i sıfırla — sonraki navigasyonda jump olmasın
-  resetCameraSmooth({ zoom: 15.5, pitch: 0, lookAheadM: 0, bearing: 0 });
-  // Route layer state restore
+  resetCameraSmooth({ zoom: PARK_VIEW_ZOOM, pitch: 0, lookAheadM: 0, bearing: 0 });
+  /* Sürüş bittiğinde kadans ölçümü de biter: bir sonraki oturumun ilk karesi
+     "iki oturum arası geçen süre" kadar Δt görmemelidir. */
+  _resetCameraCadence();
+  /* Route layer state restore — burada da renk ELLE yazılmaz. Sürüş bitti:
+     kademe 0, tehlike ANLIK durumdan okunur. Tehlike hâlâ yüksekse rota amber
+     KALIR; eskiden burada koşulsuz beyaza dönülüyordu (K1'in üçüncü yolu). */
   if (map.isStyleLoaded()) {
-    try {
-      if (map.getLayer(SEL_LAYER))      map.setPaintProperty(SEL_LAYER,      'line-opacity', 1.0);
-      if (map.getLayer(ROUTE_CASE))     map.setPaintProperty(ROUTE_CASE,     'line-color',   '#ffffff');
-      if (map.getLayer(ROUTE_GLOW_SEL)) map.setPaintProperty(ROUTE_GLOW_SEL, 'line-color',   '#4285f4');
-    } catch { /* ignore */ }
+    syncRouteColor(map, 0, useHazardStore.getState().globalRiskScore > 0.5, true);
   }
+  bumpPerf('map.cameraCommand');
   map.easeTo({
     bearing: 0,
-    zoom: 15.5,
+    zoom: PARK_VIEW_ZOOM,
     pitch: 0,
     padding: { top: 0, bottom: 0, left: 0, right: 0 },
     duration: 800,

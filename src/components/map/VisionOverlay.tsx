@@ -2,7 +2,7 @@
  * VisionOverlay — AR kamera + şerit/tabela katmanı.
  *
  * Katman mimarisi (z-index sırası):
- *   MapView     (z-0)  — harita, her zaman mount'ta
+ *   MapView     (taban)  — harita, her zaman mount'ta
  *   VisionOverlay içi:
  *     <video>   (z-1)  — kamera feed'i, sadece HYBRID modunda opak
  *     <canvas>  (z-2)  — şerit çizgileri + AR rotası + tabela bbox
@@ -20,6 +20,11 @@
  */
 
 import { memo, useEffect, useRef, useCallback } from 'react';
+
+/** HYBRID'den çıkınca kameranın açık tutulacağı pay (ms). Mod geçişleri
+ *  arasında donanımı yeniden açmanın gecikmesini gizler; süre dolunca
+ *  kamera BIRAKILIR (bkz. ısınma ölçümü 2026-08-03). */
+const CAMERA_RELEASE_GRACE_MS = 15_000;
 import { EyeOff, Camera, AlertTriangle, Gauge } from 'lucide-react';
 import {
   startVision,
@@ -36,7 +41,6 @@ import {
 import {
   useNavMode,
   useTransitioning,
-  useUserVisionPref,
   setUserVisionPreference,
   useModeSync,
 } from '../../platform/modeController';
@@ -474,7 +478,6 @@ export const VisionOverlay = memo(function VisionOverlay({
   const vision       = useVisionState();
   const mode         = useNavMode();
   const transitioning = useTransitioning();
-  const userPref     = useUserVisionPref();
   const { confidence, level: confidenceLevel } = useVisionConfidence();
 
   // Sync VisionState + confidence → ModeController whenever either changes
@@ -497,15 +500,45 @@ export const VisionOverlay = memo(function VisionOverlay({
     : 0;
 
   /* ── Start/stop vision + alignment service together ── */
+  /* ⚠️ KAMERA GÖRÜNMEZKEN DE ÇALIŞIYORDU — ISINMANIN ÖLÇÜLEN KÖKÜ (2026-08-03).
+   *
+   * Bu effect `startVision`i navigasyon BAŞLAR BAŞLAMAZ çağırıyordu; oysa video
+   * yalnız HYBRID modunda GÖRÜNÜR (`opacity: isHybrid ? 1 : 0`). Sonuç: STANDARD
+   * modda arka kamera hiç görünmeyen bir görüntü için sürekli yakalama yapıyordu.
+   *
+   * CİHAZ ÖLÇÜMÜ (telefon, navigasyon aktif, AR kapalı):
+   *   `<video>` **opacity: 0** · kamera track'i **live · 1280×720 @ 30 fps**
+   *   · `video.currentTime` = **101 385 sn ≈ 28 saat** kesintisiz akış.
+   *   İş parçacıkları: `VideoCaptureCam` + `RenderThread` %14.6 + GPU %7.3.
+   * Kamera sensörü, ISP ve tam ekran kompozisyon — karşılığında SIFIR fayda.
+   *
+   * DOSYA BAŞINDAKİ TASARIM NOTU ("hiçbir component unmount olmaz, sadece
+   * opacity değişir") DOM için doğrudur; DONANIM için değil. Geçiş yumuşaklığı
+   * DOM'u ayakta tutmayı gerektirir, kamerayı açık tutmayı GEREKTİRMEZ.
+   *
+   * DÜZELTME: kamera yalnız gerçekten görünecekse açılır. HYBRID'den çıkınca
+   * hemen kapatmak yerine kısa bir PAY bırakılır — kullanıcı modlar arasında
+   * gidip gelirken kamera yeniden açılış gecikmesi (~0.5 sn) yaşanmasın.
+   * Hizalama sensörleri (izin gerektirmez, ucuzdur) navigasyon boyunca açık
+   * kalır — AR'a geçildiğinde hazır olmalıdır. */
   useEffect(() => {
     if (!isNavigating) {
-      stopVision();
       stopARAlignment();
       return;
     }
-
-    // Start alignment sensors immediately (no permission needed)
     startARAlignment();
+    return () => { stopARAlignment(); };
+  }, [isNavigating]);
+
+  useEffect(() => {
+    if (!isNavigating) { stopVision(); return; }
+
+    const wantCamera = isHybrid || transitioning;
+    if (!wantCamera) {
+      /* Geçişte gidip gelmeleri emmek için pay; süre dolunca donanım BIRAKILIR. */
+      const t = setTimeout(() => { stopVision(); }, CAMERA_RELEASE_GRACE_MS);
+      return () => clearTimeout(t);
+    }
 
     const video = videoRef.current;
     if (!video) return;
@@ -518,11 +551,8 @@ export const VisionOverlay = memo(function VisionOverlay({
       // Vision unavailable → STANDARD_NAVIGATION continues unaffected
     });
 
-    return () => {
-      stopVision();
-      stopARAlignment();
-    };
-  }, [isNavigating]);
+    return () => { stopVision(); };
+  }, [isNavigating, isHybrid, transitioning]);
 
   /* ── Forward GPS heading to alignment service each GPS fix ── */
   useEffect(() => {
@@ -652,15 +682,21 @@ export const VisionOverlay = memo(function VisionOverlay({
       const video = videoRef.current;
       if (!video || !isNavigating) return;
       startVision(video).catch(() => {});
-      setUserVisionPreference('auto');
+      setUserVisionPreference('hybrid');
     } else if (isHybrid) {
       // Switch to standard
       setUserVisionPreference('standard');
     } else {
-      // Switch to hybrid
-      setUserVisionPreference(userPref === 'standard' ? 'auto' : 'hybrid');
+      /* AÇIK İSTEK → doğrudan 'hybrid'.
+         ESKİ DAVRANIŞ (saha 2026-08-03): kapalıyken basınca önce `'auto'`ya
+         geçiliyordu; 'auto' ise tespit güvenine bağlı olduğundan ve güven
+         şeritsiz yolda 0.40 tavanını aşamadığından **hiçbir şey olmuyordu**.
+         Kullanıcı düğmeye basıyor, kamera açılıyor, ekran değişmiyordu.
+         Düğme artık iki durumludur: KAPALI ↔ AÇIK. 'auto' yalnız sistemin
+         kendi kararı için kalır, kullanıcı tıklamasıyla ARAYA GİRMEZ. */
+      setUserVisionPreference('hybrid');
     }
-  }, [vision.state, isHybrid, userPref, isNavigating]);
+  }, [vision.state, isHybrid, isNavigating]);
 
   /* ─────────────────────────────────────────────────────────── */
   /* RENDER                                                       */
@@ -668,7 +704,7 @@ export const VisionOverlay = memo(function VisionOverlay({
 
   return (
     // Outer container — always present in DOM, no pointer-events by default
-    <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 5 }}>
+    <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 'var(--z-map-vision)' }}>
 
       {/* ── Camera feed — background when HYBRID ── */}
       <video
@@ -712,7 +748,7 @@ export const VisionOverlay = memo(function VisionOverlay({
 
         {/* Vision status badge — always visible during navigation */}
         {isNavigating && (
-          <div className="absolute top-5 right-[7rem] pointer-events-auto z-10">
+          <div className="absolute top-5 right-[7rem] pointer-events-auto z-[var(--z-map-effect)]">
             <VisionBadge
               visionState={vision.state}
               frame={vision.frame}

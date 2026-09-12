@@ -21,6 +21,12 @@ import {
 import { deepScanRuntimeService } from '../platform/deepScan';
 // Kaynak-metin kilidi (transform-time sabit → flake bağışık).
 import ignitionSource from '../platform/deepScan/deepScanIgnitionSource.ts?raw';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import {
+  deriveEngineRunningEvidence, createEngineRunningProvider,
+  ENGINE_RUNNING_MIN_RPM, ALTERNATOR_MIN_VOLTS,
+} from '../platform/deepScan/ignitionEvidenceAdapter';
 
 const NOW = 1_000_000;
 
@@ -310,5 +316,78 @@ describe('yalıtım, privacy, manual override', () => {
     const snap = src.submitEvidence(ev({ source: 'native_acc', value: false }));
     expect(snap.confirmed).toBe(false); // son kanıt geçerli
     expect(snap.evidence.filter((e) => e.source === 'native_acc')).toHaveLength(1);
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * engine_running ADAPTÖRÜ (#127) — zero-trust iki-sinyal şartı
+ *
+ * KİLİT: eşikler SAF ÇÖZÜMLEYİCİNİN İÇİNDE DEĞİL, bu adaptördedir.
+ * deepScanIgnitionSource kaynağı açıkça "bu katman ham sayıya eşik uygulamaz" der.
+ * ════════════════════════════════════════════════════════════════════════ */
+
+describe('deriveEngineRunningEvidence — RPM + alternatör kombinasyonu', () => {
+  const T = 1_000_000;
+
+  it('RPM 800 + 13.8V → authoritative engine_running kanıtı, confirmed=true', () => {
+    const ev = deriveEngineRunningEvidence({ rpm: 800, batteryVoltage: 13.8, observedAt: T });
+    expect(ev).not.toBeNull();
+    expect(ev!.source).toBe('engine_running');
+    expect(ev!.value).toBe(true);
+    expect(ev!.authoritative).toBe(true);
+    expect(Object.isFrozen(ev)).toBe(true);
+
+    const src = createDeepScanIgnitionSource({ now: () => T });
+    src.submitEvidence(ev!);
+    expect(src.getConfirmedValue()).toBe(true);
+    expect(src.isConfirmedForActiveScan()).toBe(true);
+    src.dispose();
+  });
+
+  it('TEK sinyal ASLA onay üretmez (zero-trust)', () => {
+    // Motor dönüyor ama alternatör basmıyor → belirsiz, kanıt YOK.
+    expect(deriveEngineRunningEvidence({ rpm: 900, batteryVoltage: 12.6, observedAt: T })).toBeNull();
+    // Dolu akü ama motor dönmüyor → kanıt YOK.
+    expect(deriveEngineRunningEvidence({ rpm: 0, batteryVoltage: 14.2, observedAt: T })).toBeNull();
+    // Marş/stall bölgesi (eşik altı RPM) → kanıt YOK.
+    expect(deriveEngineRunningEvidence({ rpm: ENGINE_RUNNING_MIN_RPM, batteryVoltage: 14.0, observedAt: T })).toBeNull();
+    // Voltaj eşiğin hemen altında → kanıt YOK.
+    expect(deriveEngineRunningEvidence({ rpm: 900, batteryVoltage: ALTERNATOR_MIN_VOLTS - 0.1, observedAt: T })).toBeNull();
+  });
+
+  it('eksik/imkânsız/damgasız veri → null (uydurma YOK, throw YOK)', () => {
+    expect(deriveEngineRunningEvidence(null)).toBeNull();
+    expect(deriveEngineRunningEvidence({})).toBeNull();
+    expect(deriveEngineRunningEvidence({ rpm: -1, batteryVoltage: -1, observedAt: T })).toBeNull();
+    expect(deriveEngineRunningEvidence({ rpm: NaN, batteryVoltage: 14, observedAt: T })).toBeNull();
+    expect(deriveEngineRunningEvidence({ rpm: 99_999, batteryVoltage: 14, observedAt: T })).toBeNull();
+    expect(deriveEngineRunningEvidence({ rpm: 900, batteryVoltage: 99, observedAt: T })).toBeNull();
+    expect(deriveEngineRunningEvidence({ rpm: 900, batteryVoltage: 14 })).toBeNull(); // damga yok
+  });
+
+  it('sağlayıcı okuyucusu patlarsa null döner (fail-soft)', () => {
+    const p = createEngineRunningProvider(() => { throw new Error('obd boom'); });
+    expect(() => p()).not.toThrow();
+    expect(p()).toBeNull();
+  });
+
+  it('bayat kanıt onay VERMEZ (stale > 5000 ms → confirmed null)', () => {
+    const ev = deriveEngineRunningEvidence({ rpm: 900, batteryVoltage: 14, observedAt: T })!;
+    const src = createDeepScanIgnitionSource({ now: () => T + 6_000 });
+    src.submitEvidence(ev);
+    expect(src.getConfirmedValue()).toBeNull();
+    expect(src.isConfirmedForActiveScan()).toBe(false);
+    src.dispose();
+  });
+
+  /* KİLİT: fizik eşiği SAF ÇÖZÜMLEYİCİYE SIZMAMALI. */
+  it('deepScanIgnitionSource ham sayıya eşik UYGULAMAZ (kaynak sözleşmesi)', () => {
+    const src = readFileSync(
+      join(process.cwd(), 'src', 'platform', 'deepScan', 'deepScanIgnitionSource.ts'), 'utf-8');
+    // (kaynak yorumu satır sarmalı — sarmadan etkilenmeyen parça aranır)
+    expect(src).toContain('eşik uygulamaz');
+    for (const leak of ['ENGINE_RUNNING_MIN_RPM', 'ALTERNATOR_MIN_VOLTS', 'batteryVoltage', '13.2']) {
+      expect(src, `fizik eşiği '${leak}' saf çözümleyiciye sızmamalı`).not.toContain(leak);
+    }
   });
 });

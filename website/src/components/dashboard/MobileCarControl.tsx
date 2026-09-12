@@ -2,6 +2,10 @@
 
 import { memo, useState, useCallback, useRef, useEffect } from 'react';
 import type { LiveVehicle } from '@/types/realtime';
+import {
+  freshnessLabel,
+  type Measurement, type FreshnessState,
+} from '@/lib/fleet/vehicleTelemetryFreshness';
 import { useCommandTracker } from '@/hooks/useCommandTracker';
 import type { CmdPhase, CommandResult } from '@/hooks/useCommandTracker';
 import type { CommandType, RoutePayload } from '@/lib/commandService';
@@ -230,7 +234,15 @@ function CommandToast({ result }: { result: CommandResult }) {
 
 /* ── Provider pill ──────────────────────────────────────────────────────────── */
 
+/**
+ * Rota nerede açılsın.
+ *
+ * `caros` İLK ve VARSAYILANDIR: kullanıcı "Araca Gönder" derken aracın kendi
+ * navigasyonunu kastediyor. Eskiden bu bir seçenek DEĞİLDİ ve varsayılan
+ * `google_maps` olduğu için rota her zaman harici uygulamada açılıyordu.
+ */
 const PROVIDERS: { id: NavProvider; label: string; color: string }[] = [
+  { id: 'caros',       label: 'CarOS Pro',   color: '#22d3ee' },
   { id: 'google_maps', label: 'Google Maps', color: '#4285F4' },
   { id: 'waze',        label: 'Waze',        color: '#33CCFF' },
   { id: 'yandex',      label: 'Yandex',      color: '#FC3F1D' },
@@ -305,7 +317,7 @@ function NavPanel({
   busy: boolean;
 }) {
   const [step,     setStep]     = useState<NavStep>('closed');
-  const [provider, setProvider] = useState<NavProvider>('google_maps');
+  const [provider, setProvider] = useState<NavProvider>('caros');
   const [query,    setQuery]    = useState('');
   const [results,  setResults]  = useState<GeoResult[]>([]);
   const [selected, setSelected] = useState<GeoResult | null>(null);
@@ -608,21 +620,63 @@ function SpeedAlertPanel({ vehicleId }: { vehicleId: string | null }) {
   const [cfg,      setCfg]      = useState<SpeedAlertConfig>(loadAlert);
   const [open,     setOpen]     = useState(false);
   const [saving,   setSaving]   = useState(false);
+  /** Araç komutu gerçekten UYGULADI (`completed`) — gönderim onayı DEĞİL. */
   const [saved,    setSaved]    = useState(false);
+  /** Araca ulaştı ama henüz uygulamadı ya da çevrimdışı → ayar YÜRÜRLÜKTE DEĞİL. */
+  const [queued,   setQueued]   = useState(false);
+  const [saveErr,  setSaveErr]  = useState('');
+  const unsubRef                = useRef<(() => void) | null>(null);
 
+  useEffect(() => () => { unsubRef.current?.(); }, []);
+
+  /* ÖNCEDEN: `sendCommand`in sonucu HİÇ okunmuyordu (`catch {}` + koşulsuz
+     "Kaydedildi ✓"). Ayar araca ulaşmasa bile — ki `set_speed_alert` DB
+     CHECK'inde olmadığı için hiç ulaşmıyordu — kullanıcı uyarının açık
+     olduğunu sanıyordu. Artık telefonun yerel kopyası ile ARACIN durumu
+     ayrı ayrı raporlanır. */
   const handleSave = useCallback(async (next: SpeedAlertConfig) => {
     if (!vehicleId) return;
     setSaving(true);
+    setSaved(false);
+    setQueued(false);
+    setSaveErr('');
+
+    // Yerel kopya: ekranın kendi durumu (aracın durumu DEĞİL).
+    try { localStorage.setItem(ALERT_KEY, JSON.stringify(next)); } catch { /* kota */ }
+
     try {
-      localStorage.setItem(ALERT_KEY, JSON.stringify(next));
-      const { sendCommand } = await import('@/lib/commandService');
-      await sendCommand(vehicleId, 'set_speed_alert', {
+      const { sendCommand, subscribeCommandStatus } = await import('@/lib/commandService');
+      const res = await sendCommand(vehicleId, 'set_speed_alert', {
         speed_alert: { enabled: next.enabled, threshold_kmh: next.threshold },
       });
-    } catch { /* non-critical */ }
-    setSaving(false);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2_000);
+      setSaving(false);
+
+      if (!res.ok) { setSaveErr(res.error ?? 'Ayar araca gönderilemedi.'); return; }
+
+      /* `ok` YALNIZCA "komut kaydedildi" demektir — araç henüz uygulamadı.
+         "Araçta ✓" ancak aracın `completed` yazmasıyla söylenebilir; aksi
+         halde çevrimdışı bir araçta uyarı açık sanılır. */
+      setQueued(true);
+      if (!res.commandId) return;
+
+      unsubRef.current?.();
+      unsubRef.current = subscribeCommandStatus(res.commandId, (ev) => {
+        if (ev.status === 'completed') {
+          setQueued(false);
+          setSaved(true);
+          setTimeout(() => setSaved(false), 3_000);
+        } else if (['failed', 'rejected'].includes(ev.status)) {
+          setQueued(false);
+          setSaveErr('Araç ayarı kabul etmedi.');
+        } else if (ev.status === 'expired') {
+          setQueued(false);
+          setSaveErr('Araç yanıt vermedi — ayar uygulanmadı.');
+        }
+      });
+    } catch {
+      setSaving(false);
+      setSaveErr('Ayar araca gönderilemedi.');
+    }
   }, [vehicleId]);
 
   const update = useCallback((patch: Partial<SpeedAlertConfig>) => {
@@ -663,8 +717,15 @@ function SpeedAlertPanel({ vehicleId }: { vehicleId: string | null }) {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {/* Üç ayrı gerçek: araçta UYGULANDI · sıraya alındı · gönderilemedi. */}
           {saved && (
-            <span className="text-[9px] font-black text-emerald-400">Kaydedildi ✓</span>
+            <span className="text-[9px] font-black text-emerald-400">Araçta ✓</span>
+          )}
+          {queued && (
+            <span className="text-[9px] font-black text-yellow-400">Sırada</span>
+          )}
+          {saveErr && (
+            <span className="text-[9px] font-black text-red-400">Gönderilemedi</span>
           )}
           {saving && (
             <svg className="animate-spin w-3 h-3 pwa-text-3" viewBox="0 0 12 12" fill="none">
@@ -719,6 +780,77 @@ function SpeedAlertPanel({ vehicleId }: { vehicleId: string | null }) {
     </div>
   );
 }
+
+/* ── Telemetri kutusu ───────────────────────────────────────────────────────
+ *
+ * ÖLÇÜLEN KUSUR (2026-08-14): bu şerit ham `vehicle.speed/fuel/engineTemp`
+ * sayılarını basıyordu. Sonuç sahada görüldü: araç OFFLINE, kartta "Araç
+ * bağlantısı kesildi" yazıyor ve HEMEN ALTINDA **HIZ 22 km/h yeşil · YAKIT 0 ·
+ * MOTOR 0** görünüyordu. İkisi de yalandı — 22 bayat bir ölçüm, iki sıfır ise
+ * hiç ölçülmemiş alanların varsayılanıydı (**sahte 0**).
+ *
+ * `vehicleStore` bunu zaten biliyordu: her sinyal `telemetry` katmanında
+ * `Measurement` (değer + hüküm + yaş + kaynak) taşır ve store'un kendi yorumu
+ * "gerçek katmanı bunu ETİKETLER" der — tüketici o etiketi hiç okumuyordu.
+ * Artık okunur; katman yoksa (eski kayıt) ham sayıya düşülür ama **hükümsüz**
+ * gösterilir, canlı iddia edilmez.
+ */
+
+type Tint = (v: number) => string;
+
+const speedTint: Tint = (v) => (v > 90 ? '#ef4444' : v > 60 ? '#fbbf24' : '#34d399');
+const fuelTint:  Tint = (v) => (v < 15 ? '#ef4444' : v < 30 ? '#fbbf24' : '#60a5fa');
+const tempTint:  Tint = (v) => (v > 100 ? '#ef4444' : v > 85 ? '#fbbf24' : '#34d399');
+
+/** Bilinmeyen/bayat veri için nötr renk — yeşil "iyi" anlamına gelir, hak edilmeden verilmez. */
+const UNKNOWN_TINT = 'var(--pwa-text-3)';
+
+const TelemetryTile = memo(function TelemetryTile({
+  label, unit, m, fallback, tint,
+}: {
+  label: string;
+  unit: string;
+  m: Measurement | undefined;
+  /** Tazelik katmanı yokken (eski kayıt) ham sayı — HÜKÜMSÜZ gösterilir. */
+  fallback: number;
+  tint: Tint;
+}) {
+  // Katman varsa TEK otorite odur; yoksa ham sayı "durumu bilinmeyen" sayılır.
+  const value: number | null = m ? m.value : (Number.isFinite(fallback) ? fallback : null);
+  const state: FreshnessState | null = m ? m.state : null;
+
+  const isLive  = state === 'LIVE';
+  const known   = value !== null;
+  const color   = known && isLive ? tint(value) : UNKNOWN_TINT;
+
+  // Durum notu: canlı veride yer kaplamaz, canlı OLMAYANDA zorunludur.
+  const note =
+    !known                    ? (state ? freshnessLabel(state) : 'Veri yok')
+    : isLive                  ? unit
+    : state === 'STALE'       ? 'eski veri'
+    : state === 'OFFLINE'     ? 'çevrimdışı'
+    : state === 'NEVER_SEEN'  ? 'veri yok'
+    : state === 'UNKNOWN'     ? 'okunamadı'
+    :                           'doğrulanmadı';   // katman yok → hüküm verilemez
+
+  return (
+    <div className="flex flex-col items-center py-3 rounded-xl"
+      style={{
+        background: known && isLive ? `${color}09` : 'var(--pwa-surface-3)',
+        border:     `1px solid ${known && isLive ? `${color}20` : 'var(--pwa-border-soft)'}`,
+      }}>
+      <span className="text-[8px] font-black uppercase tracking-widest pwa-text-3 mb-1">{label}</span>
+      {/* Bilinmeyen değer 0 diye BASILMAZ — em-dash bir sayı iddiası değildir. */}
+      <span className="text-lg font-black tabular-nums leading-none" style={{ color }}>
+        {known ? Math.round(value) : '—'}
+      </span>
+      <span className="text-[9px] font-mono mt-0.5 text-center leading-tight"
+        style={{ color: known && isLive ? `${color}60` : 'var(--pwa-text-3)' }}>
+        {known && !isLive ? `${unit} · ${note}` : note}
+      </span>
+    </div>
+  );
+});
 
 /* ── Main component ─────────────────────────────────────────────────────────── */
 
@@ -869,20 +1001,11 @@ export default function MobileCarControl({ vehicle }: Props) {
       {/* Command toast */}
       {result && <CommandToast result={result} />}
 
-      {/* Telemetry strip */}
+      {/* Telemetry strip — tazelik katmanına bağlı (bkz. TelemetryTile) */}
       <div className="grid grid-cols-3 gap-2">
-        {[
-          { label: 'Hız',   value: Math.round(vehicle.speed),      unit: 'km/h', color: vehicle.speed > 90 ? '#ef4444' : vehicle.speed > 60 ? '#fbbf24' : '#34d399' },
-          { label: 'Yakıt', value: Math.round(vehicle.fuel),       unit: '%',    color: vehicle.fuel < 15 ? '#ef4444' : vehicle.fuel < 30 ? '#fbbf24' : '#60a5fa' },
-          { label: 'Motor', value: Math.round(vehicle.engineTemp), unit: '°C',   color: vehicle.engineTemp > 100 ? '#ef4444' : vehicle.engineTemp > 85 ? '#fbbf24' : '#34d399' },
-        ].map(({ label, value, unit, color }) => (
-          <div key={label} className="flex flex-col items-center py-3 rounded-xl"
-            style={{ background: `${color}09`, border: `1px solid ${color}20` }}>
-            <span className="text-[8px] font-black uppercase tracking-widest pwa-text-3 mb-1">{label}</span>
-            <span className="text-lg font-black tabular-nums leading-none" style={{ color }}>{value}</span>
-            <span className="text-[9px] font-mono mt-0.5" style={{ color: `${color}60` }}>{unit}</span>
-          </div>
-        ))}
+        <TelemetryTile label="Hız"   unit="km/h" m={vehicle.telemetry?.speedKmh}    fallback={vehicle.speed}      tint={speedTint} />
+        <TelemetryTile label="Yakıt" unit="%"    m={vehicle.telemetry?.fuelPercent} fallback={vehicle.fuel}       tint={fuelTint} />
+        <TelemetryTile label="Motor" unit="°C"   m={vehicle.telemetry?.engineTempC} fallback={vehicle.engineTemp} tint={tempTint} />
       </div>
     </div>
   );

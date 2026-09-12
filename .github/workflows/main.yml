@@ -5,17 +5,26 @@
 #
 # Triggers : push → main, dev  |  pull_request → main, dev
 # Jobs     : lint-typecheck → test → build  (serial fail-fast)
+#            android_unit_tests                (PARALEL — ayrı dil zinciri)
 #
 # Automotive Critical Tests (must pass):
 #   src/__tests__/geofence.test.ts
 #   src/__tests__/obdService.test.ts
+#   android .../can/McuCommandWhitelistTest.java     ← fiziksel komut whitelist'i
+#   android .../obd/ElmProtocolTest.java             ← OBD protokol seçimi
+#   android .../BootReceiverActionGateTest.java      ← boot action kapısı
+#   android .../protocol/SessionCryptoTest.java      ← Phone Hub oturum kriptosu
 # ─────────────────────────────────────────────────────────────────────────────
 
 name: CI
 
 on:
   push:
-    branches: [main, dev]
+    # `ci/**` BİLİNÇLİ: bir workflow'un push tetikleyicisi, PUSH EDİLEN DALDAKİ
+    # dosyadan okunur — yani CI kapısı main'e girmeden, kendi dalında kanıtlanabilir.
+    # Bu olmadan yeni bir job'ın gerçekten koştuğu ancak main'e/dev'e girdikten SONRA
+    # görülürdü: kapının kendisi kapıdan geçmeden yayına alınırdı.
+    branches: [main, dev, 'ci/**']
   pull_request:
     branches: [main, dev]
 
@@ -25,7 +34,14 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  NODE_VERSION: '20'
+  # 22 — ÖLÇÜLMÜŞ TABAN, keyfi değil. İki bağımsız kanıt (2026-08-21, gerçek runner):
+  #   1. `@capacitor/cli` engines: node>=22.0.0 → 20'de `[fatal] requires NodeJS >=22`
+  #   2. `node:fs.globSync` Node 22'de geldi; 20'de YOK →
+  #      `developerAccessGate.test.tsx` KİLİT 1 `TypeError: globSync is not a function`
+  #      ile düşüyordu (run 32477333286). Yerelde görünmezdi: bu makinede Node 24.
+  # Kısa süre `ANDROID_NODE_VERSION` ile yalnız android job'ı 22'ye alınmıştı; o ayrım
+  # "diğer joblar 20'de yeşil" VARSAYIMINA dayanıyordu ve ölçüm onu YANLIŞLADI.
+  NODE_VERSION: '22'
   # Placeholder values — vitest mocks supabase; only real builds need live creds
   VITE_SUPABASE_URL:      ${{ secrets.VITE_SUPABASE_URL      || 'https://placeholder.supabase.co' }}
   VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY || 'placeholder-anon-key' }}
@@ -193,3 +209,185 @@ jobs:
           name:            dist-${{ github.sha }}
           path:            dist/
           retention-days:  7
+
+# ─────────────────────────────────────────────────────────────────────────────
+# JOB 4 — Android Unit Tests (JVM / JUnit + Robolectric)
+#
+#   NEDEN VAR (denetim 2026-08-21, kütük V-01):
+#     Depoda 25 Java test sınıfı / 335 test YAZILI ama HİÇBİR workflow gradle
+#     çağırmıyordu. `codeql.yml` yalnız javascript-typescript tarıyor; JOB 2'deki
+#     `reporter: java-junit` bir RAPOR BİÇİMİ adıdır, Java testi değildir. Yani
+#     27 820 satır native Java — kilit/korna/alarm komutlarını MCU'ya seri porttan
+#     gönderen katman — otomatik kapı olmadan sürüm alıyordu.
+#
+#   NEDEN PARALEL (needs: yok):
+#     Java doğruluğu TypeScript lint'ine bağlı değildir. Seri zincire eklemek,
+#     bir ESLint uyarısının native regresyonu GİZLEMESİ demekti. İki zincir
+#     bağımsız koşar; "CI" durumu ikisinin de yeşil olmasını ister.
+#
+#   CI'DA KIRILAN ÜÇ GİZLİ BAĞIMLILIK (ölçüldü, hepsi bu job'da karşılandı):
+#     1. `capacitor-cordova-android-plugins/` .gitignore'ludur (android/.gitignore)
+#        ama settings.gradle onu `include` eder → taze checkout'ta KONFİGÜRASYON
+#        DÜŞER. Çözüm: `npx cap update android`. DİKKAT: bu komut dist/ İSTER —
+#        @capacitor/cli/dist/android/update.js:31 assets/public yoksa copy()ye
+#        düşer; taze checkout'ta o dizin gitignore'lu. Ayrıca CLI Node>=22 ister
+#        (gerçek koşumda ölçüldü) → bu job ANDROID_NODE_VERSION kullanır.
+#     2. `android/gradlew` git'te 100644'tü → Linux'ta "permission denied".
+#        Kalıcı çözüm depoda (100755); buradaki `chmod +x` savunma derinliğidir.
+#     3. Root build.gradle `buildDir`i C:/Temp'e taşıyordu → Linux'ta proje
+#        altında "C:" adlı klasör. Artık OS-koşullu (bkz. android/build.gradle).
+#
+#   NDK KURULMAZ — BİLİNÇLİ: yerel koşumda görev grafiği 49 görevdi ve içinde
+#   TEK BİR cmake/externalNativeBuild/jniLib görevi YOKTU. `testDebugUnitTest`
+#   native derlemeye dokunmaz → ~1 GB indirme ve dakikalar tasarruf edilir.
+#   Bu varsayım yanlışsa job KIRMIZI olur ve nedenini adıyla söyler (sessiz
+#   geçmez); o durumda `packages:` satırına `ndk;26.3.11579264` eklenir.
+# ─────────────────────────────────────────────────────────────────────────────
+  android_unit_tests:
+    name: Android Unit Tests (JVM)
+    runs-on: ubuntu-latest
+
+    permissions:
+      checks: write          # test-reporter Check annotation'ları için
+      pull-requests: write   # PR özet yorumu için
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup JDK 21 (Temurin)
+        # Capacitor plugin modülleri Java 21 toolchain ister
+        # (app/capacitor.build.gradle → sourceCompatibility VERSION_21).
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Setup Node ${{ env.NODE_VERSION }}
+        # `@capacitor/cli` engines: node>=22.0.0 — 20'de `[fatal] requires NodeJS >=22`
+        # (gerçek runner'da ölçüldü, run 32473505830). Artık global NODE_VERSION zaten 22;
+        # bu job'a özel sürüm ayrımı KALDIRILDI (tek kaynak).
+        # Gradle, node_modules/@capacitor/*/android altındaki modülleri
+        # `capacitor.settings.gradle` üzerinden include eder → Node şart.
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline
+
+      - name: Capacitor önkoşulları — assets dizini + webDir stub
+        # ⚠️ İKİSİ DE ZORUNLU. Taze checkout'ta ölçüldü (git worktree ile birebir
+        # simüle edildi); ilk yazımda İKİSİ DE eksikti ve bu job ilk koşumda
+        # kırmızı olacaktı:
+        #
+        #   1) `android/app/src/main/assets/` HİÇ OLUŞMUYOR — .gitignore altındaki
+        #      üç girdi (public/ · capacitor.config.json · capacitor.plugins.json)
+        #      yüzünden dizinde tek bir takipli dosya yok, git de boş dizin yaratmaz.
+        #      `cap update` oraya YAZMAYA çalışıp patlıyor:
+        #        ENOENT … open '…/assets/capacitor.plugins.json'
+        #      `cap update` bu dizini KENDİ OLUŞTURMUYOR (ayrıca ölçüldü).
+        #
+        #   2) `dist/` de ŞART, ama SEBEBİ "update her zaman copy çalıştırır" DEĞİL.
+        #      Mekanizma kaynaktan okundu — @capacitor/cli/dist/android/update.js:31:
+        #        if (!(await pathExists(config.android.webDirAbs))) { await copy(...) }
+        #      Yani `cap update` copy'ye YALNIZCA `android/app/src/main/assets/public`
+        #      YOKKEN düşer. Taze checkout'ta o dizin gitignore'lu olduğu için yok →
+        #      copy çağrılır → "Could not find the web assets directory: ./dist".
+        #      DİKKAT: iki ölçüm turunda iki YANLIŞ gerekçe üretildi — önce "update
+        #      dist/ istemez" (ana ağaçta dist/ VARDI: ölçüm değil artefakt), sonra
+        #      "update koşulsuz copy çalıştırır" (kaynak desteklemiyor). Doğrusu KOŞULLU.
+        #
+        # STUB BİLİNÇLİ: bu job JVM birim testleri koşar, web varlığı OKUMAZ.
+        # Tam `npm run build` yalnız Capacitor'ın ön koşulunu susturmak için
+        # dakikalar harcardı (JOB 3 zaten gerçek build'i doğruluyor). Stub'ın
+        # assets/public'e kopyalanması Robolectric için zararsızdır.
+        # DİKKAT: bu adım web varlıklarını DOĞRULAMAZ — öyle okunmamalı.
+        run: |
+          mkdir -p android/app/src/main/assets
+          mkdir -p dist
+          [ -f dist/index.html ] || printf '<!doctype html><title>ci-jvm-test-stub</title>' > dist/index.html
+
+      - name: Capacitor — native modülleri üret
+        # `capacitor-cordova-android-plugins/` .gitignore'ludur ama settings.gradle
+        # onu include eder → bu adım olmadan taze checkout'ta gradle KONFİGÜRASYONU
+        # düşer: "Could not read script '…/capacitor-cordova-android-plugins/
+        # cordova.variables.gradle' as it does not exist." (worktree'de ölçüldü).
+        run: npx cap update android
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
+
+      - name: Setup Gradle (dependency cache)
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: gradlew çalıştırılabilir olsun
+        run: chmod +x android/gradlew
+
+      - name: Gradle — JVM unit tests
+        # :app                → 20 sınıf (OBD/ELM · KWP · MCU whitelist · Phone Hub · media)
+        # :phonehub-protocol  →  5 sınıf (frame codec · session crypto · handshake · diagnostics)
+        # :phonehub-companion → test kaynağı YOK (bilinçli: saf Android companion)
+        working-directory: android
+        # `--continue` ZORUNLU — gerçek koşumda ölçüldü (run 32474253133): gradle
+        # varsayılan fail-fast'tir; `:phonehub-protocol:test` zamana bağlı bir testte
+        # düşünce `:app:test` HİÇ KOŞMADI ve otomotiv-kritik McuCommandWhitelistTest
+        # raporu üretilmedi. Doğrulama adımı bunu yakaladı (sessiz geçmedi) ama tablo
+        # eksikti: alakasız bir flaky test, kilit/korna/alarm whitelist kapısını
+        # GÖRÜNMEZ kılıyordu. --continue ile her modül koşar, build yine kırmızı olur
+        # ama HANGİ suite'lerin düştüğü eksiksiz görünür.
+        run: ./gradlew :app:testDebugUnitTest :phonehub-protocol:test --continue --console=plain --stacktrace
+
+      - name: Verify automotive-critical Java suites ran
+        # JS tarafındaki aynı kapı deseni: bir suite sessizce düşerse/atlanırsa
+        # XML'de sınıfı bulunmaz → build BLOKE. "0 test koştu" da başarı SAYILMAZ.
+        if: always()
+        shell: bash
+        run: |
+          shopt -s globstar nullglob
+          xmls=(android/**/build/test-results/**/TEST-*.xml)
+          if [ ${#xmls[@]} -eq 0 ]; then
+            echo "::error::Java JUnit XML üretilmedi — gradle test görevi hiç koşmamış olabilir. Build blocked."
+            exit 1
+          fi
+
+          for suite in "McuCommandWhitelistTest" "ElmProtocolTest" "BootReceiverActionGateTest" "SessionCryptoTest"; do
+            if ! grep -qh "classname=\"[^\"]*${suite}\"" "${xmls[@]}"; then
+              echo "::error::Automotive critical Java suite '${suite}' not found in JUnit reports. Build blocked."
+              exit 1
+            fi
+          done
+          echo "✓ Automotive critical Java suites confirmed: McuCommandWhitelist, ElmProtocol, BootReceiverActionGate, SessionCrypto"
+
+          # Toplam sayım `awk` ile — `bc` her ortamda YOK ve eksikse sayaç
+          # SESSİZCE boş kalıp adım yeşil geçiyordu (ölçüldü). Sıfır test de
+          # başarı SAYILMAZ: suite dosyası var ama içi boşalmışsa burada düşer.
+          total=$(grep -ho 'tests="[0-9]*"' "${xmls[@]}" \
+                  | grep -o '[0-9]*' \
+                  | awk '{ s += $1 } END { print s + 0 }')
+          if [ "${total}" -le 0 ]; then
+            echo "::error::Java JUnit raporlarında 0 test var — suite'ler boşalmış olabilir. Build blocked."
+            exit 1
+          fi
+          echo "✓ Java test sınıfı: ${#xmls[@]} · toplam test: ${total}"
+
+      - name: Publish Android test results
+        if: always()
+        uses: dorny/test-reporter@v3
+        with:
+          name:              Android Unit Test Results
+          path:              android/**/build/test-results/**/TEST-*.xml
+          reporter:          java-junit
+          fail-on-error:     true
+          fail-on-empty:     true
+
+      - name: Upload Android JUnit artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name:            android-test-results-${{ github.run_number }}
+          path:            android/**/build/test-results/**/TEST-*.xml
+          retention-days:  30

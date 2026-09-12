@@ -1,7 +1,7 @@
 import { dispatchPOISearch, closeWorkerDatabase } from './offlineRoutingService';
 import type { POIWorkerResult } from './offlineRoutingService';
 import { safeGetRaw } from '../utils/safeStorage';
-import { registerCachePurge } from './memoryWatchdog';
+import { registerMemoryParticipant } from './memoryWatchdog';
 
 /**
  * Offline Search Service — İnternet olmadan geocoding fallback.
@@ -57,8 +57,21 @@ const DB_VERSION = 1;
 const POI_DB_MANIFEST_KEY = 'poi.db.manifest';
 
 // RAM CRITICAL sinyalinde Worker'daki SQLite bağlantısını temiz kapat.
-// Zero-Leak: registerCachePurge thunk döner ancak modül ömrü boyunca aktif.
-registerCachePurge(() => closeWorkerDatabase());
+/* ARCH-06/F5 — TİPLİ KATILIMCI (eski `registerCachePurge` yerine).
+   SINIF SEÇİMİ ÖNEMLİ: POI arama veritabanı `REBUILDABLE_DERIVED`tir —
+   yeniden kurulması PAHALIDIR (diskten yeniden yüklenir), bu yüzden ancak
+   merdivenin SON kademesinde feda edilir. Daha erken bir sınıfa koymak,
+   ucuz bir prefetch'le aynı anda silinmesine yol açardı.
+   Zero-Leak: thunk döner ancak modül ömrü boyunca aktif. */
+registerMemoryParticipant({
+  id: 'poi.searchDatabase',
+  owner: 'offlineSearchService',
+  participantClass: 'REBUILDABLE_DERIVED',
+  estimatedBytes: () => null,   // worker DB boyutu JS'ten ÖLÇÜLEMEZ → null
+  evictable: true,
+  rebuildCost: 'EXPENSIVE',
+  onTrim: () => { closeWorkerDatabase(); },
+});
 
 let _db: IDBDatabase | null = null;
 

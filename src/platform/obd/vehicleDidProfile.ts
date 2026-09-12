@@ -40,15 +40,20 @@ export interface VehicleEcuDef {
   id: string;
   /** Türkçe ad (ör. 'Motor ECU'su'). */
   name: string;
-  /** İstek header'ı hex (ör. '7E0'). */
+  /** İstek header'ı hex (ör. '7E0'); PR-OBD-KWP-1: '' = VARSAYILAN oturum adreslemesi
+   *  (native header'a HİÇ dokunmaz — KWP/K-line'da en olası başarı yolu) veya 6 hane
+   *  KWP 3-bayt header (ör. '8110F1'). */
   tx: string;
-  /** Yanıt filtre adresi hex (ör. '7E8'). */
+  /** Yanıt filtre adresi hex (ör. '7E8'); tx boşsa bu da boş olmalı. */
   rx: string;
 }
 
 export interface VehicleDidDef {
-  /** 4 hex haneli DID (ör. 'F190' = VIN). */
+  /** Servis 22: 4 hex haneli DID (ör. 'F190' = VIN). Servis 21: 2 hex haneli LID (ör. '80'). */
   did: string;
+  /** PR-OBD-KWP-1: veri servisi — '22' (UDS ReadDataByIdentifier, varsayılan) |
+   *  '21' (KWP ReadDataByLocalIdentifier — ISO 14230 araçların üretici verisi). */
+  service?: '22' | '21';
   /** `ecus[].id` referansı. */
   ecu: string;
   /** Türkçe kısa ad — UI/sesli asistan bu adı kullanır. */
@@ -70,6 +75,11 @@ export interface VehicleDidProfile {
   note?: string;
   /** ZORUNLU — kamu doküman referansı (ör. "ISO 14229-1 Tablo A.1" / servis kılavuzu adı). */
   source: string;
+  /** PR-OBD-KWP-1: profilin uygulanabilir olduğu protokol sınıfları (protocolProfile.ts
+   *  sınıflandırması). Tanımlıysa ve aktif bağlantının sınıfı listede YOKSA profildeki
+   *  DID'ler HİÇ sorgulanmaz (yanlış transporta CAN header'ı göndermek = COMM_ERROR
+   *  fırtınası). Tanımsız = kısıt yok (geriye dönük uyum). */
+  protocols?: ('can' | 'kwp' | 'iso9141' | 'j1850' | 'unknown')[];
   ecus: VehicleEcuDef[];
   dids: VehicleDidDef[];
 }
@@ -82,12 +92,14 @@ export type VehicleDidProfileValidation =
 
 const VALID_DECODE_FNS: ReadonlySet<string> = new Set(['A', 'AB', 'temp40', 'pct', 'linear', 'div', 'ascii']);
 const DID_HEX_RE = /^[0-9A-Fa-f]{4}$/;
-/** Patch 13: ECU adresi YALNIZ 3 hex hane (standart 11-bit ISO 15765-4, ör. '7E0') VEYA
- *  8 hex hane (29-bit genişletilmiş adresleme, ör. '18DADAF1') olabilir — ara uzunluklar
- *  (4-7 hane) belirsizdir ve native withEcuHeader'ın hiçbir dalıyla eşleşmez (ElmProtocol.java,
- *  tx.length()==8 → 29-bit, aksi halde 11-bit varsayılır — 4-7 haneli bir tx yanlışlıkla
- *  11-bit dalına düşüp "ATSH<4-7 hane>" gibi anlamsız bir komut üretirdi, sessizce). */
-const ECU_ADDR_RE = /^(?:[0-9A-Fa-f]{3}|[0-9A-Fa-f]{8})$/;
+/** PR-OBD-KWP-1: Servis 21 LocalIdentifier 1 bayttır → 2 hex hane. */
+const LID_HEX_RE = /^[0-9A-Fa-f]{2}$/;
+const VALID_PROTOCOL_CLASSES: ReadonlySet<string> = new Set(['can', 'kwp', 'iso9141', 'j1850', 'unknown']);
+/** Patch 13 + PR-OBD-KWP-1: ECU adresi '' (varsayılan oturum — header'a dokunulmaz),
+ *  3 hex hane (11-bit ISO 15765-4, ör. '7E0'), 6 hex hane (KWP/ISO 3-bayt header,
+ *  ör. '8110F1') veya 8 hex hane (29-bit, ör. '18DADAF1') olabilir — diğer uzunluklar
+ *  belirsizdir ve native withEcuHeader'ın hiçbir dalıyla eşleşmez (sessiz yanlış komut riski). */
+const ECU_ADDR_RE = /^(?:|[0-9A-Fa-f]{3}|[0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$/;
 
 /**
  * Profili doğrular. Bozuk/eksik/tutarsız profil YÜKLENMEZ — `valid:false` + insan-okur
@@ -126,12 +138,29 @@ export function validateVehicleDidProfile(input: unknown): VehicleDidProfileVali
       }
       if (typeof e.name !== 'string' || e.name.trim().length === 0) errors.push(`ecus[${i}].name: boş olmayan string olmalı`);
       if (typeof e.tx !== 'string' || !ECU_ADDR_RE.test(e.tx)) {
-        errors.push(`ecus[${i}].tx: geçersiz hex adres — TAM 3 hane (11-bit, ör. '7E0') VEYA TAM 8 hane (29-bit, ör. '18DADAF1') olmalı, ara uzunluklar (4-7 hane) belirsizdir: '${String(e.tx)}'`);
+        errors.push(`ecus[${i}].tx: geçersiz hex adres — '' (varsayılan oturum), 3 hane (11-bit, ör. '7E0'), 6 hane (KWP, ör. '8110F1') veya 8 hane (29-bit) olmalı: '${String(e.tx)}'`);
       }
       if (typeof e.rx !== 'string' || !ECU_ADDR_RE.test(e.rx)) {
-        errors.push(`ecus[${i}].rx: geçersiz hex adres — TAM 3 hane (11-bit, ör. '7E8') VEYA TAM 8 hane (29-bit, ör. '18DAF1DA') olmalı, ara uzunluklar (4-7 hane) belirsizdir: '${String(e.rx)}'`);
+        errors.push(`ecus[${i}].rx: geçersiz hex adres — '' (varsayılan oturum), 3 hane (11-bit, ör. '7E8'), 6 hane (KWP) veya 8 hane (29-bit) olmalı: '${String(e.rx)}'`);
+      }
+      // PR-OBD-KWP-1: tx boşsa rx tek başına anlamsız (native rx'i tx'siz kullanmaz).
+      if (typeof e.tx === 'string' && typeof e.rx === 'string' && e.tx === '' && e.rx !== '') {
+        errors.push(`ecus[${i}]: tx boşken (varsayılan oturum) rx de boş olmalı`);
       }
     });
+  }
+
+  // PR-OBD-KWP-1: protokol sınıfı kısıtı (opsiyonel).
+  if (p.protocols !== undefined) {
+    if (!Array.isArray(p.protocols) || p.protocols.length === 0) {
+      errors.push('protocols: tanımlıysa en az 1 öğeli dizi olmalı');
+    } else {
+      p.protocols.forEach((c, i) => {
+        if (typeof c !== 'string' || !VALID_PROTOCOL_CLASSES.has(c)) {
+          errors.push(`protocols[${i}]: geçersiz — izin verilen: ${[...VALID_PROTOCOL_CLASSES].join(', ')}`);
+        }
+      });
+    }
   }
 
   if (!Array.isArray(p.dids) || p.dids.length === 0) {
@@ -142,11 +171,20 @@ export function validateVehicleDidProfile(input: unknown): VehicleDidProfileVali
       if (typeof raw !== 'object' || raw === null) { errors.push(`dids[${i}]: nesne olmalı`); return; }
       const d = raw as Record<string, unknown>;
 
-      if (typeof d.did !== 'string' || !DID_HEX_RE.test(d.did)) {
-        errors.push(`dids[${i}].did: 4 hex haneli olmalı (ör. 'F190')`);
+      // PR-OBD-KWP-1: servis alanı (opsiyonel, varsayılan '22').
+      const service = d.service === undefined ? '22' : d.service;
+      if (service !== '22' && service !== '21') {
+        errors.push(`dids[${i}].service: '22' veya '21' olmalı`);
+      }
+      const didRe = service === '21' ? LID_HEX_RE : DID_HEX_RE;
+      if (typeof d.did !== 'string' || !didRe.test(d.did)) {
+        errors.push(service === '21'
+          ? `dids[${i}].did: servis 21 için 2 hex haneli LID olmalı (ör. '80')`
+          : `dids[${i}].did: 4 hex haneli olmalı (ör. 'F190')`);
       } else {
-        const key = d.did.toUpperCase();
-        if (didSeen.has(key)) errors.push(`dids[${i}].did: yinelenen DID '${key}'`);
+        // Servisler ayrı ad uzayıdır: '0080' (22) ile '80' (21) çakışmaz — anahtar servis önekli.
+        const key = `${service}:${d.did.toUpperCase()}`;
+        if (didSeen.has(key)) errors.push(`dids[${i}].did: yinelenen DID '${d.did.toUpperCase()}' (servis ${service})`);
         else didSeen.add(key);
       }
 
@@ -193,6 +231,9 @@ export function validateVehicleDidProfile(input: unknown): VehicleDidProfileVali
 
 export interface CompiledDidDef {
   did: string;
+  /** PR-OBD-KWP-1: '22' (UDS) | '21' (KWP LID). Servisler farklı did uzunluğu taşıdığından
+   *  (4 vs 2 hane) Map anahtarında çakışma olmaz. */
+  service: '22' | '21';
   ecuId: string;
   tx: string;
   rx: string;
@@ -266,6 +307,7 @@ export function compileVehicleDidProfile(profile: VehicleDidProfile): ReadonlyMa
     const did = d.did.toUpperCase();
     out.set(did, {
       did,
+      service: d.service ?? '22',
       ecuId: ecu.id,
       tx: ecu.tx,
       rx: ecu.rx,

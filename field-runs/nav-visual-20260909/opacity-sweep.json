@@ -1,0 +1,72 @@
+[
+  {
+    "sahne": "uzak",
+    "zoom": 15.5,
+    "yerelOpaklik": 1,
+    "parlak": 10.46,
+    "orta": 2.93
+  },
+  {
+    "sahne": "uzak",
+    "zoom": 15.5,
+    "yerelOpaklik": 0.8,
+    "parlak": 9.73,
+    "orta": 3.21
+  },
+  {
+    "sahne": "uzak",
+    "zoom": 15.5,
+    "yerelOpaklik": 0.65,
+    "parlak": 7.7,
+    "orta": 4.72
+  },
+  {
+    "sahne": "uzak",
+    "zoom": 15.5,
+    "yerelOpaklik": 0.5,
+    "parlak": 7.63,
+    "orta": 4.02
+  },
+  {
+    "sahne": "uzak",
+    "zoom": 15.5,
+    "yerelOpaklik": 0.35,
+    "parlak": 7.58,
+    "orta": 1.39
+  },
+  {
+    "sahne": "surus",
+    "zoom": 16.7,
+    "yerelOpaklik": 1,
+    "parlak": 5.19,
+    "orta": 3.35
+  },
+  {
+    "sahne": "surus",
+    "zoom": 16.7,
+    "yerelOpaklik": 0.8,
+    "parlak": 4.96,
+    "orta": 3.46
+  },
+  {
+    "sahne": "surus",
+    "zoom": 16.7,
+    "yerelOpaklik": 0.65,
+    "parlak": 4.07,
+    "orta": 4.22
+  },
+  {
+    "sahne": "surus",
+    "zoom": 16.7,
+    "yerelOpaklik": 0.5,
+    "parlak": 4.04,
+    "orta": 4.05
+  },
+  {
+    "sahne": "surus",
+    "zoom": 16.7,
+    "yerelOpaklik": 0.35,
+    "parlak": 4.03,
+    "orta": 3
+  }
+]

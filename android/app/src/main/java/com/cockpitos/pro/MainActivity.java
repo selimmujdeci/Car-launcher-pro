@@ -3,8 +3,10 @@ package com.cockpitos.pro;
 import android.Manifest;
 import android.app.AlarmManager;
 import android.app.PendingIntent;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.database.ContentObserver;
 import android.net.Uri;
@@ -12,6 +14,8 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.BatteryManager;
+import java.util.Locale;
 import android.os.PowerManager;
 import android.provider.Settings;
 import android.content.ComponentCallbacks2;
@@ -113,28 +117,134 @@ public class MainActivity extends BridgeActivity {
 
     private ActivityResultLauncher<String[]> permissionLauncher;
 
+    /** Ekran politikasının son uygulanan hâli (null = hiç uygulanmadı). */
+    private Boolean _screenPolicyApplied = null;
+    private boolean _powerReceiverRegistered = false;
+    // ── Ekran uyanıklık politikası (güç kaynağına bağlı) ───────────────────
+
+    /**
+     * SAHA ÖLÇÜMÜ (2026-08-20, Redmi Note 13 Pro 5G — telefon):
+     * `FLAG_KEEP_SCREEN_ON` + `setTurnScreenOn(true)` head unit için DOĞRUDUR
+     * (araç ekranı kontakla açılır, sürüş boyunca kapanmaz). Telefonda ise
+     * ekranın kapanmasını İMKÂNSIZ kılıyordu: güç tuşuna basılınca ekran
+     * kapanıyor, activity hâlâ resumed olduğu için `setTurnScreenOn` onu
+     * DERHAL geri açıyordu. Ölçüm: `dumpsys power` →
+     * `SCREEN_BRIGHT_WAKE_LOCK 'WindowManager' ws=WorkSource{10626}`,
+     * `mWakefulness=Awake` (POWER tuşundan 10 sn sonra bile).
+     * İki bedeli var: (1) ekran bir telefonun en büyük tüketicisidir,
+     * (2) uygulama sürekli "ön planda" sayıldığı için JS tarafındaki arka plan
+     * güç kısması (`backgroundPowerGate`) hiç devreye giremiyordu.
+     *
+     * AYRIM — harici güç: head unit her zaman beslemededir, araca monte edilmiş
+     * telefon da şarjdadır → ikisinde de davranış AYNEN KORUNUR. Yalnız pille
+     * çalışan telefonda normal Android ekran davranışına dönülür.
+     *
+     * Fail-soft: güç durumu okunamazsa (null intent) ESKİ davranış korunur —
+     * kanıtsız kısma yapılmaz, launcher ekranı beklenmedik şekilde kararmaz.
+     */
+    private void applyScreenPowerPolicy() {
+        Boolean external = readExternalPower();
+        if (external == null) return;          // okunamadı → davranışı DEĞİŞTİRME
+
+        boolean keepAwake = external;
+        // NOT: Boolean/boolean karşılaştırmasında null unboxing NPE atar — önce null kontrolü.
+        if (_screenPolicyApplied != null && _screenPolicyApplied == keepAwake) return;   // idempotent
+        _screenPolicyApplied = keepAwake;
+
+        try {
+            if (keepAwake) {
+                getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            } else {
+                getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            }
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                setShowWhenLocked(keepAwake);
+                setTurnScreenOn(keepAwake);
+            } else if (keepAwake) {
+                getWindow().addFlags(
+                    WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED |
+                    WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+                );
+            } else {
+                getWindow().clearFlags(
+                    WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED |
+                    WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+                );
+            }
+            Log.d("MainActivity", "Ekran politikası: keepAwake=" + keepAwake);
+        } catch (Throwable t) {
+            Log.w("MainActivity", "Ekran politikası uygulanamadı: " + t.getMessage());
+        }
+    }
+
+    /**
+     * Harici güç bağlı mı. `null` = okunamadı (sticky intent yok) — çağıran
+     * bu durumda davranışı DEĞİŞTİRMEZ.
+     */
+    private Boolean readExternalPower() {
+        try {
+            Intent battery = registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+            if (battery == null) return null;
+            int plugged = battery.getIntExtra(BatteryManager.EXTRA_PLUGGED, -1);
+            if (plugged < 0) return null;
+            return plugged != 0;               // AC / USB / WIRELESS → harici güç
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /** Kablo takılıp çıkarıldığında politikayı yeniden uygular. */
+    private final BroadcastReceiver _powerReceiver = new BroadcastReceiver() {
+        @Override public void onReceive(Context context, Intent intent) {
+            applyScreenPowerPolicy();
+        }
+    };
+
+    private void registerPowerReceiver() {
+        try {
+            IntentFilter f = new IntentFilter();
+            f.addAction(Intent.ACTION_POWER_CONNECTED);
+            f.addAction(Intent.ACTION_POWER_DISCONNECTED);
+            ContextCompat.registerReceiver(this, _powerReceiver, f, ContextCompat.RECEIVER_NOT_EXPORTED);
+            _powerReceiverRegistered = true;
+        } catch (Throwable t) {
+            Log.w("MainActivity", "Güç alıcısı kaydedilemedi: " + t.getMessage());
+        }
+    }
+
+    private void unregisterPowerReceiver() {
+        if (!_powerReceiverRegistered) return;
+        _powerReceiverRegistered = false;
+        try { unregisterReceiver(_powerReceiver); } catch (Throwable ignored) {}
+    }
+
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         // Crash durumunda uygulamayı yeniden başlat — launcher asla kapalı kalmamalı
         installCrashRecovery();
         registerPlugin(CarLauncherPlugin.class);
+        // PHONE-HUB P1-A: bağlantı yaşam döngüsü AYRI plugin'de tutulur —
+        // soket/iş parçacığı/anahtar sahipliği CarLauncherPlugin'e karışmasın.
+        registerPlugin(com.cockpitos.pro.phonehub.link.PhoneHubLinkPlugin.class);
         super.onCreate(savedInstanceState);
 
         // ── Ekran ayarları ──
-        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
-            setShowWhenLocked(true);
-            setTurnScreenOn(true);
-        } else {
-            getWindow().addFlags(
-                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED |
-                WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
-            );
-        }
+        // Bayraklar artık SABİT DEĞİL: harici güç varken (head unit / araca
+        // monte şarjdaki telefon) eskisi gibi ekran açık kalır; pille çalışan
+        // telefonda normal Android davranışına dönülür. Gerekçe ve saha ölçümü
+        // için bkz. applyScreenPowerPolicy().
+        _screenPolicyApplied = null;           // ilk uygulama kesin çalışsın
+        applyScreenPowerPolicy();
+        registerPowerReceiver();
 
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
         applyImmersive();
+
+        // Soğuk açılış: uygulama BU intent ile başlatılmış olabilir (WhatsApp
+        // konumu). JS henüz dinlemiyor → köprü URI'yi bekletir, boot'ta alınır.
+        handleIncomingLocationIntent(getIntent());
 
         // ── İzin launcher ──
         permissionLauncher = registerForActivityResult(
@@ -291,12 +401,7 @@ public class MainActivity extends BridgeActivity {
      */
     private void startForegroundServiceNow() {
         try {
-            Intent svcIntent = new Intent(this, CarLauncherForegroundService.class);
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                startForegroundService(svcIntent);
-            } else {
-                startService(svcIntent);
-            }
+            ForegroundServiceBoundary.requestStart(this, "MainActivity");
         } catch (Exception ignored) {
             // Servis zaten çalışıyorsa veya başlatılamıyorsa sessizce devam et
         }
@@ -337,6 +442,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onDestroy() {
         stopAnrWatchdog();
+        unregisterPowerReceiver();
         if (_canRoutingObserver != null) {
             try { getContentResolver().unregisterContentObserver(_canRoutingObserver); }
             catch (Throwable ignored) {}
@@ -349,6 +455,8 @@ public class MainActivity extends BridgeActivity {
     public void onResume() {
         super.onResume();
         applyImmersive();
+        // Kablo, activity duraklamışken takılmış/çıkarılmış olabilir.
+        applyScreenPowerPolicy();
         // UI thread aktif — watchdog'a bildir
         lastUiPing = System.currentTimeMillis();
     }
@@ -363,6 +471,50 @@ public class MainActivity extends BridgeActivity {
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
+        handleIncomingLocationIntent(intent);
+    }
+
+    /* ── Gelen konum paylaşımı ────────────────────────────────────────────
+     *
+     * SAHA KUSURU (2026-08-21, kullanıcı bildirdi): WhatsApp'tan gelen konuma
+     * basınca Android "hangi uygulamayla açılsın" diye soruyor ama listede
+     * CarOS Pro YOKTU — manifest'te `geo:` filtresi hiç yazılmamıştı. Filtre
+     * eklendi; burası da gelen URI'yi JS'e taşır.
+     *
+     * BURADA AYRIŞTIRMA YAPILMAZ (bilinçli): `geo:`/`google.navigation:`/harita
+     * bağlantısı biçimleri çok çeşitli ve değişken. Ayrıştırma JS tarafındaki
+     * saf `geoUriParser`'a bırakıldı — orada birim testi yazılabiliyor.
+     * Java yalnız "bu bir konum mu" sorusunu yanıtlar ve ham URI'yi iletir.
+     */
+    private void handleIncomingLocationIntent(Intent intent) {
+        try {
+            if (intent == null) return;
+            if (!Intent.ACTION_VIEW.equals(intent.getAction())) return;
+            Uri data = intent.getData();
+            if (data == null) return;
+
+            String scheme = data.getScheme();
+            if (scheme == null) return;
+            scheme = scheme.toLowerCase(Locale.ROOT);
+
+            boolean isLocation =
+                "geo".equals(scheme) || "google.navigation".equals(scheme);
+
+            if (!isLocation && ("http".equals(scheme) || "https".equals(scheme))) {
+                String host = data.getHost();
+                if (host != null) {
+                    host = host.toLowerCase(Locale.ROOT);
+                    isLocation = host.contains("maps.google.") || host.contains("goo.gl")
+                              || host.contains("google.") || host.contains("yandex.");
+                }
+            }
+            if (!isLocation) return;
+
+            CarLauncherPlugin.broadcastIncomingLocation(data.toString());
+            Log.d("MainActivity", "Gelen konum URI'si JS'e iletildi: " + scheme);
+        } catch (Throwable t) {
+            Log.w("MainActivity", "Gelen konum işlenemedi: " + t.getMessage());
+        }
     }
 
     @Override
@@ -466,21 +618,54 @@ public class MainActivity extends BridgeActivity {
 
     // ── LMK Memory Pressure ────────────────────────────────────────────────
     /**
-     * Android LMK (Low Memory Killer) sisteminin bellek baskısı sinyallerini yakalar.
-     * TRIM_MEMORY_RUNNING_CRITICAL → JS'e "CRITICAL" seviyesi iletilir.
-     * TRIM_MEMORY_MODERATE         → JS'e "MODERATE" seviyesi iletilir.
+     * Android LMK (Low Memory Killer) bellek baskısı sinyallerini yakalar.
      *
-     * CarLauncherPlugin.broadcastMemoryPressure() JS tarafındaki memoryWatchdog dinleyicisini
-     * tetikler; orası runtimeManager.setMode(SAFE_MODE) ve cache temizleme işlerini yapar.
+     * ── ONARILAN KUSUR (kütük #604) ────────────────────────────────────────
+     * Eski kod severity testini `level >= TRIM_MEMORY_RUNNING_CRITICAL` (>= 15)
+     * diye yazıyordu. TRIM_MEMORY_* sabitleri MONOTON BİR ŞİDDET ÖLÇEĞİ DEĞİLDİR:
+     *
+     *   RUNNING_MODERATE   =  5  ← ön planda, hafif baskı
+     *   RUNNING_LOW        = 10  ← ön planda, orta baskı
+     *   RUNNING_CRITICAL   = 15  ← ön planda, GERÇEK kriz
+     *   UI_HIDDEN          = 20  ← "arka plana düştün" — BASKI DEĞİL
+     *   BACKGROUND         = 40  ← arka plan LRU sırası — BASKI DEĞİL
+     *   MODERATE           = 60  ← arka plan LRU sırası — BASKI DEĞİL
+     *   COMPLETE           = 80  ← arka plan LRU sırası — BASKI DEĞİL
+     *
+     * 20/40/60/80 uygulamanın ARKA PLANA DÜŞTÜĞÜNÜ bildirir ve sistemde hiç
+     * bellek baskısı yokken bile GÖNDERİLİR. `>= 15` testi bunların HEPSİNİ
+     * "CRITICAL" sayıyordu. Sonuç zinciri:
+     *
+     *   kullanıcı Home'a bastı / ekran kapandı → UI_HIDDEN(20) → "CRITICAL"
+     *   → memoryWatchdog → runtimeManager.setMode(SAFE_MODE)
+     *   → _commit() modu safeStorage'a YAZAR
+     *   → sonraki açılışta crash-recovery SAFE_MODE'a SABİTLER (tek yön).
+     *
+     * Yani uygulamayı bir kez arka plana almak, cihazda bol RAM varken bile
+     * kalıcı SAFE_MODE'a sokuyordu. Ayrıca eski `else if (>= MODERATE=60)`
+     * dalı ERİŞİLEMEZDİ (60 >= 15 zaten ilk dala düşer) → "MODERATE" seviyesi
+     * hiç üretilmiyordu, ve gerçek ön-plan uyarıları (5/10) YOK SAYILIYORDU.
+     *
+     * DOĞRUSU: yalnız RUNNING_* ailesi bellek baskısıdır. Arka plan seviyeleri
+     * runtime modunu DEĞİŞTİRMEZ (log'lanır, kararı etkilemez).
+     *
+     * CarLauncherPlugin.broadcastMemoryPressure() JS memoryWatchdog'u tetikler.
      */
     @Override
     public void onTrimMemory(int level) {
         super.onTrimMemory(level);
+
+        // Arka plan LRU seviyeleri (>= UI_HIDDEN) baskı DEĞİLDİR — karara girmez.
+        if (level >= ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) {
+            Log.i(TAG, "onTrimMemory level=" + level + " → arka plan sinyali (baski degil, yok sayildi)");
+            return;
+        }
+
         String pressureLevel = null;
         if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL) {
-            pressureLevel = "CRITICAL";
-        } else if (level >= ComponentCallbacks2.TRIM_MEMORY_MODERATE) {
-            pressureLevel = "MODERATE";
+            pressureLevel = "CRITICAL";           // 15
+        } else if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_MODERATE) {
+            pressureLevel = "MODERATE";           // 5 ve 10 (RUNNING_LOW dâhil)
         }
         if (pressureLevel != null) {
             Log.w(TAG, "onTrimMemory level=" + level + " → " + pressureLevel);

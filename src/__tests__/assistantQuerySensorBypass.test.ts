@@ -23,7 +23,7 @@ const M = vi.hoisted(() => ({
 vi.mock('../platform/bridge', () => ({ isNative: false, bridge: {} }));
 vi.mock('../platform/headUnitCompat', () => ({ isLowEndDevice: () => false }));
 vi.mock('../platform/nativePlugin', () => ({ CarLauncher: {} }));
-vi.mock('../platform/commandParser', () => ({ parseCommandFull: () => M.parseResult }));
+vi.mock('../platform/commandParser', () => ({ parseCommandFull: () => M.parseResult, matchDeterministicWholeInput: () => null }));
 vi.mock('../platform/offlineConversationEngine', () => ({
   tryOfflineConversation: () => ({ handled: false, response: '' }),
 }));
@@ -35,7 +35,9 @@ vi.mock('../platform/ttsService', () => ({
   ttsCancel: vi.fn(),
   registerTtsEndListener: () => () => {},
 }));
-vi.mock('../platform/audioService', () => ({ duckMedia: vi.fn(), unduckMedia: vi.fn() }));
+vi.mock('../platform/media/authority/duckRequest', () => ({
+  requestDuck: () => ({ reason: 'MAVI', release: (): void => {} }),
+}));
 vi.mock('../platform/aiVoiceService', () => ({ askAI: async () => null, resolveApiKey: () => '' }));
 vi.mock('../platform/ai/semanticAiService', () => ({
   classifySemantic: async () => ({ source: 'offline', confidence: 0, feedback: '' }),
@@ -82,7 +84,7 @@ afterEach(() => {
 });
 
 describe('voiceService — QUERY_SENSOR yerel bypass (1b2)', () => {
-  it('değer var → beyne gitmeden "Bakıyorum..." ack + gerçek cevap seslendirilir', async () => {
+  it('değer var → beyne gitmeden SEMANTİK ACK + gerçek cevap seslendirilir', async () => {
     M.parseResult = { command: QUERY_CMD, suggestions: [], needsSemantic: false };
     const answer: SensorAnswer = {
       name: 'Motor yağı sıcaklığı', value: 92, unit: '°C',
@@ -97,7 +99,8 @@ describe('voiceService — QUERY_SENSOR yerel bypass (1b2)', () => {
 
     await flush();
     expect(M.querySensorImpl).toHaveBeenCalledWith('yağ sıcaklığı kaç');
-    expect(M.speak).toHaveBeenCalledWith('Bakıyorum...');
+    // MAVI-F2: filler DEĞİL — cevabın ARAÇTAN geleceğini söyleyen semantik ACK.
+    expect(M.speak).toHaveBeenCalledWith('Araçtan okuyorum.');
     expect(M.speak).toHaveBeenCalledWith(answer.text);
     expect(_getVoiceStateForTest().status).toBe('success');
   });

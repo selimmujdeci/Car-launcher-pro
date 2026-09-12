@@ -1,82 +1,174 @@
 'use client';
 
-import { useVehicleStore } from '@/store/vehicleStore';
+/**
+ * TANI — Kanıt Konsolu dili (#663).
+ *
+ * ── DÜZELTİLEN SESSİZ KUSUR ───────────────────────────────────────────────
+ * Bu ekran ölçümleri ESKİ SAYISAL YÜZEYDEN okuyordu (`v.engineTemp`, `v.fuel`,
+ * `v.rpm`). O yüzey bilinmeyeni `0` ile doldurur; sonuç: hiç telemetri almamış
+ * bir araç ekranda **"Yakıt %0"** (kırmızı) ve **"Motor 0°C"** gösteriyordu —
+ * yani ölçüm yokken sahte alarm üretiyordu. Artık okuma `telemetry` gerçek
+ * katmanından yapılır ve bilinmeyen `KANIT YOK` yazar.
+ */
 
-const severityConfig = {
-  high:   { bg: 'bg-red-500/[0.08]',   border: 'border-red-500/25',   badge: 'bg-red-500/15 text-red-400 border-red-500/20',     label: 'Kritik' },
-  medium: { bg: 'bg-amber-500/[0.06]', border: 'border-amber-500/20', badge: 'bg-amber-500/15 text-amber-400 border-amber-500/20', label: 'Orta'   },
-  low:    { bg: 'bg-white/[0.03]',     border: 'border-white/[0.07]', badge: 'bg-white/[0.06] text-white/40 border-white/[0.1]',  label: 'Düşük'  },
-};
+import Link from 'next/link';
+import { useMemo } from 'react';
+import { useVehicleStore } from '@/store/vehicleStore';
+import { vehicleTitle, vehicleSubtitle, isFallbackTitle } from '@/lib/vehicleDisplay';
+import {
+  judgeVehicle,
+  verdictLabel,
+  verdictToken,
+  agoLabel,
+  evidenceLine,
+} from '@/lib/console/evidenceModel';
+import { measurementLabel } from '@/lib/fleet/vehicleTelemetryFreshness';
+import {
+  Panel,
+  PanelHead,
+  EvidenceBadge,
+  StatusDot,
+  EmptyState,
+  TOKEN_COLOR,
+} from '@/components/console/primitives';
 
 export default function DiagnosticPage() {
   const vehicles = useVehicleStore((s) => s.getList());
-  const alarmVehicle = vehicles.find((v) => v.status === 'alarm');
+
+  const judged = useMemo(
+    () =>
+      vehicles.map((v) => ({
+        v,
+        j: judgeVehicle(v.telemetry, v.batteryVoltage ?? null),
+        offline: v.status === 'offline',
+      })),
+    [vehicles],
+  );
+
+  const critical = judged.filter((x) => x.j.verdict === 'CRITICAL');
 
   return (
-    <>
-      {/* Aktif alarm */}
-      {alarmVehicle && (
-        <div className="mb-6 p-4 rounded-2xl bg-red-500/[0.08] border border-red-500/25 flex items-center gap-4">
-          <div className="w-10 h-10 rounded-xl bg-red-500/15 border border-red-500/25 flex items-center justify-center flex-shrink-0">
-            <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-              <path d="M9 2l7 13.5H2L9 2z" stroke="#f87171" strokeWidth="1.4" strokeLinejoin="round"/>
-              <path d="M9 8v3M9 13v.5" stroke="#f87171" strokeWidth="1.4" strokeLinecap="round"/>
-            </svg>
-          </div>
-          <div className="flex-1">
-            <p className="text-sm font-semibold text-red-400">Aktif Alarm — {alarmVehicle.plate}</p>
-            <p className="text-xs text-white/40 mt-0.5">
-              Motor sıcaklığı {alarmVehicle.engineTemp}°C · Hız {alarmVehicle.speed} km/h
-            </p>
-          </div>
-          <div className="w-2 h-2 rounded-full bg-red-400 animate-pulse flex-shrink-0" />
-        </div>
-      )}
-
-      {/* Araç sağlık özeti */}
-      {vehicles.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-20 text-center">
-          <p className="text-white/30 text-sm">Henüz bağlı araç yok.</p>
-          <p className="text-white/20 text-xs mt-2">Araçlar → Araç Bağla ile ekleyin.</p>
-        </div>
-      ) : (
-        <>
-          <div className="grid sm:grid-cols-3 gap-4 mb-6">
-            {vehicles.map((v) => (
-              <div key={v.id} className="p-5 rounded-2xl bg-white/[0.03] border border-white/[0.07]">
-                <div className="flex items-center justify-between mb-4">
-                  <p className="font-mono text-xs text-white/70">{v.plate || v.id.slice(0, 8)}</p>
-                  <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
-                    v.status === 'alarm'  ? 'bg-red-500/15 text-red-400 border-red-500/25' :
-                    v.status === 'online' ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/25' :
-                    'bg-white/[0.04] text-white/25 border-white/[0.08]'
-                  }`}>
-                    {v.status === 'alarm' ? 'Alarm' : v.status === 'online' ? 'Normal' : 'Offline'}
-                  </span>
+    <div className="flex flex-col gap-3 lg:gap-4">
+      {/* Aktif kritik hükümler */}
+      {critical.length > 0 && (
+        <Panel>
+          <PanelHead title="Aktif kritik hüküm" meta={`${critical.length} araç`} />
+          <ul className="divide-y" style={{ borderColor: 'var(--cn-line-soft)' }}>
+            {critical.map(({ v, j }) => (
+              <li key={v.id} className="flex items-center gap-3 px-4 py-3">
+                <span aria-hidden style={{ width: 4, height: 30, background: 'var(--cn-critical)' }} />
+                <div className="flex-1 min-w-0">
+                  <div className={`text-[14px] text-t1 ${isFallbackTitle(v) ? 'cn-num' : 'cn-display'}`}>
+                    {vehicleTitle(v)}
+                  </div>
+                  <div className="cn-num text-[10px] text-t3 mt-0.5">
+                    {j.reason} · {evidenceLine(j.readings.engineTemp)}
+                  </div>
                 </div>
-                <div className="flex flex-col gap-2">
-                  {[
-                    { label: 'Motor Isısı', value: `${v.engineTemp}°C`, warn: v.engineTemp > 100 },
-                    { label: 'RPM',         value: v.rpm.toLocaleString(), warn: v.rpm > 3000 },
-                    { label: 'Yakıt',       value: `${v.fuel}%`, warn: v.fuel < 20 },
-                  ].map(({ label, value, warn }) => (
-                    <div key={label} className="flex items-center justify-between">
-                      <span className="text-[11px] text-white/30">{label}</span>
-                      <span className={`text-xs font-mono font-medium ${warn ? 'text-red-400' : 'text-white/60'}`}>{value}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
+                <Link
+                  href={`/dashboard/fleet/vehicles/${v.id}`}
+                  className="cn-num text-[9px] uppercase tracking-[0.16em] px-2 py-1 border border-hair text-t2 hover:text-t1 flex-shrink-0"
+                  style={{ borderRadius: 2 }}
+                >
+                  DETAY
+                </Link>
+              </li>
             ))}
-          </div>
-
-          {/* DTC kodları — şimdilik boş, araçtan veri gelince dolu olacak */}
-          <h2 className="text-sm font-semibold text-white/70 mb-3">Arıza Kodları (DTC)</h2>
-          <div className="p-6 rounded-2xl bg-white/[0.03] border border-white/[0.07] text-center">
-            <p className="text-white/30 text-sm">Araçtan henüz arıza kodu gelmedi.</p>
-          </div>
-        </>
+          </ul>
+        </Panel>
       )}
-    </>
+
+      <Panel>
+        <PanelHead title="Araç sağlık özeti" meta={`${vehicles.length} araç · ölçülen telemetriden`} />
+        {vehicles.length === 0 ? (
+          <EmptyState
+            title="BAĞLI ARAÇ YOK"
+            detail="Araç eşleştirildiğinde tanı özeti burada belirir."
+          />
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-3 p-3">
+            {judged.map(({ v, j, offline }) => {
+              const t = v.telemetry;
+              const token = offline ? 'unknown' : verdictToken(j.verdict);
+              return (
+                <article
+                  key={v.id}
+                  className="cn-panel p-4 flex flex-col gap-3"
+                  style={{ borderColor: TOKEN_COLOR[token] }}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <StatusDot verdict={j.verdict} offline={offline} />
+                      <div className="min-w-0">
+                        <div className={`text-[14px] text-t1 truncate ${isFallbackTitle(v) ? 'cn-num' : 'cn-display'}`}>
+                          {vehicleTitle(v)}
+                        </div>
+                        <div className="cn-num text-[10px] text-t3 truncate">
+                          {vehicleSubtitle(v) ?? 'isim verilmedi'}
+                        </div>
+                      </div>
+                    </div>
+                    <EvidenceBadge verdict={offline ? 'NO_EVIDENCE' : j.verdict} compact />
+                  </div>
+
+                  <dl className="flex flex-col gap-2 border-t border-hair-soft pt-3">
+                    {[
+                      { label: 'Motor ısısı', m: t?.engineTempC, unit: '°C' },
+                      { label: 'RPM', m: t?.rpm, unit: '' },
+                      { label: 'Yakıt', m: t?.fuelPercent, unit: '%' },
+                      { label: 'Hız', m: t?.speedKmh, unit: 'km/h' },
+                    ].map(({ label, m, unit }) => {
+                      const known = m != null && m.value !== null;
+                      return (
+                        <div key={label} className="flex items-center justify-between">
+                          <dt className="cn-eyebrow">{label}</dt>
+                          <dd
+                            className="cn-num text-[12px]"
+                            style={{
+                              color: !known
+                                ? 'var(--cn-unknown)'
+                                : m!.state === 'LIVE'
+                                ? 'var(--cn-text-1)'
+                                : 'var(--cn-text-3)',
+                            }}
+                          >
+                            {m ? measurementLabel(m, unit) : 'Veri yok'}
+                          </dd>
+                        </div>
+                      );
+                    })}
+                  </dl>
+
+                  <div className="cn-num text-[10px] text-t3 border-t border-hair-soft pt-2.5 leading-relaxed">
+                    <span style={{ color: TOKEN_COLOR[token] }}>
+                      {offline ? 'ÇEVRİMDIŞI' : verdictLabel(j.verdict)}
+                    </span>
+                    {' · '}{j.reason}
+                    <span className="block">ünite {agoLabel(t?.deviceAgeMs ?? null)}</span>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </Panel>
+
+      <Panel>
+        <PanelHead title="Arıza kodları (DTC)" meta="araç bazlı okuma" />
+        <EmptyState
+          title="DTC ARAÇ DETAYINDA"
+          detail="Arıza kodu taraması araç başına yapılır ve sonucu araç detay ekranında görünür. Tarama yapılmamış araçta 'arıza yok' DENMEZ — tarama olmadan hüküm verilmez."
+        />
+        <div className="px-4 pb-4">
+          <Link
+            href="/dashboard/fleet/vehicles"
+            className="cn-num text-[10px] uppercase tracking-[0.16em]"
+            style={{ color: 'var(--cn-copper)' }}
+          >
+            Araç kapsamına git →
+          </Link>
+        </div>
+      </Panel>
+    </div>
   );
 }

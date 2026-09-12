@@ -8,11 +8,62 @@ export interface RealtimeCallbacks {
   onConnectionChange: (status: ConnectionStatus) => void;
 }
 
+/** Neden yeniden abone olundu (gözlem — kişisel veri TAŞIMAZ). */
+export type ReconnectReason = 'none' | 'initial' | 'ids_changed' | 'ids_cleared';
+
+/**
+ * Salt-okunur abonelik tanısı. Kişisel veri, plaka ya da ham ID TAŞIMAZ —
+ * yalnız SAYI, sürüm ve durum. Yeni telemetri çerçevesi kurulmaz; bu alan
+ * testlerde ve gerekirse tanı ekranında okunur.
+ */
+export interface RealtimeSubscriptionDiagnostics {
+  readonly generation: number;
+  readonly vehicleIdCount: number;
+  readonly previousVehicleIdCount: number;
+  readonly activeChannelCount: number;
+  readonly lastReconnectReason: ReconnectReason;
+  readonly lastSubscribeStatus: string | null;
+  readonly lastUnsubscribeCount: number;
+}
+
+/**
+ * Araç ID listesini KANONİK hâle getirir: boş/geçersiz atılır, tekrarlar
+ * silinir, sıra deterministik olur → "aynı küme, farklı sıra" GEREKSİZ
+ * yeniden abonelik ÜRETMEZ (karşılaştırma sıraya duyarsızdır).
+ */
+export function normalizeVehicleIds(ids: readonly string[] | null | undefined): string[] {
+  const out = new Set<string>();
+  for (const raw of Array.isArray(ids) ? ids : []) {
+    if (typeof raw !== 'string') continue;
+    const id = raw.trim();
+    if (id) out.add(id);
+  }
+  // Array.from: website tsconfig'inde `target` alanı YOKTUR (varsayılan ES5) →
+  // Set spread'i derlenmez. Davranış aynı, tsc temiz.
+  return Array.from(out).sort();
+}
+
 // ── Abstract base ────────────────────────────────────────────────────────────
 export abstract class BaseRealtimeEngine {
   protected cb: RealtimeCallbacks;
   constructor(callbacks: RealtimeCallbacks) { this.cb = callbacks; }
   setVehicleIds(_ids: string[]): void {}
+  /**
+   * Aktif araç ID kümesini uygular. Küme GERÇEKTEN değişmediyse hiçbir şey
+   * yapmaz ve `false` döner (gereksiz reconnect yok). Değiştiyse eski kanalları
+   * kapatıp güncel kümeyle yeniden kurar ve `true` döner.
+   */
+  syncVehicleIds(ids: string[]): boolean {
+    this.setVehicleIds(ids);
+    return false;
+  }
+  getSubscriptionDiagnostics(): RealtimeSubscriptionDiagnostics {
+    return {
+      generation: 0, vehicleIdCount: 0, previousVehicleIdCount: 0,
+      activeChannelCount: 0, lastReconnectReason: 'none',
+      lastSubscribeStatus: null, lastUnsubscribeCount: 0,
+    };
+  }
   abstract connect(): void;
   abstract disconnect(): void;
 }
@@ -122,23 +173,105 @@ export class MockRealtimeEngine extends BaseRealtimeEngine {
 // Subscribes to the broadcast channel 'vehicle-updates' and listens for
 // events named 'v:{vehicleId}' that are emitted by /api/vehicle/update.
 
+/* ── Supabase modülü: TEK ve MEMOIZE dinamik import ───────────────────────────
+ * ÖNEMLİ (ölçüldü): `connect()` ve `disconnect()` ayrı ayrı `import('@/lib/supabase')`
+ * çağırıyordu. Yeniden abone olurken ikisi AYNI TİKTE tetikleniyor ve ikinci
+ * `import()` modülün UÇUŞTAKİ (henüz bağlanmamış) namespace'ini çözüyor →
+ * `supabaseBrowser` `undefined` geliyor, motor `error` durumuna düşüyor ve
+ * YENİ KANALLAR HİÇ KURULMUYORDU. Tek bir promise'i paylaşmak bu yarışı
+ * yapısal olarak ortadan kaldırır (ve tekrar eden import maliyetini de siler).
+ * Tembel kalır: mock modda supabase-js paketi hâlâ bundle'a girmez. */
+let _supabaseModule: Promise<typeof import('@/lib/supabase')> | null = null;
+function loadSupabase(): Promise<typeof import('@/lib/supabase')> {
+  _supabaseModule ??= import('@/lib/supabase');
+  return _supabaseModule;
+}
+
 export class SupabaseRealtimeEngine extends BaseRealtimeEngine {
   private channels: RealtimeChannel[] = [];
   private vehicleIds: string[] = [];
   // Zero-leak: prevents connect() promise from completing after disconnect()
   private _alive = false;
+  /* ── P1 · KUŞAK (generation) BELİRTECİ ────────────────────────────────────
+   * Kusur: araç eklenince kanallar yeniden kuruluyor ama ESKİ kuşağın uçuştaki
+   * dinamik import'u ve geç gelen kanal geri çağrıları hâlâ canlıydı → mükerrer
+   * kanal, mükerrer olay ve eski durumun yeni durumu EZMESİ mümkündü.
+   * Her `connect()` kuşağı artırır; her async devam ve her olay `isCurrent(gen)`
+   * kapısından geçer. Küçük ve seri bir yaşam döngüsüdür — durum makinesi DEĞİL. */
+  private generation = 0;
+  /** Kanalların HANGİ ID kümesiyle kurulduğu (`null` → kurulu değil). */
+  private connectedKey: string | null = null;
+  private previousIdCount = 0;
+  private lastReason: ReconnectReason = 'none';
+  private lastSubscribeStatus: string | null = null;
+  private lastUnsubscribeCount = 0;
 
   /** Pass the vehicleIds the current user is subscribed to. */
-  override setVehicleIds(ids: string[]) { this.vehicleIds = ids; }
+  override setVehicleIds(ids: string[]) { this.vehicleIds = normalizeVehicleIds(ids); }
 
-  connect(): void {
+  /** Bu kuşak hâlâ güncel mi? Değilse hiçbir yan etki uygulanmaz. */
+  private isCurrent(generation: number): boolean {
+    return this._alive && generation === this.generation;
+  }
+
+  override getSubscriptionDiagnostics(): RealtimeSubscriptionDiagnostics {
+    return {
+      generation:             this.generation,
+      vehicleIdCount:         this.vehicleIds.length,
+      previousVehicleIdCount: this.previousIdCount,
+      activeChannelCount:     this.channels.length,
+      lastReconnectReason:    this.lastReason,
+      lastSubscribeStatus:    this.lastSubscribeStatus,
+      lastUnsubscribeCount:   this.lastUnsubscribeCount,
+    };
+  }
+
+  /**
+   * TEK GİRİŞ NOKTASI: aktif araç kümesini uygular.
+   *  · aynı küme (sıradan bağımsız) → NO-OP, `false`
+   *  · küme boş → kanallar kapanır, `true`
+   *  · küme değişti → eski kanallar kapanır, güncel filtreyle yeniden kurulur, `true`
+   */
+  override syncVehicleIds(ids: string[]): boolean {
+    const next    = normalizeVehicleIds(ids);
+    const nextKey = next.join(',');
+
+    if (this.connectedKey !== null && this.connectedKey === nextKey) return false;
+
+    this.previousIdCount = this.vehicleIds.length;
+    this.vehicleIds = next;
+
+    if (next.length === 0) {
+      this.lastReason = 'ids_cleared';
+      if (this.connectedKey !== null) this.disconnect();
+      this.connectedKey = null;
+      return true;
+    }
+
+    const reason: ReconnectReason = this.connectedKey === null ? 'initial' : 'ids_changed';
+    // Eski kuşak burada ölür: kanallar kapatılır, generation artar, geç gelen
+    // olaylar `isCurrent` kapısına takılır.
+    if (this.connectedKey !== null) this.disconnect();
+    this.connect(reason);
+    return true;
+  }
+
+  connect(reason: ReconnectReason = 'initial'): void {
+    const key = this.vehicleIds.join(',');
+    /* Mükerrer abonelik kilidi: aynı kümeyle zaten kuruluysa (kanallar henüz
+       async gelmemiş olsa bile) ikinci bir kanal çifti AÇILMAZ. */
+    if (this._alive && this.connectedKey === key) return;
+
     this._alive = true;
+    this.connectedKey = key;
+    this.lastReason = reason;
+    const generation = ++this.generation;
     this.cb.onConnectionChange('connecting');
 
     // Dynamic import avoids pulling supabase-js into mock-mode bundles
-    import('@/lib/supabase').then(({ supabaseBrowser }) => {
-      // Guard: disconnect() may have been called before promise resolved
-      if (!this._alive) return;
+    loadSupabase().then(({ supabaseBrowser }) => {
+      // Guard: disconnect() / yeni bir kuşak promise çözülmeden önce başlamış olabilir
+      if (!this.isCurrent(generation)) return;
 
       if (!supabaseBrowser) {
         this.cb.onConnectionChange('error');
@@ -156,7 +289,7 @@ export class SupabaseRealtimeEngine extends BaseRealtimeEngine {
             filter: this.vehicleIds.length > 0 ? `vehicle_id=in.(${this.vehicleIds.join(',')})` : undefined,
           },
           ({ new: row }: { new: Record<string, unknown> }) => {
-            if (!this._alive) return;
+            if (!this.isCurrent(generation)) return;   // eski kuşak / kapalı → yoksay
             this.cb.onUpdate({
               vehicleId: String(row.vehicle_id ?? ''),
               lat: Number(row.lat ?? 0),
@@ -182,7 +315,7 @@ export class SupabaseRealtimeEngine extends BaseRealtimeEngine {
             filter: this.vehicleIds.length > 0 ? `vehicle_id=in.(${this.vehicleIds.join(',')})` : undefined,
           },
           ({ new: row }: { new: Record<string, unknown> }) => {
-            if (!this._alive) return;
+            if (!this.isCurrent(generation)) return;   // eski kuşak / kapalı → yoksay
             this.cb.onUpdate({
               vehicleId: String(row.vehicle_id ?? ''),
               lat: Number.NaN,
@@ -196,27 +329,41 @@ export class SupabaseRealtimeEngine extends BaseRealtimeEngine {
           },
         )
         .subscribe((status: string) => {
-          if (!this._alive) return;
+          if (!this.isCurrent(generation)) return;   // eski kuşağın durumu YOKSAYILIR
+          this.lastSubscribeStatus = status;
           if (status === 'SUBSCRIBED') this.cb.onConnectionChange('connected');
           if (status === 'CHANNEL_ERROR') this.cb.onConnectionChange('error');
           if (status === 'CLOSED') this.cb.onConnectionChange('disconnected');
         });
 
+      // Son bir kapı: import çözülürken yeni kuşak başladıysa bu kanallar
+      // SAHİPSİZDİR — kaydedilmez, derhal kapatılır (sızıntı yok).
+      if (!this.isCurrent(generation)) {
+        supabaseBrowser.removeChannel(locationsChannel);
+        supabaseBrowser.removeChannel(telemetryChannel);
+        return;
+      }
       this.channels = [locationsChannel, telemetryChannel];
     });
   }
 
   disconnect(): void {
-    this._alive = false; // blocks any in-flight connect() from completing
+    this._alive = false;      // blocks any in-flight connect() from completing
+    this.generation++;        // uçuştaki tüm eski geri çağrılar burada ölür
+    this.connectedKey = null;
+    this.lastSubscribeStatus = null;
 
     if (this.channels.length > 0) {
       const channels = [...this.channels];
       this.channels = [];
-      import('@/lib/supabase').then(({ supabaseBrowser }) => {
+      this.lastUnsubscribeCount = channels.length;
+      loadSupabase().then(({ supabaseBrowser }) => {
         channels.forEach((channel) => {
           supabaseBrowser?.removeChannel(channel);
         });
       });
+    } else {
+      this.lastUnsubscribeCount = 0;
     }
 
     this.cb.onConnectionChange('disconnected');

@@ -4,6 +4,17 @@ import { useState, useEffect, FormEvent, Suspense } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { getSupabaseBrowserClient, isSupabaseConfigured } from '@/lib/supabaseBrowser';
+import {
+  beginAuthSessionOperation,
+  canApplyAuthSessionOperation,
+  canApplyCurrentAuthEvent,
+  finishAuthSessionOperation,
+} from '@/security/accountCleanup/authSessionGenerationGuard';
+import {
+  canonicalSetSession,
+  canonicalUpdateUser,
+  canonicalVerifyOtp,
+} from '@/security/accountCleanup/canonicalAuthMutations';
 
 function ResetPasswordForm() {
   const router = useRouter();
@@ -27,13 +38,19 @@ function ResetPasswordForm() {
 
     // Yol 1: token_hash query param (yeni Supabase email akışı)
     if (tokenHash && type === 'recovery') {
-      supabase.auth
-        .verifyOtp({ token_hash: tokenHash, type: 'recovery' })
+      const operation = beginAuthSessionOperation();
+      if (!operation) { setSessionChecked(true); return; }
+      canonicalVerifyOtp(supabase, {
+        token_hash: tokenHash,
+        type: 'recovery',
+      })
         .then(({ error: e }) => {
+          if (!canApplyAuthSessionOperation(operation)) return;
           if (!e) setSessionReady(true);
           else setError('Bağlantı geçersiz veya süresi dolmuş. Yeni sıfırlama linki isteyin.');
           setSessionChecked(true);
-        });
+        })
+        .finally(() => finishAuthSessionOperation(operation));
       return;
     }
 
@@ -45,19 +62,30 @@ function ResetPasswordForm() {
     const hashType     = hashParams.get('type');
 
     if (hashType === 'recovery' && accessToken && refreshToken) {
-      supabase.auth
-        .setSession({ access_token: accessToken, refresh_token: refreshToken })
+      const operation = beginAuthSessionOperation();
+      if (!operation) { setSessionChecked(true); return; }
+      canonicalSetSession(supabase, {
+        access_token: accessToken,
+        refresh_token: refreshToken,
+      })
         .then(({ error: e }) => {
+          if (!canApplyAuthSessionOperation(operation)) return;
           if (!e) setSessionReady(true);
           else setError('Bağlantı geçersiz veya süresi dolmuş. Yeni sıfırlama linki isteyin.');
           setSessionChecked(true);
-        });
+        })
+        .finally(() => finishAuthSessionOperation(operation));
       return;
     }
 
     // Yol 3: Sunucu tarafı cookie ile session kurulmuş (PKCE)
     const check = async () => {
+      const operation = beginAuthSessionOperation();
+      if (!operation) { setSessionChecked(true); return; }
       const { data: { session } } = await supabase.auth.getSession();
+      const current = canApplyAuthSessionOperation(operation);
+      finishAuthSessionOperation(operation);
+      if (!current) return;
       if (session) {
         setSessionReady(true);
         setSessionChecked(true);
@@ -65,7 +93,8 @@ function ResetPasswordForm() {
       }
 
       const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-        if (event === 'PASSWORD_RECOVERY' || event === 'SIGNED_IN') {
+        if (canApplyCurrentAuthEvent() &&
+            (event === 'PASSWORD_RECOVERY' || event === 'SIGNED_IN')) {
           setSessionReady(true);
           setSessionChecked(true);
           subscription.unsubscribe();
@@ -93,12 +122,23 @@ function ResetPasswordForm() {
     try {
       const supabase = getSupabaseBrowserClient();
       if (!supabase) { setError('Kimlik doğrulama servisi başlatılamadı.'); return; }
-      const { error: authError } = await supabase.auth.updateUser({ password });
-      if (authError) {
-        setError('Şifre güncellenemedi: ' + authError.message);
+      const operation = beginAuthSessionOperation();
+      if (!operation) {
+        setError('Güvenli oturum temizliği sürüyor. Lütfen yeniden deneyin.');
         return;
       }
-      setDone(true);
+      try {
+        const { error: authError } =
+          await canonicalUpdateUser(supabase, { password });
+        if (!canApplyAuthSessionOperation(operation)) return;
+        if (authError) {
+          setError('Şifre güncellenemedi: ' + authError.message);
+          return;
+        }
+        setDone(true);
+      } finally {
+        finishAuthSessionOperation(operation);
+      }
     } catch {
       setError('Bir hata oluştu. Lütfen tekrar deneyin.');
     } finally {

@@ -36,44 +36,44 @@ export const CanRawView = memo(function CanRawView() {
           onClick={togglePause}
           className={`px-3 py-1 rounded text-xs font-mono border ${
             paused
-              ? 'border-green-500 text-green-400 hover:bg-green-900/30'
-              : 'border-yellow-500 text-yellow-400 hover:bg-yellow-900/30'
+              ? 'border-[var(--oem-good)] text-[var(--oem-good)] hover:bg-[var(--oem-good-soft)]'
+              : 'border-[var(--oem-warn)] text-[var(--oem-warn)] hover:bg-[var(--oem-warn-soft)]'
           }`}
         >
-          {paused ? '▶ RESUME' : '⏸ PAUSE'}
+          {paused ? '▶ DEVAM' : '⏸ DURAKLAT'}
         </button>
         <button
           onClick={clearLog}
-          className="px-3 py-1 rounded text-xs font-mono border border-gray-600 text-gray-400 hover:bg-gray-800"
+          className="px-3 py-1 rounded text-xs font-mono border border-[var(--oem-line-strong)] text-[var(--oem-ink-2)] hover:bg-[var(--oem-surface-2)]"
         >
-          CLEAR
+          TEMİZLE
         </button>
-        <span className="ml-auto text-xs font-mono text-gray-500">
+        <span className="ml-auto text-xs font-mono text-[var(--oem-ink-3)]">
           {log.length} / 500
         </span>
       </div>
 
       {/* Column headers */}
-      <div className="grid grid-cols-[9rem_5rem_1fr] gap-x-3 px-2 pb-1 border-b border-gray-700 text-gray-500 text-xs font-mono uppercase">
-        <span>Timestamp</span>
+      <div className="grid grid-cols-[9rem_5rem_1fr] gap-x-3 px-2 pb-1 border-b border-[var(--oem-line)] text-[var(--oem-ink-3)] text-xs font-mono uppercase">
+        <span>Zaman</span>
         <span>Frame</span>
-        <span>Payload</span>
+        <span>Yük</span>
       </div>
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto">
         {log.length === 0 ? (
-          <p className="text-gray-600 text-xs font-mono px-2 py-4">
-            No CAN data — panel must be open to collect
+          <p className="text-[var(--oem-ink-3)] text-xs font-mono px-2 py-4">
+            CAN verisi yok — toplama yalnız bu ekran açıkken yapılır.
           </p>
         ) : (
           log.map((entry, i) => (
             <div
               key={i}
-              className="grid grid-cols-[9rem_5rem_1fr] gap-x-3 px-2 py-0.5 text-xs font-mono hover:bg-gray-800/50 even:bg-gray-900/30"
+              className="grid grid-cols-[9rem_5rem_1fr] gap-x-3 px-2 py-0.5 text-xs font-mono hover:bg-[var(--oem-surface-2)] even:bg-[var(--oem-surface-2)]"
             >
-              <span className="text-gray-400">{fmtTs(entry.ts)}</span>
-              <span className="text-green-400">{entry.frameId}</span>
-              <span className="text-gray-200 truncate">{entry.payload}</span>
+              <span className="text-[var(--oem-ink-2)]">{fmtTs(entry.ts)}</span>
+              <span className="text-[var(--oem-good)]">{entry.frameId}</span>
+              <span className="text-[var(--oem-ink)] truncate">{entry.payload}</span>
             </div>
           ))
         )}

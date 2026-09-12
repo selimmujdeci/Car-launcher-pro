@@ -45,3 +45,22 @@ export function createSupabaseMiddlewareClient(request: NextRequest) {
 
   return { supabase, response };
 }
+
+/**
+ * Protected-route doğrulaması session cookie'sini yenilemez. Middleware
+ * response Set-Cookie üretirse browser Web Lock dışında auth authority
+ * yazabilir; bu nedenle refresh gereken oturum fail-closed login'e döner.
+ */
+export function createReadOnlySupabaseMiddlewareClient(request: NextRequest) {
+  const { url, anonKey } = getSupabaseEnv();
+  const supabase = createServerClient(url, anonKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+    cookies: {
+      getAll: () => request.cookies.getAll(),
+      setAll: () => undefined,
+    },
+  });
+  return { supabase, response: NextResponse.next({ request: {
+    headers: request.headers,
+  } }) };
+}

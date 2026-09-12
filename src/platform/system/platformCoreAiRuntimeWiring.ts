@@ -1,0 +1,216 @@
+/**
+ * platformCoreAiRuntimeWiring — AI Core RUNTIME WIRING (Faz-2, SystemBoot-uyumlu).
+ *
+ * AMAÇ: AI Core Faz-1 foundation'ını (Orchestrator · AI Usta · Vehicle Memory) gerçek
+ * platform singleton'larına bağlar:
+ *
+ *   appEventBus (W3) ──edge olay──▶ AiCoreRuntime ──oku──▶ vehicleHal (snapshot/identity)
+ *                                        │
+ *                                        ▼ Orchestrator (read-only Safety Gate) → AI Usta
+ *                                        ▼ ai.mechanic.report (READ-ONLY event) + result store
+ *
+ * ⚠️ KOD GERÇEĞİ: `getAppEventBus()` W3'ün TEK bus'ını verir (yoksa null → fail-soft no-op).
+ * `vehicleHal` singleton yapısal olarak RuntimeHalLike'a uyar. AiCoreRuntime edge-tetikli +
+ * BOUNDED'dır (poll YOK, her frame YOK). Faz-1 modülleri DEĞİŞTİRİLMEZ (yalnız kullanılır).
+ *
+ * NE YAPMAZ (bilinçli — Faz-2 yalnız WIRING'dir):
+ *  - İkinci polling/veri/karar otoritesi KURMAZ · yeni sensör/PID/DID sorgusu AÇMAZ ·
+ *    LLM/UI EKLEMEZ · ECU write/coding/actuator (Orchestrator read-only gate zorlar) ·
+ *    Diagnostics/HAL/Bus foundation davranışını DEĞİŞTİRMEZ · yeni event catalog girdisi
+ *    zorlamaz (ai.mechanic.report bus'ın açık-adlı yayınıdır).
+ *
+ * SAHİPLİK: runtime + orchestrator + memory bu modülündür → cleanup runtime'ı dispose eder;
+ * `vehicleHal` ve `appEventBus` (başka sahipleri var) DISPOSE EDİLMEZ. TEK INSTANCE: aktif
+ * runtime varken ikinci start no-op; bayat (disposed) kayıt serbest; cleanup yalnız KENDİ
+ * kaydını siler → boot→shutdown→boot güvenli. FAIL-SOFT: public API dışarı exception KAÇIRMAZ;
+ * hata bir kez logError; ham event/sinyal/VIN LOGLANMAZ. ZERO-LEAK: cleanup abonelik+timer bırakır.
+ */
+
+import { logError } from '../crashLogger';
+import { getAppEventBus } from './platformCoreEventBusWiring';
+import { vehicleHal } from '../vehicleHal';
+import { AiOrchestrator } from '../aiCore/aiOrchestrator';
+import { aiMechanic } from '../aiCore/agents/aiMechanic';
+import { createVehicleMemoryStore, type VehicleMemoryStore } from '../aiCore/vehicleMemory';
+import {
+  AiCoreRuntime, type RuntimeBusLike, type RuntimeHalLike, type AiCoreRuntimeStatus,
+  type DiagnosticsProvider, type DiagnosticsProviderResult,
+} from '../aiCore/runtime/aiCoreRuntime';
+import type { AiOrchestratorRunResult } from '../aiCore/aiOrchestrator';
+import { buildObdDeepSnapshot, buildPlatformRuntimeSnapshot } from '../diagnosticSections';
+import { handleAiCoreRunResult } from '../companion/companionProactiveWiring';
+
+/** Test için opsiyonel DI; üretimde `getAppEventBus()` + `vehicleHal` + varsayılan orchestrator. */
+export interface AiRuntimeWiringDeps {
+  readonly bus?: RuntimeBusLike;
+  readonly hal?: RuntimeHalLike;
+  readonly orchestrator?: AiOrchestrator;
+  readonly memory?: VehicleMemoryStore;
+  /** Faz-2.5: tanı zenginleştirme sağlayıcısı (test DI). Üretimde varsayılan snapshot okuyucu. */
+  readonly diagnosticsProvider?: DiagnosticsProvider;
+}
+
+/**
+ * VARSAYILAN tanı sağlayıcı (Faz-2.5) — edge çalışmasında mevcut Diagnostics V2 anlık
+ * görüntüsünü OKUR (yeni poll YOK; `buildObdDeepSnapshot`/`buildPlatformRuntimeSnapshot`
+ * fail-soft `_safe`-sarmalı okuyuculardır). Freeze-frame CANLI sorgu gerektirdiğinden
+ * DAHİL EDİLMEZ (yalnız cache-varsa; snapshot taşımıyorsa builder "yakalanmadı" işaretler).
+ * memoryLimits geçilmez — orchestrator Vehicle Memory'yi zaten kendi içinde hatırlar (çift
+ * temsil YOK). Hata → null (runtime minimal bağlama düşer).
+ */
+function _defaultDiagnosticsProvider(): DiagnosticsProviderResult | null {
+  try {
+    const obdDeep = buildObdDeepSnapshot();
+    let sourceHealth: DiagnosticsProviderResult['sourceHealth'] = null;
+    try { sourceHealth = buildPlatformRuntimeSnapshot().sourceHealth; } catch { sourceHealth = null; }
+    return { obdDeep, sourceHealth };
+  } catch {
+    return null;   // tanı okuması başarısız → zenginleştirme yok (fail-soft)
+  }
+}
+
+export type AiRuntimeWiringCleanup = () => void;
+
+export interface AiRuntimeWiringStatus {
+  /** Runtime kurulu mu (false → "ölçülemiyor", 0 çalışmayla KARIŞTIRILMAZ). */
+  readonly present: boolean;
+  readonly started: boolean;
+  readonly disposed: boolean;
+  readonly subscriptions: number;
+  readonly runCount: number;
+  readonly publishedCount: number;
+  readonly errorCount: number;
+  readonly lastRunAt: number | null;
+  /**
+   * SON start denemesinde Event Bus var mıydı. `null` = hiç denenmedi (BİLİNMİYOR).
+   *
+   * NEDEN: `present:false` bugün İKİ farklı kökü aynı görünüme indiriyordu —
+   *  (a) bus yoktu → wiring sessizce no-op döndü,  (b) runtime kuruldu ama dispose edildi.
+   * Bu tek bit ikisini ayırır: `busPresent:false` + `present:false` → (a);
+   * `busPresent:true` + `present:false` → (b) ya da init hatası. Bounded boolean —
+   * bus örneği, event adı veya payload TAŞIMAZ.
+   */
+  readonly busPresent: boolean | null;
+}
+
+const NOOP_CLEANUP: AiRuntimeWiringCleanup = () => { /* no-op */ };
+
+const ABSENT_STATUS: AiRuntimeWiringStatus = Object.freeze({
+  present: false, started: false, disposed: false, subscriptions: 0,
+  runCount: 0, publishedCount: 0, errorCount: 0, lastRunAt: null, busPresent: null,
+});
+
+let _active: AiCoreRuntime | null = null;
+
+/**
+ * Son start denemesinde bus bulunabildi mi (`null` = hiç start denenmedi).
+ * Yalnız TEŞHİS içindir; hiçbir karar bu değere dayanmaz. Cleanup bunu SIFIRLAMAZ:
+ * "bus vardı ama runtime kapandı" bilgisi shutdown sonrası da doğrudur.
+ */
+let _lastBusPresent: boolean | null = null;
+
+/** Bayat kayıt (HMR/restart artığı: dispose edilmiş runtime) → serbest bırak. */
+function _pruneStale(): void {
+  if (_active && _active.isDisposed) _active = null;
+}
+
+/**
+ * AI Core runtime'ı oluşturur, gerçek bus+HAL'e bağlar ve başlatır. YALNIZ cleanup thunk döner.
+ * Dışarı exception KAÇIRMAZ. İDEMPOTENT (ikinci çağrı yeni abonelik AÇMAZ). Bus yoksa fail-soft
+ * no-op (boot sürer).
+ */
+/**
+ * CANLI araç hafızası deposu — Faz-2'de KURULAN örneğin salt-okunur referansı.
+ * YENİ DEPO DEĞİL: burada zaten oluşturulan `VehicleMemoryStore` paylaşılır ki
+ * Mavi hafıza katmanı İKİNCİ bir depo kurmasın. Runtime kapanınca temizlenir.
+ */
+let _liveVehicleMemory: VehicleMemoryStore | null = null;
+
+/** Canlı araç hafızası (yoksa null → çağıran fail-closed davranır). */
+export function getLiveVehicleMemoryStore(): VehicleMemoryStore | null {
+  return _liveVehicleMemory;
+}
+
+export function startPlatformCoreAiRuntimeWiring(deps: AiRuntimeWiringDeps = {}): AiRuntimeWiringCleanup {
+  let runtime: AiCoreRuntime | null = null;
+  try {
+    _pruneStale();
+    if (_active) return NOOP_CLEANUP;              // zaten aktif → ikinci runtime YOK
+
+    const appBus = getAppEventBus();               // W3'ün TEK aktif bus'ı
+    const bus: RuntimeBusLike | null = deps.bus ?? (appBus as RuntimeBusLike | null);
+    _lastBusPresent = bus !== null;                // TEŞHİS: "bus yoktu" ile "runtime kapandı"yı ayırır
+    if (!bus) return NOOP_CLEANUP;                 // bus yok → sessiz no-op (boot sürer)
+    const hal: RuntimeHalLike = deps.hal ?? (vehicleHal as RuntimeHalLike);
+
+    // Orchestrator: varsayılan read-only Safety Gate + araç hafızası + AI Usta.
+    let orchestrator = deps.orchestrator;
+    if (!orchestrator) {
+      const memory = deps.memory ?? createVehicleMemoryStore();
+      _liveVehicleMemory = memory;              // paylaşımlı referans (yeni depo YOK)
+      orchestrator = new AiOrchestrator({ memory });
+      orchestrator.register(aiMechanic);
+    }
+
+    runtime = new AiCoreRuntime({
+      bus, hal, orchestrator,
+      diagnosticsProvider: deps.diagnosticsProvider ?? _defaultDiagnosticsProvider,
+      online: () => (typeof navigator !== 'undefined' ? navigator.onLine !== false : true),
+      // #124 — PROAKTİF KRİTİK ARIZA UYARISI: mevcut edge çalışmasının sonuna binen
+      // fail-soft GÖZLEMCİ. YENİ POLL/TIMER/ABONELİK AÇMAZ; runtime sonucunu
+      // DEĞİŞTİREMEZ. Debounce/güvenlik kapısı/karakter tavanı köprünün DEĞİL,
+      // triggerProactiveDiagnosticAlert'in sorumluluğundadır.
+      onRunResult: (result) => { handleAiCoreRunResult(result); },
+    });
+    const own = runtime;
+    _active = own;
+    own.start();                                   // edge aboneliği (runtime içi fail-soft)
+
+    let disposed = false;
+    return () => {
+      if (disposed) return;                        // İDEMPOTENT
+      disposed = true;
+      try {
+        own.dispose();                             // YALNIZ runtime — HAL/Bus DISPOSE EDİLMEZ
+      } catch (e) {
+        logError('aiRuntimeWiring:cleanup', e);    // cleanup hatası shutdown'ı engellemez
+      }
+      if (_active === own) _active = null;         // yalnız KENDİ kaydını siler
+      _liveVehicleMemory = null;                   // referans bırakılmaz (zero-leak)
+    };
+  } catch (e) {
+    if (runtime && _active === runtime) _active = null;   // yarım kayıt bırakma
+    logError('aiRuntimeWiring:init', e);                  // ham event/sinyal/VIN LOGLANMAZ
+    return NOOP_CLEANUP;                                  // boot devam eder (fail-soft)
+  }
+}
+
+/** Bounded teşhis görünümü. Runtime yoksa present:false + sıfır sayaçlar. Throw ETMEZ. */
+export function getAiRuntimeStatus(): AiRuntimeWiringStatus {
+  _pruneStale();
+  const rt = _active;
+  // Runtime yok → "ölçülemiyor". `busPresent` yine taşınır: kökü ayırt eden tek bit odur.
+  if (!rt) return Object.freeze({ ...ABSENT_STATUS, busPresent: _lastBusPresent });
+  try {
+    const s: AiCoreRuntimeStatus = rt.getStatus();
+    return Object.freeze({
+      present: true,
+      started: s.started,
+      disposed: s.disposed,
+      subscriptions: s.subscriptions,
+      runCount: s.runCount,
+      publishedCount: s.publishedCount,
+      errorCount: s.errorCount,
+      lastRunAt: s.lastRunAt,
+      busPresent: _lastBusPresent,
+    });
+  } catch {
+    return Object.freeze({ ...ABSENT_STATUS, busPresent: _lastBusPresent });   // teşhis yolu asla çökmez
+  }
+}
+
+/** Son AI Usta çalışmasının tam sonucu (READ-ONLY store). Runtime yoksa/çalışmadıysa null. */
+export function getLastAiMechanicResult(): AiOrchestratorRunResult | null {
+  _pruneStale();
+  try { return _active ? _active.getLastResult() : null; } catch { return null; }
+}

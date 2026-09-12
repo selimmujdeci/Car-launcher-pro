@@ -235,12 +235,7 @@ public class CommandService extends FirebaseMessagingService {
     }
 
     private void startForegroundServiceCompat() {
-        Intent svcIntent = new Intent(this, CarLauncherForegroundService.class);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(svcIntent);
-        } else {
-            startService(svcIntent);
-        }
+        ForegroundServiceBoundary.requestStart(this, "CommandService");
     }
 
     /** WebView aktif durumdayken JS tarafını uyandırmak için local broadcast */

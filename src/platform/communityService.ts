@@ -27,6 +27,8 @@ import { useUnifiedVehicleStore }        from './vehicleDataLayer/UnifiedVehicle
 import { injectCommunityHazard }         from './hazardService';
 import type { HazardType }               from '../store/useHazardStore';
 import { runtimeManager }                from '../core/runtime/AdaptiveRuntimeManager';
+import { ceilingFor } from './perf/workloadCeilings';
+import { bumpPerf } from './perf/perfCounters';
 
 /* ── Sabitler ────────────────────────────────────────────────────────────── */
 
@@ -336,6 +338,25 @@ interface CrmRow {
 let _isSyncRunning = false;
 
 /**
+ * Sunucu şeması eksik mi (tablo yok) — kalıcı hata (kütük #422).
+ * PostgREST bunu `PGRST205` koduyla veya "Could not find the table" metniyle
+ * bildirir. Kalıcı hata, geçici ağ hatasından AYRI ele alınır.
+ */
+let _schemaMissing = false;
+
+function _isSchemaMissing(error: { code?: string; message?: string } | null): boolean {
+  if (!error) return false;
+  if (error.code === 'PGRST205' || error.code === '42P01') return true;   // tablo yok
+  const msg = (error.message ?? '').toLowerCase();
+  return msg.includes('could not find the table') || msg.includes('does not exist');
+}
+
+/** Senkronun kalıcı şema hatasıyla durdurulup durdurulmadığı (salt-okunur gözlem). */
+export function isCommunitySyncBlockedBySchema(): boolean {
+  return _schemaMissing;
+}
+
+/**
  * Yerel kuyruğu Supabase'e toplu (batch) olarak yükler.
  *
  * Koşullar:
@@ -357,6 +378,9 @@ export async function syncCommunityBatch(): Promise<void> {
   const supabase = getSupabaseClient();
   if (!supabase) return;
 
+  // Kütük #422: kalıcı şema hatası sonrası bu oturumda ağa çıkılmaz.
+  if (_schemaMissing) return;
+
   const batch = getPendingBatch();
   if (batch.length === 0) return;
 
@@ -377,6 +401,22 @@ export async function syncCommunityBatch(): Promise<void> {
       .insert(rows);
 
     if (error) {
+      /* ── ŞEMA EKSİKLİĞİ GEÇİCİ HATA DEĞİLDİR (saha 2026-08-05 · kütük #422) ──
+       * ÖLÇÜLDÜ: 15 dakikalık koşumda `Could not find the table
+       * 'public.raw_community_events' in the schema cache` × 5 + 404'ler.
+       * Tablo sunucuda YOK (migration uygulanmamış) — bunu "geçici hata" sayıp
+       * her periyotta yeniden denemek, ağ trafiğini ve konsolu boşuna
+       * kirletiyordu; #424'teki 131 ağ hatasının bir kısmı da buradandı.
+       * Kalıcı şema hatasında senkron OTURUM BOYUNCA durur; kuyruk KORUNUR
+       * (veri kaybı yok) ve durum gözlemlenebilir kalır. */
+      if (_isSchemaMissing(error)) {
+        _schemaMissing = true;
+        console.warn(
+          '[CRM] Sunucu şemasında `raw_community_events` YOK — senkron bu oturumda ' +
+          'durduruldu. Kuyruk korunuyor; migration uygulanınca yeniden denenecek.',
+        );
+        return;
+      }
       // Geçici hata: kuyrukta bırak, bir sonraki periyodik sync dener
       console.warn('[CRM] Sync başarısız:', error.message);
       return;
@@ -519,6 +559,22 @@ export async function fetchNearbyCommunityEvents(): Promise<void> {
 
 /** MALI-400 güvenli: UI thread boştayken cloud pull başlatır. */
 function _idlePull(): void {
+  /* ══ ARCH-06/F6 · TAVAN UYGULAYAN TEK GERÇEK TÜKETİCİ ═══════════════
+     Bu çekim ARAÇ GERÇEĞİ DEĞİLDİR ve KRİTİK UYARI DEĞİLDİR: bulut
+     tarafından gelen topluluk tehlike ZENGİNLEŞTİRMESİdir. Cihaz gerçek
+     baskı altındayken (65°C üstü termal, CRITICAL bellek, SAFE_MODE) bir ağ
+     isteği + JSON ayrıştırma harcamak, kullanıcının GÖRDÜĞÜ işi yavaşlatır.
+
+     ⚠️ GİDEN kuyruk (`_syncTimer` → `_idleSync`) KISILMAZ — o kullanıcının
+     kendi bildirimlerini taşır; atlanması VERİ KAYBI olurdu. Tavan yalnız
+     yeniden üretilebilir GELEN zenginleştirmeye uygulanır. */
+  const ceiling = ceilingFor('backgroundIndexing');
+  if (ceiling === 'OFF' || ceiling === 'MINIMAL') {
+    bumpPerf('ceiling.backgroundPullSkipped');
+    return;
+  }
+  bumpPerf('ceiling.backgroundPullRan');
+
   if (typeof requestIdleCallback !== 'undefined') {
     requestIdleCallback(
       () => { void fetchNearbyCommunityEvents(); },

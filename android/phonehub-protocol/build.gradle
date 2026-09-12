@@ -1,0 +1,32 @@
+/*
+ * :phonehub-protocol — Phone Hub bağlantı protokolü (SAF JAVA · ANDROID YOK).
+ *
+ * NEDEN AYRI VE SAF MODÜL:
+ *  1. Aynı framing/kripto/el-sıkışma kodu HEM head unit (:app) HEM telefon
+ *     companion (:phonehub-companion) tarafında çalışmalı. Kopya iki uygulama
+ *     sessizce ayrışır — tek kaynak zorunlu.
+ *  2. Depoda Robolectric YOK. Android import'u olan kod JUnit'te koşamaz.
+ *     Bu modülde `android.*` importu YASAKTIR (testle kilitli) → framing,
+ *     kripto, el sıkışma ve hata eşleme deterministik biçimde test edilir.
+ *  3. Bluetooth soketi, Keystore ve izinler bu modülde DEĞİLDİR; onlar ince
+ *     Android kabuklarında durur ve buradaki arayüzleri uygular.
+ */
+apply plugin: 'java-library'
+
+java {
+    // :app capacitor.build.gradle ile hizalı (Java 21)
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+}
+
+dependencies {
+    testImplementation "junit:junit:$junitVersion"
+}
+
+test {
+    // Kripto testleri deterministik olmalı — paralel koşum kapalı.
+    maxParallelForks = 1
+    testLogging {
+        events "failed"
+    }
+}

@@ -15,6 +15,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 // react-dom/client bu repo'nun setup.ts navigator mock'u yüzünden import edilemez
 // (bkz. safetyContext.test.tsx) → sesli anons wiring'i yapısal kilitle doğrulanır.
 import navigationHudSrc from '../components/map/NavigationHUD.tsx?raw';
+import navSessionRuntimeSrc from '../platform/navigation/navigationSessionRuntime.ts?raw';
 
 /* ── Mock'lar — NavigationHUD'un tüm platform bağımlılıkları ─────────────── */
 
@@ -101,6 +102,13 @@ vi.mock('../platform/speedLimitService', () => ({
   useSpeedLimitByLocation: () => null,
 }));
 
+/* Hız limiti artık PAYLAŞILAN otoriteden gelir (VEHICLE_AWARE_SPEED_LIMIT_P0).
+   Bu test manevra panelini ölçer; limit zinciri kapalı tutulur. */
+vi.mock('../platform/navigation/useEffectiveSpeedLimit', async () => {
+  const mod = await import('../platform/navigation/core/vehicleAwareSpeedLimitAuthority');
+  return { useEffectiveSpeedLimit: () => mod.EMPTY_EFFECTIVE_SPEED_LIMIT };
+});
+
 vi.mock('../platform/safetyService', () => ({
   startSafetyObserver: vi.fn(),
   stopSafetyObserver: vi.fn(),
@@ -184,18 +192,31 @@ describe('KİLİT: TBT talimatı yaklaşan manevrayı okur (off-by-one yasağı)
     speakNavigationMock.mockClear();
   });
 
-  it('TurnPanel yaklaşan manevrayı (steps[idx+1] = Sola dönün) gösterir, geçilmişi değil', () => {
+  it('manevra kartı YAKLAŞAN manevrayı (steps[idx+1]) gösterir, geçilmişi değil', () => {
     const html = renderToStaticMarkup(<NavigationHUD {...hudProps} />);
-    // Yaklaşan manevra başlıkta olmalı
-    expect(html).toContain('Sola dönün');
-    // Geçilmiş manevra ("Sağa dönün") ana talimat olarak GÖSTERİLMEMELİ
-    expect(html).not.toContain('Sağa dönün');
+    /* P0-NAV-04: kart artık "girilecek yol"u gösteriyor (talimat metni yerine
+       `streetName`) — sürücünün sorusu "hangi yola gireceğim"dir. Off-by-one
+       YASAĞI DEĞİŞMEDİ, yalnız hangi alanla doğrulandığı güncellendi:
+         geçilmiş  steps[1] = Atatürk Cd   → EKRANDA OLMAMALI
+         yaklaşan  steps[2] = İnönü Cd     → EKRANDA OLMALI */
+    expect(html, 'yaklaşan manevranın yolu gösterilmiyor').toContain('İnönü Cd');
+    expect(html, 'GEÇİLMİŞ manevra gösteriliyor (off-by-one geri geldi)')
+      .not.toContain('Atatürk Cd');
+    /* Sol dönüş oku çizilmeli — yön bilgisi metinden bağımsız okunur. */
+    expect(html).toContain('data-testid="maneuver-panel"');
   });
 
-  it('KİLİT (yapısal): sesli anons yaklaşan adımın (upcomingStep) talimatını okur', () => {
-    // Kademeli anons effect'i talimat metnini YAKLAŞAN adımdan almalı.
-    expect(navigationHudSrc).toContain('upcomingStep.instruction');
+  /* KİLİT TAŞINDI (NAVIGATION_DELIVERY_CORE_P0): sesli anons artık görünümde
+     değil `navigationSessionRuntime` içinde üretiliyor (tam ekran kapanınca
+     ses susuyordu). Off-by-one yasağı KALDIRILMADI — yeni sahibinde denetlenir. */
+  it('KİLİT (yapısal): sesli anons YAKLAŞAN adımın talimatını okur', () => {
+    const rt = navSessionRuntimeSrc;
+    // Anons metni steps[currentStepIndex + 1] — YAKLAŞAN manevra.
+    expect(rt).toContain('rs.steps[rs.currentStepIndex + 1]');
+    expect(rt).toContain('instruction: nextStep.instruction');
     // Geçilmiş adımın talimatı anons kaynağı OLMAMALI (off-by-one'ın kendisi).
+    expect(rt).not.toContain('steps[rs.currentStepIndex].instruction');
+    // Görünüm hâlâ YAKLAŞAN adımı ÇİZER (panel tarafı değişmedi).
     expect(navigationHudSrc).not.toContain('currentStep.instruction');
   });
 

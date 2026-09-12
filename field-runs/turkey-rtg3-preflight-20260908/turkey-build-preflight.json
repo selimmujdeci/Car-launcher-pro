@@ -1,0 +1,250 @@
+{
+  "generatedAt": "2026-09-08T06:34:45.605Z",
+  "elapsedMs": 17551,
+  "nationwideBuildStarted": false,
+  "toolchain": {
+    "node": {
+      "min": "22.13.0",
+      "reason": "node:sqlite (DatabaseSync) bayraksiz kullanilabilir olmali",
+      "verified": [
+        "22.22.1",
+        "24.15.0"
+      ]
+    },
+    "osmium": {
+      "min": "1.14.0",
+      "reason": "osmium tags-filter -R + cat -t node OPL akisi",
+      "verified": [
+        "1.19.0"
+      ]
+    },
+    "sqlite": {
+      "backend": "node:sqlite (Node ile gelen gomulu SQLite)",
+      "requires": [
+        "DatabaseSync",
+        "prepare",
+        "iterate",
+        "WAL journal"
+      ]
+    },
+    "minMemoryBudgetMiB": 256
+  },
+  "preflight": {
+    "ok": true,
+    "checks": [
+      {
+        "check": "node-runtime",
+        "required": ">=22.13.0",
+        "measured": "22.22.1",
+        "result": "PASS",
+        "detail": "node:sqlite (DatabaseSync) bayraksiz kullanilabilir olmali"
+      },
+      {
+        "check": "node-sqlite-capability",
+        "required": "DatabaseSync + prepare + iterate + WAL journal",
+        "measured": "USABLE",
+        "result": "PASS",
+        "detail": "DatabaseSync + prepare + iterate"
+      },
+      {
+        "check": "osmium-tool",
+        "required": ">=1.14.0",
+        "measured": "1.19.0",
+        "result": "PASS",
+        "detail": null
+      },
+      {
+        "check": "source-pbf",
+        "required": "okunabilir OSM PBF",
+        "measured": "645061454 B",
+        "result": "PASS",
+        "detail": "BlobHeader 14 bayt"
+      },
+      {
+        "check": "temp-writable",
+        "required": "yazilabilir dizin",
+        "measured": "/mnt/c/Users/selim/Desktop/caros pro/field-runs/turkey-rtg3-preflight-20260908/tmp",
+        "result": "PASS",
+        "detail": null
+      },
+      {
+        "check": "output-writable",
+        "required": "yazilabilir dizin",
+        "measured": "/mnt/c/Users/selim/Desktop/caros pro/field-runs/turkey-rtg3-preflight-20260908/regions",
+        "result": "PASS",
+        "detail": null
+      },
+      {
+        "check": "free-disk",
+        "required": ">=16126536350 B",
+        "measured": "48611258368 B",
+        "result": "PASS",
+        "detail": null
+      },
+      {
+        "check": "memory-budget",
+        "required": ">=256 MiB",
+        "measured": "512 MiB",
+        "result": "PASS",
+        "detail": null
+      }
+    ],
+    "toolchain": {
+      "node": {
+        "min": "22.13.0",
+        "reason": "node:sqlite (DatabaseSync) bayraksiz kullanilabilir olmali",
+        "verified": [
+          "22.22.1",
+          "24.15.0"
+        ]
+      },
+      "osmium": {
+        "min": "1.14.0",
+        "reason": "osmium tags-filter -R + cat -t node OPL akisi",
+        "verified": [
+          "1.19.0"
+        ]
+      },
+      "sqlite": {
+        "backend": "node:sqlite (Node ile gelen gomulu SQLite)",
+        "requires": [
+          "DatabaseSync",
+          "prepare",
+          "iterate",
+          "WAL journal"
+        ]
+      },
+      "minMemoryBudgetMiB": 256
+    }
+  },
+  "measured": {
+    "turkey": {
+      "bytes": 645061454,
+      "nodes": 102010697,
+      "ways": 9708419,
+      "relations": 78691,
+      "bbox": {
+        "minlon": 18.3577395,
+        "minlat": 31.21,
+        "maxlon": 45.372564,
+        "maxlat": 46.3452468
+      },
+      "timestampLast": "2026-09-06T20:20:13Z",
+      "sha256": "c841556847bd31ed511ca3f61b5086644664488f48b23d7ce2a4b7d6c36dd80f",
+      "path": "/mnt/c/Users/selim/Desktop/caros pro/field-runs/pbf-streaming-rtg3-20260908/raw/turkey-260906.osm.pbf"
+    },
+    "mersin": {
+      "bytes": 9899746,
+      "nodes": 1687671,
+      "ways": 110558,
+      "relations": 975,
+      "bbox": {
+        "minlon": 30.4215887,
+        "minlat": 35.1263811,
+        "maxlon": 35.3437681,
+        "maxlat": 37.8410679
+      },
+      "timestampLast": "2026-09-06T19:53:37Z",
+      "sha256": "3548f3e82ceee708898c4dad4d0fef5110cf5a40b3beae81cd38fd1c5c99079a",
+      "path": "/mnt/c/Users/selim/Desktop/caros pro/field-runs/pbf-streaming-rtg3-20260908/raw/mersin-province.osm.pbf"
+    },
+    "mersinBuild": {
+      "selectedWays": 48646,
+      "requiredCoordinates": 578513,
+      "totalNodes": 600821,
+      "totalEdges": 629201,
+      "totalBytes": 27232860,
+      "peakTempBytes": 153353720,
+      "peakProcessTreeRssBytes": 304377856,
+      "buildMs": 113682,
+      "regions": 14
+    }
+  },
+  "projected": {
+    "method": "muhafazakâr ölçek = max(way oranı 87.81, bayt oranı 65.16) = 87.81",
+    "selectedWays": 4271747,
+    "requiredNodes": 50800906,
+    "graphNodes": 52759837,
+    "graphEdges": 55251967,
+    "rtg3Bytes": 2391396511,
+    "peakTempBytes": 13466435436,
+    "buildMs": 9982712,
+    "regionCountRange": {
+      "gridUpperBound": 1705,
+      "densityEstimate": 394,
+      "note": "Izgara üst sınırı bbox tabanlıdır (deniz karoları dâhil); yoğunluk tahmini Mersin karo sayısından türetilmiş KABA bir alt sınırdır. Gerçek sayı yalnız build ile ÖLÇÜLÜR."
+    },
+    "peakProcessTreeRssBytes": "UNKNOWN",
+    "peakRssReason": "Disk-destekli mimaride tepe RSS kaynak boyutuyla LİNEER DEĞİLDİR: SQLite sayfa önbelleği sabit (32 MiB) ve tepe, EN BÜYÜK tek bölgenin serileştirme anındaki bellek ihtiyacıyla belirlenir. Türkiye'nin en büyük 0.5° karosu (İstanbul) Mersin'in en büyüğünden büyüktür ama ne kadar büyük olduğu ÖLÇÜLMEDİ. Fail-closed bütçe kapısı (RTG3_MEMORY_BUDGET_MIB) aşımda build'i düşürür.",
+    "peakRegionEdges": 155702
+  },
+  "freeDisk": {
+    "temp": 48610521088,
+    "output": 48610521088,
+    "requiredBytes": 16126536350
+  },
+  "gateChecks": [
+    {
+      "check": "reproducible-pinned-toolchain",
+      "measured": "node>=22.13.0 · osmium>=1.14.0 · engines pinned",
+      "pass": true
+    },
+    {
+      "check": "turkey-source-preflight",
+      "measured": "node-runtime=PASS · node-sqlite-capability=PASS · osmium-tool=PASS · source-pbf=PASS · temp-writable=PASS · output-writable=PASS · free-disk=PASS · memory-budget=PASS",
+      "pass": true
+    },
+    {
+      "check": "streaming-disk-backed-builder",
+      "measured": "SQLite-indexed two-pass PBF stream; sequential deterministic 0.5 degree RTG3 partitions",
+      "pass": true
+    },
+    {
+      "check": "mersin-memory-budget",
+      "measured": "290.28 MiB",
+      "pass": true
+    },
+    {
+      "check": "graph-semantic-parity",
+      "measured": "600821 düğüm · 629201 kenar",
+      "pass": true
+    },
+    {
+      "check": "via-node-restriction-regression",
+      "measured": "110 çözüldü (temel 110)",
+      "pass": true
+    },
+    {
+      "check": "via-way-restrictions",
+      "measured": "2 gerçek ilişki uçtan uca",
+      "pass": true
+    },
+    {
+      "check": "manifest",
+      "measured": "14 bölge",
+      "pass": true
+    },
+    {
+      "check": "multi-region-canonical-astar",
+      "measured": "2bölge:70407m · 2bölge:26468m · 3bölge:90636m",
+      "pass": true
+    },
+    {
+      "check": "corruption-fail-closed",
+      "measured": "6/6",
+      "pass": true
+    },
+    {
+      "check": "disk-capacity-for-turkey",
+      "measured": "48610521088 B serbest · gereken 16126536350 B",
+      "pass": true
+    },
+    {
+      "check": "production-rtg2-untouched",
+      "measured": "e7713f7575fb587386858db44b2e9ab84278686a06d42d04cd16e8663af691da",
+      "pass": true
+    }
+  ],
+  "gate": "READY_FOR_NATIONWIDE_SHADOW_BUILD",
+  "blockers": []
+}

@@ -16,13 +16,33 @@ import {
   isEncryptedPayload, decryptPayload,
 } from './commandCrypto';
 import { sensitiveKeyStore }                       from './sensitiveKeyStore';
-import { connectivityService }                     from './connectivityService';
+import { callVehicleRpc, updateRemoteCommandStatus } from './vehicleIdentityService';
 import { executeMcuCommand, checkCrossChannelNonceReplay } from './nativeCommandBridge';
+import { executeReadDtc, executeReadVoltage, executeClearDtc } from './remoteDiagnosticCommands';
+import { applySpeedAlertConfig, getSpeedAlertConfig } from './speedAlertRuntime';
+/* ARCH-05 — uzak kanalın ayar uygulama kapısı (bkz. `security/enforcement`). */
+import { authorizeSettingApply } from './security/enforcement';
 import { logInfo }                                 from './debug';
 import { useLayoutStore }                          from '../store/useLayoutStore';
+import { applyIncomingThemeManifest, applyThemeManifest } from './theme/themeRuntime';
+import { migrateLegacyThemeVars, THEME_BASE_IDS, type ThemeBaseId } from './theme/themeManifest';
+import { useCarTheme, baseOf } from '../store/useCarTheme';
+
+/** Araçta o an geçerli baz tema (manifest desteği olmayan legacy tema → 'expedition'). */
+function currentCarThemeBase(): ThemeBaseId {
+  try {
+    const b = baseOf(useCarTheme.getState().theme);
+    return (THEME_BASE_IDS as readonly string[]).includes(b) ? (b as ThemeBaseId) : 'expedition';
+  } catch {
+    return 'expedition';
+  }
+}
 
 // buildNavIntent — website/ fork bağımlılığından koparıldı; ana app içinde (navIntent.ts).
 import { buildNavIntent } from './navIntent';
+import {
+  acceptHandoffDestination, recordHandoffOutcome,
+} from './navigation/destinationHandoff';
 
 // ── Supabase client — statik import (dynamic import INEFFECTIVE_DYNAMIC_IMPORT uyarısını tetikler)
 // remoteCommandService ve weatherService zaten statik import yaptığı için
@@ -38,6 +58,22 @@ function getSupabase() {
 
 const MAX_RETRY         = 3;
 const RECONNECT_DELAY   = 3_000;   // ms — bağlantı kopunca bekleme
+
+/**
+ * Bekleyen komut yoklama aralığı (ms).
+ *
+ * NEDEN POLL VAR (#647): Supabase Realtime `postgres_changes` olayları da
+ * RLS'e tabidir ve araç Supabase'e **oturumsuz** (anon) bağlanır → `auth.uid()`
+ * NULL → araç kendi komutlarının INSERT olayını HİÇ GÖREMEZ. Yani abonelik
+ * kurulsa bile komut İTİLMEZ. Cihazın komutu görebildiği tek yol, api_key ile
+ * doğrulanan `fetch_pending_vehicle_commands` RPC'sidir → ÇEKME şarttır.
+ *
+ * 15 s: komut TTL'i 5 dakikadır (website `api/pwa/command`), dolayısıyla en kötü
+ * durumda TTL'in %5'i kadar gecikme eklenir. Hot-path DEĞİLDİR: tek satırlık,
+ * indeksli (`idx_vcmd_vehicle_status`) bir RPC çağrısıdır; 3 Hz hız/RPM yoluna
+ * girmez. Push-to-Wake (FCM) çalıştığında bu yol yalnız güvence kaplamasıdır.
+ */
+const PENDING_POLL_MS   = 15_000;
 const PUSH_EDGE_FN_URL  = (import.meta.env.VITE_SUPABASE_URL as string | undefined)
   ? `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/push-notify`
   : null;
@@ -46,7 +82,13 @@ const PUSH_EDGE_FN_URL  = (import.meta.env.VITE_SUPABASE_URL as string | undefin
 
 export type CommandType =
   | 'lock' | 'unlock' | 'horn' | 'alarm_on' | 'alarm_off'
-  | 'lights_on' | 'route_send' | 'navigation_start' | 'theme_change' | 'layout_change';
+  | 'lights_on' | 'route_send' | 'navigation_start' | 'theme_change' | 'layout_change'
+  // Teşhis komutları (2026-08-14): PWA bunları ÖNCEDEN gönderiyordu ama araç
+  // tarafında tip hiç tanımlı değildi → `default: rejected`. Ölü uç kapatıldı.
+  | 'read_dtc' | 'clear_dtc' | 'read_voltage'
+  // Hız uyarısı eşiği (2026-08-14): aynı ölü uç — telefon "Kaydedildi ✓" diyordu
+  // ama ayar araca hiç ulaşmıyordu.
+  | 'set_speed_alert';
 
 interface VehicleCommand {
   id:              string;
@@ -59,7 +101,9 @@ interface VehicleCommand {
   created_at:      string;
   retry_count?:    number;
   last_attempt_at?: string | null;
-  error_reason?:   string | null;
+  /* Şemadaki gerçek ad `error_message`tir (#647). Eskiden burada `error_reason`
+     yazıyordu ve durum yazma yolu da o adı kullanıyordu → `42703`. */
+  error_message?:  string | null;
 }
 
 // ── Tehlikeli komut koruması ──────────────────────────────────────────────────
@@ -70,30 +114,232 @@ const SPEED_THRESHOLD_KMH = 5;
 // Fiziksel (MCU/CAN) komutlar — yalnız E2E ile gelmelidir (CommandService.java MCU_COMMANDS ile birebir).
 const MCU_COMMANDS: CommandType[] = ['lock', 'unlock', 'horn', 'alarm_on', 'alarm_off', 'lights_on'];
 
-let currentSpeedKmh = 0;
-export function updateCurrentSpeed(speedKmh: number): void {
+/**
+ * E2E şifreleme ZORUNLU olan komutlar. MCU listesi native tarafla birebir eşleşmek
+ * zorunda olduğu için genişletilmez; yıkıcı teşhis yazması (`clear_dtc`) buraya
+ * eklenir — ECU'dan kod silmek fiziksel komut kadar geri döndürülemezdir.
+ */
+const E2E_REQUIRED_COMMANDS: CommandType[] = [...MCU_COMMANDS, 'clear_dtc'];
+
+/**
+ * Hız ölçümünün geçerli sayıldığı en uzun yaş. Bundan eskisi **ölçüm değil,
+ * hatıradır**: OBD koptuktan sonra donmuş "0 km/h" ile kapı açık tutulursa
+ * araç 100 km/h giderken uzaktan kilit açılabilirdi (kütük #574'ün ikinci ucu).
+ *
+ * 10 s: ürünün en yavaş hız kaynağı olan OBD'nin sahada ölçülmüş kadansı
+ * ~4,3 s'tir (kütük #549) — iki kaçırılmış paket hâlâ tolere edilir, üçüncüsü
+ * "bilinmiyor" der.
+ */
+const SPEED_MAX_AGE_MS = 10_000;
+
+/**
+ * Son ölçüm — **`null` = hiç ölçülmedi**. Eskiden `0` ile başlıyordu ve bu
+ * sahte sıfır "araç duruyor" anlamına geliyordu; ölçüm hiç gelmese bile kapı
+ * kendini beslenmiş sanıyordu.
+ */
+let currentSpeedKmh: number | null = null;
+let currentSpeedAtMs = 0;
+
+/**
+ * Kapının hız otoritesini besler. İKİ besleyicisi vardır (füzyon hız akışı ve
+ * yedek doğrudan OBD akışı), bu yüzden **eski damgalı örnek taze örneği
+ * EZEMEZ** — yoksa yedek kaynak, birincil kaynağın yeni ölçümünü geri alırdı.
+ */
+export function updateCurrentSpeed(speedKmh: number, atMs: number = Date.now()): void {
+  if (currentSpeedKmh !== null && atMs < currentSpeedAtMs) return;
   currentSpeedKmh = speedKmh;
+  currentSpeedAtMs = atMs;
 }
 
-function isDangerousWhileMoving(type: CommandType): boolean {
-  return DANGEROUS_WHILE_MOVING.includes(type) && currentSpeedKmh > SPEED_THRESHOLD_KMH;
+/** Sürüş güvenliği kapısının üç hükmü — "bilinmiyor" ayrı bir sonuçtur. */
+export type MovingGateVerdict = 'ALLOW' | 'BLOCK' | 'SPEED_UNKNOWN';
+
+/**
+ * Kapı hükmü — SAF (girdiler dışarıdan; `Date.now` · global durum YOK).
+ *
+ * `SPEED_UNKNOWN` bilinçli olarak `BLOCK` DEĞİLDİR: kapalı otoparkta (GPS yok,
+ * kontak kapalı → OBD yok) kullanıcının aracını uzaktan açamaması ürünü kırardı.
+ * Ama bu kabul **kanıtsızdır** ve öyle sayılır: ayrı sayaçla defterlenir ve
+ * CAROS LAB'da görünür — "güvenlik kapısı çalışıyor" iddiası ÜRETİLMEZ.
+ */
+export function judgeMovingGate(
+  isDangerous: boolean,
+  speedKmh:    number | null,
+  ageMs:       number | null,
+  maxAgeMs:    number,
+  thresholdKmh: number,
+): MovingGateVerdict {
+  if (!isDangerous) return 'ALLOW';
+  if (speedKmh === null || ageMs === null || !Number.isFinite(speedKmh)) return 'SPEED_UNKNOWN';
+  if (ageMs > maxAgeMs) return 'SPEED_UNKNOWN';
+  return speedKmh > thresholdKmh ? 'BLOCK' : 'ALLOW';
+}
+
+function movingGateVerdict(type: CommandType, nowMs: number): MovingGateVerdict {
+  return judgeMovingGate(
+    DANGEROUS_WHILE_MOVING.includes(type),
+    currentSpeedKmh,
+    currentSpeedKmh === null ? null : nowMs - currentSpeedAtMs,
+    SPEED_MAX_AGE_MS,
+    SPEED_THRESHOLD_KMH,
+  );
+}
+
+/** Hız kapısının salt-okunur durumu (CAROS LAB). Ölçüm yoksa `null` alanlar. */
+export interface SpeedGateState {
+  readonly lastSpeedKmh: number | null;
+  readonly lastAtMs:     number | null;
+  readonly maxAgeMs:     number;
+  readonly thresholdKmh: number;
+}
+
+export function getSpeedGateState(): SpeedGateState {
+  return {
+    lastSpeedKmh: currentSpeedKmh,
+    lastAtMs:     currentSpeedKmh === null ? null : currentSpeedAtMs,
+    maxAgeMs:     SPEED_MAX_AGE_MS,
+    thresholdKmh: SPEED_THRESHOLD_KMH,
+  };
 }
 
 // ── Executor ─────────────────────────────────────────────────────────────────
 
-async function executeCommand(
-  cmd: VehicleCommand,
-): Promise<'completed' | 'rejected' | 'failed' | 'crypto_failed'> {
+/* ── Kanıt defteri (CAROS LAB gözlemi) ───────────────────────────────────────
+ *
+ * ZORUNLU GÖZLEMLENEBİLİRLİK (CLAUDE.md): "gözlemlenemeyen özellik tamamlanmış
+ * değildir." Uzak komut zinciri bugüne dek HİÇ gözlenemiyordu — bir komut
+ * çalışmadığında "araç almadı mı · reddetti mi · şifre çözülemedi mi · tip
+ * bilinmiyor mu" AYIRT EDİLEMİYORDU.
+ *
+ * GİZLİLİK (kural 6): payload · nonce · api_key · komut kimliği · araç kimliği ·
+ * koordinat BURAYA GİRMEZ. Yalnız SAYILAR, komut TİPİ ve zaman damgaları tutulur.
+ * Sayaçlar doyar (saturating) — sınırsız büyüme yok.
+ */
+
+export interface CommandEvidence {
+  /** Realtime kanalından alınan komut sayısı. */
+  received:        number;
+  completed:       number;
+  rejected:        number;
+  failed:          number;
+  /** E2E şifre çözme/eksik şifreleme nedeniyle REDDEDİLENLER (güvenlik kapısı). */
+  cryptoFailed:    number;
+  /** Bilinmeyen komut tipi — DB tipi ile ürün tipi ayrışmasının doğrudan izi. */
+  unknownType:     number;
+  /** Sürüş güvenliği kapısı (>5 km/h lock/unlock) kaç kez devreye girdi. */
+  movingBlocked:   number;
+  /**
+   * Tehlikeli komutun TAZE hız kanıtı OLMADAN kabul edildiği durumlar.
+   * Bu sayaç sıfırdan büyükse "sürüş güvenliği kapısı korudu" DENEMEZ —
+   * o komutlar kapıdan değil, kapının körlüğünden geçmiştir.
+   */
+  movingUnverified: number;
+  /** TTL aşımıyla düşen komutlar. */
+  ttlExpired:      number;
+  /** Retry sayısı (toplam yeniden deneme). */
+  retries:         number;
+  /** Son işlenen komutun TİPİ (kimliği DEĞİL) ve sonucu. */
+  lastType:        string | null;
+  lastOutcome:     string | null;
+  /** Son işlem anı (epoch ms) — `null` = hiç komut işlenmedi. */
+  lastAt:          number | null;
+
+  /* ── ÇEKME (poll) KANITI — #647 ──────────────────────────────────────────
+   * Bu alanlar OLMADAN dört durum ayırt EDİLEMİYORDU ve kusur tam bu yüzden
+   * uzun süre görünmedi: (a) yoklama HİÇ koşmadı · (b) koştu ama cihaz
+   * anahtarı yok · (c) koştu ve RPC hata verdi · (d) koştu, 0 satır döndü
+   * (gerçekten bekleyen komut yok). LAB ekranı artık dördünü ayırır. */
+
+  /** Tamamlanan yoklama turu sayısı (sonuç ne olursa olsun). */
+  pollRuns:        number;
+  /** Yoklamanın komut DÖNDÜRDÜĞÜ tur sayısı. */
+  pollWithRows:    number;
+  /** Yoklamanın hata verdiği tur sayısı (RPC/ağ/anahtar). */
+  pollErrors:      number;
+  /** Son yoklamada dönen satır sayısı — `null` = hiç yoklama yapılmadı. */
+  lastPollRows:    number | null;
+  /** Son yoklama anı (epoch ms) — `null` = hiç yoklanmadı. */
+  lastPollAt:      number | null;
+  /**
+   * Son yoklamanın sonucu: `'ok'` · `'empty'` · `'no_key'` · `'error'`.
+   * `null` = hiç yoklanmadı. Anahtarın KENDİSİ değil, YALNIZ var/yok.
+   */
+  lastPollOutcome: string | null;
+
+  /* ── E2E AÇIK ANAHTAR YAYINI — P0-001B ──────────────────────────────────
+   * Bu alanlar OLMADAN kusur iki yıl görünmeyebilirdi: yayın `catch` içinde
+   * yutuluyordu ve telefon tarafı dürüstçe "araç anahtarını yayınlamadı"
+   * diyordu — doğru cümle, YANLIŞ sebep (şema eksikti). Artık dört durum
+   * ayrılır: hiç denenmedi · başarılı · reddedildi · hata. */
+
+  /** Yayın denemesi sayısı (her bağlantıda bir kez). */
+  keyPublishRuns:    number;
+  /** Sunucunun KABUL ettiği yayın sayısı. */
+  keyPublishOk:      number;
+  /** Son yayının sonucu: `'ok'` · `'rotated'` · `'rejected'` · `'no_key'` · `'error'`. */
+  keyPublishOutcome: string | null;
+  /** Sunucunun reddetme GEREKÇESİ (`INVALID_KEY_FORMAT` · `UNSUPPORTED_ALG`). */
+  keyPublishReason:  string | null;
+  /** Son yayın anı (epoch ms) — `null` = hiç denenmedi. */
+  keyPublishAt:      number | null;
+}
+
+const MAX_COUNT = 9_999_999;
+const EVIDENCE_SIFIR: CommandEvidence = {
+  received: 0, completed: 0, rejected: 0, failed: 0, cryptoFailed: 0,
+  unknownType: 0, movingBlocked: 0, movingUnverified: 0, ttlExpired: 0, retries: 0,
+  lastType: null, lastOutcome: null, lastAt: null,
+  pollRuns: 0, pollWithRows: 0, pollErrors: 0,
+  lastPollRows: null, lastPollAt: null, lastPollOutcome: null,
+  keyPublishRuns: 0, keyPublishOk: 0,
+  keyPublishOutcome: null, keyPublishReason: null, keyPublishAt: null,
+};
+const _evidence: CommandEvidence = { ...EVIDENCE_SIFIR };
+
+function bump(k: keyof CommandEvidence): void {
+  const v = _evidence[k];
+  if (typeof v === 'number' && v < MAX_COUNT) (_evidence[k] as number) = v + 1;
+}
+
+/** Salt-okunur kopya — LAB bu nesneyi MUTASYONA UĞRATAMAZ. */
+export function getCommandEvidence(): CommandEvidence {
+  return { ..._evidence };
+}
+
+/** Yalnız test içindir. */
+export function _resetCommandEvidenceForTest(): void {
+  Object.assign(_evidence, EVIDENCE_SIFIR);
+}
+
+/**
+ * Yürütme sonucu. `result` yalnız ÖLÇÜM YAPAN komutlarda doludur (teşhis) ve
+ * `vehicle_commands.result` kolonuna yazılır — telefon onu okur. `reason`,
+ * genel gerekçe metnini komuta özel gerçek nedenle DEĞİŞTİRİR (fail-closed:
+ * yoksa eski davranış birebir korunur).
+ */
+type ExecResult = {
+  outcome: 'completed' | 'rejected' | 'failed' | 'crypto_failed';
+  result?: Record<string, unknown>;
+  reason?: string;
+};
+
+async function executeCommand(cmd: VehicleCommand): Promise<ExecResult> {
   let payload = cmd.payload;
 
   // ── C1 fix: Kritik (MCU/CAN) komut E2E olmadan ASLA icra edilmez ────────────
   // Plaintext fiziksel komut = kategorik red. Yalnız başarılı E2E decrypt icra kapısıdır
   // (decrypt aşağıda; başarısızsa crypto_failed). Çift-dinleyici (C3) nonce-replay ile
   // doğal korunur: ilk decrypt nonce'u tüketir, ikinci dinleyici 'Replay Attack' alır.
-  if (MCU_COMMANDS.includes(cmd.type) && !isE2EPayload(payload)) {
+  if (E2E_REQUIRED_COMMANDS.includes(cmd.type) && !isE2EPayload(payload)) {
     console.error(`[CmdListener] Kritik komut E2E olmadan reddedildi: ${cmd.type}`);
-    return 'crypto_failed';
+    return { outcome: 'crypto_failed' };
   }
+
+  /* ARCH-05: E2E doğrulaması bu kanalın KRİPTOGRAFİK kimlik kanıtıdır ve
+     YALNIZ bu dosya (kanalın sahibi) onu üretebilir. Aşağıdaki `decrypt`
+     BAŞARIRSA `true` olur; başarısız her yol zaten erken döner. Yıkıcı teşhis
+     yürütücüsü bu kanıtı kendisi UYDURAMAZ — parametre olarak alır. */
+  let e2eVerified = false;
 
   // ── E2E (ECDH) deşifreleme — yeni yol, önce kontrol edilir ──────────────────
   if (isE2EPayload(payload)) {
@@ -101,17 +347,18 @@ async function executeCommand(
     if (!privKey) {
       // Anahtar henüz yüklenmemiş — bu kritik bir başlangıç sorunudur
       console.error('[CmdListener] E2E private key yüklenmemiş; komut reddedildi.');
-      return 'crypto_failed';
+      return { outcome: 'crypto_failed' };
     }
     try {
       payload = await decryptE2EPayload(payload, privKey, {
         crossChannelNonceCheck: checkCrossChannelNonceReplay,
       });
+      e2eVerified = true;
     } catch (err) {
       // Zero-Plaintext: hata mesajını logla, komutu ASLA icra etme
       const reason = err instanceof Error ? err.message : 'Decryption Error';
       console.error(`[CmdListener] E2E deşifreleme başarısız: ${reason}`);
-      return 'crypto_failed';
+      return { outcome: 'crypto_failed' };
     }
 
   // ── Legacy PBKDF2 deşifreleme — geriye dönük uyumluluk ──────────────────────
@@ -125,17 +372,25 @@ async function executeCommand(
         );
       } else {
         console.warn('[CmdListener] Şifreli payload alındı fakat api_key bulunamadı.');
-        return 'rejected';
+        return { outcome: 'rejected' };
       }
     } catch (err) {
       console.error('[CmdListener] PBKDF2 deşifreleme başarısız:', err);
-      return 'failed';
+      return { outcome: 'failed' };
     }
   }
 
-  if (isDangerousWhileMoving(cmd.type)) {
+  const gate = movingGateVerdict(cmd.type, Date.now());
+  if (gate === 'BLOCK') {
+    bump('movingBlocked');
     console.warn(`[CmdListener] ${cmd.type} sürüş sırasında reddedildi (${currentSpeedKmh} km/h)`);
-    return 'rejected';
+    return { outcome: 'rejected' };
+  }
+  if (gate === 'SPEED_UNKNOWN') {
+    /* Tehlikeli komut TAZE hız kanıtı OLMADAN geçiyor. Reddedilmez (bkz.
+       `judgeMovingGate`), ama sessizce "güvenli" de sayılmaz — sayılır. */
+    bump('movingUnverified');
+    console.warn(`[CmdListener] ${cmd.type} taze hız ölçümü olmadan kabul edildi.`);
   }
 
   try {
@@ -147,92 +402,252 @@ async function executeCommand(
       case 'alarm_off':
       case 'lights_on':
         // H-4: nativeCommandBridge → CarLauncherPlugin → McuCommandFactory → CAN bus
-        return await executeMcuCommand(cmd.type);
+        return { outcome: await executeMcuCommand(cmd.type) };
+
+      // ── Teşhis okumaları — sonuç `vehicle_commands.result`'a yazılır ────────
+      // Araç bağlı değilse "arıza yok"/"0 V" DENMEZ; yürütücü fail-closed davranır.
+      case 'read_dtc':
+        return await executeReadDtc();
+
+      case 'read_voltage':
+        return await executeReadVoltage();
+
+      case 'clear_dtc':
+        /* Yıkıcı: write-gate (hız · rpm · bağlantı) kararı burada EZİLMEZ ve
+           ARCH-05 yetki kapısı AYRICA işler — uzak kanal CLEAR_DTC yetkisini
+           yalnız DOĞRULANMIŞ E2E kanıtıyla kazanır (`read_dtc` yetkisi silme
+           yetkisi DEĞİLDİR). */
+        return await executeClearDtc({ e2eVerified });
+
+      case 'set_speed_alert': {
+        /* ARCH-05 · AYAR UYGULAMA KAPISI. Ayar sınıflandırılır ve gerekiyorsa
+           yetki sorulur: KALICI BİR AYAR DEĞERİ ASLA YETKİ ÜRETMEZ — uygulama
+           anında yetki ayrıca sorulur, dolayısıyla açılıştaki hidrasyon bir
+           kapı AÇAMAZ. Reddedilirse çalışma zamanı yan etkisi SIFIRDIR. */
+        const settingAuthz = authorizeSettingApply({
+          principalClass: 'PHONE_REMOTE', key: 'speed_alert',
+          operationId: `remote.settings.speed_alert:${cmd.id}`,
+          channel: { e2eVerified, authenticated: true },
+        });
+        if (!settingAuthz.allowed) {
+          return { outcome: 'rejected', reason: 'Bu ayar için yetki yok — değişiklik uygulanmadı' };
+        }
+        // Zero-trust: eşik UZAKTAN gelir. Doğrulama düşerse ayar DEĞİŞMEZ ve
+        // komut `failed` olur — sessizce "kaydedildi" denmez (eski yalanın kökü).
+        const ok = applySpeedAlertConfig(payload.speed_alert ?? payload);
+        if (!ok) {
+          return { outcome: 'failed', reason: 'Geçersiz hız uyarısı ayarı (eşik 30–250 km/h olmalı)' };
+        }
+        const cfg = getSpeedAlertConfig();
+        return {
+          outcome: 'completed',
+          result: {
+            speedAlert: cfg,
+            appliedAt:  new Date().toISOString(),
+          },
+        };
+      }
 
       case 'route_send':
       case 'navigation_start': {
+        /* SAHA KUSURU (2026-08-21, kullanıcı bildirdi — kütük #694):
+         *
+         * Burası telefondan gelen rotayı HER ZAMAN harici uygulamaya
+         * gönderiyordu: `buildNavIntent()` bir `geo:` URI üretiyor,
+         * `window.open` Android seçicisini açıyor ve **Google Maps** rotayı
+         * çiziyordu. Aracın kendi rota motoru (`navigationService`) bu yoldan
+         * HİÇ çağrılmadı — üstelik varsayılan `provider_intent` de
+         * `'google_maps'` idi, yani hiçbir şey seçilmese bile dışarı çıkıyordu.
+         *
+         * ARTIK: varsayılan KENDİ NAVİGASYONUMUZ. Harici sağlayıcıya yalnız
+         * kullanıcı telefonda AÇIKÇA onu seçmişse gidilir. Bilinmeyen/eksik
+         * sağlayıcı da kendi haritamıza düşer (fail-safe: dışarı çıkmak
+         * geri alınamaz, içeride kalmak alınabilir).
+         */
         const route = (payload.route ?? payload) as {
           lat: number; lng: number;
           address_name?: string;
           provider_intent?: string;
         };
-        const lat  = Number(route.lat);
-        const lng  = Number(route.lng);
-        if (!Number.isFinite(lat) || lat < -90 || lat > 90 ||
-            !Number.isFinite(lng) || lng < -180 || lng > 180) {
-          console.error('[CmdListener] Geçersiz koordinat:', lat, lng);
-          return 'failed';
+
+        const provider = String(route.provider_intent ?? '').trim().toLowerCase();
+        const EXTERNAL = new Set(['google_maps', 'yandex', 'waze', 'apple_maps']);
+
+        if (EXTERNAL.has(provider)) {
+          const lat = Number(route.lat);
+          const lng = Number(route.lng);
+          if (!Number.isFinite(lat) || lat < -90 || lat > 90 ||
+              !Number.isFinite(lng) || lng < -180 || lng > 180) {
+            console.error('[CmdListener] Geçersiz koordinat:', lat, lng);
+            return { outcome: 'failed', reason: 'Geçersiz koordinat' };
+          }
+          const intentUri = buildNavIntent(lat, lng, route.address_name ?? '',
+            provider as 'google_maps' | 'yandex' | 'waze' | 'apple_maps');
+          window.open(intentUri, '_blank');
+          return { outcome: 'completed', result: { provider, target: 'external_app' } };
         }
-        const intentUri = buildNavIntent(lat, lng, route.address_name ?? '',
-          (route.provider_intent ?? 'google_maps') as 'google_maps' | 'yandex' | 'waze' | 'apple_maps');
-        // Android'de intent URI'yi window.open ile aç
-        window.open(intentUri, '_blank');
-        return 'completed';
+
+        /* KOORDİNATSIZ ROTA (dashboard `RemoteCommandPanel` yolu): yalnız adres
+           METNİ gönderiliyor (`{ route: { address_name } }`). Eskiden bu yük
+           `geo:NaN,NaN` üretiyordu — telefon "iletildi" derken araçta hiçbir
+           şey olmuyordu. Metin varsa mevcut adres çözümleme yolu kullanılır;
+           yeni geocoder/rota motoru KURULMAZ. */
+        const labelText = String(route.address_name ?? '').trim();
+        const hasCoords = Number.isFinite(Number(route.lat)) && Number.isFinite(Number(route.lng));
+        if (!hasCoords && labelText.length > 0) {
+          void (async () => {
+            try {
+              const [{ resolveAndNavigate }, { getGPSState }] = await Promise.all([
+                import('./addressNavigationEngine'),
+                import('./gpsService'),
+              ]);
+              const gps = getGPSState().location;
+              resolveAndNavigate(
+                labelText,
+                gps ? { lat: gps.latitude, lng: gps.longitude } : undefined,
+              );
+            } catch (e) {
+              console.error('[CmdListener] Adres çözümleme yolu düştü:', e);
+            }
+          })();
+          /* `completed` = "araç adresi ÇÖZMEYE BAŞLADI" — rota kuruldu demek
+             DEĞİLDİR ve öyle de yazılmaz (sonuç alanı bunu açıkça söyler). */
+          return {
+            outcome: 'completed',
+            result: { target: 'caros_nav', mode: 'address_lookup', query: labelText },
+          };
+        }
+
+        /* Kendi navigasyonumuz — TEK merkezi kapı (geo: intent yolu ile AYNI). */
+        const outcome = acceptHandoffDestination({
+          lat: Number(route.lat),
+          lng: Number(route.lng),
+          label: route.address_name ?? null,
+          channel: 'REMOTE_COMMAND',
+        });
+        recordHandoffOutcome(outcome, 'REMOTE_COMMAND');
+
+        if (!outcome.ok) {
+          /* Sessiz "completed" YASAK: telefon "iletildi" derken araçta hiçbir
+             şey olmaması, kapatmaya çalıştığımız yalanın ta kendisidir. */
+          console.error('[CmdListener] Rota reddedildi:', outcome.reason);
+          return {
+            outcome: outcome.reason === 'debounced' ? 'completed' : 'failed',
+            reason: outcome.reason === 'debounced'
+              ? undefined
+              : `Rota kurulamadı: ${outcome.reason}`,
+            result: { target: 'caros_nav', handoff: outcome.reason },
+          };
+        }
+
+        return {
+          outcome: 'completed',
+          result: {
+            target: 'caros_nav',
+            destination: outcome.destination.name,
+            startedAt: new Date().toISOString(),
+          },
+        };
       }
 
       case 'theme_change': {
-        const theme     = String(payload.theme ?? 'dark');
-        const themeVars = payload.themeVars as Record<string, string> | undefined;
-        document.documentElement.setAttribute('data-theme', theme);
-        if (themeVars && typeof themeVars === 'object') {
-          Object.entries(themeVars).forEach(([k, v]) => {
-            document.documentElement.style.setProperty(k, String(v));
-          });
+        /* Tema Manifesti v2 — TEK kapı, fail-CLOSED.
+         *
+         * SAHA KUSURU (kapatıldı): eskiden `payload.theme` yoksa `data-theme`
+         * doğrudan "dark" yapılıyordu. 'dark' geçerli bir CarTheme DEĞİLDİR →
+         * tüm `[data-theme="pro|tesla|…"]` CSS kuralları ıskalıyor, üstelik
+         * useCarTheme store'u güncellenmediği için React layout eski temada
+         * kalıyordu (yarı bozuk ekran). Artık baz tema YALNIZ store üzerinden
+         * (useCarTheme.setTheme) değişir ve yalnız BİLİNEN tema id'leri kabul edilir.
+         */
+        if (payload.manifest !== undefined) {
+          const r = applyIncomingThemeManifest(payload.manifest, 'command');
+          if (!r.ok) {
+            console.warn('[CmdListener] Tema manifesti reddedildi:', r.reason);
+            return { outcome: 'failed', reason: `Tema manifesti reddedildi: ${r.reason ?? 'bilinmeyen'}` };
+          }
+          return {
+            outcome: 'completed',
+            result: {
+              themeId: r.themeId,
+              themeVersion: r.themeVersion,
+              appliedAt: new Date().toISOString(),
+              /* #659: aracın TANIMADIĞI şema anahtarları. Boş dizi = hepsi
+                 tanındı. Şema sürümü bilerek yükseltilmediği için eski APK
+                 yeni alanları sessizce düşürüyordu; artık telefon "araç bunu
+                 bilmiyor" diyebilir. Yalnız ANAHTAR ADLARI taşınır. */
+              unsupportedKeys: r.unsupportedKeys ?? [],
+            },
+          };
         }
-        localStorage.setItem('theme', theme);
-        return 'completed';
+
+        // Geri-uyum: manifest'siz eski PWA sürümü yalnız `themeVars` yollar.
+        const legacyTheme = typeof payload.theme === 'string' ? payload.theme : null;
+        const baseId: ThemeBaseId | null =
+          legacyTheme && (THEME_BASE_IDS as readonly string[]).includes(legacyTheme)
+            ? (legacyTheme as ThemeBaseId)
+            : null;
+        const themeVars = payload.themeVars as Record<string, unknown> | undefined;
+        if (!baseId && (!themeVars || typeof themeVars !== 'object')) {
+          return { outcome: 'failed', reason: 'theme_change: manifest yok, tanınan tema/themeVars da yok' };
+        }
+        const migrated = migrateLegacyThemeVars(themeVars, baseId ?? currentCarThemeBase());
+        applyThemeManifest(migrated, 'command', { setBaseTheme: baseId !== null, persist: true });
+        return {
+          outcome: 'completed',
+          result: { themeId: migrated.themeId, schemaVersion: 1, migrated: true },
+        };
       }
 
       case 'layout_change': {
         // Tema Stüdyo ekran düzeni niyeti — zero-trust normalize + store'a uygula.
         // ProLayout store'u okuyup solveLayout ile yeniden render eder (fail-soft: bozuksa varsayılan).
         useLayoutStore.getState().applyIntent(payload.layout);
-        return 'completed';
+        return { outcome: 'completed' };
       }
 
       default:
+        bump('unknownType');
         console.warn('[CmdListener] Bilinmeyen komut tipi:', cmd.type);
-        return 'rejected';
+        return { outcome: 'rejected' };
     }
   } catch (err) {
     console.error('[CmdListener] Execute hatası:', err);
-    return 'failed';
+    return { outcome: 'failed' };
   }
 }
 
 // ── Durum güncelleme ─────────────────────────────────────────────────────────
 
+/**
+ * Komut durumunu yazar — TEK KAPI: `update_command_status` RPC (api_key kimliği).
+ *
+ * ── ÖLÇÜLEN KUSUR (#647, 2026-08-19, prod salt-okunur) ──────────────────────
+ * Burası eskiden `vehicle_commands` tablosuna DOĞRUDAN REST `PATCH` atıyordu.
+ * Prod'da bu yolun ÜÇ ayrı ölümcül engeli vardı:
+ *   1. `anon` rolünün `vehicle_commands` üzerinde HİÇBİR tablo ayrıcalığı YOK
+ *      (037 daralttı) → istek daha RLS'e varmadan reddediliyordu.
+ *   2. Varsa bile UPDATE politikası `auth.uid()`e dayanıyor; araç oturumsuz
+ *      bağlanır → 0 satır (#646'daki OKUMA kusurunun aynısı, yazma ucunda).
+ *   3. Yazılan `error_reason` kolonu şemada HİÇ YOK → `42703`.
+ * Yani araç komutu işlese bile durumu HİÇBİR ZAMAN geri yazamıyordu; telefon
+ * komutu sonsuza dek `pending` görüyordu.
+ *
+ * Artık cihaz kimliğinin şemadaki TEK karşılığı olan `api_key` yolu kullanılır
+ * (069'un OKUMA ucuyla simetrik). At-least-once kuyruk garantisi
+ * `updateRemoteCommandStatus` içinde KORUNUR — ikinci kuyruk kurulmaz.
+ */
 async function updateCommandStatus(
   commandId:   string,
   status:      'accepted' | 'executing' | 'completed' | 'failed' | 'rejected',
   errorReason?: string,
+  /**
+   * Ölçüm sonucu (yalnız teşhis komutlarında). YAZILMAZSA kolon OLDUĞU GİBİ
+   * kalır — "sonuç okunmadı" ile "sonuç boş" ayrımı korunur; sahte `{}` yok.
+   */
+  result?: Record<string, unknown>,
 ): Promise<void> {
-  const SUPABASE_URL     = import.meta.env.VITE_SUPABASE_URL      as string | undefined;
-  const SUPABASE_ANON    = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
-
-  if (!SUPABASE_URL || !SUPABASE_ANON) return;
-
-  const now     = new Date().toISOString();
-  const updates: Record<string, unknown> = { status };
-  if (status === 'accepted')  updates.accepted_at = now;
-  if (status === 'executing') updates.last_attempt_at = now;
-  if (['completed', 'failed', 'rejected'].includes(status)) updates.finished_at = now;
-  if (errorReason) updates.error_reason = errorReason;
-
-  // Komut durumu kritik — kuyruğa al, at-least-once garantisi
-  await connectivityService.enqueue(
-    `${SUPABASE_URL}/rest/v1/vehicle_commands?id=eq.${commandId}`,
-    'PATCH',
-    {
-      'Content-Type':  'application/json',
-      'apikey':        SUPABASE_ANON,
-      'Authorization': `Bearer ${SUPABASE_ANON}`,
-      'Prefer':        'return=minimal',
-    },
-    updates,
-    'high',
-    'cmd_status',
-  );
+  await updateRemoteCommandStatus(commandId, status, errorReason, result);
 }
 
 // ── Retry increment (RPC üzerinden — atomik) ─────────────────────────────────
@@ -264,6 +679,62 @@ async function triggerPushNotify(
   } catch { /* fire-and-forget — bildirim hatası ana akışı etkilemez */ }
 }
 
+/**
+ * Bekleyen komutları CİHAZ KİMLİĞİYLE okur — TEK OKUMA KAPISI.
+ *
+ * ── ÖLÇÜLEN KUSUR (#646/#647) ───────────────────────────────────────────────
+ * Burası eskiden `vehicle_commands` tablosunu doğrudan sorguluyordu. Prod'da:
+ *   · `anon` rolünün bu tabloda HİÇBİR ayrıcalığı yok (037) → izin reddi,
+ *   · SELECT politikalarının üçü de `auth.uid()`e dayanıyor ve araç oturumsuz
+ *     bağlanıyor → 0 satır.
+ * Sonuç sahada şuydu: telefon "✓ ARACA GÖNDERİLDİ" diyor, komut satırı
+ * `pending` kalıyor, TTL doluyor, araçta HİÇBİR ŞEY olmuyordu.
+ *
+ * `fetch_pending_vehicle_commands` (069) `api_key_hash` ile YALNIZ bu aracın
+ * pending + TTL'i geçmemiş + retry tavanını aşmamış komutlarını FIFO döner.
+ * Geçersiz anahtar → istisna; başka aracın satırı hiçbir koşulda dönmez.
+ *
+ * Fail-soft: ağ/anahtar hatası boş dizi döner — çağıran akış kırılmaz.
+ */
+async function fetchPendingCommands(): Promise<VehicleCommand[]> {
+  bump('pollRuns');
+  _evidence.lastPollAt = Date.now();
+  try {
+    const rows = await callVehicleRpc('fetch_pending_vehicle_commands', {
+      p_max_retry: MAX_RETRY,
+      p_limit:     10,
+    });
+    /* `callVehicleRpc` cihaz anahtarı ya da yapılandırma yoksa `null` döner —
+       bu "bekleyen komut yok" DEĞİLDİR ve öyle raporlanmaz (sahte 0 yasak). */
+    if (rows === null) {
+      bump('pollErrors');
+      _evidence.lastPollRows    = null;
+      _evidence.lastPollOutcome = 'no_key';
+      return [];
+    }
+    if (!Array.isArray(rows)) {
+      bump('pollErrors');
+      _evidence.lastPollRows    = null;
+      _evidence.lastPollOutcome = 'error';
+      return [];
+    }
+    /* Sunucu sırasını (FIFO, `created_at ASC`) KORU — yeniden sıralama YOK. */
+    const cmds = rows.filter(
+      (r): r is VehicleCommand =>
+        !!r && typeof r === 'object' && typeof (r as { id?: unknown }).id === 'string',
+    );
+    _evidence.lastPollRows    = cmds.length;
+    _evidence.lastPollOutcome = cmds.length > 0 ? 'ok' : 'empty';
+    if (cmds.length > 0) bump('pollWithRows');
+    return cmds;
+  } catch {
+    bump('pollErrors');
+    _evidence.lastPollRows    = null;
+    _evidence.lastPollOutcome = 'error';
+    return [];
+  }
+}
+
 // ── Ana Listener Sınıfı ───────────────────────────────────────────────────────
 
 export class CommandListener {
@@ -273,9 +744,16 @@ export class CommandListener {
   private executedIds:    Set<string> = new Set(); // ID bazlı dedup (nonce değil)
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private retryTimers:    Map<string, ReturnType<typeof setTimeout>> = new Map();
+  private pollTimer:      ReturnType<typeof setInterval> | null = null;
+  private polling =       false;  // yoklamalar üst üste binmesin (yavaş ağ)
 
   constructor(vehicleId: string) {
     this.vehicleId = vehicleId;
+  }
+
+  /** Bildirim hedefi — `notifyVehicleEvent` için salt-okunur erişim. */
+  getVehicleId(): string {
+    return this.vehicleId;
   }
 
   async connect(): Promise<void> {
@@ -283,26 +761,13 @@ export class CommandListener {
     const supabase = await getSupabase();
     if (!supabase || !this._alive) return;
 
-    // ── E2E Anahtar Init + Supabase'e Public Key Yayını ─────────────────────
+    // ── E2E Anahtar Init + Açık Anahtar Yayını (P0-001B) ────────────────────
     // loadOrCreateDeviceKey RAM'i önbelleğe alır; ilk çağrı ~10–20ms, sonraki <1 μs.
     // Bağlantı kurulmadan önce anahtar hazır olmalı — komutlar gelmeden önce init tam olsun.
-    try {
-      const { pubKeyB64 } = await loadOrCreateDeviceKey();
-      // vehicles tablosuna e2e_public_key yaz — telefon bu key ile şifreler
-      await supabase
-        .from('vehicles')
-        .upsert({
-          id:             this.vehicleId,
-          e2e_public_key: pubKeyB64,
-          e2e_key_alg:    'ECDH-P256-AES-GCM-256',
-        });
-    } catch (e) {
-      // Non-fatal: anahtar publish başarısız olursa eski key ile devam
-      console.warn('[CmdListener] E2E public key publish başarısız:', e);
-    }
+    await this.publishPublicKey();
 
     // Reconnect'te bekleyen + retry-eligible komutları işle
-    await this.processPendingCommands(supabase);
+    await this.processPendingCommands();
 
     this.channel = supabase
       .channel(`vehicle-cmds:${this.vehicleId}`)
@@ -325,6 +790,25 @@ export class CommandListener {
           this.scheduleReconnect();
         }
       });
+
+    this.startPolling();
+  }
+
+  /**
+   * Periyodik yoklama — komutun araca ulaşmasının TEK GÜVENİLİR yolu.
+   * Realtime aboneliği anon istemcide RLS yüzünden olay ÜRETMEZ (bkz.
+   * `PENDING_POLL_MS`), bu yüzden yoklama "yedek" değil ASIL yoldur.
+   * Zero-Leak: tek timer; `disconnect()` her koşulda temizler.
+   */
+  private startPolling(): void {
+    if (this.pollTimer || !this._alive) return;
+    this.pollTimer = setInterval(() => {
+      if (!this._alive || this.polling) return;
+      this.polling = true;
+      void this.processPendingCommands()
+        .catch(() => { /* fail-soft: bir tur düşerse bir sonraki tur dener */ })
+        .finally(() => { this.polling = false; });
+    }, PENDING_POLL_MS);
   }
 
   /**
@@ -333,13 +817,16 @@ export class CommandListener {
    */
   async triggerPendingPoll(): Promise<void> {
     if (!this._alive) return;
-    const supabase = await getSupabase();
-    if (!supabase) return;
-    await this.processPendingCommands(supabase);
+    await this.processPendingCommands();
   }
 
   disconnect(): void {
     this._alive = false;
+    if (this.pollTimer) {
+      clearInterval(this.pollTimer);
+      this.pollTimer = null;
+    }
+    this.polling = false;
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -369,26 +856,80 @@ export class CommandListener {
   //   2. retry_count < MAX_RETRY olanları dahil et
   //   3. FIFO sırayla işle
 
-  private async processPendingCommands(
-    supabase: NonNullable<Awaited<ReturnType<typeof getSupabase>>>,
-  ): Promise<void> {
-    const now = new Date().toISOString();
+  /**
+   * Aracın E2E **AÇIK** anahtarını yayınlar — P0-001B.
+   *
+   * ── NEDEN RPC, NEDEN DOĞRUDAN UPSERT DEĞİL ────────────────────────────
+   * Burası eskiden `supabase.from('vehicles').upsert({ e2e_public_key … })`
+   * çağırıyordu. İKİ ayrı nedenle hiç çalışmadı:
+   *   ① `vehicles.e2e_public_key` kolonu üretimde HİÇ YOKTU (ölçüldü);
+   *   ② kolon olsaydı bile araç Supabase'e **oturumsuz** (`anon`) bağlanır ve
+   *      `vehicles` UPDATE politikası `auth.uid()`e dayanır → 0 satır.
+   * Hata `catch` içinde yutulduğu için kimse fark etmedi; telefon tarafı
+   * *"araç anahtarını henüz yayınlamadı"* diyordu — doğru cümle, yanlış sebep.
+   *
+   * Sonuç: `lock · unlock · horn · alarm_on · alarm_off · lights_on ·
+   * clear_dtc` komutları üretimde **hiç gönderilemedi** (telefon zarfı
+   * üretemedi, araç da düz metni kategorik reddediyor).
+   *
+   * Yayın artık komut OKUMA ucuyla aynı sözleşmede: `api_key` ile doğrulayan
+   * SECURITY DEFINER RPC (`publish_device_public_key`, migration 073).
+   *
+   * GİZLİLİK: yayınlanan değer ECDH **açık** anahtarıdır; özel anahtar araçta
+   * Keystore'da kalır ve buradan ASLA çıkmaz.
+   *
+   * FAIL-SOFT ama SESSİZ DEĞİL: yayın başarısız olursa bağlantı sürer (komut
+   * okuma ayrı yoldur), fakat sonuç `_evidence`e yazılır — "denenmedi",
+   * "reddedildi" ve "hata" ayrı ayrı görünür.
+   */
+  private async publishPublicKey(): Promise<void> {
+    bump('keyPublishRuns');
+    _evidence.keyPublishAt = Date.now();
+    try {
+      const { pubKeyB64 } = await loadOrCreateDeviceKey();
 
-    const { data: cmds } = await supabase
-      .from('vehicle_commands')
-      .select('*')
-      .eq('vehicle_id', this.vehicleId)
-      .eq('status', 'pending')
-      .gt('ttl', now)                         // TTL geçmemiş
-      .lt('retry_count', MAX_RETRY)           // max retry aşılmamış
-      .order('created_at', { ascending: true })
-      .limit(10);
+      const res = await callVehicleRpc('publish_device_public_key', {
+        p_public_key: pubKeyB64,
+        p_alg:        'ECDH-P256-AES-GCM-256',
+      });
 
-    for (const cmd of cmds ?? []) {
+      /* `callVehicleRpc` cihaz anahtarı ya da yapılandırma yoksa `null` döner —
+         bu "yayın başarısız" DEĞİL, "hiç denenemedi"dir (sahte hata yasak). */
+      if (res === null) {
+        _evidence.keyPublishOutcome = 'no_key';
+        _evidence.keyPublishReason  = null;
+        return;
+      }
+
+      const row = res as { ok?: boolean; rotated?: boolean; reason?: string };
+      if (row?.ok === true) {
+        bump('keyPublishOk');
+        _evidence.keyPublishOutcome = row.rotated === true ? 'rotated' : 'ok';
+        _evidence.keyPublishReason  = null;
+        return;
+      }
+
+      _evidence.keyPublishOutcome = 'rejected';
+      _evidence.keyPublishReason  =
+        typeof row?.reason === 'string' ? row.reason : null;
+      console.warn(
+        `[CmdListener] E2E açık anahtar yayını REDDEDİLDİ: ${_evidence.keyPublishReason ?? 'gerekçe yok'}`,
+      );
+    } catch {
+      /* Ağ/RPC hatası. Anahtarın KENDİSİ loglanmaz. */
+      _evidence.keyPublishOutcome = 'error';
+      _evidence.keyPublishReason  = null;
+    }
+  }
+
+  private async processPendingCommands(): Promise<void> {
+    const cmds = await fetchPendingCommands();
+
+    for (const cmd of cmds) {
       if (!this._alive) break;
       // ID dedup: zaten bu session'da işlenmiş olanları atla
-      if (this.executedIds.has(cmd.id as string)) continue;
-      await this.handleCommand(cmd as unknown as VehicleCommand);
+      if (this.executedIds.has(cmd.id)) continue;
+      await this.handleCommand(cmd);
     }
   }
 
@@ -396,7 +937,11 @@ export class CommandListener {
 
   private async handleCommand(cmd: VehicleCommand): Promise<void> {
     // 1. TTL kontrolü
+    bump('received');
     if (cmd.ttl && new Date(cmd.ttl) < new Date()) {
+      bump('ttlExpired');
+      _evidence.lastType = cmd.type; _evidence.lastOutcome = 'ttl_expired';
+      _evidence.lastAt = Date.now();
       await updateCommandStatus(cmd.id, 'failed', 'TTL aşıldı');
       return;
     }
@@ -415,10 +960,20 @@ export class CommandListener {
     await updateCommandStatus(cmd.id, 'accepted');
     await updateCommandStatus(cmd.id, 'executing');
 
-    const outcome = await executeCommand(cmd);
+    const { outcome, result, reason } = await executeCommand(cmd);
+
+    /* Kanıt: hangi tip, hangi sonuç, ne zaman. Komut KİMLİĞİ ve payload
+       defterlere GİRMEZ (gizlilik kuralı 6). */
+    _evidence.lastType = cmd.type;
+    _evidence.lastOutcome = outcome;
+    _evidence.lastAt = Date.now();
+    if (outcome === 'completed')          bump('completed');
+    else if (outcome === 'rejected')      bump('rejected');
+    else if (outcome === 'crypto_failed') bump('cryptoFailed');
 
     if (outcome === 'completed') {
-      await updateCommandStatus(cmd.id, 'completed');
+      // `result` yalnız ölçüm yapan komutlarda doludur → diğerlerinde kolon NULL kalır.
+      await updateCommandStatus(cmd.id, 'completed', undefined, result);
       // Push bildirim: komut tamamlandı
       void triggerPushNotify('command_completed', cmd.vehicle_id, {
         command_id:    cmd.id,
@@ -428,8 +983,11 @@ export class CommandListener {
     }
 
     if (outcome === 'rejected') {
-      // Güvenlik reddi — retry yok
-      await updateCommandStatus(cmd.id, 'rejected', 'Sürüş güvenliği: komut reddedildi');
+      // Güvenlik reddi — retry yok. Yürütücü gerçek gerekçe verdiyse o kullanılır
+      // (write-gate mesajı gibi); vermediyse eski genel metin BİREBİR korunur.
+      await updateCommandStatus(
+        cmd.id, 'rejected', reason ?? 'Sürüş güvenliği: komut reddedildi',
+      );
       return;
     }
 
@@ -448,6 +1006,7 @@ export class CommandListener {
       logInfo(`[CmdListener] Retry ${retryCount + 1}/${MAX_RETRY} — ${backoffMs}ms sonra: ${cmd.id}`);
 
       // DB'yi güncelle (retry_count++ ve status pending kalır)
+      bump('retries');
       await incrementRetry(cmd.id, `Attempt ${retryCount + 1} failed`);
 
       // ID dedup'tan çıkar — bir sonraki retry'da tekrar işlenebilsin
@@ -457,25 +1016,23 @@ export class CommandListener {
       const timer = setTimeout(async () => {
         this.retryTimers.delete(cmd.id);
         if (!this._alive) return;
-        // Güncel cmd'yi DB'den çek (retry_count güncellenmiş olabilir)
-        const supabase = await getSupabase();
-        if (!supabase) return;
-        const { data } = await supabase
-          .from('vehicle_commands')
-          .select('*')
-          .eq('id', cmd.id)
-          .eq('status', 'pending')
-          .single();
-        if (data) await this.handleCommand(data as unknown as VehicleCommand);
+        /* Güncel satırı DB'den çek (retry_count artmış olabilir). Tabloyu
+           DOĞRUDAN sorgulamak ölü yoldur (#647: anon'un tablo ayrıcalığı YOK)
+           → aynı api_key kapısından okunur ve bu komut kimliği aranır. */
+        const fresh = (await fetchPendingCommands()).find((c) => c.id === cmd.id);
+        if (fresh) await this.handleCommand(fresh);
       }, backoffMs);
 
       this.retryTimers.set(cmd.id, timer);
     } else {
-      // Max retry aşıldı → kalıcı failed
-      await updateCommandStatus(cmd.id, 'failed', `${MAX_RETRY} denemede başarısız`);
+      // Max retry aşıldı → kalıcı failed. Yürütücünün gerçek gerekçesi varsa
+      // ("adaptörden ATRV gelmiyor" gibi) sayı yerine O gösterilir.
+      bump('failed');
+      const finalReason = reason ?? `${MAX_RETRY} denemede başarısız`;
+      await updateCommandStatus(cmd.id, 'failed', finalReason);
       void triggerPushNotify('command_failed', cmd.vehicle_id, {
         command_id:   cmd.id,
-        error_reason: `${MAX_RETRY} denemede başarısız`,
+        error_reason: finalReason,
       });
     }
   }
@@ -485,21 +1042,61 @@ export class CommandListener {
 
 let _instance: CommandListener | null = null;
 
-export function startCommandListener(vehicleId: string): () => void {
-  stopCommandListener();
-  _instance = new CommandListener(vehicleId);
+/**
+ * Dinleyici KALICI mı? — sahiplik tek yerde tutulur (#647).
+ *
+ * ÖLÇÜLEN ÇAKIŞMA: iki modül aynı dinleyiciyi yönetiyordu. `pushService`
+ * (Play Services yoksa) KALICI bir dinleyici açıyor, `fcmService` ise kendi
+ * 30 sn'lik boşta sayacı dolunca `stopCommandListener()` diyerek ONU
+ * KAPATIYORDU. Kapatan taraf açanı bilmediği için araç sessizce sağır kalıyordu.
+ *
+ * Artık karar dinleyicinin KENDİSİNDEDİR: boşta-kapatma (`force` olmayan
+ * çağrı) kalıcı dinleyiciyi ÖLDÜREMEZ. Gerçek kapatma (uygulama sökülüşü)
+ * `force = true` ile yapılır.
+ */
+let _permanent = false;
+
+export function startCommandListener(
+  vehicleId: string,
+  opts?: { permanent?: boolean },
+): () => void {
+  const permanent = opts?.permanent === true;
+  // Kalıcı dinleyici zaten canlıysa geçici bir uyandırma onu YENİDEN KURMAZ:
+  // bağlantı ve `executedIds` dedup kümesi korunur.
+  if (_instance && _permanent && !permanent) return () => { /* sahip değiliz */ };
+
+  stopCommandListener(true);
+  _permanent = permanent;
+  _instance  = new CommandListener(vehicleId);
   void _instance.connect();
-  return stopCommandListener;
+  return () => stopCommandListener(permanent);
 }
 
-export function stopCommandListener(): void {
+export function stopCommandListener(force = false): void {
+  if (_permanent && !force) return;
   _instance?.disconnect();
-  _instance = null;
+  _instance  = null;
+  _permanent = false;
 }
 
 /** Listener canlı mı? pushService wake kararı için. */
 export function isCommandListenerActive(): boolean {
   return _instance !== null;
+}
+
+/**
+ * Araç kaynaklı bir olayı eşleşmiş telefona bildirir (hız uyarısı gibi).
+ * Bildirim yolu TEK OTORİTEDİR — `triggerPushNotify` burada kalır, çağıranlar
+ * kendi `fetch`ini kurmaz. Araç eşleştirilmemişse (listener yok) sessizce
+ * hiçbir şey yapılmaz: kime bildirileceği bilinmez, uydurma hedef seçilmez.
+ */
+export function notifyVehicleEvent(
+  event:   string,
+  payload: Record<string, unknown>,
+): void {
+  const vehicleId = _instance?.getVehicleId();
+  if (!vehicleId) return;
+  void triggerPushNotify(event, vehicleId, payload);
 }
 
 /**

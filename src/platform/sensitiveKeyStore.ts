@@ -24,7 +24,14 @@ export type SensitiveKey =
   | 'geminiApiKey'
   | 'claudeHaikuApiKey'
   | 'groqApiKey'
+  | 'openRouterApiKey'      // AI Gateway (OpenRouter) — tek anahtarla çok-model erişimi (BYOK)
   | 'tavilyApiKey'          // Tavily web-arama anahtarı — Groq'a internet grounding sağlar
+  /* Adres/geocoding sağlayıcıları (BYOK) — bkz. geocodingProviders.ts.
+     Hangi anahtar KAYITLIYSA o sağlayıcı kullanılır; ayrı "sağlayıcı seç"
+     ayarı YOKTUR. Hiçbiri yoksa ücretsiz OSM zinciri çalışır (varsayılan). */
+  | 'geocodeGoogleApiKey'
+  | 'geocodeHereApiKey'
+  | 'geocodeYandexApiKey'
   | 'car-e2e-private-key'   // ECDH P-256 private key (JWK) — NativeCryptoManager alias'ı ile aynı (C4)
   | 'veh_device_id'
   | 'veh_api_key'
@@ -50,7 +57,15 @@ const _isNative = Capacitor.isNativePlatform();
  * bu depo Android Auto Backup ile Google Drive'a yedeklenir ve geri gelir.
  * Yalnızca geminiApiKey ve claudeHaikuApiKey bu depoya yazılır.
  */
-const RECOVERY_KEYS: SensitiveKey[] = ['geminiApiKey', 'claudeHaikuApiKey', 'groqApiKey', 'tavilyApiKey'];
+const RECOVERY_KEYS: SensitiveKey[] = ['geminiApiKey', 'claudeHaikuApiKey', 'groqApiKey', 'tavilyApiKey', 'openRouterApiKey', 'geocodeGoogleApiKey', 'geocodeHereApiKey', 'geocodeYandexApiKey'];
+
+/**
+ * Bu anahtar reinstall kurtarma kapsamında mı? (STATİK metadata — depoya
+ * dokunmaz, native çağrı YAPMAZ.) UI "kurtarılabilir" rozetini bununla gösterir.
+ */
+export function isRecoveryKey(key: SensitiveKey): boolean {
+  return RECOVERY_KEYS.includes(key);
+}
 
 async function _recoverySet(key: SensitiveKey, value: string): Promise<void> {
   if (!_isNative || !RECOVERY_KEYS.includes(key)) return;
@@ -307,7 +322,12 @@ export const sensitiveKeyStore = {
       // dirilirdi. Recovery boş değerle ezilir; cihaz blob sync'i güncel
       // değerleri nativeGet ile topladığından silinen anahtar otomatik düşer.
       await _recoverySet(key, '');
-      if (RECOVERY_KEYS.includes(key)) void _deviceBackupSync();
+      // ⚠️ AWAIT ZORUNLU (fire-and-forget DEĞİL): blob senkronu beklenmezse,
+      // silmenin hemen ardından gelen bir get() ESKİ blob'u okuyup silinen
+      // anahtarı GERİ DİRİLTEBİLİR ("silinen anahtar tekrar gelmesin" ihlali).
+      // set() yolunda beklememek serbesttir (orada eski blob zararsızdır),
+      // silmede değil.
+      if (RECOVERY_KEYS.includes(key)) await _deviceBackupSync();
       return;
     }
     const store = _webLoadRaw();

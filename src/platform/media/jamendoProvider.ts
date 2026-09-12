@@ -15,6 +15,21 @@ import { getJamendoClientId } from './mediaCredentials';
 
 const API = 'https://api.jamendo.com/v3.0';
 
+/* ── Harici yanıt sözleşmesi (GÜVENİLMEZ — her alan opsiyonel) ─────────────
+   Şemasız üçüncü taraf JSON'u; alan eksik ya da farklı tipte gelebilir. Bu
+   arayüz API'nin ne döndürdüğünü BELGELER, garanti etmez — erişimler bu
+   yüzden opsiyonel zincir + varsayılanla korunur. */
+interface JamendoTrack {
+  id?:          string;
+  name?:        string;
+  artist_name?: string;
+  album_image?: string;
+  image?:       string;
+  /** Çalınabilir akış URL'si; YOKSA parça atlanır. */
+  audio?:       string;
+}
+
+
 export const jamendoProvider: MediaProvider = {
   id: 'jamendo',
   async search(query, signal) {
@@ -33,9 +48,10 @@ export const jamendoProvider: MediaProvider = {
       const res = await fetch(`${API}/tracks/?${params.toString()}`, { signal });
       if (!res.ok) return [];
       const json    = await res.json();
-      const results = (json?.results ?? []) as any[];
+      const results = (json?.results ?? []) as JamendoTrack[];
       return results
-        .filter((t) => t.audio)
+        // Boolean(): ESKİ truthiness testinin AYNISI — yalnız tip daraltması eklendi.
+        .filter((t): t is JamendoTrack & { audio: string } => Boolean(t.audio))
         .slice(0, 20)
         .map((t): UnifiedTrack => ({
           id:         `jamendo-${t.id}`,

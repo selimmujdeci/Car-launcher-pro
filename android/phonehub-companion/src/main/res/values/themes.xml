@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+        Araç içi kullanım için koyu tema. Companion telefonda çalışsa da
+        kullanıcı çoğunlukla sürüş bağlamında bakacaktır; koyu zemin + yüksek
+        kontrast okunurluğu artırır.
+    -->
+    <style name="Theme.PhoneHubCompanion" parent="Theme.AppCompat.NoActionBar">
+        <item name="android:windowBackground">#0B0F14</item>
+        <item name="android:textColorPrimary">#E6EDF3</item>
+        <item name="android:textColorSecondary">#9AA7B4</item>
+    </style>
+</resources>

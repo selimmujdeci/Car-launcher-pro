@@ -34,6 +34,17 @@ public final class ElmInitSequencer {
     private static final String TAG = "OBD";
 
     /**
+     * #524 — CAN protokollerinde uygulanan ATST değeri (hex). `0x64 × 4 ms ≈ 400 ms`.
+     *
+     * ELM327 varsayılanı 0x32 (~200 ms) idi ve CAN'de HİÇ değiştirilmiyordu; sahada
+     * NO_DATA süresi 151-259 ms ölçüldü, yani adaptör tavana dayanıp pes ediyordu.
+     * ATAT1 açık olduğu için bu değer yalnız TAVANDIR — cevap veren PID'i yavaşlatmaz.
+     * Gerekçe ve neden FF olmadığı: {@code applyProtocolProfile} yorumuna bakınız.
+     * TEK YER: değer değişecekse yalnız burası değişir.
+     */
+    static final String CAN_ST_HEX = "64";
+
+    /**
      * Yapılandırılmış "UNABLE TO CONNECT" hatası — obdService.ts native reject CODE'una
      * bakarak (mesaj string parse'ı YAPMADAN) PROTOCOL_CYCLE'ı yalnız bu sınıfta ilerletir.
      */
@@ -83,6 +94,9 @@ public final class ElmInitSequencer {
         String sp = protocol;
         if (sp != null && sp.length() == 1) {
             checkOk("ATSP" + sp, safeSend("ATSP" + sp, 1000));
+            // OBD-OS-F0-4: protokol BİLİNİYOR → sınıf profilini warm-up'tan ÖNCE uygula
+            // (yavaş seri hatta 0100 warm-up da geniş yanıt penceresinden faydalanır).
+            applyProtocolProfile(sp);
         } else {
             checkOk("ATSP0", safeSend("ATSP0", 1000));
         }
@@ -96,12 +110,118 @@ public final class ElmInitSequencer {
         if (containsIgnoreCase(warm, "SEARCHING")) {
             warm = sendChecked("", 5000);
         }
-        if (compact(warm).contains("UNABLETOCONNECT")) {
-            throw new UnableToConnectException("ELM327: UNABLE TO CONNECT (0100 warm-up, protokol=" + (sp != null ? sp : "auto") + ")");
+        // PR-OBD-PROTO-CYCLE: yalnız "UNABLE TO CONNECT" sert hata sayılıyordu. Yanlış protokol
+        // ZORLANDIĞINDA (araç değişimi: Trafic/KWP→Doblo/CAN) ELM327 "BUS INIT: ...ERROR"
+        // (KWP init CAN araçta) ya da "CAN ERROR" (CAN init KWP araçta) döner — bunlar sahte
+        // başarı sayılıyordu → connected-ama-ölü oturum → JS protokol döngüsü 6'ya HİÇ
+        // ilerlemiyordu → sonsuz "Bağlanıyor" (saha 2026-07-16 Doblo). Hepsi dürüst
+        // UNABLE_TO_CONNECT'tir: JS bu kodla bir sonraki protokol adayına geçer.
+        String warmCompact = compact(warm);
+        // ZORLANMIŞ PROTOKOL + NO DATA = YANLIŞ PROTOKOL (saha 2026-07-16, Renault KWP):
+        // önbellek `obd:lastProtocol='7'` (CAN 29-bit) bir KWP2000 (proto 5) araca ZORLANINCA
+        // ELM327 CAN çerçevesi gönderir, K-hat ECU'su hiç yanıtlamaz → 0100 dahil TÜM Mode-01
+        // "NO DATA" döner. NO DATA sert-hata deseni (BUS INIT/CAN ERROR) OLMADIĞINDAN init
+        // "başarılı" sayılıyordu → bağlı-ama-ölü oturum (ATRV=14.6V çalışır ama 41xx SIFIR) →
+        // JS "bağlandı" sanıp protokol döngüsünü ilerletmiyordu → SONSUZ NO DATA. Artık zorlanmış
+        // protokolde NO DATA da dürüst UNABLE_TO_CONNECT: JS bir sonraki adaya (7→6→5) geçer,
+        // KWP 5'te ECU yanıtlar → bağlanır → ATDPN yazımı bayat '7' önbelleğini düzeltir.
+        // NOT: yalnız sp!=null (zorlanmış). ATSP0-otomatik (sp==null) yolu AYNEN korunur — orada
+        // ELM tüm protokolleri kendi tarar; ayrıca poll-anı NO DATA kurtarması (ATPC+ATWM, proto
+        // 3/4/5) BAĞLANMIŞ oturum içindir, bu init-anı kapısıyla çakışmaz.
+        if (warmCompact.contains("UNABLETOCONNECT")
+            || (warmCompact.contains("BUSINIT") && warmCompact.contains("ERROR"))
+            || warmCompact.contains("CANERROR")
+            || warmCompact.contains("BUSERROR")
+            || (sp != null && warmCompact.contains("NODATA"))) {
+            throw new UnableToConnectException("ELM327: araç bu protokolde yanıt vermedi (0100 warm-up="
+                + summarize(warm) + ", protokol=" + (sp != null ? sp : "auto") + ")");
         }
 
         // 7) ATDPN — aktif protokol numarasını oku (opsiyonel; okunamazsa null döner, akış bozulmaz).
-        return readActiveProtocol();
+        String active = readActiveProtocol();
+
+        // OBD-OS-F0-4: ATSP0 (otomatik) yolunda protokol ancak BURADA öğrenilir → profili
+        // şimdi uygula. Böylece ilk bağlantıda da (protokol önceden bilinmezken) KWP/ISO9141
+        // aracı doğru yanıt penceresiyle poll edilir; sonraki bağlantı zaten (5)'te uygular.
+        if (sp == null && active != null) {
+            applyProtocolProfile(active);
+        }
+        return active;
+    }
+
+    /**
+     * OBD-OS-F0-4 — protokol-sınıfı ELM327 ayarı. YALNIZ yavaş seri protokollerde (ISO 9141-2,
+     * KWP2000) devreye girer; CAN/J1850'de HİÇBİR komut gönderilmez → çalışan CAN davranışı
+     * BİREBİR korunur (ATAT1 adaptif zamanlama zaten devrede).
+     *
+     * NEDEN: KWP/ISO9141 10.4 kbit/s SERİ hattır. ELM327'nin varsayılan yanıt bekleme süresi
+     * (ATST varsayılanı ~200 ms) bu ECU'lar için kısadır → adaptör erken vazgeçip NO DATA
+     * döner, biz de "PID desteklenmiyor" sanırız (yanlış-negatif keşif).
+     *
+     * @param p ELM327 ATSP protokol numarası ("3"=ISO9141-2, "4"/"5"=KWP2000).
+     */
+    private void applyProtocolProfile(String p) {
+        if (p == null || p.isEmpty()) return;
+        char c = Character.toUpperCase(p.charAt(0));
+        boolean slowSerial = (c == '3' || c == '4' || c == '5');
+
+        /* ── #524 · CAN'DE DE ATST AYARLANIR (eskiden HİÇ ayarlanmıyordu) ──────
+         * KÖK NEDEN (kütük #512/#516): bu metot CAN'de erken dönüyordu, yani
+         * ELM327 varsayılan yanıt penceresiyle (ATST 0x32 ≈ 200 ms) çalışıyorduk.
+         * Sahada NO_DATA'da geçen süre 151-259 ms ölçüldü — yani **pes eden biz
+         * değil ADAPTÖRDÜ**: tavana dayanıp NO DATA yazıyordu. Ardından 3 ardışık
+         * NO_DATA eleme eşiğini tetikliyor ve PID kalıcı susturuluyordu.
+         *
+         * NEDEN ZARARSIZ: ATAT1 (adaptif zamanlama) init'te AÇIKTIR ve ST onun
+         * TAVANIDIR. Tavanı yükseltmek cevap VEREN bir PID'in süresini UZATMAZ —
+         * adaptör yanıt gelir gelmez döner. Yalnız YAVAŞ cevaba fırsat tanır.
+         * Maliyet sadece gerçekten cevapsız kalan sorguda ödenir.
+         *
+         * NEDEN 0x64 (≈400 ms) VE FF (≈1020 ms) DEĞİL:
+         *  · Ölçülen adaptör tavanı ~200 ms idi; 0x64 buna İKİ KAT alan açar.
+         *  · Maliyet cevapsız sorguda ödenir ve poll turu extended grupta turda
+         *    EN FAZLA BİR PID okur → tur şişmesi en kötü +0.4 sn. FF ile bu
+         *    +1.0 sn olurdu ve çekirdek tazeliğini (devir/hız) riske atardı —
+         *    kabul ölçütü "çekirdek tazeliği BOZULMAYACAK" der.
+         *  · Yavaş seri protokoller (KWP/ISO9141) FF'te KALIR: orada hat fiziksel
+         *    olarak 10.4 kbit/s'tir ve ölçülmüş bir gerekçesi vardır (F0-4).
+         *
+         * ⚠️ BU DEĞER ÖLÇÜLMEDİ, SEÇİLDİ: ECU'nun gerçek cevap gecikmesi bilinmiyor
+         * (H-A deneyi kaybın görülmediği bir oturuma denk geldi). 0x64 mühendislik
+         * seçimidir; kütük #524'ün kabul ölçütü onu sahada sınar. Yetmezse artırma
+         * yolu açıktır — sabit TEK yerdedir. */
+        if (!slowSerial) {
+            boolean can = (c == '6' || c == '7' || c == '8' || c == '9'
+                        || c == 'A' || c == 'B' || c == 'C');
+            if (can) {
+                safeSend("ATST" + CAN_ST_HEX, 500);
+                try {
+                    android.util.Log.i(TAG, "[ElmInit] CAN protokolü (" + p + ") → ATST "
+                        + CAN_ST_HEX + " (~" + (Integer.parseInt(CAN_ST_HEX, 16) * 4) + " ms) uygulandı");
+                } catch (Throwable ignored) { /* JVM unit test: android.util.Log mock yok */ }
+            }
+            return;   // J1850 / bilinmeyen → dokunma
+        }
+
+        // ATST FF → yanıt bekleme 0xFF × 4 ms ≈ 1020 ms (varsayılan ~200 ms yetmiyor).
+        safeSend("ATSTFF", 500);
+        // PR-OBD-KWP-RECOVER: ATWM C1 33 F1 3E → periyodik wakeup MESAJININ KENDİSİ —
+        // standart KWP2000 fonksiyonel TesterPresent (ISO 14230-4 header C1 33 F1 + servis 3E).
+        // Orijinal ELM327'de bu zaten KWP varsayılanıdır; KLONLARDA yanlış/boş gelebiliyor →
+        // ATSW aralığı doğru olsa bile ECU wakeup'ı reddedip oturumu düşürür (Trafic saha
+        // kanıtı: handshake OK → sonra kalıcı NO DATA). Yalnız KWP ('4'/'5'); ISO9141 ('3')
+        // varsayılanda kalır (farklı wakeup formatı kullanır). Desteklemeyen klon '?' → yoksay.
+        if (c == '4' || c == '5') safeSend("ATWMC133F13E", 500);
+        // ATSW 92 → ELM327'nin ISO/KWP hattında otomatik wakeup (keep-alive) aralığı:
+        // 0x92 × 20 ms ≈ 2.9 sn, KWP2000 P3max (5 sn oturum zaman aşımı) ALTINDA. Böylece
+        // poll seyrekleştiğinde/durduğunda bile ECU oturumu DÜŞMEZ (park sonrası ilk PID
+        // yeniden init beklemez). Bu ELM327'nin YERLEŞİK wakeup'ıdır — burada AÇIKÇA set
+        // ediyoruz çünkü klon adaptörlerde varsayılanın 00 (kapalı) geldiği görülüyor.
+        safeSend("ATSW92", 500);
+        try {
+            android.util.Log.i(TAG, "[ElmInit] Yavaş seri protokol (" + p + ") → ATST FF"
+                + ((c == '4' || c == '5') ? " + ATWM (TesterPresent)" : "") + " + ATSW 92 uygulandı");
+        } catch (Throwable ignored) { /* JVM unit test: android.util.Log mock yok */ }
     }
 
     /**

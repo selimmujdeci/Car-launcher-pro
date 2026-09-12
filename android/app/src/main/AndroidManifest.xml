@@ -80,6 +80,43 @@
                 <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
             </intent-filter>
 
+            <!--
+                KONUM PAYLAŞIMI — "hangi uygulamayla açılsın" seçicisinde CarOS Pro.
+
+                SAHA KUSURU (2026-08-21, kullanıcı bildirdi): WhatsApp'tan gelen
+                konuma basınca Android yalnız Google Maps / Yandex sunuyordu;
+                CarOS Pro listede HİÇ ÇIKMIYORDU — çünkü bu filtre yoktu.
+                Aracın kendi navigasyonu vardı ama sisteme "ben de konum
+                açabilirim" DEMEMİŞTİ.
+
+                KAPSAM DAR TUTULDU (bilinçli): yalnız coğrafi şemalar ve harita
+                paylaşım BAĞLANTILARI yakalanır. Genel `http/https` filtresi
+                KONMAZ — bir launcher'ın tüm web bağlantılarını üstlenmesi
+                kullanıcının tarayıcı seçimini gasp ederdi.
+            -->
+            <intent-filter android:label="@string/app_name">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <!-- geo:41.0,29.0?q=... — WhatsApp/Telegram/Signal konum paylaşımı -->
+                <data android:scheme="geo" />
+                <!-- google.navigation:q=... — "yol tarifi" kısayolları -->
+                <data android:scheme="google.navigation" />
+            </intent-filter>
+
+            <intent-filter android:label="@string/app_name">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <!-- Harita paylaşım bağlantıları (WhatsApp bazı cihazlarda geo: yerine bunu verir) -->
+                <data android:scheme="https" android:host="maps.google.com" />
+                <data android:scheme="https" android:host="www.google.com" android:pathPrefix="/maps" />
+                <data android:scheme="https" android:host="maps.app.goo.gl" />
+                <data android:scheme="https" android:host="goo.gl" android:pathPrefix="/maps" />
+                <data android:scheme="https" android:host="yandex.com.tr" android:pathPrefix="/harita" />
+                <data android:scheme="https" android:host="yandex.com" android:pathPrefix="/maps" />
+            </intent-filter>
+
             <!-- carospro://auth/* Deep Link — şifre sıfırlama ve admin auth -->
             <intent-filter android:autoVerify="false">
                 <action android:name="android.intent.action.VIEW" />
@@ -103,7 +140,15 @@
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <!-- API 24+ şifreli cihazlar — Direct Boot -->
                 <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
-                <!-- HTC / Xiaomi ve bazı OEM'ler -->
+                <!-- HTC / Xiaomi ve bazı OEM head unit ROM'ları.
+                     ⚠️ Bu action AOSP'de PROTECTED BROADCAST DEĞİLDİR → üçüncü taraf
+                     uygulama sahte yollayabilir. BootReceiver.isAcceptedBootAction()
+                     bunu yalnız gerçek açılış penceresinde (QUICKBOOT_MAX_UPTIME_MS)
+                     kabul eder; pencere dışında REDDEDİLİR. Receiver'a permission
+                     KONULMAZ: o gönderenin izne sahip olmasını şart koşar ve QUICKBOOT'u
+                     yollayan OEM bileşeni sistem uid'i olmayabilir → meşru açılış sessizce
+                     kaybolurdu. Bu filtreden action'ı kaldırmak, yalnız hızlı-açılış
+                     yayını üreten head unit'lerde otomatik başlatmayı BOZAR. -->
                 <action android:name="android.intent.action.QUICKBOOT_POWERON" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
@@ -131,6 +176,30 @@
             android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
             <intent-filter>
                 <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
+        <!-- ── MÜZİK HUB PAKET A: Tek Automotive Playback Authority ─────
+             CarosPlaybackService = uygulamanın TEK sesli oynatma otoritesi
+             (Media3 ExoPlayer + MediaSession). Bildirim kontrolleri, kilit
+             ekranı, Bluetooth AVRCP, direksiyon/kulaklık medya tuşları ve
+             UI/Mavi komutları AYNI otoriteye gider.
+
+             exported="true" ZORUNLUDUR: MediaSessionService'e sistem medya
+             kontrolleri (bildirim paneli, kilit ekranı, AVRCP router) bind
+             eder; false olsaydı donanım medya tuşları uygulamaya HİÇ ulaşmazdı.
+             Güvenlik kapısı kodda: CarosPlaybackService.onConnect() yalnızca
+             (a) kendi paketimize ve (b) Android'in "trusted" saydığı sistem
+             controller'larına bağlantı verir; yabancı paketler REDDEDİLİR.
+             Servis harici Intent extra'sı OKUMAZ (intent spoofing yüzeyi yok).
+        ──────────────────────────────────────────────────────────────── -->
+        <service
+            android:name=".media.CarosPlaybackService"
+            android:exported="true"
+            android:foregroundServiceType="mediaPlayback"
+            android:stopWithTask="false">
+            <intent-filter>
+                <action android:name="androidx.media3.session.MediaSessionService" />
             </intent-filter>
         </service>
 
@@ -209,12 +278,27 @@
 
     <!-- Mikrofon — sesli asistan -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- SAHA 2026-08-30 (Xiaomi 23090RA98I / Android 13): WebView (Chromium) mikrofon
+         açmak için RECORD_AUDIO ile BİRLİKTE bunu da ister. Eksikken logcat
+         "Requires MODIFY_AUDIO_SETTINGS and RECORD_AUDIO. No audio device will be
+         available for recording" yazıp kaydı SESSİZCE reddediyordu; getUserMedia
+         kullanan yollar (dashcam ses kaydı · ses seviyesi ölçer · web STT yedeği)
+         cihazda hiç çalışamıyordu. Normal izin — çalışma zamanı sorusu ÇIKARMAZ. -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 
     <!-- Kamera — geri görüş kamerası -->
     <uses-permission android:name="android.permission.CAMERA" />
 
     <!-- Kişiler — Android rehber senkronizasyonu -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
+
+    <!-- Arama başlatma — "annemi ara" sesli komutu.
+         NEDEN GEREKLİ: bu izin OLMADAN yalnız ACTION_DIAL kullanılabilir ve o da
+         çeviriciyi numarayla AÇAR, aramayı BAŞLATMAZ. Sürüş sırasında kullanıcının
+         ekrana uzanıp arama tuşuna basması gerekiyordu — sesli komutun amacı buydu.
+         İzin yoksa davranış ACTION_DIAL'a düşer ve asistan bunu DÜRÜSTÇE söyler
+         (sahte "aranıyor" onayı YOK — bkz. CarLauncherPlugin.callNumber). -->
+    <uses-permission android:name="android.permission.CALL_PHONE" />
 
     <!-- Depolama — dashcam kayıtları + cihaz-içi API anahtarı yedeği -->
     <!-- API 29 ve altı (requestLegacyExternalStorage ile API 29 dahil legacy davranış) -->
@@ -246,6 +330,9 @@
     <!-- Ön plan servisi — arka planda GPS/dashcam -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <!-- MÜZİK HUB PAKET A — Android 14 (API 34+) foregroundServiceType="mediaPlayback"
+         bu izin olmadan SecurityException fırlatır; müzik arka planda susardı. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
 
     <!-- Pil optimizasyonu muafiyeti — MIUI/HyperOS arka plan öldürmesini önler -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />

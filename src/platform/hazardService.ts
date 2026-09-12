@@ -412,9 +412,60 @@ function _updateHazardStatus(
   }
 
   if (next !== _hazardStatusInternal) {
+    // NAV-3: YUKARI geçişte (PREPARE/ATTENTION) TEK seferlik SESLİ uyarı — sürüşte görsel
+    // banner göz teması ister; kritik tehlike (kaza vb.) sesli de duyurulmalı. Yalnız
+    // yükseliş: PREPARE↔ATTENTION salınımı ya da geri düşüş tekrar konuşmaz (durum-geçiş
+    // gate'i zaten spam'i keser; RANK yükseliş kontrolü çift güvence).
+    const wentUp = _statusRank(next) > _statusRank(_hazardStatusInternal);
     _hazardStatusInternal = next;
     setStatus(next);
+    if (wentUp && (next === HazardStatus.PREPARE || next === HazardStatus.ATTENTION)) {
+      _announceHazardVoice(hazards, relevance, next);
+    }
   }
+}
+
+/** Durum şiddet sırası (yalnız YUKARI geçişte sesli uyarı için). */
+function _statusRank(s: HazardStatus): number {
+  switch (s) {
+    case HazardStatus.ATTENTION: return 3;
+    case HazardStatus.PREPARE:   return 2;
+    case HazardStatus.AWARENESS: return 1;
+    default:                     return 0;
+  }
+}
+
+/** Tehlike tipi → TTS sözcüğü (Türkçe, kısa — ISO 15008 sürüş dikkati). */
+const _HAZARD_TTS_LABEL: Record<HazardType, string> = {
+  ACCIDENT:     'kaza',
+  CONSTRUCTION: 'yol çalışması',
+  ROAD_DAMAGE:  'yol hasarı',
+  WEATHER:      'olumsuz hava',
+  SPEED_CAM:    'hız kamerası',
+  TUNNEL:       'tünel',
+};
+
+/**
+ * NAV-3: en yüksek rota-ilgililiğine sahip tehlikeyi tek seferlik seslendirir. Lazy import
+ * (statik döngü yok) + fail-soft (TTS yoksa sessiz). speakNavigation nav-ses kanalını kullanır.
+ */
+function _announceHazardVoice(
+  hazards:   Hazard[],
+  relevance: Record<string, number>,
+  status:    HazardStatus,
+): void {
+  let top: Hazard | null = null;
+  let topRel = 0;
+  for (const h of hazards) {
+    const r = relevance[h.id] ?? 0;
+    if (r > topRel) { topRel = r; top = h; }
+  }
+  if (!top) return;
+  const label  = _HAZARD_TTS_LABEL[top.type] ?? 'tehlike';
+  const msg = status === HazardStatus.ATTENTION
+    ? `Dikkat! Önde ${label}.`
+    : `İleride ${label} var.`;
+  void import('./ttsService').then(({ speakNavigation }) => speakNavigation(msg)).catch(() => { /* TTS yoksa sessiz */ });
 }
 
 /* ── Motor başlatma / durdurma ───────────────────────────────────────────── */
@@ -477,6 +528,44 @@ export function injectCommunityHazard(
     isCommunity:       true,
   };
 
+  useHazardStore.getState().upsertHazard(hazard);
+}
+
+/* ── NAV-4: RESMİ trafik olayı enjeksiyonu (HERE/TomTom Incidents) ────────── */
+
+/**
+ * RESMİ trafik olayını (HERE/TomTom Incidents API — gerçek kaza, yol kapama, çalışma)
+ * Hazard motoruna enjekte eder. Community'den FARKI: kaynak resmi → yüksek güven/şiddet,
+ * `source='HERE'|'TOMTOM'`, `isCommunity=false`. Görsel banner + NAV-3 SESLİ anons zaten
+ * devrede → "ileride kaza var" artık gerçek resmi veriyle çalışır. Aynı olay ID'si upsert
+ * ile tazelenir; API'den düşünce tipe-bağlı decay ile solar. BYOK: yalnız kullanıcı anahtar
+ * girdiyse çalışır (satışa gömülü anahtar YOK).
+ *
+ * @param sourceId  Kaynak olay kimliği (kararlı upsert için).
+ * @param confidence Resmi olay güveni [0-1] (varsayılan 0.9 — resmi kaynak yüksek).
+ */
+export function injectOfficialHazard(
+  sourceId:   string,
+  lat:        number,
+  lng:        number,
+  type:       HazardType,
+  source:     'HERE' | 'TOMTOM',
+  confidence  = 0.9,
+): void {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return;
+  const hazard: Hazard = {
+    id:                `off_${source}_${sourceId}`,
+    type,
+    lat,
+    lng,
+    severity:          0.80,                    // resmi olay → yüksek şiddet
+    source,
+    timestamp:         Date.now(),
+    initialConfidence: Math.max(0, Math.min(1, confidence)),
+    decayRate:         DEFAULT_DECAY[type],     // tipe göre solar; yeniden çekince upsert tazeler
+    influenceRadius:   DEFAULT_RADIUS[type],
+    isCommunity:       false,
+  };
   useHazardStore.getState().upsertHazard(hazard);
 }
 

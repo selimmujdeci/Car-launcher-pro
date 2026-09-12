@@ -18,9 +18,16 @@ import { MediaScreen } from '../media/MediaScreen';
 import { PhoneScreen } from '../phone/PhoneScreen';
 import type { AppItem, MusicOptionKey } from '../../data/apps';
 import type { DrawerType }              from './DockBar';
+import { useCarosLabAllowed }           from '../../hooks/useCarosLabAllowed';
+import { shouldRenderCarosLab }         from '../../platform/devtools/carosLabGate';
 
 const SuperAdminShell = lazy(() =>
   import('../admin/SuperAdminShell').then((m) => ({ default: m.SuperAdminShell })),
+);
+
+// CAROS LAB — yalnız geliştirici kapısı açıkken indirilir/mount edilir.
+const CarosLabShell = lazy(() =>
+  import('../devtools/CarosLabShell').then((m) => ({ default: m.CarosLabShell })),
 );
 
 // Ağır paneller — ilk render'da yüklenmez, ilk açılışta indir
@@ -53,14 +60,23 @@ interface Props {
   onClosePassenger: () => void;
   /** Navigasyon alt çubuğundan drawer açma — FullMapView'e iletilir */
   onOpenDrawerFromMap?: (type: 'music' | 'phone' | 'apps' | 'settings') => void;
+  /**
+   * F4 · Sürüş dikkat düzeyi — MEVCUT `smartEngine` otoritesinden kabuk
+   * üzerinden iletilir. Yüzeyler kendi sürüş kararını ÜRETMEZ.
+   */
+  drivingMode?: 'idle' | 'normal' | 'driving';
 }
 
 export const DrawerPanel = memo(function DrawerPanel({
   drawer, onClose, defaultMusic, allApps, favorites, gridColumns, onToggleFav, onLaunch,
   onOpenMap, splitOpen, onCloseSplit, rearCamOpen, onCloseRearCam,
   fullMapOpen, onCloseMap, passengerOpen, onClosePassenger,
-  onOpenDrawerFromMap,
+  onOpenDrawerFromMap, drivingMode,
 }: Props) {
+  // CAROS LAB kapısı — FAIL-CLOSED. Kapı kapalıysa 'caros-lab' drawer'ı istense bile
+  // (doğrudan openDrawer çağrısı dahil) ekran RENDER EDİLMEZ.
+  const carosLabOpen = shouldRenderCarosLab(drawer, useCarosLabAllowed());
+
   return (
     <>
       <DrawerShell open={drawer === 'apps'} onClose={onClose}>
@@ -69,7 +85,7 @@ export const DrawerPanel = memo(function DrawerPanel({
 
       <DrawerShell open={drawer === 'settings'} onClose={onClose} fullscreen>
         <Suspense fallback={null}>
-          <SettingsPage onClose={onClose} onOpenMap={() => { onClose(); onOpenMap(); }} />
+          <SettingsPage onClose={onClose} onOpenMap={() => { onClose(); onOpenMap(); }} drivingMode={drivingMode} />
         </Suspense>
       </DrawerShell>
 
@@ -120,7 +136,7 @@ export const DrawerPanel = memo(function DrawerPanel({
       </DrawerShell>
 
       <DrawerShell open={drawer === 'music'} onClose={onClose}>
-        <MediaScreen defaultMusic={defaultMusic} />
+        <MediaScreen defaultMusic={defaultMusic} drivingMode={drivingMode} />
       </DrawerShell>
 
       <DrawerShell open={drawer === 'phone'} onClose={onClose}>
@@ -131,6 +147,17 @@ export const DrawerPanel = memo(function DrawerPanel({
         <Suspense fallback={null}>
           <SuperAdminShell />
         </Suspense>
+      </DrawerShell>
+
+      {/* CAROS LAB — DrawerShell kapalıyken de çocuğu MOUNT tuttuğu için (Freeze deseni)
+          içerik KOŞULLU render edilir: kapalıyken hiçbir geliştirici ekranı, aboneliği
+          veya yakalama kanalı yaşamaz (TrafficPanel ile aynı kanıtlanmış desen). */}
+      <DrawerShell open={carosLabOpen} onClose={onClose} fullscreen>
+        {carosLabOpen && (
+          <Suspense fallback={null}>
+            <CarosLabShell onClose={onClose} />
+          </Suspense>
+        )}
       </DrawerShell>
 
       <Suspense fallback={null}>

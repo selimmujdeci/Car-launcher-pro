@@ -59,7 +59,8 @@ export const VehicleTellTales = memo(function VehicleTellTales() {
 
   const SZ = 22;
   return (
-    <div className="flex items-center justify-center" style={{ gap: 6, flexWrap: 'wrap' }}>
+    <div data-editable="vehicle.telltales" data-editable-type="card"
+      className="flex items-center justify-center" style={{ gap: 6, flexWrap: 'wrap' }}>
       <Cell active={turnL} color="#2ecc40" label="SOL" blink>
         <ChevronsLeft width={SZ} height={SZ} />
       </Cell>

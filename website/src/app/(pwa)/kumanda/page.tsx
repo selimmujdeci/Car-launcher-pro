@@ -12,9 +12,10 @@ import { clearLocalVehicle } from '@/lib/pairingService';
 const VehicleMapView     = lazy(() => import('@/components/pwa/VehicleMapView'));
 const DiagnosticsPanel   = lazy(() => import('@/components/pwa/DiagnosticsPanel'));
 const RecordsPanel       = lazy(() => import('@/components/pwa/RecordsPanel'));
+const TripJournalPanel   = lazy(() => import('@/components/pwa/TripJournalPanel'));
 const ThemeStudio        = lazy(() => import('@/components/pwa/ThemeStudio').then(m => ({ default: m.ThemeStudio })));
 
-type Tab = 'kumanda' | 'eslestir' | 'harita' | 'teshis' | 'kayitlar' | 'tema';
+type Tab = 'kumanda' | 'eslestir' | 'harita' | 'seyir' | 'teshis' | 'kayitlar' | 'tema';
 
 export default function KumandaPage() {
   useRealtime();
@@ -60,7 +61,12 @@ export default function KumandaPage() {
   }, []);
 
   const handlePaired = useCallback(() => {
+    /* Yerel kayıt ANINDA görünür kılar (ağ beklenmez); Supabase okuması ise
+       gerçek adı/plakayı ve telemetriyi getirir. #632 öncesinde yalnız yerel
+       okuma vardı ve o okuma `api_key` yoksa aracı düşürüyordu → "eşleşti"
+       denip eşleştirme ekranına geri dönülüyordu. */
     useVehicleStore.getState().initializeFromLocal();
+    void useVehicleStore.getState().initializeFromSupabase();
     setActiveTab('kumanda');
   }, []);
 
@@ -127,6 +133,14 @@ export default function KumandaPage() {
             </button>
           )}
         </>
+      );
+    }
+
+    if (activeTab === 'seyir') {
+      return (
+        <Suspense fallback={lazySpinner}>
+          <TripJournalPanel vehicle={vehicle} />
+        </Suspense>
       );
     }
 
@@ -312,6 +326,21 @@ export default function KumandaPage() {
               <path d="M7.5 2.5V15M12.5 5V17.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
             </svg>
             <span className="text-[9px] font-semibold">Harita</span>
+          </button>
+
+          {/* Seyir Defteri */}
+          <button
+            onClick={() => setActiveTab('seyir')}
+            className="flex flex-col items-center gap-1 py-1 px-2 transition-colors"
+            style={{ color: activeTab === 'seyir' ? '#60a5fa' : 'var(--pwa-text-3)' }}
+          >
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+              <path d="M4 4.5A1.5 1.5 0 015.5 3H15a1 1 0 011 1v12a1 1 0 01-1 1H5.5A1.5 1.5 0 014 15.5v-11z"
+                stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
+              <path d="M4 14.5A1.5 1.5 0 015.5 13H16" stroke="currentColor" strokeWidth="1.5"/>
+              <path d="M7.5 6.5h5M7.5 9.5h3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+            </svg>
+            <span className="text-[9px] font-semibold">Seyir</span>
           </button>
 
           {/* Teşhis */}

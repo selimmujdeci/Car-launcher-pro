@@ -11,7 +11,10 @@ test.describe('App Grid', () => {
 
   test('app grid acilir', async ({ page }) => {
     // Dock'ta uygulamalar görünür
-    const dockItems = page.locator('[data-dock-item], .dock-bar button');
+    /* `.ex-dock-btn` savunma derinliğidir: `data-dock-item` artık varsayılan
+       temada (Expedition) da var, ama tema değişirse kilit sessizce 0 element
+       bulup düşmesin diye ikinci bir tutamak bırakıldı (kütük #679). */
+    const dockItems = page.locator('[data-dock-item], .dock-bar button, .ex-dock-btn');
     await expect(dockItems.first()).toBeVisible({ timeout: 5000 });
 
     // Uygulama sayısını kontrol et

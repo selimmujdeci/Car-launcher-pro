@@ -1,0 +1,311 @@
+[
+ {
+  "label": "attach",
+  "at": "2026-09-06T08:12:01.258Z",
+  "data": {
+   "settings": true,
+   "system": true,
+   "mapStore": true,
+   "dayNightMode": "day"
+  }
+ },
+ {
+  "label": "install-trace",
+  "at": "2026-09-06T08:12:01.281Z",
+  "data": "already installed"
+ },
+ {
+  "label": "open FULL",
+  "at": "2026-09-06T08:12:03.432Z",
+  "data": "opened"
+ },
+ {
+  "label": "FULL hazır",
+  "at": "2026-09-06T08:12:08.471Z",
+  "data": {
+   "follow": {
+    "cameraMode": "FOLLOWING",
+    "centered": true,
+    "autoRecenterPending": false,
+    "autoDelayMs": 10000,
+    "reason": "NONE",
+    "panAgeMs": null,
+    "followZoom": 6,
+    "listeners": 1
+   },
+   "camera": {
+    "zoom": 15,
+    "pitch": 0,
+    "bearing": 0
+   }
+  }
+ },
+ {
+  "label": "sürüş modu AÇ",
+  "at": "2026-09-06T08:12:08.709Z",
+  "data": {
+   "onceAcikti": false,
+   "before": {
+    "cameraMode": "FOLLOWING",
+    "centered": true,
+    "autoRecenterPending": false,
+    "autoDelayMs": 10000,
+    "reason": "NONE",
+    "panAgeMs": null,
+    "followZoom": 6,
+    "listeners": 1
+   },
+   "after": {
+    "cameraMode": "FOLLOWING",
+    "centered": true,
+    "autoRecenterPending": false,
+    "autoDelayMs": 10000,
+    "reason": "NAV_START",
+    "panAgeMs": null,
+    "followZoom": 15,
+    "listeners": 1
+   },
+   "mark": 3235
+  }
+ },
+ {
+  "label": "giriş sonrası",
+  "at": "2026-09-06T08:12:12.232Z",
+  "data": {
+   "follow": {
+    "cameraMode": "FOLLOWING",
+    "centered": true,
+    "autoRecenterPending": false,
+    "autoDelayMs": 10000,
+    "reason": "NAV_START",
+    "panAgeMs": null,
+    "followZoom": 15,
+    "listeners": 1
+   },
+   "camera": {
+    "zoom": 18,
+    "pitch": 38,
+    "bearing": 0
+   }
+  }
+ },
+ {
+  "label": "giriş kamera komutları",
+  "at": "2026-09-06T08:12:13.028Z",
+  "data": {
+   "toplam": 1,
+   "komutlar": [
+    {
+     "op": "easeTo",
+     "t": 142795,
+     "zoom": 18,
+     "pitch": 38,
+     "duration": 1000,
+     "followBefore": "RECENTERING",
+     "followAfter": "RECENTERING"
+    }
+   ],
+   "duplicate": 0,
+   "panningOlaylari": [
+    {
+     "op": "zoomstart",
+     "origin": "PROGRAMMATIC",
+     "mode": "RECENTERING"
+    },
+    {
+     "op": "pitchstart",
+     "origin": "PROGRAMMATIC",
+     "mode": "RECENTERING"
+    },
+    {
+     "op": "zoomend",
+     "origin": "PROGRAMMATIC",
+     "mode": "FOLLOWING"
+    },
+    {
+     "op": "pitchend",
+     "origin": "PROGRAMMATIC",
+     "mode": "FOLLOWING"
+    }
+   ]
+  }
+ },
+ {
+  "label": "programatik → USER_PANNING sayısı",
+  "at": "2026-09-06T08:12:13.050Z",
+  "data": {
+   "programatikOlay": 32,
+   "kullaniciSayilan": 0,
+   "ornekler": [
+    {
+     "op": "zoomstart",
+     "mode": "FOLLOWING"
+    },
+    {
+     "op": "zoomstart",
+     "mode": "FOLLOWING"
+    },
+    {
+     "op": "zoomstart",
+     "mode": "FOLLOWING"
+    },
+    {
+     "op": "zoomstart",
+     "mode": "FOLLOWING"
+    },
+    {
+     "op": "zoomstart",
+     "mode": "FOLLOWING"
+    },
+    {
+     "op": "zoomstart",
+     "mode": "FOLLOWING"
+    },
+    {
+     "op": "zoomstart",
+     "mode": "FOLLOWING"
+    },
+    {
+     "op": "rotatestart",
+     "mode": "FOLLOWING"
+    }
+   ]
+  }
+ },
+ {
+  "label": "parmak pan (hemen sonra)",
+  "at": "2026-09-06T08:12:14.046Z",
+  "data": {
+   "follow": {
+    "cameraMode": "FOLLOWING",
+    "centered": true,
+    "autoRecenterPending": false,
+    "autoDelayMs": 10000,
+    "reason": "NAV_START",
+    "panAgeMs": null,
+    "followZoom": 15,
+    "listeners": 1
+   },
+   "camera": {
+    "zoom": 18,
+    "pitch": 38,
+    "bearing": 0
+   }
+  }
+ },
+ {
+  "label": "parmak pan (1.6 sn sonra)",
+  "at": "2026-09-06T08:12:15.260Z",
+  "data": {
+   "follow": {
+    "cameraMode": "FOLLOWING",
+    "centered": true,
+    "autoRecenterPending": false,
+    "autoDelayMs": 10000,
+    "reason": "NAV_START",
+    "panAgeMs": null,
+    "followZoom": 15,
+    "listeners": 1
+   },
+   "camera": {
+    "zoom": 18,
+    "pitch": 38,
+    "bearing": 0
+   }
+  }
+ },
+ {
+  "label": "pan olayları",
+  "at": "2026-09-06T08:12:15.267Z",
+  "data": []
+ },
+ {
+  "label": "ORTALA",
+  "at": "2026-09-06T08:12:16.104Z",
+  "data": {
+   "before": {
+    "cameraMode": "FOLLOWING",
+    "centered": true,
+    "autoRecenterPending": false,
+    "autoDelayMs": 10000,
+    "reason": "NAV_START",
+    "panAgeMs": null,
+    "followZoom": 15,
+    "listeners": 1
+   },
+   "after": {
+    "cameraMode": "FOLLOWING",
+    "centered": true,
+    "autoRecenterPending": false,
+    "autoDelayMs": 10000,
+    "reason": "USER_BUTTON",
+    "panAgeMs": null,
+    "followZoom": 18,
+    "listeners": 1
+   }
+  }
+ },
+ {
+  "label": "ortala sonrası",
+  "at": "2026-09-06T08:12:18.623Z",
+  "data": {
+   "follow": {
+    "cameraMode": "FOLLOWING",
+    "centered": true,
+    "autoRecenterPending": false,
+    "autoDelayMs": 10000,
+    "reason": "USER_BUTTON",
+    "panAgeMs": null,
+    "followZoom": 18,
+    "listeners": 1
+   },
+   "camera": {
+    "zoom": 18,
+    "pitch": 38,
+    "bearing": 150.8
+   }
+  }
+ },
+ {
+  "label": "otomatik dönüş öncesi",
+  "at": "2026-09-06T08:12:20.937Z",
+  "data": {
+   "follow": {
+    "cameraMode": "FOLLOW_SUSPENDED",
+    "centered": false,
+    "autoRecenterPending": true,
+    "autoDelayMs": 10000,
+    "reason": "USER_BUTTON",
+    "panAgeMs": 996,
+    "followZoom": 18,
+    "listeners": 1
+   },
+   "camera": {
+    "zoom": 18.535,
+    "pitch": 38,
+    "bearing": 150.8
+   }
+  }
+ },
+ {
+  "label": "otomatik dönüş sonrası (12 sn)",
+  "at": "2026-09-06T08:12:32.954Z",
+  "data": {
+   "follow": {
+    "cameraMode": "FOLLOWING",
+    "centered": true,
+    "autoRecenterPending": false,
+    "autoDelayMs": 10000,
+    "reason": "AUTO_TIMEOUT",
+    "panAgeMs": 13012,
+    "followZoom": 18.53468251578118,
+    "listeners": 1
+   },
+   "camera": {
+    "zoom": 18,
+    "pitch": 38,
+    "bearing": 170.6
+   }
+  }
+ }
+]

@@ -1,0 +1,1950 @@
+[
+ {
+  "ln": "aerodrome_label",
+  "cls": "other",
+  "geom": "point",
+  "z": [
+   10
+  ],
+  "n": 1,
+  "sub": [],
+  "props": [
+   "name_int",
+   "name:ar",
+   "name:sr",
+   "name:he",
+   "name:tr",
+   "name:ru",
+   "name:de",
+   "name:hi",
+   "iata",
+   "name:el",
+   "ele_ft",
+   "name_de",
+   "name",
+   "name:it"
+  ]
+ },
+ {
+  "ln": "aeroway",
+  "cls": "taxiway",
+  "geom": "line",
+  "z": [
+   10
+  ],
+  "n": 14,
+  "sub": [],
+  "props": [
+   "class",
+   "ref"
+  ]
+ },
+ {
+  "ln": "aeroway",
+  "cls": "runway",
+  "geom": "line",
+  "z": [
+   10
+  ],
+  "n": 3,
+  "sub": [],
+  "props": [
+   "class",
+   "ref"
+  ]
+ },
+ {
+  "ln": "aeroway",
+  "cls": "apron",
+  "geom": "polygon",
+  "z": [
+   10
+  ],
+  "n": 2,
+  "sub": [],
+  "props": [
+   "class"
+  ]
+ },
+ {
+  "ln": "aeroway",
+  "cls": "aerodrome",
+  "geom": "polygon",
+  "z": [
+   10
+  ],
+  "n": 1,
+  "sub": [],
+  "props": [
+   "class"
+  ]
+ },
+ {
+  "ln": "boundary",
+  "cls": "(class yok)",
+  "geom": "line",
+  "z": [
+   8,
+   10,
+   12,
+   13,
+   14
+  ],
+  "n": 10,
+  "sub": [],
+  "props": [
+   "admin_level",
+   "disputed",
+   "maritime",
+   "adm0_l"
+  ]
+ },
+ {
+  "ln": "building",
+  "cls": "(class yok)",
+  "geom": "polygon",
+  "z": [
+   13,
+   14
+  ],
+  "n": 12,
+  "sub": [],
+  "props": [
+   "render_height",
+   "render_min_height"
+  ]
+ },
+ {
+  "ln": "housenumber",
+  "cls": "(class yok)",
+  "geom": "point",
+  "z": [
+   14
+  ],
+  "n": 7,
+  "sub": [],
+  "props": [
+   "housenumber"
+  ]
+ },
+ {
+  "ln": "landcover",
+  "cls": "farmland",
+  "geom": "polygon",
+  "z": [
+   8,
+   10,
+   12,
+   13
+  ],
+  "n": 94,
+  "sub": [
+   "farmland",
+   "orchard",
+   "vineyard"
+  ],
+  "props": [
+   "subclass",
+   "class"
+  ]
+ },
+ {
+  "ln": "landcover",
+  "cls": "grass",
+  "geom": "polygon",
+  "z": [
+   13,
+   14
+  ],
+  "n": 26,
+  "sub": [
+   "park",
+   "scrub",
+   "flowerbed"
+  ],
+  "props": [
+   "subclass",
+   "class"
+  ]
+ },
+ {
+  "ln": "landcover",
+  "cls": "wood",
+  "geom": "polygon",
+  "z": [
+   8,
+   10,
+   12,
+   14
+  ],
+  "n": 13,
+  "sub": [
+   "forest",
+   "wood"
+  ],
+  "props": [
+   "subclass",
+   "class"
+  ]
+ },
+ {
+  "ln": "landcover",
+  "cls": "rock",
+  "geom": "polygon",
+  "z": [
+   8
+  ],
+  "n": 6,
+  "sub": [
+   "bare_rock"
+  ],
+  "props": [
+   "subclass",
+   "class"
+  ]
+ },
+ {
+  "ln": "landcover",
+  "cls": "wetland",
+  "geom": "polygon",
+  "z": [
+   8
+  ],
+  "n": 3,
+  "sub": [
+   "wetland"
+  ],
+  "props": [
+   "subclass",
+   "class"
+  ]
+ },
+ {
+  "ln": "landcover",
+  "cls": "sand",
+  "geom": "polygon",
+  "z": [
+   8
+  ],
+  "n": 1,
+  "sub": [
+   "sand"
+  ],
+  "props": [
+   "subclass",
+   "class"
+  ]
+ },
+ {
+  "ln": "landuse",
+  "cls": "school",
+  "geom": "polygon",
+  "z": [
+   12,
+   13,
+   14
+  ],
+  "n": 38,
+  "sub": [],
+  "props": [
+   "class"
+  ]
+ },
+ {
+  "ln": "landuse",
+  "cls": "industrial",
+  "geom": "polygon",
+  "z": [
+   10,
+   12
+  ],
+  "n": 22,
+  "sub": [],
+  "props": [
+   "class"
+  ]
+ },
+ {
+  "ln": "landuse",
+  "cls": "pitch",
+  "geom": "polygon",
+  "z": [
+   13,
+   14
+  ],
+  "n": 7,
+  "sub": [],
+  "props": [
+   "class"
+  ]
+ },
+ {
+  "ln": "landuse",
+  "cls": "stadium",
+  "geom": "polygon",
+  "z": [
+   12,
+   13,
+   14
+  ],
+  "n": 6,
+  "sub": [],
+  "props": [
+   "class"
+  ]
+ },
+ {
+  "ln": "landuse",
+  "cls": "residential",
+  "geom": "polygon",
+  "z": [
+   8,
+   10,
+   12,
+   13,
+   14
+  ],
+  "n": 5,
+  "sub": [],
+  "props": [
+   "class"
+  ]
+ },
+ {
+  "ln": "landuse",
+  "cls": "quarry",
+  "geom": "polygon",
+  "z": [
+   10
+  ],
+  "n": 2,
+  "sub": [],
+  "props": [
+   "class"
+  ]
+ },
+ {
+  "ln": "landuse",
+  "cls": "cemetery",
+  "geom": "polygon",
+  "z": [
+   12,
+   13
+  ],
+  "n": 2,
+  "sub": [],
+  "props": [
+   "class"
+  ]
+ },
+ {
+  "ln": "landuse",
+  "cls": "university",
+  "geom": "polygon",
+  "z": [
+   12,
+   13
+  ],
+  "n": 2,
+  "sub": [],
+  "props": [
+   "class"
+  ]
+ },
+ {
+  "ln": "landuse",
+  "cls": "commercial",
+  "geom": "polygon",
+  "z": [
+   12
+  ],
+  "n": 2,
+  "sub": [],
+  "props": [
+   "class"
+  ]
+ },
+ {
+  "ln": "landuse",
+  "cls": "suburb",
+  "geom": "polygon",
+  "z": [
+   8
+  ],
+  "n": 1,
+  "sub": [],
+  "props": [
+   "class"
+  ]
+ },
+ {
+  "ln": "landuse",
+  "cls": "railway",
+  "geom": "polygon",
+  "z": [
+   10
+  ],
+  "n": 1,
+  "sub": [],
+  "props": [
+   "class"
+  ]
+ },
+ {
+  "ln": "landuse",
+  "cls": "hospital",
+  "geom": "polygon",
+  "z": [
+   13
+  ],
+  "n": 1,
+  "sub": [],
+  "props": [
+   "class"
+  ]
+ },
+ {
+  "ln": "landuse",
+  "cls": "library",
+  "geom": "polygon",
+  "z": [
+   13
+  ],
+  "n": 1,
+  "sub": [],
+  "props": [
+   "class"
+  ]
+ },
+ {
+  "ln": "landuse",
+  "cls": "military",
+  "geom": "polygon",
+  "z": [
+   13
+  ],
+  "n": 1,
+  "sub": [],
+  "props": [
+   "class"
+  ]
+ },
+ {
+  "ln": "landuse",
+  "cls": "playground",
+  "geom": "polygon",
+  "z": [
+   14
+  ],
+  "n": 1,
+  "sub": [],
+  "props": [
+   "class"
+  ]
+ },
+ {
+  "ln": "mountain_peak",
+  "cls": "peak",
+  "geom": "point",
+  "z": [
+   8,
+   10,
+   12
+  ],
+  "n": 121,
+  "sub": [],
+  "props": [
+   "name_int",
+   "name:ar",
+   "name:uk",
+   "name:az",
+   "name:tr",
+   "ele_ft",
+   "name_de",
+   "name",
+   "rank",
+   "name:en",
+   "class",
+   "name:cs",
+   "ele",
+   "name:latin"
+  ]
+ },
+ {
+  "ln": "mountain_peak",
+  "cls": "cliff",
+  "geom": "line",
+  "z": [
+   13,
+   14
+  ],
+  "n": 32,
+  "sub": [],
+  "props": [
+   "class",
+   "rank"
+  ]
+ },
+ {
+  "ln": "mountain_peak",
+  "cls": "volcano",
+  "geom": "point",
+  "z": [
+   8
+  ],
+  "n": 5,
+  "sub": [],
+  "props": [
+   "name_int",
+   "name:cy",
+   "name:fa",
+   "name:az",
+   "name:tr",
+   "ele_ft",
+   "name_de",
+   "name",
+   "name:fr",
+   "rank",
+   "name:en",
+   "class",
+   "ele",
+   "name:latin"
+  ]
+ },
+ {
+  "ln": "mountain_peak",
+  "cls": "saddle",
+  "geom": "point",
+  "z": [
+   8
+  ],
+  "n": 1,
+  "sub": [],
+  "props": [
+   "name_int",
+   "name:hy",
+   "name:ka",
+   "name:uk",
+   "name:id",
+   "name:sl",
+   "name:ca",
+   "name:mk",
+   "name:el",
+   "name_de",
+   "name:it",
+   "rank",
+   "name:en",
+   "name:eo"
+  ]
+ },
+ {
+  "ln": "park",
+  "cls": "sustainable",
+  "geom": "point/polygon",
+  "z": [
+   8,
+   10
+  ],
+  "n": 27,
+  "sub": [],
+  "props": [
+   "name_int",
+   "name_de",
+   "name",
+   "rank",
+   "class",
+   "name:latin",
+   "name_en",
+   "name:en",
+   "name:tr"
+  ]
+ },
+ {
+  "ln": "park",
+  "cls": "national_park",
+  "geom": "point/polygon",
+  "z": [
+   8
+  ],
+  "n": 6,
+  "sub": [],
+  "props": [
+   "name_int",
+   "name:hy",
+   "name:ka",
+   "name:uk",
+   "name:id",
+   "name:sl",
+   "name:sr",
+   "name:ur",
+   "name:ca",
+   "name:mk",
+   "name:sv",
+   "name:ko",
+   "name:mt",
+   "name_de"
+  ]
+ },
+ {
+  "ln": "park",
+  "cls": "protected_area",
+  "geom": "point/polygon",
+  "z": [
+   8,
+   10
+  ],
+  "n": 4,
+  "sub": [],
+  "props": [
+   "name_int",
+   "name_de",
+   "name",
+   "rank",
+   "name:en",
+   "class",
+   "name:latin",
+   "name_en"
+  ]
+ },
+ {
+  "ln": "park",
+  "cls": "conservation",
+  "geom": "point",
+  "z": [
+   8
+  ],
+  "n": 2,
+  "sub": [],
+  "props": [
+   "name_int",
+   "name_de",
+   "name",
+   "rank",
+   "name:en",
+   "class",
+   "name:es",
+   "name:latin",
+   "name:tr",
+   "name_en"
+  ]
+ },
+ {
+  "ln": "place",
+  "cls": "village",
+  "geom": "point",
+  "z": [
+   8,
+   10,
+   12,
+   13,
+   14
+  ],
+  "n": 391,
+  "sub": [],
+  "props": [
+   "name:vi",
+   "name_int",
+   "name:nl",
+   "name:tr",
+   "name:de",
+   "name_de",
+   "name",
+   "rank",
+   "name:en",
+   "name:ku",
+   "class",
+   "name:latin",
+   "name_en",
+   "name:uk"
+  ]
+ },
+ {
+  "ln": "place",
+  "cls": "suburb",
+  "geom": "point",
+  "z": [
+   12,
+   13,
+   14
+  ],
+  "n": 130,
+  "sub": [],
+  "props": [
+   "name_int",
+   "name_de",
+   "name",
+   "rank",
+   "class",
+   "name:latin",
+   "name_en",
+   "name:en",
+   "name:tr",
+   "name:de",
+   "name:ga",
+   "name:nl",
+   "name:vi"
+  ]
+ },
+ {
+  "ln": "place",
+  "cls": "town",
+  "geom": "point",
+  "z": [
+   8,
+   10,
+   12,
+   13
+  ],
+  "n": 93,
+  "sub": [],
+  "props": [
+   "name_int",
+   "name:uk",
+   "name:ga",
+   "name:sr",
+   "name:ur",
+   "name:ca",
+   "name_de",
+   "name:it",
+   "rank",
+   "name:en",
+   "name:eo",
+   "name:ku",
+   "name:pnb",
+   "class"
+  ]
+ },
+ {
+  "ln": "place",
+  "cls": "city",
+  "geom": "point",
+  "z": [
+   8,
+   10
+  ],
+  "n": 14,
+  "sub": [],
+  "props": [
+   "name:oc",
+   "name_int",
+   "name:bs",
+   "name:sk",
+   "name:ka",
+   "name:sl",
+   "name:ga",
+   "name:sr",
+   "name:kk",
+   "name:gd",
+   "name:ca",
+   "name:sq",
+   "name:kn",
+   "name:sv"
+  ]
+ },
+ {
+  "ln": "place",
+  "cls": "province",
+  "geom": "point",
+  "z": [
+   8,
+   10
+  ],
+  "n": 11,
+  "sub": [],
+  "props": [
+   "name_int",
+   "name:bs",
+   "name:ka",
+   "name:sl",
+   "name:ga",
+   "name:sr",
+   "name:kk",
+   "name:ca",
+   "name:kn",
+   "name:sv",
+   "name:ko",
+   "name_de",
+   "rank",
+   "name:ku"
+  ]
+ },
+ {
+  "ln": "place",
+  "cls": "state",
+  "geom": "point",
+  "z": [
+   8
+  ],
+  "n": 2,
+  "sub": [],
+  "props": [
+   "name_int",
+   "name:ka",
+   "name:nonlatin",
+   "name:sl",
+   "name:sr",
+   "name:ca",
+   "name:sv",
+   "name:ko",
+   "name_de",
+   "rank",
+   "name:ku",
+   "name:pnb",
+   "name:cs",
+   "name:ta"
+  ]
+ },
+ {
+  "ln": "place",
+  "cls": "island",
+  "geom": "point",
+  "z": [
+   10
+  ],
+  "n": 1,
+  "sub": [],
+  "props": [
+   "name_int",
+   "name_de",
+   "name",
+   "rank",
+   "class",
+   "name:latin",
+   "name_en"
+  ]
+ },
+ {
+  "ln": "poi",
+  "cls": "school",
+  "geom": "point",
+  "z": [
+   14
+  ],
+  "n": 17,
+  "sub": [
+   "school"
+  ],
+  "props": [
+   "name_int",
+   "name_de",
+   "name",
+   "subclass",
+   "rank",
+   "class",
+   "name:latin",
+   "name_en"
+  ]
+ },
+ {
+  "ln": "poi",
+  "cls": "park",
+  "geom": "point",
+  "z": [
+   14
+  ],
+  "n": 17,
+  "sub": [
+   "park"
+  ],
+  "props": [
+   "name_int",
+   "name_de",
+   "name",
+   "subclass",
+   "rank",
+   "class",
+   "name:latin",
+   "name_en",
+   "name:tr"
+  ]
+ },
+ {
+  "ln": "poi",
+  "cls": "pharmacy",
+  "geom": "point",
+  "z": [
+   14
+  ],
+  "n": 14,
+  "sub": [
+   "pharmacy"
+  ],
+  "props": [
+   "name_int",
+   "name_de",
+   "name",
+   "subclass",
+   "rank",
+   "class",
+   "name:latin",
+   "name_en"
+  ]
+ },
+ {
+  "ln": "poi",
+  "cls": "place_of_worship",
+  "geom": "point",
+  "z": [
+   14
+  ],
+  "n": 12,
+  "sub": [
+   "muslim"
+  ],
+  "props": [
+   "name_int",
+   "name_de",
+   "name",
+   "subclass",
+   "rank",
+   "class",
+   "name:latin",
+   "name_en",
+   "name:tr"
+  ]
+ },
+ {
+  "ln": "poi",
+  "cls": "shop",
+  "geom": "point",
+  "z": [
+   14
+  ],
+  "n": 11,
+  "sub": [
+   "furniture",
+   "electronics",
+   "motorcycle",
+   "convenience",
+   "stationery"
+  ],
+  "props": [
+   "name_int",
+   "name_de",
+   "name",
+   "subclass",
+   "rank",
+   "class",
+   "name:latin",
+   "name_en",
+   "name:tr"
+  ]
+ },
+ {
+  "ln": "poi",
+  "cls": "grocery",
+  "geom": "point",
+  "z": [
+   14
+  ],
+  "n": 10,
+  "sub": [
+   "supermarket",
+   "marketplace"
+  ],
+  "props": [
+   "name_int",
+   "name_de",
+   "name",
+   "subclass",
+   "rank",
+   "class",
+   "name:latin",
+   "name_en",
+   "name:tr"
+  ]
+ },
+ {
+  "ln": "poi",
+  "cls": "atm",
+  "geom": "point",
+  "z": [
+   14
+  ],
+  "n": 5,
+  "sub": [
+   "atm"
+  ],
+  "props": [
+   "name_int",
+   "name_de",
+   "name",
+   "subclass",
+   "rank",
+   "class",
+   "name:latin",
+   "name:tr",
+   "name_en"
+  ]
+ },
+ {
+  "ln": "poi",
+  "cls": "swimming_pool",
+  "geom": "point",
+  "z": [
+   14
+  ],
+  "n": 5,
+  "sub": [
+   "swimming_pool"
+  ],
+  "props": [
+   "subclass",
+   "class",
+   "rank"
+  ]
+ },
+ {
+  "ln": "poi",
+  "cls": "lodging",
+  "geom": "point",
+  "z": [
+   14
+  ],
+  "n": 4,
+  "sub": [
+   "dormitory",
+   "guest_house"
+  ],
+  "props": [
+   "name_int",
+   "name_de",
+   "name",
+   "subclass",
+   "rank",
+   "class",
+   "name:latin",
+   "name_en"
+  ]
+ },
+ {
+  "ln": "poi",
+  "cls": "railway",
+  "geom": "point",
+  "z": [
+   12,
+   13
+  ],
+  "n": 3,
+  "sub": [
+   "station"
+  ],
+  "props": [
+   "name_int",
+   "name_de",
+   "name",
+   "subclass",
+   "name:fr",
+   "rank",
+   "name:en",
+   "class",
+   "name:ur",
+   "name:latin",
+   "name:tr",
+   "name_en"
+  ]
+ },
+ {
+  "ln": "poi",
+  "cls": "hospital",
+  "geom": "point",
+  "z": [
+   14
+  ],
+  "n": 3,
+  "sub": [
+   "clinic"
+  ],
+  "props": [
+   "name_int",
+   "name_de",
+   "name",
+   "subclass",
+   "rank",
+   "class",
+   "name:latin",
+   "name:tr",
+   "name_en"
+  ]
+ },
+ {
+  "ln": "poi",
+  "cls": "fuel",
+  "geom": "point",
+  "z": [
+   14
+  ],
+  "n": 3,
+  "sub": [
+   "fuel"
+  ],
+  "props": [
+   "name_int",
+   "name_de",
+   "name",
+   "subclass",
+   "rank",
+   "class",
+   "name:latin",
+   "name_en"
+  ]
+ },
+ {
+  "ln": "poi",
+  "cls": "restaurant",
+  "geom": "point",
+  "z": [
+   14
+  ],
+  "n": 3,
+  "sub": [
+   "restaurant"
+  ],
+  "props": [
+   "name_int",
+   "name_de",
+   "name",
+   "subclass",
+   "rank",
+   "class",
+   "name:latin",
+   "name_en",
+   "name:tr"
+  ]
+ },
+ {
+  "ln": "poi",
+  "cls": "cafe",
+  "geom": "point",
+  "z": [
+   14
+  ],
+  "n": 3,
+  "sub": [
+   "cafe"
+  ],
+  "props": [
+   "name_int",
+   "name_de",
+   "name",
+   "subclass",
+   "rank",
+   "name:en",
+   "class",
+   "name:latin",
+   "name:tr",
+   "name_en"
+  ]
+ },
+ {
+  "ln": "poi",
+  "cls": "office",
+  "geom": "point",
+  "z": [
+   14
+  ],
+  "n": 2,
+  "sub": [
+   "company",
+   "association"
+  ],
+  "props": [
+   "name_int",
+   "name_de",
+   "name",
+   "subclass",
+   "rank",
+   "name:en",
+   "class",
+   "name:latin",
+   "name:tr",
+   "name_en"
+  ]
+ },
+ {
+  "ln": "poi",
+  "cls": "playground",
+  "geom": "point",
+  "z": [
+   14
+  ],
+  "n": 2,
+  "sub": [
+   "playground"
+  ],
+  "props": [
+   "subclass",
+   "class",
+   "rank"
+  ]
+ },
+ {
+  "ln": "poi",
+  "cls": "stadium",
+  "geom": "point",
+  "z": [
+   14
+  ],
+  "n": 1,
+  "sub": [
+   "stadium"
+  ],
+  "props": [
+   "name_int",
+   "name_de",
+   "name",
+   "subclass",
+   "rank",
+   "class",
+   "name:latin",
+   "name_en"
+  ]
+ },
+ {
+  "ln": "poi",
+  "cls": "town_hall",
+  "geom": "point",
+  "z": [
+   14
+  ],
+  "n": 1,
+  "sub": [
+   "community_centre"
+  ],
+  "props": [
+   "name_int",
+   "name_de",
+   "name",
+   "subclass",
+   "rank",
+   "class",
+   "name:latin",
+   "name_en"
+  ]
+ },
+ {
+  "ln": "poi",
+  "cls": "bakery",
+  "geom": "point",
+  "z": [
+   14
+  ],
+  "n": 1,
+  "sub": [
+   "bakery"
+  ],
+  "props": [
+   "name_int",
+   "name_de",
+   "name",
+   "subclass",
+   "rank",
+   "class",
+   "name:latin",
+   "name_en"
+  ]
+ },
+ {
+  "ln": "poi",
+  "cls": "bank",
+  "geom": "point",
+  "z": [
+   14
+  ],
+  "n": 1,
+  "sub": [
+   "bank"
+  ],
+  "props": [
+   "name_int",
+   "name_de",
+   "name",
+   "subclass",
+   "rank",
+   "class",
+   "name:latin",
+   "name:tr",
+   "name_en"
+  ]
+ },
+ {
+  "ln": "poi",
+  "cls": "cinema",
+  "geom": "point",
+  "z": [
+   14
+  ],
+  "n": 1,
+  "sub": [
+   "cinema"
+  ],
+  "props": [
+   "name_int",
+   "name_de",
+   "name",
+   "subclass",
+   "rank",
+   "name:en",
+   "class",
+   "name:latin",
+   "name_en"
+  ]
+ },
+ {
+  "ln": "poi",
+  "cls": "car",
+  "geom": "point",
+  "z": [
+   14
+  ],
+  "n": 1,
+  "sub": [
+   "car_repair"
+  ],
+  "props": [
+   "subclass",
+   "class",
+   "rank"
+  ]
+ },
+ {
+  "ln": "poi",
+  "cls": "pitch",
+  "geom": "point",
+  "z": [
+   14
+  ],
+  "n": 1,
+  "sub": [
+   "soccer"
+  ],
+  "props": [
+   "subclass",
+   "class",
+   "rank"
+  ]
+ },
+ {
+  "ln": "poi",
+  "cls": "toilets",
+  "geom": "point",
+  "z": [
+   14
+  ],
+  "n": 1,
+  "sub": [
+   "toilets"
+  ],
+  "props": [
+   "subclass",
+   "class",
+   "rank"
+  ]
+ },
+ {
+  "ln": "poi",
+  "cls": "sports_centre",
+  "geom": "point",
+  "z": [
+   14
+  ],
+  "n": 1,
+  "sub": [
+   "sports_centre"
+  ],
+  "props": [
+   "subclass",
+   "class",
+   "rank"
+  ]
+ },
+ {
+  "ln": "transportation",
+  "cls": "tertiary",
+  "geom": "line",
+  "z": [
+   12,
+   13,
+   14
+  ],
+  "n": 303,
+  "sub": [],
+  "props": [
+   "class",
+   "layer",
+   "brunnel",
+   "oneway",
+   "ramp",
+   "surface",
+   "bicycle"
+  ]
+ },
+ {
+  "ln": "transportation",
+  "cls": "secondary",
+  "geom": "line",
+  "z": [
+   10,
+   12,
+   13,
+   14
+  ],
+  "n": 206,
+  "sub": [],
+  "props": [
+   "class",
+   "ramp",
+   "access",
+   "oneway",
+   "surface",
+   "layer",
+   "brunnel"
+  ]
+ },
+ {
+  "ln": "transportation",
+  "cls": "motorway",
+  "geom": "line",
+  "z": [
+   8,
+   10,
+   12,
+   13,
+   14
+  ],
+  "n": 81,
+  "sub": [],
+  "props": [
+   "class",
+   "ramp",
+   "layer",
+   "brunnel",
+   "oneway",
+   "surface"
+  ]
+ },
+ {
+  "ln": "transportation",
+  "cls": "minor",
+  "geom": "line",
+  "z": [
+   12,
+   13,
+   14
+  ],
+  "n": 49,
+  "sub": [],
+  "props": [
+   "class",
+   "layer",
+   "surface",
+   "oneway",
+   "brunnel"
+  ]
+ },
+ {
+  "ln": "transportation",
+  "cls": "trunk",
+  "geom": "line",
+  "z": [
+   8,
+   10,
+   12
+  ],
+  "n": 18,
+  "sub": [],
+  "props": [
+   "class",
+   "ramp",
+   "foot",
+   "brunnel",
+   "layer",
+   "oneway"
+  ]
+ },
+ {
+  "ln": "transportation",
+  "cls": "secondary_construction",
+  "geom": "line",
+  "z": [
+   10,
+   12
+  ],
+  "n": 11,
+  "sub": [],
+  "props": [
+   "class",
+   "access",
+   "oneway",
+   "brunnel",
+   "layer"
+  ]
+ },
+ {
+  "ln": "transportation",
+  "cls": "bridge",
+  "geom": "polygon",
+  "z": [
+   13,
+   14
+  ],
+  "n": 7,
+  "sub": [],
+  "props": [
+   "class",
+   "layer",
+   "brunnel"
+  ]
+ },
+ {
+  "ln": "transportation",
+  "cls": "rail",
+  "geom": "line",
+  "z": [
+   8,
+   10
+  ],
+  "n": 5,
+  "sub": [
+   "rail"
+  ],
+  "props": [
+   "subclass",
+   "class",
+   "brunnel",
+   "layer"
+  ]
+ },
+ {
+  "ln": "transportation",
+  "cls": "service",
+  "geom": "line",
+  "z": [
+   13,
+   14
+  ],
+  "n": 5,
+  "sub": [],
+  "props": [
+   "class",
+   "surface",
+   "oneway",
+   "service"
+  ]
+ },
+ {
+  "ln": "transportation",
+  "cls": "motorway_construction",
+  "geom": "line",
+  "z": [
+   8,
+   10,
+   12
+  ],
+  "n": 4,
+  "sub": [],
+  "props": [
+   "class",
+   "brunnel",
+   "access",
+   "oneway"
+  ]
+ },
+ {
+  "ln": "transportation",
+  "cls": "primary",
+  "geom": "line",
+  "z": [
+   8,
+   10
+  ],
+  "n": 3,
+  "sub": [],
+  "props": [
+   "class",
+   "ramp"
+  ]
+ },
+ {
+  "ln": "transportation",
+  "cls": "path",
+  "geom": "polygon/line",
+  "z": [
+   13,
+   14
+  ],
+  "n": 3,
+  "sub": [
+   "pedestrian",
+   "footway"
+  ],
+  "props": [
+   "subclass",
+   "class",
+   "brunnel",
+   "layer"
+  ]
+ },
+ {
+  "ln": "transportation",
+  "cls": "ferry",
+  "geom": "line",
+  "z": [
+   8
+  ],
+  "n": 1,
+  "sub": [],
+  "props": [
+   "class"
+  ]
+ },
+ {
+  "ln": "transportation",
+  "cls": "primary_construction",
+  "geom": "line",
+  "z": [
+   8
+  ],
+  "n": 1,
+  "sub": [],
+  "props": [
+   "class"
+  ]
+ },
+ {
+  "ln": "transportation",
+  "cls": "track",
+  "geom": "line",
+  "z": [
+   14
+  ],
+  "n": 1,
+  "sub": [],
+  "props": [
+   "class"
+  ]
+ },
+ {
+  "ln": "transportation_name",
+  "cls": "minor",
+  "geom": "line",
+  "z": [
+   14
+  ],
+  "n": 101,
+  "sub": [],
+  "props": [
+   "name",
+   "name_int",
+   "class",
+   "name:latin",
+   "name_de",
+   "name_en"
+  ]
+ },
+ {
+  "ln": "transportation_name",
+  "cls": "motorway",
+  "geom": "line/point",
+  "z": [
+   8,
+   10,
+   12,
+   13,
+   14
+  ],
+  "n": 32,
+  "sub": [
+   "junction"
+  ],
+  "props": [
+   "route_1_ref",
+   "name_int",
+   "route_2_network",
+   "route_1_name",
+   "route_1_network",
+   "route_2_ref",
+   "network",
+   "route_2_name",
+   "ref",
+   "name_de",
+   "name",
+   "ref_length",
+   "class",
+   "name:latin"
+  ]
+ },
+ {
+  "ln": "transportation_name",
+  "cls": "trunk",
+  "geom": "line/point",
+  "z": [
+   8,
+   10,
+   12
+  ],
+  "n": 28,
+  "sub": [
+   "junction"
+  ],
+  "props": [
+   "route_1_ref",
+   "name_int",
+   "ref",
+   "route_1_name",
+   "name_de",
+   "name",
+   "ref_length",
+   "route_1_network",
+   "class",
+   "name:latin",
+   "name_en",
+   "network",
+   "route_2_network",
+   "route_2_ref"
+  ]
+ },
+ {
+  "ln": "transportation_name",
+  "cls": "secondary",
+  "geom": "point/line",
+  "z": [
+   10,
+   12,
+   13,
+   14
+  ],
+  "n": 22,
+  "sub": [
+   "junction"
+  ],
+  "props": [
+   "name_int",
+   "ref",
+   "name_de",
+   "name",
+   "ref_length",
+   "subclass",
+   "class",
+   "name:latin",
+   "name_en",
+   "network"
+  ]
+ },
+ {
+  "ln": "transportation_name",
+  "cls": "tertiary",
+  "geom": "line",
+  "z": [
+   12,
+   13,
+   14
+  ],
+  "n": 14,
+  "sub": [],
+  "props": [
+   "name",
+   "name_int",
+   "class",
+   "name:latin",
+   "name_de",
+   "name_en"
+  ]
+ },
+ {
+  "ln": "transportation_name",
+  "cls": "primary",
+  "geom": "point",
+  "z": [
+   10
+  ],
+  "n": 3,
+  "sub": [
+   "junction"
+  ],
+  "props": [
+   "name_int",
+   "ref",
+   "name_de",
+   "name",
+   "ref_length",
+   "subclass",
+   "class",
+   "name:latin",
+   "name_en"
+  ]
+ },
+ {
+  "ln": "water",
+  "cls": "lake",
+  "geom": "polygon",
+  "z": [
+   8,
+   10,
+   12,
+   13
+  ],
+  "n": 14,
+  "sub": [],
+  "props": [
+   "intermittent",
+   "class",
+   "id"
+  ]
+ },
+ {
+  "ln": "water",
+  "cls": "river",
+  "geom": "polygon",
+  "z": [
+   8,
+   10,
+   12,
+   13,
+   14
+  ],
+  "n": 12,
+  "sub": [],
+  "props": [
+   "intermittent",
+   "class",
+   "id"
+  ]
+ },
+ {
+  "ln": "water",
+  "cls": "swimming_pool",
+  "geom": "polygon",
+  "z": [
+   12,
+   13,
+   14
+  ],
+  "n": 11,
+  "sub": [],
+  "props": [
+   "intermittent",
+   "class",
+   "id"
+  ]
+ },
+ {
+  "ln": "water",
+  "cls": "ocean",
+  "geom": "polygon",
+  "z": [
+   8
+  ],
+  "n": 1,
+  "sub": [],
+  "props": [
+   "class"
+  ]
+ },
+ {
+  "ln": "water_name",
+  "cls": "lake",
+  "geom": "line",
+  "z": [
+   8,
+   10,
+   12,
+   13
+  ],
+  "n": 5,
+  "sub": [],
+  "props": [
+   "name_int",
+   "name:sk",
+   "name:ka",
+   "intermittent",
+   "name:sr",
+   "name:kk",
+   "name:ca",
+   "name:sq",
+   "name:sv",
+   "name:ko",
+   "name_de",
+   "name:ku",
+   "name:cs",
+   "name:latin"
+  ]
+ },
+ {
+  "ln": "waterway",
+  "cls": "ditch",
+  "geom": "line",
+  "z": [
+   13,
+   14
+  ],
+  "n": 32,
+  "sub": [],
+  "props": [
+   "name_int",
+   "name_de",
+   "intermittent",
+   "name",
+   "class",
+   "name:latin",
+   "name_en",
+   "brunnel"
+  ]
+ },
+ {
+  "ln": "waterway",
+  "cls": "drain",
+  "geom": "line",
+  "z": [
+   13,
+   14
+  ],
+  "n": 18,
+  "sub": [],
+  "props": [
+   "intermittent",
+   "class",
+   "brunnel"
+  ]
+ },
+ {
+  "ln": "waterway",
+  "cls": "river",
+  "geom": "line",
+  "z": [
+   10,
+   12,
+   13
+  ],
+  "n": 5,
+  "sub": [],
+  "props": [
+   "name_int",
+   "name_de",
+   "name",
+   "class",
+   "name:latin",
+   "name:tr",
+   "name_en",
+   "name:de",
+   "name:en",
+   "intermittent"
+  ]
+ },
+ {
+  "ln": "waterway",
+  "cls": "stream",
+  "geom": "line",
+  "z": [
+   13,
+   14
+  ],
+  "n": 4,
+  "sub": [],
+  "props": [
+   "intermittent",
+   "class",
+   "brunnel"
+  ]
+ }
+]

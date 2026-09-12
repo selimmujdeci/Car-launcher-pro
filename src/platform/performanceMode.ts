@@ -15,6 +15,7 @@
  */
 
 import { getDeviceTier, type DeviceTier } from './deviceCapabilities';
+import { OwnerCommandEvidence, type CommandMessage } from './message';
 
 export type PerformanceMode = 'lite' | 'balanced' | 'premium';
 
@@ -115,6 +116,11 @@ function loadPerformanceMode(): PerformanceMode {
 
 let _currentMode: PerformanceMode = loadPerformanceMode();
 const _modeListeners = new Set<(mode: PerformanceMode) => void>();
+const _settingsEvidence = new OwnerCommandEvidence('performanceMode');
+let _settingsOperation = 0;
+export function getPerformanceModeCommandFlowEvidence(): readonly CommandMessage[] {
+  return _settingsEvidence.recent();
+}
 
 export function getPerformanceMode(): PerformanceMode {
   return _currentMode;
@@ -125,10 +131,20 @@ export function getConfig(): PerfConfig {
 }
 
 export function setPerformanceMode(mode: PerformanceMode): void {
-  if (_currentMode === mode) return;
+  const correlationId = `performance:${++_settingsOperation}`;
+  _settingsEvidence.record({ id: `${correlationId}:persist-request`, kind: 'COMMAND', name: 'settings.declared.persist', source: 'settings.requester', target: 'performance_mode', operationId: correlationId, correlationId, sessionId: null, generation: null, epoch: null, reason: 'performance_mode', nowMs: Date.now() });
+  if (_currentMode === mode) {
+    _settingsEvidence.record({ id: `${correlationId}:persist-result`, kind: 'RESULT', name: 'settings.declared.result', source: 'performance_mode', target: null, operationId: correlationId, correlationId, sessionId: null, generation: null, epoch: null, reason: 'ALREADY_EFFECTIVE', nowMs: Date.now() });
+    return;
+  }
   _currentMode = mode;
-  try { localStorage.setItem(PERF_MODE_KEY, mode); } catch { /* quota full */ }
-  _modeListeners.forEach((fn) => fn(mode));
+  let persisted = true;
+  try { localStorage.setItem(PERF_MODE_KEY, mode); } catch { persisted = false; }
+  _settingsEvidence.record({ id: `${correlationId}:persist-result`, kind: 'RESULT', name: 'settings.declared.result', source: 'performance_mode', target: null, operationId: correlationId, correlationId, sessionId: null, generation: null, epoch: null, reason: persisted ? null : 'PERSISTENCE_FAILED', nowMs: Date.now() });
+  _settingsEvidence.record({ id: `${correlationId}:apply-request`, kind: 'COMMAND', name: 'settings.runtime.apply', source: 'performance_mode', target: 'performance_runtime', operationId: `${correlationId}:apply`, correlationId, sessionId: null, generation: null, epoch: null, reason: 'performance_mode', nowMs: Date.now() });
+  let applied = true;
+  try { _modeListeners.forEach((fn) => fn(mode)); } catch { applied = false; }
+  _settingsEvidence.record({ id: `${correlationId}:apply-result`, kind: 'RESULT', name: 'settings.runtime.result', source: 'performance_runtime', target: null, operationId: `${correlationId}:apply`, correlationId, sessionId: null, generation: null, epoch: null, reason: applied ? null : 'RUNTIME_APPLY_FAILED', nowMs: Date.now() });
 }
 
 export function onPerformanceModeChange(fn: (mode: PerformanceMode) => void): () => void {

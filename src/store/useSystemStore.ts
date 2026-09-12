@@ -13,7 +13,9 @@ import type { TripRecord } from '../platform/tripLogService';
 /* ── Alert tipi ──────────────────────────────────────────── */
 
 export type AlertSeverity = 'WARNING' | 'CRITICAL';
-export type AlertEventType = 'LOW_FUEL' | 'CRITICAL_FUEL' | 'MAINTENANCE_REQUIRED' | 'CRASH_DETECTED' | 'ENGINE_OVERHEAT';
+export type AlertEventType = 'LOW_FUEL' | 'CRITICAL_FUEL' | 'MAINTENANCE_REQUIRED' | 'CRASH_DETECTED' | 'ENGINE_OVERHEAT'
+  /** Kullanıcının KENDİ belirlediği hız eşiği aşıldı (yol hız limiti değil). */
+  | 'SPEED_LIMIT_EXCEEDED';
 
 export interface SystemAlert {
   id:         number;
@@ -41,6 +43,17 @@ interface SystemState {
   /* Trip özeti */
   showTripSummary:   boolean;
   lastCompletedTrip: TripRecord | null;
+  /**
+   * "Yolculuk tamamlandı" kartının GÖSTERİLDİĞİ tripId.
+   *
+   * ── ÖLÇÜLEN KUSUR ─────────────────────────────────────────────────
+   * Kart, `active → pasif` GEÇİŞİNE bağlıydı ve o an `history[0]`ı
+   * gösteriyordu. Ama `tripLogService` 1 dakikadan kısa / 100 m'den kısa
+   * yolculukları KAYDETMEZ: geçiş yine olur, geçmiş DEĞİŞMEZ ve kart
+   * **bir önceki yolculuğun özetini** "Yolculuk Tamamlandı" diye ikinci
+   * kez açar. Bu alan kartı tripId başına TEK ATIŞ yapar.
+   */
+  shownTripSummaryId: string | null;
 
   /* Manuel override — otomatik Gün/Gece + Parlaklık'ı bloke eder */
   userOverrideUntil: number; // epoch ms; 0 = aktif değil
@@ -78,6 +91,7 @@ export const useSystemStore = create<SystemState>()((set) => ({
   activeAlerts:      [],
   showTripSummary:   false,
   lastCompletedTrip: null,
+  shownTripSummaryId: null,
   userOverrideUntil: 0,
   geofenceAlarm:       null,
   isTheaterModeActive: false,
@@ -106,7 +120,20 @@ export const useSystemStore = create<SystemState>()((set) => ({
     ),
   })),
 
-  setTripSummary:   (trip) => set({ lastCompletedTrip: trip, showTripSummary: true }),
+  /**
+   * Tamamlanma kartını aç — AYNI yolculuk için YALNIZ BİR KEZ.
+   *
+   * Aynı `tripId` ikinci kez gelirse hiçbir şey değişmez: kullanıcı kartı
+   * kapattıysa o karar korunur, açıksa yeniden canlandırılmaz. Kimliksiz
+   * kayıt kart AÇMAZ — hangi yolculuğu anlattığını bilmediğimiz bir
+   * "Yolculuk Tamamlandı" kartı bir iddiadır, bilgi değil.
+   */
+  setTripSummary: (trip) => set((s) => {
+    const id = typeof trip?.id === 'string' ? trip.id : '';
+    if (id.length === 0) return {};
+    if (s.shownTripSummaryId === id) return {};
+    return { lastCompletedTrip: trip, showTripSummary: true, shownTripSummaryId: id };
+  }),
   closeTripSummary: ()     => set({ showTripSummary: false }),
   setUserOverride:  (durationMs) => set({ userOverrideUntil: Date.now() + durationMs }),
   setGeofenceAlarm: (alarm)      => set({ geofenceAlarm: alarm }),

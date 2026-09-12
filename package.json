@@ -1,20 +1,29 @@
 {
   "name": "cockpitos",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.2",
   "type": "module",
+  "engines": {
+    "node": ">=22.13.0"
+  },
   "scripts": {
     "dev": "vite",
     "build:sw": "tsc src/serviceWorker.ts --outDir public --target ES2020 --lib ES2020,WebWorker --strict --skipLibCheck",
-    "build": "npm run build:sw && tsc -b && vite build",
+    "build": "npm run build:sw && node scripts/copy-sqljs-wasm.mjs && tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
     "android": "npm run build && npx cap sync android && npx cap open android",
     "cap:sync": "npm run build && npx cap sync",
     "cap:copy": "npm run build && npx cap copy",
+    "test:rls": "node scripts/run-db-matrix.mjs supabase/tests/063_rls_exposure_matrix.sql \"4 KAPI DA GECTI\"",
+    "test:retention": "node scripts/run-db-matrix.mjs supabase/tests/065_retention_policy_matrix.sql \"4 HALKA DA GECTI\"",
+    "test:apikey": "node scripts/run-db-matrix.mjs supabase/tests/066_company_api_key_matrix.sql \"6 HALKA DA GECTI\"",
+    "test:schedule": "node scripts/run-db-matrix.mjs supabase/tests/067_report_schedule_matrix.sql \"6 HALKA DA GECTI\"",
+    "test:dna": "node scripts/run-db-matrix.mjs supabase/tests/064_driver_dna_chain_matrix.sql \"6 HALKA DA GECTI\"",
+    "test:rls:prod": "node scripts/run-prod-rls-probe.mjs",
     "guard": "vitest run src/__tests__/regression.guards.test.ts",
     "compat:verify": "node scripts/verify-webview-compat.mjs",
-    "apk:safe": "npm run test && npm run build && npm run compat:verify && npx cap sync android && cd android && gradlew clean assembleDebug",
+    "apk:safe": "npm run test && npm run build && npm run compat:verify && npx cap sync android && node scripts/gradle-build.mjs clean assembleDebug",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
@@ -28,9 +37,11 @@
     "setup:e2e": "playwright install --with-deps chromium",
     "fetch:vosk": "node scripts/fetch-vosk-model.mjs",
     "release:bump": "node scripts/bump-version.mjs",
-    "release:apk": "npm run build && npx cap sync android && cd android && gradlew assembleRelease",
-    "release:aab": "npm run build && npx cap sync android && cd android && gradlew bundleRelease",
-    "ota:publish": "node scripts/publish-ota.mjs"
+    "release:apk": "npm run build && npx cap sync android && node scripts/gradle-build.mjs assembleRelease",
+    "release:aab": "npm run build && npx cap sync android && node scripts/gradle-build.mjs bundleRelease",
+    "ota:publish": "node scripts/publish-ota.mjs",
+    "test:identity": "node scripts/run-db-matrix.mjs supabase/tests/069_p0_001a_identity_matrix.sql \"6 HALKA DA GECTI\"",
+    "test:e2ekey": "node scripts/run-db-matrix.mjs supabase/tests/070_e2e_key_publish_matrix.sql \"7 HALKA DA GECTI\""
   },
   "dependencies": {
     "@capacitor/android": "^8.4.1",
@@ -45,7 +56,6 @@
     "@supabase/ssr": "^0.12.0",
     "@supabase/supabase-js": "^2.104.0",
     "@tailwindcss/vite": "^4.3.2",
-    "@types/three": "^0.185.1",
     "clsx": "^2.1.1",
     "i18next": "^26.3.5",
     "i18next-browser-languagedetector": "^8.2.1",
@@ -59,11 +69,11 @@
     "sql.js": "^1.14.1",
     "tailwind-merge": "^3.6.0",
     "tailwindcss": "^4.2.2",
-    "three": "^0.185.1",
     "zustand": "^5.0.14"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
+    "@maplibre/maplibre-gl-style-spec": "^20.4.0",
     "@playwright/test": "^1.61.1",
     "@types/node": "^24.13.3",
     "@types/qrcode": "^1.5.6",

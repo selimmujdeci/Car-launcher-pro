@@ -53,7 +53,7 @@ vi.mock('../core/runtime/AdaptiveRuntimeManager', () => ({
     getMode:       vi.fn(() => 'BALANCED'),
     getConfig:     vi.fn(() => ({ obdPollingMs: 50 })),
     subscribe:     vi.fn(() => () => {}),
-    reportFailure: vi.fn(),
+    reportFailure: vi.fn(), reportRecovery: vi.fn(),
   },
 }));
 
@@ -77,6 +77,7 @@ vi.mock('../platform/canSnapshotService', () => ({
 vi.mock('../platform/safety/SafetyBrain', () => ({
   isFeatureEnabled: vi.fn(() => false), // gate-fail sonrası auto-reconnect kapalı
   recordFault:      vi.fn(),
+  recordFeatureRecovered: vi.fn(),
 }));
 
 vi.mock('../platform/obdStorage', () => ({
@@ -94,6 +95,13 @@ vi.mock('../platform/obdStorage', () => ({
   loadObdProtocol:   vi.fn(() => null),
   saveObdProtocol:   vi.fn(),
   clearObdProtocol:  vi.fn(),
+  // obdService'in obdStorage'dan İMPORT ETTİĞİ HER ŞEY burada olmalı: eksik export
+  // undefined döner ve ilk çağrıda TypeError ile bağlantı zincirini sessizce koparır
+  // (handshake/data_gate aşamalarına HİÇ ulaşılmaz → o diag'lar üretilmez).
+  loadObdFuelCalib:  vi.fn(() => 1),   // 1 = kalibrasyonsuz (üretim varsayılanı)
+  saveObdFuelCalib:  vi.fn(),
+  isValidTcpAddress: vi.fn(() => false),
+  markObdAddressVerified: vi.fn(),
 }));
 
 vi.mock('../platform/vehicleProfileService', () => ({ persistHandshakeVin: vi.fn() }));

@@ -152,7 +152,8 @@ describe('GPS DERİN bölümü — fail-soft yapı + mahremiyet kilidi', () => {
 describe('SESLİ / STT bölümü — fail-soft yapı + mahremiyet kilidi', () => {
   it('kaynak yokken bile iyi-biçimli voice snapshot döner (çökmez)', () => {
     const voice = buildVoiceSnapshot();
-    expect(typeof voice.voskReady).toBe('boolean');
+    /* #557: null = OKUNAMADI da geçerli bir değerdir (sahte 'hazır' yasak). */
+    expect(voice.voskReady === null || typeof voice.voskReady === 'boolean').toBe(true);
     expect(typeof voice.wakeWordEnabled).toBe('boolean');
     expect(typeof voice.status).toBe('string');
     expect(typeof voice.lastSttAgeMs).toBe('number');
@@ -168,6 +169,15 @@ describe('SESLİ / STT bölümü — fail-soft yapı + mahremiyet kilidi', () =>
   it('🔒 MAHREMİYET: ham transkript alanı YOK', () => {
     const voice = buildVoiceSnapshot();
     expect(Object.keys(voice)).not.toContain('transcript');
+  });
+
+  it('ASİSTAN TEŞHİSİ: mik sağlığı + wake duyduğu + oturum izi taşınır (saha kökü ayrımı)', () => {
+    const voice = buildVoiceSnapshot();
+    // Mikrofon sağlığı: ~0 = mik sessiz (ölü kaynak), >0.1 = ses alıyor (tanıma sorunu).
+    expect(typeof voice.micPeakVolume).toBe('number');
+    // Wake'in duydukları + son oturum izi dizidir (kaynak yokken bile boş dizi).
+    expect(Array.isArray(voice.wakeHeard)).toBe(true);
+    expect(Array.isArray(voice.recent)).toBe(true);
   });
 });
 

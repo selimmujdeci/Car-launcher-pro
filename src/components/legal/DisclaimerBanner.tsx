@@ -21,7 +21,7 @@ export const DisclaimerBanner = memo(function DisclaimerBanner() {
   return (
     <div
       className="fixed inset-0 z-[200] flex items-center justify-center p-6"
-      style={{ background: 'rgba(8,10,14,0.94)', backdropFilter: 'blur(6px) saturate(120%)' }}
+      style={{ background: 'var(--oem-surface-0)', backdropFilter: 'blur(6px) saturate(120%)' }}
       role="dialog"
       aria-modal="true"
       aria-labelledby="disclaimer-title"

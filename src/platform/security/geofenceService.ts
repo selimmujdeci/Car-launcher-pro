@@ -23,7 +23,7 @@ import { getSupabaseClient }     from '../supabaseClient';
 import { connectivityService }   from '../connectivityService';
 import { useSystemStore }        from '../../store/useSystemStore';
 import { speakAlert }            from '../ttsService';
-import { logError }              from '../crashLogger';
+import { logNetworkAware }       from '../crashLogger';
 import type { WorkerGeofenceZone } from '../vehicleDataLayer/types';
 import type { GeofenceZone }       from '../geofenceService';
 
@@ -131,7 +131,8 @@ async function _loadAndPushZones(): Promise<void> {
     _lastReadState = 'ok';
     _lastZoneCount = zones.length;
   } catch (e) {
-    logError('geofenceService:_loadAndPushZones', e);
+    /* Ağ yoksa `warning` — açılışta beklenen durum (#668). */
+    logNetworkAware('geofenceService:_loadAndPushZones', e);
     // Kalıcı ŞEMA hatası (tablo/şema yok) → RETRY ETME. 60sn'de bir sonsuza dek
     // denemek ağ + log israfı; eksik tablo kendiliğinden gelmez (SAHA 2026-07-06:
     // vehicle_geofences tablosu deploy edilmemiş → PGRST205 her dakika tekrar

@@ -16,18 +16,22 @@ import { FullMapView } from '../map/FullMapView';
 import {
   useMediaState,
   togglePlayPause,
-  next,
-  previous,
   fmtTime,
 } from '../../platform/mediaService';
+/* MUSIC F7.3: sonraki/önceki KUYRUK-FARKINDA katmandan gelir — backend'i
+   kuyruksuz olan kaynaklarda (YouTube) üst katman sırası ilerler. */
+import { next, previous } from '../../platform/media/carosMediaLayer';
 import { useOBDState } from '../../platform/obdService';
+import { useLiveVehicleSignal } from '../../hooks/useCanonicalVehicleSignal';
 import { useUnifiedVehicleStore } from '../../platform/vehicleDataLayer';
 import { useRouteState } from '../../platform/routingService';
-import { useNavigation, formatDistance } from '../../platform/navigationService';
+import { useNavigation, formatDistance, readEtaStateSafe } from '../../platform/navigationService';
+import { decideEtaDisplay } from '../../platform/navigation/core/navigationHonestyModel';
 import { openMusicDrawer } from '../../platform/mediaUi';
 import { runtimeManager } from '../../core/runtime/AdaptiveRuntimeManager';
 import { RuntimeMode } from '../../core/runtime/runtimeTypes';
 import '../../styles/oem-cockpit.css';
+import { useDisplaySpeed } from '../../hooks/useDisplaySpeed';
 
 /* SAFE_MODE subscription */
 function subscribeRuntime(cb: () => void) { return runtimeManager.subscribe(cb); }
@@ -182,8 +186,10 @@ export const SplitScreen = memo(function SplitScreen({ onClose }: SplitScreenPro
   const { playing, track } = useMediaState();
   const obd = useOBDState();
   const fuelPct  = useUnifiedVehicleStore((s) => s.fuel);
-  const rawSpeed = useUnifiedVehicleStore((s) => s.speed);
-  const engineT  = obd.engineTemp >= 0 ? obd.engineTemp : null;
+  const rawSpeed = useDisplaySpeed();        // kütük #417: tek gösterim otoritesi
+  /* P0-OBD-03: doğrudan OBD okuması KALDIRILDI — CAN'lı/OBD'siz araçta ısı hiç
+     görünmüyordu ve bayat okuma canlı gibi basılıyordu. Otorite tek yerde. */
+  const engineT  = useLiveVehicleSignal('coolantTemp');
   const speedKmh = rawSpeed ?? 0;
   const route = useRouteState();
   const nav   = useNavigation();
@@ -194,13 +200,25 @@ export const SplitScreen = memo(function SplitScreen({ onClose }: SplitScreenPro
   // Detail: speed limit (best-effort — we don't subscribe to dynamic limit here to avoid extra fetch)
   const speedLimit: number | null = null;
 
-  // ETA computation
+  /* ── VARIŞ SAATİ — TEK ETA OTORİTESİ (P0-NAV-14) ──────────────────────────
+   * ÖLÇÜLEN KUSUR: burada `nav.etaSeconds ?? route.totalDurationSeconds`
+   * yazıyordu. Motor "bu ETA'ya GÜVENME" dediğinde (bayat süre revizyonu ·
+   * düz hat · yetersiz rota verisi) bu satır sağlayıcının HAM toplam süresini
+   * varış saati gibi sunuyordu. Ham süre bir ETA DEĞİLDİR, bir rota
+   * özelliğidir — yerine geçirmek sürücüye yalan söylemektir.
+   * Kural artık `navigationHonestyModel.decideEtaDisplay` ile TEK yerdedir
+   * (`TripSummary` ile AYNI kapı). Güvenilmiyorsa `—` basılır. */
   const arrivalStr = useMemo(() => {
-    const sec = nav.etaSeconds ?? route.totalDurationSeconds ?? 0;
-    if (sec <= 0) return '—';
-    const d = new Date(Date.now() + sec * 1000);
+    const d0 = decideEtaDisplay(nav.etaSeconds, readEtaStateSafe());
+    if (!d0.showNumber || d0.seconds === null) return '—';
+    const d = new Date(Date.now() + d0.seconds * 1000);
     return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
-  }, [nav.etaSeconds, route.totalDurationSeconds]);
+    /* `route.routeRevision` KASITLI bir bağımlılıktır: `readEtaStateSafe()`
+       render sırasında okunan, ABONELİKSİZ bir değerdir (`useNavigationHonesty`
+       ile aynı desen). Rota sürümü değişince hüküm de değişebilir; bu dep
+       olmadan varış saati eski hükümle donardı. Linter bunu göremez. */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nav.etaSeconds, route.routeRevision]);
 
   const distLabel = useMemo(() => {
     const m = nav.distanceMeters ?? route.totalDistanceMeters ?? 0;
@@ -218,6 +236,7 @@ export const SplitScreen = memo(function SplitScreen({ onClose }: SplitScreenPro
 
   return (
     <div
+      data-theme-surface="split" data-editable="split.screen" data-editable-type="panel"
       className="fixed inset-0 z-[60] flex flex-col"
       style={{
         background:
@@ -225,7 +244,8 @@ export const SplitScreen = memo(function SplitScreen({ onClose }: SplitScreenPro
       }}
     >
       {/* Top header strip — title + close */}
-      <div className="flex-shrink-0 flex items-center justify-between px-5 py-3"
+      <div data-editable="split.header" data-editable-type="header"
+        className="flex-shrink-0 flex items-center justify-between px-5 py-3"
         style={{ borderBottom: '1px solid var(--oem-line, rgba(255,240,210,0.08))' }}>
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-lg flex items-center justify-center"
@@ -422,7 +442,7 @@ export const SplitScreen = memo(function SplitScreen({ onClose }: SplitScreenPro
 
           {/* Controls — premium play + glass ghost prev/next */}
           <div className="flex justify-evenly items-center mt-4 flex-shrink-0">
-            <button onClick={previous} aria-label="Önceki"
+            <button onClick={() => { previous('split_screen'); }} aria-label="Önceki"
               className="w-12 h-12 rounded-full flex items-center justify-center active:scale-90 transition-all"
               style={{
                 background: 'transparent',
@@ -448,7 +468,7 @@ export const SplitScreen = memo(function SplitScreen({ onClose }: SplitScreenPro
                 : <Play  className="w-7 h-7 ml-0.5" style={{ color: '#0a0a0a', fill: '#0a0a0a' }} />
               }
             </button>
-            <button onClick={next} aria-label="Sonraki"
+            <button onClick={() => { next('split_screen'); }} aria-label="Sonraki"
               className="w-12 h-12 rounded-full flex items-center justify-center active:scale-90 transition-all"
               style={{
                 background: 'transparent',

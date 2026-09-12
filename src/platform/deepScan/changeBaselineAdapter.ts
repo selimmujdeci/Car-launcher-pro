@@ -1,100 +1,141 @@
 /**
- * changeBaselineAdapter — W5-3c-2. Offline change-detection handler'a GERÇEK baseline
- * sağlayan SALT-OKUNUR adapter katmanı.
+ * changeBaselineAdapter — Deep Scan change detection için BASELINE ÇÖZÜCÜ (W5-3c-3).
  *
- * NE YAPAR: iki mevcut, pasif veri kaynağını `ChangeBaseline`'a (yalnız normalize ECU
- * kümesi) çevirir:
- *  - PRIOR   → `deepScanPersistence.load(hash).discoveredEcus`  (son TAM taramanın diske
- *    yazılı çıktısı)
- *  - CURRENT → `vehicleKnowledgeBase.get(hash).discoveredEcus`  (AutoLearning'in PASİF
- *    öğrendiği, araç zaten HAL/VDL üzerinden akarken toplanan gözlem — read-only store)
- * İkisi de SALT-OKUNUR: hiçbir `save`/`completeScan`/active-record/discovery/CAN/OBD YOK.
- * Deep-scan araca TEK sorgu bile göndermez — iki küme de zaten elde olan veridir.
+ * Offline `change_detection` fazının karşılaştıracağı "önceki durum"u PASİF okumayla bulur:
+ * araca HİÇBİR sorgu göndermez, hiçbir şey YAZMAZ, Event Bus'a dokunmaz.
  *
- * TASARIM:
- *  - Factory + Dependency Injection: `createChangeBaselineAdapter({persistence?, knowledgeBase?})`.
- *    Üretim varsayılanları paylaşılan singleton'lar; test için fake enjekte edilir.
- *  - Handler'a `OfflineChangeDetectionDeps` şeklinde bağlanır (loadPriorBaseline/
- *    loadCurrentBaseline) — ADAPTER handler'ı ÇAĞIRMAZ, yalnız onun tükettiği veriyi üretir.
- *  - Handler bu modülü import ETMEZ (bağımlılık yönü: adapter → kaynaklar; handler saf kalır).
+ * NEDEN İKİ AŞAMALI ARAMA (mimari gerekçe — silmeyin):
+ *   Fingerprint hash'i `V:vin|P:proto|E:ecuAddresses|B:bitmap` türevidir → ECU seti
+ *   değişince HASH DE DEĞİŞİR. Bu yüzden YALNIZ hash ile arama, ECU değişimini yapısal
+ *   olarak ASLA tespit edemez: aranan anahtarın kendisi değişmiştir → kayıt bulunamaz →
+ *   "baseline yok" denir ve gerçek değişim sessizce kaybolur.
+ *   Çözüm: (1) hash ile ara → bulunursa ECU seti aynıdır. (2) bulunamazsa VIN eşleşen
+ *   ÖNCEKİ fingerprint üzerinden baseline'a ulaş → ECU setlerini KARŞILAŞTIR.
  *
- * NE YAPMAZ: firmware EKLEMEZ (handler `changedFirmware=false` üretmeye devam eder);
- * VIN/firmware sürümü/PID-DID/koordinat/secret TAŞIMAZ (yalnız normalize ECU kimlikleri);
- * trigger/wiring/runtime/persistence-yazımı/Event Bus/Capability/HAL DEĞİŞTİRMEZ.
+ * FAIL-CLOSED: baseline yokluğu "değişiklik yok" DEĞİLDİR → `no_baseline`. Okuma hatası
+ * yutulmaz → `unavailable` (çağıran fazı başarılı SAYMAZ).
  *
- * FAIL-SOFT: kaynak throw ederse / kayıt yoksa / hash geçersizse → `null` (değişim iddiası
- * handler tarafında fail-closed). Çıktı IMMUTABLE (dondurulmuş).
+ * LAZY: kurulum I/O yapmaz; disk yalnız `resolve()` çağrılınca (yani faza gelince) okunur.
  */
 
-import { deepScanPersistenceStore } from './deepScanPersistence';
-import { vehicleKnowledgeBaseStore } from '../vehicleKnowledgeBase';
-import type { ChangeBaseline, OfflineChangeDetectionDeps } from './offlineChangeDetectionHandler';
+import {
+  findBestMatch,
+  vehicleFingerprintStore,
+  type VehicleFingerprint,
+  type VehicleFingerprintStore,
+} from '../vehicleFingerprintService';
+import {
+  deepScanPersistenceStore,
+  isVerifiedFullScan,
+  type DeepScanPersistenceStore,
+  type DeepScanRecord,
+} from './deepScanPersistence';
 
-/** Yalnız `discoveredEcus` okunan minimal, yapısal kayıt arayüzü (kaynak-agnostik). */
-interface EcuRecordLike {
-  readonly discoveredEcus?: readonly string[];
-}
-interface PersistenceLike {
-  load(vehicleFingerprintHash: string): EcuRecordLike | null;
-}
-interface KnowledgeLike {
-  get(vehicleFingerprintHash: string): EcuRecordLike | null;
-}
-
-/** Enjekte edilebilir kaynaklar (varsayılan: paylaşılan salt-okunur singleton'lar). */
-export interface ChangeBaselineAdapterDeps {
-  readonly persistence?: PersistenceLike;
-  readonly knowledgeBase?: KnowledgeLike;
-}
-
-/** Adapter yüzeyi = handler'ın tükettiği bağımlılık şekli (DI ile bağlanır). */
-export type ChangeBaselineAdapter = OfflineChangeDetectionDeps;
-
-/** Normalize ECU listesi: trim + upper + `0x` at + dedup + boş at (sıra korunur). */
-function _normEcus(list: readonly string[] | undefined): string[] {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  if (!Array.isArray(list)) return out;
-  for (const raw of list) {
-    if (typeof raw !== 'string') continue;
-    const key = raw.trim().toUpperCase().replace(/\s+/g, '').replace(/^0X/, '');
-    if (key && !seen.has(key)) { seen.add(key); out.push(key); }
-  }
-  return out;
-}
-
-/** Kayıt → bounded + immutable `ChangeBaseline` (yalnız ECU). Kayıt yoksa null. */
-function _toBaseline(rec: EcuRecordLike | null): ChangeBaseline | null {
-  if (!rec || typeof rec !== 'object') return null;
-  return Object.freeze({ ecus: Object.freeze(_normEcus(rec.discoveredEcus)) });
-}
-
-function _validHash(hash: string): boolean {
-  return typeof hash === 'string' && hash.length > 0;
+/** Enjekte edilebilir bağımlılıklar (test için değiştirilebilir). */
+export interface ChangeBaselineDeps {
+  readonly fingerprintStore?: VehicleFingerprintStore;
+  readonly persistence?: DeepScanPersistenceStore;
 }
 
 /**
- * Offline change-detection için baseline sağlayıcılarını üretir. Dönen nesne DOĞRUDAN
- * `createOfflineChangeDetectionHandler(...)`'a geçirilebilir (W5-3c-3 wiring — AYRI PR).
+ * Baseline çözümü — BOUNDED. Dışarıya ham kimlik (VIN/ECU adresi) TAŞIMAZ;
+ * `record` yalnız modül içi karar için taşınır, faz sonucuna KOYULMAZ.
  */
-export function createChangeBaselineAdapter(
-  deps: ChangeBaselineAdapterDeps = {},
-): ChangeBaselineAdapter {
-  const persistence = deps.persistence ?? deepScanPersistenceStore;
-  const knowledgeBase = deps.knowledgeBase ?? vehicleKnowledgeBaseStore;
+export type BaselineResolution =
+  /** Aynı hash → aynı araç + aynı ECU seti (fingerprint tanımı gereği). */
+  | { readonly kind: 'match'; readonly record: DeepScanRecord }
+  /** VIN eşleşti ama ECU seti FARKLI → gerçek değişim kanıtı. */
+  | { readonly kind: 'ecu_set_changed'; readonly record: DeepScanRecord }
+  /** VIN eşleşti, hash farklı ama ECU seti aynı (bitmap/protokol değişmiş). */
+  | { readonly kind: 'match_via_vin'; readonly record: DeepScanRecord }
+  /** Kanıt yok — "değişiklik yok" DEĞİL. */
+  | { readonly kind: 'no_baseline' }
+  /** Okuma başarısız — fail-closed; faz başarılı sayılmamalı. */
+  | { readonly kind: 'unavailable' };
 
-  return {
-    loadPriorBaseline: (hash: string): ChangeBaseline | null => {
-      if (!_validHash(hash)) return null;
-      let rec: EcuRecordLike | null = null;
-      try { rec = persistence.load(hash); } catch { rec = null; }   // salt-okunur, fail-soft
-      return _toBaseline(rec);
-    },
-    loadCurrentBaseline: (hash: string): ChangeBaseline | null => {
-      if (!_validHash(hash)) return null;
-      let rec: EcuRecordLike | null = null;
-      try { rec = knowledgeBase.get(hash); } catch { rec = null; }   // salt-okunur, fail-soft
-      return _toBaseline(rec);
-    },
-  };
+/**
+ * Bir kayıt BASELINE olmaya uygun mu.
+ *
+ * ⚠️ FAIL-CLOSED (completion truth): yalnız KANITLI tam taranmış araç baseline
+ * olabilir. Kısmi/eksik tarama (handler'sız, atlanmış, timeout'a düşmüş faz) kayıt
+ * bırakabilir — ama o kayıt "önceki tam durum" DEĞİLDİR; onu baseline saymak
+ * "değişiklik yok" sonucuna KANIT ÜRETİRDİ. Aynısı Completion Truth ÖNCESİ yazılmış
+ * (metadata'sız) `hasCompletedFullScan:true` kayıtları için de geçerlidir.
+ *
+ * Karar BURADA VERİLMEZ — tek merkezi otorite `isVerifiedFullScan()`
+ * (deepScanPersistence). Burada yalnız tip daraltma yapılır (dağınık kural YOK).
+ */
+function isUsableBaseline(record: DeepScanRecord | null): record is DeepScanRecord {
+  return isVerifiedFullScan(record);
+}
+
+/** İki ECU adres kümesi anlamlı biçimde farklı mı (sıra/tekrar duyarsız). */
+function ecuSetChanged(a: readonly string[], b: readonly string[]): boolean {
+  const sa = new Set(a);
+  const sb = new Set(b);
+  if (sa.size !== sb.size) return true;
+  for (const x of sa) if (!sb.has(x)) return true;
+  return false;
+}
+
+export class ChangeBaselineAdapter {
+  private readonly _fingerprints: VehicleFingerprintStore;
+  private readonly _persistence: DeepScanPersistenceStore;
+
+  constructor(deps: ChangeBaselineDeps = {}) {
+    // Yalnız REFERANS alınır — kurulumda I/O YOK (lazy sözleşmesi).
+    this._fingerprints = deps.fingerprintStore ?? vehicleFingerprintStore;
+    this._persistence = deps.persistence ?? deepScanPersistenceStore;
+  }
+
+  /**
+   * Baseline'ı ÇÖZER — disk burada okunur (lazy). Fail-closed: hata yutulmaz,
+   * `unavailable` döner. Araca sorgu YOK, yazma YOK.
+   */
+  resolve(): BaselineResolution {
+    let known: readonly VehicleFingerprint[];
+    try {
+      known = this._fingerprints.list();
+    } catch {
+      return { kind: 'unavailable' };
+    }
+
+    const current = known[0];                                 // LRU: en son görülen araç
+    if (!current || typeof current.hash !== 'string' || current.hash === '') {
+      return { kind: 'no_baseline' };                         // araç kimliği bilinmiyor
+    }
+
+    try {
+      // (1) HASH ile — bulunursa ECU seti tanım gereği aynıdır.
+      const direct = this._persistence.load(current.hash);
+      if (isUsableBaseline(direct)) return { kind: 'match', record: direct };
+
+      // (2) VIN eşleşen ÖNCEKİ fingerprint üzerinden. Kendisi listeden ÇIKARILIR
+      //     (aksi hâlde matcher kendisiyle eşleşir → tautoloji).
+      const others = known.filter((f) => f && f.hash !== current.hash);
+      if (others.length === 0) return { kind: 'no_baseline' };
+
+      const best = findBestMatch(current, others);
+      // YALNIZ VIN eşleşmesi (confidence 1.0) baseline devretmeye yeter. `signature`
+      // zaten ECU/bitmap türevidir (döngüsel), `adapter-mac` aracı değil dongle'ı tanır.
+      if (best.reason !== 'vin' || !best.hash) return { kind: 'no_baseline' };
+
+      const prior = this._persistence.load(best.hash);
+      // Hiç taranmamış VEYA tam taranmamış → baseline OLAMAZ (fail-closed).
+      if (!isUsableBaseline(prior)) return { kind: 'no_baseline' };
+
+      const priorFp = others.find((f) => f.hash === best.hash);
+      if (!priorFp) return { kind: 'no_baseline' };
+
+      return ecuSetChanged(current.ecuAddresses ?? [], priorFp.ecuAddresses ?? [])
+        ? { kind: 'ecu_set_changed', record: prior }
+        : { kind: 'match_via_vin', record: prior };
+    } catch {
+      return { kind: 'unavailable' };                          // fail-closed
+    }
+  }
+}
+
+export function createChangeBaselineAdapter(deps: ChangeBaselineDeps = {}): ChangeBaselineAdapter {
+  return new ChangeBaselineAdapter(deps);
 }

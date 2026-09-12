@@ -37,6 +37,7 @@ import {
   isFeatureEnabled,
   listSafetyDisabledFeatureWarnings,
   recordFault,
+  recordFeatureRecovered,
   resetVinProfile,
 } from '../platform/safety/SafetyBrain';
 import { setHandshakeVin } from '../platform/safety/vinContext';
@@ -154,5 +155,30 @@ describe('SafetyBrain', () => {
     expect(__unsafeGetRootForTests().profiles[TEST_VIN]).toBeDefined();
     resetVinProfile(TEST_VIN);
     expect(__unsafeGetRootForTests().profiles[TEST_VIN]).toBeUndefined();
+  });
+  /* SAHA 2026-08-06 (Adana-Şanlıurfa, gerçek sürüş): cihazda
+     `disabledFeatures: ["obdDataGateAutoReconnect"]` + `OBD_DATA_GATE_TIMEOUT × 19`
+     bulundu, OBD bütün gün bağlanamadı. Kayıt VIN'siz `__NO_VIN__` kovasına
+     gittiği için "VIN okumak için gereken özellik, VIN olmadığı için kalıcı
+     kapalı" kilidi oluşuyordu. Sayaçlar azalmıyor, çıkış yolu yoktu. */
+  it('kanıtlanmış başarı mandalı açar — koruma korunur, iyileşme SEÇİCİDİR', () => {
+    resetVinProfile(NO_VIN_KEY);
+
+    // Eşiğe kadar arıza → özellik kapanır (KORUMA AYNEN DURUYOR)
+    for (let i = 0; i < 12; i++) recordFault('OBD_DATA_GATE_TIMEOUT');
+    expect(isFeatureEnabled('obdDataGateAutoReconnect'), 'koruma zayıflatılmamalı').toBe(false);
+
+    // Gerçek ECU verisi aktı → tek çıkış yolu açılır
+    recordFeatureRecovered('obdDataGateAutoReconnect');
+    expect(isFeatureEnabled('obdDataGateAutoReconnect'), 'kalıcı kilit — çıkış yolu yok').toBe(true);
+    expect(__unsafeGetRootForTests().profiles[NO_VIN_KEY]?.faults['OBD_DATA_GATE_TIMEOUT'])
+      .toBeUndefined();
+
+    // İyileşme başka özelliğe SIZMAMALI
+    for (let i = 0; i < 12; i++) recordFault('CORRIDOR_PREFETCH_TIMEOUT');
+    recordFeatureRecovered('obdDataGateAutoReconnect');
+    expect(isFeatureEnabled('corridorPrefetch'), 'iyileşme sızdı').toBe(false);
+
+    resetVinProfile(NO_VIN_KEY);
   });
 });

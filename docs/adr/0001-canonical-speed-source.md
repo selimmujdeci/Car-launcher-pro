@@ -20,7 +20,7 @@ anıyor). Aktif akış **Zustand `useUnifiedVehicleStore`** üzerinden yürüyor
 ## Decision
 
 Tek kanonik hız kaynağı: **`useUnifiedVehicleStore`** (Zustand). Veri akışı
-(`ARCHITECTURE_DATAFLOW.md` §1 — düzeltilmiş hali):
+(`docs/architecture/ARCHITECTURE_DATAFLOW.md` §1 — düzeltilmiş hali):
 
 ```
 Native (CAN/OBD) → VehicleCompute.worker.ts (tek yazar, Seqlock)
@@ -44,8 +44,8 @@ Native (CAN/OBD) → VehicleCompute.worker.ts (tek yazar, Seqlock)
 - (+) Seqlock + cache-line padding ile çok çekirdekli okuma/yazma güvenli
   (CLAUDE.md SAB & Hardware Safety standardı).
 - (−) `useSABDirectUpdate.ts` ölü kod olarak kaldı (silinmedi; ölü-kod temizliği
-  ayrı iş — `PROJECT_STATE.md` Çöp Kod). Yeni gelen bu hook'u **kullanmamalı**.
-- (!) `VehicleSignalResolver` SAB/Seqlock yapısına dokunulmaz (`HANDOFF.md` §3).
+  ayrı iş — `docs/archive/PROJECT_STATE.md` Çöp Kod). Yeni gelen bu hook'u **kullanmamalı**.
+- (!) `VehicleSignalResolver` SAB/Seqlock yapısına dokunulmaz (`docs/archive/HANDOFF.md` §3).
   Faz 2'de yalnızca polling frekansı düşürülecek (20→10/5Hz), yapı değişmeyecek.
 
 ## Links & affected files
@@ -57,4 +57,4 @@ Native (CAN/OBD) → VehicleCompute.worker.ts (tek yazar, Seqlock)
 - `src/.../VehicleSignalResolver.ts:206-220` (SAB polling 50ms/20Hz)
 - `src/.../VehicleCompute.worker.ts` (tek yazar)
 - `src/hooks/useSABDirectUpdate.ts` — **ÖLÜ**, kullanma
-- `ARCHITECTURE_DATAFLOW.md` §1 (düzeltilmiş akış)
+- `docs/architecture/ARCHITECTURE_DATAFLOW.md` §1 (düzeltilmiş akış)

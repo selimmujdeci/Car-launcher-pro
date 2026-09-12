@@ -8,6 +8,14 @@
  *  4. Nominatim ağ hatası → offline fallback
  *  5. Offline sonuçlarda source: 'offline' etiketi
  *  6. Overpass / searchNearby rate-limit logic bozulmadı
+ *
+ * ⚠️ SORGU ile FIXTÜR AYNI ŞEHİRDE OLMALI (2026-08-12'den beri):
+ * `geocodeAddress` artık konum/şehir kapısından geçer — sorguda AÇIKÇA bir il
+ * adı varsa BAŞKA ilde olduğu KANITLI adaylar elenir. Buradaki fixtürlerin
+ * hepsi İstanbul'dadır; sorgu olarak "Ankara"/"Samsun" kullanmak testi ürün
+ * KUSURU yüzünden değil, kapının DOĞRU çalışması yüzünden düşürür. Bu yüzden
+ * fast-fail/fallback testleri il adı OLMAYAN bir sorgu ("Kadıköy") kullanır;
+ * kapının kendi kilitleri `addressAmbiguityDistanceGate.test.ts`tedir.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -171,7 +179,7 @@ describe('geocodeAddress — offline fallback', () => {
     );
 
     const { geocodeAddress } = await import('../platform/geocodingService');
-    const results = await geocodeAddress('Ankara');
+    const results = await geocodeAddress('Kadikoy');
 
     expect(results.length).toBeGreaterThan(0);
     expect(results[0].source).toBe('offline');
@@ -226,7 +234,7 @@ describe('geocodeAddress — 2s fast-fail timeout', () => {
     );
 
     // Rate-limiter + fast-fail timeout dahil ilerleme
-    const resultPromise = geocodeAddress('Samsun');
+    const resultPromise = geocodeAddress('Kadikoy');
 
     // Rate-limiter (1100ms) + fast-fail (2000ms) = 3100ms — 3500ms ile geç
     await vi.advanceTimersByTimeAsync(3_500);
@@ -251,7 +259,7 @@ describe('geocodeAddress — 2s fast-fail timeout', () => {
     );
 
     const { geocodeAddress } = await import('../platform/geocodingService');
-    const results = await geocodeAddress('Ankara');
+    const results = await geocodeAddress('Kadikoy');
 
     expect(results.length).toBeGreaterThan(0);
     expect(results[0].source).toBe('online');

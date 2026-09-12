@@ -21,6 +21,8 @@ import type { VehicleEvent } from './VehicleEventHub';
 import type { NormalizedVehicleData, SignalSource } from './valTypes';
 import { OdometerGuard } from './OdometerGuard';
 import { createSourceHealthGate } from './sourceHealthGate';
+import { createObdCadenceGate } from './obdCadenceGate';
+import { isSpeedSourceUsable, pickSpeedSource } from './speedSourcePolicy';
 
 // ── Mesaj protokolü ──────────────────────────────────────────────────────
 
@@ -33,7 +35,11 @@ export type WorkerInMessage =
    * ham kaynak verisi yerine NormalizedVehicleData gönderir.
    * Fusion, hardcoded kaynak önceliği yerine IVehicleSignal.confidence kullanır.
    */
-  | { type: 'VEHICLE_DATA';    source: SignalSource; signals: NormalizedVehicleData }
+  /* `fixTs`: kaynaktaki ÖLÇÜM anı (ms). YALNIZ GPS doldurur; diğer kaynaklarda
+     0'dır ama alan HER ZAMAN gönderilir — tek Hidden Class korunur (bkz.
+     CLAUDE.md "Template Object Literals"). Odometre Δt otoritesi için gerekli:
+     varış farkı ≠ ölçüm farkı (kütük #458). */
+  | { type: 'VEHICLE_DATA';    source: SignalSource; signals: NormalizedVehicleData; fixTs: number }
   /** @deprecated CAN_DATA/OBD_DATA/GPS_DATA → VEHICLE_DATA ile değiştirildi */
   | { type: 'CAN_DATA';         payload: CanAdapterData }
   | { type: 'OBD_DATA';         payload: ObdAdapterData }
@@ -93,6 +99,11 @@ const ZERO_HOLD_TICKS      = 3;     // GPS 0/düşük: bu kadar art arda tik (3�
 const ZERO_HOLD_KMH        = 1.5;   // bu altı GPS raporu "sıfır gürültüsü" sayılır
 const ZERO_HOLD_MIN_KMH    = 6;     // yalnız önceki gösterilen hız bunun üstündeyse 0-düşmeyi debounce et
 
+/* ── Zero-trust: donanım hız çelişkisi (bkz. _hwSpeedContradicted) ────────── */
+const HW_ZERO_KMH            = 1;   // donanım bunun altındaysa "duruyorum" diyor
+const HW_CONTRADICT_GPS_KMH  = 15;  // GPS bunun üstündeyse gerçek hareket var (ZERO_HOLD gürültü eşiğinin çok üstü)
+const HW_CONTRADICT_RPM_MIN  = 900; // motor bunun üstünde dönüyorsa araç gerçekten çalışıyor (rölanti üstü)
+
 const GPS_ACCURACY_MAX_M      = 30;
 /** GPS kalite arızası eşiği — bu accuracy üstü "kullanılamaz fix" sayılır */
 const GPS_FAILURE_ACCURACY_M  = 100;
@@ -109,7 +120,8 @@ const DR_MAX_INTERVAL_MS   = 500;   // dead reckoning max Δt — SPEED_INTERVAL
 
 const SRC_TIMEOUT_HAL_MS   = 3_000;
 const SRC_TIMEOUT_CAN_MS   = 3_000;
-const SRC_TIMEOUT_OBD_MS   = 5_000;  // Native pollOBDLoop ~3s+ periyotla yayar; 5s tolerans = poll arası OBD stale sayılmaz (P1)
+/* OBD eşiği artık SABİT DEĞİL — gözlenen kadanstan öğrenilir (bkz. obdCadenceGate).
+ * Kanıt ve gerekçe o modülün başlığında; buradaki taban/tavan da oradan gelir. */
 const SRC_TIMEOUT_GPS_MS   = 5_000;
 const WATCHDOG_INTERVAL_MS = 1_000;
 
@@ -150,8 +162,40 @@ const _gps: GpsAdapterData & { speed?: number; heading?: number; location?: type
 
 let _canLastSeen    = 0;
 let _obdLastSeen    = 0;
+const _obdCadence   = createObdCadenceGate(); // OBD tazelik eşiğini gözlenen kadanstan öğrenir
 let _gpsLastSeen    = 0;
-let _prevGpsUpdateAt = 0; // önceki GPS_DATA zamanı — Doppler Δt hesabı için
+let _prevGpsUpdateAt = 0; // önceki GPS paketinin VARIŞ anı (performance.now)
+/**
+ * Önceki fix'in KAYNAKTAKİ ölçüm anı (`GeolocationPosition.timestamp`, ms).
+ * 0 = henüz ölçüm anı bildiren fix görülmedi. Bkz. `_gpsDeltaMs`.
+ */
+let _prevGpsFixTs = 0;
+
+/**
+ * GPS Δt otoritesi: ÖLÇÜM anları farkı — varış anları farkı DEĞİL.
+ *
+ * SAHA 2026-08-06 (32 dk): `Teleport rejected` 8 kez, hepsi accuracy 2 m olan
+ * MÜKEMMEL fix'lerde. Örnek: 94,8 km/h'de 264 m yer değiştirme "implied 800 km/h"
+ * sanıldı, çünkü Δt varıştan 1187 ms ölçülmüştü — oysa 264 m o hızda ~10 saniyedir.
+ * Fix'ler tamponlanıp toplu geldiğinde varış farkı çöker, ölçüm farkı doğru kalır.
+ * Reddedilince `_refLat/_refLng` sıfırlanıp mesafe odometreye HİÇ yazılmıyordu
+ * → ölçülen kayıp 8 ret × 73-299 m ≈ 32 dakikada 1,15 km (kütük #458).
+ *
+ * SAAT SIÇRAMASI KORUMASI: ölçüm anı wall-clock kaynaklıdır (NTP/kullanıcı saati
+ * oynayabilir). Bu yüzden fark yalnız MAKUL bandda kabul edilir; dışına çıkarsa
+ * varış farkına düşülür. Geriye giden saat (fark ≤ 0) da otomatik elenir.
+ * OdometerGuard'ın kendi monotonic tabanı ikinci savunma hattı olarak DURUR.
+ */
+const GPS_FIX_DT_MAX_MS = 60_000;
+function _gpsDeltaMs(fixTs: number, arrivalDtMs: number): number {
+  if (Number.isFinite(fixTs) && fixTs > 0) {
+    const prev = _prevGpsFixTs;   // önce OKU, sonra ilerlet
+    _prevGpsFixTs = fixTs;
+    const fixDt = fixTs - prev;
+    if (prev > 0 && fixDt > 0 && fixDt < GPS_FIX_DT_MAX_MS) return fixDt;
+  }
+  return arrivalDtMs;
+}
 
 // ── GPS kalite arıza takibi (Watchdog Hardening) ──────────────────────────
 // _gpsBadSinceMs : kalite ilk bozulduğu performance.now() (0 = iyi/fix yok)
@@ -164,27 +208,55 @@ let _gpsFailureActive = false;
 // _emitSpeed() confidence-based fusion için bu buffer'ları kullanır.
 // Pre-allocated: her mesajda yeni nesne oluşturmak yerine yerinde güncellenir.
 
-const _valSignals: Record<'HAL' | 'CAN' | 'OBD' | 'GPS', NormalizedVehicleData | null> = {
+/**
+ * VAL tamponunun KABUL ETTİĞİ kaynaklar.
+ *
+ * ⚠️ `SignalSource` sözleşmesi (valTypes.ts) BUNDAN GENİŞTİR: `'HAL' | 'CAN' |
+ * 'OBD' | 'GPS' | 'FUSED'`. `FUSED` bir GİRDİ kaynağı değil, füzyonun ÇIKTISIDIR
+ * → per-source tamponda karşılığı YOKTUR. Yani tip-geçerli bir `VEHICLE_DATA`
+ * mesajı bile bu tampona ait olmayan bir kaynak taşıyabilir (VCOMP-03 kökü).
+ * Liste bu yüzden `SignalSource` ∩ `_valSignals` anahtarları olarak TÜRETİLİR.
+ */
+type ValBufferSource = 'HAL' | 'CAN' | 'OBD' | 'GPS';
+
+const _valSignals: Record<ValBufferSource, NormalizedVehicleData | null> = {
   HAL: null,
   CAN: null,
   OBD: null,
   GPS: null,
 };
 
-/** Efektif güven: signal.confidence × tazelik faktörü */
-function _effectiveConf(
+/** Tampon anahtarlarından TÜRETİLİR — elle ikinci liste tutulmaz (sapma imkânsız). */
+const VAL_BUFFER_SOURCES: ReadonlySet<string> = new Set(Object.keys(_valSignals));
+
+/** Kaynak bu tampona yazılabilir mi (fail-closed: string olmayan/bilinmeyen → false). */
+function _isValBufferSource(v: unknown): v is ValBufferSource {
+  return typeof v === 'string' && VAL_BUFFER_SOURCES.has(v);
+}
+
+/**
+ * VAL sinyali KULLANILABİLİR mi — saf politikaya (`speedSourcePolicy`) köprü.
+ *
+ * Eskiden burada `_effectiveConf` (confidence × tazelik) vardı ve kaynaklar bu
+ * skorla YARIŞTIRILIYORDU. Hız için o yarış saha kusuru üretti (bkz.
+ * `_resolveSpeedSource`): OBD kadansı GPS'ten yavaş olduğu için OBD paketleri
+ * ARASINDA skoru düşüyor ve araç OBD'ye bağlıyken bile hız GPS'e geçiyordu.
+ * Karar artık ÖNCELİK sırasıyla verilir; bu fonksiyon yalnız UYGUNLUK söyler.
+ */
+function _valUsable(
   sig: { confidence: number; ts: number } | undefined,
   timeoutMs: number,
-): number {
-  if (!sig) return 0;
-  const age = Date.now() - sig.ts;
-  return sig.confidence * Math.max(0, 1 - age / timeoutMs);
+): boolean {
+  return isSpeedSourceUsable(sig != null, sig?.confidence ?? 0, sig ? Date.now() - sig.ts : 0, timeoutMs);
 }
 
 // ── Hız durumu ────────────────────────────────────────────────────────────
 
 let _lastKnownSpeed     = 0;
 let _obdZeroConsecutive = 0;
+/** Duraktan ani sıçrama adayı — ikinci okuma doğrulayana kadar yayınlanmaz.
+ *  -1 = bekleyen aday yok. (bkz. _emitSpeed içindeki gerekçe) */
+let _speedJumpCandidate = -1;
 // GPS gösterim yumuşatma durumu (yalnız SAB→UI; raw mantığını etkilemez)
 let _dispSpeed          = 0;   // UI'a yazılan yumuşatılmış hız (km/h)
 let _gpsZeroTicks       = 0;   // GPS art arda kaç tiktir 0/düşük raporladı
@@ -245,7 +317,7 @@ function _odoSet(v: number): void {
 }
 
 // Pre-allocated prev GPS noktası; _prevOdoActive ile "null" durumu temsil edilir
-const _prevOdoBuf = { lat: 0, lng: 0 };
+const _prevOdoBuf = { lat: 0, lng: 0, acc: 0 };
 let _prevOdoActive    = false;
 // İlk OBD sync'ten sonra true → jump guard etkinleşir (INIT atlaması için)
 let _odoInitialized   = false;
@@ -417,6 +489,21 @@ function _alive(lastSeen: number, timeout: number): boolean {
   return lastSeen > 0 && (performance.now() - lastSeen) < timeout;
 }
 
+/**
+ * OBD tazelik damgası + kadans öğrenme. TÜM OBD ingest yolları buradan geçer
+ * (`_obdLastSeen`'e doğrudan yazan tek istisna: watchdog'un kasıtlı sıfırlaması).
+ * Zero-allocation, saf aritmetik.
+ */
+function _markObdSeen(nowPerf: number): void {
+  if (_obdLastSeen > 0) _obdCadence.observe(nowPerf - _obdLastSeen);
+  _obdLastSeen = nowPerf;
+}
+
+/** Gözlenen kadanstan türetilmiş OBD tazelik eşiği — taban/tavan arasına kenetli. */
+function _obdTimeoutMs(): number {
+  return _obdCadence.timeoutMs();
+}
+
 function _postPatch(patch: Partial<VehicleState>): void {
   _outState.patch = patch;
   self.postMessage(_outState);
@@ -443,7 +530,7 @@ function _postSourceHealthIfChanged(canRaw: boolean, obdRaw: boolean, gpsRaw: bo
   if (!_healthGate.isVisible()) return;   // arka plan → sağlık GEÇİŞİ DONDURULUR
   const now = performance.now();
   const can = _healthGate.decide(now, _canLastSeen, SRC_TIMEOUT_CAN_MS, canRaw, _prevCanAlive);
-  const obd = _healthGate.decide(now, _obdLastSeen, SRC_TIMEOUT_OBD_MS, obdRaw, _prevObdAlive);
+  const obd = _healthGate.decide(now, _obdLastSeen, _obdTimeoutMs(), obdRaw, _prevObdAlive);
   const gps = _healthGate.decide(now, _gpsLastSeen, SRC_TIMEOUT_GPS_MS, gpsRaw, _prevGpsAlive);
   // Foreground yeniden-tabanlama penceresi: karar verilemiyor → POSTLAMA (unknown korunur)
   if (can === null || obd === null || gps === null) return;
@@ -683,8 +770,19 @@ function _updateOdometerGps(dtMs: number): void {
 
   // ── OdometerGuard: startup skip + velocity-time jump protection ───────
   // dtMs: GPS_DATA handler'ında hesaplanan fix-arası Δt (ms)
-  // _lastKnownSpeed: CAN→OBD→GPS öncelik füzyonundan gelen anlık hız (km/h)
-  const guardResult = _odoGuard.check(loc.lat, loc.lng, _lastKnownSpeed, dtMs);
+  //
+  // HIZ KANITI TUTARLILIĞI (2026-08-02): guard'a eskiden YALNIZ `_lastKnownSpeed`
+  // (CAN→OBD→GPS füzyonu) veriliyordu, oysa 20 satır aşağıdaki odometre yöntemi
+  // `_gps.speed`e (Doppler) güveniyor. Bu iki otorite ayrışabilir: OBD (0.85)
+  // GPS'ten (0.70) üstün olduğu için bağlı ama BAYAT/0 raporlayan bir ELM327,
+  // araç gerçekten giderken `_lastKnownSpeed = 0` bırakır. Guard'ın toleransı
+  // hıza bağlı olduğundan (hız 0 → yalnız 50 m taban) uzun Δt'de GERÇEK hareket
+  // "teleport" sayılabilir. Guard'a mevcut EN İYİ hız kanıtını ver: iki kaynağın
+  // büyüğü. Sahte km riski yaratmaz — yüksek hız yalnız teleport eşiğini genişletir,
+  // biriktirme kararını aşağıdaki DR_JITTER kapısı ve accuracy kapısı verir.
+  const _gpsSpeedKmh   = _gps.speed ?? 0;
+  const _guardSpeedKmh = _lastKnownSpeed > _gpsSpeedKmh ? _lastKnownSpeed : _gpsSpeedKmh;
+  const guardResult = _odoGuard.check(loc.lat, loc.lng, _guardSpeedKmh, dtMs, loc.accuracy);
 
   if (guardResult === 'skip') {
     // Startup penceresi: GPS fix yoksayılır.
@@ -696,6 +794,7 @@ function _updateOdometerGps(dtMs: number): void {
     }
     _prevOdoBuf.lat = loc.lat;
     _prevOdoBuf.lng = loc.lng;
+    _prevOdoBuf.acc = Number.isFinite(loc.accuracy) ? loc.accuracy : 0;
     _prevOdoActive  = true;
     return;
   }
@@ -713,6 +812,7 @@ function _updateOdometerGps(dtMs: number): void {
   if (!hwBacked && speedKmh < DR_JITTER_KMH) {
     _prevOdoBuf.lat = loc.lat;
     _prevOdoBuf.lng = loc.lng;
+    _prevOdoBuf.acc = Number.isFinite(loc.accuracy) ? loc.accuracy : 0;
     _prevOdoActive  = true;
     return;
   }
@@ -726,6 +826,7 @@ function _updateOdometerGps(dtMs: number): void {
       _postOdoUpdate(false);
       _prevOdoBuf.lat = loc.lat;
       _prevOdoBuf.lng = loc.lng;
+      _prevOdoBuf.acc = Number.isFinite(loc.accuracy) ? loc.accuracy : 0;
       _prevOdoActive  = true;
       return; // Haversine'e gerek yok
     }
@@ -736,19 +837,55 @@ function _updateOdometerGps(dtMs: number): void {
     // Kötü accuracy + speed yok → referans ilerlet, biriktirme
     _prevOdoBuf.lat = loc.lat;
     _prevOdoBuf.lng = loc.lng;
+    _prevOdoBuf.acc = Number.isFinite(loc.accuracy) ? loc.accuracy : 0;
     return;
   }
 
   if (!_prevOdoActive) {
     _prevOdoBuf.lat = loc.lat;
     _prevOdoBuf.lng = loc.lng;
+    _prevOdoBuf.acc = Number.isFinite(loc.accuracy) ? loc.accuracy : 0;
     _prevOdoActive  = true;
     return;
   }
 
   const deltaKm = _haversineKm(_prevOdoBuf.lat, _prevOdoBuf.lng, loc.lat, loc.lng);
+  /* ÖNCEKİ fix'in doğruluğu, çapa GÜNCELLENMEDEN ÖNCE okunur — aşağıdaki
+     çift-fix tabanı bunu kullanır (üzerine yazılırsa kapı tek fix'e düşer). */
+  const _prevAccM = _prevOdoBuf.acc;
   _prevOdoBuf.lat = loc.lat;
   _prevOdoBuf.lng = loc.lng;
+  _prevOdoBuf.acc = Number.isFinite(loc.accuracy) ? loc.accuracy : 0;
+
+  /* ── BELİRSİZLİK TABANI (saha 2026-08-03) ────────────────────────────────
+   * Kullanıcı: "km durduğum yerde durmadan değişiyor." Ölçüldü: araç PARK
+   * hâlindeyken Yol Sayacı 103,6 → 103,7 → 103,8 diye tırmandı (dakikada
+   * ~50 m sahte mesafe). Kaynak bu Haversine yolu: ardışık GPS fix'leri
+   * ±3-6 m salınıyor ve her salınım "kat edilen mesafe" olarak birikiyordu.
+   *
+   * Hız tarafına eklenen ilkenin AYNISI burada da geçerli: ölçüm
+   * belirsizliğinden küçük bir yer değiştirme MESAFE DEĞİLDİR. Taban
+   * `2 × accuracy` (2.5–12 m arası). Gerçek sürüşte 1 Hz'de bile 50 km/h
+   * ≈ 14 m/fix üretir → taban gerçek mesafeyi bastırmaz. */
+  /* ⚠️ İLK HÂLİ YETMEDİ (cihazda ölçüldü 2026-08-03/2): kullanıcı park hâlinde
+   * Yol Sayacı'nın **95 → 106,7 km** çıktığını bildirdi (saatler içinde ~11 km
+   * sahte mesafe). Taban VARDI ama iki kusuru vardı ve ikisi de hız tarafında
+   * aynı gün ölçülüp düzeltilen kusurun kardeşiydi:
+   *   1) TAVAN 12 m idi; aynı telefonda `accuracy` **14.9 m** ölçüldü → taban
+   *      ölçüm belirsizliğinin ALTINDA kalıyor, kapı anlamsızlaşıyordu.
+   *   2) yalnız GÜNCEL fix'in doğruluğuna bakıyordu; oysa yer değiştirme İKİ
+   *      ölçümün farkıdır, belirsizliği de ikisinin birleşimidir. Ölçülen
+   *      çift (±14.9 m → ±8.5 m) arasında **24.4 m**'lik saf gürültü sıçraması
+   *      12 m'lik tabanı rahatça aşıp "kat edilen mesafe" olarak birikiyordu.
+   * Tavan 40 m'ye çıkarıldı ve taban çiftin KÖTÜ doğruluğundan üretiliyor —
+   * `speedCore.noiseFloorM` ile BİREBİR aynı ilke. Gerçek sürüşü bastırmaz:
+   * 1 Hz'de 50 km/h ≈ 14 m/fix ve iyi gökyüzünde accuracy ≈ 2 m → taban 4 m. */
+  const _odoAccM   = Math.max(
+    Number.isFinite(loc.accuracy) ? loc.accuracy : 5,
+    _prevAccM > 0 ? _prevAccM : 0,
+  );
+  const _odoFloorM = Math.min(40, Math.max(2.5, _odoAccM * 2));
+  if (deltaKm * 1000 <= _odoFloorM) return;
 
   if (deltaKm > ODO_JUMP_MAX_KM) {
     console.debug('[ODO] Haversine jump rejected:', deltaKm.toFixed(3), 'km');
@@ -865,6 +1002,56 @@ let _resolvedSrc:  _SpeedSource = 'CAN';
  *   • Aksi hâlde legacy hardcoded kaynak önceliği (CAN_DATA/OBD_DATA/GPS_DATA).
  * Çıktı: _resolvedSpeed (undefined = tüm kaynaklar stale) + _resolvedSrc.
  */
+/**
+ * ZERO-TRUST ÇELİŞKİ KAPISI — donanım "duruyorum" derken araç gerçekten gidiyor mu?
+ *
+ * KANIT (saha raporu 2026-07-15, KWP/protokol 5 araç): GPS 38.1 km/h · OBD hız 0 ·
+ * RPM 1434 · gaz %13. Motor verisi tutarlı, yalnız hız PID'i 0 döndü. Sebep yapısal:
+ * KWP/Renault araçlarda hız bilgisi ABS ECU'sundadır; motor ECU'su `010D`'ye `41 0D 00`
+ * yanıtı verir. Native doğru davranır (okunamazsa -1), yani bu "veri yok" değil —
+ * ECU "sıfır" DİYOR. Eski davranış bunu KESİN kabul ediyordu ("donanım = kesin değer")
+ * → gösterge 0'da kaldı, sürüş/park modu 7 kez flip-flop yaptı.
+ *
+ * Kural: donanım ~0 + GPS anlamlı hareket + motor rölanti üstünde dönüyor → donanım hız
+ * sinyali GÜVENİLMEZ → güveni 0'a düşür (kaynak seçimi GPS'e düşer). RPM şartı, duran
+ * araçta gelen GPS hayalet hızının yanlışlıkla kazanmasını engeller (fail-closed).
+ * Saf predikat — mutasyon yok, V8 inline'a uygun.
+ */
+function _hwSpeedContradicted(hwKmh: number | undefined, gpsKmh: number | undefined): boolean {
+  if (hwKmh == null || !(hwKmh < HW_ZERO_KMH)) return false;      // donanım "duruyorum" demiyor
+  if (!((gpsKmh ?? 0) > HW_CONTRADICT_GPS_KMH)) return false;     // GPS hareket görmüyor
+  return (_obd.rpm ?? 0) > HW_CONTRADICT_RPM_MIN;                 // motor gerçekten dönüyor
+}
+
+/**
+ * ZERO-TRUST HAYALET KAPISI — `_hwSpeedContradicted`'in TERSİ yön.
+ *
+ * KANIT (saha snapshot 2026-07-25, aynı KWP aracı): araç park hâlinde — OBD hızı 0,
+ * rpm 758 (rölanti), gaz %12 — ama GPS 10.6 km/h "hareket" gösterdi. GPS taze
+ * olduğu için efektif güveni OBD'ninkini geçti ve füzyonu KAZANDI. Sonuç: sürüş/park
+ * modu flip-flop + odometreye 48 m sahte mesafe.
+ *
+ * Kural: OBD CANLI + donanım "duruyorum" diyor + motor rölanti üstüne ÇIKMAMIŞ +
+ * GPS de anlamlı hareket eşiğinin altında → GPS hızı DRIFT sayılır, güveni 0'a düşer
+ * (kaynak OBD'ye, yani gerçek 0 km/h'ye döner).
+ *
+ * `_hwSpeedContradicted` ile ÇAKIŞMAZ — o kapı `gps > 15 && rpm > 900` ister, bu kapı
+ * `gps <= 15 && rpm <= 900`. Sınırlar aynı iki sabitten okunur, aralarında boşluk yok.
+ * Bu ayrım Trafic vakasını korur: bozuk `010D` ile 38 km/h + rpm 1434 sürüşünde bu
+ * kapı KAPALI kalır, GPS kazanmaya devam eder.
+ *
+ * OBD ölüyse kapı hiç açılmaz (fail-open) — tek kaynak GPS iken onu susturmak körlük olur.
+ * Saf predikat — mutasyon yok.
+ */
+function _gpsGhostSpeed(gpsKmh: number | undefined): boolean {
+  if (!_alive(_obdLastSeen, _obdTimeoutMs())) return false;   // OBD ölü → GPS tek kaynak, karışma
+  const hw = _obd.speed;
+  if (hw == null || !(hw < HW_ZERO_KMH))      return false;   // donanım "duruyorum" DEMİYOR (okuma yok ≠ 0)
+  const rpm = _obd.rpm;
+  if (rpm == null || rpm > HW_CONTRADICT_RPM_MIN) return false; // motor rölanti üstü → gerçek hareket olabilir
+  return (gpsKmh ?? 0) <= HW_CONTRADICT_GPS_KMH;              // 15 üstü → _hwSpeedContradicted'in alanı
+}
+
 function _resolveSpeedSource(): void {
   _resolvedSpeed = undefined;
   _resolvedSrc   = 'CAN';
@@ -875,24 +1062,57 @@ function _resolveSpeedSource(): void {
   const valGPS = _valSignals.GPS?.speed;
 
   if (valHAL || valCAN || valOBD || valGPS) {
-    // Efektif güven = temel güven × tazelik — en yüksek skora sahip kaynak kazanır
-    const cHAL = _effectiveConf(valHAL, SRC_TIMEOUT_HAL_MS);
-    const cCAN = _effectiveConf(valCAN, SRC_TIMEOUT_CAN_MS);
-    const cOBD = _effectiveConf(valOBD, SRC_TIMEOUT_OBD_MS);
-    const cGPS = _effectiveConf(valGPS, SRC_TIMEOUT_GPS_MS);
+    /* ── ÖNCELİK, YARIŞ DEĞİL (saha 2026-08-12) ──────────────────────────────
+     * ÖLÇÜLEN KUSUR: kullanıcı "OBD bağlıyken bile hız GPS'ten geliyor" dedi ve
+     * haklıydı. Eski kod kaynakları `confidence × tazelik` skoruyla YARIŞTIRIYORDU:
+     *     cOBD = 0,85 × (1 − yaş/OBD_eşiği)     cGPS = 0,70 × (1 − yaş/5 s)
+     * OBD kadansı sahada ölçülmüştü: **~4,3 s** (bkz. obdCadenceGate başlığı), GPS ise
+     * **1 Hz**. Yani OBD skoru her paketten hemen sonra 0,85'ten başlayıp bir sonraki
+     * pakete kadar 0,42'ye kadar düşüyor; GPS ise 0,63–0,70 bandında SABİT kalıyordu.
+     * Sonuç: iki OBD paketi ARASINDAKİ sürenin çoğunda GPS kazanıyordu — üstelik
+     * kaynak saniyeler içinde OBD↔GPS arasında gidip geliyordu (hız/ETA/sürüş modu
+     * titremesi; aynı titreme #2026-07-25 snapshot'ında odometreye sahte mesafe
+     * yazdırmıştı).
+     *
+     * KURAL (kullanıcı kararı): **OBD bağlı ve TAZE ise OBD; değilse GPS.**
+     * Hiyerarşi HAL > CAN > OBD > GPS — bu zaten legacy yolun (aşağıda) davranışıydı;
+     * iki yol arasındaki ayrışma da böylece kapanır.
+     *
+     * GÜVENLİK KAPILARI AYNEN DURUYOR (öncelik onları EZMEZ):
+     *   · `_hwSpeedContradicted` — donanım "0" derken GPS hareket + motor dönüyorsa
+     *     donanım kaynağı ELENİR (Trafic/KWP `010D`=0 vakası) → GPS'e düşülür.
+     *   · `_gpsGhostSpeed` — araç gerçekten dururken GPS gürültüsü kazanamaz.
+     *   · Tazelik — bayat kaynak öncelik sırasına GİREMEZ (`_valUsable`); OBD eşiği
+     *     gözlenen kadanstan öğrenilir (5–20 s), sabit değildir.
+     *
+     * BİLİNEN ÖDÜNÇ (dürüstlük): taze sayılan bir OBD okuması kadans gereği GPS
+     * okumasından ESKİ olabilir. Aracın kendi tekerlek hızını, kaynak titremesine
+     * ve GPS Doppler gürültüsüne tercih etmek bilinçli bir karardır. */
+    const okHAL = _valUsable(valHAL, SRC_TIMEOUT_HAL_MS)
+      && !_hwSpeedContradicted(valHAL!.value, valGPS?.value);
+    const okCAN = _valUsable(valCAN, SRC_TIMEOUT_CAN_MS)
+      && !_hwSpeedContradicted(valCAN!.value, valGPS?.value);
+    const okOBD = _valUsable(valOBD, _obdTimeoutMs())
+      && !_hwSpeedContradicted(valOBD!.value, valGPS?.value);
+    const okGPS = _valUsable(valGPS, SRC_TIMEOUT_GPS_MS)
+      && !_gpsGhostSpeed(valGPS!.value);
 
-    if (cHAL >= cCAN && cHAL >= cOBD && cHAL >= cGPS && cHAL > 0) {
+    /* Sıralama SAF politikadadır (`speedSourcePolicy.pickSpeedSource`) — burada
+       ikinci bir öncelik tablosu TUTULMAZ; kilit testleri o modülü sınar. */
+    const pick = pickSpeedSource(okHAL, okCAN, okOBD, okGPS);
+    if (pick === 'HAL') {
       _resolvedSpeed = valHAL!.value; _resolvedSrc = 'HAL';
-    } else if (cCAN >= cOBD && cCAN >= cGPS && cCAN > 0) {
+    } else if (pick === 'CAN') {
       _resolvedSpeed = valCAN!.value; _resolvedSrc = 'CAN';
-    } else if (cOBD >= cGPS && cOBD > 0) {
+    } else if (pick === 'OBD') {
       _resolvedSpeed = valOBD!.value; _resolvedSrc = 'OBD';
-    } else if (cGPS > 0) {
+    } else if (pick === 'GPS') {
       _resolvedSpeed = valGPS!.value; _resolvedSrc = 'GPS';
     }
-    // _resolvedSpeed == null → tüm kaynaklar stale (efektif güven 0) → null emit yoluna düş
+    // _resolvedSpeed == null → hiçbir kaynak uygun değil (hepsi bayat/elenmiş) → null emit
 
-    // HAL hız=0 iken GPS > 5 km/h → AAOS sensör anormalliği uyarısı
+    // HAL hız=0 iken GPS > 5 km/h → AAOS sensör anormalliği uyarısı (yalnız gözlem;
+    // gerçek çelişki eşiği aşılırsa güven zaten yukarıda 0'a düşürüldü → kaynak GPS olur).
     if (_resolvedSrc === 'HAL' && (_resolvedSpeed ?? 0) < 1 && (valGPS?.value ?? 0) > 5) {
       console.warn('[HAL] Conf mismatch: HAL=0 km/h GPS=', (valGPS!.value ?? 0).toFixed(1), 'km/h');
     }
@@ -900,9 +1120,11 @@ function _resolveSpeedSource(): void {
   }
 
   // ── Legacy yol: CAN_DATA/OBD_DATA/GPS_DATA (hardcoded kaynak önceliği) ──
-  if (_alive(_canLastSeen, SRC_TIMEOUT_CAN_MS)) {
+  // Çelişki kapısı burada da geçerli: donanım "0" derken GPS hareket görüyorsa o kaynak
+  // ATLANIR → sıradaki kaynağa (nihayetinde GPS) düşülür. Zero-trust, VAL yoluyla aynı.
+  if (_alive(_canLastSeen, SRC_TIMEOUT_CAN_MS) && !_hwSpeedContradicted(_can.speed, _gps.speed)) {
     _resolvedSpeed = _can.speed; _resolvedSrc = 'CAN';
-  } else if (_alive(_obdLastSeen, SRC_TIMEOUT_OBD_MS)) {
+  } else if (_alive(_obdLastSeen, _obdTimeoutMs()) && !_hwSpeedContradicted(_obd.speed, _gps.speed)) {
     _resolvedSpeed = _obd.speed; _resolvedSrc = 'OBD';
   } else if (_alive(_gpsLastSeen, SRC_TIMEOUT_GPS_MS)) {
     _resolvedSpeed = _gps.speed; _resolvedSrc = 'GPS';
@@ -949,6 +1171,28 @@ function _emitSpeed(): void {
 
   // Sanity: aralık + anti-jitter + RPM cross-check (saf predikat)
   if (_isSpeedRejected(raw, src)) return;
+
+  /* ── DURAKTAN ANİ SIÇRAMA: tek örnekle kabul etme ────────────────────────
+   * `_isSpeedRejected` içindeki anti-jitter kapısı `_lastKnownSpeed > 0`
+   * şartına bağlıdır — yani araç DURURKEN devre dışıdır. Tam da sahte
+   * sıçramaların olduğu an: cihazda park hâlinde `0 → 116 km/h` ölçüldü ve
+   * hiçbir kapıya takılmadan hız aşımı alarmını tetikledi (2026-08-03).
+   *
+   * Fizik: hiçbir araç bir tick'te (~100 ms) 0'dan 20 km/h üstüne çıkamaz
+   * (≈5.6 g). Ama uygulama araç HAREKET HÂLİNDEYKEN açılırsa ilk gerçek
+   * okuma da böyle görünür — koşulsuz reddedersek hız kalıcı 0'a saplanır.
+   * Bu yüzden reddetmiyoruz, **DOĞRULAMA istiyoruz**: bir sonraki okuma da
+   * aynı komşulukta gelirse kabul edilir. Maliyet ~100 ms gecikme; karşılığı
+   * park hâlinde sahte kırmızı alarm görmemek. */
+  if (_lastKnownSpeed === 0 && raw > ANTI_JITTER_KMH) {
+    if (Math.abs(raw - _speedJumpCandidate) > ANTI_JITTER_KMH) {
+      _speedJumpCandidate = raw;   // aday olarak beklet, henüz yayınlama
+      return;
+    }
+    _speedJumpCandidate = -1;      // ikinci okuma doğruladı → kabul
+  } else {
+    _speedJumpCandidate = -1;
+  }
 
   _lastKnownSpeed    = raw;
   _activeSpeedSource = src; // kaynak farkındalıklı ODO + DR için
@@ -1005,7 +1249,7 @@ function _emitFuel(): void {
 
   if (_alive(_canLastSeen, SRC_TIMEOUT_CAN_MS)) {
     raw = _can.fuel;
-  } else if (_alive(_obdLastSeen, SRC_TIMEOUT_OBD_MS)) {
+  } else if (_alive(_obdLastSeen, _obdTimeoutMs())) {
     raw = _obd.fuel;
   }
 
@@ -1054,7 +1298,7 @@ function _emitCoolant(): void {
 
   if (_alive(_canLastSeen, SRC_TIMEOUT_CAN_MS)) {
     raw = _can.coolantTemp;
-  } else if (_alive(_obdLastSeen, SRC_TIMEOUT_OBD_MS)) {
+  } else if (_alive(_obdLastSeen, _obdTimeoutMs())) {
     raw = _obd.coolantTemp;
   }
 
@@ -1068,7 +1312,7 @@ function _emitCoolant(): void {
 
 function _watchdog(): void {
   const canAlive = _alive(_canLastSeen, SRC_TIMEOUT_CAN_MS);
-  const obdAlive = _alive(_obdLastSeen, SRC_TIMEOUT_OBD_MS);
+  const obdAlive = _alive(_obdLastSeen, _obdTimeoutMs());
   const gpsAlive = _alive(_gpsLastSeen, SRC_TIMEOUT_GPS_MS);
 
   // PR-1: kaynak sağlığını ana thread'e taşı — MEVCUT 1 Hz watchdog, yeni timer YOK.
@@ -1094,6 +1338,7 @@ function _watchdog(): void {
   if (obdAlive && gpsAlive && (_obd.speed ?? -1) === 0 && (_gps.speed ?? 0) > 20) {
     if (++_obdZeroConsecutive >= 3) {
       _obdLastSeen        = 0; // timeout'a zorla
+      _obdCadence.reset();     // öğrenilen kadansı da sıfırla — yeni oturumda baştan öğren
       _obdZeroConsecutive = 0;
     }
   } else {
@@ -1168,6 +1413,7 @@ function _handleInit(msg: Extract<WorkerInMessage, { type: 'INIT' }>): void {
   _odoSet(msg.odoKm);            // TMR — 3 kopyaya yaz
   _lastPersistedOdo = msg.odoKm; // main thread'le senkron; ilk 500 m dolana dek disk yazması yok
   _odoGuard.reset(); // startup guard + jump referansı sıfırla
+  _prevGpsFixTs = 0; // ölçüm-anı zinciri de sıfırlanır (oturumlar arası Δt taşmasın)
   if (msg.sab) {
     _sabF64          = new Float64Array(msg.sab);
     _sabI32          = new Int32Array(msg.sab);
@@ -1182,14 +1428,32 @@ function _handleInitFallback(msg: Extract<WorkerInMessage, { type: 'INIT_FALLBAC
   _odoSet(msg.odoKm);            // TMR — 3 kopyaya yaz
   _lastPersistedOdo = msg.odoKm;
   _odoGuard.reset();
+  _prevGpsFixTs = 0;
   _sabEnabled = false; // açık kısıtlama: SAB yolunu hiç deneme
   _startTimers();
 }
 
 function _handleVehicleData(msg: Extract<WorkerInMessage, { type: 'VEHICLE_DATA' }>): void {
-  // ── VAL yolu: NormalizedVehicleData → per-source buffer güncelle ────
   const { source, signals } = msg;
-  _valSignals[source as 'HAL' | 'CAN' | 'OBD' | 'GPS'] = signals;
+
+  /* VCOMP-03 — FAIL-CLOSED KAYNAK KAPISI (state yazımından ÖNCE).
+     KÖK: eski sıra "önce yaz, sonra tanı" idi; `_valSignals[source as …]` cast'i
+     doğrulamayı BASTIRIYOR ve bilinmeyen kaynak tampona (hatta yeni bir anahtar
+     olarak) yazılıyordu. VCOMP-02'nin zincir sonundaki uyarısı bunu GÖRÜNÜR
+     yapmıştı ama ENGELLEMİYORDU. Artık doğrulanmayan kaynak:
+       · `_valSignals`'a YAZILMAZ,
+       · hiçbir kaynak-özel handler'ı TETİKLEMEZ (erken return),
+       · sonraki füzyon/odometre hesaplarını dolaylı olarak ETKİLEMEZ.
+     Exception FIRLATILMAZ, tip GENİŞLETİLMEZ, bilinmeyen kaynak başka bir
+     kaynağa EŞLENMEZ — yalnız uyarılır ve düşürülür. */
+  if (!_isValBufferSource(source)) {
+    console.warn('[VehicleCompute] Unknown signal source:', source);
+    return;
+  }
+
+  // ── VAL yolu: NormalizedVehicleData → per-source buffer güncelle ────
+  // (cast KALDIRILDI — `source` yukarıdaki kapıda zaten daraltıldı)
+  _valSignals[source] = signals;
 
   // ── Legacy buffer'ları da güncelle (odometer/geofence/DR uyumluluğu) ──
   const nowPerf = performance.now();
@@ -1201,7 +1465,7 @@ function _handleVehicleData(msg: Extract<WorkerInMessage, { type: 'VEHICLE_DATA'
     _can.coolantTemp  = signals.coolantTemp?.value;
     if (signals.reverse?.value != null) _handleCanReverse(signals.reverse.value);
   } else if (source === 'OBD') {
-    _obdLastSeen       = nowPerf;
+    _markObdSeen(nowPerf);
     _obd.speed         = signals.speed?.value;
     _obd.fuel          = signals.fuel?.value;
     _obd.rpm           = signals.rpm?.value;
@@ -1220,7 +1484,9 @@ function _handleVehicleData(msg: Extract<WorkerInMessage, { type: 'VEHICLE_DATA'
     _can.coolantTemp  = signals.coolantTemp?.value;
     if (signals.reverse?.value != null) _handleCanReverse(signals.reverse.value);
   } else if (source === 'GPS') {
-    const dtMs = _prevGpsUpdateAt > 0 ? nowPerf - _prevGpsUpdateAt : 0;
+    // Δt ÖLÇÜM anlarından; ölçüm anı yoksa/şüpheliyse varış farkına düşülür (#458).
+    const arrivalDt = _prevGpsUpdateAt > 0 ? nowPerf - _prevGpsUpdateAt : 0;
+    const dtMs      = _gpsDeltaMs(msg.fixTs, arrivalDt);
     _prevGpsUpdateAt = nowPerf;
     _gpsLastSeen     = nowPerf;
     // GPS speed artık m/s RAW → SignalNormalizer km/h'e çevirdi, direkt kullan
@@ -1252,6 +1518,10 @@ function _handleVehicleData(msg: Extract<WorkerInMessage, { type: 'VEHICLE_DATA'
     if (_gpsLocActive)         { _patchGps.location = _gps.location; hasGpsData = true; }
     if (hasGpsData) _postPatch(_patchGps);
   }
+  /* VCOMP-02'nin zincir-sonu `else` dalı VCOMP-03 ile KALDIRILDI: fail-loud uyarı
+     artık fonksiyon GİRİŞİNDEKİ kapıda (state yazımından ÖNCE) basılıyor ve orada
+     `return` ediliyor → burası ULAŞILAMAZ ölü koddu. Uyarı davranışı KAYBOLMADI,
+     daha erkene ve daha güçlü bir yere (engelleyen kapıya) taşındı. */
 }
 
 function _handleCanData(msg: Extract<WorkerInMessage, { type: 'CAN_DATA' }>): void {
@@ -1265,7 +1535,7 @@ function _handleCanData(msg: Extract<WorkerInMessage, { type: 'CAN_DATA' }>): vo
 
 function _handleObdData(msg: Extract<WorkerInMessage, { type: 'OBD_DATA' }>): void {
   const d = msg.payload;
-  _obdLastSeen        = performance.now();
+  _markObdSeen(performance.now());
   _obd.speed          = d.speed;
   _obd.fuel           = d.fuel;
   _obd.rpm            = d.rpm;
@@ -1278,8 +1548,10 @@ function _handleObdData(msg: Extract<WorkerInMessage, { type: 'OBD_DATA' }>): vo
 function _handleGpsData(msg: Extract<WorkerInMessage, { type: 'GPS_DATA' }>): void {
   const d = msg.payload;
   const _nowGps = performance.now();
-  // Δt: önceki GPS güncellemesinden bu yana geçen süre (Doppler × Δt odometer için)
-  const dtMs = _prevGpsUpdateAt > 0 ? _nowGps - _prevGpsUpdateAt : 0;
+  // Δt: ÖLÇÜM anları farkı (Doppler × Δt odometre ve teleport kapısı için) —
+  // ölçüm anı yoksa varış farkına düşülür. Bkz. `_gpsDeltaMs` / kütük #458.
+  const _arrivalDt = _prevGpsUpdateAt > 0 ? _nowGps - _prevGpsUpdateAt : 0;
+  const dtMs = _gpsDeltaMs(d.fixTs ?? 0, _arrivalDt);
   _prevGpsUpdateAt = _nowGps;
   _gpsLastSeen     = _nowGps;
   _gps.speed    = d.speed;
@@ -1366,20 +1638,43 @@ function _handleChaosBitflip(): void {
 
 // ── Ana mesaj işleyicisi (ince dispatcher) ─────────────────────────────────
 
+/**
+ * VCOMP-01 — GLOBAL FAIL-SAFE KAPISI.
+ *
+ * KÖK: dispatcher hiçbir hata koruması taşımıyordu. Bir handler içinde fırlayan
+ * herhangi bir exception (bozuk/eksik sinyal şekli, beklenmeyen null, sayısal
+ * taşma…) worker thread'ini SESSİZCE öldürüyordu; ana thread bunu yalnız veri
+ * akışının durmasından anlıyordu → UI donması/beyaz ekran.
+ *
+ * ⚠️ DENETİM RAPORUNDAKİ ÖRNEK DÜZELTİLDİ: `DataCloneError` bu yolu TETİKLEYEMEZ.
+ * O hata `postMessage` çağrısında GÖNDEREN tarafta fırlar (yapısal kopyalanamayan
+ * değer); mesaj hiç bu satıra ulaşmaz. Gerçek risk, handler GÖVDESİNDE fırlayan
+ * exception'lardır — koruma da tam olarak onu hedefler.
+ *
+ * Yakalama YUTMA DEĞİLDİR: hata `console.error` ile basılır (debug/index.ts
+ * "kritik console.error dokunulmaz" kuralı) → sahada logcat'ten görülebilir.
+ * Bir mesajın düşmesi worker'ı öldürmez; sonraki geçerli mesaj normal işlenir.
+ * Sıcak yolda ek maliyet YOKTUR: try/catch girişi V8'de bedelsizdir, yalnız
+ * gerçek throw anında catch yolu çalışır.
+ */
 self.onmessage = (e: MessageEvent<WorkerInMessage>): void => {
-  const msg = e.data;
+  try {
+    const msg = e.data;
 
-  switch (msg.type) {
-    case 'INIT':            _handleInit(msg);            break;
-    case 'INIT_FALLBACK':   _handleInitFallback(msg);    break;
-    case 'VEHICLE_DATA':    _handleVehicleData(msg);     break;
-    case 'CAN_DATA':        _handleCanData(msg);         break;
-    case 'OBD_DATA':        _handleObdData(msg);         break;
-    case 'GPS_DATA':        _handleGpsData(msg);         break;
-    case 'UPDATE_GEOFENCE': _handleUpdateGeofence(msg);  break;
-    case 'RESTORE_ODO':     _handleRestoreOdo(msg);      break;
-    case 'CHAOS_BITFLIP':   if (import.meta.env.DEV) _handleChaosBitflip(); break;
-    case 'VISIBILITY':      _handleVisibility(msg);      break;
-    case 'STOP':            _handleStop();               break;
+    switch (msg.type) {
+      case 'INIT':            _handleInit(msg);            break;
+      case 'INIT_FALLBACK':   _handleInitFallback(msg);    break;
+      case 'VEHICLE_DATA':    _handleVehicleData(msg);     break;
+      case 'CAN_DATA':        _handleCanData(msg);         break;
+      case 'OBD_DATA':        _handleObdData(msg);         break;
+      case 'GPS_DATA':        _handleGpsData(msg);         break;
+      case 'UPDATE_GEOFENCE': _handleUpdateGeofence(msg);  break;
+      case 'RESTORE_ODO':     _handleRestoreOdo(msg);      break;
+      case 'CHAOS_BITFLIP':   if (import.meta.env.DEV) _handleChaosBitflip(); break;
+      case 'VISIBILITY':      _handleVisibility(msg);      break;
+      case 'STOP':            _handleStop();               break;
+    }
+  } catch (err) {
+    console.error('[VehicleCompute] Unhandled worker exception:', err);
   }
 };

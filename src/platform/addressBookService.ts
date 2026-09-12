@@ -9,6 +9,27 @@ export interface Address {
   category?: 'home' | 'work' | 'other';
   lastVisited?: number;
   visitCount?: number;
+  /** Kullanıcının girdiği/seçtiği serbest metin adres (UI gösterimi) — opsiyonel. */
+  fullAddress?: string;
+  /** Son kayıt zamanı (ms) — Ev/İş hızlı-kayıt akışında "kullanıcı gerçekten kaydetti mi"
+   *  ayrımı için kullanılır (bkz. isValidDestination + NAVIGATION-P0-1). */
+  updatedAt?: number;
+
+  /* ── P0-NAV-09 · HEDEF KÜNYESİ (opsiyonel — mevcut çağıranlar bozulmaz) ────
+   * Ölçülen boşluk: rota motoruna giden hedefin NEREDEN geldiği, NE ZAMAN
+   * çözüldüğü ve KOORDİNATIN NE KADAR kesin olduğu üründe hiçbir yerde
+   * taşınmıyordu → "aramada doğru yeri bulduk ama rotaya yanlış nokta mı
+   * gitti" sorusu ölçülemiyordu.
+   *
+   * ⚠️ Hepsi OPSİYONELDİR ve BİLDİRİLMEDİĞİNDE hiçbir kural çalışmaz —
+   * "bilinmiyor" ile "bayat/kesin değil" AYNI ŞEY DEĞİLDİR. Uydurma
+   * varsayılan ATANMAZ. */
+  /** Hedefi üreten sağlayıcı/katman etiketi (ör. `NOMINATIM`, `LOCAL_POI`). */
+  provider?: string;
+  /** Hedefin ÇÖZÜLDÜĞÜ an (ms) — bayat arama sonucu bu alanla yakalanır. */
+  resolvedAtMs?: number;
+  /** Koordinatın kesinliği; sağlayıcı söylemediyse alan KONULMAZ. */
+  precision?: 'ROOFTOP' | 'STREET' | 'AREA' | 'UNKNOWN';
 }
 
 interface AddressBookState {
@@ -235,4 +256,94 @@ export function searchAddresses(query: string): Address[] {
  */
 export function useAddressBook() {
   return useAddressBookStore();
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * Ev / İş hızlı-hedef API'si (NAVIGATION-P0-1)
+ *
+ * Kök neden (NAVIGATION-AUDIT-1): initializeAddressBook() Ev/İş kayıtlarını
+ * lat=0,lng=0 (Null Island) varsayılanıyla oluşturuyordu ve bu değerleri
+ * OKUYUP navigasyona bağlayan hiçbir tüketici yoktu. Bu bölüm TEK guard'ı
+ * (isValidDestination) ve TEK yazma/okuma/silme yüzeyini tanımlar — paralel
+ * bir depolama YOK, mevcut addresses Map'i / setAddress / getAddress yeniden
+ * kullanılır.
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+export type QuickAddressCategory = 'home' | 'work';
+
+/** Koordinat sıfıra çok yakınsa (Null Island) "kayıtlı değil" sayılır — float eşitliğine güvenme. */
+const NULL_ISLAND_EPS = 1e-9;
+
+/**
+ * lat/lng sınır-içi mi ve (0,0) Null Island DEĞİL mi — geçerli bir navigasyon
+ * hedefi için tek yetkili guard. 0,0 hiçbir zaman geçerli hedef sayılmaz
+ * (initializeAddressBook varsayılanı da budur — kullanıcı henüz kaydetmemiş demektir).
+ */
+export function isValidDestination(
+  point: { latitude: number; longitude: number } | null | undefined,
+): boolean {
+  if (!point) return false;
+  const { latitude: lat, longitude: lng } = point;
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+  if (lat < -90 || lat > 90) return false;
+  if (lng < -180 || lng > 180) return false;
+  if (Math.abs(lat) < NULL_ISLAND_EPS && Math.abs(lng) < NULL_ISLAND_EPS) return false;
+  return true;
+}
+
+export interface QuickAddressInput {
+  latitude:    number;
+  longitude:   number;
+  /** Kullanıcıya gösterilecek serbest metin adres (arama sonucu veya "Mevcut konum"). */
+  fullAddress?: string;
+  /** Özel etiket — verilmezse kategoriye göre "Ev"/"İş" kullanılır. */
+  name?: string;
+}
+
+/**
+ * Ev/İş adresini kaydeder. Geçersiz koordinat (0,0 dahil) SESSİZCE REDDEDİLİR
+ * (fail-closed) — hiçbir zaman yarı-yazılmış/bozuk kayıt oluşmaz.
+ * @returns kayıt başarılıysa true, geçersiz girişte false.
+ */
+export function setQuickAddress(category: QuickAddressCategory, input: QuickAddressInput): boolean {
+  if (!isValidDestination(input)) return false;
+  const existing = getAddress(category);
+  const address: Address = {
+    id:          category,
+    name:        input.name?.trim() || (category === 'home' ? 'Ev' : 'İş'),
+    latitude:    input.latitude,
+    longitude:   input.longitude,
+    type:        'favorite',
+    category,
+    fullAddress: input.fullAddress?.trim() || undefined,
+    updatedAt:   Date.now(),
+    lastVisited: existing?.lastVisited,
+    visitCount:  existing?.visitCount,
+  };
+  setAddress(address);
+  return true;
+}
+
+/**
+ * Kayıtlı VE geçerli Ev/İş adresini döner; kayıtlı değilse veya geçersizse null.
+ * Navigasyon başlatma dâhil hiçbir tüketici bu guard'ı atlamamalı.
+ */
+export function getQuickAddress(category: QuickAddressCategory): Address | null {
+  const addr = getAddress(category);
+  return addr && isValidDestination(addr) ? addr : null;
+}
+
+/**
+ * Ev/İş adresini siler — kayıt initializeAddressBook() varsayılanına (geçersiz
+ * placeholder) döner, favorites/local storage tutarlılığı setAddress ile korunur.
+ */
+export function clearQuickAddress(category: QuickAddressCategory): void {
+  setAddress({
+    id:       category,
+    name:     category === 'home' ? 'Ev' : 'İş',
+    latitude: 0,
+    longitude: 0,
+    type:     'favorite',
+    category,
+  });
 }

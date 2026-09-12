@@ -318,6 +318,5 @@ export function usePerformanceBridge(): void {
       lng:      gps?.longitude,
       heading:  gps?.heading ?? undefined,
     });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [obd.speed, obd.rpm, gps?.latitude, gps?.longitude, gps?.heading]);
 }

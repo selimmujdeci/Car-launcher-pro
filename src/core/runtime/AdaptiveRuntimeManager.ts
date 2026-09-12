@@ -23,9 +23,10 @@
 
 import { RuntimeMode, type RuntimeConfig } from './runtimeTypes';
 import { getRuntimeConfig }                from './runtimeConfig';
-import { safeGetRaw, safeSetRaw }          from '../../utils/safeStorage';
+import { safeGetRaw, safeSetRaw, safeRemoveRaw } from '../../utils/safeStorage';
 import { hasWeakGpu }                      from '../../utils/detectWeakGpu';
 import { getDeviceTier }                   from '../../platform/deviceCapabilities';
+import { rawWarn, rawInfo }                from '../../platform/system/rawConsole';
 
 /* ── Mod sıralaması (sayısal karşılaştırma) ─────────────────────── */
 
@@ -50,6 +51,21 @@ const MODE_MULTIPLIER: Readonly<Record<RuntimeMode, number>> = {
 } as const;
 
 /* ── Sabitler ────────────────────────────────────────────────────── */
+
+/**
+ * #606 — Arıza bildirimlerinin inebileceği EN DÜŞÜK mod.
+ *
+ * SAFE_MODE **bilinçli** bir karardır (RAM krizi → memoryWatchdog `setMode`,
+ * ya da crash-recovery). Biriken bileşen arızalarıyla KAZARA girilmemelidir:
+ * `_commit()` her mod değişimini `rt-last-mode` anahtarına yazar, `start()` de
+ * SAFE_MODE gördüğünde sonraki açılışı doğrudan SAFE_MODE'da başlatır — yani
+ * kazara girilen bir SAFE_MODE kalıcı olarak zehirlenir (saha #604: dongle
+ * takılı olmayan araçta ~40 sn'de SAFE_MODE, sonraki her açılış da SAFE_MODE).
+ *
+ * Arıza merdiveni bu yüzden POWER_SAVE tabanında durur. Gerçekten SAFE_MODE
+ * gereken yollar zaten `setMode(SAFE_MODE, …)` ile AÇIKÇA iner.
+ */
+const FAILURE_FLOOR = RuntimeMode.POWER_SAVE;
 
 const UPGRADE_DELAY_MS   = 30_000; // 30 saniye stabilite penceresi
 /** Termal kısıtlama recovery için aynı süre (soğuma 30s stabil kaldıktan sonra kısıt kaldırılır) */
@@ -99,12 +115,174 @@ const MASTER_TICK_MS = 333; // ~3Hz — wheel çözünürlüğü
 /** setMode() çağrısının hangi kaynaktan geldiğini belirtir. */
 export type ModeReason = string;
 
+/* ══════════════════════════════════════════════════════════════════════════
+   MOD TESPİT KAPILARI — TEK OTORİTE (V-17)
+
+   ESKİ KUSUR: `_detectCapabilities()` yalnız SONUCU (BASIC_JS) dönüyordu;
+   HANGİ kapının indirdiği kaybolıyordu. Sonuç: cihazda mod hep BASIC_JS
+   görünüyor ama NEDENİ görünmüyordu ve vizyon planı nedeni YANLIŞ tahmin
+   etmişti — "COEP kapalı olduğu için SAB yok" diye yazılmıştı. Oysa kapılar
+   SIRALIDIR ve SAB kapısı SONUNCUDUR: hedef donanımda (K24 · Mali-400)
+   `weakGpu` çok daha önce tetikler. **COEP açılsa bile mod DEĞİŞMEZDİ.**
+   Yanlış kapıyı suçlamak, pahalı ve yanlış bir mimari kararı doğururdu.
+
+   Tablo tek otoritedir; iki tüketicisi vardır:
+     · `firstBlockingModeGate()` — ÜRETİM yolu, KISA DEVRE (davranış birebir eski).
+     · `traceModeGates()`        — LAB, HEPSİNİ değerlendirir (bir kapı düzeltilse
+                                    sıradakinin yine engelleyip engellemediğini
+                                    gösterir; "COEP'i çöz" tuzağının panzehiri).
+   ══════════════════════════════════════════════════════════════════════════ */
+
+export type RuntimeModeGateId = 'deviceTier' | 'weakGpu' | 'worker' | 'sab';
+
+export interface RuntimeModeGate {
+  readonly id: RuntimeModeGateId;
+  /** Bu kapı modu BASIC_JS'e indiriyor mu. */
+  readonly blocking: boolean;
+  /** Kapının dayandığı HAM gözlem — yorum değil. */
+  readonly observed: string;
+}
+
+export interface RuntimeModeDecision {
+  /** Tespitin sonucu. Aktif mod DEĞİLDİR (termal/kullanıcı/güç bunu ezebilir). */
+  readonly detected: RuntimeMode;
+  /** Kısa devrede KARARI VEREN kapı; hiçbiri engellemiyorsa `null`. */
+  readonly decidedBy: RuntimeModeGateId | null;
+  /** TÜM kapılar (LAB için değerlendirildi) — sıralı. */
+  readonly gates: readonly RuntimeModeGate[];
+}
+
+/**
+ * Kapı tanımları — SIRA ANLAMLIDIR (üretim ilk engelleyende durur).
+ *
+ * `test` çağrıldığında ölçüm yapar; `describe` ham gözlemi metne çevirir.
+ * Her ikisi de fırlatmamalıdır — tespit yolu açılışta koşar.
+ */
+const MODE_GATES: ReadonlyArray<{
+  readonly id: RuntimeModeGateId;
+  readonly test: () => boolean;          // true = ENGELLİYOR
+  readonly describe: () => string;
+}> = [
+  {
+    /* getDeviceTier() GPU probe'una EK olarak ekran/çekirdek/RAM/WebView/Android/CSS
+       sinyallerini de değerlendirir; maskeli WebGL renderer'da hasWeakGpu yanılsa
+       bile (K24: Android 15 / 6 GB RAM ama Mali-400 + düşük çözünürlük) lowEndScreen
+       veya cores yakalar → blur/animation açık kalmaz. */
+    id: 'deviceTier',
+    test: () => getDeviceTier() === 'low',
+    describe: () => `getDeviceTier() = ${getDeviceTier()}`,
+  },
+  {
+    /* GPU sınıfı SAB'dan ÖNCE: CPU'da SAB/Worker olsa BİLE zayıf GPU (Mali-400
+       sınıfı Utgard / yazılım render) backdrop-filter blur'u software path'te
+       çalıştırır → her kare GPU stall → "aşırı kasma". */
+    id: 'weakGpu',
+    test: () => hasWeakGpu(),
+    describe: () => `hasWeakGpu() = ${hasWeakGpu()}`,
+  },
+  {
+    id: 'worker',
+    test: () => typeof Worker === 'undefined',
+    describe: () => `typeof Worker = ${typeof Worker}`,
+  },
+  {
+    /* `typeof SharedArrayBuffer` TEK BAŞINA YETMEZ: SAB yalnız crossOriginIsolated
+       (COOP+COEP) ortamında gerçekten kullanılabilir, aksi halde runtime'da hata
+       fırlatır. Capacitor WebView'ında COEP başlığı YOKTUR — bilinçli takas:
+       COEP açılırsa YouTube iframe'i ve çapraz-köken kaynaklar kırılır. */
+    id: 'sab',
+    test: () => !(
+      typeof SharedArrayBuffer !== 'undefined' &&
+      typeof self !== 'undefined' && self.crossOriginIsolated === true
+    ),
+    describe: () => {
+      const sab = typeof SharedArrayBuffer !== 'undefined';
+      const coi = typeof self !== 'undefined' ? self.crossOriginIsolated === true : false;
+      return `SharedArrayBuffer=${sab} · crossOriginIsolated=${coi}`;
+    },
+  },
+];
+
+/** ÜRETİM yolu — ilk engelleyen kapıda durur, sonrakileri ÇALIŞTIRMAZ. */
+function firstBlockingModeGate(): RuntimeModeGateId | null {
+  for (const g of MODE_GATES) {
+    try { if (g.test()) return g.id; }
+    catch { /* fail-soft: ölçülemeyen kapı ENGELLEMEZ (mevcut davranış) */ }
+  }
+  return null;
+}
+
+/**
+ * LAB yolu — TÜM kapıları değerlendirir.
+ *
+ * Neden hepsi: tek bir "engelleyen kapı" göstermek, "onu düzeltirsek mod yükselir"
+ * yanılsaması üretir. Hedef donanımda `weakGpu` ve `sab` AYNI ANDA engelliyor;
+ * yalnız COEP'i çözmek modu DEĞİŞTİRMEZ. Karar bunu görerek verilmelidir.
+ *
+ * Düşük tier'da ilk çağrıda WebGL probe'unu tetikleyebilir — bu yüzden ÜRETİM
+ * yolunda DEĞİL, yalnız LAB ekranı açıldığında çağrılır (sonuç önbelleklenir).
+ */
+export function traceModeGates(): RuntimeModeDecision {
+  const gates: RuntimeModeGate[] = [];
+  let decidedBy: RuntimeModeGateId | null = null;
+
+  for (const g of MODE_GATES) {
+    let blocking = false;
+    let observed: string;
+    try {
+      blocking = g.test();
+      observed = g.describe();
+    } catch (e) {
+      /* Ölçülemeyen kapı "geçti" SAYILMAZ ve "engelledi" de sayılmaz —
+         gözlem OKUNAMADI olarak bildirilir, uydurulmaz. */
+      observed = `OKUNAMADI (${e instanceof Error ? e.name : 'hata'})`;
+    }
+    if (blocking && decidedBy === null) decidedBy = g.id;
+    gates.push({ id: g.id, blocking, observed });
+  }
+
+  return {
+    detected: decidedBy === null ? RuntimeMode.BALANCED : RuntimeMode.BASIC_JS,
+    decidedBy,
+    gates,
+  };
+}
+
 /**
  * Worker kritiklik sınıfı:
  *   CRITICAL  — VehicleCompute: her koşulda çalışır, bellek baskısında dokunulmaz.
  *   OPTIONAL  — VisionCompute, NavigationCompute: MODERATE/CRITICAL'da askıya alınır.
  */
 export type WorkerCriticality = 'CRITICAL' | 'OPTIONAL';
+
+/**
+ * Worker yaşam-döngüsü durumu (T2 — BlackBox şema atomikliği).
+ *
+ * ESKİ KUSUR (saha snapshot 2026-08-01): tüketiciler `entry.worker !== null` ikili
+ * testinden 'active' | 'dead' türetiyordu. Bu iki ayrı gerçeği TEK etikete eziyordu:
+ *   · SystemBoot `registerWorker('VisionCompute', null, …)` ile YER TUTUCU kaydeder
+ *     → worker hiç BAŞLATILMAMIŞTIR, ama 'dead' görünüyordu (yanlış alarm).
+ *   · `unregisterWorker()` anahtarı Map'ten TAMAMEN siliyordu → ardışık BlackBox
+ *     örneklerinde 'VehicleCompute' alanı kayboluyor, şema oynuyordu.
+ *
+ * Durumlar:
+ *   not_started — kayıt var, worker hiç oluşturulmadı (yer tutucu). ARIZA DEĞİL.
+ *   starting    — oluşturuldu, ilk PONG/hazır sinyali beklenıyor.
+ *   active      — canlı worker referansı var.
+ *   stopped     — düzenli kapatma (teardown / RAM baskısı / unregister). ARIZA DEĞİL.
+ *   dead        — YALNIZ çalışması beklenirken çöken worker (onerror / zombie).
+ *   disabled    — politika gereği kapalı (tier bütçesi).
+ *   unsupported — bu cihaz/WebView worker'ı reddetti.
+ */
+export type WorkerLifecycleStatus =
+  | 'not_started' | 'starting' | 'active' | 'stopped' | 'dead' | 'disabled' | 'unsupported';
+
+/** Atomik worker snapshot satırı — donmuş, tüketici mutasyondan etkilenmez. */
+export interface WorkerStatusRow {
+  readonly key:         string;
+  readonly status:      WorkerLifecycleStatus;
+  readonly criticality: WorkerCriticality;
+}
 
 interface WorkerEntry {
   worker:       Worker | null;
@@ -135,6 +313,18 @@ export interface ScheduledTask {
   fn:          () => void;
   /** true → tetiklenince fn requestIdleCallback'e ötelenir (varsa); yoksa senkron çalışır. */
   deferIdle?:  boolean;
+}
+
+export interface RuntimeResourceDiagnostics {
+  readonly mode: RuntimeMode;
+  readonly effectivePowerCeiling: RuntimeMode | null;
+  readonly observedThermalTier: 0 | 1 | 2 | 3;
+  readonly memoryPressure: 'UNKNOWN';
+  readonly mitigationState: 'UNKNOWN';
+  readonly workers: readonly WorkerStatusRow[];
+  readonly tasks: readonly { readonly taskId: string; readonly cadenceMs: number; readonly priority: TaskCriticality; readonly effectiveTicks: number; readonly runCount: null; readonly deferCount: null; readonly throttleCount: null; readonly staleDropCount: null; readonly lastRunAt: null; readonly nextEligibleAt: null; readonly requestedBudget: null; readonly grantedBudget: null; }[];
+    readonly summary: { readonly registered: number; readonly running: number | null; readonly queued: null; readonly deferred: null; readonly throttled: null; readonly staleDropped: null; readonly unknown: number; };
+  readonly provenance: readonly string[];
 }
 
 /** Dahili görev kaydı — kullanıcı ScheduledTask'ına önceden hesaplanmış tik periyodu eklenir. */
@@ -195,16 +385,66 @@ class AdaptiveRuntimeManager {
   /** Akü voltaj tavanı — bu mod üstüne çıkış engellenir; null = kısıtlama yok. */
   private _powerCeiling: RuntimeMode | null = null;
 
+  /**
+   * SON mod değişiminin kaydı (V-17 · LAB gözlemi).
+   *
+   * Neden gerek: aktif mod, TESPİT edilen moddan farklı olabilir — termal,
+   * kullanıcı override'ı, güç tavanı veya arıza merdiveni onu ezer. LAB'da
+   * yalnız "BASIC_JS" görmek, bunun tespitten mi yoksa bir ezmeden mi
+   * geldiğini SÖYLEMEZ. `reason` zaten `_commit`e geliyordu ama loga yazılıp
+   * ATILIYORDU; burada saklanır. Mod değişimi SEYREK bir olaydır (histerezis
+   * 30 sn), bu yüzden `Date.now()` hot-path'e yük getirmez.
+   */
+  private _lastModeChange: {
+    readonly from: RuntimeMode; readonly to: RuntimeMode;
+    readonly reason: ModeReason; readonly at: number;
+  } | null = null;
+
   /** Anlık termal kısıtlama seviyesi (0–3). */
   private _thermalActiveLevel: 0|1|2|3 = 0;
 
   /** Termal recovery (kısıt gevşeme) timer handle. */
   private _thermalConstraintTimer: ReturnType<typeof setTimeout> | null = null;
 
+  /**
+   * #606 — Arıza bildirmiş ve HENÜZ kurtulmamış bileşenler.
+   *
+   * Kilit invaryant: bir bileşen bu kümedeyken `reportFailure()` çağrısı modu
+   * TEKRAR indirmez. Aynı arızanın tekrarı (OBD yeniden bağlanma turu 10 çağrı
+   * yerinden tetikleniyor) bir kademe daha aşağı ANLAMINA GELMEZ — eski kod
+   * bunu yaptığı için tek yönlü bir circir doğuyordu.
+   *
+   * Bounded: anahtar kümesi sabit ve küçüktür (OBD/RAM/VisionCompute/
+   * NavigationCompute/VehicleCompute) — sınırsız büyüme yok.
+   */
+  private readonly _failedComponents = new Set<string>();
+
+  /**
+   * #606 — İlk arıza-kaynaklı düşüşten ÖNCEKİ mod; kurtarma hedefi.
+   *
+   * `_detectCapabilities()` YENİDEN ÇALIŞTIRILMAZ: kullanıcı `runtimeOverride`
+   * ile modu zorlayabiliyor (useLayoutServices) ve yeteneği yeniden ölçüp
+   * onu sessizce ezmek #601(B)'deki `cl_performanceMode` dersinin tekrarı
+   * olurdu. Bunun yerine düşüşten önce GÖZLENEN mod hatırlanır.
+   *
+   * null → geri dönülecek bir taban yok (hiç arıza olmadı ya da başka bir
+   * otorite — termal/güç/kullanıcı/RAM — modu devraldı, bkz. `_commit`).
+   */
+  private _preFailureMode: RuntimeMode | null = null;
+
   private readonly _listeners = new Set<ModeChangeListener>();
 
   /** Worker registry: key → {worker, criticality} */
   private readonly _workers = new Map<string, WorkerEntry>();
+  /**
+   * T2: yaşam-döngüsü durumu — `_workers`tan AYRI tutulur çünkü `unregisterWorker()`
+   * `_workers`tan anahtarı siler; durum kaydı ise korunur (şema stabilitesi).
+   * Bounded: anahtar kümesi sabit ve küçüktür (VehicleCompute/Vision/Navigation/…).
+   */
+  private readonly _workerStatus      = new Map<string, WorkerLifecycleStatus>();
+  private readonly _workerCriticality = new Map<string, WorkerCriticality>();
+  /** Bir kez canlı worker referansı görülen anahtarlar — 'not_started' ↔ 'stopped' ayrımı. */
+  private readonly _workerEverLive    = new Set<string>();
 
   /** Zombie Detection state */
   private _zombiePingTimer:        ReturnType<typeof setInterval> | null = null;
@@ -251,34 +491,11 @@ class AdaptiveRuntimeManager {
    * Her ikisi var → BALANCED (termal ve kullanıcı sinyalleri daha sonra ayarlar)
    */
   private _detectCapabilities(): RuntimeMode {
-    // Kanonik düşük donanım sınıfı (deviceCapabilities) → BASIC_JS. getDeviceTier()
-    // GPU probe'una EK olarak ekran/çekirdek/RAM/WebView/Android/CSS sinyallerini de
-    // değerlendirir; maskeli WebGL renderer'da hasWeakGpu yanılsa bile (örn. K24:
-    // Android 15 / 6GB RAM ama Mali-400 + düşük çözünürlük) lowEndScreen/cores yakalar →
-    // blur/animation açık kalmaz.
-    if (getDeviceTier() === 'low') {
-      return RuntimeMode.BASIC_JS;
-    }
-
-    // GPU sınıfı önce: CPU'da SAB/Worker olsa BİLE zayıf GPU (Mali-400 sınıfı
-    // Utgard / yazılım render) backdrop-filter blur'u software path'te çalıştırır →
-    // her kare GPU stall → "aşırı kasma". Böyle cihazlarda BASIC_JS tavanına in
-    // (enableBlur=false → --rt-blur=0 → tüm cam/blur efektleri app genelinde kapanır).
-    if (hasWeakGpu()) {
-      return RuntimeMode.BASIC_JS;
-    }
-
-    const hasWorker = typeof Worker !== 'undefined';
-    // typeof tek başına yetmez: SAB yalnızca crossOriginIsolated=true (COOP+COEP)
-    // ortamında gerçekten kullanılabilir; aksi halde runtime'da hata fırlatır.
-    const hasSAB =
-      typeof SharedArrayBuffer !== 'undefined' &&
-      typeof self !== 'undefined' && self.crossOriginIsolated === true;
-
-    if (!hasWorker || !hasSAB) {
-      return RuntimeMode.BASIC_JS;
-    }
-    return RuntimeMode.BALANCED;
+    /* Kapı tablosu TEK OTORİTEDİR (aşağıdaki `MODE_GATES`). Buradaki üretim yolu
+       KISA DEVRE yapar: ilk engelleyen kapıda durur ve sonrakileri HİÇ çalıştırmaz.
+       Bu bilinçlidir — `hasWeakGpu()` ilk çağrıda WebGL probe'u koşar; düşük
+       tier'da o probe'u açılışta yapmak, tam da kaçındığımız işi eklerdi. */
+    return firstBlockingModeGate() === null ? RuntimeMode.BALANCED : RuntimeMode.BASIC_JS;
   }
 
   /* ══════════════════════════════════════════════════════════════
@@ -335,13 +552,35 @@ class AdaptiveRuntimeManager {
   private _commit(mode: RuntimeMode, reason: ModeReason): void {
     const prev = this._mode;
     this._mode = mode;
+    this._lastModeChange = { from: prev, to: mode, reason, at: Date.now() };
     this._applyCSS(mode);
 
-    // Her mod değişimini logla — downgrade warn, upgrade info (adb logcat görünürlüğü)
+    /* Her mod değişimini logla — downgrade warn, upgrade info (adb logcat görünürlüğü).
+     *
+     * ⚠️ KAPILANMAMIŞ KANAL ZORUNLU (kütük #598-D): `this._mode` YUKARIDA zaten
+     * yeni moda yazıldı. Düz `console.warn` kullanılırsa `logGate` artık YENİ
+     * modun `loggingLevel`ini okur — `SAFE_MODE` → 'silent', `BASIC_JS` →
+     * 'error' → ve **geçişi duyuran satır, duyurduğu geçiş tarafından
+     * susturulur**. Sahada "SAFE_MODE'a kim soktu" sorusunun cevapsız
+     * kalmasının sebebi tam olarak buydu. Mod değişimi seyrek bir olaydır;
+     * gate'in koruduğu IO bütçesine ölçülebilir bir yük getirmez. */
     const isDowngrade = MODE_RANK[mode] < MODE_RANK[prev];
-    (isDowngrade ? console.warn : console.info)(
+    (isDowngrade ? rawWarn : rawInfo)(
       `[Runtime] runtime_mode_changed: ${prev} → ${mode} | reason=${reason}`,
     );
+
+    /* #606 — Kurtarma tabanı SAHİPLİK devrinde geçersizleşir.
+     * Arıza merdiveni dışında bir otorite (kullanıcı · termal · güç tavanı ·
+     * RAM baskısı · crash-recovery) modu devraldıysa, `_preFailureMode`
+     * artık gerçeği tarif etmez: o hedefe geri çıkmak devralan otoriteyi
+     * sessizce ezmek olurdu. Hedef unutulur.
+     *
+     * `_failedComponents` BİLEREK korunur: bileşen hâlâ arızalı olabilir ve
+     * latch'i düşürmek circiri geri açardı (kopuk dongle her turda yeniden
+     * "yeni arıza" sayılırdı). Latch yalnız gerçek kurtarmayla düşer. */
+    if (!reason.startsWith('failure:') && reason !== 'recovery') {
+      this._preFailureMode = null;
+    }
 
     // Crash recovery için son modu disk'e yaz (4 s debounce — mod geçişi yüksek frekanslı değil)
     safeSetRaw(PERSIST_KEY, mode);
@@ -373,15 +612,40 @@ class AdaptiveRuntimeManager {
 
     const saved = safeGetRaw(PERSIST_KEY) as RuntimeMode | null;
     if (saved === RuntimeMode.SAFE_MODE) {
-      console.warn(
-        '[Runtime] crash-recovery: previous session ended in SAFE_MODE — starting in SAFE_MODE',
+      /* Kapılanmamış kanal: bu satır kurbanı olduğu susturmayı AÇIKLAYAN
+         satırdır — gate'e tabi olursa kalıcı SAFE_MODE sessizce sürer. */
+      rawWarn(
+        '[Runtime] crash-recovery: previous session ended in SAFE_MODE — starting in SAFE_MODE (tek atımlık)',
       );
       this._commit(RuntimeMode.SAFE_MODE, 'crash-recovery');
-      return;
+
+      /* #611 — GÜVENLİK AĞI TEK ATIMLIKTIR: kayıt burada TÜKETİLİR.
+       *
+       * ESKİ DAVRANIŞ (kütük #604(F), 2026-08-17'de CİHAZDA ÖLÇÜLDÜ): `PERSIST_KEY`
+       * yalnız `_commit`te YAZILIYOR, hiçbir yerde SİLİNMİYORDU. Üstelik yukarıdaki
+       * `_commit(SAFE_MODE, 'crash-recovery')` kaydı YENİDEN YAZIYOR → bir kez
+       * SAFE_MODE'da biten oturum, sonraki HER açılışı SAFE_MODE'a sabitliyordu.
+       * Güvenlik ağı hiç devreden çıkmıyordu: telefon `rt-last-mode = SAFE_MODE`
+       * ile açıldı ve elle silinmeden çıkamadı (dosya katmanı; #604(E)'de kaydın
+       * İKİ katmanda durabildiği de ölçülmüştü — `safeRemoveRaw` ikisini de siler).
+       *
+       * DOĞRU SÖZLEŞME: crash döngüsünü kırmak için BİR korumalı açılış yeter.
+       * Bu oturum SAFE_MODE'da başlar (ağ görevini yapar), ama işareti tüketir →
+       * sonraki açılış TEMİZ başlar. Uygulama bu oturumda gerçekten yine SAFE_MODE'a
+       * düşerse `_commit` kaydı yeniden yazar ve koruma bir sonraki açılışta TEKRAR
+       * devreye girer. Yani ağ kaybolmaz, yalnız YAPIŞMAZ.
+       *
+       * SIRA ÖNEMLİ: silme `_commit`ten SONRA olmalı — `_commit` içindeki
+       * `safeSetRaw` yazımını (debounce tamponu dâhil) bu çağrı iptal eder. */
+      safeRemoveRaw(PERSIST_KEY);
     }
 
+    /* #611 — ERKEN ÇIKIŞ KALDIRILDI: eskiden crash-recovery dalı `return` ediyordu
+       ve zombie tespiti HİÇ BAŞLAMIYORDU. Oysa bozuk bir oturumda çökmüş worker'ı
+       yeniden ayağa kaldıran mekanizma tam da odur — en çok orada gerekir.
+       (CRITICAL worker'lara zaten dokunmaz; maliyeti 30 sn'de bir PING.) */
     this._startZombieDetection();
-    console.info(`[Runtime] started: mode=${this._mode}`);
+    rawInfo(`[Runtime] started: mode=${this._mode}`);
   }
 
   /**
@@ -514,22 +778,76 @@ class AdaptiveRuntimeManager {
     return this._mode;
   }
 
+  /** Read-only, data-only projection of this manager's existing resource state. */
+  getResourceDiagnostics(): RuntimeResourceDiagnostics {
+    const workers = this.getWorkerSnapshot();
+    const tasks = Object.freeze([...this._tasks.values()].map((task) => Object.freeze({
+      taskId: task.id, cadenceMs: task.periodMs, priority: task.criticality, effectiveTicks: task._effectiveTicks,
+      runCount: null, deferCount: null, throttleCount: null, staleDropCount: null, lastRunAt: null, nextEligibleAt: null, requestedBudget: null, grantedBudget: null,
+    })));
+     return Object.freeze({ mode: this._mode, effectivePowerCeiling: this._powerCeiling, observedThermalTier: this._thermalActiveLevel, memoryPressure: 'UNKNOWN', mitigationState: 'UNKNOWN', workers, tasks, summary: Object.freeze({ registered: tasks.length, running: null, queued: null, deferred: null, throttled: null, staleDropped: null, unknown: tasks.length }), provenance: Object.freeze(['AdaptiveRuntimeManager._tasks', 'AdaptiveRuntimeManager._thermalActiveLevel', 'AdaptiveRuntimeManager._powerCeiling', 'AdaptiveRuntimeManager.getWorkerSnapshot()']) });
+  }
+
+  /**
+   * Son mod değişiminin kaydı; hiç değişmediyse `null` (V-17).
+   *
+   * `null` = "açılıştaki tespit modu hâlâ geçerli" demektir; sahte bir
+   * "değişti" kaydı UYDURULMAZ.
+   */
+  getLastModeChange(): {
+    readonly from: RuntimeMode; readonly to: RuntimeMode;
+    readonly reason: ModeReason; readonly at: number;
+  } | null {
+    return this._lastModeChange;
+  }
+
   /** Aktif mod için RuntimeConfig döner. */
   getConfig(): RuntimeConfig {
     return getRuntimeConfig(this._mode);
   }
 
   /**
-   * Bileşen arızası sinyal — mevcut moddan bir adım aşağı indirir.
+   * Bileşen arızası sinyali — mevcut moddan **en fazla bir adım** aşağı indirir.
    *
-   * Kullanım: OBD disconnect, GPS kayıp, CAN timeout gibi servis
-   * katmanı hataları bu metodu çağırarak sistemi koruyucu moda geçirir.
+   * Kullanım: OBD kopması, worker çökmesi gibi servis katmanı arızaları bu
+   * metodu çağırarak sistemi koruyucu moda geçirir.
    *
-   * Downgrade anında uygulanır (hysteresis bypass — güvenlik olayı).
+   * #606 — İKİ İNVARYANT (saha kökü: kütük #604):
    *
-   * @param component  Arıza bildiren servis adı ('OBD', 'GPS', 'CAN' ...)
+   *   (1) **Bileşen başına tek kademe.** Aynı bileşen kurtulmadan tekrar arıza
+   *       bildirirse mod DEĞİŞMEZ. Eski kod her çağrıda bir kademe iniyordu;
+   *       `obdService._scheduleReconnect()` bu metodu 10 çağrı yerinden
+   *       tetiklediği için dongle takılı olmayan araçta runtime ~40 sn'de
+   *       BALANCED → BASIC_JS → POWER_SAVE → SAFE_MODE'a çakılıyordu.
+   *
+   *   (2) **Taban POWER_SAVE.** Biriken arızalar SAFE_MODE'a indiremez; orası
+   *       bilinçli kararların modudur (bkz. `FAILURE_FLOOR`). Kazara girilen
+   *       SAFE_MODE `rt-last-mode` üzerinden sonraki açılışlara da sızıyordu.
+   *
+   * Downgrade anında uygulanır (hysteresis bypass — koruyucu olay).
+   * Karşılığı `reportRecovery()`'dir: arıza geçince mod geri yükselir.
+   *
+   * @param component  Arıza bildiren servis adı ('OBD', 'VisionCompute', …)
    */
   reportFailure(component: string): void {
+    // (1) Bu bileşen zaten arızalı biliniyor → merdivende ikinci kademe YOK.
+    if (this._failedComponents.has(component)) return;
+
+    const currentRank = MODE_RANK[this._mode];
+    // (2) Taban: arıza merdiveni POWER_SAVE'in altına inmez.
+    if (currentRank <= MODE_RANK[FAILURE_FLOOR]) {
+      // Latch YAZILMAZ: bu çağrı bir kademe TÜKETMEDİ → kurtarmada geri
+      // verilecek bir şey de yok. Aksi halde (ör. RAM krizi SAFE_MODE'a
+      // indirdikten sonra gelen `reportFailure('RAM')`) ölü bir latch
+      // BAŞKA bileşenlerin kurtulmasını sonsuza dek bloklardı.
+      return;
+    }
+
+    this._failedComponents.add(component);
+    // Kurtarma hedefi YALNIZ ilk düşüşte yakalanır (sonraki bileşen arızaları
+    // tabanı daha da yukarı taşımaz — geri dönülecek yer arıza ÖNCESİDİR).
+    if (this._preFailureMode === null) this._preFailureMode = this._mode;
+
     const rankOrder: RuntimeMode[] = [
       RuntimeMode.SAFE_MODE,
       RuntimeMode.POWER_SAVE,  // akü koruma basamağı
@@ -537,12 +855,50 @@ class AdaptiveRuntimeManager {
       RuntimeMode.BALANCED,
       RuntimeMode.PERFORMANCE,
     ];
-    const currentRank = MODE_RANK[this._mode];
-    if (currentRank > 0) {
-      // Bir adım aşağı — SAFE_MODE'dan aşağısı yok
-      const downgraded = rankOrder[currentRank - 1];
-      this.setMode(downgraded, `failure:${component}`);
-    }
+    this.setMode(rankOrder[currentRank - 1], `failure:${component}`);
+  }
+
+  /**
+   * #606 — `reportFailure()`'ın YUKARI karşılığı: bileşen tekrar sağlıklı.
+   *
+   * Arıza latch'ini düşürür. Arızalı başka bileşen KALMADIYSA mod, arıza
+   * öncesi gözlenen seviyeye geri istenir — ve bu istek normal `setMode()`
+   * yolundan geçer, yani:
+   *   · 30 sn histerezis penceresine tabidir (anlık zıplama yok),
+   *   · güç/termal tavanı hâlâ üstündür (`setMode` yeniden kıskaçlar),
+   *   · arada başka bir otorite modu devraldıysa hedef zaten unutulmuştur
+   *     (`_commit`), o otorite sessizce ezilmez.
+   *
+   * Bilinmeyen/latch'siz bir bileşen için no-op'tur (idempotent).
+   *
+   * @param component  Kurtulan servis adı — `reportFailure` ile AYNI ad
+   */
+  reportRecovery(component: string): void {
+    if (!this._failedComponents.delete(component)) return; // latch yoktu — no-op
+    if (this._failedComponents.size > 0) return;           // hâlâ arızalı bileşen var
+
+    const target = this._preFailureMode;
+    this._preFailureMode = null;
+    if (target === null) return;                            // taban devredilmiş
+    if (MODE_RANK[target] <= MODE_RANK[this._mode]) return; // zaten o seviyede/üstünde
+
+    this.setMode(target, 'recovery');
+  }
+
+  /**
+   * Arızalı sayılan bileşenlerin salt-okunur, sıralı görüntüsü (gözlemlenebilirlik).
+   * Boş dizi = arıza merdiveninde bekleyen bileşen yok.
+   */
+  getFailedComponents(): readonly string[] {
+    return Object.freeze(Array.from(this._failedComponents).sort());
+  }
+
+  /**
+   * Arıza kurtarmasında geri dönülecek mod; null = hedef yok
+   * (hiç arıza olmadı ya da modu başka bir otorite devraldı).
+   */
+  getRecoveryTarget(): RuntimeMode | null {
+    return this._preFailureMode;
   }
 
   /* ══════════════════════════════════════════════════════════════
@@ -722,6 +1078,21 @@ class AdaptiveRuntimeManager {
    * @param criticality   CRITICAL = her zaman çalışır; OPTIONAL = RAM baskısında sonlandırılır
    */
   registerWorker(key: string, worker: Worker | null, criticality: WorkerCriticality): void {
+    // T2: yaşam-döngüsü durumu — `worker === null` TEK BAŞINA 'dead' DEĞİLDİR.
+    // Hiç canlı olmamış bir anahtar için null kayıt = yer tutucu ('not_started');
+    // daha önce canlı olmuş bir anahtar için null kayıt = düzenli kapanış ('stopped').
+    if (worker) this._workerEverLive.add(key);
+    const prevStatus = this._workerStatus.get(key);
+    // Canlı referans her zaman 'active'e yükseltir (kurtarma). null kayıt ise
+    // TEŞHİS KOYAN durumları EZMEZ: 'unsupported'/'dead' zaten neden-bilgisi taşır,
+    // onları 'not_started'a düşürmek kanıt kaybı olurdu (fail-closed).
+    const nullStatus: WorkerLifecycleStatus =
+      prevStatus === 'unsupported' || prevStatus === 'disabled' || prevStatus === 'dead'
+        ? prevStatus
+        : this._workerEverLive.has(key) ? 'stopped' : 'not_started';
+    this._workerStatus.set(key, worker ? 'active' : nullStatus);
+    this._workerCriticality.set(key, criticality);
+
     this._workers.set(key, { worker, criticality });
 
     // Önceki listener'ı temizle (registerWorker yeniden çağrılabilir)
@@ -737,14 +1108,68 @@ class AdaptiveRuntimeManager {
       worker.addEventListener('message', handler);
       this._workerMsgHandlers.set(key, handler);
       this._pingPendingCounts.set(key, 0);
+
+      /* #606 — CANLI worker referansı = o bileşenin kurtulduğunun kanonik
+       * kanıtıdır (çökme yolları `registerWorker(key, null, …)` yazar,
+       * restart yolları canlı referansla geri döner). Ayrı bir kurtarma
+       * çağrısı eklemek yerine mevcut sözleşme kullanılır — böylece bir
+       * worker latch'i unutulup BAŞKA bileşenlerin kurtulmasını bloklayamaz.
+       * Latch yoksa no-op'tur (boot'taki ilk kayıtta olduğu gibi). */
+      this.reportRecovery(key);
     }
   }
 
-  /** Worker kaydını kaldır. stopVision / stopNavigation çağrılarında kullanılır. */
+  /**
+   * Worker kaydını kaldır. stopVision / stopNavigation çağrılarında kullanılır.
+   *
+   * T2: `_workers` davranışı AYNEN korunur (anahtar silinir — mevcut tüketiciler
+   * bu sözleşmeye bağlı), ama yaşam-döngüsü kaydı KORUNUR. Böylece BlackBox şeması
+   * ardışık örneklerde oynamaz: anahtar kaybolmaz, 'stopped' olarak görünür.
+   * Çökme yolu bunu `markWorkerDead()` ile 'dead'e yükseltir.
+   */
   unregisterWorker(key: string): void {
     this._detachPongListener(key);
     this._pingPendingCounts.delete(key);
     this._workers.delete(key);
+    if (this._workerStatus.get(key) !== 'dead') this._workerStatus.set(key, 'stopped');
+  }
+
+  /**
+   * Worker GERÇEKTEN çöktü — çalışması beklenirken heartbeat/onerror kaybı.
+   * `unregisterWorker()`den ayrıdır: düzenli kapanış 'stopped', çökme 'dead'.
+   * Bu ayrım olmadan BlackBox her teardown'ı arıza gibi raporluyordu.
+   */
+  markWorkerDead(key: string): void {
+    this._workerStatus.set(key, 'dead');
+  }
+
+  /** Worker bu cihazda/politikada hiç çalıştırılmayacak — 'dead' ile karıştırılmaz. */
+  markWorkerUnavailable(key: string, reason: 'disabled' | 'unsupported'): void {
+    this._workerStatus.set(key, reason);
+  }
+
+  /**
+   * T2: ATOMİK, donmuş worker durumu görüntüsü.
+   *
+   * `getWorkers()` CANLI `Map` referansı döndürür — tüketici üzerinde gezerken
+   * başka bir yol `set`/`delete` çağırırsa anahtarlar örnekler arasında kaybolur
+   * (saha snapshot: 'VehicleCompute' bazı BlackBox satırlarında yok). Bu metot tek
+   * geçişte kopya üretir; dönen dizi ve satırlar donmuştur.
+   *
+   * Anahtar kümesi `_workerStatus`tan gelir (unregister sonrası da korunur) →
+   * şema ardışık örneklerde STABİLDİR.
+   */
+  getWorkerSnapshot(): readonly WorkerStatusRow[] {
+    const rows: WorkerStatusRow[] = [];
+    for (const [key, status] of this._workerStatus) {
+      rows.push(Object.freeze({
+        key,
+        status,
+        criticality: this._workerCriticality.get(key) ?? 'OPTIONAL',
+      }));
+    }
+    rows.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+    return Object.freeze(rows);
   }
 
   private _detachPongListener(key: string): void {
@@ -809,6 +1234,9 @@ class AdaptiveRuntimeManager {
       try { entry.worker.terminate(); } catch { /* noop */ }
     }
     this._workers.set(key, { ...entry, worker: null }); // referansı null yap
+    // T2: RAM baskısı / zombie terminate = DÜZENLİ kapanış. 'dead' YALNIZ çökme yolunda
+    // (`markWorkerDead`) kullanılır — aksi halde her bellek tahliyesi arıza görünürdü.
+    if (this._workerStatus.get(key) !== 'dead') this._workerStatus.set(key, 'stopped');
     console.info(`[Runtime] Worker reference nulled: ${key} — memory released`);
   }
 
@@ -885,11 +1313,20 @@ class AdaptiveRuntimeManager {
     this._workers.clear();
     this._pingPendingCounts.clear();
     this._workerMsgHandlers.clear();
+    // T2: destroy = tam teardown → yaşam-döngüsü kaydı da sıfırlanır (aggregation
+    // state'i sonraki oturuma sızmasın; test izolasyonu da buna dayanır).
+    this._workerStatus.clear();
+    this._workerCriticality.clear();
+    this._workerEverLive.clear();
     this._zombieRestartCallback = null;
 
     this._started            = false;
     this._powerCeiling       = null;
     this._thermalActiveLevel = 0;
+    // #606: arıza merdiveni defteri de sıfırlanır — sonraki oturuma sızmaz
+    // (test izolasyonu da buna dayanır).
+    this._failedComponents.clear();
+    this._preFailureMode     = null;
 
     if (typeof document === 'undefined') return;
     const root = document.documentElement;

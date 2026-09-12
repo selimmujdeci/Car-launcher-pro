@@ -1,0 +1,410 @@
+[
+ {
+  "id": "background",
+  "type": "background",
+  "sl": "landcover",
+  "minz": "AREA_VISIBILITY",
+  "maxz": "—",
+  "filter": "classIn('wood', 'forest'),"
+ },
+ {
+  "id": "landcover-wood",
+  "type": "fill",
+  "sl": "landcover",
+  "minz": "AREA_VISIBILITY",
+  "maxz": "—",
+  "filter": "classIn('wood', 'forest'),"
+ },
+ {
+  "id": "landcover-farmland",
+  "type": "fill",
+  "sl": "landcover",
+  "minz": "AREA_VISIBILITY",
+  "maxz": "—",
+  "filter": "classIn('farmland'),"
+ },
+ {
+  "id": "landcover-grass",
+  "type": "fill",
+  "sl": "landcover",
+  "minz": "AREA_VISIBILITY",
+  "maxz": "—",
+  "filter": "classIn('grass', 'meadow', 'heath', 'scrub'),"
+ },
+ {
+  "id": "landuse-park",
+  "type": "fill",
+  "sl": "park",
+  "minz": "AREA_VISIBILITY",
+  "maxz": "—",
+  "filter": "classIn('residential'),"
+ },
+ {
+  "id": "landuse-residential",
+  "type": "fill",
+  "sl": "landuse",
+  "minz": "AREA_VISIBILITY",
+  "maxz": "—",
+  "filter": "classIn('residential'),"
+ },
+ {
+  "id": "landuse-urban",
+  "type": "fill",
+  "sl": "landuse",
+  "minz": "AREA_VISIBILITY",
+  "maxz": "—",
+  "filter": "classIn('industrial', 'commercial', 'retail', 'quarry',"
+ },
+ {
+  "id": "landuse-green",
+  "type": "fill",
+  "sl": "landuse",
+  "minz": "AREA_VISIBILITY",
+  "maxz": "—",
+  "filter": "classIn('cemetery', 'pitch', 'playground', 'theme_park',"
+ },
+ {
+  "id": "water-fill",
+  "type": "fill",
+  "sl": "water",
+  "minz": "AREA_VISIBILITY",
+  "maxz": "—",
+  "filter": "['!=', ['get', 'class'], 'swimming_pool'] as FilterSpecification,"
+ },
+ {
+  "id": "water-pool",
+  "type": "fill",
+  "sl": "water",
+  "minz": "AREA_VISIBILITY",
+  "maxz": "—",
+  "filter": "['==', ['get', 'class'], 'swimming_pool'] as FilterSpecification,"
+ },
+ {
+  "id": "waterway",
+  "type": "line",
+  "sl": "waterway",
+  "minz": "8",
+  "maxz": "—",
+  "filter": "classIn('river', 'canal'),"
+ },
+ {
+  "id": "waterway-stream",
+  "type": "line",
+  "sl": "waterway",
+  "minz": "13",
+  "maxz": "—",
+  "filter": "classIn('stream', 'ditch', 'drain'),"
+ },
+ {
+  "id": "boundary",
+  "type": "line",
+  "sl": "boundary",
+  "minz": "3",
+  "maxz": "—",
+  "filter": "['<=', ['coalesce', ['get', 'admin_level'], 99], 4] as FilterSpecification,"
+ },
+ {
+  "id": "aeroway",
+  "type": "line",
+  "sl": "aeroway",
+  "minz": "11",
+  "maxz": "—",
+  "filter": "classIn('runway', 'taxiway'),"
+ },
+ {
+  "id": "railway",
+  "type": "line",
+  "sl": "transportation",
+  "minz": "11",
+  "maxz": "—",
+  "filter": "classIn('rail', 'transit'),"
+ },
+ {
+  "id": "building",
+  "type": "fill",
+  "sl": "building",
+  "minz": "AREA_VISIBILITY.building",
+  "maxz": "—",
+  "filter": "['!=', ['get', 'hide_3d'], true] as FilterSpecification,"
+ },
+ {
+  "id": "building-3d",
+  "type": "fill-extrusion",
+  "sl": "building",
+  "minz": "AREA_VISIBILITY",
+  "maxz": "—",
+  "filter": "['!=', ['get', 'hide_3d'], true] as FilterSpecification,"
+ },
+ {
+  "id": "road-tunnel-casing",
+  "type": "line",
+  "sl": "transportation",
+  "minz": "0",
+  "maxz": "—",
+  "filter": "brunnelOnly('tunnel'),"
+ },
+ {
+  "id": "road-tunnel",
+  "type": "line",
+  "sl": "transportation",
+  "minz": "0",
+  "maxz": "—",
+  "filter": "brunnelOnly('tunnel'),"
+ },
+ {
+  "id": "road-minor-casing",
+  "type": "line",
+  "sl": "transportation",
+  "minz": "ROAD_VISIBILITY.minor.minzoom",
+  "maxz": "—",
+  "filter": "surfaceOnly(classIn('minor', 'service', 'track')),"
+ },
+ {
+  "id": "road-secondary-casing",
+  "type": "line",
+  "sl": "transportation",
+  "minz": "ROAD_VISIBILITY.tertiary.minzoom",
+  "maxz": "—",
+  "filter": "surfaceOnly(classIn('secondary', 'tertiary')),"
+ },
+ {
+  "id": "road-primary-casing",
+  "type": "line",
+  "sl": "transportation",
+  "minz": "ROAD_VISIBILITY.primary.minzoom",
+  "maxz": "—",
+  "filter": "surfaceOnly(classIn('primary')),"
+ },
+ {
+  "id": "road-motorway-casing",
+  "type": "line",
+  "sl": "transportation",
+  "minz": "ROAD_VISIBILITY.motorway.minzoom",
+  "maxz": "—",
+  "filter": "surfaceOnly(classIn('motorway', 'trunk')),"
+ },
+ {
+  "id": "road-path",
+  "type": "line",
+  "sl": "transportation",
+  "minz": "ROAD_VISIBILITY.path.minzoom",
+  "maxz": "—",
+  "filter": "surfaceOnly(classIn('path')),"
+ },
+ {
+  "id": "road-service",
+  "type": "line",
+  "sl": "transportation",
+  "minz": "ROAD_VISIBILITY.service.minzoom",
+  "maxz": "—",
+  "filter": "surfaceOnly(classIn('service', 'track', 'busway')),"
+ },
+ {
+  "id": "road-minor",
+  "type": "line",
+  "sl": "transportation",
+  "minz": "ROAD_VISIBILITY.minor.minzoom",
+  "maxz": "—",
+  "filter": "surfaceOnly(classIn('minor')),"
+ },
+ {
+  "id": "road-tertiary",
+  "type": "line",
+  "sl": "transportation",
+  "minz": "ROAD_VISIBILITY.tertiary.minzoom",
+  "maxz": "—",
+  "filter": "surfaceOnly(classIn('tertiary')),"
+ },
+ {
+  "id": "road-secondary",
+  "type": "line",
+  "sl": "transportation",
+  "minz": "ROAD_VISIBILITY.secondary.minzoom",
+  "maxz": "—",
+  "filter": "surfaceOnly(classIn('secondary')),"
+ },
+ {
+  "id": "road-primary",
+  "type": "line",
+  "sl": "transportation",
+  "minz": "ROAD_VISIBILITY.primary.minzoom",
+  "maxz": "—",
+  "filter": "surfaceOnly(classIn('primary')),"
+ },
+ {
+  "id": "road-motorway",
+  "type": "line",
+  "sl": "transportation",
+  "minz": "ROAD_VISIBILITY.motorway.minzoom",
+  "maxz": "—",
+  "filter": "surfaceOnly(classIn('motorway', 'trunk')),"
+ },
+ {
+  "id": "road-bridge-casing",
+  "type": "line",
+  "sl": "transportation",
+  "minz": "0",
+  "maxz": "—",
+  "filter": "brunnelOnly('bridge'),"
+ },
+ {
+  "id": "road-bridge",
+  "type": "line",
+  "sl": "transportation",
+  "minz": "0",
+  "maxz": "—",
+  "filter": "brunnelOnly('bridge'),"
+ },
+ {
+  "id": "poi-gas",
+  "type": "circle",
+  "sl": "poi",
+  "minz": "LABEL_VISIBILITY",
+  "maxz": "—",
+  "filter": "['all', classIn('fuel'), rankAtMost(15)] as FilterSpecification,"
+ },
+ {
+  "id": "poi-hospital",
+  "type": "circle",
+  "sl": "poi",
+  "minz": "LABEL_VISIBILITY",
+  "maxz": "—",
+  "filter": "['all', classIn('hospital'), rankAtMost(25)] as FilterSpecification,"
+ },
+ {
+  "id": "poi-police",
+  "type": "circle",
+  "sl": "poi",
+  "minz": "LABEL_VISIBILITY",
+  "maxz": "—",
+  "filter": "['all', classIn('police', 'fire_station'), rankAtMost(25)] as FilterSpecificat"
+ },
+ {
+  "id": "poi-parking",
+  "type": "circle",
+  "sl": "poi",
+  "minz": "LABEL_VISIBILITY",
+  "maxz": "—",
+  "filter": "['all', classIn('parking'), rankAtMost(12)] as FilterSpecification,"
+ },
+ {
+  "id": "place-suburb",
+  "type": "symbol",
+  "sl": "place",
+  "minz": "LABEL_VISIBILITY",
+  "maxz": "—",
+  "filter": "['all',"
+ },
+ {
+  "id": "road-label",
+  "type": "symbol",
+  "sl": "transportation_name",
+  "minz": "LABEL_VISIBILITY",
+  "maxz": "—",
+  "filter": "['all',"
+ },
+ {
+  "id": "place-village",
+  "type": "symbol",
+  "sl": "place",
+  "minz": "LABEL_VISIBILITY",
+  "maxz": "—",
+  "filter": "['all', classIn('village', 'hamlet'), rankAtMost(20)] as FilterSpecification,"
+ },
+ {
+  "id": "water-label",
+  "type": "symbol",
+  "sl": "water_name",
+  "minz": "LABEL_VISIBILITY",
+  "maxz": "—",
+  "filter": "['all',"
+ },
+ {
+  "id": "road-label-major",
+  "type": "symbol",
+  "sl": "transportation_name",
+  "minz": "LABEL_VISIBILITY",
+  "maxz": "—",
+  "filter": "['all',"
+ },
+ {
+  "id": "place-town",
+  "type": "symbol",
+  "sl": "place",
+  "minz": "LABEL_VISIBILITY",
+  "maxz": "—",
+  "filter": "['all', classIn('town'), rankAtMost(22)] as FilterSpecification,"
+ },
+ {
+  "id": "road-shield",
+  "type": "symbol",
+  "sl": "transportation_name",
+  "minz": "LABEL_VISIBILITY",
+  "maxz": "—",
+  "filter": "['all',"
+ },
+ {
+  "id": "place-city",
+  "type": "symbol",
+  "sl": "place",
+  "minz": "LABEL_VISIBILITY",
+  "maxz": "LABEL_VISIBILITY_MAX",
+  "filter": "classIn('city'),"
+ },
+ {
+  "id": "background",
+  "type": "background",
+  "sl": "landcover",
+  "minz": "AREA_VISIBILITY",
+  "maxz": "—",
+  "filter": "classIn('wood', 'forest'),"
+ },
+ {
+  "id": "tiles-layer",
+  "type": "raster",
+  "sl": "—",
+  "minz": "0",
+  "maxz": "—",
+  "filter": "—"
+ },
+ {
+  "id": "background",
+  "type": "background",
+  "sl": "landcover",
+  "minz": "AREA_VISIBILITY",
+  "maxz": "—",
+  "filter": "classIn('wood', 'forest'),"
+ },
+ {
+  "id": "satellite-layer",
+  "type": "raster",
+  "sl": "—",
+  "minz": "0",
+  "maxz": "17",
+  "filter": "—"
+ },
+ {
+  "id": "background",
+  "type": "background",
+  "sl": "landcover",
+  "minz": "AREA_VISIBILITY",
+  "maxz": "—",
+  "filter": "classIn('wood', 'forest'),"
+ },
+ {
+  "id": "satellite-layer",
+  "type": "raster",
+  "sl": "—",
+  "minz": "0",
+  "maxz": "17",
+  "filter": "—"
+ },
+ {
+  "id": "road-overlay-layer",
+  "type": "raster",
+  "sl": "—",
+  "minz": "0",
+  "maxz": "—",
+  "filter": "—"
+ }
+]

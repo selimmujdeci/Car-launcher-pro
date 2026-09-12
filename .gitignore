@@ -118,3 +118,51 @@ tools/can-re/
 
 # Canlı DB introspection çıktıları (hassas: grants/policies/row counts) — ASLA commit edilmez
 /docs-local/db-truth/
+
+# YEREL saha/QA koşu artefaktları (docs-local/): logcat, meminfo, ekran görüntüsü, CDP
+# izleri, .patch yedekleri… Üretilmiş kanıt dosyalarıdır, KAYNAK DEĞİL (2026-07 itibarıyla
+# ~245 MB) ve cihaz/oturum bağlamı taşırlar (MAC, konum, VIN riski). Kalıcı olması gereken
+# saha hükmü `docs/DEVICE_VALIDATION_LEDGER.md` kütüğüne YAZILIR, ham çıktı commit EDİLMEZ.
+/docs-local/
+
+# Yerel Claude Code hook'ları — makineye özgü yardımcılar, ürünün/build'in parçası değil
+# (ayarları taşıyan .claude/settings.json zaten yukarıda ignore'lu).
+/.claude/hooks/
+
+# Kök dizinde biriken YEREL kazı artefaktları — kaynak değil, commit edilmez:
+#  - `undefined/`: `adb pull` hedef yolu boş değişkenle çağrılınca oluşan klasör
+#    (içinde sürüş sırasında alınmış ekran görüntüsü kalıntıları var).
+#  - `test-parser.ts`: elle koşulan komut-ayrıştırıcı deneme betiği (vitest kapsamı dışı).
+/undefined/
+/test-parser.ts
+
+# Build sırasında sql.js paketinden kopyalanır (sürüm ayrışmasını önlemek için commit EDİLMEZ)
+public/wasm/
+
+# QA kanıt dökümleri (ağır doğrulama log çıktıları) — repoya girmez
+.arch-*-proof*/
+scratch_hud.py
+
+# ── field-runs/ · SAHA KANITI ve TASARIM ÜRETİCİSİ ────────────────────────────
+# Bu dizin `docs-local/` ile AYNI SINIFTA DEĞİLDİR: içinde ürünün devamı için
+# gereken KAYNAK var (kartografya tasarım üreticisi `.mjs`, CDP ölçüm betikleri,
+# ölçüm JSON'ları, kanonik artboard PNG'leri). Bunlar commit EDİLİR.
+#
+# Commit EDİLMEYENLER — makine dökümü, yeniden üretilebilir ya da hassas:
+#  - `*.apk`  : 9 dosya × ~95 MB = 861 MB. Kaynaktan yeniden üretilir.
+#  - logcat / build log : ham cihaz logu (MAC · konum · VIN riski) ve ~50 MB.
+#  - `trace-*.json` : ham CDP performans izi (~14 MB). HÜKÜM kütükte yazılıdır.
+#  - `caros-nav-galeri.html` : `galeri.mjs` çıktısı (4,8 MB gömülü PNG).
+# Saha HÜKMÜ `docs/DEVICE_VALIDATION_LEDGER.md` kütüğüne yazılır; ham çıktı değil.
+field-runs/**/*.apk
+field-runs/**/logcat*.txt
+field-runs/**/*.log
+field-runs/**/trace-*.json
+field-runs/carto-2026-09-06/caros-nav-galeri.html
+
+# Gölge yol ağı artefaktları — ÜRÜN PAKETİ DEĞİL, ölçüm veri setidir.
+# RTG4 bölge grafları (~1 GB) ve ALT landmark dilimleri (8 landmark ~700 MB,
+# 16 landmark ~1,4 GB) depoya girmez; köken kanıtı manifest JSON'larıdır.
+field-runs/**/*.rtg4
+field-runs/**/*.alt
+field-runs/**/regions/*.bin

@@ -15,6 +15,8 @@
  * kart kümesini kendi manifest'iyle çözer; niyet ham blob olarak saklanır,
  * her tema OKUMA anında kendi manifest'ine göre normalize eder → temalar
  * birbirinin kartını ezmez.
+ *
+---8<--- PARITY-START --->8---
  */
 
 export type Zone = 'left-rail' | 'center-stage' | 'right-rail' | 'dock';
@@ -57,6 +59,44 @@ export const EXPEDITION_MANIFEST: Manifest = [
   { id: 'dock',    label: 'Dock',         zone: 'dock',         size: 'L', priority: 100, locked: true },
 ];
 
+/**
+ * HORIZON — yerleşim motoruna BAĞLANDI (#660).
+ *
+ * Değerler ekranın BUGÜNKÜ yapısından çıkarıldı, uydurulmadı:
+ * sol ray `gridTemplateRows: 'auto 1fr auto auto'` ile dört kart
+ * (sürüş modu · hız · menzil · tüketim), orta sahne harita, sağ ray
+ * `'0.93fr 1fr'` ile iki kart (medya · araç durumu), altta dock.
+ * `priority` sırası mevcut ekran sırasının AYNISIDIR → hiç dokunulmadığında
+ * ekran birebir eskisi gibi çözülür.
+ */
+export const HORIZON_MANIFEST: Manifest = [
+  { id: 'drivemode',   label: 'Sürüş Modu',  zone: 'left-rail',    size: 'S', priority: 90 },
+  { id: 'speed',       label: 'Hız',         zone: 'left-rail',    size: 'L', priority: 80, locked: true },
+  { id: 'range',       label: 'Menzil',      zone: 'left-rail',    size: 'S', priority: 70 },
+  { id: 'consumption', label: 'Tüketim',     zone: 'left-rail',    size: 'S', priority: 60 },
+  { id: 'map',         label: 'Harita',      zone: 'center-stage', size: 'L', priority: 90, locked: true },
+  { id: 'media',       label: 'Medya',       zone: 'right-rail',   size: 'M', priority: 70 },
+  { id: 'vehicle',     label: 'Araç Durumu', zone: 'right-rail',   size: 'L', priority: 65 },
+  { id: 'dock',        label: 'Dock',        zone: 'dock',         size: 'L', priority: 100, locked: true },
+];
+
+/**
+ * TESLA — yerleşim motoruna BAĞLANDI (#660).
+ *
+ * Bugünkü yapı: sol sütun (saat · hız · yakıt), orta harita, sağ sütun
+ * (müzik · araç), altta dock. Sıra mevcut ekranla aynıdır.
+ */
+export const TESLA_MANIFEST: Manifest = [
+  { id: 'clock',   label: 'Saat',        zone: 'left-rail',    size: 'S', priority: 90 },
+  { id: 'speed',   label: 'Hız',         zone: 'left-rail',    size: 'L', priority: 80, locked: true },
+  { id: 'fuel',    label: 'Yakıt',       zone: 'left-rail',    size: 'S', priority: 70 },
+  { id: 'map',     label: 'Harita',      zone: 'center-stage', size: 'L', priority: 90, locked: true },
+  { id: 'music',   label: 'Müzik',       zone: 'right-rail',   size: 'M', priority: 70 },
+  { id: 'vehicle', label: 'Araç Durumu', zone: 'right-rail',   size: 'L', priority: 65 },
+  { id: 'dock',    label: 'Dock',        zone: 'dock',         size: 'L', priority: 100, locked: true },
+];
+
+
 export const GROW_BY_SIZE: Record<SizeClass, number> = { S: 1, M: 2, L: 3 };
 export const ZONE_CAPACITY: Record<Zone, number> = {
   'left-rail': 4, 'center-stage': 3, 'right-rail': 3, 'dock': 16,
@@ -70,11 +110,33 @@ export interface CardIntent {
   ord: number;
   /** elle boyut (grow ağırlığı); null → size'dan türetilir */
   growCustom: number | null;
+  /**
+   * GÖRSEL BİRLEŞTİRME: bu kart, AYNI bölgede kendisinden hemen SONRA gelen
+   * görünür kartla tek bir kart gibi çizilir (aralarındaki boşluk kalkar, iç
+   * köşeler düzleşir).
+   *
+   * Tasarım kararı — "sonrakine bağlan" bilerek seçildi: kart KİMLİĞİ ile
+   * eşleştirme (ör. `mergeWith: 'music'`) yapsaydık geçersiz hedef, döngü ve
+   * "hedef gizlenince ne olacak?" sorunları doğardı. Yön bilgisi zaten `ord`
+   * içinde var; birleştirme onu yalnız OKUR, ikinci bir sıralama otoritesi
+   * KURMAZ. Bölgenin son görünür kartında bayrak sessizce ETKİSİZDİR.
+   */
+  mergeNext: boolean;
 }
 export type LayoutIntent = Record<string, CardIntent>;
 
 export interface SolvedItem { id: string; size: SizeClass; grow: number; }
-export interface SolvedZone { items: SolvedItem[]; overflow: string[]; }
+/**
+ * Ardışık birleşik kart dizisi. TEK ELEMANLI gruplar da vardır — çizim tarafı
+ * "birleşik mi?" diye ayrı bir dal tutmasın, hep grupları çizsin (tek kod yolu).
+ */
+export type SolvedGroup = SolvedItem[];
+export interface SolvedZone {
+  items: SolvedItem[];
+  overflow: string[];
+  /** `items`in ardışık birleşik dizilere bölünmüş hâli. Düzleştirilirse `items`e EŞİTTİR. */
+  groups: SolvedGroup[];
+}
 export type SolvedLayout = Record<Zone, SolvedZone>;
 
 /** manifest → id→entry haritası (locked/zone/size sorguları için). */
@@ -93,7 +155,7 @@ export function defaultIntent(manifest: Manifest = PRO_MANIFEST): LayoutIntent {
   Object.values(byZone).forEach((list) => {
     list.sort((a, b) => b.priority - a.priority || a.id.localeCompare(b.id));
     list.forEach((m, i) => {
-      intent[m.id] = { visible: true, size: m.size, ord: i, growCustom: null };
+      intent[m.id] = { visible: true, size: m.size, ord: i, growCustom: null, mergeNext: false };
     });
   });
   return intent;
@@ -117,7 +179,10 @@ export function normalizeIntent(raw: unknown, manifest: Manifest = PRO_MANIFEST)
       : (Number.isFinite(gc) ? Math.max(0.5, Math.min(5, Number(gc))) : base[id].growCustom);
     const locked = !!MAP[id]?.locked;
     const visible = locked ? true : (typeof cc.visible === 'boolean' ? cc.visible : base[id].visible);
-    base[id] = { visible, size, ord, growCustom };
+    /* Birleştirme GÖRSELDİR: kilitli kart da birleşebilir (gizlenme değil,
+       yalnız çizim). Bilinmeyen/boş değer varsayılanı korur. */
+    const mergeNext = typeof cc.mergeNext === 'boolean' ? cc.mergeNext : base[id].mergeNext;
+    base[id] = { visible, size, ord, growCustom, mergeNext };
   }
   return base;
 }
@@ -148,7 +213,17 @@ export function solveLayout(intent: LayoutIntent, manifest: Manifest = PRO_MANIF
       items.push({ id: m.id, size: c?.size ?? m.size, grow: growOf(m.id, intent) });
       count++;
     }
-    out[z] = { items, overflow };
+    /* Gruplama: `mergeNext` işaretli kart kendisinden SONRAKİ görünür kartla
+       aynı gruba girer. Son kartın işareti etkisizdir (bağlanacak kart yok). */
+    const groups: SolvedGroup[] = [];
+    let aktif: SolvedGroup = [];
+    for (let i = 0; i < items.length; i++) {
+      aktif.push(items[i]);
+      const birlesir = intent[items[i].id]?.mergeNext === true && i < items.length - 1;
+      if (!birlesir) { groups.push(aktif); aktif = []; }
+    }
+    if (aktif.length > 0) groups.push(aktif);
+    out[z] = { items, overflow, groups };
   }
   return out;
 }

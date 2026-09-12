@@ -17,12 +17,56 @@
  *  - Fail-soft gözlemci: skor üretimi veri akışını asla etkilemez.
  */
 
+import { OBD_FROZEN_ABS_MS } from '../freshnessPolicy';
+
 /** Sanitizer'ın izlediği alanlar — NativeOBDData alan adlarıyla birebir. */
 export const HEALTH_FIELDS = [
   'speed', 'rpm', 'engineTemp', 'fuelLevel',
   'throttle', 'intakeTemp', 'boostPressure', 'voltage',
 ] as const;
 export type HealthField = (typeof HEALTH_FIELDS)[number];
+
+/**
+ * P0-OBD-06 — Bir alanın BU POLL TURUNDAKİ sonucu.
+ *
+ * Üçü de AYRI nedendir ve BİRLEŞTİRİLMEZ:
+ *  · `accepted`    — native değer sundu, sanitizer kabul etti.
+ *  · `rejected`    — native değer sundu ama sanitizer REDDETTİ (aralık dışı /
+ *                    imkânsız sıçrama). Bu bir ÇÖZÜMLEME/VERİ hatasıdır.
+ *  · `not_offered` — native `-1` sentinel'i döndürdü: bu turda sorulmadı ya da
+ *                    ECU veri VERMEDİ (NO DATA). "Sağlıklı" DEĞİLDİR.
+ */
+export type FieldSampleOutcome = 'accepted' | 'rejected' | 'not_offered';
+
+/**
+ * Alan başına ZAMANLAMA kanıtı. Hepsi MEVCUT poll akışından türetilir —
+ * ELM327'ye TEK EK SORGU gitmez.
+ *
+ * `null` = hiç gözlenmedi. Sahte 0 YOK: "0 ms önce güncellendi" ile "hiç
+ * güncellenmedi" tamamen farklı iki gerçektir.
+ */
+export interface FieldTimingSnapshot {
+  /** Son KABUL edilen ölçümün anı (monotonik ms); yoksa `null`. */
+  readonly lastAcceptedAtMs: number | null;
+  /** Değerin son DEĞİŞTİĞİ an; yoksa `null`. */
+  readonly lastChangedAtMs: number | null;
+  /** Son reddedilen (çözümleme/aralık hatası) ölçümün anı; yoksa `null`. */
+  readonly lastRejectedAtMs: number | null;
+  /** Native'in değer SUNMADIĞI (`-1`) son an; yoksa `null`. */
+  readonly lastNotOfferedAtMs: number | null;
+  /**
+   * Ardışık KABUL edilen ölçümler arasındaki gözlenen aralığın üstel
+   * ortalaması (ms). Tek örnekten hesaplanamaz → `null`.
+   *
+   * BU BİR ROUND-TRIP DEĞİLDİR: komutun gidiş-dönüş süresi çekirdek poll
+   * yolunda ÖLÇÜLMEZ (ölçmek sıcak döngüye dokunmak olurdu). Bu değer
+   * "veri bize hangi sıklıkla ULAŞIYOR" sorusunu yanıtlar.
+   */
+  readonly observedIntervalMs: number | null;
+  readonly acceptedCount: number;
+  readonly rejectedCount: number;
+  readonly notOfferedCount: number;
+}
 
 export interface ObdHealthSnapshot {
   /** 0-100 — bağlantı kalitesi. Bağlantı hiç kurulmadıysa -1. */
@@ -31,8 +75,25 @@ export interface ObdHealthSnapshot {
   sensorReliability: Partial<Record<HealthField, number>>;
   /** Son kabul edilen paketten bu yana geçen süre (ms). -1 = hiç paket yok. */
   lastPacketAgeMs: number;
+  /**
+   * DONMA SİNYALİ (kullanıcı algısı): son geçerli paket STALE_ABS_MS'ten eski mi.
+   * connectionQuality'den BAĞIMSIZ ve MUTLAK — çünkü "gösterge donuk mu" sorusu
+   * adaptörün ne kadar hızlı olabileceğine değil, verinin ne kadardır güncellenmediğine
+   * bağlıdır. Zayıf head unit gerçekten yavaş sorgulasa bile kullanıcı için gösterge
+   * DONUKTUR → bu bayrak açık kalmalı (rapor "her şey %100" yalanını söylememeli).
+   */
+  isStale: boolean;
   /** Sönümlü reconnect sayacı (teşhis için ham değer). */
   reconnectPressure: number;
+  /**
+   * P0-OBD-06 — alan başına zamanlama kanıtı. Hiç gözlenmemiş alan haritada YOK
+   * (boş kayıt "sağlıklı" gibi okunmasın).
+   */
+  fieldTiming: Partial<Record<HealthField, FieldTimingSnapshot>>;
+  /** Aktif beklenen poll periyodu (ms) — yaş kararları buna GÖRELİ verilir. */
+  expectedIntervalMs: number;
+  /** Bu oturumda hiç kabul edilmiş paket geldi mi. */
+  sessionHasData: boolean;
 }
 
 /** Reconnect baskısı yarı-ömrü — 2 dk önceki kopma yarı ağırlıkta sayılır. */
@@ -45,6 +106,14 @@ const RECONNECT_PENALTY = 25;
 const STALE_GRACE_FACTOR = 3;
 /** Bayatlık cezasının tavana (50 puan) ulaştığı kat. */
 const STALE_MAX_FACTOR = 10;
+/**
+ * Mutlak donma eşiği (ms) — son paket bundan eskiyse `isStale=true`. Sürücü için
+ * göstergenin ~4s güncellenmemesi "donmuş" demektir; poll config'inden bağımsız.
+ *
+ * E-01/E-36: değer artık ELLE KOPYALANMAZ — `freshnessPolicy` tek otoritedir.
+ * Aynı soruyu soran `diagnosticTriage` ve `diagnosticEvidence` de oradan okur.
+ */
+const STALE_ABS_MS = OBD_FROZEN_ABS_MS;
 
 function _decay(value: number, elapsedMs: number, halfLifeMs: number): number {
   if (elapsedMs <= 0 || value === 0) return value;
@@ -64,15 +133,80 @@ class ObdHealthMonitorImpl {
   private readonly _ok:  Record<HealthField, number>;
   private readonly _bad: Record<HealthField, number>;
   private _fieldsUpdatedMs = 0;
+  /* P0-OBD-06 — alan başına zamanlama. Kurucuda TAM ŞEKİLLİ (hidden-class
+     kararlılığı): sıcak yolda sonradan anahtar EKLENMEZ. */
+  private readonly _t: Record<HealthField, {
+    acceptedAt: number; changedAt: number; rejectedAt: number; notOfferedAt: number;
+    value: number; interval: number; ok: number; bad: number; miss: number;
+  }>;
 
   constructor() {
     this._ok  = { speed: 0, rpm: 0, engineTemp: 0, fuelLevel: 0, throttle: 0, intakeTemp: 0, boostPressure: 0, voltage: 0 };
     this._bad = { speed: 0, rpm: 0, engineTemp: 0, fuelLevel: 0, throttle: 0, intakeTemp: 0, boostPressure: 0, voltage: 0 };
+    const blank = () => ({
+      acceptedAt: -1, changedAt: -1, rejectedAt: -1, notOfferedAt: -1,
+      value: Number.NaN, interval: -1, ok: 0, bad: 0, miss: 0,
+    });
+    this._t = {
+      speed: blank(), rpm: blank(), engineTemp: blank(), fuelLevel: blank(),
+      throttle: blank(), intakeTemp: blank(), boostPressure: blank(), voltage: blank(),
+    };
+  }
+
+  /** Sayaç tavanı — sınırsız büyüme yok (SystemBoot doygunluk deseni). */
+  private static readonly COUNTER_MAX = 1_000_000;
+  private static _sat(n: number): number {
+    return n >= ObdHealthMonitorImpl.COUNTER_MAX ? ObdHealthMonitorImpl.COUNTER_MAX : n + 1;
+  }
+
+  /**
+   * P0-OBD-06 — bir alanın tur sonucunu ZAMAN DAMGASIYLA kaydeder.
+   *
+   * MEVCUT ölçümden türer: `_sanitizeNative` zaten hem native'in sunduğu ham
+   * değeri hem sanitizer kararını biliyor. Ek sorgu YOK, yeni timer YOK.
+   *
+   * Değer DEĞİŞİMİ ayrı izlenir: "aynı değer uzun süre" tek başına arıza
+   * DEĞİLDİR (park hâlinde devir 0 sabittir) — ama YENİLEME gelmiyorsa o
+   * STALL'dır. İkisini ayırmak bu iki damganın varlık sebebidir.
+   */
+  noteFieldSample(
+    field: HealthField, outcome: FieldSampleOutcome,
+    value: number | null, nowMs: number = performance.now(),
+  ): void {
+    const t = this._t[field];
+    if (t === undefined) return;
+    if (outcome === 'not_offered') {
+      t.notOfferedAt = nowMs;
+      t.miss = ObdHealthMonitorImpl._sat(t.miss);
+      return;
+    }
+    if (outcome === 'rejected') {
+      t.rejectedAt = nowMs;
+      t.bad = ObdHealthMonitorImpl._sat(t.bad);
+      return;
+    }
+    /* accepted */
+    if (t.acceptedAt >= 0) {
+      const gap = nowMs - t.acceptedAt;
+      /* Üstel ortalama (α=0.3): tek bir gecikme ortalamayı uçurmaz, kalıcı
+         yavaşlama ise birkaç turda görünür. */
+      t.interval = t.interval < 0 ? gap : t.interval * 0.7 + gap * 0.3;
+    }
+    t.acceptedAt = nowMs;
+    t.ok = ObdHealthMonitorImpl._sat(t.ok);
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      if (!Number.isFinite(t.value) || t.value !== value) t.changedAt = nowMs;
+      t.value = value;
+    }
   }
 
   /** Bağlantı kuruldu — bayatlık referansı sıfırlanır (önceki oturumun yaşı sayılmaz). */
   noteConnected(nowMs: number = performance.now()): void {
     this._sessionStartMs = nowMs;
+    /* P0-OBD-06 — YENİ OTURUM, YENİ KANIT. Önceki bağlantının zamanlaması
+       taşınırsa, yeni oturumda tek ölçüm gelmeden alan "taze" görünür ve
+       adaptör başka araca takılmışsa o aracın değeriyle karar verilir. */
+    this._clearTiming();
   }
 
   /** AdaptivePollingController profili değişti — bayatlık bu periyoda göre ölçülür. */
@@ -84,6 +218,18 @@ class ObdHealthMonitorImpl {
   noteReconnect(nowMs: number = performance.now()): void {
     this._applyReconnectDecay(nowMs);
     this._reconnectPressure += 1;
+    /* Kopma anında da zamanlama düşer: kopmuş bir hattın son değeri "taze"
+       sayılamaz (bu turun kapattığı kusurun ta kendisi). */
+    this._clearTiming();
+    this._lastPacketMs = -1;
+  }
+
+  private _clearTiming(): void {
+    for (const f of HEALTH_FIELDS) {
+      const t = this._t[f];
+      t.acceptedAt = -1; t.changedAt = -1; t.rejectedAt = -1; t.notOfferedAt = -1;
+      t.value = Number.NaN; t.interval = -1;
+    }
   }
 
   /**
@@ -129,7 +275,31 @@ class ObdHealthMonitorImpl {
       if (total > 0.01) sensorReliability[f] = Math.round((100 * ok) / total);
     }
 
-    return { connectionQuality, sensorReliability, lastPacketAgeMs, reconnectPressure };
+    // Donma: yalnız gerçek paket yaşına bakar (oturum başlangıcı DEĞİL — henüz hiç
+    // paket gelmemişse "donuk" değil "bekliyor" durumundadır, isStale=false).
+    const isStale = lastPacketAgeMs >= 0 && lastPacketAgeMs > STALE_ABS_MS;
+
+    const fieldTiming: Partial<Record<HealthField, FieldTimingSnapshot>> = {};
+    for (const f of HEALTH_FIELDS) {
+      const t = this._t[f];
+      /* HİÇ gözlenmemiş alan haritaya GİRMEZ — boş kayıt "sağlıklı" gibi okunurdu. */
+      if (t.acceptedAt < 0 && t.rejectedAt < 0 && t.notOfferedAt < 0) continue;
+      fieldTiming[f] = {
+        lastAcceptedAtMs:   t.acceptedAt   >= 0 ? t.acceptedAt   : null,
+        lastChangedAtMs:    t.changedAt    >= 0 ? t.changedAt    : null,
+        lastRejectedAtMs:   t.rejectedAt   >= 0 ? t.rejectedAt   : null,
+        lastNotOfferedAtMs: t.notOfferedAt >= 0 ? t.notOfferedAt : null,
+        observedIntervalMs: t.interval     >= 0 ? Math.round(t.interval) : null,
+        acceptedCount: t.ok, rejectedCount: t.bad, notOfferedCount: t.miss,
+      };
+    }
+
+    return {
+      connectionQuality, sensorReliability, lastPacketAgeMs, isStale, reconnectPressure,
+      fieldTiming,
+      expectedIntervalMs: this._expectedIntervalMs,
+      sessionHasData: this._lastPacketMs >= 0,
+    };
   }
 
   /** Test/oturum sıfırlama — tüm sayaçlar başlangıç durumuna döner. */
@@ -141,6 +311,8 @@ class ObdHealthMonitorImpl {
     this._expectedIntervalMs = 3_000;
     this._fieldsUpdatedMs = 0;
     for (const f of HEALTH_FIELDS) { this._ok[f] = 0; this._bad[f] = 0; }
+    this._clearTiming();
+    for (const f of HEALTH_FIELDS) { const t = this._t[f]; t.ok = 0; t.bad = 0; t.miss = 0; }
   }
 
   private _applyReconnectDecay(nowMs: number): void {

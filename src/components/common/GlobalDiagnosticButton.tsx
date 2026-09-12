@@ -15,13 +15,33 @@
  * NOT (ticari): saha fazı için bilinçli olarak HER ZAMAN görünür geliştirici/
  * pilot aracı. Satış build'inde gizlemek için tek mount satırı (App.tsx) yeter.
  */
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Stethoscope } from 'lucide-react';
 import { triggerSelfTestSnapshotEx } from '../../platform/remoteLogService';
 import { DiagnosticReportModal } from './DiagnosticReportModal';
+import { useUnifiedVehicleStore } from '../../platform/vehicleDataLayer/UnifiedVehicleStore';
+import { canShowDistractingSurface } from '../layout/tripSummaryGate';
 
 export function GlobalDiagnosticButton() {
   const [open, setOpen] = useState(false);
+  /* SÜRÜŞ SIRASINDA İSTENDİ ama gösterilmedi → OLAY KAYBOLMAZ, park sonrasına
+     ertelenir. (Gerçek sürüş bulgusu: 86 km/h'te tam ekran modal açılmıştı.) */
+  const [deferred, setDeferred] = useState(false);
+  const speedKmh = useUnifiedVehicleStore((s) => s.speed);
+  const canShow  = canShowDistractingSurface(speedKmh);
+
+  /* Araç güvenli şekilde durunca ertelenen istek gösterilir. Sürüş sırasında
+     popup/TTS ÜRETİLMEZ — yalnız sessiz bekleme. */
+  useEffect(() => {
+    if (deferred && canShow) { setDeferred(false); setOpen(true); }
+  }, [deferred, canShow]);
+
+  /** Tek giriş noktası: kapı burada uygulanır (mount koşulunda DEĞİL) —
+   *  böylece "istendi ama sürüşte" gerçeği kaydedilebilir. */
+  const requestOpen = (): void => {
+    if (canShow) setOpen(true);
+    else setDeferred(true);
+  };
 
   return (
     <>
@@ -39,7 +59,7 @@ export function GlobalDiagnosticButton() {
         }}
       >
         <button
-          onClick={() => setOpen(true)}
+          onClick={requestOpen}
           aria-label="Tanı Gönder"
           style={{
             width: 34, height: 34,
@@ -59,9 +79,11 @@ export function GlobalDiagnosticButton() {
         </button>
       </div>
 
+      {/* Kapı MOUNT anında da uygulanır: sürüş başlarsa açık modal kapanır ve
+          istek ertelenmiş olarak saklanır (bloklayan yüzey sürüşe taşınamaz). */}
       <DiagnosticReportModal
-        open={open}
-        onClose={() => setOpen(false)}
+        open={open && canShow}
+        onClose={() => { setOpen(false); setDeferred(false); }}
         title="Tanı Gönder"
         send={(meta) => triggerSelfTestSnapshotEx(meta)}
       />

@@ -58,10 +58,18 @@ public final class BleObdManager {
         void onObdData(ObdPollSample sample);
         /** Patch 8: EXTENDED grup ham PID sonucu — bkz. OBDManager.OnOBDDataListener.onExtendedPid. */
         void onExtendedPid(String pid, String rawHex);
+        /** PR-OBD-KWP-1: bkz. OBDManager.OnOBDDataListener.onExtendedPidUnavailable (aynı sözleşme). */
+        default void onExtendedPidUnavailable(String pid, String reason) {}
         /** Asenkron durum değişimi (ör. poll sırasında bağlantı koptu). message null olabilir. */
         void onStatusChanged(String state, String message);
         /** Beklenmedik motor hatası. */
         void onError(String error);
+        /**
+         * Teşhis ham-trafik (BLE): her ELM327 komut/yanıt çifti — bkz. OBDManager.OnOBDDataListener.
+         * YALNIZ {@link OBDManager#setTrafficCapture(boolean)} açıkken çağrılır (varsayılan KAPALI).
+         * default: geriye uyumlu. "HAM OBD TRAFİĞİ" paneli Classic gibi BLE'de de dolsun diye eklendi.
+         */
+        default void onObdTraffic(String cmd, String resp, long ms) {}
     }
 
     /** connect() için tek-seferlik sonuç callback'i — PluginCall resolve/reject Plugin'de kalır. */
@@ -72,7 +80,14 @@ public final class BleObdManager {
          * @param code "OBD_UNABLE_TO_CONNECT" (ELM327 protokol/araç yanıtı alınamadı) veya
          *             "CONNECT_FAILED" (diğer tüm GATT/bağlantı hataları) — bkz. OBDManager.ConnectCallback.
          */
-        void onFailed(String error, String code);
+        /**
+         * @param failureClass P0-OBD-CORE-06 — istisnanın SINIFINDAN türetilen,
+         *        PII-güvenli neden ({@link ObdFailureClass}). {@code code} yalnız
+         *        "protokol döngüsü ilerlesin mi" sorusunu cevaplar; "NEDEN düştü"
+         *        sorusunun cevabı BUDUR. Eskiden bu bilgi yalnız hata MESAJINDA
+         *        vardı ve mesaj {@code null} geldiğinde JS'te UNKNOWN'a düşüyordu.
+         */
+        void onFailed(String error, String code, String failureClass);
     }
 
     // ── Bilinen BLE ELM327 servis/karakteristik UUID setleri ─────────────────────
@@ -125,12 +140,29 @@ public final class BleObdManager {
     private volatile int fastPollMs = POLL_INTERVAL_MS;
     private static final int SLOW_GROUP_EVERY_N_CYCLES = 5;
     private static final int VOLTAGE_EVERY_N_CYCLES = 10;
+    /** #524 — çok yavaş değişen çekirdek sinyal (yakıt 0x2F); bkz. OBDManager aynı sabit. */
+    private static final int VERY_SLOW_EVERY_N_CYCLES = 20;
     private long pollCycle = 0;
     private volatile double lastVoltage = -1.0;
 
     /** Patch 8: bkz. OBDManager.extendedPids — aynı talep-güdümlü/sıfır-maliyet deseni. */
     private volatile java.util.List<String> extendedPids = java.util.Collections.emptyList();
+    /** PR-OBD-KWP-1: ardışık NO_DATA öğrenme — bkz. OBDManager.extNoData (aynı sözleşme). */
+    private final ExtendedNoDataTracker extNoData = new ExtendedNoDataTracker();
+    private final AdaptivePidScheduler adaptivePidScheduler = new AdaptivePidScheduler();
     private int extendedIdx = 0;
+
+    /**
+     * PR-OBD-BLE-1: Teşhis BURST modu — bkz. OBDManager.diagnosticBurst (aynı sözleşme).
+     * Açıkken pollLoop EXTENDED grubunun TÜM izlenen PID'lerini HER turda okur (round-robin
+     * "turda 1" yerine) ve tur arası bekleme kısaltılır → tüm sensörler ~saniyeler içinde
+     * tazelenir. Yalnız Canlı Test ekranı görünürken açılır (Malı-400 sıfır-maliyet korunur).
+     * Eskiden BLE'de YOKTU → BLE transport'ta "Tüm PID Canlı Test" yalnız round-robin çalışıyor,
+     * extended hattı fiilen boş kalıyordu (saha: Trafic/Doblo aynı 6-7 PID sınırı).
+     */
+    private volatile boolean diagnosticBurst = false;
+    /** BURST modunda tur arası minimum bekleme (ms) — bkz. OBDManager.BURST_POLL_MS. */
+    private static final int BURST_POLL_MS = 400;
 
     // ── GATT operasyon senkronizasyonu ───────────────────────────────────────────
     // Android GATT seri olduğundan tek bir "op sonucu" kanalı yeterli. Her bloklayıcı
@@ -230,7 +262,9 @@ public final class BleObdManager {
                 // Patch 3: yapılandırılmış hata kodu — bkz. OBDManager.connect() aynı desen.
                 String code = (e instanceof ElmInitSequencer.UnableToConnectException)
                     ? "OBD_UNABLE_TO_CONNECT" : "CONNECT_FAILED";
-                cb.onFailed(e.getMessage(), code);
+                /* P0-OBD-CORE-06: mesaj null olabilir (yansıma/RFCOMM yolunda sık);
+                   sınıf İSTİSNA TİPİNDEN türetilir, mesaj boşsa sınıf adı gider. */
+                cb.onFailed(ObdFailureClass.messageOf(e), code, ObdFailureClass.of(e));
             }
         });
     }
@@ -275,11 +309,23 @@ public final class BleObdManager {
     // ── Polling ──────────────────────────────────────────────────────────────────
 
     private void pollLoop() {
+        // PR-OBD-DIAG-3: yeni poll oturumu — extended kanıt sayaçlarını sıfırla (niyet korunur).
+        ExtendedPollEvidence.INSTANCE.reset("ble");
+        adaptivePidScheduler.resetSession();
+        KwpRecoveryEvidence.INSTANCE.reset(); // PR-KWP-EVID: yeni bağlantı = yeni kurtarma oturumu
+        // PR-OBD-KWP-1: yeni oturum = NO_DATA öğrenmesi sıfırlanır (farklı araç olabilir).
+        // #524: reset STABİLİZASYON penceresini de bu turdan başlatır.
+        extNoData.reset(pollCycle);
+        /* P0-VDK-B3: yeni bağlantı = yeni maliyet dönemi (Classic ile AYNI sözleşme). */
+        PollCostLedger.INSTANCE.reset(System.currentTimeMillis());
         while (obdRunning && gatt != null) {
             try {
                 Set<String> pidSet = obdPidSet;
                 final ElmProtocol p = elm;
                 if (p == null) throw new IOException("ELM protokol katmanı yok");
+
+                /* P0-VDK-B3: turun maliyet penceresi. */
+                PollCostLedger.INSTANCE.beginCycle(pollCycle, diagnosticBurst, System.currentTimeMillis());
 
                 // Patch 6: FAST grup — HER turda. Patch 5: her PID okuması ayrı bir kuyruk
                 // görevi (elmLock kalktı) — DTC (USER önceliği) aralarına girebilir.
@@ -290,29 +336,57 @@ public final class BleObdManager {
                 int engineTemp = -1, fuelLevel = -1, throttle = -1, intakeTemp = -1, boostPressure = -1;
                 if (pollCycle % SLOW_GROUP_EVERY_N_CYCLES == 0) {
                     engineTemp    = shouldQuery(pidSet, "05") ? queuedPidRead(ElmCommandQueue.Priority.POLL_SLOW, p::readPID_temp)       : -1;
-                    fuelLevel     = shouldQuery(pidSet, "2F") ? queuedPidRead(ElmCommandQueue.Priority.POLL_SLOW, p::readPID_fuel)        : -1;
                     throttle      = shouldQuery(pidSet, "11") ? queuedPidRead(ElmCommandQueue.Priority.POLL_SLOW, p::readPID_throttle)    : -1;
                     intakeTemp    = shouldQuery(pidSet, "0F") ? queuedPidRead(ElmCommandQueue.Priority.POLL_SLOW, p::readPID_intakeTemp)  : -1;
                     boostPressure = shouldQuery(pidSet, "0B") ? queuedPidRead(ElmCommandQueue.Priority.POLL_SLOW, p::readPID_map)         : -1;
+                }
+                /* #524 · ÜÇÜNCÜ KADEME — bkz. OBDManager.pollLoop() aynı gerekçe:
+                   yakıt seviyesi dakikalar mertebesinde değişir, kendi kademesinde. */
+                if (pollCycle % VERY_SLOW_EVERY_N_CYCLES == 0) {
+                    fuelLevel = shouldQuery(pidSet, "2F") ? queuedPidRead(ElmCommandQueue.Priority.POLL_SLOW, p::readPID_fuel) : -1;
                 }
                 if (pollCycle % VOLTAGE_EVERY_N_CYCLES == 0) {
                     lastVoltage = queuedVoltageRead(p);
                 }
 
-                // Patch 8: EXTENDED grup — bkz. OBDManager.pollLoop() aynı desen/gerekçe.
+                // Patch 8 / PR-OBD-BLE-1: EXTENDED grup — bkz. OBDManager.pollLoop() aynı desen.
+                // PR-OBD-DIAG-3: her deneme outcome'u ExtendedPollEvidence'a işlenir (davranış aynı).
                 java.util.List<String> ext = extendedPids;
                 if (!ext.isEmpty()) {
-                    final String extPid = ext.get(extendedIdx % ext.size());
-                    extendedIdx++;
-                    String extRaw = queuedExtendedRead(p, extPid);
-                    if (extRaw != null) listener.onExtendedPid(extPid, extRaw);
+                    final boolean burst = diagnosticBurst;
+                    ExtendedPollEvidence.INSTANCE.recordCycle(burst, ext.size());
+                    long budget = Math.max(250, Math.min(burst ? 1_500 : 900,
+                        Math.round(fastPollMs * (burst ? 0.45 : 0.25))));
+                    java.util.Set<String> skipped = new java.util.HashSet<>();
+                    for (String extPid : ext) if (extNoData.shouldSkip(extPid, pollCycle)) skipped.add(extPid);
+                    java.util.List<String> selected = adaptivePidScheduler.plan(
+                        System.currentTimeMillis(), budget, burst ? 12 : 8, skipped, false);
+                    long groupStarted = System.currentTimeMillis();
+                    for (int i = 0; i < selected.size(); i++) {
+                        String extPid = selected.get(i);
+                        if (!obdRunning || gatt == null) {
+                            ExtendedPollEvidence.INSTANCE.recordAttempt(
+                                extPid, ExtendedPollEvidence.Outcome.CANCELLED, 0, 0, false);
+                            break;
+                        }
+                        recordAndEmitExtended(p, extPid);
+                        if (System.currentTimeMillis() - groupStarted >= budget) {
+                            for (int j = i + 1; j < selected.size(); j++)
+                                adaptivePidScheduler.noteDeferred(selected.get(j));
+                            break;
+                        }
+                    }
                 }
+                /* P0-VDK-B3: tur kapanır — maliyet halkaya işlenir. */
+                PollCostLedger.INSTANCE.endCycle(System.currentTimeMillis());
                 pollCycle++;
 
                 listener.onObdData(new ObdPollSample(speed, rpm, engineTemp, fuelLevel,
                     throttle, intakeTemp, boostPressure, lastVoltage));
 
-                Thread.sleep(fastPollMs);
+                // PR-OBD-BLE-1: BURST modunda tur arası bekleme kısaltılır (tüm PID'ler zaten
+                // bu turda okundu → tur uzun; ek uzun bekleme "sabit" hissi verirdi).
+                Thread.sleep(diagnosticBurst ? BURST_POLL_MS : fastPollMs);
 
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
@@ -353,24 +427,116 @@ public final class BleObdManager {
         this.fastPollMs = Math.max(100, ms);
     }
 
+    /**
+     * ÇEKİRDEK (FAST/SLOW) PID kümesini OTURUM İÇİNDE günceller — bkz.
+     * {@link OBDManager#setCorePidSet} (AYNI sözleşme, tek fark transport).
+     *
+     * BLE yolunun da bu setter'a ihtiyacı var: `obdPidSet` burada da yalnız
+     * `connect(...)` anında doluyordu, oysa handshake kanıtı bağlantıdan SONRA
+     * gelir. Classic'e ekleyip BLE'yi atlamak, PR-OBD-BLE-1'de yaşanan hatanın
+     * (burst yalnız Classic'e uygulanıyordu → BLE dongle'lı araçta hiç açılmıyordu)
+     * birebir tekrarı olurdu.
+     *
+     * `null`/boş küme = FİLTRE YOK (eski davranış) — "hiç PID sorma" DEĞİL.
+     */
+    public void setCorePidSet(Set<String> pids) {
+        this.obdPidSet = (pids == null || pids.isEmpty()) ? null : new java.util.HashSet<>(pids);
+    }
+
     /** Patch 8: bkz. OBDManager.setExtendedPids — aynı sözleşme (boş=devre dışı, tavan 32). */
     public void setExtendedPids(java.util.List<String> pids) {
         if (pids == null || pids.isEmpty()) {
             this.extendedPids = java.util.Collections.emptyList();
+            adaptivePidScheduler.configure(java.util.Collections.emptyList());
+            extNoData.onListChanged(java.util.Collections.emptyList());
             return;
         }
-        java.util.List<String> copy = new java.util.ArrayList<>(
-            pids.subList(0, Math.min(pids.size(), 32)));
+        java.util.List<String> copy = new java.util.ArrayList<>(pids);
         this.extendedPids = java.util.Collections.unmodifiableList(copy);
+        adaptivePidScheduler.configure(this.extendedPids);
+        // PR-OBD-KWP-1: liste içeriği değiştiyse öğrenme sıfırlanır (bkz. OBDManager).
+        extNoData.onListChanged(this.extendedPids);
     }
 
-    /** EXTENDED PID okumasını POLL_SLOW öncelikli kuyruğa gönderir (Patch 8). */
-    private String queuedExtendedRead(ElmProtocol p, String pid) {
+    /**
+     * PR-OBD-BLE-1: Teşhis BURST modunu aç/kapat — bkz. OBDManager.setDiagnosticBurst.
+     * Açıkken pollLoop EXTENDED grubunun tüm izlenen PID'lerini her turda okur (hızlı
+     * tazeleme). Kapanınca eski düşük-yük round-robin davranışına döner (Malı-400).
+     * volatile alan → plugin thread'inden güvenli yazım, pollLoop thread'inden okuma.
+     */
+    public void setDiagnosticBurst(boolean on) {
+        this.diagnosticBurst = on;
+    }
+
+    /** P0-OBD-CORE-02: BLE yolu için aynı salt-okunur LAB scheduler kanıtı. */
+    public org.json.JSONObject getAdaptiveSchedulerJson() {
+        org.json.JSONObject out = new org.json.JSONObject();
+        try {
+            out.put("supportedConfiguredCount", extendedPids.size());
+            out.put("activePollCount", adaptivePidScheduler.activeCount());
+            out.put("deferredTotal", adaptivePidScheduler.deferredTotal());
+            out.put("recoveryPauseCount", adaptivePidScheduler.recoveryPauseCount());
+            out.put("lineBudgetMs", adaptivePidScheduler.lastBudgetMs());
+            org.json.JSONArray pids = new org.json.JSONArray(); long now = System.currentTimeMillis();
+            for (AdaptivePidScheduler.PidState s : adaptivePidScheduler.snapshot()) {
+                org.json.JSONObject p = new org.json.JSONObject();
+                p.put("pid", s.pid); p.put("targetFreshnessMs", s.targetMs);
+                p.put("ageMs", s.age(now) == Long.MAX_VALUE ? org.json.JSONObject.NULL : s.age(now));
+                p.put("avgRttMs", s.ewmaRttMs); p.put("avgAgeMs", s.averageAgeMs());
+                p.put("maxAgeMs", s.maxAgeMs); p.put("deadlineMisses", s.deadlineMisses);
+                p.put("deferred", s.deferredCount); p.put("attempts", s.attempts);
+                /* B3: Classic ile AYNI sözleşme — kadans ≠ erteleme, yaşlanma görünür. */
+                p.put("notYetDue", s.notYetDueCount); p.put("agingMs", s.agingMs());
+                p.put("successes", s.successes); pids.put(p);
+            }
+            out.put("pids", pids);
+        } catch (Exception ignored) { }
+        return out;
+    }
+
+    /**
+     * PR-OBD-DIAG-3: bir EXTENDED PID'i okur, outcome kanıtını biriktirir ve (yalnız OK+veri
+     * durumunda — eski davranışla birebir aynı) JS'e yayar. elapsedMs kuyruk beklemesini de
+     * kapsar (deneme süresi olarak yeterli). Ek OBD komutu YOK.
+     */
+    private void recordAndEmitExtended(ElmProtocol p, String extPid) {
+        long t0 = System.currentTimeMillis();
+        ElmResponseParser.Result r = queuedExtendedClassified(p, extPid);
+        long dt = System.currentTimeMillis() - t0;
+        ExtendedPollEvidence.Outcome outcome = (r == null)
+            ? ExtendedPollEvidence.Outcome.CANCELLED
+            : ExtendedPollEvidence.fromResult(r);
+        boolean emit = r != null && r.kind == ElmResponseParser.Kind.OK
+            && r.dataHex != null && !r.dataHex.isEmpty();
+        int respLen = (r != null && r.raw != null) ? r.raw.length() : 0;
+        ExtendedPollEvidence.INSTANCE.recordAttempt(extPid, outcome, dt, respLen, emit);
+        adaptivePidScheduler.record(extPid, outcome, dt, System.currentTimeMillis());
+        if (emit) listener.onExtendedPid(extPid, r.dataHex);
+        // PR-OBD-KWP-1: NO_DATA/7F öğrenmesi — eşik aşıldıysa TEK KEZ TS'e bildir (gerçek neden).
+        if (extNoData.recordOutcome(extPid, r, pollCycle)) {
+            /* #525: KALICI eleme ile GEÇİCİ duraklatma AYRI sebeple bildirilir.
+               Eskiden ikisi de "no_data" gidiyordu ve TS geçici duraklatmayı da
+               KALICI "araç vermiyor" diye kaydediyordu → PID sıraya geri girse
+               bile TS onu elenmiş saymaya devam ediyordu (ikinci otorite). */
+            listener.onExtendedPidUnavailable(extPid,
+                extNoData.isPermanent(extPid) ? "no_data" : "paused");
+        }
+        /* #532: HAT OLAYI olduysa TS'e bildir — native eleme sıfırlandı, TS'in
+           kalıcı "verilmiyor" kaydı da düşmelidir. Sahada (2026-08-11) hat olayı
+           2 kez tetiklendi ama TS kaydı kaldı → `timeline.demoted: 1` ile
+           `elim.permanentCount: 0` aynı snapshot'ta çelişti. */
+        if (extNoData.consumeBulkResetPending()) {
+            listener.onExtendedPidUnavailable("*", "bulk_reset");
+        }
+    }
+
+    /** EXTENDED PID okumasını POLL_SLOW öncelikli kuyruğa gönderir — outcome sınıflandırmalı (Patch 8 / DIAG-3). */
+    private ElmResponseParser.Result queuedExtendedClassified(ElmProtocol p, String pid) {
         try {
             return cmdQueue.submit(ElmCommandQueue.Priority.POLL_SLOW, null,
-                () -> p.readPidRaw(pid)).get();
+                () -> p.readPidClassified(pid)).get();
         } catch (Exception e) {
-            return null; // EXTENDED opsiyonel — fail-soft
+            return null; // kuyruk kapandı / iptal — çağıran CANCELLED sayar (fail-soft)
         }
     }
 
@@ -395,6 +561,40 @@ public final class BleObdManager {
         if (!obdRunning || p == null) throw new IOException("OBD bağlantısı yok");
         try {
             return cmdQueue.submit(ElmCommandQueue.Priority.USER, null, p::readDTCs).get();
+        } catch (java.util.concurrent.ExecutionException ee) {
+            Throwable cause = ee.getCause();
+            if (cause instanceof Exception) throw (Exception) cause;
+            throw ee;
+        }
+    }
+
+    /**
+     * P0-OBD-09 - Bir DTC SINIFINI (03/07/0A) HAM yanitla birlikte okur.
+     * Mevcut readDTCs/readPendingDTCs/readPermanentDTCs sozlesmelerine
+     * DOKUNMAZ; ayni USER onceligiyle ayni kuyruga girer.
+     */
+    public ElmProtocol.DtcClassResult readDtcClass(String mode) throws Exception {
+        final ElmProtocol p = elm;
+        if (!obdRunning || p == null) throw new IOException("OBD baglantisi yok");
+        try {
+            return cmdQueue.submit(ElmCommandQueue.Priority.USER, null,
+                () -> p.readDtcClass(mode)).get();
+        } catch (java.util.concurrent.ExecutionException ee) {
+            Throwable cause = ee.getCause();
+            if (cause instanceof Exception) throw (Exception) cause;
+            throw ee;
+        }
+    }
+
+    /**
+     * P0-OBD-10 — Mode 04 siler ve KANITI (ham TX/RX · sinif · NRC · protokol · sure)
+     * tasir. USER onceligiyle kuyruga girer (canli PID poll hot-path'i DURDURULMAZ).
+     */
+    public com.cockpitos.pro.obd.ElmProtocol.ClearResult clearDtcCodesDetailed() throws Exception {
+        final ElmProtocol p = elm;
+        if (!obdRunning || p == null) throw new IOException("OBD bağlantısı yok");
+        try {
+            return cmdQueue.submit(ElmCommandQueue.Priority.USER, null, p::clearDtcCodesDetailed).get();
         } catch (java.util.concurrent.ExecutionException ee) {
             Throwable cause = ee.getCause();
             if (cause instanceof Exception) throw (Exception) cause;
@@ -488,18 +688,381 @@ public final class BleObdManager {
     }
 
     /**
+     * W5-OBD-PR1: OBD el sıkışması (VIN + desteklenen-PID bitmap keşfi) — BLE GATT yolu.
+     * OBD-OS-F0-3: OBDManager.performHandshake ile aynı desen — adım adım DISCOVERY
+     * görevleri (POLL_FAST'i preempt etmez, hot-path aç kalmaz).
+     */
+    public ElmProtocol.HandshakeRaw performHandshake() throws Exception {
+        final ElmProtocol p = elm;
+        if (!obdRunning || p == null) throw new IOException("OBD bağlantısı yok");
+        return p.performHandshakeRaw(step -> {
+            try {
+                return cmdQueue.submit(ElmCommandQueue.Priority.DISCOVERY, null, step).get();
+            } catch (java.util.concurrent.ExecutionException ee) {
+                Throwable cause = ee.getCause();
+                if (cause instanceof Exception) throw (Exception) cause;
+                throw ee;
+            }
+        });
+    }
+
+    /**
+     * OBD-OS-F3-1: UDS 0x19-02 (üretici-özel DTC) — BLE GATT yolu, aynı desen.
+     */
+    public String readUdsDtcs(String tx, String rx, String statusMask) throws Exception {
+        final ElmProtocol p = elm;
+        if (!obdRunning || p == null) throw new IOException("OBD bağlantısı yok");
+        try {
+            return cmdQueue.submit(ElmCommandQueue.Priority.USER, null,
+                () -> p.withEcuHeader(tx, rx, () -> p.readUdsDtcsRaw(statusMask))).get();
+        } catch (java.util.concurrent.ExecutionException ee) {
+            Throwable cause = ee.getCause();
+            if (cause instanceof Exception) throw (Exception) cause;
+            throw ee;
+        }
+    }
+
+    /**
+     * P0-VDK-F1C — ISO-TP TUNED UDS OKUMASI (atomik: tune → oku → RESTORE).
+     *
+     * `withEcuHeader` ile AYNI desen: ayar kur → çalıştır → **her durumda**
+     * geri al (`finally`). Okuma istisna fırlatsa bile restore ÇALIŞIR;
+     * adaptör kirli bırakılmaz.
+     *
+     * FAIL-SOFT: tuning komutları kabul edilmezse (klon "?" döner) okuma
+     * ESKİSİ GİBİ sürer — davranış bozulmaz, yalnız kanıt "uygulanmadı" der.
+     *
+     * @return okuma kanıtı + tuning kanıtı (ikisi AYRI, biri diğerini gizlemez)
+     */
+    public ElmProtocol.TunedUdsResult readAdvancedUdsDtcTuned(
+            String tx, String rx, String sub, String payload) throws Exception {
+        final ElmProtocol p = elm;
+        if (!obdRunning || p == null) throw new IOException("OBD bağlantısı yok");
+        try {
+            return cmdQueue.submit(ElmCommandQueue.Priority.USER, null,
+                () -> p.withEcuHeader(tx, rx, () -> {
+                    ElmProtocol.IsoTpTuningEvidence tuned = p.applyIsoTpFlowControl(tx);
+                    try {
+                        ElmProtocol.UdsEvidence ev = p.readUdsDtcInformationDetailed(sub, payload);
+                        return new ElmProtocol.TunedUdsResult(ev, p.restoreIsoTpFlowControl(tuned));
+                    } catch (Exception readErr) {
+                        /* Okuma düştü → restore YİNE çalışır; hata AYNEN yukarı gider. */
+                        p.restoreIsoTpFlowControl(tuned);
+                        throw readErr;
+                    }
+                })).get();
+        } catch (java.util.concurrent.ExecutionException ee) {
+            Throwable cause = ee.getCause(); if (cause instanceof Exception) throw (Exception) cause; throw ee;
+        }
+    }
+
+    /**
+     * P0-VDK-F1B — TesterPresent (0x3E 00) TEK atomik kuyruk görevinde.
+     *
+     * SALT OTURUM CANLI TUTMA: ECU'ya yazmaz, rutin çalıştırmaz, security
+     * access değildir. `withEcuHeader` header set → gönder → restore'u ATOMİK
+     * yapar; canlı PID poll'u ile yarışmaz (kuyruk sıralar).
+     *
+     * ÖNCELİK `USER` DEĞİL, `DISCOVERY`: keepalive bir ARKA PLAN bakımıdır ve
+     * kullanıcının başlattığı okumaları GECİKTİRMEMELİDİR. Oturum düşmesini
+     * önlemek için "zamanında" yeterlidir, "hemen" gerekmez.
+     */
+    public ElmProtocol.UdsEvidence sendTesterPresent(String tx, String rx) throws Exception {
+        final ElmProtocol p = elm;
+        if (!obdRunning || p == null) throw new IOException("OBD bağlantısı yok");
+        try {
+            return cmdQueue.submit(ElmCommandQueue.Priority.DISCOVERY, null,
+                () -> p.withEcuHeader(tx, rx, p::sendTesterPresent)).get();
+        } catch (java.util.concurrent.ExecutionException ee) {
+            Throwable cause = ee.getCause(); if (cause instanceof Exception) throw (Exception) cause; throw ee;
+        }
+    }
+
+
+    /**
+     * P0-VDK-F4A — GENEL SALT-OKUNUR PDU (atomik: header → [tune] → gonder → RESTORE).
+     *
+     * {@code readAdvancedUdsDtcTuned} ile BIREBIR AYNI desen; kopya mantik YOK.
+     * Tek fark: hangi servisin gonderilecegi CAGIRANDAN gelir ve
+     * {@link ElmProtocol#sendReadOnlyPdu} icindeki {@link DiagnosticServiceGate}
+     * kapisindan gecmek ZORUNDADIR.
+     *
+     * ISO-TP AYARI YALNIZ CAN'DE: KWP/ISO 3-baytlik header (6 hex hane) ile
+     * CAN akis kontrolu komutlari (ATFC…) ANLAMSIZDIR ve adaptoru kirletir.
+     * Cagiran istese bile burada REDDEDILIR — bu karar hatta en yakin yerde
+     * verilmelidir.
+     *
+     * @param echoBytes yanitta yankilanan istek bayti sayisi (VERI; servise ozel dal YOK)
+     */
+    public ElmProtocol.TunedGenericResult sendReadOnlyPdu(
+            String tx, String rx, String service, String sub, String payload,
+            int echoBytes, boolean isoTpTuning) throws Exception {
+        final ElmProtocol p = elm;
+        if (!obdRunning || p == null) throw new IOException("OBD bağlantısı yok");
+        final String hdr = tx == null ? "" : tx.replaceAll("[^0-9A-Fa-f]", "");
+        final boolean tuneAllowed = isoTpTuning && hdr.length() != 6;
+        try {
+            return cmdQueue.submit(ElmCommandQueue.Priority.USER, null,
+                () -> p.withEcuHeader(tx, rx, () -> {
+                    if (!tuneAllowed) {
+                        return new ElmProtocol.TunedGenericResult(
+                            p.sendReadOnlyPdu(service, sub, payload, echoBytes), null);
+                    }
+                    ElmProtocol.IsoTpTuningEvidence tuned = p.applyIsoTpFlowControl(tx);
+                    try {
+                        ElmProtocol.GenericPduEvidence ev =
+                            p.sendReadOnlyPdu(service, sub, payload, echoBytes);
+                        return new ElmProtocol.TunedGenericResult(
+                            ev, p.restoreIsoTpFlowControl(tuned));
+                    } catch (Exception readErr) {
+                        /* Okuma dustu → restore YINE calisir; hata AYNEN yukari gider. */
+                        p.restoreIsoTpFlowControl(tuned);
+                        throw readErr;
+                    }
+                })).get();
+        } catch (java.util.concurrent.ExecutionException ee) {
+            Throwable cause = ee.getCause(); if (cause instanceof Exception) throw (Exception) cause; throw ee;
+        }
+    }
+
+    public ElmProtocol.UdsEvidence readAdvancedUdsDtc(String tx, String rx, String sub, String payload) throws Exception {
+        final ElmProtocol p = elm;
+        if (!obdRunning || p == null) throw new IOException("OBD bağlantısı yok");
+        try {
+            return cmdQueue.submit(ElmCommandQueue.Priority.USER, null,
+                () -> p.withEcuHeader(tx, rx, () -> p.readUdsDtcInformationDetailed(sub, payload))).get();
+        } catch (java.util.concurrent.ExecutionException ee) {
+            Throwable cause = ee.getCause(); if (cause instanceof Exception) throw (Exception) cause; throw ee;
+        }
+    }
+
+    /**
+     * P0-OBD-FINAL-02 — KWP tanı oturumu (0x10) KANIT PROBU.
+     *
+     * SALT-OKUNUR: ECU'ya yazmaz, security access değildir, en fazla 2 komut
+     * gönderir. Hedef header'ı {@code withEcuHeader} ile ATOMİK sarılır — kopya
+     * mantık yok, {@code readAdvancedKwpDtc} ile AYNI desen.
+     */
+    public ElmProtocol.SessionEvidence probeKwpSession(String tx, String rx) throws Exception {
+        final ElmProtocol p = elm;
+        if (!obdRunning || p == null) throw new IOException("OBD bağlantısı yok");
+        try {
+            return cmdQueue.submit(ElmCommandQueue.Priority.USER, null,
+                () -> p.probeKwpSessionFromEcu(tx, rx)).get();
+        } catch (java.util.concurrent.ExecutionException ee) {
+            Throwable cause = ee.getCause(); if (cause instanceof Exception) throw (Exception) cause; throw ee;
+        }
+    }
+
+    /**
+     * P0-OBD-DIAG-01 — KWP fiziksel adresleme matrisinin TEK satiri (SALT-OKUMA).
+     * Header ve istek CAGIRANDAN gelir; native yalniz gonderir. Servis beyaz
+     * listesi {@code ElmProtocol.probeKwpAddressingRow} icinde ZORLANIR.
+     */
+    public ElmProtocol.AddressingEvidence probeKwpAddressingRow(String header, String request, String init) throws Exception {
+        final ElmProtocol p = elm;
+        if (!obdRunning || p == null) throw new IOException("OBD bağlantısı yok");
+        try {
+            return cmdQueue.submit(ElmCommandQueue.Priority.USER, null,
+                () -> p.probeKwpAddressingRow(header, request, init)).get();
+        } catch (java.util.concurrent.ExecutionException ee) {
+            Throwable cause = ee.getCause(); if (cause instanceof Exception) throw (Exception) cause; throw ee;
+        }
+    }
+
+    /** P0-OBD-DIAG-02 — ISO 14230-3 servis 0x13; 0x18 ile AYNI hedef kapisina tabi. */
+    public ElmProtocol.UdsEvidence readAdvancedKwp13Dtc(String tx, String rx) throws Exception {
+        final ElmProtocol p = elm;
+        if (!obdRunning || p == null) throw new IOException("OBD bağlantısı yok");
+        try {
+            return cmdQueue.submit(ElmCommandQueue.Priority.USER, null,
+                () -> p.withEcuHeader(tx, rx, p::readKwpDtcs13Detailed)).get();
+        } catch (java.util.concurrent.ExecutionException ee) {
+            Throwable cause = ee.getCause(); if (cause instanceof Exception) throw (Exception) cause; throw ee;
+        }
+    }
+
+    public ElmProtocol.UdsEvidence readAdvancedKwpDtc(String tx, String rx) throws Exception {
+        final ElmProtocol p = elm;
+        if (!obdRunning || p == null) throw new IOException("OBD bağlantısı yok");
+        try {
+            return cmdQueue.submit(ElmCommandQueue.Priority.USER, null,
+                () -> p.withEcuHeader(tx, rx, p::readKwpDtcsDetailed)).get();
+        } catch (java.util.concurrent.ExecutionException ee) {
+            Throwable cause = ee.getCause(); if (cause instanceof Exception) throw (Exception) cause; throw ee;
+        }
+    }
+
+    /**
+     * V-08 — KWP2000 ReadDTCByStatus (servis 0x18), {@code readUdsDtcs} ile AYNI desen.
+     *
+     * NEDEN AYRI ÇAĞRI: KWP araçlarda (Renault Trafic, eski Fiat/Doblo, çoğu 2000-2008
+     * Avrupa aracı) UDS 0x19 YOKTUR; üretici DTC'leri 0x18'de yaşar. {@code ElmProtocol}
+     * içindeki {@code readKwpDtcsRaw()} bu turdan ÖNCE yazılmıştı ama HİÇBİR YERDEN
+     * ÇAĞRILMIYORDU — zincir Java'da bile kopuktu.
+     *
+     * USER önceliği + atomik header set/restore: KWP hattı yavaştır, poll döngüsünün
+     * arasına sıkışan bir istek oturumu bozabilir.
+     *
+     * @return "58" soyulmuş ham hex; ECU 0x18'i desteklemiyorsa null.
+     */
+    public String readKwpDtcs(String tx, String rx) throws Exception {
+        final ElmProtocol p = elm;
+        if (!obdRunning || p == null) throw new IOException("OBD bağlantısı yok");
+        try {
+            return cmdQueue.submit(ElmCommandQueue.Priority.USER, null,
+                () -> p.withEcuHeader(tx, rx, () -> p.readKwpDtcsRaw())).get();
+        } catch (java.util.concurrent.ExecutionException ee) {
+            Throwable cause = ee.getCause();
+            if (cause instanceof Exception) throw (Exception) cause;
+            throw ee;
+        }
+    }
+
+    /**
+     * OBD-OS-F2-3: ECU-başına DTC — BLE GATT yolu (OBDManager.readDtcsFromEcu ile aynı desen).
+     * USER önceliği + atomik header set/restore.
+     */
+    public java.util.List<String> readDtcsFromEcu(String tx, String rx, String mode) throws Exception {
+        final ElmProtocol p = elm;
+        if (!obdRunning || p == null) throw new IOException("OBD bağlantısı yok");
+        try {
+            return cmdQueue.submit(ElmCommandQueue.Priority.USER, null,
+                () -> p.readDtcsFromEcu(tx, rx, mode)).get();
+        } catch (java.util.concurrent.ExecutionException ee) {
+            Throwable cause = ee.getCause();
+            if (cause instanceof Exception) throw (Exception) cause;
+            throw ee;
+        }
+    }
+
+    /**
+     * P0-OBD-FINAL-01: ECU-basina DTC + HAM yanit + olculen sonuc.
+     * {@link #readDtcsFromEcu} ile AYNI desen (USER onceligi, atomik header
+     * set/restore); farki, "43 00" ile "NO DATA" ve "7F" ayrimini KAYBETMEMESI.
+     */
+    public ElmProtocol.DtcClassResult readDtcClassFromEcu(String tx, String rx, String mode) throws Exception {
+        final ElmProtocol p = elm;
+        if (!obdRunning || p == null) throw new IOException("OBD baglantisi yok");
+        try {
+            return cmdQueue.submit(ElmCommandQueue.Priority.USER, null,
+                () -> p.readDtcClassFromEcu(tx, rx, mode)).get();
+        } catch (java.util.concurrent.ExecutionException ee) {
+            Throwable cause = ee.getCause();
+            if (cause instanceof Exception) throw (Exception) cause;
+            throw ee;
+        }
+    }
+
+    /**
+     * OBD-OS-F2-1: fonksiyonel ECU probu — BLE GATT yolu (OBDManager.probeEcus ile aynı desen).
+     * DISCOVERY önceliği: hot-path'i preempt etmez (F0-3).
+     */
+    public String probeEcus() throws Exception {
+        final ElmProtocol p = elm;
+        if (!obdRunning || p == null) throw new IOException("OBD bağlantısı yok");
+        try {
+            return cmdQueue.submit(ElmCommandQueue.Priority.DISCOVERY, null, p::probeEcusRaw).get();
+        } catch (java.util.concurrent.ExecutionException ee) {
+            Throwable cause = ee.getCause();
+            if (cause instanceof Exception) throw (Exception) cause;
+            throw ee;
+        }
+    }
+    /**
+     * OBD-OS-F3-5: adaptör kimlik probu (ATI + AT@1 + STDI → ham "a|b|c").
+     * probeEcus ile AYNI desen: DISCOVERY önceliği → hot-path'i preempt etmez (F0-3).
+     *
+     * NEDEN GEREKLİ: "ELM327 v1.5" yazan adaptörlerin çoğu klondur ve 29-bit adresleme /
+     * flow-control taşımaz. Klonu gerçek sanmak = desteklenmeyen komut = SESSİZ başarısızlık.
+     * Yetenek ETİKETTEN değil DAVRANIŞTAN çıkarılır; sınıflandırma TS'te
+     * ({@code adapterCapability.ts} tek kaynak) — burada AYRIŞTIRMA YAPILMAZ.
+     */
+    public String probeAdapterIdentity() throws Exception {
+        final ElmProtocol p = elm;
+        if (!obdRunning || p == null) throw new IOException("OBD bağlantısı yok");
+        try {
+            return cmdQueue.submit(ElmCommandQueue.Priority.DISCOVERY, null, p::probeAdapterIdentityRaw).get();
+        } catch (java.util.concurrent.ExecutionException ee) {
+            Throwable cause = ee.getCause();
+            if (cause instanceof Exception) throw (Exception) cause;
+            throw ee;
+        }
+    }
+
+    /**
      * Patch 12A: UDS Mode 22 (ReadDataByIdentifier) — bkz. OBDManager.readObdDid aynı desen
      * (ECU header ayarlama + oku + restore TEK kuyruk görevinde ATOMİK, USER önceliği).
      *
      * @return ham data hex (62&lt;DID&gt; soyulmuş); null = DID desteklenmiyor (7F22 31/33 / NO DATA).
      * @throws Exception iletişim hatası / diğer negatif yanıt / pending zaman aşımı / header restore hatası.
      */
-    public String readObdDid(String tx, String rx, String did) throws Exception {
+    /**
+     * P0-OBD-05 — Servis 06 okuma. OBDManager ile BİREBİR AYNI sözleşme (BLE ve
+     * Classic yolları ayrışmaz). SALT-OKUNUR; kuyruk önceliği USER — Mode 01
+     * sıcak poll'u ayrı önceliktedir ve etkilenmez.
+     */
+    public ElmProtocol.Mode06Evidence readMode06(String tx, String rx, String mid) throws Exception {
         final ElmProtocol p = elm;
         if (!obdRunning || p == null) throw new IOException("OBD bağlantısı yok");
         try {
             return cmdQueue.submit(ElmCommandQueue.Priority.USER, null,
-                () -> p.withEcuHeader(tx, rx, () -> p.readDid(did))).get();
+                () -> p.withEcuHeader(tx, rx, () -> p.readMode06(mid))).get();
+        } catch (java.util.concurrent.ExecutionException ee) {
+            Throwable cause = ee.getCause();
+            if (cause instanceof Exception) throw (Exception) cause;
+            throw ee;
+        }
+    }
+
+    public String readObdDid(String tx, String rx, String did) throws Exception {
+        return readObdDid(tx, rx, did, "22");
+    }
+
+    /**
+     * PR-OBD-KWP-1: servis-parametrik aşırı yükleme (OBDManager ile aynı sözleşme) —
+     * "22" (UDS) veya "21" (KWP ReadDataByLocalIdentifier); tx boş ise header'a dokunulmaz.
+     */
+    public String readObdDid(String tx, String rx, String did, String service) throws Exception {
+        final ElmProtocol p = elm;
+        if (!obdRunning || p == null) throw new IOException("OBD bağlantısı yok");
+        try {
+            return cmdQueue.submit(ElmCommandQueue.Priority.USER, null,
+                () -> p.withEcuHeader(tx, rx, () -> p.readDataById(service, did))).get();
+        } catch (java.util.concurrent.ExecutionException ee) {
+            Throwable cause = ee.getCause();
+            if (cause instanceof Exception) throw (Exception) cause;
+            throw ee;
+        }
+    }
+
+    /**
+     * PR-CAN-RECOVER — TS-tetiklemeli ECU-silent kurtarma (OBDManager ile AYNI sözleşme —
+     * BLE ve Classic yolları ayrışmaz).
+     */
+    public boolean recoverSession(String level) throws Exception {
+        final ElmProtocol p = elm;
+        if (!obdRunning || p == null) throw new IOException("OBD bağlantısı yok");
+        try {
+            return cmdQueue.submit(ElmCommandQueue.Priority.USER, null,
+                () -> "elm_reinit".equals(level) ? p.reinitSession() : p.protocolClose()).get();
+        } catch (java.util.concurrent.ExecutionException ee) {
+            Throwable cause = ee.getCause();
+            if (cause instanceof Exception) throw (Exception) cause;
+            throw ee;
+        }
+    }
+
+    /**
+     * PR-CAP-2 — {@link #readObdDid}'in HAM KANIT (kind + NRC) döndüren biçimi
+     * (OBDManager ile AYNI sözleşme — BLE ve Classic yolları ayrışmaz).
+     */
+    public ElmProtocol.UdsEvidence readObdDidDetailed(String tx, String rx, String did, String service) throws Exception {
+        final ElmProtocol p = elm;
+        if (!obdRunning || p == null) throw new IOException("OBD bağlantısı yok");
+        try {
+            return cmdQueue.submit(ElmCommandQueue.Priority.USER, null,
+                () -> p.withEcuHeader(tx, rx, () -> p.readDataByIdDetailed(service, did))).get();
         } catch (java.util.concurrent.ExecutionException ee) {
             Throwable cause = ee.getCause();
             if (cause instanceof Exception) throw (Exception) cause;
@@ -713,6 +1276,11 @@ public final class BleObdManager {
             BluetoothGattCharacteristic w = writeChar;
             if (g == null || w == null) throw new IOException("BLE OBD bağlantısı yok");
 
+            // Teşhis: komut→yanıt süresini ölç (yalnız capture açıkken — bkz. OBDManager.RfcommChannel).
+            final long started = OBDManager.isTrafficCaptureOn() ? System.currentTimeMillis() : 0L;
+            /* P0-VDK-B3: maliyet damgası capture'dan BAĞIMSIZ — Classic ile AYNI sözleşme. */
+            final long cmdStartedAt = System.currentTimeMillis();
+
             // Önceki yanıt artıklarını temizle (Classic'teki stale-skip karşılığı).
             synchronized (rxLock) {
                 rxBuffer.setLength(0);
@@ -741,13 +1309,33 @@ public final class BleObdManager {
 
             // '>' prompt'una kadar notify reassembly buffer'ını bekle.
             long dead = System.currentTimeMillis() + timeoutMs;
+            String resp;
             synchronized (rxLock) {
                 while (!promptSeen) {
                     long remaining = dead - System.currentTimeMillis();
                     if (remaining <= 0) break; // timeout — eldeki kısmi yanıtı dön (Classic davranışı)
                     rxLock.wait(remaining);
                 }
-                return rxBuffer.toString().trim();
+                resp = rxBuffer.toString().trim();
+            }
+            // PR-OBD-BLE-TRAFFIC: ham trafiği "HAM OBD TRAFİĞİ" paneline (obdTraffic event) ilet.
+            // Classic RfcommChannel ile aynı sözleşme; NO_DATA gibi normal yanıtlar da yakalanır
+            // (KWP oturum-stall teşhisi için kritik). Yalnız capture açıkken; kanalı bloke etmez.
+            /* P0-VDK-B3 · MALİYET MUHASEBESİ — capture'dan bağımsız, Classic ile TEK sözleşme. */
+            PollCostLedger.INSTANCE.noteCommand(cmd, resp, System.currentTimeMillis() - cmdStartedAt);
+            emitBleTraffic(cmd, resp, started);
+            return resp;
+        }
+
+        /** Ham trafik çiftini "HAM OBD TRAFİĞİ" paneline (ring + obdTraffic event) — yalnız capture açıkken. */
+        private void emitBleTraffic(String cmd, String resp, long started) {
+            if (!OBDManager.isTrafficCaptureOn() || started == 0L) return;
+            long ms = System.currentTimeMillis() - started;
+            OBDManager.recordTraffic(System.currentTimeMillis(), cmd, resp, ms); // PC'nin HTTP ile çekeceği ortak tampon
+            try {
+                listener.onObdTraffic(cmd, resp, ms);
+            } catch (Exception ignored) {
+                // Teşhis köprüsü asla OBD akışını bozmaz — listener hatası yutulur.
             }
         }
 

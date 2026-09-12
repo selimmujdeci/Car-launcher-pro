@@ -6,7 +6,8 @@
  *  - Talep-güdümlü sözleşme: izleyici yokken native liste BOŞ (sıfır maliyet);
  *    ilk izleyici keşfi başlatır; son izleyici ayrılınca liste boşalır.
  *  - Keşif zinciri: 00 yanıtında 20 destekliyse kuyruk 20'ye ilerler.
- *  - Destek filtresi: keşif tamamlandıysa desteklenmeyen izlenen PID native'e gitmez.
+ *  - Destek filtresi FAIL-CLOSED (S1 · #503): destek kanıtı YOKSA hiçbir izlenen PID
+ *    native'e gitmez; kanıt varsa yalnız desteklenenler gider.
  *  - Core PID'ler EXTENDED listeye asla girmez.
  *  - Değer akışı: ham hex → decode → watcher; bozuk veri watcher'a ulaşmaz.
  */
@@ -36,6 +37,8 @@ import {
   isPidSupported,
   notifyObdConnected,
   parseSupportedBitmask,
+  seedSupportedPids,
+  getSupportedPids,
   _internals,
 } from '../platform/obd/extendedPidService';
 
@@ -71,10 +74,22 @@ describe('Patch 8C — parseSupportedBitmask', () => {
 });
 
 describe('Patch 8C — talep-güdümlü sözleşme (Mali-400 kuralı)', () => {
-  it('ilk izleyici keşif kuyruğunu (00) + izlenen PID\'i native\'e iter', () => {
+  /* S1 (#503) — KİLİT BİLİNÇLİ GÜNCELLENDİ (kaldırılmadı).
+     ESKİ beklenti: `['00', '5C']` — yani destek kanıtı YOKKEN izlenen PID de native'e
+     gidiyordu. Bu davranış reconnect'te NO-DATA fırtınasının kapısıydı: `notifyObdConnected`
+     `_supported`ı null'a çekiyor ama izleyicileri bırakmıyor → 16 PID filtresiz gidiyordu.
+     YENİ (doğru) davranış: kanıt yoksa YALNIZ keşif kuyruğu gider; bitmask/tohum gelince
+     aynı izleyiciler tek turda akmaya başlar (bkz. aşağıdaki "keşif sonrası" kilitleri). */
+  it('ilk izleyici YALNIZ keşif kuyruğunu (00) iter — kanıt yokken izlenen PID GİTMEZ', () => {
     watchPid('5C', () => {});
     expect(M.pushedLists.length).toBe(1);
-    expect(M.pushedLists[0]).toEqual(['00', '5C']);
+    expect(M.pushedLists[0]).toEqual(['00']);
+  });
+
+  it('kanıt gelince aynı izleyici native listeye GİRER (fail-closed geri dönüşlü)', () => {
+    watchPid('5C', () => {});
+    seedSupportedPids([0x5c]);
+    expect(M.pushedLists[M.pushedLists.length - 1]).toContain('5C');
   });
 
   it('son izleyici ayrılınca native liste boşalır (keşif kuyruğu hariç)', () => {
@@ -167,5 +182,54 @@ describe('Patch 8C — bağlantı kancası', () => {
     notifyObdConnected();
     expect(isPidSupported('04')).toBe(null); // yeniden doğrulanacak
     expect(_internals.getDiscoveryQueue()).toEqual(['00']);
+  });
+});
+
+describe('Patch 8C — seedSupportedPids (Native Handshake tohumu)', () => {
+  it('handshake numaraları desteklenen sete YAZILIR (extended re-discovery beklenmez)', () => {
+    // Gerçek araç 19 PID: 0x2F yakıt dahil.
+    seedSupportedPids([0x01, 0x04, 0x2f, 0x10, 0x21, 0x23, 0x2c, 0x33, 0x49, 0x4a]);
+    expect(isPidSupported('2F')).toBe(true);
+    expect(isPidSupported('04')).toBe(true);
+    expect(isPidSupported('49')).toBe(true);
+    // Sette OLMAYAN → desteksiz (keşif tamamlanmış sayılır, null değil).
+    expect(isPidSupported('5C')).toBe(false);
+  });
+
+  it('seed sonrası _buildNativeList YALNIZ desteklenen non-core PID gönderir (NO-DATA fırtınası biter)', () => {
+    // Panel açılışı: 3 non-core PID izlenir; biri desteksiz.
+    watchPid('04', () => {}); // desteklenen
+    watchPid('10', () => {}); // desteklenen
+    watchPid('5C', () => {}); // DESTEKSİZ (seedde yok)
+    M.pushedLists.length = 0;
+    seedSupportedPids([0x04, 0x10]); // handshake: 5C yok
+    const last = M.pushedLists[M.pushedLists.length - 1]!;
+    expect(last).toContain('04');
+    expect(last).toContain('10');
+    expect(last).not.toContain('5C'); // desteksiz → gönderilmez (200ms NO-DATA önlenir)
+  });
+
+  it('YALNIZ EKLER — çekirdek PID asla extended listeye girmez', () => {
+    watchPid('04', () => {});
+    seedSupportedPids([0x04, 0x0c, 0x0d, 0x05]); // 0C/0D/05 core
+    const last = M.pushedLists[M.pushedLists.length - 1]!;
+    expect(last).toContain('04');
+    expect(last).not.toContain('0C'); // core ana yoldan akar
+    expect(last).not.toContain('0D');
+  });
+
+  it('boş/geçersiz girdi fail-soft: keşif yolu bozulmaz (seed yokmuş gibi null kalır)', () => {
+    seedSupportedPids([]);
+    expect(getSupportedPids()).toBe(null); // dokunmadı
+    seedSupportedPids([0, 256, -1, NaN as unknown as number, 3.5]); // hepsi geçersiz
+    expect(getSupportedPids()).toBe(null);
+  });
+
+  it('idempotent + mevcut keşifle UNION (seed sonrası gelen bitmask eklenir)', () => {
+    seedSupportedPids([0x2f]);
+    expect(isPidSupported('2F')).toBe(true);
+    // Sonradan extended keşif yanıtı gelirse UNION'lanır (silmez).
+    _internals.onExtendedData({ pid: '00', data: '00100000' }); // yalnız PID 0C benzeri bit
+    expect(isPidSupported('2F')).toBe(true); // korunur
   });
 });

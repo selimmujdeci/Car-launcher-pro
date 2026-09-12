@@ -69,7 +69,9 @@ vi.mock('../platform/ttsService', () => ({
   speakFeedback: vi.fn(), speakAssistant: vi.fn(), ttsCancel: vi.fn(),
   registerTtsEndListener: () => () => {},
 }));
-vi.mock('../platform/audioService', () => ({ duckMedia: vi.fn(), unduckMedia: vi.fn() }));
+vi.mock('../platform/media/authority/duckRequest', () => ({
+  requestDuck: () => ({ reason: 'MAVI', release: (): void => {} }),
+}));
 vi.mock('../platform/aiVoiceService', () => ({ resolveApiKey: (_p: string, k?: string) => k ?? '' }));
 vi.mock('../platform/aiHealth', () => ({ isAiNetHealthy: () => true }));
 vi.mock('../platform/intentEngine', () => ({ fromSemanticResult: () => null }));

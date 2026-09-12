@@ -20,18 +20,18 @@ describe('DiscoveryDashboard', () => {
   it('çökmeden mount olur + özet kartı başlıklarını basar', () => {
     let html = '';
     expect(() => { html = renderToStaticMarkup(<DiscoveryDashboard />); }).not.toThrow();
-    expect(html).toContain('Keşif (Discovery)');
+    expect(html).toContain('Keşif Veritabanı');   // arayüz Türkçeleştirildi (2026-07-25)
     expect(html).toContain('Yeni PID');
     expect(html).toContain('Yeni DID');
-    expect(html).toContain('Duplicate');
-    expect(html).toContain('de mevcut'); // "Registry'de mevcut" — apostrof HTML'de escape edilir
+    expect(html).toContain('Yinelenen');   // eski: 'Duplicate'
+    expect(html).toContain('Kayıtlı');     // eski: "Registry'de mevcut"
     expect(html).toContain('Son keşif');
   });
 
   it('kayıt yokken açıklayıcı EMPTY STATE gösterir', () => {
     const html = renderToStaticMarkup(<DiscoveryDashboard />);
     expect(html).toContain('Henüz yeni PID veya DID keşfedilmedi.');
-    expect(html).toContain('OBD cihazını bağlayın');
+    expect(html).toContain('OBD adaptörünü bağlayın');   // arayüz Türkçeleştirildi (2026-07-25)
     expect(html).not.toContain('data-testid="discovery-list"');
   });
 

@@ -66,6 +66,7 @@ import {
   onTripState,
   clearAllTrips,
   deleteTrip,
+  getTripJournalGlance,
   type TripState,
 } from '../platform/tripLogService';
 
@@ -133,6 +134,41 @@ function captureStates(): { states: TripState[]; unsub: () => void } {
   return { states, unsub };
 }
 
+/* ── Hareket kanıtı kapısı ──────────────────────────────────────
+ *
+ * TEK GPS/OBD örneği ARTIK yolculuk AÇMAZ: park hâlindeki araçta tek bozuk
+ * fix (otopark yansıması, soğuk başlangıç hız sıçraması) sahte yolculuk
+ * üretiyordu. Kapı `tripJournalModel`'dedir ve birbirinden ≥1 sn ayrık en az
+ * iki örnek ister. Aşağıdaki yardımcılar AYNI koordinatta iki örnek gönderir:
+ * kanıt birikir, mesafe EKLENMEZ (delta 0 → gürültü filtresi).
+ */
+
+const MOTION_PRIME_MS = 1_100;
+
+/** Monotonik saatin GERÇEKTEN ilerlemesi gereken yol (fake timer YOK). */
+function spinMono(ms: number): void {
+  const t0 = performance.now();
+  while (performance.now() - t0 < ms) { /* kanıt aralığı için bilinçli bekleme */ }
+}
+
+function primeMotionReal(lat: number, lng: number, speedMs = 10, accuracy = 5): void {
+  _gpsCb?.(gpsAt(lat, lng, speedMs, accuracy));
+  spinMono(MOTION_PRIME_MS);
+  _gpsCb?.(gpsAt(lat, lng, speedMs, accuracy));
+}
+
+async function primeMotionFake(lat: number, lng: number, speedMs = 10, accuracy = 5): Promise<void> {
+  _gpsCb?.(gpsAt(lat, lng, speedMs, accuracy));
+  await vi.advanceTimersByTimeAsync(MOTION_PRIME_MS);
+  _gpsCb?.(gpsAt(lat, lng, speedMs, accuracy));
+}
+
+function primeMotionObdReal(speed: number): void {
+  _obdCb?.(obdData(speed));
+  spinMono(MOTION_PRIME_MS);
+  _obdCb?.(obdData(speed));
+}
+
 /* ── Global cleanup ─────────────────────────────────────────── */
 
 function resetService() {
@@ -152,7 +188,7 @@ describe('Clock Jump Protection — monotonic trip süresi', () => {
 
   it('liveDurationMin negatif olamaz — performance.now() tabanlı', () => {
     startTripLog();
-    _gpsCb?.(gpsAt(41.0, 29.0, 6));
+    primeMotionReal(41.0, 29.0, 6);
 
     // Trip başlatıldı, active olmalı
     const unsub = onTripState((s) => {
@@ -171,7 +207,7 @@ describe('Clock Jump Protection — monotonic trip süresi', () => {
 
   it('aktif trip\'te current object sayısal alanlar içerir', () => {
     startTripLog();
-    _gpsCb?.(gpsAt(41.0, 29.0, 6));
+    primeMotionReal(41.0, 29.0, 6);
 
     const snap = onTripState((s) => s);
     expect(snap.current).not.toBeNull();
@@ -193,8 +229,8 @@ describe('GPS haversine mesafe hesabı', () => {
   it('~0.001 derece kuzey (~111m) → distance > 0.05 km', () => {
     startTripLog();
 
-    // İlk GPS fix (start trip)
-    _gpsCb?.(gpsAt(41.0369, 28.9850, 10, 5));
+    // Hareket kanıtı (aynı nokta, mesafe eklemez) → yolculuk açılır
+    primeMotionReal(41.0369, 28.9850, 10, 5);
 
     // İkinci GPS fix (111m kuzey)
     _gpsCb?.(gpsAt(41.0379, 28.9850, 10, 5));
@@ -224,7 +260,7 @@ describe('GPS gürültü filtresi — kötü accuracy atlanır', () => {
     startTripLog();
     const { states, unsub } = captureStates();
 
-    _gpsCb?.(gpsAt(41.0, 29.0, 10, 5));
+    await primeMotionFake(41.0, 29.0, 10, 5);
     await vi.advanceTimersByTimeAsync(10);
     _gpsCb?.(gpsAt(41.001, 29.001, 10, 60));
     await vi.advanceTimersByTimeAsync(1_001);
@@ -239,7 +275,7 @@ describe('GPS gürültü filtresi — kötü accuracy atlanır', () => {
     startTripLog();
     const { states, unsub } = captureStates();
 
-    _gpsCb?.(gpsAt(41.0, 29.0, 10, 5));
+    await primeMotionFake(41.0, 29.0, 10, 5);
     await vi.advanceTimersByTimeAsync(10);
     _gpsCb?.(gpsAt(41.001, 29.001, 10, 0));
     await vi.advanceTimersByTimeAsync(1_001);
@@ -263,7 +299,7 @@ describe('GPS sıçrama filtresi — büyük delta atlanır', () => {
     startTripLog();
     const { states, unsub } = captureStates();
 
-    _gpsCb?.(gpsAt(41.0, 29.0, 10, 5));
+    await primeMotionFake(41.0, 29.0, 10, 5);
     await vi.advanceTimersByTimeAsync(10);
     _gpsCb?.(gpsAt(41.009, 29.0, 10, 5)); // ~1km sıçrama → atlanır
     await vi.advanceTimersByTimeAsync(1_001);
@@ -287,7 +323,7 @@ describe('GPS minimum mesafe — <5m atlanır', () => {
     startTripLog();
     const { states, unsub } = captureStates();
 
-    _gpsCb?.(gpsAt(41.0000, 29.0000, 10, 5));
+    await primeMotionFake(41.0000, 29.0000, 10, 5);
     await vi.advanceTimersByTimeAsync(10);
     _gpsCb?.(gpsAt(41.00002, 29.0000, 10, 5)); // ~2m
     await vi.advanceTimersByTimeAsync(1_001);
@@ -336,7 +372,7 @@ describe('Trip lifecycle', () => {
 
   it('GPS speed > 5 km/h → trip aktif olur', async () => {
     startTripLog();
-    _gpsCb?.(gpsAt(41.0, 29.0, 6));
+    primeMotionReal(41.0, 29.0, 6);
 
     const state = await waitForState((s) => s.active);
     expect(state.active).toBe(true);
@@ -364,8 +400,8 @@ describe('Trip lifecycle', () => {
     vi.useFakeTimers();
     startTripLog();
 
-    // Trip başlat
-    _gpsCb?.(gpsAt(41.0, 29.0, 6));
+    // Trip başlat (hareket kanıtı gerekir)
+    await primeMotionFake(41.0, 29.0, 6);
     await vi.advanceTimersByTimeAsync(10);
 
     // Dur (speed=0)
@@ -417,9 +453,64 @@ describe('OBD fallback — GPS olmadığında trip başlatır', () => {
 
   it('OBD speed > 5 km/h → trip aktif olur (GPS yokken)', async () => {
     startTripLog();
-    _obdCb?.(obdData(30)); // 30 km/h > 5 km/h
+    primeMotionObdReal(30); // 30 km/h > 5 km/h
 
     const state = await waitForState((s) => s.active);
     expect(state.active).toBe(true);
   });
 });
+
+/* ═══════════════════════════════════════════════════════════════
+   10. SEYİR DURUMU — PARKED ULAŞILABİLİRLİĞİ (gerçek cihaz kusuru)
+   ═══════════════════════════════════════════════════════════════
+   ÖLÇÜLEN KUSUR (FIELD-2, gerçek cihaz — CarOS LAB): trip HİÇ
+   başlamamışken (`_active === null`) `getTripJournalGlance()` HER ZAMAN
+   UNKNOWN_DEGRADED döndürüyordu — GPS/OBD sağlıklı akıyor ve araç
+   sabitken bile. Kök neden: "son örnek anı" yalnız aktif trip'in kendi
+   damgasından okunuyordu; trip yokken bu alan hiç yazılmıyordu, yani
+   PARKED dalına ULAŞMAK YAPISAL OLARAK İMKÂNSIZDI. */
+
+describe('seyir durumu — PARKED ulaşılabilirliği', () => {
+  beforeEach(resetService);
+  afterEach(resetService);
+
+  it('trip hiç başlamadan GPS örneği gelirse PARKED\'a ULAŞILABİLİR', async () => {
+    startTripLog();
+    // Hareket eşiğinin ALTINDA bir fix — trip AÇILMAMALI.
+    _gpsCb?.(gpsAt(41.0, 29.0, 0, 5));
+
+    await waitForCondition(() => getTripJournalGlance().state !== 'UNKNOWN_DEGRADED');
+    const glance = getTripJournalGlance();
+    expect(glance.state).toBe('PARKED');
+    expect(glance.tripId).toBeNull();
+  });
+
+  /* "Hiç örnek gelmediyse UNKNOWN_DEGRADED" senaryosu `tripJournalModel.test.ts`
+     içinde SAF fonksiyon seviyesinde zaten kilitlidir. Burada tekrarlanmaz:
+     `_lastAnySampleMonoMs` modül seviyesinde paylaşılan bir durumdur ve
+     önceki testlerden kalan damga bu senaryoyu production wiring'de
+     güvenilmez kılar (bu, production'da YANLIŞ bir davranış DEĞİLDİR —
+     gerçek süreçte bu bilgi restart olmadıkça kaybolmamalıdır; yalnız test
+     izolasyonu sorunu). */
+
+  it('OBD örneği de PARKED\'a ULAŞTIRIR (GPS olmadan)', async () => {
+    startTripLog();
+    _obdCb?.(obdData(0));
+
+    await waitForCondition(() => getTripJournalGlance().state !== 'UNKNOWN_DEGRADED');
+    expect(getTripJournalGlance().state).toBe('PARKED');
+  });
+});
+
+/** Koşul sağlanana kadar bekle — polling, fake timer GEREKTİRMEZ. */
+function waitForCondition(pred: () => boolean, timeoutMs = 2000): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const start = Date.now();
+    const tick = () => {
+      if (pred()) { resolve(); return; }
+      if (Date.now() - start > timeoutMs) { reject(new Error('waitForCondition timeout')); return; }
+      setTimeout(tick, 10);
+    };
+    tick();
+  });
+}

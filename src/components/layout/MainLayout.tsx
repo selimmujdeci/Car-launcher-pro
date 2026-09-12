@@ -18,7 +18,6 @@ import { useOBDSource } from '../../platform/obdService';
 import { useGPSLocation } from '../../platform/gpsService';
 import { ErrorToast } from '../common/ErrorToast';
 import { VolumeOverlay } from '../common/VolumeOverlay';
-import { GestureVolumeZone } from '../common/GestureVolumeZone';
 import {
   getPerformanceMode, onPerformanceModeChange, type PerformanceMode,
 } from '../../platform/performanceMode';
@@ -30,6 +29,7 @@ import { GoldenHourAccent } from './GoldenHourAccent';
 import { SleepOverlay } from './SleepOverlay';
 import type { DrawerType } from './DockBar';
 import { registerDrawerHandler, unregisterDrawerHandler } from '../../platform/drawerBus';
+import { registerMapViewHandler, unregisterMapViewHandler } from '../../platform/mapViewBus';
 // DriveHUD kaldırıldı
 // DrawerPanel lazy-loaded — ilk render'da bundle parse yükü yoktur
 const DrawerPanel      = lazyWithRetry(() => import('./DrawerPanel').then((m) => ({ default: m.DrawerPanel })));
@@ -46,12 +46,18 @@ import { AddressNavCard } from '../common/AddressNavCard';
 import { useDayNightManager } from '../../hooks/useDayNightManager';
 import { VehicleReminderModal } from '../modals/VehicleReminderModal';
 import { IncomingCallOverlay } from '../common/IncomingCallOverlay';
+import FieldTestBadge from '../common/FieldTestBadge';
 import { setRemoteCommandContext } from '../../platform/vehicleDataLayer';
+import { useUnifiedVehicleStore } from '../../platform/vehicleDataLayer/UnifiedVehicleStore';
+import { canShowTripSummary } from './tripSummaryGate';
 import type { CommandContext } from '../../platform/commandExecutor';
 import { bridge } from '../../platform/bridge';
 import { useSystemStore } from '../../store/useSystemStore';
 import { TripSummaryBanner }  from '../trip/TripSummaryBanner';
 import { TheaterOverlay }     from '../theater/TheaterOverlay';
+import { MiniPlayer }         from '../media/MiniPlayer';
+import { useMusicViewModel }  from '../media/MusicViewModel';
+import { musicSurfaceVisibilityModel } from '../media/musicSurfaceVisibilityModel';
 
 /* ── Persistence ─────────────────────────────────────────── */
 
@@ -95,6 +101,9 @@ export default function MainLayout() {
   // SystemStore — Orchestrator tarafından yazılan kararlı durumlar
   const showTripSummary  = useSystemStore((s) => s.showTripSummary);
   const lastCompletedTrip = useSystemStore((s) => s.lastCompletedTrip);
+  /* T13 sürüş kapısı: yolculuk özeti SÜRÜŞ SIRASINDA açılamaz. Karar saf
+     `canShowTripSummary` içindedir (fail-closed: hız bilinmiyorsa gösterilmez). */
+  const tripSummaryBlocked = !canShowTripSummary(useUnifiedVehicleStore((s) => s.speed));
   const navOpenTrigger   = useSystemStore((s) => s.navOpenTrigger);
   const navOpenSeenRef   = useRef(navOpenTrigger);
 
@@ -252,6 +261,14 @@ export default function MainLayout() {
     return () => { unregisterDrawerHandler(); };
   }, []);
 
+  /* Harita görünümü veri yolu — `drawerBus` ile AYNI desen (#652).
+     Harita bir çekmece değildir; Tema Stüdyo önizlemesi "Navigasyon" yüzeyini
+     seçtiğinde tam ekran haritayı bu yoldan açar. */
+  useEffect(() => {
+    registerMapViewHandler(setFullMapOpen);
+    return () => { unregisterMapViewHandler(); };
+  }, []);
+
 
   // ── Remote Command Context Bridge ─────────────────────────
   // Ref her render'da güncellenir → stale closure riski sıfır (voiceCtxRef pattern).
@@ -269,7 +286,7 @@ export default function MainLayout() {
   // Remote command handler bu ref'i okur; dep array eklemek stale closure'a neden olur.
   useEffect(() => {
     _remoteRef.current = { settings, smart, location, handleLaunch, updateSettings, setDrawer };
-  }); // eslint-disable-line react-hooks/exhaustive-deps
+  });
   useEffect(() => {
     const ctx: CommandContext = {
       get vehicleCtx() {
@@ -343,6 +360,12 @@ export default function MainLayout() {
   // subscribe) yeniden hesaplanır — config mode ile senkron yazılır.
   const blurEnabled    = runtimeManager.getConfig().enableBlur;
   const isTheaterActive = useSystemStore((s) => s.isTheaterModeActive);
+  const music = useMusicViewModel();
+  const showMiniPlayer = musicSurfaceVisibilityModel(music, {
+    drawerOpen: drawer !== 'none',
+    nowPlayingOpen: drawer === 'music',
+    criticalSurfaceOpen: isTheaterActive || splitOpen || rearCamOpen,
+  });
 
   // Mali-400 GPU guard: anasayfa TAMAMEN opak bir overlay ile kapandığında alttaki
   // MiniMapWidget'ın canlı MapLibre WebGL context'ini serbest bırak (sürekli çizim
@@ -395,6 +418,10 @@ export default function MainLayout() {
       <BootSplash phase={bootPhase} />
       <ErrorToast />
       <VolumeOverlay />
+      {/* Saha doğrulama göstergesi — oturum AKTİF DEĞİLKEN null render eder,
+          popup açmaz, odak çalmaz; izole leaf (root re-render yok).
+          MOUNT KİLİTLİ: longRoadFieldValidation.test.ts (bir kez sessizce kayboldu). */}
+      <FieldTestBadge />
       {/* Living theme — sabah/akşam golden-hour üst şeridi (izole; root re-render yok) */}
       <GoldenHourAccent />
 
@@ -406,11 +433,18 @@ export default function MainLayout() {
         </div>
       )}
 
-      {settings.gestureVolumeSide !== 'off' && (
-        <div style={theaterHide}>
-          <GestureVolumeZone side={settings.gestureVolumeSide} volume={settings.volume} onVolumeChange={(v) => updateSettings({ volume: v })} />
-        </div>
-      )}
+      {/* #556 — SES JESTİ KATMANI BURADAN KALDIRILDI (mükerrer otorite).
+        *
+        * `GestureVolumeZone` ile `VolumeGestureLayer` (App.tsx) AYNI ANDA mount
+        * oluyordu ve ikisi de varsayılan olarak SOL kenarı dinliyordu
+        * (`gestureVolumeSide: 'left'`). `VolumeGestureLayer` window'a
+        * `capture: true` ile bağlandığı için buradaki `stopPropagation()` onu
+        * DURDURAMIYORDU → sol 60 px'te her dikey kaydırma İKİ KEZ işleniyor,
+        * efektif hassasiyet ~2,3 katına çıkıyordu (0,28 + 0,36 %/px).
+        * Saha şikâyeti: "uygulama devamlı telefonun sesini tam kısıyor".
+        *
+        * Ses jestinin TEK otoritesi artık `VolumeGestureLayer`'dır; kullanıcının
+        * `gestureVolumeSide` ayarına (sol/sağ/kapalı) orada saygı duyulur. */}
 
 
       {settings.sleepMode && (
@@ -451,14 +485,19 @@ export default function MainLayout() {
         </ChameleonScaler>
       </div>
 
-      {/* Yolculuk özet banner — navigasyon veya tam ekran harita açıkken gizle */}
-      {showTripSummary && lastCompletedTrip && !isNavigating && !fullMapOpen && (
+      {/* Yolculuk özet banner — navigasyon/tam ekran harita açıkken VE sürüş
+          sırasında gizlenir (T13: sahte "yolculuk bitti" sinyali sürüşte açamaz) */}
+      {showTripSummary && lastCompletedTrip && !isNavigating && !fullMapOpen && !tripSummaryBlocked && (
         <TripSummaryBanner
           trip={lastCompletedTrip}
           onClose={() => useSystemStore.getState().closeTripSummary()}
           onViewDetails={() => setDrawer('triplog')}
         />
       )}
+
+      {/* F1 persistent surface: map/navigation remains usable; full drawers and critical
+          camera/theater surfaces are suppressed by the single visibility policy. */}
+      {showMiniPlayer && <MiniPlayer onOpenNowPlaying={() => setDrawer('music')} />}
 
       {/* Gelen arama overlay */}
       <IncomingCallOverlay />
@@ -477,6 +516,7 @@ export default function MainLayout() {
           drawer={drawer}
           onClose={closeDrawer}
           defaultMusic={settings.defaultMusic as MusicOptionKey}
+          drivingMode={smart.drivingMode}
           allApps={allApps}
           favorites={favorites}
           gridColumns={settings.gridColumns as 3 | 4 | 5}

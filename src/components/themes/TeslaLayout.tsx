@@ -1,3 +1,4 @@
+import { isObdReadingLive } from '../../platform/vehicleStatusModel';
 import { memo, useState, lazy, Suspense, useEffect, useMemo, useRef, createContext, useContext } from 'react';
 import type { ReactNode, PointerEvent as ReactPointerEvent, MouseEvent as ReactMouseEvent } from 'react';
 import {
@@ -6,18 +7,22 @@ import {
   ChevronRight, Maximize2, CornerUpRight,
   Thermometer, BatteryCharging, Gauge, Fuel,
   Phone, Cloud, AlertTriangle, Camera, Route, ShieldAlert, Shield, Tv2, Zap,
+  FlaskConical,
 } from 'lucide-react';
+import { useCarosLabAllowed } from '../../hooks/useCarosLabAllowed';
+import { openCarosLab } from '../../platform/devtools/carosLabEntry';
 import { useStore } from '../../store/useStore';
 import { useDayNightAttr } from '../../hooks/useDayNightAttr';
 import { useMediaState, togglePlayPause, startMediaHub, stopMediaHub } from '../../platform/mediaService';
 import { next, previous, resumeLastMedia, previewLastMedia } from '../../platform/media/carosMediaLayer';
-import { ensureYouTubeReady } from '../../platform/youtubeService';
+import { preloadYouTubeIfAffordable } from '../../platform/youtubeService';
 import { getPerformanceMode } from '../../platform/performanceMode';
 import { isLowEndDevice } from '../../platform/headUnitCompat';
 import { useOBDState } from '../../platform/obdService';
-import { useGPSLocation, resolveSpeedKmh } from '../../platform/gpsService';
+import { useDisplaySpeed, formatDisplaySpeed } from '../../hooks/useDisplaySpeed';
+import { useBatteryVoltage } from '../../hooks/useBatteryVoltage';
 import { useLivingThemeState } from '../../hooks/useLivingThemeState';
-import { useUnifiedVehicleStore } from '../../platform/vehicleDataLayer/UnifiedVehicleStore';
+import { useAmbientTemp, useLiveVehicleSignal } from '../../hooks/useCanonicalVehicleSignal';
 import { useClock } from '../../hooks/useClock';
 import { useDeviceStatus } from '../../platform/deviceApi';
 import { StatusControls } from '../common/StatusControls';
@@ -25,9 +30,13 @@ import { useNotificationState } from '../../platform/notificationService';
 import { openDrawer } from '../../platform/drawerBus';
 import { openMusicDrawer } from '../../platform/mediaUi';
 import { MiniMapWidget } from '../map/MiniMapWidget';
+import { TripMeterRow } from '../trip/TripMeterRow';
+import { useNavSummary } from '../../hooks/useNavSummary';
 import { type AppItem } from '../../data/apps';
 import type { SmartSnapshot } from '../../platform/smartEngine';
 import { MagicContextCard } from '../common/MagicContextCard';
+import { useLayoutIntent, useZoneWidths } from '../../store/useLayoutStore';
+import { solveLayout, normalizeIntent, TESLA_MANIFEST, type Zone } from '../../platform/theme/layoutSolver';
 
 const VoiceAssistant = lazy(() => import('../modals/VoiceAssistant').then(m => ({ default: m.VoiceAssistant })));
 
@@ -62,7 +71,7 @@ const SAND: Pal = {
   // `--accent-rgb` yollarsa CANLI yansır.
   accent: 'var(--accent-primary, #E0822E)', accent2: '#B85C16', accentSoft: 'rgba(var(--accent-rgb, 224,130,46), 0.16)', accentGlow: 'rgba(var(--accent-rgb, 224,130,46), 0.30)',
   accentA33: 'rgba(var(--accent-rgb, 224,130,46), 0.33)', accentA20: 'rgba(var(--accent-rgb, 224,130,46), 0.2)',
-  inkCritical: '#160F06', ink: 'var(--text-primary, #2A2014)', ink2: 'var(--text-secondary, rgba(42,32,20,0.66))', ink3: 'rgba(42,32,20,0.45)',
+  inkCritical: '#160F06', ink: 'var(--text-primary, #2A2014)', ink2: 'var(--text-secondary, rgba(42,32,20,0.66))', ink3: 'var(--text-tertiary, rgba(42,32,20,0.45))',
   card: 'var(--bg-card, linear-gradient(155deg,#fbf5e9 0%,#efe3cf 100%))', cardSolid: '#f6efe0',
   cardBorder: '1px solid rgba(120,92,52,0.26)',
   cardShadow: '0 6px 16px -8px rgba(90,68,38,0.34), inset 0 1px 0 rgba(255,255,255,0.75)',
@@ -82,7 +91,7 @@ const LAVA: Pal = {
   night: true,
   accent: 'var(--accent-primary, #E0822E)', accent2: '#F4A24E', accentSoft: 'rgba(var(--accent-rgb, 224,130,46), 0.14)', accentGlow: 'rgba(var(--accent-rgb, 224,130,46), 0.45)',
   accentA33: 'rgba(var(--accent-rgb, 224,130,46), 0.33)', accentA20: 'rgba(var(--accent-rgb, 224,130,46), 0.2)',
-  inkCritical: '#FDFAF3', ink: 'var(--text-primary, #F2ECE0)', ink2: 'var(--text-secondary, rgba(242,236,224,0.60))', ink3: 'rgba(242,236,224,0.34)',
+  inkCritical: '#FDFAF3', ink: 'var(--text-primary, #F2ECE0)', ink2: 'var(--text-secondary, rgba(242,236,224,0.60))', ink3: 'var(--text-tertiary, rgba(242,236,224,0.34))',
   // CarOS Night Collection — Tesla = koyu ESPRESSO / sıcak kahve. Olive yeşilden
   // espresso kahveye çekildi (Expedition'ın yeşilinden NET ayrışır); çok hafif amber
   // yansıma, premium ve sakin. Accent/ink/plateActive korunur; yalnız zemin/yüzey hue.
@@ -167,11 +176,15 @@ const StatusCluster = memo(function StatusCluster() {
   const p = usePal();
   const device = useDeviceStatus();
   const n = useNotificationState();
-  const ambient = useUnifiedVehicleStore(s => s.canAmbientTemp);
+  /* P0-OBD-03: doğrudan CAN alanı okuması KALDIRILDI. `canAmbientTemp` CAN'ı
+     olmayan (aftermarket ELM327'li) araçta kalıcı null'dır ve başlık sonsuza
+     dek '—' gösteriyordu — oysa PID 0x46 okunuyordu. Otorite tek yerde:
+     CAN → OBD → yok, ve YALNIZ taze (LIVE) ölçüm sayı olarak basılır. */
+  const ambient = useAmbientTemp();
   // Living theme — bağlantı: online yeşil nabız (.lt-pulse, static tier'da durur), offline soluk.
   const online = useLivingThemeState().conn === 'online';
   return (
-    <div className="flex items-center gap-3" style={{ color: p.ink2 }}>
+    <div data-editable="tesla.status" data-editable-type="header" className="flex items-center gap-3" style={{ color: p.ink2 }}>
       <span className={online ? 'lt-pulse' : undefined} aria-label={online ? 'Çevrimiçi' : 'Çevrimdışı'}
         style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, background: online ? '#34d399' : 'currentColor', opacity: online ? 1 : 0.4 }} />
       <button onClick={() => openDrawer('notifications')} className="ex-btn relative flex items-center justify-center" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: p.ink2 }}>
@@ -195,7 +208,7 @@ const ClockCard = memo(function ClockCard() {
   const use24Hour = useStore(s => s.settings.use24Hour);
   const { time, date } = useClock(use24Hour, false);
   return (
-    <div style={{ ...card(p, { pad: '13px 16px' }) }} className="flex-shrink-0">
+    <div data-editable="tesla.clock" data-editable-type="card" style={{ ...card(p, { pad: '13px 16px' }) }} className="flex-shrink-0">
       <Screws />
       <div style={{ fontSize: 38, fontWeight: 800, lineHeight: 1, color: p.ink, letterSpacing: '-0.5px', fontVariantNumeric: 'tabular-nums' }}>{time}</div>
       <div style={{ fontSize: 14, fontWeight: 500, color: p.ink2, marginTop: 6 }}>{date}</div>
@@ -206,9 +219,10 @@ const ClockCard = memo(function ClockCard() {
 /* ─── SPEED GAUGE (4WD) ──────────────────────────────────────────── */
 const SpeedGauge = memo(function SpeedGauge() {
   const p = usePal();
-  const obd = useOBDState();
-  const gps = useGPSLocation();
-  const speed = Math.round(resolveSpeedKmh(gps, obd.speed ?? 0));
+  /* Gösterim TEK biçimleyiciden geçer — ham GPS hızı ondalıklıdır ve
+     yuvarlanmadan basılınca göstergeyi taşırır (saha 2026-08-12). */
+  const rawSpeed = useDisplaySpeed();
+  const speed = rawSpeed ?? 0;   // yalnız yay/oran hesabı için
   const R = 52, cx = 64, cy = 64, START = 135, SPAN = 270;
   const arc = useMemo(() => {
     const rad = (d: number) => (d * Math.PI) / 180;
@@ -218,7 +232,7 @@ const SpeedGauge = memo(function SpeedGauge() {
     return { track: build(START, START + SPAN), fill: pct > 0.01 ? build(START, START + pct * SPAN) : null };
   }, [speed]);
   return (
-    <div style={{ ...card(p, { pad: 14 }) }} className="flex-1 min-h-0 flex flex-col items-center justify-center gap-3">
+    <div data-editable="tesla.speed" data-editable-type="gauge" style={{ ...card(p, { pad: 14 }) }} className="flex-1 min-h-0 flex flex-col items-center justify-center gap-3">
       <Screws />
       <div style={{ position: 'relative', width: 128, height: 128 }}>
         <svg viewBox="0 0 128 128" width="128" height="128" style={{ overflow: 'visible' }}>
@@ -226,7 +240,7 @@ const SpeedGauge = memo(function SpeedGauge() {
           {arc.fill && <path d={arc.fill} fill="none" strokeWidth="9" strokeLinecap="round" style={{ stroke: p.accent, filter: `drop-shadow(0 0 6px ${p.accentGlow})` }} />}
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span style={{ fontSize: 52, fontWeight: 800, color: p.inkCritical, lineHeight: 1, fontVariantNumeric: 'tabular-nums', letterSpacing: '-1px' }}>{speed}</span>
+          <span style={{ fontSize: 52, fontWeight: 800, color: p.inkCritical, lineHeight: 1, fontVariantNumeric: 'tabular-nums', letterSpacing: '-1px' }}>{formatDisplaySpeed(rawSpeed)}</span>
           <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.22em', color: p.ink3, marginTop: 3 }}>KM/H</span>
         </div>
       </div>
@@ -243,19 +257,31 @@ const SpeedGauge = memo(function SpeedGauge() {
   );
 });
 
-/* ─── FUEL / MENZİL + KİLOMETRE CARD ─────────────────────────────────
-   İki ayrı etiketli okuma tek panelde: Menzil (yakıt → OBD) + Kilometre
-   (odometre, GPS'ten beslenir, OBD'siz de çalışır). Ayrı tam kart dar/kısa
-   kolonu taşırıyordu → tek panel + ince ayraç (sığma garantili). */
+/* ─── FUEL / MENZİL + YOL SAYACI CARD ────────────────────────────────
+   İki ayrı etiketli okuma tek panelde: Menzil (yakıt → OBD) + Yol Sayacı
+   (RESETLENEBİLİR kullanıcı sayacı; kümülatif odometre farkından türer, GPS
+   ile OBD'siz de çalışır). Ayrı tam kart dar/kısa kolonu taşırıyordu → tek
+   panel + ince ayraç (sığma garantili).
+   NOT: Buradaki alt satır eskiden ham kümülatif odometreyi ("KİLOMETRE")
+   gösteriyordu; sıfırlanamadığı için pratikte hep 0 okunuyordu. */
 const FuelCard = memo(function FuelCard() {
   const p = usePal();
   const obd = useOBDState();
-  const odometer = useUnifiedVehicleStore(s => s.odometer);
-  const lvl = obd.fuelLevel != null && obd.fuelLevel >= 0 ? obd.fuelLevel : null;
-  const range = lvl != null ? Math.round((lvl / 100) * 750) : null;
+  // CANLI KAPISI (saha 2026-07-17): OBD bağlı değilken "345 km menzil + yarı dolu yakıt"
+  // gösteriliyordu. Sebep: canSnapshotService son bilinen yakıtı 12 SAATE kadar geri yükleyip
+  // patch'e source='real' damgası vuruyor → `fuelLevel >= 0` kontrolü bunu ELEYEMİYOR.
+  // dataFresh + lastSeenMs bayat-kurtarma ile canlı ölçümü ayırır (bkz. isObdReadingLive).
+  const live = isObdReadingLive(obd);
+  const lvl = live && obd.fuelLevel != null && obd.fuelLevel >= 0 ? obd.fuelLevel : null;
+  // Menzil UYDURULMAZ: sabit 750 km katsayısı yerine araç profilinin tank+tüketim
+  // hesabından gelen gerçek değer (computeFuelMetrics → estimatedRangeKm). Tank
+  // yapılandırılmamışsa -1 döner → dürüstçe '—' (HorizonLayout ile aynı desen).
+  const range = live && obd.estimatedRangeKm != null && obd.estimatedRangeKm >= 0
+    ? Math.round(obd.estimatedRangeKm)
+    : null;
   const seg = lvl != null ? Math.round(lvl / 10) : 0;
   return (
-    <div style={{ ...card(p, { pad: '12px 14px' }) }} className="flex-shrink-0">
+    <div data-editable="tesla.fuel" data-editable-type="card" style={{ ...card(p, { pad: '12px 14px' }) }} className="flex-shrink-0">
       <Screws inset={6} />
       <div className="flex items-center gap-2">
         <Fuel className="w-5 h-5" style={{ color: p.accent2 }} />
@@ -268,12 +294,12 @@ const FuelCard = memo(function FuelCard() {
           <div key={i} style={{ flex: 1, height: 6, borderRadius: 2, background: i < seg ? p.accent : p.tile }} />
         ))}
       </div>
-      <div className="flex items-center gap-2" style={{ marginTop: 8, paddingTop: 8, borderTop: `1px solid ${p.tile}` }}>
-        <Gauge className="w-5 h-5" style={{ color: p.accent2 }} />
-        <span style={{ fontSize: 24, fontWeight: 800, color: p.ink, fontVariantNumeric: 'tabular-nums' }}>{Math.round(odometer)}</span>
-        <span style={{ fontSize: 13, fontWeight: 600, color: p.ink2 }}>km</span>
-        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', color: p.ink3, marginLeft: 'auto' }}>KİLOMETRE</span>
-      </div>
+      <TripMeterRow
+        palette={{ ink: p.ink, ink2: p.ink2, ink3: p.ink3, accent: p.accent, tile: p.tile, edge: p.tile }}
+        valueSize={24} unitSize={13} labelSize={11} iconSize={20} gap={8}
+        showTopBorder
+        style={{ marginTop: 8 }}
+      />
     </div>
   );
 });
@@ -281,25 +307,30 @@ const FuelCard = memo(function FuelCard() {
 /* ─── MAP CARD ───────────────────────────────────────────────────── */
 const MapCard = memo(function MapCard({ onOpenMap, fullMapOpen }: { onOpenMap: () => void; fullMapOpen?: boolean }) {
   const p = usePal();
+  const navSummary = useNavSummary();
   return (
-    <div onClick={onOpenMap} className="relative overflow-hidden cursor-pointer flex-1 min-h-0 min-w-0" style={{ borderRadius: 18, border: p.cardBorder, boxShadow: p.cardShadow }}>
+    <div data-editable="tesla.map" data-editable-type="map" onClick={onOpenMap} className="relative overflow-hidden cursor-pointer flex-1 min-h-0 min-w-0" style={{ borderRadius: 18, border: p.cardBorder, boxShadow: p.cardShadow }}>
       <div className="absolute inset-0">
         {fullMapOpen
           ? <div className="w-full h-full flex items-center justify-center" style={{ background: p.night ? '#10140c' : '#e6d6ba' }}><Navigation className="w-10 h-10" style={{ color: p.accent }} /></div>
           : <MiniMapWidget onFullScreenClick={onOpenMap} />}
       </div>
       <div className="absolute top-3 left-3 right-3 flex items-start justify-between pointer-events-none">
-        <div className="pointer-events-auto" style={{ background: p.glass, border: p.glassBorder, borderRadius: 14, padding: '9px 13px', boxShadow: p.cardShadow }}>
-          <div className="flex items-center gap-3">
-            <div className="flex items-center justify-center rounded-xl" style={{ width: 36, height: 36, background: p.accent, boxShadow: `0 6px 16px ${p.accentGlow}` }}>
-              <CornerUpRight className="w-5 h-5" style={{ color: '#fff' }} />
-            </div>
-            <div>
-              <div style={{ fontSize: 21, fontWeight: 800, color: p.ink, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>2.4 <span style={{ fontSize: 12, fontWeight: 600, color: p.ink2 }}>km</span></div>
-              <div style={{ fontSize: 11.5, fontWeight: 500, color: p.ink2, marginTop: 2 }}>Sahil Yolu Cd.</div>
+        {/* Rota özeti — GERÇEK navigasyon durumundan (sabit sahte yol adı + mesafe
+            kaldırıldı, saha 2026-08-02). Rota yoksa chip HİÇ gösterilmez. */}
+        {navSummary ? (
+          <div className="pointer-events-auto" style={{ background: p.glass, border: p.glassBorder, borderRadius: 14, padding: '9px 13px', boxShadow: p.cardShadow }}>
+            <div className="flex items-center gap-3">
+              <div className="flex items-center justify-center rounded-xl" style={{ width: 36, height: 36, background: p.accent, boxShadow: `0 6px 16px ${p.accentGlow}` }}>
+                <CornerUpRight className="w-5 h-5" style={{ color: '#fff' }} />
+              </div>
+              <div>
+                <div style={{ fontSize: 21, fontWeight: 800, color: p.ink, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{navSummary.mesafe} <span style={{ fontSize: 12, fontWeight: 600, color: p.ink2 }}>km</span></div>
+                <div style={{ fontSize: 11.5, fontWeight: 500, color: p.ink2, marginTop: 2 }}>{navSummary.hedef}</div>
+              </div>
             </div>
           </div>
-        </div>
+        ) : <div />}
         <div className="flex items-center gap-2 pointer-events-auto">
           <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full" style={{ background: p.glass, border: p.glassBorder }}>
             <span className="rounded-full" style={{ width: 6, height: 6, background: p.good, animation: 'exPulse 2s infinite' }} />
@@ -317,19 +348,14 @@ const MapCard = memo(function MapCard({ onOpenMap, fullMapOpen }: { onOpenMap: (
           </button>
         ))}
       </div>
-      <div className="absolute bottom-3 left-3 right-3 flex items-center pointer-events-none">
-        <div className="flex items-center gap-3.5 pointer-events-auto" style={{ background: p.glass, border: p.glassBorder, borderRadius: 14, padding: '8px 15px' }}>
-          <span style={{ fontSize: 12.5, fontWeight: 700, color: p.ink }}>23 dk</span>
-          <span style={{ fontSize: 11.5, color: p.ink3 }}>· 19:56</span>
-          <div style={{ width: 1, height: 14, background: p.night ? 'rgba(255,255,255,0.12)' : 'rgba(120,92,52,0.25)' }} />
-          <span style={{ fontSize: 12, fontWeight: 600, color: p.ink2 }}>18 km</span>
-          <div style={{ width: 1, height: 14, background: p.night ? 'rgba(255,255,255,0.12)' : 'rgba(120,92,52,0.25)' }} />
-          <div className="flex items-center gap-1.5">
-            <BatteryCharging className="w-4 h-4" style={{ color: p.good }} />
-            <span style={{ fontSize: 11.5, fontWeight: 600, color: p.ink2 }}>EV kullanımı</span>
-          </div>
-        </div>
-      </div>
+      {/* Kütük #382/#431 — SAHTE ETA ŞERİDİ KALDIRILDI (saha 2026-08-05).
+       * Burada "23 dk · 19:56 · 18 km · EV kullanımı" SABİT değerleri vardı ve
+       * rota iptal edilir edilmez geri geliyordu (`shot_18`). Hiçbiri ölçüme
+       * dayanmıyordu; üstelik araç ICE iken "EV kullanımı" yazıyordu.
+       * Kütüğün kabul ölçütü: "ya gerçek kaynağa bağlanmalı ya da rota yokken
+       * HİÇ gösterilmemeli — kapatma yolu sayıları değiştirmek DEĞİLDİR".
+       * Rota yokken gösterilecek bir ETA YOKTUR → şerit kaldırıldı.
+       * Aktif rotanın gerçek şeridi mini haritanın kendi HUD'ında zaten var. */}
     </div>
   );
 });
@@ -342,10 +368,10 @@ const MusicCard = memo(function MusicCard() {
     startMediaHub();
     previewLastMedia();
     if (getPerformanceMode() === 'lite') {
-      const id = window.setTimeout(() => { void ensureYouTubeReady().catch(() => {}); }, 4000);
+      const id = window.setTimeout(() => { preloadYouTubeIfAffordable(); }, 4000);
       return () => { window.clearTimeout(id); stopMediaHub(); };
     }
-    void ensureYouTubeReady().catch(() => {});
+    preloadYouTubeIfAffordable();
     return () => stopMediaHub();
   }, []);
   const handlePlay = () => {
@@ -353,7 +379,7 @@ const MusicCard = memo(function MusicCard() {
     else if (!resumeLastMedia()) openMusicDrawer();
   };
   return (
-    <div style={{ ...card(p, { pad: 14 }) }} className="flex-shrink-0 flex items-center gap-3">
+    <div data-editable="tesla.music" data-editable-type="media" style={{ ...card(p, { pad: 14 }) }} className="flex-shrink-0 flex items-center gap-3">
       <Screws />
       <button onClick={() => openMusicDrawer()} className="rounded-2xl overflow-hidden flex items-center justify-center flex-shrink-0" style={{ width: 66, height: 66, background: p.accentSoft, border: `1px solid ${p.accentA20}`, cursor: 'pointer' }}>
         {track.albumArt ? <img src={track.albumArt} className="w-full h-full object-cover" alt="" /> : <Music2 className="w-7 h-7" style={{ color: p.accent }} />}
@@ -435,14 +461,19 @@ const RuggedSUV = memo(function RuggedSUV() {
 /* ─── VEHICLE STATUS CARD ────────────────────────────────────────── */
 const VehicleCard = memo(function VehicleCard({ onOpenSettings }: { onOpenSettings: () => void }) {
   const p = usePal();
-  const obd = useOBDState();
-  const gps = useGPSLocation();
-  const volt = useUnifiedVehicleStore(s => s.canBatteryVolt);
-  const speed = Math.round(resolveSpeedKmh(gps, obd.speed ?? 0));
-  const motor = obd.engineTemp != null ? `${Math.round(obd.engineTemp)}°C` : '—';
+  const battery = useBatteryVoltage();   // kütük #427: CAN → OBD otoritesi
+  const volt = battery.volt;
+  const rawSpeed = useDisplaySpeed();
+  /* P0-OBD-03 · GERÇEK KUSUR: `obd.engineTemp` tipi `number` ve desteklenmeyen
+     PID'de `-1` döner — `!= null` HER ZAMAN doğruydu, dolayısıyla bu kart
+     araç 0x05'i desteklemediğinde ekrana **"-1°C"** basıyordu. Ayrıca CAN'ı
+     olan ama OBD'si olmayan araçta CAN ısısı hiç görünmüyordu. Otorite tek
+     yerde (CAN → OBD → yok) ve yalnız LIVE ölçüm sayıya dönüşür. */
+  const motorC = useLiveVehicleSignal('coolantTemp');
+  const motor = motorC != null ? `${Math.round(motorC)}°C` : '—';
   const aku = volt != null ? `${volt.toFixed(1)}V` : '—';
   return (
-    <div style={{ ...card(p, { solid: true, pad: 15 }) }} className="flex-1 min-h-0 flex flex-col" onClick={onOpenSettings}>
+    <div data-editable="tesla.vehicle" data-editable-type="card" style={{ ...card(p, { solid: true, pad: 15 }) }} className="flex-1 min-h-0 flex flex-col" onClick={onOpenSettings}>
       <Screws />
       <div className="flex items-center gap-2">
         <Label>Araç Durumu</Label>
@@ -452,18 +483,19 @@ const VehicleCard = memo(function VehicleCard({ onOpenSettings }: { onOpenSettin
       <div className="flex-1 min-h-0 flex items-center justify-center my-1"><RuggedSUV /></div>
       <div className="flex items-stretch gap-2" onClick={e => e.stopPropagation()}>
         <Stat icon={<Thermometer className="w-5 h-5" style={{ color: p.accent2 }} />} value={motor} label="Motor" />
-        <Stat icon={<BatteryCharging className="w-5 h-5" style={{ color: p.good }} />} value={aku} label="Akü" />
-        <Stat icon={<Gauge className="w-5 h-5" style={{ color: p.ink2 }} />} value={`${speed}`} label="Hız" />
+        <Stat icon={<BatteryCharging className="w-5 h-5" style={{ color: battery.isWarning ? 'var(--oem-warn)' : p.good }} />} value={aku} label="Akü" warn={battery.isWarning} />
+        <Stat icon={<Gauge className="w-5 h-5" style={{ color: p.ink2 }} />} value={formatDisplaySpeed(rawSpeed)} label="Hız" />
       </div>
     </div>
   );
 });
-function Stat({ icon, value, label }: { icon: React.ReactNode; value: string; label: string }) {
+function Stat({ icon, value, label, warn }: { icon: React.ReactNode; value: string; label: string; warn?: boolean }) {
   const p = usePal();
   return (
-    <div className="flex-1 flex flex-col items-center gap-1 py-2.5 rounded-xl" style={{ background: p.tile }}>
+    <div className="flex-1 flex flex-col items-center gap-1 py-2.5 rounded-xl" style={{ background: warn ? 'var(--oem-warn-soft)' : p.tile }}>
       {icon}
-      <div style={{ fontSize: 17, fontWeight: 800, color: p.ink, fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>{value}</div>
+      {/* Kütük #427: uyarı durumu SÜRÜCÜYE görünür olmalı — toast kaçabilir, kart kalıcıdır. */}
+      <div style={{ fontSize: 17, fontWeight: 800, color: warn ? 'var(--oem-warn)' : p.ink, fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>{value}</div>
       <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: '0.04em', color: p.ink2 }}>{label}</div>
     </div>
   );
@@ -590,11 +622,14 @@ const ExpeditionDock = memo(function ExpeditionDock({ onOpenMap, onOpenApps, onO
   onOpenMap: () => void; onOpenApps: () => void; onOpenSettings: () => void; onVoice: () => void;
 }) {
   const p = usePal();
+  /* CAROS LAB — AppGrid kartı ve DockBar kısayoluyla AYNI fail-closed kapı
+     (DEVELOPER_FEATURES_ENABLED); kapı kapalıyken hiç render edilmez. */
+  const carosLabAllowed = useCarosLabAllowed();
   // Expedition mantığı: iki BAĞIMSIZ sürekli-kaydırma bölgesi, ortada her zaman
   // görünür saat (kaydırma kabı DIŞINDA overlay). Sol/sağ grup serbest kaydırılır →
   // tüm fonksiyonlara ulaşılır (pager/snap-sayfa kilidi yok).
   return (
-    <div className="relative w-full" style={{ background: p.metal, borderRadius: 22, border: p.metalBorder, boxShadow: p.night ? '0 12px 30px -12px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -3px 8px rgba(0,0,0,0.55)' : '0 8px 22px -10px rgba(90,68,38,0.45), inset 0 1px 0 rgba(255,255,255,0.7), inset 0 -3px 7px rgba(120,92,52,0.25)', padding: '14px 18px 20px', minHeight: 138, zIndex: 30 }}>
+    <div data-editable="tesla.dock" data-editable-type="dock" className="relative w-full" style={{ background: p.metal, borderRadius: 22, border: p.metalBorder, boxShadow: p.night ? '0 12px 30px -12px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -3px 8px rgba(0,0,0,0.55)' : '0 8px 22px -10px rgba(90,68,38,0.45), inset 0 1px 0 rgba(255,255,255,0.7), inset 0 -3px 7px rgba(120,92,52,0.25)', padding: '14px 18px 20px', minHeight: 138, zIndex: 30 }}>
       <Screws inset={9} />
 
       <div style={{ display: 'flex', alignItems: 'stretch' }}>
@@ -623,6 +658,9 @@ const ExpeditionDock = memo(function ExpeditionDock({ onOpenMap, onOpenApps, onO
           <DockPlate Icon={Shield}        label="Güvenlik" onClick={() => openDrawer('security')} />
           <DockPlate Icon={Tv2}           label="Eğlence"  onClick={() => openDrawer('entertainment')} />
           <DockPlate Icon={Zap}           label="Sport"    onClick={() => openDrawer('sport')} />
+          {carosLabAllowed && (
+            <DockPlate Icon={FlaskConical} label="CAROS LAB" onClick={() => { openCarosLab(); }} />
+          )}
         </DockScrollZone>
       </div>
 
@@ -655,9 +693,64 @@ export const TeslaLayout = memo(function TeslaLayout(props: Props) {
   const dayNightMode = useDayNightAttr(); // kanonik (data-day-night) → kartlar+saat senkron
   const pal = dayNightMode === 'day' ? SAND : LAVA;
 
+  /* ── YERLEŞİM MOTORU (#660) ────────────────────────────────────────────
+   * Tesla bugüne dek SABİT sütunlarla çiziliyordu ve Stüdyo bu temada yerleşim
+   * düzenlemeyi HİÇ göstermiyordu (motor yoktu, sahte alan da gösterilmiyordu).
+   * Manifest ekranın BUGÜNKÜ yapısından çıkarıldı → hiç dokunulmadığında
+   * görünüm birebir aynıdır. */
+  const rawIntent = useLayoutIntent('tesla');
+  const intent = useMemo(() => normalizeIntent(rawIntent, TESLA_MANIFEST), [rawIntent]);
+  const solved = useMemo(() => solveLayout(intent, TESLA_MANIFEST), [intent]);
+  const zoneW = useZoneWidths('tesla');
+
+  /* Sütun genişlikleri çarpanla ölçeklenir; çarpansız değerler BİREBİR
+     ekranın bugünkü clamp'leridir. */
+  const tsColWidth = (zone: 'left-rail' | 'right-rail'): string => {
+    const k = zoneW[zone] ?? 1;
+    return zone === 'left-rail'
+      ? `clamp(${Math.round(150 * k)}px, ${(15 * k).toFixed(1)}vw, ${Math.round(198 * k)}px)`
+      : `clamp(${Math.round(280 * k)}px, ${(28 * k).toFixed(1)}vw, ${Math.round(358 * k)}px)`;
+  };
+
+  const renderTsCard = (id: string) => {
+    switch (id) {
+      case 'clock':   return <ClockCard />;
+      case 'speed':   return <SpeedGauge />;
+      case 'fuel':    return <FuelCard />;
+      case 'music':   return <MusicCard />;
+      case 'vehicle': return <VehicleCard onOpenSettings={onOpenSettings} />;
+      default:        return null;
+    }
+  };
+
+  /* Sütunlar flex; elle boyut verilmemişse kartlar doğal boylarında kalır —
+     yani bugünkü ekran. */
+  const tsItemStyle = (id: string): React.CSSProperties => {
+    const gc = intent[id]?.growCustom;
+    if (gc != null) return { flexGrow: gc, flexBasis: 0, flexShrink: 1, minHeight: 0, display: 'flex', flexDirection: 'column' };
+    return { display: 'flex', flexDirection: 'column', minHeight: 0 };
+  };
+
+  /* Tek elemanlı grup da BURADAN geçer — ikinci kod yolu yok. */
+  const renderTsGroup = (g: { id: string }[], key: string) => {
+    if (g.length === 1) {
+      return <div key={key} style={tsItemStyle(g[0].id)}>{renderTsCard(g[0].id)}</div>;
+    }
+    return (
+      <div key={key} data-merged="true" style={{ display: 'flex', flexDirection: 'column', gap: 0, minHeight: 0 }}>
+        {g.map((it) => (
+          <div key={it.id} style={tsItemStyle(it.id)}>{renderTsCard(it.id)}</div>
+        ))}
+      </div>
+    );
+  };
+
+  const tsRail = (zone: Zone) =>
+    solved[zone].groups.map((g, i) => renderTsGroup(g, g.map((x) => x.id).join('+') || String(i)));
+
   return (
     <PalCtx.Provider value={pal}>
-      <div className="relative w-full h-full overflow-hidden" style={{ background: pal.night ? '#161b11' : '#e6d6ba', transition: 'background 0.4s ease' }}>
+      <div data-theme-surface="home" className="relative w-full h-full overflow-hidden" style={{ background: pal.night ? '#161b11' : '#e6d6ba', transition: 'background 0.4s ease' }}>
         <TopoBackground />
         {voiceOpen && <Suspense fallback={null}><VoiceAssistant onClose={() => setVoiceOpen(false)} minimal /></Suspense>}
         <div className="relative flex flex-col w-full h-full">
@@ -665,10 +758,8 @@ export const TeslaLayout = memo(function TeslaLayout(props: Props) {
             <StatusCluster />
           </div>
           <div className="flex-1 min-h-0 flex" style={{ gap: 12, padding: '4px 14px 8px' }}>
-            <div className="flex flex-col min-h-0" style={{ gap: 12, width: 'clamp(150px, 15vw, 198px)', flexShrink: 0 }}>
-              <ClockCard />
-              <SpeedGauge />
-              <FuelCard />
+            <div className="flex flex-col min-h-0" style={{ gap: 12, width: tsColWidth('left-rail'), flexShrink: 0 }}>
+              {tsRail('left-rail')}
             </div>
             <div className="flex flex-col min-h-0 min-w-0 flex-1 relative" style={{ gap: 12 }}>
               <MapCard onOpenMap={onOpenMap} fullMapOpen={fullMapOpen} />
@@ -678,9 +769,8 @@ export const TeslaLayout = memo(function TeslaLayout(props: Props) {
                 </div>
               )}
             </div>
-            <div className="flex flex-col min-h-0" style={{ gap: 12, width: 'clamp(280px, 28vw, 358px)', flexShrink: 0 }}>
-              <MusicCard />
-              <VehicleCard onOpenSettings={onOpenSettings} />
+            <div className="flex flex-col min-h-0" style={{ gap: 12, width: tsColWidth('right-rail'), flexShrink: 0 }}>
+              {tsRail('right-rail')}
             </div>
           </div>
           <div className="flex-shrink-0" style={{ padding: '6px 16px 14px' }}>

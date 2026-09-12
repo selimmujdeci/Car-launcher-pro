@@ -1,10 +1,15 @@
 /**
- * deepScanOrchestrator.test.ts — Deep Scan Orchestration Foundation birim testleri.
+ * deepScanOrchestrator.test.ts — Deep Scan Orchestration birim testleri.
  *
  * Kapsam: normal akış · full_scan/change_check · ignition yok → waiting · fingerprint
  * fail (fail-soft devam) · persistence fail (report yine üretilir) · timeout (kritik→fail,
  * kritik-değil→devam) · cancel · event sırası · progress monotonik · immutability ·
  * dispose zero-leak · duplicate start · bounded keşif birikimi · handler hata izolasyonu.
+ *
+ * ⚠️ COMPLETION TRUTH GÜNCELLEMESİ: "tarama sonuna geldi" ARTIK "tam tarandı" DEMEK
+ * DEĞİLDİR. Handler'ı olmayan faz `handler_unavailable` üretir ve tarama `partial`
+ * biter. Bu yüzden `completed` bekleyen testler artık GERÇEK handler kümesi
+ * (`allSuccessHandlers()`) ile koşar — eski hâli, düzeltilen hatanın ta kendisiydi.
  *
  * Not: gerçek OBD/native YOK — enjekte edilmiş runtime/persistence/ignition + no-op/mock
  * handler'lar + kontrollü saat.
@@ -12,11 +17,15 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+  buildDeepScanCoverageLedger,
   createDeepScanOrchestrator,
+  evaluateDeepScanCompletion,
   DEEP_SCAN_PHASE_SEQUENCE,
   DeepScanRuntimeService,
   DeepScanPersistenceStore,
   createDeepScanIgnitionSource,
+  type DeepScanCompletionOutcome,
+  type DeepScanPhase,
   type PhaseHandler,
   type OrchestratorEvent,
   type DeepScanStoreIO,
@@ -38,6 +47,24 @@ function memIO() {
     remove: (k) => { map.delete(k); },
   };
   return { io, map };
+}
+
+/** Her zorunlu faz için GERÇEK (başarılı) handler — tam kapsam üretir. */
+function allSuccessHandlers(
+  over: Partial<Record<DeepScanPhase, PhaseHandler>> = {},
+): Partial<Record<DeepScanPhase, PhaseHandler>> {
+  const h: Partial<Record<DeepScanPhase, PhaseHandler>> = {};
+  for (const phase of DEEP_SCAN_PHASE_SEQUENCE) h[phase] = () => ({ status: 'success' as const });
+  return { ...h, ...over };
+}
+
+/** Gerçek bir `full` kapsam kanıtı üretir (persistence tohumlaması için). */
+function fullCompletion(scanId: string): DeepScanCompletionOutcome {
+  return evaluateDeepScanCompletion(buildDeepScanCoverageLedger({
+    scanId,
+    entries: DEEP_SCAN_PHASE_SEQUENCE.map((phase) => ({ phase, status: 'completed' as const })),
+    persistenceFinalized: true,
+  }));
 }
 
 interface HarnessOpts {
@@ -64,6 +91,7 @@ function harness(opts: HarnessOpts = {}) {
         discoveredEcuCount: 0, discoveredPidCount: 0, discoveredDidCount: 0, newDiscoveriesCount: 0,
         changedFirmware: false, changedEcu: false, warnings: [], errorCode: null, reportSummary: null,
       },
+      completion: fullCompletion('seed'),   // ★ kapsam kanıtı olmadan yükseltme YOK
     });
   }
 
@@ -81,10 +109,11 @@ function harness(opts: HarnessOpts = {}) {
  * ════════════════════════════════════════════════════════════════════════ */
 
 describe('normal akış ve mod', () => {
-  it('1) normal akış — ignition on → tüm fazlar → completed, progress 100', async () => {
-    const { orch, runtime } = harness({ ignitionOn: true });
+  it('1) normal akış — ignition on + TÜM fazlar gerçek handler → completed, progress 100', async () => {
+    const { orch, runtime } = harness({ ignitionOn: true, handlers: allSuccessHandlers() });
     const snap = await orch.run({ vehicleFingerprintHash: HASH });
     expect(snap.status).toBe('completed');
+    expect(snap.completion.finalVerdict).toBe('full');
     expect(snap.progressPercent).toBe(100);
     expect(runtime.getSnapshot().status).toBe('completed');
   });
@@ -102,11 +131,11 @@ describe('normal akış ve mod', () => {
   });
 
   it('4) keşif sonuçları runtime + persistence\'a yansır', async () => {
-    const handlers = {
+    const handlers = allSuccessHandlers({
       ecu_discovery: () => ({ status: 'success' as const, ecus: ['7E0', '7E8'] }),
       standard_pid_discovery: () => ({ status: 'success' as const, pids: [{ pidOrDid: '0C' }, { pidOrDid: '0D' }] }),
       manufacturer_did_discovery: () => ({ status: 'success' as const, dids: [{ pidOrDid: 'F190' }] }),
-    };
+    });
     const { orch, runtime, persistence } = harness({ ignitionOn: true, handlers });
     await orch.run({ vehicleFingerprintHash: HASH });
     const rt = runtime.getSnapshot();
@@ -134,12 +163,13 @@ describe('ignition güvenliği', () => {
   });
 
   it('6) ignition sonradan gelince tarama ilerler', async () => {
-    const { orch, ignition } = harness({ ignitionOn: false });
+    const { orch, ignition } = harness({ ignitionOn: false, handlers: allSuccessHandlers() });
     await orch.run({ vehicleFingerprintHash: HASH });
     expect(orch.getSnapshot().status).toBe('waiting_for_ignition');
     ignition.setManualOverride(true);              // kontak doğrulandı
     const snap = await orch.run();                 // devam
     expect(snap.status).toBe('completed');
+    expect(snap.completion.finalVerdict).toBe('full');
   });
 });
 
@@ -148,44 +178,55 @@ describe('ignition güvenliği', () => {
  * ════════════════════════════════════════════════════════════════════════ */
 
 describe('fail-soft', () => {
-  it('7) fingerprint fail → tarama yine tamamlanır (fail-soft, kritik değil)', async () => {
-    const handlers = { fingerprint_update: () => ({ status: 'error' as const, errorCode: 'fp_boom' }) };
+  it('7) fingerprint fail → zincir DEVAM eder ama tarama full SAYILMAZ (partial)', async () => {
+    const handlers = allSuccessHandlers({ fingerprint_update: () => ({ status: 'error' as const, errorCode: 'fp_boom' }) });
     const { orch, events } = harness({ ignitionOn: true, handlers });
     const snap = await orch.run({ vehicleFingerprintHash: HASH });
-    expect(snap.status).toBe('completed');         // knowledge/persistence/report yine çalıştı
+    // knowledge/persistence/report yine çalıştı → terminal + rapor var…
     expect(events.some((e) => e.type === 'phase_failed' && e.phase === 'fingerprint_update')).toBe(true);
     expect(events.some((e) => e.type === 'scan_completed')).toBe(true);
+    // …ama kapsam eksik → "tam tarandı" İDDİASI YOK.
+    expect(snap.status).toBe('partial');
+    expect(snap.completion.finalVerdict).toBe('partial');
+    expect(snap.completion.incompleteReasons).toContain('required_phase_failed');
   });
 
-  it('8) persistence fail → report yine üretilir (scan_completed)', async () => {
+  it('8) persistence fail → report yine üretilir; ama full BAŞARI İLAN EDİLMEZ', async () => {
     const throwingPersistence = {
       hasCompletedFullScan: () => false,
       saveSnapshot: (_i: DeepScanPersistInput): DeepScanRecord | null => { throw new Error('disk boom'); },
       completeScan: (_i: DeepScanPersistInput): DeepScanRecord | null => { throw new Error('disk boom'); },
     } as unknown as DeepScanPersistenceStore;
-    const { orch, events } = harness({ ignitionOn: true, persistence: throwingPersistence });
+    const { orch, events } = harness({ ignitionOn: true, handlers: allSuccessHandlers(), persistence: throwingPersistence });
     const snap = await orch.run({ vehicleFingerprintHash: HASH });
-    expect(snap.status).toBe('completed');
     expect(events.some((e) => e.type === 'report_ready')).toBe(true);
     expect(events.some((e) => e.type === 'scan_completed')).toBe(true);
+    // Fazların hepsi başarılı ama kalıcılaştırma DÜŞTÜ → full DEĞİL (fail-closed).
+    expect(snap.status).not.toBe('completed');
+    expect(snap.completion.hasCompletedFullScan).toBe(false);
+    expect(snap.completion.incompleteReasons).toContain('persistence_not_finalized');
   });
 
-  it('9) kritik-değil timeout → devam; KRİTİK (protocol) timeout → failed', async () => {
-    const cont = harness({ ignitionOn: true, handlers: { ecu_discovery: () => ({ status: 'timeout' as const }) } });
-    expect((await cont.orch.run({ vehicleFingerprintHash: HASH })).status).toBe('completed');
+  it('9) kritik-değil timeout → devam (partial); KRİTİK (protocol) timeout → failed', async () => {
+    const cont = harness({ ignitionOn: true, handlers: allSuccessHandlers({ ecu_discovery: () => ({ status: 'timeout' as const }) }) });
+    const contSnap = await cont.orch.run({ vehicleFingerprintHash: HASH });
+    expect(contSnap.status).toBe('partial');                         // zincir kırılmadı
+    expect(contSnap.completion.incompleteReasons).toContain('required_phase_timeout');
 
-    const crit = harness({ ignitionOn: true, handlers: { protocol_detection: () => ({ status: 'timeout' as const, errorCode: 'proto_to' }) } });
+    const crit = harness({ ignitionOn: true, handlers: allSuccessHandlers({ protocol_detection: () => ({ status: 'timeout' as const, errorCode: 'proto_to' }) }) });
     const snap = await crit.orch.run({ vehicleFingerprintHash: HASH });
     expect(snap.status).toBe('failed');
+    expect(snap.completion.finalVerdict).toBe('failed');
     expect(crit.events.some((e) => e.type === 'scan_failed')).toBe(true);
   });
 
-  it('10) handler exception izole → invalid/exception hata olarak işlenir, servis çökmez', async () => {
-    const handlers = { ecu_discovery: () => { throw new Error('handler patladı'); } };
+  it('10) handler exception izole → hata olarak işlenir, servis çökmez (partial)', async () => {
+    const handlers = allSuccessHandlers({ ecu_discovery: () => { throw new Error('handler patladı'); } });
     const { orch } = harness({ ignitionOn: true, handlers });
     const snap = await orch.run({ vehicleFingerprintHash: HASH });
-    // ecu_discovery kritik değil → fail-soft devam → completed
-    expect(snap.status).toBe('completed');
+    // ecu_discovery kritik değil → fail-soft devam → terminal, ama full DEĞİL
+    expect(snap.status).toBe('partial');
+    expect(snap.completion.hasCompletedFullScan).toBe(false);
   });
 });
 
@@ -284,12 +325,13 @@ describe('immutability, yaşam döngüsü, bounded, yalıtım', () => {
     expect(good).toBe(1);
   });
 
-  it('20) reset → yeni tarama başlatılabilir', async () => {
-    const { orch } = harness({ ignitionOn: true });
+  it('20) reset → yeni tarama başlatılabilir (kapsam kütüğü de sıfırlanır)', async () => {
+    const { orch } = harness({ ignitionOn: true, handlers: allSuccessHandlers() });
     await orch.run({ vehicleFingerprintHash: HASH });
     expect(orch.getSnapshot().status).toBe('completed');
     orch.reset();
     expect(orch.getSnapshot().status).toBe('idle');
+    expect(orch.getCoverageLedger().attemptedPhases).toHaveLength(0);   // kütük devretmedi
     const snap = await orch.run({ vehicleFingerprintHash: HASH });
     expect(snap.status).toBe('completed');
   });

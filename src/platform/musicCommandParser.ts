@@ -386,7 +386,10 @@ export function tryParseMusicCommand(raw: string): ParsedMusicCommand | null {
       source,
       query:     'shuffle',
       queryType: 'shuffle',
-      feedback:  `${srcName}'de karışık çalınıyor`,
+      /* MUSIC F22 denetimi — GERÇEK KUSUR: bu metin yürütmeden ÖNCE
+         söyleniyordu ve TAMAMLANMIŞ bir eylem iddiasıydı ("çalınıyor").
+         Sonuç doğrulanmadan çalma iddiası KURULMAZ (F0/F9 sözleşmesi). */
+      feedback:  `${srcName}'de karışık çalmayı deniyorum`,
       raw:       trimmed,
     };
   }

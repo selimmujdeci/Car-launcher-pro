@@ -51,6 +51,12 @@ export interface VoiceTuning {
   /** Mikrofon donanım ısınması — düşük donanım/T507 (ms). */
   warmupLowEndMs: number;
   /**
+   * HIZLI warmup (ms) — wake selamı → dinleme devrinde: TTS az önce çaldığı için
+   * ses donanımı zaten aktif, tam ısınma gereksiz. "Buradayım der demez dinlemede
+   * olsun" (saha 2026-07-23) için mikrofon açılış pipeline'ını kısaltır.
+   */
+  warmupFastMs: number;
+  /**
    * JS failsafe: 'listening' bu süreyi aşarsa zorla idle.
    * warmupLowEndMs + maxListenMs'ten BÜYÜK olmalı (aktif dinlemeyi kesmesin).
    */
@@ -72,6 +78,7 @@ export const VOICE_TUNING: VoiceTuning = {
   wakeListenMs:     20_000,
   warmupMs:         300,
   warmupLowEndMs:   500,
+  warmupFastMs:     120,
   listenFailsafeMs: 14_000,
   uiSafetyCloseMs:  16_000,
 };

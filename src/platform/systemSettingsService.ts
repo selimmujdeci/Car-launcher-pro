@@ -207,6 +207,24 @@ export function setVolume(percent: number): void {
   _applyInAppVolume(clamped);       // uygulama içi YouTube IFrame + HTML5 stream
 }
 
+/**
+ * YALNIZ uygulama-içi oynatıcıların sesini ayarlar — CİHAZ SESİNE DOKUNMAZ.
+ *
+ * ── NEDEN AYRI BİR FONKSİYON ───────────────────────────────────────────────
+ * SAHA BULGUSU (2026-07-31): uygulama açılışta kayıtlı ses düzeyini `setVolume`
+ * ile "motorlara aktarıyordu"; ama `setVolume` aynı zamanda **cihazın
+ * STREAM_MUSIC seviyesini** yazıyor. Sonuç: telefon/araç sesi 15'teyken CarOS
+ * açılınca cihaz sesi uygulamanın kendi ayarına DÜŞÜYORDU (cihazda 15 → 2
+ * olarak yeniden üretildi). Kullanıcının cihaz seviyesi CarOS'un tercihi
+ * DEĞİLDİR ve uygulama açılışı bir ses komutu SAYILMAZ.
+ *
+ * Kullanıcı sesi AÇIKÇA değiştirdiğinde (slider/jest) `setVolume` kullanılır —
+ * o zaman cihaza yazmak DOĞRUDUR.
+ */
+export function setInAppVolume(percent: number): void {
+  _applyInAppVolume(Math.max(0, Math.min(100, percent)));
+}
+
 /* ── Headlight Auto-Brightness ───────────────────────────── */
 
 /**

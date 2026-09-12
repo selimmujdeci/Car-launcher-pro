@@ -19,9 +19,20 @@
 
 import type { VehicleState }         from './vehicleDataLayer/types';
 import type { VehicleSignalResolver } from './vehicleDataLayer/VehicleSignalResolver';
-import { pushVehicleEvent }           from './vehicleIdentityService';
+import { pushVehicleEvent, callVehicleRpc } from './vehicleIdentityService';
+import {
+  buildIdentityReport, parseIdentityAck,
+  type IdentityRpcBody, type IdentityAck,
+} from './telemetry/vehicleIdentityReport';
+import type { VehicleIdentityObservation } from './telemetry/vehicleIdentityObservation';
 import { getFusedSpeed }              from './speedFusion';
 import { healthMonitor }              from './system/SystemHealthMonitor';
+import { getOBDDataSnapshot, getObdFreshWindowMs } from './obdService';
+import {
+  buildTelemetryFields,
+  type TelemetryBuildReport,
+  type TelemetryFields,
+} from './telemetry/telemetryContract';
 
 /* ── Sabitler ───────────────────────────────────────────────── */
 
@@ -65,21 +76,30 @@ function _heartbeatIntervalMs(mode: HeartbeatMode): number {
   return HEARTBEAT_PARKED_MS;
 }
 
-interface TelemetryPayload {
-  speed:           number;
-  reverse:         boolean;
-  fuel:            number | null;
-  heading:         number | null;
-  lat:             number | null;
-  lng:             number | null;
-  accuracy:        number | null;
-  /** Güven skoru 0.0–1.0: push anındaki speedFusion confidence değeri */
-  speedConfidence: number;
+/**
+ * Buluta giden gövde.
+ *
+ * ÖLÇÜM ALANLARI ARTIK `telemetryContract` tarafından üretilir
+ * (`TelemetryFields`): bilinmeyen alan anahtarı HİÇ konmaz — `null`/`0`
+ * yazılmaz. Böylece `push_vehicle_event` `NULLIF(...)` ile `NULL` görür ve
+ * sunucudaki eski değer KORUNUR.
+ */
+type TelemetryPayload = TelemetryFields & {
   /** Monotonic Δms — saat atlama (clock-jump) güvenli */
-  ts:              number;
-  event:           TelemetryEventType;
-  metadata?:       Record<string, unknown>;
-}
+  ts:        number;
+  event:     TelemetryEventType;
+  metadata?: Record<string, unknown>;
+};
+
+/**
+ * Konum bayatlık penceresi (ms).
+ *
+ * Gerekçe: `parked` heartbeat 10 dk'dır; konum bundan daha eski ise "canlı"
+ * sayılamaz. 5 dk, park halinde iki heartbeat arası tek bir taze düzeltmenin
+ * yeterli olduğu, ama saatler önceki bir fix'in canlı gibi gönderilmediği
+ * dengedir. Sunucu tarafı ayrıca kendi tazelik değerlendirmesini yapar.
+ */
+const GPS_FRESH_WINDOW_MS = 5 * 60_000;
 
 /* ── Yardımcı: Haversine mesafesi (metre) ───────────────────── */
 
@@ -126,6 +146,16 @@ export class TelemetryService {
 
   /** OBD'den beslenen akü voltajı (V); null = OBD bağlı değil veya henüz raporlanmadı */
   private _batteryVoltage: number | null = null;
+  /** Son konum patch'inin alındığı an (Unix ms) — GPS bayatlık kapısı girdisi. */
+  private _lastLocationAtMs = 0;
+  /** Son kurulan payload raporu (LAB salt-okur). */
+  private _lastBuild: TelemetryBuildReport | null = null;
+  /* Dedupe artık `vehicleIdentityCoordinator`'ın işidir (tek otorite). */
+  private _lastIdentity: {
+    body: IdentityRpcBody;
+    maskedVin: string;
+    ack: IdentityAck | null;
+  } | null = null;
   /** Anlık heartbeat modu — mod değişince interval yeniden kurulur */
   private _heartbeatMode: HeartbeatMode = 'parked';
 
@@ -270,7 +300,11 @@ export class TelemetryService {
       const v = patch.heading;
       this._state.heading = (v != null && Number.isFinite(v)) ? v : null; // NaN / Infinity koruma
     }
-    if ('location' in patch) this._state.location = patch.location ?? null;
+    if ('location' in patch) {
+      this._state.location = patch.location ?? null;
+      // Konum tazeliği için gözlem anı — bayat fix'i canlı gibi göndermeyi engeller.
+      this._lastLocationAtMs = this._state.location ? Date.now() : 0;
+    }
 
     // ── Heartbeat mod kontrolü: hız sürüş/park eşiğini geçtiyse yeniden kur ─
     if ('speed' in patch && this._running) {
@@ -316,23 +350,144 @@ export class TelemetryService {
       location: this._state.location,
     };
 
+    /* ── SÖZLEŞME KURUCUSU ──────────────────────────────────────────────
+     * ONARILAN KUSUR: burada elle kurulan payload `rpm` ve `temp` TAŞIMIYORDU;
+     * `push_vehicle_event` RPC ise ikisini de okuyor → `vehicle_telemetry.rpm`
+     * ve `.temp` HİÇ güncellenmiyor, veritabanında kalıcı `0` kalıyordu.
+     * Ayrıca `speed: this._state.speed ?? 0` BİLİNMEYEN hızı `0` yapıyordu.
+     * Artık alanlar `telemetryContract` tarafından KANIT'a göre kurulur:
+     * bilinmeyen alan payload'a HİÇ girmez, bayat kaynak atlanır. */
+    const nowMs = Date.now();
+    const obdSnap = this._readObdSnapshot();
+    const fused   = getFusedSpeed();
+
+    const report: TelemetryBuildReport = buildTelemetryFields({
+      nowMs,
+      obd: obdSnap,
+      gps: this._state.location
+        ? {
+            latitude:  this._state.location.lat,
+            longitude: this._state.location.lng,
+            headingDeg: this._state.heading ?? undefined,
+            accuracyM:  this._state.location.accuracy ?? undefined,
+            // Konum damgası resolver patch'inden gelir; yoksa şimdi kabul edilir
+            // (patch az önce işlendi) — bayatlık penceresi aşağıdaki sabittir.
+            lastFixMs: this._lastLocationAtMs > 0 ? this._lastLocationAtMs : nowMs,
+            freshWindowMs: GPS_FRESH_WINDOW_MS,
+          }
+        : null,
+      // OBD hızı yoksa füzyonlanmış hız yedeğe geçer (kaynak GPS olarak damgalanır).
+      fusedSpeedKmh: this._state.speed ?? undefined,
+      speedConfidence: fused.confidence,
+      reverse: this._state.reverse,
+    });
+
+    this._lastBuild = report;
+
     const payload: TelemetryPayload = {
-      speed:           this._state.speed ?? 0,
-      reverse:         this._state.reverse,
-      fuel:            this._state.fuel,
-      heading:         this._state.heading,
-      lat:             this._state.location?.lat      ?? null,
-      lng:             this._state.location?.lng      ?? null,
-      accuracy:        this._state.location?.accuracy ?? null,
-      speedConfidence: getFusedSpeed().confidence,
+      ...report.fields,
       // Monotonic Δ — Date.now() yerine performance.now() ile saat atlaması engeli
-      ts:              Math.round(performance.now() - this._origin),
+      ts:    Math.round(performance.now() - this._origin),
       event,
       metadata,
     };
 
     // Fire-and-forget: pushVehicleEvent tüm network hatalarını sessizce yutar
     pushVehicleEvent(event, payload as unknown as Record<string, unknown>);
+  }
+
+  /**
+   * OBD anlık görüntüsünü sözleşme girdisine çevirir.
+   * FAIL-SOFT: OBD servisi okunamazsa `null` → OBD alanları hiç eklenmez
+   * (sahte `0` üretmek yerine "bilinmiyor" doğrudur).
+   */
+  private _readObdSnapshot() {
+    try {
+      const s = getOBDDataSnapshot();
+      return {
+        connected:     s.transportConnected === true && s.source === 'real',
+        fresh:         s.dataFresh === true,
+        lastSeenMs:    typeof s.lastSeenMs === 'number' ? s.lastSeenMs : 0,
+        freshWindowMs: getObdFreshWindowMs(),
+        rpm:           s.rpm,
+        engineTempC:   s.engineTemp,
+        speedKmh:      s.speed,
+        fuelPercent:   s.fuelLevel,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  /** Son kurulan payload raporu — CAROS LAB salt-okur (gözlemlenebilirlik). */
+  getLastBuildReport(): TelemetryBuildReport | null {
+    return this._lastBuild;
+  }
+
+  /**
+   * ARAÇ KİMLİĞİNİN **TEK AĞ UCU** (`record_vehicle_identity`).
+   *
+   * ⚠️ Bu metot DOĞRUDAN ÇAĞRILMAZ. Tek meşru çağıran
+   * `vehicleIdentityCoordinator`'dır; kimlik doğrulama (kanıt kapısı),
+   * dedupe, retry ve çakışma yorumu ORADA yapılır. Buraya ikinci bir
+   * çağıran eklemek "ikinci kimlik otoritesi" demektir ve kilit testiyle
+   * engellenir.
+   *
+   * Hot-path'e GİRMEZ: kimlik nadiren değişir. Güven puanı ve revizyon
+   * SUNUCUDA üretilir — istemci kendi güvenini yükseltemez.
+   *
+   * Fail-soft: `null` döner; telemetri akışı ETKİLENMEZ (kimlik, ölçüm
+   * göndermenin ön koşulu DEĞİLDİR).
+   */
+  async publishIdentityObservation(
+    obs: VehicleIdentityObservation,
+  ): Promise<IdentityAck | null> {
+    try {
+      const report = buildIdentityReport({
+        vin: obs.vin,
+        vinSource: obs.vinSource,
+        make: obs.make,
+        model: obs.model,
+        modelYear: obs.modelYear,
+        fingerprintHash: obs.fingerprintHash,
+        fingerprintVersion: obs.fingerprintVersion,
+        activeObdProtocol: obs.activeProtocol,
+      });
+      /* Kanıtsız gövde gönderilmez (koordinatör de ayrıca kapatır —
+         savunma katmanlı). */
+      if (!report.sendable) return null;
+
+      /* Araç nesli TÜREVDİR; gövdeye ayrı alan olarak eklenir çünkü
+         sunucu onu saklar ama ÜRETMEZ. */
+      const body: Record<string, unknown> = { ...report.body };
+      if (obs.vehicleGeneration !== null) {
+        body.p_vehicle_generation = obs.vehicleGeneration;
+      }
+
+      const raw = await callVehicleRpc('record_vehicle_identity', body);
+      /* `null` = ağ/HTTP hatası → koordinatör retry'a düşer. Sunucunun
+         verdiği hüküm ile ağ hatası KARIŞTIRILMAZ. */
+      if (raw === null) return null;
+
+      const ack = parseIdentityAck(raw);
+      this._lastIdentity = { body: report.body, maskedVin: report.maskedVin, ack };
+      return ack;
+    } catch {
+      /* Fail-soft — kimlik bildirimi ölçüm akışını ASLA durdurmaz. */
+      return null;
+    }
+  }
+
+  /**
+   * Son kimlik gönderiminin anlık görüntüsü — CAROS LAB salt-okur.
+   * TAM VIN İÇERMEZ (`maskedVin`); `api_key` hiç taşınmaz.
+   */
+  getLastIdentityReport(): {
+    body: IdentityRpcBody;
+    maskedVin: string;
+    ack: IdentityAck | null;
+  } | null {
+    return this._lastIdentity;
   }
 
   /**

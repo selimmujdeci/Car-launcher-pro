@@ -9,16 +9,21 @@ import {
   startAutoBrightness, stopAutoBrightness, updateAutoBrightnessLocation,
 } from '../platform/autoBrightnessService';
 import { startTripLog, stopTripLog } from '../platform/tripLogService';
+import { startTripMeter, stopTripMeter } from '../platform/trip/tripMeterService';
+import { startTripSession, stopTripSession } from '../platform/trip/tripSessionService';
+import { startLocationContext, stopLocationContext } from '../platform/location/locationContextService';
+import {
+  startTunnelNightRuntime, stopTunnelNightRuntime,
+} from '../platform/map/tunnelNightRuntime';
 import {
   startNotificationService, stopNotificationService,
 } from '../platform/notificationService';
 import { startWeatherService, stopWeatherService, setWeatherFallback, feedGPSLocation } from '../platform/weatherService';
-import { startSpeedLimitService, stopSpeedLimitService } from '../platform/speedLimitService';
 import {
-  setBrightness,
+  setBrightnessAuto,
   startHeadlightAutoBrightness, stopHeadlightAutoBrightness,
 } from '../platform/systemSettingsService';
-import { startGPSTracking, stopGPSTracking, feedBackgroundLocation } from '../platform/gpsService';
+import { startGPSTracking, stopGPSTracking, feedBackgroundLocation, getGPSLocationTruthDiagnostics } from '../platform/gpsService';
 import { startOBD, stopOBD, setObdFuelConfig } from '../platform/obdService';
 import { syncManufacturerDidProfile } from '../platform/obd/profiles';
 import { startWifiService, stopWifiService } from '../platform/wifiService';
@@ -122,7 +127,6 @@ export function useLayoutServices({
       profile?.avgConsumptionL100 ?? 8.0, // varsayılan: 8 L/100 km
       profile?.obdDeviceAddress,          // Fix 3: bilinen MAC → scan atla
     );
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storeSettings.activeVehicleProfileId, storeSettings.vehicleProfiles]);
 
   // Wake word artık SystemBoot Wave 4'teki startWakeWordService() tarafından
@@ -165,7 +169,6 @@ export function useLayoutServices({
       })();
     }, 5000);
     return () => clearTimeout(t);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Android 12+ / 13+ runtime izinleri — bildirim + Bluetooth (native only, once)
@@ -174,13 +177,12 @@ export function useLayoutServices({
     CarLauncher.requestAndroid13Permissions().catch((e: unknown) => {
       logError('useLayoutServices:requestAndroid13Permissions', e);
     });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Background GPS service + break reminder (native only, once)
   useEffect(() => {
     if (!isNative) return;
-    CarLauncher.startBackgroundService().catch((e: unknown) => {
+    CarLauncher.startBackgroundService({ gpsGeneration: getGPSLocationTruthDiagnostics().generation }).catch((e: unknown) => {
       logError('useLayoutServices:startBackgroundService', e);
       showToast({ type: 'warning', title: 'Arka Plan GPS', message: 'Foreground servis başlatılamadı.', duration: 5000 });
     });
@@ -288,7 +290,6 @@ export function useLayoutServices({
       unmounted = true;
       handle?.remove();
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Araç profil algılama
@@ -358,15 +359,29 @@ export function useLayoutServices({
     initializeAddressBook().catch((e: unknown) => {
       logError('useLayoutServices:initializeAddressBook', e);
     });
-    startSpeedLimitService();
     startTripLog();
+    startTripMeter();
+    /* Oturum katmanı tripLog'un YAYININA abone olur → tripLog'dan SONRA
+       başlar, ondan ÖNCE durur (abonelik sahipsiz kalmasın). */
+    startTripSession();
+    /* Konum bağlamı: abonelik/timer KURMAZ — yalnız okuyucuyu kaydeder ve
+       ağır modülleri ısıtır (Mavi'nin ilk turu boş bağlam görmesin). */
+    startLocationContext();
+    /* Tünel → harita gece örtüsü köprüsü. Yeni dedektör/timer YOK: mevcut
+       `autoBrightnessService` tünel kararına TEK dinleyici bağlar. */
+    startTunnelNightRuntime();
     startNotificationService();
     startWeatherService();
-    setBrightness(useStore.getState().settings.brightness);
+    /* AÇILIŞ onarımı OTOMASYONDUR — kullanıcı API'si değil. Termal kap aktifken
+       eski yol talebi reddedip toast atıyor, parlaklığı HİÇ uygulamıyordu. */
+    setBrightnessAuto(useStore.getState().settings.brightness);
     startHeadlightAutoBrightness(() => useStore.getState().settings.brightness);
     return () => {
-      stopSpeedLimitService();
+      stopTunnelNightRuntime();
+      stopLocationContext();
+      stopTripSession();
       stopTripLog();
+      stopTripMeter();
       stopNotificationService();
       stopWeatherService();
       stopHeadlightAutoBrightness();

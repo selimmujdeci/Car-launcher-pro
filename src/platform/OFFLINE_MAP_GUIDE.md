@@ -1,205 +1,147 @@
-# Offline Map System Guide
+# Çevrimdışı Harita — Geliştirici Rehberi
 
-## Overview
+> **Bu belge 2026-08-22'de baştan yazıldı (V-18).**
+> Önceki sürüm mimari çekirdek olarak `offlineMapService.ts` ve `tileLoader.ts`
+> adlı **iki dosyayı anlatıyordu; ikisi de repoda hiç yoktu.** İçindeki her
+> `import` örneği derlenmeyecek koddu. Aşağıdaki her modül ve fonksiyon adı
+> yazım anında repoda **doğrulanmıştır**.
 
-The offline map system provides true offline-first tile rendering using local storage. The system automatically caches tiles as they're downloaded and serves them from cache on subsequent requests or when the network is unavailable.
+---
 
-## Architecture
+## Mimarinin özeti
 
-### Core Components
+Çevrimdışı harita **tek bir servis değildir**; dört katmanın iş bölümüdür:
 
-1. **offlineMapService.ts** - Manages offline storage, tile caching, and fetch interception
-2. **tileLoader.ts** - Handles importing tile packages and pre-caching strategies
-3. **mapService.ts** - Initializes MapLibre GL with offline support
-4. **gpsService.ts** - Provides real-time GPS tracking
-5. **MiniMapWidget.tsx** - Dashboard map component
-6. **FullMapView.tsx** - Full-screen map interface
+| Katman | Dosya | Sorumluluk |
+|--------|-------|-----------|
+| Kaynak seçimi | `src/platform/mapSourceManager.ts` | Hangi harita kaynağı etkin, ağ var mı, stil nasıl kurulur |
+| Protokol | `src/platform/mapProtocols.ts` | MapLibre'ın karo/glif isteklerini yakalar |
+| Karo önbelleği | `src/core/storage/CacheLRUManager.ts` | Cache Storage üzerinde LRU + koridor koruması |
+| Toplu indirme | `src/platform/offlineTileDownloader.ts` | Bölge/alan ön yüklemesi |
 
-### Offline-First Strategy
+Ek: `src/platform/map/vectorTileTemplate.ts` (canlı TileJSON'dan karo URL şablonu),
+`public/serviceWorker.js` (uygulama kabuğu önbelleği).
 
-The system uses a fetch interceptor that:
-1. Checks local cache for tiles first
-2. Falls back to network if cache miss
-3. Automatically caches successful network responses
-4. Serves cached tiles when network is unavailable
+> **Karolar VEKTÖRDÜR.** İndirme yolu da vektör karo çeker; raster yolu
+> kaldırılmıştır (V-07). Raster varsayan bir kod yazma.
 
-## Usage
+---
 
-### Basic Initialization
+## 1) Kaynak yönetimi — `mapSourceManager.ts`
 
-```typescript
-import { initializeMap } from '@/platform/mapService';
-import { startGPSTracking } from '@/platform/gpsService';
-import { initializeOfflineMapStorage } from '@/platform/offlineMapService';
+Açılışta bir kez kurulur; protokolleri de o kaydeder:
 
-// Initialize offline storage (called automatically in mapService)
-await initializeOfflineMapStorage();
+```ts
+import {
+  initializeMapSources, getMapSources, getActiveMapSource,
+  setActiveMapSource, hasOfflineMapData, getMapSourceStatus,
+} from '@/platform/mapSourceManager';
 
-// Start GPS tracking
-await startGPSTracking();
-
-// Initialize map (automatically sets up offline system)
-const map = await initializeMap(containerElement, { offline: true });
+await initializeMapSources();          // protokolleri de kaydeder
+const sources = getMapSources();
+setActiveMapSource(sources[0].id);
 ```
 
-### Pre-Caching Tiles for a Region
+- `hasOfflineMapData()` — çevrimdışı veri **var mı** (varlık sorusu; "hazır mı" değil).
+- `getMapSourceStatus()` — etkin kaynak, mod ve ağ durumunun tek okuması.
+- `detachNetworkListeners()` — **teardown'da çağır**; ağ dinleyicileri sızdırmasın
+  (zero-leak kuralı).
 
-```typescript
-import { getTileCoordinatesForBounds, cacheTile } from '@/platform/tileLoader';
+Stil kurucuları ayrı dışa açıktır: `buildVectorStyle` · `buildRoadStyle` ·
+`buildSatelliteStyle` · `buildHybridStyle`.
 
-// Get tile coordinates for an area
-const bounds = {
-  north: 41.0,    // São Paulo latitude
-  south: 40.8,
-  east: -46.2,    // São Paulo longitude
-  west: -46.4,
-};
+---
 
-const tiles = getTileCoordinatesForBounds(bounds.north, bounds.south, bounds.east, bounds.west, 13);
+## 2) Protokoller — `mapProtocols.ts`
 
-// Pre-cache tiles (in background)
-for (const tile of tiles) {
-  const tileUrl = `https://a.tile.openstreetmap.org/${tile.z}/${tile.x}/${tile.y}.png`;
-  const response = await fetch(tileUrl);
-  const blob = await response.blob();
-  await cacheTile(tile.z, tile.x, tile.y, blob);
-}
+MapLibre'a iki özel protokol kaydedilir:
+
+```ts
+import {
+  registerSmartTileProtocol, registerGlyphCacheProtocol,
+  unregisterProtocols, resetProtocolHits,
+} from '@/platform/mapProtocols';
 ```
 
-### Importing a Tile Package
+- `registerSmartTileProtocol()` — karo isteklerini önbellek üzerinden geçirir.
+  `initializeMapSources()` bunu **zaten çağırır**; ikinci kez çağırma.
+- `registerGlyphCacheProtocol()` — yazı tipi glifleri (etiketler ağsız da çizilsin).
+- `unregisterProtocols()` — harita örneği yok edilirken çağrılmalıdır.
 
-```typescript
-import { importTilePackage } from '@/platform/tileLoader';
+---
 
-// Import tiles from a pre-downloaded package
-const result = await importTilePackage('offline_maps/region_tiles', {
-  name: 'São Paulo Region',
-  minZoom: 8,
-  maxZoom: 16,
-  onProgress: (current, total) => {
-    console.log(`Caching: ${current}/${total}`);
-  },
-});
+## 3) Karo önbelleği — `CacheLRUManager`
 
-console.log(`Cached ${result.tilesCached} tiles, ${result.errors} errors`);
+Tekil örnek: `cacheLRUManager`. Depolama Cache Storage'dır (`caros-tiles-v1`).
+
+```ts
+import { cacheLRUManager } from '@/core/storage/CacheLRUManager';
+
+cacheLRUManager.init();                       // açılışta
+const stats = cacheLRUManager.getCacheStats();// hits · misses · hitRate · totalBytes · tileCount
+await cacheLRUManager.warmUrls(urls);         // önden ısıt
+await cacheLRUManager.hasTile(url);           // GERÇEKTEN önbellekte mi
+cacheLRUManager.markCorridorProtected(keys);  // rota koridorunu LRU'dan koru
+cacheLRUManager.clearCorridorProtection();
+await cacheLRUManager.clearAll();             // { deleted, freedBytes }
+cacheLRUManager.dispose();                    // teardown
 ```
 
-### Checking Cache Status
+**Neden `hasTile()` var:** bir karonun "indirildi" sayılması, sayaçların artmış olması
+DEĞİLDİR. Bir kez transfer edilmiş `ArrayBuffer`'ın **0 baytlık karo** olarak
+önbelleğe yazılması sahada yaşandı (kütük #614). İndirme başarısını **depodan
+okuyarak** doğrula, sayaçtan değil.
 
-```typescript
-import { getTileCacheStats, useOfflineMapState } from '@/platform/offlineMapService';
+**Koridor koruması** rota üzerindeki karoların LRU tarafından atılmasını engeller —
+navigasyon sırasında tünelden çıkınca harita boş kalmasın diye.
 
-// Get cache statistics
-const stats = await getTileCacheStats();
-console.log(`Cache size: ${stats.cacheSize}, Tiles: ${stats.totalTiles}`);
+---
 
-// Get offline map state
-const { isAvailable, mapDataPath, error } = useOfflineMapState();
+## 4) Toplu indirme — `offlineTileDownloader.ts`
+
+```ts
+import {
+  TILE_PRESETS, getTilesForPreset, estimateTileCount, estimateSizeMB,
+  buildAreaPreset, getDownloadState, subscribeDownloadState,
+} from '@/platform/offlineTileDownloader';
+
+const preset = TILE_PRESETS[0];
+const mb = estimateSizeMB(preset);             // kullanıcıya ÖNCE maliyeti göster
+const unsub = subscribeDownloadState((s) => { /* idle|downloading|paused|done|error|cancelled */ });
 ```
 
-### Clearing Cache
+`buildAreaPreset(...)` haritada seçilen alandan hazır kalıp üretir.
+`getDownloadState()` anlık durumu senkron okur; abonelikten dönen fonksiyonu
+**unmount'ta çağırmayı unutma**.
 
-```typescript
-import { clearTileCache } from '@/platform/tileLoader';
+---
 
-// Clear all cached tiles
-await clearTileCache();
+## 5) Karo URL şablonu — `map/vectorTileTemplate.ts`
+
+Şablon **sabit yazılmaz**, canlı TileJSON'dan çözülür:
+
+```ts
+import { resolveVectorTileTemplate, tileUrlFrom, extractVersionHint }
+  from '@/platform/map/vectorTileTemplate';
 ```
 
-## Local Tile Package Structure
+`extractVersionHint(url)` sağlayıcı sürümünü ayıklar — sağlayıcı şemayı
+değiştirdiğinde eski önbellek sessizce yanlış karo servis etmesin diye.
 
-If importing tiles from a package, organize them in this structure:
+---
 
-```
-offline_maps/
-  tiles/
-    13/
-      4125/
-        2737.png
-        2738.png
-      4126/
-        2737.png
-        ...
-    14/
-      8250/
-        5474.png
-        ...
-```
+## Sık yapılan hatalar
 
-Where:
-- `13` = zoom level
-- `4125` = tile X coordinate
-- `2737` = tile Y coordinate
+1. **Sayaçtan sonuç çıkarmak.** "3.000 karo indirildi" bir başarı kanıtı değildir;
+   `hasTile()` ile depodan doğrula.
+2. **Raster varsaymak.** Ürün vektör çiziyor; raster yolu kaldırıldı.
+3. **Temizlik atlamak.** `detachNetworkListeners()` · `unregisterProtocols()` ·
+   `cacheLRUManager.dispose()` ve abonelik iptalleri **zorunludur**.
+4. **`initializeMapSources()` sonrası protokolleri yeniden kaydetmek.**
+5. **Boş önbelleği "çevrimdışı hazır" saymak.** `hasOfflineMapData()` varlık sorar;
+   yeterlilik sormaz.
 
-## Performance Considerations
+## Lisans
 
-1. **Tile Cache**: Stored in device's Documents directory
-2. **Max Age**: 3000ms for GPS updates (configurable)
-3. **Rendering**: Event-driven, no render loop
-4. **Memory**: Zustand state management for minimal overhead
-
-## Offline Behavior
-
-### When Network is Available
-- Map tiles load from network
-- Tiles are automatically cached for offline use
-- Cache provides faster subsequent loads
-
-### When Network is Unavailable
-- Map renders from local cache
-- Location tracking continues normally
-- Full functionality maintained (no degradation)
-
-## File Locations
-
-- **Tile Cache**: `Documents/offline_maps/tile_cache/{z}/{x}/{y}.png`
-- **Map Data**: `Documents/offline_maps/`
-- **Configuration**: Auto-created on first use
-
-## Limitations & Future Work
-
-Current implementation:
-- ✅ Offline tile caching and retrieval
-- ✅ Automatic fetch interception
-- ✅ GPS location tracking
-- ✅ Real-time map updates
-- ⏳ MBTiles format support (planned)
-- ⏳ Cloud sync for tile packages (planned)
-- ⏳ Tile server protocol support (planned)
-
-## Troubleshooting
-
-### Tiles Not Caching
-- Check filesystem permissions in AndroidManifest.xml
-- Verify Documents directory is accessible
-- Check for storage space
-
-### Map Not Loading Offline
-- Ensure tiles are cached (check tile_cache directory)
-- Verify tile coordinates match expected format
-- Check map bounds are correct
-
-### Performance Issues
-- Clear old cache with `clearTileCache()`
-- Reduce pre-cached zoom levels
-- Monitor GPS update frequency
-
-## API Reference
-
-### offlineMapService
-
-- `initializeOfflineMapStorage()` - Setup offline storage
-- `initializeTileInterceptor()` - Enable fetch interception
-- `cacheTile(z, x, y, data)` - Cache a tile
-- `getCachedTile(z, x, y)` - Retrieve cached tile
-- `listOfflineMaps()` - List available maps
-- `isOfflineMapAvailable()` - Check availability
-- `useOfflineMapState()` - Get state hook
-
-### tileLoader
-
-- `importTilePackage(path, options)` - Import tile package
-- `getTileCoordinatesForBounds(n, s, e, w, z)` - Get tiles for area
-- `preCacheTilesForArea(bounds, zoomLevels, fetchFn)` - Pre-cache region
-- `getTileCacheStats()` - Get cache info
-- `clearTileCache()` - Clear all cached tiles
+Harita verisi OpenStreetMap tabanlıdır → uygulamada **`© OpenStreetMap katkıcıları`**
+atıfı **zorunludur** (ODbL).

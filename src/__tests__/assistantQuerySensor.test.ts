@@ -24,6 +24,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { brainIntentAllowlist } from '../platform/capability/fabric/carosCapabilityCatalog';
 
 const root = process.cwd();
 const read = (p: string) => readFileSync(resolve(root, p), 'utf8');
@@ -124,19 +125,33 @@ describe('commandParser — query_sensor fallback', () => {
 describe('Beyin şeması (companionChatProvider) — QUERY_SENSOR', () => {
   const src = read('src/platform/companion/companionChatProvider.ts');
 
-  it('YAPISAL: BRAIN_INTENTS içinde QUERY_SENSOR var', () => {
-    const block = src.match(/const BRAIN_INTENTS\s*=\s*new Set<[^>]*>\(\[([\s\S]*?)\]\)/);
-    expect(block, 'BRAIN_INTENTS bloğu bulunamadı').toBeTruthy();
-    expect(block![1]).toMatch(/'QUERY_SENSOR'/);
+  it('YAPISAL: beyin allowlist\'inde QUERY_SENSOR var', () => {
+    /* MAVI-F5: liste artık ELLE YAZILMIYOR, capability kataloğundan TÜRETİLİYOR.
+       Kaynak metnini kazıyan eski kilit türetmeye geçince körleşirdi; bu yüzden
+       kilit GERÇEK allowlist'i çağırır — daha güçlü, çünkü türetmenin sonucunu
+       doğrular. */
+    expect(brainIntentAllowlist()).toContain('QUERY_SENSOR');
+    expect(src, 'provider tek kaynağı kullanmayı bırakmış').toContain('brainIntentAllowlist()');
   });
 
   it('YAPISAL: BrainJson şemasında sensorQuery VAR ama DEĞER alanı YOK (sahte değer üretilemez)', () => {
-    const block = src.match(/interface BrainJson \{[\s\S]*?\n\}/);
+    /* MAVI-F13/4: şema `companionBrainParser`e taşındı — kilit SİLİNMEDİ, yeni
+       sahibine bağlandı ve GÜÇLENDİRİLDİ: şemanın TAMAMINDA hiçbir değer alanı
+       olmadığı da taranıyor (eskiden yalnız `sensorValue` aranıyordu). */
+    const parserSrc = read('src/platform/companion/companionBrainParser.ts');
+    const block = parserSrc.match(/interface BrainJson \{[\s\S]*?\n\}/);
     expect(block, 'BrainJson arayüzü bulunamadı').toBeTruthy();
     expect(block![0]).toMatch(/sensorQuery\??:\s*string/);
-    // Değer taşıyan bir alan (sensorValue / value) BİLİNÇLİ OLARAK yok —
-    // beyin şemadan bir sayı/değer alanı bulup uyduramaz (plan §1).
-    expect(block![0]).not.toMatch(/sensorValue/);
+    /* Değer taşıyan HİÇBİR alan olmamalı — beyin şemadan bir sayı/değer alanı
+       bulup uyduramaz (plan §1). Sayısal alan yalnız `confidence` olabilir. */
+    expect(block![0]).not.toMatch(/sensorValue|sensorReading|\bvalue\s*\??:/);
+    const numericFields = (block![0].match(/^\s*(\w+)\??:\s*number/gm) ?? [])
+      .map((l) => (/^\s*(\w+)/.exec(l) as RegExpExecArray)[1]);
+    expect(numericFields, 'şemaya yeni bir SAYISAL alan eklenmiş — beyin değer uydurabilir')
+      .toEqual(['confidence']);
+    // Sağlayıcıda İKİNCİ bir şema kopyası doğmamalı.
+    expect(src, 'sağlayıcıda ikinci BrainJson şeması belirdi')
+      .not.toMatch(/interface BrainJson/);
   });
 
   it('YAPISAL: system prompt "sensör değeri uydurma" kuralını içerir', () => {

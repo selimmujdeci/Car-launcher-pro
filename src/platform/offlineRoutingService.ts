@@ -28,7 +28,30 @@ import { logError }          from './crashLogger';
 import { runtimeManager }    from '../core/runtime/AdaptiveRuntimeManager';
 import { systemBoot }        from './system/SystemBoot';
 import { supportsModuleWorker } from './deviceCapabilities';
+import {
+  recordOfflineGraphOutcome, shouldAttemptOfflineRoute,
+} from './navigation/offlineRoutingStatus';
+/* NAV v3 · F2.0 — navigasyon tazeliği MONOTONİK saatten (duvar saati değil). */
+import { readMonotonicNow } from './navigation/time/navClock';
+import {
+  shouldProbeLocalDaemon, recordLocalDaemonProbe,
+  getProviderReadinessSnapshot, LOCAL_PROBE_TIMEOUT_MS,
+} from './navigation/core/routeProviderReadiness';
 import type { RouteStep }    from './routingService';
+import {
+  acquireRegionalRoutingGraph, acquireRegionWindow, releaseRegionWindow, resolveAltTargetRow,
+  markAltNotAttempted,
+  releaseRoutingGraph, REGIONAL_GRAPH_MAX_RESIDENT,
+} from './navigation/map/graph/graphResidencyRuntime';
+import {
+  planCrossRegionSearchEnvelope, selectRegionalRouteCorridor, validateTurkeyGraphManifest,
+} from './navigation/map/graph/turkeyGraphManifest';
+import {
+  acquireRegionalPackages, validateDistributionManifest,
+  verifyRegionalPackagesLocal, discoverRegionalDistribution, pinRegionalDataset,
+  type RegionalDistributionConfig,
+  type RegionalDataFailure,
+} from './navigation/map/graph/regionalDataDistribution';
 
 /* ── Tipler ──────────────────────────────────────────────────── */
 
@@ -40,13 +63,29 @@ export interface OfflineRouteResult {
   source:    'offline-worker' | 'offline-daemon' | 'straight-line';
 }
 
+export type DistributedRouteResult =
+  | { readonly outcome: 'ROUTE_RESULT'; readonly route: OfflineRouteResult; readonly downloadedRegions: readonly string[] }
+  | { readonly outcome: 'MAP_DATA_MISSING'; readonly reason: 'REGIONAL_DATA_NOT_INSTALLED' }
+  | { readonly outcome: 'DATA_CORRUPT'; readonly reason: 'DATA_CORRUPT' | 'DISTRIBUTION_MANIFEST_INVALID' }
+  | { readonly outcome: 'DOWNLOAD_FAILED'; readonly reason: Exclude<RegionalDataFailure, 'REGIONAL_DATA_NOT_INSTALLED' | 'DATA_CORRUPT' | 'DISTRIBUTION_MANIFEST_INVALID'> }
+  | { readonly outcome: 'NO_ROUTE'; readonly reason: 'NO_ROUTE' };
+
 /* ── OSRM maneuver → Türkçe (daemon için yerel kopya) ─────────── */
 
-function _toTR(type: string, mod: string, name: string): string {
+const _EXIT_ORDINAL: Readonly<Record<number, string>> = {
+  1: 'birinci', 2: 'ikinci', 3: 'üçüncü', 4: 'dördüncü',
+  5: 'beşinci', 6: 'altıncı', 7: 'yedinci', 8: 'sekizinci',
+};
+
+function _toTR(type: string, mod: string, name: string, exit?: number | null): string {
   const s = name ? ` (${name})` : '';
   if (type === 'depart')                            return `Yola çıkın${s}`;
   if (type === 'arrive')                            return 'Hedefinize ulaştınız';
-  if (type === 'roundabout' || type === 'rotary')   return 'Dönel kavşakta devam edin';
+  if (type === 'roundabout' || type === 'rotary') {
+    // Çıkış numarası KANITLIYSA söylenir; yoksa UYDURULMAZ.
+    const ord = exit != null && Number.isFinite(exit) ? _EXIT_ORDINAL[exit] : undefined;
+    return ord ? `Dönel kavşakta ${ord} çıkıştan ayrılın${s}` : 'Dönel kavşakta devam edin';
+  }
   if (type === 'end of road')                       return 'Yol sonunda dönün';
   if (mod  === 'uturn')                             return 'U dönüşü yapın';
   if (mod  === 'sharp right')                       return `Sert sağa dönün${s}`;
@@ -73,27 +112,46 @@ function _toTR(type: string, mod: string, name: string): string {
  * Bu fonksiyon, daemon ayakta ise rota döner; değilse null döner.
  */
 const LOCAL_DAEMON_URL        = 'http://localhost:5000/route/v1/driving';
-const LOCAL_DAEMON_TIMEOUT_MS = 3_000; // native daemon genellikle <100ms yanıt verir
-
+/**
+ * ── ÖLÜ KATMAN KAPATILDI (denetim §4.2, cihazda ölçüldü) ────────────────────
+ * Eski değer 3 000 ms idi ve bu istek **her rotada** atılıyordu. Android'de
+ * böyle bir daemon YOK; yani en kritik anda — sapma sonrası reroute'ta —
+ * saf bekleme süresiydi. Artık iki koruma var:
+ *   1. Yoklama oturumda BİR KEZ yapılır (`shouldProbeLocalDaemon`).
+ *      Sonuç olumsuzsa bir daha DENENMEZ (daemon oturum içinde belirmez).
+ *   2. O tek yoklama da `LOCAL_PROBE_TIMEOUT_MS` (700 ms) ile SINIRLIDIR.
+ * Bu bir gizleme değildir: durum CAROS LAB · Navigation Core'da adıyla görünür.
+ */
 export async function tryLocalDaemon(
   fromLon: number, fromLat: number,
   toLon:   number, toLat:   number,
 ): Promise<OfflineRouteResult | null> {
   if (!Capacitor.isNativePlatform()) return null;
+
+  // Hazırlığı bilinmiyorsa TEK sınırlı yoklama; bilinip yoksa hiç deneme.
+  const readiness = getProviderReadinessSnapshot().localState;
+  if (readiness === 'LOCAL_OSRM_UNAVAILABLE') return null;
+  const probing = readiness === 'UNKNOWN' && shouldProbeLocalDaemon();
+  if (readiness === 'UNKNOWN' && !probing) return null;
+
   const ctrl  = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), LOCAL_DAEMON_TIMEOUT_MS);
+  const timer = setTimeout(() => ctrl.abort(), LOCAL_PROBE_TIMEOUT_MS);
   try {
     const url = `${LOCAL_DAEMON_URL}/${fromLon},${fromLat};${toLon},${toLat}?steps=true&geometries=geojson&overview=full`;
     const res = await fetch(url, { signal: ctrl.signal });
     clearTimeout(timer);
+    // Sunucu KONUŞTU → daemon gerçekten var. HTTP kodu ne olursa olsun
+    // hazırlık ölçülmüş sayılır (ölçüm "cevap verdi mi", "bu rotayı buldu mu" değil).
+    if (probing) recordLocalDaemonProbe(true, Date.now());
     if (!res.ok) return null;
 
     interface _DaemonOsrmStep {
       distance: number;
       duration: number;
       name: string;
-      maneuver: { type: string; modifier?: string };
+      maneuver: { type: string; modifier?: string; exit?: number };
       geometry: { coordinates: [number, number][] };
+      intersections?: Array<{ lanes?: Array<{ valid?: boolean; active?: boolean; indications?: string[] }> }>;
     }
     const data = await res.json() as {
       code: string;
@@ -107,15 +165,37 @@ export async function tryLocalDaemon(
     if (data.code !== 'Ok' || !data.routes?.length) return null;
 
     const r = data.routes[0];
-    const steps: RouteStep[] = (r.legs?.[0]?.steps ?? []).map(st => ({
-      instruction:      _toTR(st.maneuver.type, st.maneuver.modifier ?? 'straight', st.name ?? ''),
-      streetName:       st.name ?? '',
-      distance:         st.distance,
-      duration:         st.duration,
-      maneuverType:     st.maneuver.type,
-      maneuverModifier: st.maneuver.modifier ?? 'straight',
-      coordinate:       st.geometry.coordinates[0] as [number, number],
-    }));
+    const steps: RouteStep[] = (r.legs?.[0]?.steps ?? []).map(st => {
+      const exit = typeof st.maneuver.exit === 'number' ? st.maneuver.exit : null;
+      // GERÇEK şerit verisi — yoksa null. Manevra tipinden ok TÜRETİLMEZ.
+      let lanes: RouteStep['lanes'] = null;
+      const ix = st.intersections;
+      if (Array.isArray(ix)) {
+        for (let i = ix.length - 1; i >= 0; i--) {
+          const l = ix[i]?.lanes;
+          if (Array.isArray(l) && l.length > 0) {
+            lanes = l.map(x => ({
+              valid: x.valid === true,
+              active: x.active === true,
+              indications: Array.isArray(x.indications) ? x.indications.slice() : [],
+            }));
+            break;
+          }
+        }
+      }
+      return {
+        instruction:      _toTR(st.maneuver.type, st.maneuver.modifier ?? 'straight', st.name ?? '', exit),
+        streetName:       st.name ?? '',
+        distance:         st.distance,
+        duration:         st.duration,
+        maneuverType:     st.maneuver.type,
+        maneuverModifier: st.maneuver.modifier ?? 'straight',
+        coordinate:       st.geometry.coordinates[0] as [number, number],
+        roundaboutExit:   exit,
+        lanes,
+        geometryPointCount: st.geometry.coordinates.length,
+      };
+    });
 
     return {
       geometry:  r.geometry.coordinates as [number, number][],
@@ -126,6 +206,8 @@ export async function tryLocalDaemon(
     };
   } catch {
     clearTimeout(timer);
+    // Bağlantı reddi / timeout → daemon YOK. Bir daha denenmez.
+    if (probing) recordLocalDaemonProbe(false, Date.now());
     return null;
   }
 }
@@ -178,6 +260,63 @@ const _searchPending = new Map<string, {
 }>();
 let _searchReqCounter  = 0;
 const SEARCH_TIMEOUT_MS = 3_000;
+/** Aktif uzun-rota oturumları — pencere talebini karşılayan tek yer. */
+const _crossRegionPending = new Map<string, {
+  onNeedWindow: (windowIndex: number) => Promise<void>;
+}>();
+
+/**
+ * SON uzun-rota arama profili — YALNIZ GÖZLEM.
+ *
+ * CAROS LAB, aramanın hangi profille koştuğunu (ALT kanıtı var mıydı, bütçenin
+ * ne kadarı harcandı, kaç kez ağırlık tırmandı) başka türlü göremez. Burada
+ * yalnız worker'ın KENDİ ölçtüğü sayılar saklanır: hüküm üretilmez, komut
+ * gönderilmez, konum/hedef/VIN gibi hiçbir kişisel veri TUTULMAZ.
+ * Hiç ölçüm yapılmadıysa `null` kalır — sahte sıfır ÜRETİLMEZ.
+ */
+export interface CrossRegionSearchSnapshot {
+  readonly closedStates: number | null;
+  readonly maxClosedBudget: number | null;
+  readonly windowsUsed: number | null;
+  readonly weightEscalations: number | null;
+  readonly altLandmarkCount: number | null;
+  readonly altActive: boolean | null;
+  readonly reconstructionBytes: number | null;
+  /** RTG3 sınıfına göre kapatılan durum histogramı (indis = sınıf). */
+  readonly closedByClass: readonly number[] | null;
+  readonly observedAtMs: number;
+}
+
+let _lastCrossRegionSearch: CrossRegionSearchSnapshot | null = null;
+
+/** LAB için salt-okunur projeksiyon. İkinci bir gerçek kaynağı DEĞİLDİR. */
+export function getCrossRegionSearchSnapshot(): CrossRegionSearchSnapshot | null {
+  return _lastCrossRegionSearch;
+}
+
+function _recordCrossRegionStats(stats: Record<string, number> | null | undefined): void {
+  if (!stats) return;
+  const numberOrNull = (value: unknown) =>
+    typeof value === 'number' && Number.isFinite(value) ? value : null;
+  const histogram: number[] = [];
+  for (let i = 0; i < 10; i++) histogram.push(numberOrNull(stats[`closedClass${i}`]) ?? 0);
+  _lastCrossRegionSearch = {
+    closedStates: numberOrNull(stats.expansions),
+    maxClosedBudget: numberOrNull(stats.maxClosedBudget),
+    windowsUsed: numberOrNull(stats.windowsUsed),
+    weightEscalations: numberOrNull(stats.weightEscalations),
+    altLandmarkCount: numberOrNull(stats.altLandmarkCount),
+    altActive: numberOrNull(stats.altActive) === null ? null : stats.altActive === 1,
+    reconstructionBytes: numberOrNull(stats.reconstructionBytes),
+    closedByClass: histogram.some((n) => n > 0) ? histogram : null,
+    observedAtMs: Date.now(),
+  };
+}
+
+const _graphInstallPending = new Map<string, {
+  resolve: (installed: boolean) => void;
+  timer: ReturnType<typeof setTimeout>;
+}>();
 
 function _getOrCreateNavWorker(): Worker | null {
   if (_navWorker) return _navWorker;
@@ -185,13 +324,34 @@ function _getOrCreateNavWorker(): Worker | null {
   // çevrilemez, modül worker şart (Chrome 80+). Eski head unit WebView'ında
   // (Duster 64-79 / 8227L 52-74) worker YÜKLENMEZ → null dön, çağıran
   // computeOfflineRoute straightLineRoute fallback'ine düşer. (§HEAD_UNIT_MATRIX)
-  if (!supportsModuleWorker()) return null;
+  if (!supportsModuleWorker()) {
+    /* KALICI durum: WebView yetenek kazanmaz. Kaydedilir ki her rota
+       isteğinde yeniden denenmesin ve LAB nedeni gösterebilsin. */
+    recordOfflineGraphOutcome('WORKER_UNSUPPORTED', Date.now(), readMonotonicNow());
+    return null;
+  }
   try {
     const w = new Worker(
       new URL('./navigation/NavigationCompute.worker.ts', import.meta.url),
       { type: 'module', name: 'NavigationCompute' },
     );
 
+    _attachNavWorkerHandlers(w);
+
+    _navWorker = w;
+    runtimeManager.registerWorker('NavigationCompute', w, 'OPTIONAL');
+    return w;
+  } catch (e) {
+    return _navWorkerCreateFailed(e);
+  }
+}
+
+/**
+ * Worker mesaj/hata bağlantıları — TEK yerde. Ölçüm koşumu worker taşıyıcısını
+ * enjekte ettiğinde de AYNI bağlantılar kurulur; yoksa ürün mesaj sözleşmesi
+ * ölçümde çalışmaz ve ölçüm ürün yolunu temsil etmez.
+ */
+function _attachNavWorkerHandlers(w: Worker): void {
     w.onmessage = (e: MessageEvent) => {
       const msg = e.data as {
         type: string;
@@ -203,7 +363,33 @@ function _getOrCreateNavWorker(): Worker | null {
         reason?: string;
         count?: number;
         results?: POIWorkerResult[];
+        windowIndex?: number;
+        requestedRegionIds?: string[];
+        fromRegionIds?: string[];
+        crossRegion?: Record<string, number> | null;
+        stats?: Record<string, number> | null;
       };
+      /* Rota sonucu/hatası da profil taşır; en güncel ölçüm saklanır. */
+      if (msg.crossRegion) _recordCrossRegionStats(msg.crossRegion);
+
+      /* Uzun rota: worker "sıradaki pencere lazım" der; sakinlik kararı ve
+         bütçe BURADA (residency authority) kalır — worker kendi indirmez. */
+      if (msg.type === 'CROSS_REGION_NEED_WINDOW' && msg.requestId) {
+        _recordCrossRegionStats(msg.stats);
+        const session = _crossRegionPending.get(msg.requestId);
+        if (session) void session.onNeedWindow(Number(msg.windowIndex ?? 0));
+        return;
+      }
+
+      if ((msg.type === 'GRAPH_INSTALLED' || msg.type === 'GRAPH_INSTALL_ERROR') && msg.requestId) {
+        const install = _graphInstallPending.get(msg.requestId);
+        if (install) {
+          clearTimeout(install.timer);
+          _graphInstallPending.delete(msg.requestId);
+          install.resolve(msg.type === 'GRAPH_INSTALLED');
+        }
+        return;
+      }
 
       // POI arama yanıtı
       if ((msg.type === 'SEARCH_RESULT' || msg.type === 'SEARCH_ERROR') && msg.requestId) {
@@ -227,6 +413,7 @@ function _getOrCreateNavWorker(): Worker | null {
       _pending.delete(msg.requestId!);
 
       if (msg.type === 'ROUTE_RESULT') {
+        recordOfflineGraphOutcome('AVAILABLE', Date.now(), readMonotonicNow());
         req.resolve({
           geometry:  msg.geometry  ?? [],
           distanceM: msg.distanceM ?? 0,
@@ -235,7 +422,15 @@ function _getOrCreateNavWorker(): Worker | null {
           source:    'offline-worker',
         });
       } else {
-        req.resolve(null); // ROUTE_ERROR → null (fallback zinciri devam eder)
+        /* ROUTE_ERROR nedeni SINIFLANDIRILIR: "graph yok" KALICI bir
+           yetenek eksikliğidir, "rota bulunamadı" ise geçici bir sorgu
+           sonucudur. İkisini aynı kefeye koymak, olmayan bir yeteneği her
+           istekte yeniden denemek demekti (sessiz israf + görünmez arıza). */
+        const reason = String(msg.reason ?? '');
+        if (/graph/i.test(reason)) {
+          recordOfflineGraphOutcome('GRAPH_MISSING', Date.now(), readMonotonicNow());
+        }
+        req.resolve(null); // fallback zinciri devam eder (düz hat — DÜRÜSTÇE etiketli)
       }
     };
 
@@ -247,6 +442,11 @@ function _getOrCreateNavWorker(): Worker | null {
         req.resolve(null);
         _pending.delete(id);
       }
+      for (const [id, install] of _graphInstallPending.entries()) {
+        clearTimeout(install.timer);
+        install.resolve(false);
+        _graphInstallPending.delete(id);
+      }
       _navWorker = null;
       runtimeManager.registerWorker('NavigationCompute', null, 'OPTIONAL'); // referansı temizle
       void systemBoot.restartService('NavigationCompute').catch(() => {});
@@ -255,14 +455,11 @@ function _getOrCreateNavWorker(): Worker | null {
     w.onmessageerror = () => {
       logError('NavigationCompute:messageerror', new Error('Deserialize failed'));
     };
+}
 
-    _navWorker = w;
-    runtimeManager.registerWorker('NavigationCompute', w, 'OPTIONAL');
-    return w;
-  } catch (e) {
-    logError('NavigationCompute:create', e);
-    return null;
-  }
+function _navWorkerCreateFailed(e: unknown): Worker | null {
+  logError('NavigationCompute:create', e);
+  return null;
 }
 
 /**
@@ -278,6 +475,12 @@ export async function computeOfflineRoute(
   toLat:   number,
   toLon:   number,
 ): Promise<OfflineRouteResult | null> {
+  /* KISA DEVRE: grafik kalıcı olarak yoksa/bozuksa worker'ı ayağa kaldırmak
+     saf israftır (WASM + sql.js yükü) ve arızayı GÖRÜNMEZ kılar. Yetenek
+     yoksa dürüstçe `null` döner; çağıran zaten düz-hat katmanına düşer ve
+     kullanıcıya "düz hat navigasyon" DER — "çevrimdışı rota" DEMEZ. */
+  if (!shouldAttemptOfflineRoute()) return null;
+
   const w = _getOrCreateNavWorker();
   if (!w) return null;
 
@@ -293,6 +496,223 @@ export async function computeOfflineRoute(
     _pending.set(requestId, { resolve, reject, timer });
     w.postMessage({ type: 'COMPUTE_ROUTE', requestId, fromLat, fromLon, toLat, toLon });
   });
+}
+
+/**
+ * Shadow regional RTG3 yolu: manifest/residency görünümünü mevcut tek
+ * NavigationCompute worker'ına kurar ve aynı `computeOfflineRoute` authority'sini çalıştırır.
+ */
+export async function computeRegionalOfflineRoute(
+  manifestValue: unknown,
+  fromLat: number, fromLon: number,
+  toLat: number, toLon: number,
+  baseUrl = '/maps/rtg3/',
+): Promise<OfflineRouteResult | null> {
+  const manifest = validateTurkeyGraphManifest(manifestValue);
+  if (!manifest) return null;
+  const corridor = selectRegionalRouteCorridor(manifest, [fromLat,fromLon], [toLat,toLon]);
+  if (!corridor) return null;
+  const view = await acquireRegionalRoutingGraph(manifest, corridor.requiredRegionIds, baseUrl);
+  if (!view) { releaseRoutingGraph(); return null; }
+  const worker = _getOrCreateNavWorker();
+  if (!worker) { releaseRoutingGraph(); return null; }
+  const requestId = `g${++_reqCounter}`;
+  const installed = await new Promise<boolean>((resolve) => {
+    const timer = setTimeout(() => { _graphInstallPending.delete(requestId); resolve(false); }, NAV_WORKER_TIMEOUT_MS);
+    _graphInstallPending.set(requestId, { resolve, timer });
+    worker.postMessage({ type:'INSTALL_REGIONAL_GRAPH', requestId, graphView:view });
+  });
+  if (!installed) { releaseRoutingGraph(); return null; }
+  try {
+    return await computeOfflineRoute(fromLat,fromLon,toLat,toLon);
+  } finally {
+    worker.postMessage({ type:'CLEAR_REGIONAL_GRAPH' });
+    releaseRoutingGraph();
+  }
+}
+
+/**
+ * Ülke ölçeğinde SINIRLI SAKİNLİKLE uzun rota (RTG4).
+ *
+ * ── NE DEĞİŞTİ ────────────────────────────────────────────────────────────
+ * `computeRegionalOfflineRoute` koridoru tek seferde belleğe alır ve bu yüzden
+ * yalnız `REGIONAL_GRAPH_MAX_RESIDENT` bölgeye kadar çalışır. Mersin→İstanbul
+ * gibi 22 bölgelik bir koridor 77 MB'tır: 64 MiB tavanına SIĞMAZ. Çözüm tavanı
+ * büyütmek değil, pencereyi kaydırmaktır.
+ *
+ * ── SORUMLULUK SINIRI ─────────────────────────────────────────────────────
+ * Bu fonksiyon rota HESAPLAMAZ; yalnız hangi bölgenin ne zaman yerleşik
+ * olacağına karar verir. Rota gerçeği tek kanonik kenar-durumlu A*'ta kalır.
+ * Portal v2 koridoru yalnız pencere sırasını belirleyen budama kanıtıdır ve
+ * hiçbir koşulda araç rotası olarak yayınlanmaz.
+ */
+export async function computeCrossRegionOfflineRoute(
+  manifestValue: unknown,
+  fromLat: number, fromLon: number,
+  toLat: number, toLon: number,
+  baseUrl = '/maps/rtg3/',
+  options: { maxClosedStates?: number } = {},
+): Promise<OfflineRouteResult | null> {
+  const manifest = validateTurkeyGraphManifest(manifestValue);
+  if (!manifest) return null;
+  const envelope = planCrossRegionSearchEnvelope(
+    manifest, [fromLat, fromLon], [toLat, toLon], REGIONAL_GRAPH_MAX_RESIDENT);
+  if (!envelope) return null;
+  const worker = _getOrCreateNavWorker();
+  if (!worker) return null;
+
+  /* ── ALT (landmark) kanıtı — ÜRÜN YOLU ────────────────────────────────
+     Hedef satırı rota BAŞINDA çözülür; sezgisel ona ilk pencereden itibaren
+     ihtiyaç duyar. Çözülemezse ALT hiç gönderilmez ve arama coğrafi
+     (GEOMETRIC) profille koşar — bu bir hata değil, TANIMLI moddur. Bütçe
+     ALT yok diye BÜYÜTÜLMEZ; sığmazsa mevcut fail-closed hükmü geçerlidir. */
+  const altTarget = envelope.windows.length > 1
+    ? await resolveAltTargetRow(
+        manifest, envelope.windows[envelope.windows.length - 1], toLat, toLon, baseUrl)
+    : null;
+  /* Tek pencereli rota ALT'yi hiç DENEMEZ; sebep bu olarak kaydedilir ki
+     gözlemde "ALT bozuk" ile "ALT gerekmedi" karışmasın. */
+  if (envelope.windows.length <= 1) markAltNotAttempted('ALT_SHORT_ROUTE_NOT_ELIGIBLE');
+
+  const requestId = `x${++_reqCounter}`;
+  let settled = false;
+
+  return new Promise<OfflineRouteResult | null>((resolve) => {
+    const finish = (value: OfflineRouteResult | null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      _pending.delete(requestId);
+      _crossRegionPending.delete(requestId);
+      worker.postMessage({ type: 'CROSS_REGION_ABORT', requestId });
+      releaseRegionWindow();
+      resolve(value);
+    };
+
+    /* Zaman aşımı TÜM oturumu kapsar: her pencere için ayrı sayaç, sessizce
+       dakikalarca süren bir arama demekti. */
+    const timer = setTimeout(() => {
+      logError('NavigationCompute:crossRegionTimeout', new Error(`Request ${requestId} timed out`));
+      finish(null);
+    }, NAV_WORKER_TIMEOUT_MS * Math.max(1, envelope.windows.length));
+
+    _pending.set(requestId, {
+      resolve: (value) => finish(value),
+      reject: () => finish(null),
+      timer,
+    });
+
+    _crossRegionPending.set(requestId, {
+      onNeedWindow: async (windowIndex: number) => {
+        if (settled) return;
+        if (windowIndex < 0 || windowIndex >= envelope.windows.length) {
+          /* Koridor bitti ama hedef bulunamadı → rota UYDURULMAZ. */
+          finish(null);
+          return;
+        }
+        const regionIds = envelope.windows[windowIndex];
+        /* ALT dilimi YALNIZ hedef satırı çözülebildiyse istenir: satırsız dilim
+           sezgisele hiçbir şey katmaz, yalnız bellek ve indirme maliyetidir. */
+        const residency = await acquireRegionWindow(
+          manifest, regionIds, baseUrl, { alt: altTarget !== null });
+        if (settled) return;
+        if (!residency) { finish(null); return; }
+        const isFinal = windowIndex === envelope.windows.length - 1;
+        /* Sınır kanıtı DAR tutulur: yalnız bu pencerenin ÖNCÜ bölgesinden
+           koridorun bir sonraki bölgesine geçiren, seçilmiş bileşen çiftine
+           ait portal düğümleri. Pencerenin her yönündeki tüm çıkışları sınır
+           saymak, aramayı ilk birkaç kilometrede ilerletip süpürmeyi salınıma
+           sokuyordu (ölçüldü: koridor tamamlanamadı). */
+        worker.postMessage({
+          type: 'CROSS_REGION_WINDOW', requestId, windowIndex,
+          graphView: residency.view, identity: residency.identity,
+          exitPortals: isFinal ? [] : envelope.transitions[windowIndex].portalNodeIds.map(
+            (nodeId) => ({ nodeId, regionIds: [envelope.transitions[windowIndex].toRegionId] })),
+          /* Koridor alt sınırı: aramayı UZAK hedefe değil SIRADAKİ zorunlu
+             sınıra yöneltir (kabul edilebilir → rota gerçeği değişmez). */
+          boundaryBox: isFinal ? null : envelope.transitions[windowIndex].boundaryBox,
+          remainingLowerBoundM: isFinal ? 0 : envelope.transitions[windowIndex].remainingLowerBoundM,
+          isFinal,
+          /* ALT dilimi PENCEREYLE gelir; residency authority onu bölgenin
+             ömrüne bağlar. Kanıt yoksa `null` → worker GEOMETRIC'te kalır. */
+          altWindow: altTarget ? (residency.alt?.window ?? null) : null,
+        });
+      },
+    });
+
+    worker.postMessage({
+      type: 'CROSS_REGION_BEGIN', requestId,
+      fromLat, fromLon, toLat, toLon,
+      windowCount: envelope.windows.length,
+      maxClosedStates: options.maxClosedStates,
+      ...(altTarget ? {
+        altLandmarkCount: altTarget.landmarkCount,
+        altScaleM: altTarget.scaleM,
+        altUnreachable: altTarget.unreachableBucket,
+        altTargetFromL: altTarget.fromLandmark,
+        altTargetToL: altTarget.toLandmark,
+        altTargetNodeId: altTarget.targetNodeId,
+      } : {}),
+    });
+  });
+}
+
+/**
+ * Dağıtım manifestinden başlayan kanonik ürün seam'i.
+ * Ağ davranışı çağıranın açık `allowDownload` politikasına bağlıdır; bu servis
+ * çevrimdışıyken sessiz indirme başlatmaz. Koridor yalnız veri gereksinimini
+ * belirler, rota yine `computeCrossRegionOfflineRoute` içindeki aynı worker/A*'tır.
+ */
+export async function computeDistributedCrossRegionOfflineRoute(
+  distributionValue: unknown,
+  fromLat: number, fromLon: number, toLat: number, toLon: number,
+  options: { readonly allowDownload: boolean; readonly signal?: AbortSignal; readonly maxClosedStates?: number },
+): Promise<DistributedRouteResult> {
+  const distribution = await validateDistributionManifest(distributionValue);
+  if (!distribution) return { outcome: 'DATA_CORRUPT', reason: 'DISTRIBUTION_MANIFEST_INVALID' };
+  const envelope = planCrossRegionSearchEnvelope(
+    distribution.graphManifest, [fromLat, fromLon], [toLat, toLon], REGIONAL_GRAPH_MAX_RESIDENT,
+  );
+  if (!envelope) return { outcome: 'NO_ROUTE', reason: 'NO_ROUTE' };
+  let acquired: Awaited<ReturnType<typeof acquireRegionalPackages>> = { ok: true, downloaded: [] };
+  if (options.allowDownload) {
+    acquired = await acquireRegionalPackages(distribution, envelope.corridorRegionIds, options.signal);
+  } else {
+    /* Salt-okunur doğrulama acquire içinde indirme ile birleşmez: indirme kapalıyken
+       residency kurulu dosyaları okuyacak, eksikse açık veri-missing dönecektir. */
+    if (!await verifyRegionalPackagesLocal(distribution.graphManifest, envelope.corridorRegionIds)) {
+      return { outcome: 'MAP_DATA_MISSING', reason: 'REGIONAL_DATA_NOT_INSTALLED' };
+    }
+  }
+  if (!acquired.ok) {
+    if (acquired.reason === 'REGIONAL_DATA_NOT_INSTALLED') return { outcome: 'MAP_DATA_MISSING', reason: acquired.reason };
+    if (acquired.reason === 'DATA_CORRUPT' || acquired.reason === 'DISTRIBUTION_MANIFEST_INVALID') return { outcome: 'DATA_CORRUPT', reason: acquired.reason };
+    return { outcome: 'DOWNLOAD_FAILED', reason: acquired.reason };
+  }
+  const routePin = await pinRegionalDataset(distribution.graphManifest, envelope.corridorRegionIds);
+  if (!routePin) return { outcome: 'DATA_CORRUPT', reason: 'DATA_CORRUPT' };
+  let route: OfflineRouteResult | null;
+  try {
+    route = await computeCrossRegionOfflineRoute(
+      distribution.graphManifest, fromLat, fromLon, toLat, toLon, '/__installed_regional_data__/',
+      { maxClosedStates: options.maxClosedStates },
+    );
+  } finally { routePin.release(); }
+  return route
+    ? { outcome: 'ROUTE_RESULT', route, downloadedRegions: acquired.downloaded }
+    : { outcome: options.allowDownload ? 'NO_ROUTE' : 'MAP_DATA_MISSING', reason: options.allowDownload ? 'NO_ROUTE' : 'REGIONAL_DATA_NOT_INSTALLED' } as DistributedRouteResult;
+}
+
+/** Normal ürün girişi: URL çağırandan alınmaz, güvenilir product config okunur. */
+export async function computeDiscoveredCrossRegionOfflineRoute(
+  fromLat: number, fromLon: number, toLat: number, toLon: number,
+  options: { readonly allowDownload: boolean; readonly signal?: AbortSignal; readonly maxClosedStates?: number;
+    /** Yalnız test/deployment composition root'u; UI ve rota çağırıcısı URL vermez. */
+    readonly distributionConfig?: RegionalDistributionConfig },
+): Promise<DistributedRouteResult> {
+  const distribution = await discoverRegionalDistribution(options.distributionConfig, options.signal);
+  if (!distribution) return { outcome: 'DOWNLOAD_FAILED', reason: 'DOWNLOAD_FAILED' };
+  return computeDistributedCrossRegionOfflineRoute(distribution, fromLat, fromLon, toLat, toLon, options);
 }
 
 /* ── Straight-line fallback (son çare) ───────────────────────── */
@@ -323,6 +743,19 @@ export function straightLineRoute(
  * SystemBoot.restartService('NavigationCompute') tarafından çağrılır.
  * Worker crash sonrası yeni worker önceden ısıtılır; sonraki rota isteği beklemez.
  */
+/**
+ * ÖLÇÜM KANCASI — worker TAŞIYICISINI değiştirir, rota mantığını DEĞİŞTİRMEZ.
+ *
+ * Masaüstü doğrulama koşumu Node'da çalışır ve `new Worker(new URL(...))`
+ * orada yoktur. Bu kanca yalnız taşıyıcıyı enjekte eder; envelope planlama,
+ * residency, ALT çözümü ve mesaj sözleşmesi ÜRÜN KODUNDAN gelir. Yani ölçüm
+ * "gölge enjeksiyon" değildir: ALT kanıtını ürün yolu kendisi yükler.
+ */
+export function _setNavWorkerForTest(worker: Worker | null): void {
+  _navWorker = worker;
+  if (worker) _attachNavWorkerHandlers(worker);
+}
+
 export function restartNavWorker(): void {
   if (_navWorker) return; // zaten çalışıyorsa no-op
   _getOrCreateNavWorker(); // _navWorker null ise yeni oluşturur ve runtimeManager'a kaydeder

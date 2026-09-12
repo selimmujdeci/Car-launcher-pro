@@ -212,31 +212,16 @@ describe('admin — Incident Center voice_diag filtresi', () => {
   });
 });
 
-/* ── 6. Migration 022 sözleşmesi (statik) ────────────────────── */
-
-describe('migration 022 — sunucu guard/retention/indeks', () => {
-  const sql = readFileSync(
-    join(process.cwd(), 'supabase', 'migrations', '20260610000022_voice_diag_log_type.sql'), 'utf-8');
-
-  it('voice_diag üç bekçide de var: rate limit + retention + indeks', () => {
-    // push_vehicle_event c_log_types
-    expect(sql).toMatch(/c_log_types\s+constant text\[\]\s+:= ARRAY\[.*'voice_diag'\]/);
-    // retention DELETE listesi
-    expect(sql).toMatch(/DELETE FROM public\.vehicle_events\s+WHERE type IN \(.*'voice_diag'\)/);
-    // kısmi indeks WHERE listesi
-    expect(sql).toMatch(/CREATE INDEX idx_vehicle_events_log_rate[\s\S]*WHERE type IN \(.*'voice_diag'\)/);
-  });
-
-  it('RPC imzası ve GRANT disiplini korunur (020 ile aynı)', () => {
-    expect(sql).toMatch(/p_api_key text,\s*p_type\s+text,\s*p_payload jsonb DEFAULT '\{\}'\s*\) RETURNS uuid/);
-    expect(sql).toContain("GRANT  EXECUTE ON FUNCTION public.push_vehicle_event(text, text, jsonb) TO anon, authenticated;");
-    expect(sql).toContain('GRANT  EXECUTE ON FUNCTION public.cleanup_vehicle_log_events() TO service_role;');
-    expect(sql).not.toContain('DROP FUNCTION'); // imza aynı → GRANT'lar korunur
-    expect(sql).not.toContain('service_role key'); // cihaz yolu anon kalır
-  });
-
-  it('verification DO bloğu kendi kendini doğruluyor', () => {
-    expect(sql).toMatch(/pg_get_functiondef[\s\S]*voice_diag/);
-    expect(sql).toMatch(/RAISE EXCEPTION 'voice_diag:/);
-  });
-});
+/* ── 6. Sunucu sözleşmesi — NEREYE TAŞINDI (kütük #588) ──────────
+ *
+ * Buradaki blok migration 022'nin SQL METNİNİ okuyup `voice_diag`ın üç sunucu
+ * bekçisinde (rate limit · retention · kısmi indeks) yer aldığını doğruluyordu.
+ * #583'ün baseline squash'ı 022'yi `supabase/migrations_archive/`'e taşıyınca
+ * bu dosya YÜKLEME ANINDA düşüyordu — yani buradaki her şey ölüydü.
+ *
+ * İddia SİLİNMEDİ, TAŞINDI: `prodBaselineSecurityGuards.test.ts` içindeki
+ * "voice_diag üç bekçinin de kapsamında" kilidi aynı üç şeyi artık üretimin
+ * gerçeğine (`00000000000000_prod_baseline.sql`) soruyor — migration'ın
+ * niyetine değil. Yukarıdaki bloklar (istemci akışı, admin filtre sözleşmesi)
+ * bu dosyada kalır; onların sunucuda karşılığı yoktur.
+ */

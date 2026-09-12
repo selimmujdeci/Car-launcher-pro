@@ -16,4 +16,9 @@ ext {
     androidxJunitVersion = '1.3.0'
     androidxEspressoCoreVersion = '3.7.0'
     cordovaAndroidVersion = '14.0.1'
+    // MÜZİK HUB PAKET A — tek native Automotive Playback Authority (Media3/ExoPlayer).
+    // Lisans: Apache-2.0 → ticari satışa uygun (CLAUDE.md lisans kuralı).
+    media3Version = '1.4.1'
+    // Robolectric: MediaSessionService/AudioFocus davranışını JVM'de koşabilmek için.
+    robolectricVersion = '4.13'
 }

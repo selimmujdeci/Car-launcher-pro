@@ -1,60 +1,27 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { isSupabaseConfigured } from '@/lib/supabase';
-import { supabaseAdmin } from '@/lib/supabaseAdmin';
-import { generateApiKey, hashApiKey } from '@/lib/crypto';
+/**
+ * /api/vehicle/register — KULLANIMDAN KALDIRILDI (Fleet Vehicle Connectivity P0).
+ *
+ * KOD KANITI: head unit bu rotayı HİÇ çağırmaz — `vehicleIdentityService`
+ * doğrudan `register_vehicle` RPC'sini kullanır (anon key ile,
+ * `src/platform/vehicleIdentityService.ts:119`). Grep sonucu: rotayı yalnız bir
+ * test dosyası kaynak olarak import ediyor.
+ *
+ * Ayrıca bu rota `vehicles.api_key_hash` kolon şemasıyla çalışıyordu (canlı
+ * şemada `api_key`; migration 024 `coalesce(api_key_hash, api_key)` ile
+ * yamalamıştı) ve yanıtta **raw `apiKey` döndürüyordu**.
+ *
+ * İkinci bir kayıt otoritesi bırakmak yerine fail-closed kapatıldı.
+ * Kanonik yol: head unit `register_vehicle` → 6 haneli kod → `/api/vehicle/link`.
+ */
 
-// Demo mode: in-process store (lives only for the lifetime of the Node.js process)
-const demoVehicles = new Map<string, { id: string; name: string; apiKeyHash: string }>();
+import { NextResponse } from 'next/server';
+import {
+  DEPRECATED_PAIRING_ROUTES,
+  deprecatedRouteBody,
+} from '@/lib/deprecatedPairingRoutes';
 
-export async function POST(req: NextRequest) {
-  try {
-    const body = await req.json();
-    const { deviceId, name } = body as { deviceId?: string; name?: string };
+const ROUTE = DEPRECATED_PAIRING_ROUTES.find((r) => r.path === '/api/vehicle/register')!;
 
-    if (!deviceId || !name) {
-      return NextResponse.json({ error: 'deviceId ve name zorunludur.' }, { status: 400 });
-    }
-
-    const rawApiKey  = generateApiKey();
-    const apiKeyHash = hashApiKey(rawApiKey);
-
-    if (!isSupabaseConfigured) {
-      // ── Demo mode ──────────────────────────────────────────────
-      if (Array.from(demoVehicles.values()).some((v) => v.name === deviceId)) {
-        return NextResponse.json({ error: 'Cihaz zaten kayıtlı.' }, { status: 409 });
-      }
-      const vehicleId = `demo-${Date.now()}`;
-      demoVehicles.set(deviceId, { id: vehicleId, name, apiKeyHash });
-      return NextResponse.json({ vehicleId, apiKey: rawApiKey });
-    }
-
-    // ── Supabase mode ───────────────────────────────────────────
-    // Check existing
-    const { data: existing } = await supabaseAdmin
-      .from('vehicles')
-      .select('id')
-      .eq('device_id', deviceId)
-      .maybeSingle();
-
-    if (existing) {
-      return NextResponse.json({ error: 'Cihaz zaten kayıtlı.' }, { status: 409 });
-    }
-
-    const { data, error } = await supabaseAdmin
-      .from('vehicles')
-      .insert({ name, device_id: deviceId, api_key_hash: apiKeyHash })
-      .select('id')
-      .single();
-
-    if (error || !data) {
-      console.error('vehicle/register:', error);
-      return NextResponse.json({ error: 'Kayıt başarısız.' }, { status: 500 });
-    }
-
-    // rawApiKey returned ONCE — device must store securely
-    return NextResponse.json({ vehicleId: data.id, apiKey: rawApiKey });
-  } catch (err) {
-    console.error('vehicle/register:', err);
-    return NextResponse.json({ error: 'Sunucu hatası.' }, { status: 500 });
-  }
+export async function POST(): Promise<NextResponse> {
+  return NextResponse.json(deprecatedRouteBody(ROUTE), { status: ROUTE.status });
 }

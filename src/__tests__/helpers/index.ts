@@ -502,3 +502,42 @@ export function createCleanup() {
     },
   };
 }
+
+/**
+ * Kaynak metninden YORUMLARI söker — "kodda şu ifade geçmesin" kilitleri için.
+ *
+ * NEDEN GEREKLİ (2026-08-21): kaynak metni tarayan yasak kilitleri, yasağı
+ * ANLATAN yorum cümlelerine takılıyordu (`"Date.now() YOK"` · `"VIN taşınmaz"` ·
+ * `"refreshKwpRecoveryEvidence çağrılmaz"`). Yasağı açıklayan cümleyi ihlal
+ * sayan bir kilit DOĞRU kodu kırmızı gösterir ve zamanla belgeyi budamaya
+ * zorlar — tam tersi istenir. Kilit KODU hedeflemelidir.
+ *
+ * Dize içindeki `//` ve `/*` dizileri korunur (naif regex'in bozduğu yer).
+ */
+export function stripComments(text: string): string {
+  let out = '';
+  let i = 0;
+  let quote: string | null = null;
+  while (i < text.length) {
+    const c = text[i];
+    const next = text[i + 1];
+    if (quote !== null) {
+      if (c === '\\') { out += c + (next ?? ''); i += 2; continue; }
+      if (c === quote) quote = null;
+      out += c; i += 1; continue;
+    }
+    if (c === '"' || c === "'" || c === '`') { quote = c; out += c; i += 1; continue; }
+    if (c === '/' && next === '*') {
+      const end = text.indexOf('*/', i + 2);
+      i = end === -1 ? text.length : end + 2;
+      continue;
+    }
+    if (c === '/' && next === '/') {
+      const end = text.indexOf('\n', i);
+      i = end === -1 ? text.length : end;
+      continue;
+    }
+    out += c; i += 1;
+  }
+  return out;
+}

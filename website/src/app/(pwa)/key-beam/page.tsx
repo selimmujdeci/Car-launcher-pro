@@ -40,12 +40,17 @@ function KeyBeamInner() {
   // kind: araç QR'ı hangi sağlayıcı için üretti → doğru talimat + "Key Al" linki.
   // Verilmezse (eski QR / jenerik) "API" fallback'i gösterilir.
   const kind = searchParams.get('kind') ?? '';
-  const PROVIDER: { name: string; paste: string; url: string; host: string } = ({
-    gemini: { name: 'Gemini',        paste: 'Gemini API anahtarınızı',        url: 'https://aistudio.google.com/apikey',            host: 'aistudio.google.com' },
-    tavily: { name: 'Tavily',        paste: 'Tavily arama anahtarınızı',      url: 'https://app.tavily.com',                        host: 'app.tavily.com' },
-    groq:   { name: 'Groq',          paste: 'Groq API anahtarınızı',          url: 'https://console.groq.com/keys',                 host: 'console.groq.com' },
-    haiku:  { name: 'Claude Haiku',  paste: 'Claude Haiku API anahtarınızı',  url: 'https://console.anthropic.com/settings/keys',   host: 'console.anthropic.com' },
-  } as const)[kind as 'gemini' | 'tavily' | 'groq' | 'haiku'] ?? { name: 'API', paste: 'API anahtarınızı', url: '', host: '' };
+  // `hint`: giriş kutusunun ipucu + format hatası metni. Eskiden SABİT "AIza... / AQ..."
+  // yazıyordu → Groq/Haiku/Tavily kullanıcısı doğru anahtarı yapıştırsa bile yanlış
+  // biçim bekleniyor sanıyordu. Artık sağlayıcıdan gelir.
+  const PROVIDER: { name: string; paste: string; url: string; host: string; hint: string } = ({
+    gemini:     { name: 'Gemini',        paste: 'Gemini API anahtarınızı',        url: 'https://aistudio.google.com/apikey',            host: 'aistudio.google.com',   hint: 'AIza... / AQ...' },
+    openrouter: { name: 'OpenRouter',    paste: 'OpenRouter API anahtarınızı',    url: 'https://openrouter.ai/keys',                    host: 'openrouter.ai',        hint: 'sk-or-v1-...' },
+    tavily:     { name: 'Tavily',        paste: 'Tavily arama anahtarınızı',      url: 'https://app.tavily.com',                        host: 'app.tavily.com',       hint: 'tvly-...' },
+    groq:       { name: 'Groq',          paste: 'Groq API anahtarınızı',          url: 'https://console.groq.com/keys',                 host: 'console.groq.com',     hint: 'gsk_...' },
+    haiku:      { name: 'Claude Haiku',  paste: 'Claude Haiku API anahtarınızı',  url: 'https://console.anthropic.com/settings/keys',   host: 'console.anthropic.com', hint: 'sk-ant-...' },
+  } as const)[kind as 'gemini' | 'openrouter' | 'tavily' | 'groq' | 'haiku']
+    ?? { name: 'API', paste: 'API anahtarınızı', url: '', host: '', hint: 'API anahtarı' };
 
   const [fragmentKey, setFragmentKey] = useState<string | null>(null);
   const [value, setValue]             = useState('');
@@ -157,7 +162,7 @@ function KeyBeamInner() {
               type="text"
               value={value}
               onChange={(e) => { setValue(e.target.value); if (status === 'error') setStatus('idle'); }}
-              placeholder="AIza... / AQ..."
+              placeholder={PROVIDER.hint}
               autoComplete="off"
               autoCapitalize="off"
               spellCheck={false}
@@ -172,7 +177,7 @@ function KeyBeamInner() {
             />
 
             {value.length > 0 && !isValidFormat && (
-              <p className="text-[11px] text-red-400/80 -mt-1">Anahtar formatı tanınmadı (AIza... veya AQ....).</p>
+              <p className="text-[11px] text-red-400/80 -mt-1">Anahtar formatı tanınmadı ({PROVIDER.hint} bekleniyor).</p>
             )}
 
             {status === 'error' && (

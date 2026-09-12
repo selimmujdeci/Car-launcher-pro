@@ -9,6 +9,22 @@ import type { MediaProvider, UnifiedTrack } from './providers';
 // Round-robin mirror; tek host down olsa bile genelde erişilir
 const HOST = 'https://de1.api.radio-browser.info';
 
+/* ── Harici yanıt sözleşmesi (GÜVENİLMEZ — her alan opsiyonel) ─────────────
+   Şemasız üçüncü taraf JSON'u; alan eksik ya da farklı tipte gelebilir. Bu
+   arayüz API'nin ne döndürdüğünü BELGELER, garanti etmez — erişimler bu
+   yüzden opsiyonel zincir + varsayılanla korunur. */
+interface RadioStation {
+  stationuuid?:  string;
+  name?:         string;
+  country?:      string;
+  /** Virgülle ayrılmış etiket listesi. */
+  tags?:         string;
+  favicon?:      string;
+  /** Çözülmüş (yönlendirme sonrası) akış URL'si; YOKSA istasyon atlanır. */
+  url_resolved?: string;
+}
+
+
 export const radioBrowserProvider: MediaProvider = {
   id: 'radio',
   async search(query, signal) {
@@ -24,9 +40,10 @@ export const radioBrowserProvider: MediaProvider = {
       });
       const res = await fetch(`${HOST}/json/stations/search?${params.toString()}`, { signal });
       if (!res.ok) return [];
-      const items = (await res.json()) as any[];
+      const items = (await res.json()) as RadioStation[];
       return items
-        .filter((s) => s.url_resolved)
+        // Boolean(): ESKİ truthiness testinin AYNISI — yalnız tip daraltması eklendi.
+        .filter((s): s is RadioStation & { url_resolved: string } => Boolean(s.url_resolved))
         .slice(0, 20)
         .map((s): UnifiedTrack => ({
           id:         `radio-${s.stationuuid}`,

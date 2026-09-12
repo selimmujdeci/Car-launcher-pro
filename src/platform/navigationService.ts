@@ -10,11 +10,33 @@ import {
   projectOnSegment,
   injectSentinelStepIfEmpty,
   clearAltRoutes,
+  clearRoute,
+  fetchRoute,
 } from './routingService';
 import { useUnifiedVehicleStore } from './vehicleDataLayer/UnifiedVehicleStore';
 import { speakNavigation } from './ttsService';
+import { computeEta, type EtaVerdict } from './navigation/core/etaModel';
+import {
+  detectEtaJump, appendJump, summarizeJumps,
+  type EtaSample, type EtaJumpRecord, type EtaJumpSummary,
+} from './navigation/core/etaJumpLedger';
 import { corridorSync } from '../core/navigation/CorridorSyncEngine';
+import { setNavigationGpsPower } from './navigation/navGpsPowerBridge';
+/* Saf matematik yardımcısı — `cameraEngine` sıfır-import bir yaprak modüldür,
+   döngü riski yok. Yön formülünü ikinci kez yazmamak için oradan alınır. */
+import { bearingBetween } from './cameraEngine';
+import { roadBearingAheadDeg } from './navigation/core/geo';
 import { safeSetRawImmediate, safeGetRaw, safeRemoveRaw } from '../utils/safeStorage';
+import {
+  judgeDestinationChange, recordDestinationChange,
+  type DestinationSource,
+} from './navigation/core/destinationOwnershipModel';
+import {
+  judgeDestinationIntegrity,
+  type DestinationIdentity,
+  type DestinationIntegrityVerdict,
+} from './navigation/core/destinationIntegrityModel';
+import { OwnerCommandEvidence } from './message';
 // Phase H1 re-export kaldırıldı (H5 circular import fix).
 // startHazardEngine / stopHazardEngine doğrudan hazardService.ts'ten import edilebilir.
 
@@ -38,12 +60,47 @@ const NAVIGATING_STATUSES = new Set<string>([
   NavStatus.REROUTING, NavStatus.ARRIVED,
 ]);
 
+/**
+ * REHBERLİĞİN GERÇEKTEN SÜRDÜĞÜ durumlar (kütük #416/#418).
+ * Manevra takibi · eşleme · sesli yönlendirme · reroute YALNIZ burada çalışır.
+ * Önizleme (PREVIEW/ROUTING) bir oturumdur ama rehberlik değildir.
+ */
+const GUIDANCE_STATUSES = new Set<string>([
+  NavStatus.ACTIVE, NavStatus.REROUTING,
+]);
+
 export interface NavigationState {
   status: NavStatus;
+  /**
+   * OTURUM açık mı (PREVIEW/ROUTING/ACTIVE/REROUTING/ARRIVED).
+   *
+   * ⚠️ Kütük #416/#418: bu bayrak "REHBERLİK ÇALIŞIYOR" DEMEK DEĞİLDİR.
+   * Sahada `status = PREVIEW` iken `isNavigating = true` görüldü; aynı anda
+   * eşleme motoru ölüydü (`match.state = null`), reroute yoktu, ses yoktu ve
+   * panelde hâlâ "NAVİGASYONU BAŞLAT" düğmesi duruyordu. Sürücü "navigasyon
+   * açık" sanıyordu. Rehberlik iddiası taşıyan yüzeyler `isGuidanceActive`
+   * kullanmalıdır.
+   */
   isNavigating: boolean;         // derived: NAVIGATING_STATUSES ∋ status
+  /**
+   * REHBERLİK gerçekten sürüyor mu — yalnız ACTIVE ve REROUTING.
+   * Manevra takibi, eşleme, sesli yönlendirme ve reroute bu durumlarda çalışır.
+   */
+  isGuidanceActive: boolean;
   isRerouting: boolean;          // derived: status === REROUTING
   destination: Address | null;
   distanceMeters?: number;
+  /**
+   * `distanceMeters` NASIL hesaplandı (kütük #404).
+   *
+   * SAHADA ÖLÇÜLDÜ: örneklerin **%38'inde** kalan mesafe rota boyu değil
+   * KUŞ UÇUŞU idi (`STRAIGHT_LINE`) — ama ekranda tıpkı gerçek kalan mesafe
+   * gibi, aynı yazı tipiyle, aynı kesinlikle gösteriliyordu. Aynı yolculukta
+   * kalan mesafe 69 kez ARTTI (kuş uçuşu, yol dönerken artar; sürücü için
+   * "hedefe yaklaşırken mesafe büyüyor" anlamına gelir).
+   * Kuş uçuşu bir tahmindir; ürün onu ölçüm gibi sunamaz.
+   */
+  distanceSource?: 'ALONG_ROUTE' | 'STRAIGHT_LINE';
   etaSeconds?: number;
   headingToDestination?: number;
   isOfflineResult: boolean;
@@ -53,7 +110,7 @@ export interface NavigationState {
 interface NavigationStore extends NavigationState {
   _setStatus: (s: NavStatus, extra?: Partial<NavigationState>) => void;
   setDestination: (destination: Address | null, isOffline?: boolean) => void;
-  updateDistance: (distance: number) => void;
+  updateDistance: (distance: number, source: 'ALONG_ROUTE' | 'STRAIGHT_LINE') => void;
   updateEta: (seconds: number) => void;
   updateHeading: (heading: number) => void;
   setRerouting: (val: boolean) => void;
@@ -64,9 +121,11 @@ interface NavigationStore extends NavigationState {
 const useNavigationStore = create<NavigationStore>((set) => ({
   status: NavStatus.IDLE,
   isNavigating: false,
+  isGuidanceActive: false,
   isRerouting: false,
   destination: null,
   distanceMeters: undefined,
+  distanceSource: undefined,
   etaSeconds: undefined,
   headingToDestination: undefined,
   isOfflineResult: false,
@@ -75,6 +134,7 @@ const useNavigationStore = create<NavigationStore>((set) => ({
   _setStatus: (status, extra = {}) => set({
     status,
     isNavigating: NAVIGATING_STATUSES.has(status),
+    isGuidanceActive: GUIDANCE_STATUSES.has(status),
     isRerouting:  status === NavStatus.REROUTING,
     ...extra,
   }),
@@ -82,13 +142,14 @@ const useNavigationStore = create<NavigationStore>((set) => ({
   setDestination: (destination, isOffline = false) => set({
     status: NavStatus.PREVIEW,
     isNavigating: true,
+    isGuidanceActive: false,   // #416: önizleme rehberlik DEĞİLDİR
     isRerouting: false,
     destination,
     isOfflineResult: isOffline,
     errorMessage: undefined,
   }),
 
-  updateDistance: (distance) => set({ distanceMeters: distance }),
+  updateDistance: (distance, source) => set({ distanceMeters: distance, distanceSource: source }),
   updateEta:      (seconds)  => set({ etaSeconds: seconds }),
   updateHeading:  (heading)  => set({ headingToDestination: heading }),
 
@@ -106,9 +167,11 @@ const useNavigationStore = create<NavigationStore>((set) => ({
   clearNavigation: () => set({
     status: NavStatus.IDLE,
     isNavigating: false,
+    isGuidanceActive: false,
     isRerouting: false,
     destination: null,
     distanceMeters: undefined,
+    distanceSource: undefined,
     etaSeconds: undefined,
     isOfflineResult: false,
     errorMessage: undefined,
@@ -121,9 +184,6 @@ export const ARRIVAL_THRESHOLD_M = 20;
 // 5 s ARRIVED → IDLE timer
 let _arrivedTimer: ReturnType<typeof setTimeout> | null = null;
 let _unregisterReroutingCb: (() => void) | null = null;
-// H1: restoreNavigationAsync'in GPS-fix bekleme aboneliğini temizler (Zero-Leak).
-// Fix hiç gelmezse 60s timeout veya stopNavigation() bu fonksiyonu çağırır.
-let _restoreGpsCleanup: (() => void) | null = null;
 
 /** Hedefe varış — ARRIVED durumuna geç ve 5 s sonra IDLE'a dön. */
 function transitionToArrived(): void {
@@ -142,18 +202,239 @@ function transitionToArrived(): void {
   }, 5_000);
 }
 
+/* ── OTURUM SAHİPLİĞİ (NAVIGATION_MINI_MAP_SESSION_CONTINUITY_P0) ────────────
+ *
+ * KÖK NEDEN: rota isteği dedup'ı `FullMapView` içinde bir `useRef` idi
+ * (`lastFetchedRef`). Ref bileşenle birlikte ÖLÜR → tam ekran kapatılıp
+ * yeniden açıldığında dedup sıfırlanıyor, effect AKTİF oturumun hedefi için
+ * yeniden `fetchRoute` çağırıyor ve `setNavStatus(ROUTING)` ile durumu
+ * ACTIVE→ROUTING'e düşürüyordu: kullanıcı yalnız görünüm değiştirmişken
+ * oturum sıfırdan kuruluyordu (yeni istek · sıfırlanan ilerleme · sıfırlanan ETA).
+ *
+ * Sahiplik görünümden alınıp oturum otoritesine (bu modül) taşındı. Görünüm
+ * mount/unmount döngüsü artık istek sayısını ETKİLEMEZ.
+ *
+ * Bu blok rota HESAPLAMA davranışını değiştirmez — yalnız "bu istek daha önce
+ * yapıldı mı" sorusunun sahibini değiştirir. */
+
+/* ── P0-NAV-09 · HEDEF BÜTÜNLÜĞÜ KANITI ─────────────────────────────────────
+ * Ölçülen kusur: koordinat kapısı (`isValidDestination`) ÜRÜNDE VARDI ama
+ * YALNIZ Ev/İş yolunda çağrılıyordu; tüm hedeflerin geçtiği `startNavigation`
+ * ondan HİÇ geçmiyordu. Artık her hedef denetlenir ve hüküm burada tutulur —
+ * LAB bunu okur, yeni bir store KURULMAZ (mevcut modül-düzeyi kayıt deseni). */
+let _lastIntegrity: DestinationIntegrityVerdict | null = null;
+let _rejectedDestinationCount = 0;
+let _swapSuspectCount = 0;
+/** Rota isteğine GERÇEKTEN gönderilen hedefin künyesi (zincirin son halkası). */
+let _committedIdentity: DestinationIdentity | null = null;
+
+/** Salt-okunur gözlem — LAB bu değerleri DEĞİŞTİREMEZ. */
+export function getDestinationIntegritySnapshot(): {
+  readonly last: DestinationIntegrityVerdict | null;
+  readonly rejectedCount: number;
+  readonly swapSuspectCount: number;
+  readonly committed: DestinationIdentity | null;
+} {
+  return {
+    last: _lastIntegrity,
+    rejectedCount: _rejectedDestinationCount,
+    swapSuspectCount: _swapSuspectCount,
+    committed: _committedIdentity,
+  };
+}
+
+/** Test izolasyonu — sayaçlar testler arasında sızmasın. */
+export function _resetDestinationIntegrityForTest(): void {
+  _lastIntegrity = null;
+  _rejectedDestinationCount = 0;
+  _swapSuspectCount = 0;
+  _committedIdentity = null;
+}
+
+/** Her YENİ hedef (startNavigation) ile artan oturum numarası. */
+let _sessionId = 0;
+const _commandEvidence = new OwnerCommandEvidence('navigationService');
+export function getNavigationCommandFlowEvidence() { return _commandEvidence.recent(); }
+/** Bu oturumda rota isteği sahiplenilen hedef: `${sessionId}:${destinationId}`. */
+let _routeClaim: string | null = null;
+
+/** Aktif navigasyon oturumunun kimliği. Görünüm geçişleri bunu DEĞİŞTİRMEZ. */
+export function getNavSessionId(): number {
+  return _sessionId;
+}
+
+/** Sahiplenilmiş rota isteği anahtarı (test/gözlem için). */
+export function getRouteRequestClaim(): string | null {
+  return _routeClaim;
+}
+
+/**
+ * Bu oturumda bu hedef için rota isteği HENÜZ yapılmadıysa sahiplen → `true`.
+ * Zaten yapıldıysa `false` döner ve çağıran YENİ İSTEK ATMAZ.
+ */
+export function claimRouteRequest(destinationId: string): boolean {
+  const key = `${_sessionId}:${destinationId}`;
+  if (_routeClaim === key) return false;
+  _routeClaim = key;
+  return true;
+}
+
+/** İstek başarısız oldu → aynı hedef için yeniden denemeye izin ver (H2 retry yolu). */
+export function releaseRouteRequest(): void {
+  _routeClaim = null;
+}
+
+/**
+ * Navigasyon oturumunu SONLANDIRAN tek giriş noktası.
+ *
+ * Görünüm kapatmak (tam ekrandan mini haritaya dönmek) bu yolu ÇAĞIRMAZ —
+ * yalnız kullanıcının açık "Navigasyonu sonlandır" eylemi çağırır. Oturum
+ * durumu (navigationService) ile rota durumu (routingService) birlikte kapanır;
+ * eskiden bu ikili her çağrı yerinde elle tekrarlanıyordu (iki kopya).
+ */
+export function endNavigation(): void {
+  stopNavigation();
+  clearRoute();
+}
+
 /**
  * Hedef seçildi — PREVIEW durumuna gir.
+ *
+ * `source` (kütük #429): hedefi KİMİN belirlediği. Sahada, aktif yolculuk
+ * sürerken hedef kendiliğinden başlangıç şehrine döndü ve sürücü otoyolda
+ * "U dönüşü yapın" talimatı aldı; değişimi kimin yaptığını gösteren HİÇBİR
+ * kayıt yoktu. Artık her çağıran kendini bildirir, her değişim deftere yazılır
+ * ve aktif oturum sırasında SAHİPSİZ değişim UYGULANMAZ.
+ *
+ * Varsayılan bilinçli olarak `'SYSTEM'`: kimliğini bildirmeyen bir çağrı
+ * "kullanıcı istedi" sayılmaz — kanıt yükü çağırandadır.
  */
-export function startNavigation(destination: Address, isOffline = false): void {
+export function startNavigation(
+  destination: Address,
+  isOffline = false,
+  source: DestinationSource = 'SYSTEM',
+): void {
+  const st = useNavigationStore.getState();
+
+  /* ── P0-NAV-09 · BÜTÜNLÜK KAPISI — SAHİPLİKTEN ÖNCE ──────────────────────
+   * Sıra bilinçlidir: "bu hedefi kim koydu" sorusunu sormadan ÖNCE "bu
+   * koordinat gerçek bir yer mi" sorulur. Tersi olsaydı, kullanıcı kaynaklı
+   * bir NaN hedefi sahiplik kapısından ALLOW alır ve mühürlenirdi.
+   * FAIL-CLOSED: geçersiz hedefle rota BAŞLATILMAZ. */
+  const loc = useUnifiedVehicleStore.getState().location;
+  const integrity = judgeDestinationIntegrity(
+    {
+      id:           destination.id,
+      name:         destination.name,
+      latitude:     destination.latitude,
+      longitude:    destination.longitude,
+      address:      destination.fullAddress,
+      provider:     destination.provider,
+      resolvedAtMs: destination.resolvedAtMs,
+      precision:    destination.precision,
+    },
+    {
+      nowMs:  Date.now(),
+      origin: loc && Number.isFinite(loc.latitude) && Number.isFinite(loc.longitude)
+        ? { lat: loc.latitude, lng: loc.longitude } : null,
+    },
+  );
+  _lastIntegrity = integrity;
+  if (integrity.swap.suspected) _swapSuspectCount += 1;
+
+  if (!integrity.ok) {
+    _rejectedDestinationCount += 1;
+    /* Hedef ADI loglanmaz (PII): yalnız sebep sınıfı. */
+    console.warn(
+      `[Nav] Hedef REDDEDİLDİ (${integrity.rejection}) · kaynak=${source} · `
+      + `${integrity.allRejections.length} ihlal — rota BAŞLATILMADI`,
+    );
+    return;
+  }
+
+  const cur = st.destination;
+  const verdict = judgeDestinationChange({
+    current: cur ? { id: cur.id, name: cur.name, latitude: cur.latitude, longitude: cur.longitude } : null,
+    sessionActive: st.isNavigating || cur != null,
+    next: {
+      id: destination.id, name: destination.name,
+      latitude: destination.latitude, longitude: destination.longitude,
+    },
+    source,
+    tsMs: Date.now(),
+  });
+  recordDestinationChange(verdict.change);
+
+  if (verdict.decision === 'BLOCK') {
+    // Sürücüyü sessizce başka yere sürmektense hiçbir şey yapmamak doğrudur.
+    console.warn(
+      `[Nav] Hedef değişimi ENGELLENDİ (${verdict.reason}): ` +
+      `"${verdict.change.fromName}" → "${verdict.change.toName}" · kaynak=${source}`,
+    );
+    return;
+  }
+
+  // Yeni hedef → yeni oturum; önceki oturumun istek sahipliği düşer.
+  _sessionId += 1;
+  _routeClaim = null;
+  const op = `nav:${_sessionId}:${destination.id}`;
+  _commandEvidence.record({ id: `${op}:request`, kind: 'COMMAND', name: 'navigation.destination.set', source, target: 'navigationService', operationId: op, correlationId: op, sessionId: String(_sessionId), generation: _sessionId, nowMs: Date.now() });
   useNavigationStore.getState().setDestination(destination, isOffline);
   setRerouteContext(destination.latitude, destination.longitude);
   _unregisterReroutingCb?.();  // önceki navigasyondan kalan callback'i temizle
   _unregisterReroutingCb = registerReroutingCallback(
     (val) => useNavigationStore.getState().setRerouting(val),
   );
+  /* Zincirin son halkası: rota isteğine GERÇEKTEN giden künye. LAB bunu
+     arama sonucuyla karşılaştırarak "doğru yeri bulduk ama yanlış koordinat
+     mı gitti" sorusunu yanıtlar (bkz. judgeChainIntegrity). */
+  _committedIdentity = integrity.identity;
   // Crash recovery: varış noktasını anında mühürle (debounce bypass)
   _sealNavState(destination, 0, false);
+  _commandEvidence.record({ id: `${op}:result`, kind: 'RESULT', name: 'navigation.destination.result', source: 'navigationService', target: null, operationId: op, correlationId: op, sessionId: String(_sessionId), generation: _sessionId, nowMs: Date.now() });
+}
+
+/* ── ROTA SAHİPLİĞİ GÖRÜNÜMDEN AYRILDI (saha 2026-08-04) ────────────────────
+ * ÖLÇÜLEN ARIZA (cihaz `4L45OFZDX84X55GE`, Ankara-Tarsus Otoyolu, 90 km/h):
+ * uygulama yeniden başladıktan sonra navigasyon `ACTIVE` göründü, ekranda
+ * "207 km · 2 sa 33 dk · Hedefe doğru ilerleyin" yazdı — ama ROTA HİÇ YOKTU:
+ *   geometryPts=0 · steps=1 (sentinel) · totalM=0 · serverUsed=null ·
+ *   match=UNKNOWN(NO_GEOMETRY) · offRoute=UNKNOWN(GPS_UNKNOWN) ·
+ *   routeRequest.committed=0  → yani rota İSTEĞİ HİÇ ATILMAMIŞTI.
+ * Gösterilen mesafe rota değil KUŞ UÇUŞU idi: tam ekran açılıp rota gelince
+ * 199,8 km → 220,1 km oldu (20 km fark) ve aynı ekranda iki çelişkili sayı vardı.
+ *
+ * KÖK: ürün kodunda `fetchRoute(...)` YALNIZ `FullMapView.tsx` içinden
+ * çağrılıyordu → rota hesaplamanın sahibi GÖRÜNÜMDÜ. Görünüm hiç açılmazsa
+ * (crash/restart sonrası geri yükleme, doğrudan sesli komut, ana ekranda kalma)
+ * navigasyon rotasız "çalışıyor" görünüyordu — sürücüye yalan.
+ *
+ * DÜZELTME: rota ihtiyacı ACTIVE'e geçişte SERVİSTE kapatılır. İKİNCİ OTORİTE
+ * KURULMAZ — çift istek kapısı hâlâ tek: `claimRouteRequest(destination.id)`.
+ * FullMapView aynı kapıdan geçtiği için davranışı değişmez (rota zaten varsa
+ * burası no-op'tur) ve durum ACTIVE→ROUTING'e DÜŞÜRÜLMEZ (sürüşte HUD bozulmaz).
+ */
+function _ensureRouteForSession(): void {
+  try {
+    const { destination, status } = useNavigationStore.getState();
+    if (!destination) return;
+    if (status !== NavStatus.ACTIVE && status !== NavStatus.REROUTING) return;
+
+    // Rota GERÇEKTEN var mı? Sentinel adım "rota var" demek DEĞİLDİR —
+    // ölçütümüz geometridir (sahada steps=1 iken geometryPts=0 idi).
+    const rs = getRouteState();
+    if (rs.geometry && rs.geometry.length > 1) return;
+
+    const loc = useUnifiedVehicleStore.getState().location;
+    if (!loc || !Number.isFinite(loc.latitude) || !Number.isFinite(loc.longitude)) return;
+
+    // Tek sahiplik kapısı — FullMapView ile yarışmaz, ikinci istek atılmaz.
+    if (!claimRouteRequest(destination.id)) return;
+
+    console.info('[NavRoute] ACTIVE oturumda rota yok → servis rotayı istiyor',
+      JSON.stringify({ dest: destination.name, geom: rs.geometry?.length ?? 0 }));
+    void fetchRoute(loc.latitude, loc.longitude, destination.latitude, destination.longitude);
+  } catch { /* fail-soft: rota isteği ürünü ASLA düşürmez */ }
 }
 
 /**
@@ -163,7 +444,14 @@ export function startNavigation(destination: Address, isOffline = false): void {
 export function activateNavigation(): void {
   const { status } = useNavigationStore.getState();
   if (status === NavStatus.PREVIEW || status === NavStatus.ROUTING) {
+    const op = `nav:${_sessionId}:activate`;
+    _commandEvidence.record({ id: `${op}:request`, kind: 'COMMAND', name: 'navigation.guidance.start', source: 'ui_or_mavi', target: 'navigationService', operationId: op, correlationId: op, sessionId: String(_sessionId), generation: _sessionId, nowMs: Date.now() });
     useNavigationStore.getState()._setStatus(NavStatus.ACTIVE);
+    /* Konum tazeliği (saha 2026-08-08): native park kısması navigasyondan
+       habersizdi — uzun duruşta 1 Hz GPS kapanıp kalkışta ilk ~60 m kör
+       kalıyordu. Bayrak TAM BURADA gönderilir: GPS geri çağrısına bağlanamaz,
+       çünkü kısma zaten geri çağrıyı susturur (kilitlenme). */
+    setNavigationGpsPower(true);
     _navStartLat            = null;
     _navStartLon            = null;
     _navStartDistToDest     = Infinity;
@@ -173,6 +461,8 @@ export function activateNavigation(): void {
     _proximityAlertFired    = false;
     // Alternatif rotalar ACTIVE modda gereksiz — CPU tasarrufu için temizle
     clearAltRoutes();
+    // ROTA SAHİPLİĞİ (saha 2026-08-04): rota yoksa BURADA istenir — görünüm beklenmez.
+    _ensureRouteForSession();
     // Koridor önbellekleme: tünel/sinyal kesintisi öncesi veri hazırla
     corridorSync.activate();
     // HUD güvencesi: offline/daemon modda steps boş gelebilir — sentinel enjekte et
@@ -182,6 +472,7 @@ export function activateNavigation(): void {
       _sealNavState(destination, _lastPersistedStepIdx < 0 ? 0 : _lastPersistedStepIdx, true);
       injectSentinelStepIfEmpty(destination.latitude, destination.longitude);
     }
+    _commandEvidence.record({ id: `${op}:result`, kind: 'RESULT', name: 'navigation.guidance.result', source: 'navigationService', target: null, operationId: op, correlationId: op, sessionId: String(_sessionId), generation: _sessionId, nowMs: Date.now() });
     // Konum merkezi kaynaktan gelir (useUnifiedVehicleStore) — yerel DR yok
   }
 }
@@ -199,16 +490,18 @@ export function setNavStatus(status: NavStatus, errorMessage?: string): void {
  * Navigasyonu durdur ve IDLE'a dön.
  */
 export function stopNavigation(): void {
+  setNavigationGpsPower(false);   // oturum bitti → normal pil politikası geri döner
   safeRemoveRaw(NAV_PERSIST_KEY); // Crash recovery mührünü temizle — kullanıcı iptal etti
+  _routeClaim = null;             // oturum kapandı — sonraki hedef temiz sahiplenir
   _lastPersistedStepIdx = -1;
   if (_arrivedTimer) { clearTimeout(_arrivedTimer); _arrivedTimer = null; }
   _unregisterReroutingCb?.(); _unregisterReroutingCb = null;
-  _restoreGpsCleanup?.(); // H1: bekleyen GPS-fix aboneliğini temizle
   useNavigationStore.getState().clearNavigation();
   clearRerouteContext();
   // Per-session izleme state'ini sıfırla — sonraki navigasyon temiz başlar
   _speedHistory.length    = 0;
   _stopStartMs            = null;
+  _prevAppliedEtaFactor   = null;   // #551 — yeni oturum çarpanı serbest yakalar
   _lastEtaUpdateMs        = -ETA_HYSTERESIS_MS;
   _lastStoredEtaS         = 0;
   _lastRouteDistanceM     = Infinity;
@@ -223,6 +516,7 @@ export function stopNavigation(): void {
   _proximityAlertFired    = false;
   _lastSnappedLat         = null;
   _lastSnappedLon         = null;
+  _lastSnappedSegBearing  = null;
   _lastOffRouteM          = Infinity;
   corridorSync.stop();
 }
@@ -235,9 +529,11 @@ export function getNavigationState(): NavigationState {
   return {
     status:             s.status,
     isNavigating:       s.isNavigating,
+    isGuidanceActive:   s.isGuidanceActive,
     isRerouting:        s.isRerouting,
     destination:        s.destination,
     distanceMeters:     s.distanceMeters,
+    distanceSource:     s.distanceSource,
     etaSeconds:         s.etaSeconds,
     headingToDestination: s.headingToDestination,
     isOfflineResult:    s.isOfflineResult,
@@ -249,7 +545,11 @@ export function getNavigationState(): NavigationState {
  * Crash Recovery — Phase S3 Zero-Touch Navigation Restore.
  *
  * Uygulama crash/LBO ile kapanırken mühürlenen navigasyon state'ini geri yükler.
- * GPS fix beklenmeksizin PREVIEW modunda rota çizilir; fix gelince ACTIVE'e geçer.
+ * Geri yükleme yalnız kullanıcının beyan ettiği hedefi PREVIEW olarak kurar.
+ * Diskteki `wasActive`, eski bir oturumun tarihçesidir; yeni süreçte ACTIVE,
+ * rehberlik, ETA veya manevra gerçeği üretemez. Bunlar ancak yeni provider/GPS
+ * gözlemi ve açık kullanıcı aktivasyonu ile kurulabilir. Yeni GPS kanıtı için
+ * zaman disiplini `Date.now() - location.timestamp` ile owner ingress'te uygulanır.
  * Tüm süreç sessizdir — TTS çalışmaz, kullanıcıyı korkutmaz.
  *
  * @returns true — başarılı geri yükleme, false — mühürlü veri yok veya süresi geçmiş
@@ -282,48 +582,17 @@ export async function restoreNavigationAsync(): Promise<boolean> {
       return false;
     }
 
-    // PREVIEW modunda rota hazırla — TTS yok (sessiz crash recovery)
-    startNavigation(persist.destination, false);
-    // startNavigation step=0 yazar; geri yüklenen asıl step+wasActive'i üzerine mühürle
-    _sealNavState(persist.destination, persist.stepIndex, persist.wasActive);
+    // PREVIEW modunda hedef önerisini kur. Bu bir rota/guidance restore değildir.
+    // `SESSION_RESTORE` yalnız destination ownership kaydı için kullanılır.
+    startNavigation(persist.destination, false, 'SESSION_RESTORE');
+    // Eski step ve wasActive değerleri canlı progress/guidance olarak yazılmaz.
+    // Diskteki kaydı da yeni fail-closed proposal olarak mühürle.
+    _sealNavState(persist.destination, 0, false);
 
     console.info(
       `[NavRestore] "${persist.destination.name}" geri yüklendi` +
-      ` (step=${persist.stepIndex}, wasActive=${persist.wasActive})`,
+      ' (desired destination only; live guidance is not resurrected)',
     );
-
-    if (persist.wasActive) {
-      // GPS fix zaten varsa → anında ACTIVE'e al
-      const { location } = useUnifiedVehicleStore.getState();
-      const hasGpsFix = location &&
-        Number.isFinite(location.latitude) &&
-        (Date.now() - location.timestamp) < 30_000;
-
-      if (hasGpsFix) {
-        activateNavigation();
-        console.info('[NavRestore] GPS fix mevcut — navigasyon ACTIVE moduna alındı');
-      } else {
-        // GPS fix bekleniyor — gelince ACTIVE'e al (Zero-Touch).
-        // H1: temizlik referansı + 60s timeout — fix hiç gelmezse abonelik sonsuza dek yaşamaz.
-        _restoreGpsCleanup?.(); // önceki bekleyen aboneliği temizle (çift restore koruması)
-        const unsub = useUnifiedVehicleStore.subscribe((s) => {
-          const loc = s.location;
-          if (!loc || !Number.isFinite(loc.latitude)) return;
-          if ((Date.now() - loc.timestamp) >= 30_000) return;
-          _restoreGpsCleanup?.();
-          if (useNavigationStore.getState().status === NavStatus.PREVIEW) {
-            activateNavigation();
-            console.info('[NavRestore] GPS fix geldi — navigasyon ACTIVE moduna alındı');
-          }
-        });
-        const _gpsWaitTimer = setTimeout(() => _restoreGpsCleanup?.(), 60_000);
-        _restoreGpsCleanup = () => {
-          unsub();
-          clearTimeout(_gpsWaitTimer);
-          _restoreGpsCleanup = null;
-        };
-      }
-    }
 
     return true;
   } catch {
@@ -336,6 +605,11 @@ export async function restoreNavigationAsync(): Promise<boolean> {
 let _lastEtaUpdateMs    = 0;
 let _lastStoredEtaS     = 0;
 const ETA_HYSTERESIS_MS = 5_000;
+
+/* #551 — bir önceki UYGULANAN ETA düzeltme çarpanı (zaman oranı sınırı için).
+ * Durum BURADA yaşar; `computeEta` saf kalır (saat/durum okumaz).
+ * `null` = geçmiş yok → sınır uygulanmaz, çarpan hedefi serbestçe yakalar. */
+let _prevAppliedEtaFactor: number | null = null;
 
 // 30-second rolling speed window (sampled at ETA_HYSTERESIS_MS cadence)
 interface _SpeedSample { speedKmh: number; ts: number; }
@@ -365,6 +639,10 @@ let _lastClosestSegIdx   = -1;
 let _lastSnappedLat: number | null = null;
 let _lastSnappedLon: number | null = null;
 let _lastOffRouteM: number         = Infinity; // en yakın segment mesafesi (m)
+/** Aracın oturduğu rota segmentinin yönü (A→B, derece). Kamera bunu okur —
+ *  bkz. `getSnappedRoadBearing()`. Snap ile AYNI hesaptan doğar, ikinci
+ *  otorite değildir. */
+let _lastSnappedSegBearing: number | null = null;
 
 const ARRIVAL_SPEED_GUARD_KMH          = 10;    // varış için maksimum hız eşiği
 const ARRIVAL_MIN_MOVE_M               = 50;    // navigasyon başından bu yana minimum hareket (m)
@@ -450,9 +728,13 @@ export function updateNavigationProgress(
     _sealNavState(state.destination, _currentStep, true);
   }
 
-  const distance = routeGeometry && routeGeometry.length >= 2
-    ? calculateRouteDistance(currentLat, currentLon, routeGeometry, cumulativeDistances)
+  // Kütük #404: mesafenin KAYNAĞI da taşınır — kuş uçuşu değer, rota boyu
+  // ölçümmüş gibi sunulamaz (sahada örneklerin %38'i kuş uçuşuydu).
+  const hasRouteGeom = !!routeGeometry && routeGeometry.length >= 2;
+  const distance = hasRouteGeom
+    ? calculateRouteDistance(currentLat, currentLon, routeGeometry as [number, number][], cumulativeDistances)
     : calculateDistance(currentLat, currentLon, state.destination.latitude, state.destination.longitude);
+  const distanceSource: 'ALONG_ROUTE' | 'STRAIGHT_LINE' = hasRouteGeom ? 'ALONG_ROUTE' : 'STRAIGHT_LINE';
 
   // ── 500m Yakınlık Uyarısı (TTS) ─────────────────────────────────────────
   // Hedefe ilk kez 500m altına girildiğinde tek seferlik sesli uyarı.
@@ -473,8 +755,18 @@ export function updateNavigationProgress(
   }
 
   // ── Sürekli düşük hız takibi ──────────────────────────────────────────────
+  /* ⚠️ BİRİM HATASI DÜZELTİLDİ (2026-08-03, NAV-CORE-P0).
+   * `UnifiedVehicleStore.speed` **ZATEN km/h**'tir (store tanımı satır 80:
+   * "km/h, fused"; GPS'in m/s değeri store'a yazılmadan ÖNCE çevriliyor).
+   * Burada 3.6 ile ÇARPILIYORDU → hız 3.6 KAT şişiyordu. Somut sonuç:
+   *   • `ARRIVAL_SPEED_GUARD_KMH = 10` gerçekte **2.8 km/h**'ye düşüyordu.
+   *     Hedefe 6 km/h ile yanaşan araç 21.6 km/h okunuyor, düşük-hız sayacı
+   *     her tick SIFIRLANIYOR ve 5 sn koşulu HİÇ sağlanmıyordu → **varış
+   *     tetiklenmiyordu.**
+   * Aynı hata `routingService.updateRouteProgress` içinde de vardı ve orada
+   * düzeltilmişti; navigationService'teki üç kopya GÖZDEN KAÇMIŞTI. */
   const { speed: _rawArrSpd } = useUnifiedVehicleStore.getState();
-  const speedAtArrival = (_rawArrSpd ?? 0) * 3.6;
+  const speedAtArrival = _rawArrSpd ?? 0;   // km/h
   if (speedAtArrival >= ARRIVAL_SPEED_GUARD_KMH) {
     _arrivalLowSpeedStartMs = null; // hız yüksek → süreç sıfırla
   } else if (_arrivalLowSpeedStartMs === null) {
@@ -534,7 +826,9 @@ export function updateNavigationProgress(
   // Koridor önbellekleme — rota geometrisi alındıkça motoru güncelle
   if (routeGeometry && routeGeometry.length >= 2) {
     const { speed: _cspd } = useUnifiedVehicleStore.getState();
-    corridorSync.onGeometryUpdate(routeGeometry, (_cspd ?? 0) * 3.6);
+    // Birim: store km/h — 3.6 çarpanı KALDIRILDI (koridor önbelleği 3.6 kat
+    // fazla ileriyi çekiyor, gereksiz veri indiriyordu).
+    corridorSync.onGeometryUpdate(routeGeometry, _cspd ?? 0);
   }
 
   // Heading
@@ -544,15 +838,21 @@ export function updateNavigationProgress(
   );
   const heading = Number.isFinite(rawHeading) ? rawHeading : 0;
 
-  useNavigationStore.getState().updateDistance(distance);
+  useNavigationStore.getState().updateDistance(distance, distanceSource);
   useNavigationStore.getState().updateHeading(heading);
 
   // ── ETA ────────────────────────────────────────────────────────────────
   const now = performance.now();
 
   // Stop tracking at GPS frequency for accurate standstill duration
+  /* ⚠️ BİRİM: store km/h — 3.6 çarpanı KALDIRILDI. Eski hâlinde:
+   *   • `STOP_THRESHOLD_KMH = 3` gerçekte 0.83 km/h'ye düşüyordu → araç
+   *     trafikte gerçekten dururken bile "duruyor" sayılmıyor, trafik
+   *     tamponu (`TRAFFIC_DELAY_RATIO`) HİÇ birikmiyordu.
+   *   • `_speedHistory` 3.6 kat şişik doluyordu → `rollingAvgKmh` şişik →
+   *     ETA sistematik olarak KISA (iyimser) çıkıyordu. */
   const { speed: _rawSpd } = useUnifiedVehicleStore.getState();
-  const currentSpeedKmh    = (_rawSpd ?? 0) * 3.6;
+  const currentSpeedKmh    = _rawSpd ?? 0;   // km/h
   if (currentSpeedKmh < STOP_THRESHOLD_KMH) {
     if (_stopStartMs === null) _stopStartMs = now;
   } else {
@@ -564,6 +864,9 @@ export function updateNavigationProgress(
   // Trafik durağı: 2s (trafik buffer birikimi hızlı yansıtılır, ETA güncel kalır).
   const _etaHysteresisMs = _stopStartMs !== null ? ETA_TRAFFIC_HYSTERESIS_MS : ETA_HYSTERESIS_MS;
   if (now - _lastEtaUpdateMs >= _etaHysteresisMs) {
+    /* #551 — zaman oranı sınırının `dt`si. `_lastEtaUpdateMs` hemen altında
+       EZİLDİĞİ için fark ÖNCE alınır. */
+    const _sinceLastEtaMs = now - _lastEtaUpdateMs;
     _lastEtaUpdateMs = now;
 
     // Populate 30-second rolling speed window (evict stale samples)
@@ -574,34 +877,128 @@ export function updateNavigationProgress(
     // Linearly weighted average: newest sample weight=1.0, oldest weight=0.1
     const rollingAvgKmh = _weightedAvgSpeed(now);
 
-    // Road-type hint: expected speed from current OSRM step (distance ÷ duration)
-    // Uses RouteStep.duration added in Packet 2 — available when OSRM responded.
-    const { steps, currentStepIndex } = getRouteState();
-    const step           = steps[currentStepIndex];
+    // Road-type hint: expected speed from current OSRM step (distance ÷ duration).
+    // YALNIZ YEDEK hesapta kullanılır — rota süre modeli varken devre dışıdır.
+    const rs = getRouteState();
+    const step           = rs.steps[rs.currentStepIndex];
     const roadSpeedKmh   = (step?.duration ?? 0) > 0
       ? (step.distance / step.duration) * 3.6
       : undefined;
 
-    // Blend: actual rolling speed (60%) + OSRM road-design speed (40%)
-    const blendedKmh = roadSpeedKmh !== undefined
-      ? 0.60 * rollingAvgKmh + 0.40 * roadSpeedKmh
-      : rollingAvgKmh;
-
-    // Hard floor 5 km/h — prevents division near-zero; realistic for any moving vehicle
-    const effectiveKmh = Math.max(blendedKmh, 5);
-
     // Traffic delay buffer: accumulate delay while stopped instead of freezing ETA
     const stopDurationS  = _stopStartMs !== null ? (now - _stopStartMs) / 1000 : 0;
     const trafficBufferS = Math.round(stopDurationS * TRAFFIC_DELAY_RATIO);
-    const movementEtaS   = Math.round((distance / 1000 / effectiveKmh) * 3600);
-    const newEtaS        = movementEtaS + trafficBufferS;
 
-    // Value-based hysteresis: only update if change > 5s
-    if (Math.abs(newEtaS - _lastStoredEtaS) > 5) {
+    /* ── ETA TEK OTORİTESİ (NAVIGATION_DELIVERY_CORE_P0) ────────────────────
+     * Eskiden burada `kalanMesafe / anlıkHız` doğrudan hesaplanıyordu; artık
+     * gövde rotanın KENDİ süre modelidir ve anlık hız yalnız sınırlı bir
+     * düzeltme çarpanı üretir. Karar saf modeldedir → test edilebilir. */
+    _lastEtaVerdict = computeEta({
+      navActive: true,
+      remainingRouteDurationS: rs.remainingRouteDurationSeconds,
+      durationIntegrity:       rs.durationIntegrityState,
+      durationSource:          rs.routeDurationSource,
+      routeRevision:           rs.routeRevision,
+      durationRevision:        rs.durationRevision,
+      /* Kütük #403/#404: ETA girdisine YALNIZ rota boyu ölçülmüş mesafe verilir.
+       * Kuş uçuşu mesafe (rota geometrisi yokken) gerçek yolun kısaltılmış hâlidir;
+       * ETA'ya verilirse süre sistematik olarak İYİMSER çıkar ve geometri gelip
+       * gidince ETA sıçrar — sahada 43 kez >60 s, en büyüğü 1 sa 49 dk. */
+      remainingDistanceM:
+        distanceSource === 'ALONG_ROUTE' && Number.isFinite(distance) && distance > 0
+          ? distance : null,
+      rollingAvgKmh,
+      roadSpeedKmh,
+      stopBufferS: trafficBufferS,
+      /* #551 — hız rampasının üstüne zaman oranı sınırı. */
+      previousCorrectionFactor: _prevAppliedEtaFactor,
+      sinceLastEtaMs:           _sinceLastEtaMs,
+    });
+
+    /* Sınır YALNIZ `ROUTE_MODEL` sürekliliği içindir. Yedek/STALE/UNKNOWN'a
+       düşülüp geri dönüldüğünde çarpan geçmişi ANLAMSIZDIR — sıfırlanır ki
+       yeni durum eski çarpandan yavaşça yürümek zorunda kalmasın. */
+    _prevAppliedEtaFactor = _lastEtaVerdict.state === 'ROUTE_MODEL'
+      ? _lastEtaVerdict.correctionFactor
+      : null;
+
+    /* ── G3 (#530) · ETA SIÇRAMA DEFTERİ ────────────────────────────────────
+     * Sahada 43 kez >60 s sıçrama ölçüldü ama SEBEBİ kayıtlı değildi. Defter
+     * sıçrama anında hangi anahtarın değiştiğini yazar (mesafe kaynağı · hız
+     * kapısı · reroute · ETA durumu). KARAR ÜRETMEZ, yalnız gözlem — bir
+     * sonraki saha koşumunda "etaModel mi mesafe mi" TAHMİNLE değil KAYITLA
+     * cevaplanır. */
+    {
+      const _sample: EtaSample = {
+        atMs: now,
+        etaSeconds: _lastEtaVerdict.etaSeconds,
+        baseDurationS: _lastEtaVerdict.baseSeconds,
+        factor: _lastEtaVerdict.correctionFactor,
+        remainingDistanceM:
+          distanceSource === 'ALONG_ROUTE' && Number.isFinite(distance) && distance > 0
+            ? distance : null,
+        rollingAvgKmh,
+        routeRevision: rs.routeRevision,
+        etaState: _lastEtaVerdict.state,
+      };
+      if (_prevEtaSample !== null) {
+        const jump = detectEtaJump(_prevEtaSample, _sample);
+        if (jump) _etaJumps = appendJump(_etaJumps, jump);
+      }
+      _prevEtaSample = _sample;
+    }
+
+    const newEtaS = _lastEtaVerdict.etaSeconds;
+    // Sayı üretilemediyse ESKİ ETA KORUNMAZ da, uydurulmaz da: store'a
+    // dokunulmaz (mevcut değer bir sonraki geçerli hesaba kadar kalır) ve
+    // durum LAB'da `etaState` ile açıkça görünür.
+    if (newEtaS !== null && Math.abs(newEtaS - _lastStoredEtaS) > 5) {
       _lastStoredEtaS = newEtaS;
       useNavigationStore.getState().updateEta(newEtaS);
     }
   }
+}
+
+/* ── ETA gözlem yüzeyi (CAROS LAB · salt-okunur) ──────────────────────────── */
+
+let _lastEtaVerdict: EtaVerdict = {
+  etaSeconds: null, state: 'UNKNOWN', source: 'NONE',
+  correctionFactor: 1, baseSeconds: null, reason: 'henüz hesaplanmadı',
+};
+
+/** G3 (#530) — ETA sıçrama defteri (bounded; PII YOK: yalnız süre ve anahtar). */
+let _etaJumps: EtaJumpRecord[] = [];
+let _prevEtaSample: EtaSample | null = null;
+
+/** Son ETA hükmü — sayı DEĞİL, GEREKÇE taşır. Yan etkisi yoktur. */
+export function getEtaVerdict(): EtaVerdict { return _lastEtaVerdict; }
+
+/**
+ * ETA HÜKMÜNÜN durumu — THROW ETMEYEN okuma (P0-NAV-14).
+ *
+ * NEDEN VAR: ETA gösteren yüzeyler (`MiniMapWidget` · `SplitScreen` ·
+ * `HorizonLayout` · `TripSummary`) motorun hükmünü okumak zorundadır ama
+ * hiçbiri bir okuma hatası yüzünden ÇÖKMEMELİDİR. Okunamıyorsa `'UNKNOWN'`
+ * döner ve `decideEtaDisplay` sayıyı GİZLER (fail-closed: emin değilsek
+ * sürücüye sayı göstermeyiz).
+ *
+ * Abonelik KURMAZ — render sırasında okunur (`useNavigationHonesty` ile aynı
+ * desen; yüzeyler zaten rota tick'inde yeniden render olur).
+ */
+export function readEtaStateSafe(): EtaVerdict['state'] {
+  try { return _lastEtaVerdict.state; } catch { return 'UNKNOWN'; }
+}
+
+/** @internal — testler arası izolasyon. */
+export function _resetEtaVerdictForTest(): void {
+  _lastEtaVerdict = {
+    etaSeconds: null, state: 'UNKNOWN', source: 'NONE',
+    correctionFactor: 1, baseSeconds: null, reason: 'henüz hesaplanmadı',
+  };
+  _lastEtaUpdateMs = 0;
+  _lastStoredEtaS = 0;
+  _speedHistory.length = 0;
+  _stopStartMs = null;
 }
 
 /**
@@ -618,6 +1015,21 @@ export function updateNavigationProgress(
  *
  * Monotonic clamp: aynı geometride mesafe asla artmaz (GPS jitter koruması).
  */
+/**
+ * Test kancası — snap hesabını doğrudan sürer ve türeyen yol yönünü döndürür.
+ * Kamera yön otoritesinin METİN kilidiyle değil DAVRANIŞLA doğrulanması için
+ * gerekli (ürün yolu store'a bağlı olduğundan birim testte sürülemiyor).
+ * Yalnız testlerden çağrılır; ürün akışında çağıranı YOKTUR.
+ */
+export function _snapForTest(
+  lat: number, lon: number, geometry: [number, number][],
+): { offRouteM: number; roadBearing: number | null } {
+  _lastGeoHash = '';          // her çağrıda taze O(N) tarama — testler bağımsız kalsın
+  _lastRouteDistanceM = Infinity;
+  calculateRouteDistance(lat, lon, geometry, null);
+  return { offRouteM: _lastOffRouteM, roadBearing: _lastSnappedSegBearing };
+}
+
 function calculateRouteDistance(
   lat:     number,
   lon:     number,
@@ -682,6 +1094,26 @@ function calculateRouteDistance(
   _lastSnappedLat = pLat;
   _lastSnappedLon = pLon;
   _lastOffRouteM  = minSegDist;
+  /* Yol yönü — kamera otoritesi (saha 2026-08-08, Siverek: ölçülen GPS yön
+     gürültüsü p90 15,9°/s, araç DURURKEN bile 18°/s). Segment yönü geometriden
+     gelir: titremez. Ekstra tarama YOK — A/B uçları zaten yukarıda bulundu.
+
+     ⚠️ 2026-08-13 (aynı yol, Siverek — yeniden ölçüldü): TEK segmentin yönü
+     yetmedi. GPS gürültüsü kesilmişti ama gürültü YER DEĞİŞTİRMİŞTİ: rota
+     geometrisinin kendi düğümleri kavşaklarda sıklaşıyor (segmentlerin %23'ü
+     <5 m) ve araç ilerledikçe en-yakın-segment indeksi bu kısa parçalar
+     arasında atlıyor. Ölçülen en büyük TEK darbe: şehir içi **91,5°**,
+     şehir dışı **118,7°**. Yön artık rota boyunca 40 m İLERİYE bakılarak
+     alınır → aynı ölçümde max darbe **~25°**e iner, düz yolda medyan fark
+     ~0,1° (gecikme EKLEMEZ). Ayrıntı ve pencere seçimi: `core/geo.ts`.
+
+     Hesap AYNI snap çıktısından doğar (`closestSegIdx` + `t`): yeni bir
+     en-yakın-segment ARAMASI YOKTUR, yalnız bulunmuş noktadan İLERİ yürünür.
+     Pencere hesaplanamazsa (rota sonu / dejenere geometri) davranış eskisine,
+     yani tek segment yönüne DÜŞER — sessiz `null` bırakılmaz. */
+  _lastSnappedSegBearing =
+    roadBearingAheadDeg(geometry, closestSegIdx, t, CAMERA_ROAD_BEARING_LOOKAHEAD_M)
+    ?? bearingBetween(aLat, aLon, bLat, bLon);
 
   // ── Step 3: remaining = |P'→B| + suffix-sum from B ─────────────────
   // O(1) with precomputed cumDist; O(N) fallback when unavailable (should not occur).
@@ -785,6 +1217,17 @@ function calculateHeading(
  *  20m içinde kullanıcı "yoldan çıktım" görmez; 55m'de reroute tetiklenir. */
 const SNAP_VISUAL_THRESHOLD_M = 20;
 
+/**
+ * Kamera yön penceresi (m) — yön, oturtulmuş noktadan rota boyunca bu kadar
+ * İLERİDEKİ noktaya bakılarak alınır. Ölçülerek seçildi (Siverek, iki rota):
+ * tek segment → max darbe 91,5°/118,7° · 40 m → ~25° · 75 m → ~14°/20°.
+ * 75 m daha stabil ama dönüşü kamerada çok erken başlatır ve `cameraEngine`
+ * içindeki dönüş-öngörü katmanının (`ANTICIPATION_MAX_DEG`) yanında İKİNCİ bir
+ * öngörü otoritesi kurardı — bu yüzden 40 m'de durduruldu. Tam gerekçe ve
+ * ölçüm tablosu: `navigation/core/geo.ts → roadBearingAheadDeg`.
+ */
+const CAMERA_ROAD_BEARING_LOOKAHEAD_M = 40;
+
 export function getSnappedMarkerPosition(): { lat: number; lon: number } | null {
   const status = useNavigationStore.getState().status;
   if (status !== NavStatus.ACTIVE && status !== NavStatus.REROUTING) return null;
@@ -793,9 +1236,42 @@ export function getSnappedMarkerPosition(): { lat: number; lon: number } | null 
   return { lat: _lastSnappedLat, lon: _lastSnappedLon };
 }
 
-/** Kırpma için off-route toleransı — reroute eşiğinden (55m) geniş tutulur:
- *  GPS gürültüsünde kırpma sürmeli; gerçek sapmada zaten reroute tetiklenir. */
-const TRIM_OFF_ROUTE_MAX_M = 80;
+/**
+ * Aracın üzerinde bulunduğu ROTA SEGMENTİNİN yönü (derece, 0–360) — kameranın
+ * yön kaynağı. Rota dışındaysak / oturtma güvenilmezse `null`.
+ *
+ * NEDEN VAR (saha 2026-08-08, Siverek — ölçüldü): kamera ham GPS heading'ini
+ * takip ediyordu. Ölçülen gürültü: |Δyön|/s p90 **15,9°**, p99 38,6°, ve araç
+ * DURURKEN bile p90 12,3° / max 18,0°; ardışık örneklerin %5'i işaret
+ * değiştiriyordu (gerçek dönüş değil, salınım). Kullanıcının tarifi: *"bir
+ * dönüyor bir öyle dönüyor, geriye doğru gidecekmiş hissi veriyor."*
+ * Yol geometrisi ise titremez — Google/OEM navigasyonların kamerayı sabit
+ * tutma yöntemi de budur.
+ *
+ * İKİNCİ OTORİTE DEĞİLDİR: değer, `getSnappedMarkerPosition()` ile AYNI snap
+ * hesabından (`aLat/aLon → bLat/bLon`) doğar ve AYNI güven kapısını kullanır
+ * (ACTIVE/REROUTING + `SNAP_VISUAL_THRESHOLD_M`). İşaretçiyi oraya çizecek
+ * kadar güvenmiyorsak kamerayı da oraya döndürmeyiz.
+ */
+export function getSnappedRoadBearing(): number | null {
+  const status = useNavigationStore.getState().status;
+  if (status !== NavStatus.ACTIVE && status !== NavStatus.REROUTING) return null;
+  if (_lastSnappedSegBearing === null) return null;
+  if (_lastOffRouteM > SNAP_VISUAL_THRESHOLD_M) return null;
+  return _lastSnappedSegBearing;
+}
+
+/* ── KIRPMA EŞİĞİ = GÖRSEL OTURTMA EŞİĞİ (saha 2026-08-03) ───────────────────
+ * Eskiden kırpma toleransı 80 m, işaretçiyi rotaya oturtma toleransı 20 m idi.
+ * 56 m sapmada (cihazda ölçüldü) ürün AYNI ANDA iki çelişik şey söylüyordu:
+ *   • işaretçi: "rotada DEĞİLİM" → araç gerçek GPS konumunda çizilir
+ *   • kırpma:   "rotadayım"      → çizgi 56 m ötedeki snapped noktadan kesilir
+ * Sonuç: rota aracın ÖNÜNDE kesiliyor, arada boşluk kalıyor — kullanıcının
+ * "dengesiz duruyor" dediği görüntü.
+ *
+ * Tek doğruluk: aracı oraya çizecek kadar güvenmiyorsak, rotayı da oradan
+ * kesmeyiz. Eşik ötesinde kırpma yapılmaz → çizgi tam çizilir ve aracın
+ * yakınından geçmeye devam eder. */
 
 /**
  * Kat edilen rota kırpma için ilerleme noktası: en yakın segment index'i +
@@ -809,7 +1285,7 @@ export function getRouteProgressPoint(): { segIdx: number; lat: number; lon: num
   const status = useNavigationStore.getState().status;
   if (status !== NavStatus.ACTIVE && status !== NavStatus.REROUTING) return null;
   if (_lastClosestSegIdx < 0 || _lastSnappedLat === null || _lastSnappedLon === null) return null;
-  if (_lastOffRouteM > TRIM_OFF_ROUTE_MAX_M) return null;
+  if (_lastOffRouteM > SNAP_VISUAL_THRESHOLD_M) return null;
   return { segIdx: _lastClosestSegIdx, lat: _lastSnappedLat, lon: _lastSnappedLon };
 }
 
@@ -820,7 +1296,16 @@ export function formatDistance(meters: number): string {
   if (Math.round(meters) < 1000) {
     return `${Math.round(meters)} m`;
   }
-  return `${(meters / 1000).toFixed(1)} km`;
+  const km = meters / 1000;
+  /* ── SAHA KUSURU (2026-09-09) · HUD'DA "34…" KIRPILMASI ──────────────────
+   * Tek ondalıkta ısrar uzun rotada 9 karakterlik değer üretiyordu
+   * ("1034.0 km"). `TripSummary` hücresi yatayda ~108 px'dir (460 px kart ÷ 3)
+   * ve 26 px tabular rakamla bu değer sığmaz → `truncate` devreye girip
+   * ekranda "34…" bırakıyordu. 100 km üstünde ondalık zaten BİLGİ TAŞIMAZ
+   * (±100 m hassasiyet 300 km'lik rotada anlamsızdır) — atılır.
+   * Sonuç en fazla 8 karakter: "999 m" · "99.9 km" · "342 km" · "9999 km". */
+  if (km < 100) return `${km.toFixed(1)} km`;
+  return `${Math.round(km)} km`;
 }
 
 /**
@@ -917,7 +1402,7 @@ export async function navigateToAddress(text: string): Promise<boolean> {
   if (!navigator.onLine) {
     const offlineMatch = await searchOffline(text);
     if (offlineMatch) {
-      startNavigation(offlineMatch, true);
+      startNavigation(offlineMatch, true, 'USER_SEARCH');
       // Move to front of history
       await addToHistory(offlineMatch);
       return true;
@@ -941,7 +1426,7 @@ export async function navigateToAddress(text: string): Promise<boolean> {
       // Nominatim found nothing, try offline fallback
       const offlineMatch = await searchOffline(text);
       if (offlineMatch) {
-        startNavigation(offlineMatch, true);
+        startNavigation(offlineMatch, true, 'USER_SEARCH');
         await addToHistory(offlineMatch);
         return true;
       }
@@ -957,7 +1442,7 @@ export async function navigateToAddress(text: string): Promise<boolean> {
       type:      'history',
     };
 
-    startNavigation(destination, false);
+    startNavigation(destination, false, 'USER_SEARCH');
     // 2. Persistence on success (Write Throttling)
     await addToHistory(destination);
     return true;
@@ -965,7 +1450,7 @@ export async function navigateToAddress(text: string): Promise<boolean> {
     // AbortError (timeout) veya ağ hatası → yerel geçmişe fallback
     const offlineMatch = await searchOffline(text);
     if (offlineMatch) {
-      startNavigation(offlineMatch, true);
+      startNavigation(offlineMatch, true, 'USER_SEARCH');
       await addToHistory(offlineMatch);
       return true;
     }
@@ -981,9 +1466,11 @@ export async function navigateToAddress(text: string): Promise<boolean> {
 export function useNavigation() {
   const status             = useNavigationStore((s) => s.status);
   const isNavigating       = useNavigationStore((s) => s.isNavigating);
+  const isGuidanceActive   = useNavigationStore((s) => s.isGuidanceActive);
   const isRerouting        = useNavigationStore((s) => s.isRerouting);
   const destination        = useNavigationStore((s) => s.destination);
   const distanceMeters     = useNavigationStore((s) => s.distanceMeters);
+  const distanceSource     = useNavigationStore((s) => s.distanceSource);
   const etaSeconds         = useNavigationStore((s) => s.etaSeconds);
   const headingToDestination = useNavigationStore((s) => s.headingToDestination);
   const isOfflineResult    = useNavigationStore((s) => s.isOfflineResult);
@@ -992,12 +1479,25 @@ export function useNavigation() {
   return {
     status,
     isNavigating,
+    isGuidanceActive,
     isRerouting,
     destination,
     distanceMeters,
+    distanceSource,
     etaSeconds,
     headingToDestination,
     isOfflineResult,
     errorMessage,
   };
+}
+
+/**
+ * G3 (#530) — ETA sıçrama defteri okuma ucu (salt-okunur, senkron).
+ * LAB ve saha köprüsü buradan okur; koordinat/PII taşımaz.
+ */
+export function getEtaJumpLedger(): {
+  readonly records: readonly EtaJumpRecord[];
+  readonly summary: EtaJumpSummary;
+} {
+  return { records: _etaJumps.slice(), summary: summarizeJumps(_etaJumps) };
 }

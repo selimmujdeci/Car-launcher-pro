@@ -88,8 +88,8 @@ export function PushNotificationWidget() {
             }}
           />
         </span>
-        <BellCheckIcon className="text-red-400" />
-        <span className="text-[10px] font-black uppercase tracking-[0.28em] text-red-400">
+        <BellCheckIcon className="text-critical" />
+        <span className="text-[10px] font-black uppercase tracking-[0.28em] text-critical">
           Bildirimler Aktif
         </span>
       </div>
@@ -108,7 +108,7 @@ export function PushNotificationWidget() {
         title="Tarayıcı ayarlarından bildirim iznini etkinleştirin"
       >
         <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 bg-white/20" />
-        <span className="text-[10px] font-medium text-white/25">İzin Verilmedi</span>
+        <span className="text-[10px] font-medium text-t3">İzin Verilmedi</span>
       </div>
     );
   }
@@ -136,7 +136,7 @@ export function PushNotificationWidget() {
         /* Spinner */
         <svg
           width="11" height="11" viewBox="0 0 11 11" fill="none"
-          className="animate-spin text-red-400"
+          className="animate-spin text-critical"
         >
           <circle cx="5.5" cy="5.5" r="4" stroke="currentColor"
             strokeWidth="1.3" strokeDasharray="18" strokeDashoffset="6" opacity="0.4"/>
@@ -144,9 +144,9 @@ export function PushNotificationWidget() {
             strokeWidth="1.3" strokeLinecap="round"/>
         </svg>
       ) : (
-        <AlarmShieldIcon className="text-red-400 group-hover:scale-110 transition-transform" />
+        <AlarmShieldIcon className="text-critical group-hover:scale-110 transition-transform" />
       )}
-      <span className="text-[10px] font-black uppercase tracking-[0.28em] text-red-400">
+      <span className="text-[10px] font-black uppercase tracking-[0.28em] text-critical">
         {working ? 'Bağlanıyor' : 'Hırsız Savar'}
       </span>
     </button>

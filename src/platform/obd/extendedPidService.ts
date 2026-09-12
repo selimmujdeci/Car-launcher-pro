@@ -3,7 +3,7 @@
  *
  * OS entegrasyon yüzeyi: dashboard widget'ı / teşhis ekranı / sesli asistan bir PID'i
  * `watchPid()` ile izler; servis izlenen listeyi native EXTENDED poll grubuna iletir
- * (turda 1 PID round-robin, POLL_SLOW). Ham hex native'den `obdExtendedData` ile gelir,
+ * (deadline/RTT/hat bütçesiyle adaptif, POLL_SLOW). Ham hex native'den `obdExtendedData` ile gelir,
  * çözümleme StandardPidRegistry'de yapılır (tek doğruluk kaynağı, test edilebilir).
  *
  * MALİ-400 KURALI (tam sözleşme):
@@ -24,14 +24,20 @@ import { Capacitor } from '@capacitor/core';
 import { CarLauncher } from '../nativePlugin';
 import type { PluginListenerHandle } from '@capacitor/core';
 import { STANDARD_PID_MAP, decodeStandardPid } from './StandardPidRegistry';
+import type { DiscoveryCompleteness } from '../../core/val/OBDHandshake';
+import { CANONICAL_OBD_BY_PID } from './canonicalObdSignals';
+import { computeFreshnessWindow } from './obdFreshnessPolicy';
 import type { StandardPidDef } from './StandardPidRegistry';
+import {
+  recordExtendedTimelineSample, resetExtendedTimeline,
+} from './extendedPollTimeline';
 import { logError } from '../crashLogger';
 
-/** İzlenebilir PID sayısı TS tavanı — rotasyon gecikmesi makul kalsın (16 PID ≈ 16 tur). */
-export const ELM_WATCH_CAP = 16;
+/** Kayıtlı/çözülebilir standart PID kapsamı; kapasiteyi scheduler RTT bütçesi belirler. */
+export const ELM_WATCH_CAP = STANDARD_PID_MAP.size;
 
 /** BURST modu (Canlı Test) tavanı — tüm çekirdek-olmayan PID'ler izlenebilsin. */
-export const ELM_WATCH_CAP_BURST = 48;
+export const ELM_WATCH_CAP_BURST = STANDARD_PID_MAP.size;
 
 /**
  * Bitmask keşif PID'leri — sırayla zincirlenir. Her 0x_0 PID, bir sonraki 32'lik
@@ -59,10 +65,33 @@ type Watcher = (v: ExtendedPidValue) => void;
 const _watchers = new Map<string, Set<Watcher>>();      // pid → callback'ler
 const _values = new Map<string, ExtendedPidValue>();    // pid → son değer
 let _supported: Set<string> | null = null;              // null = keşif tamamlanmadı
+/* P0-OBD-CORE-06: destek kümesinin ARKASINDAKİ KANIT ne kadar tam?
+ *   'not_run'    → hiç blok okunmadı
+ *   'incomplete' → zincir cevapsızlık/hata yüzünden KIRILDI (okunmayan blok
+ *                  PID'leri BİLİNMİYOR — "desteklenmiyor" DEĞİL)
+ *   'complete'   → continuation=0 ya da son blok → "desteklenmiyor" ÇIKARIMI GÜVENLİ
+ * Bu alan olmadan `supportedKnown: true` iki farklı gerçeği aynı gösteriyordu ve
+ * CAROS LAB "kanıt VAR · N PID araç desteklemediği için elendi" diye KANITSIZ
+ * bir hüküm yazıyordu. */
+let _supportedCompleteness: DiscoveryCompleteness = 'not_run';
 let _discoveryQueue: string[] = [];                     // bekleyen bitmask PID'leri
+/** PR-OBD-KWP-1: native'in oturum-içi demote ettiği PID'ler (ardışık NO_DATA/7F) —
+ *  "araç bu PID'i VERMİYOR" gerçek nedeni. Bitmap-destekli ama veri gelmeyen PID
+ *  (Trafic 39/39 NO_DATA vakası) artık UI'da dürüstçe etiketlenebilir. */
+const _unavailable = new Map<string, string>();          // pid → neden ('no_data')
+/** P0-OBD-02: oturum numarası — `notifyObdConnected` her çağrıldığında artar.
+ *  Değerlerin HANGİ bağlantıya ait olduğunu tüketiciler bununla damgalar. */
+let _sessionEpoch = 0;
 let _listenerHandle: PluginListenerHandle | null = null;
 let _listenerStarting = false;
 let _burst = false;                                     // Canlı Test burst modu (cap+native hız)
+
+/* PR-OBD-DIAG-3: JS-tarafı akış sayaçları — native "callbackEmitted" ile birlikte H3'ü
+ * (native başarılı ama JS/store'a değer akmadı) köprü-kaybı mı decode-kaybı mı ayırır.
+ * Oturumluk (notifyObdConnected'da sıfırlanır); saf sayaç, davranış değiştirmez. */
+let _jsEventsReceived = 0;   // bilinen PID için native'den değer olayı geldi
+let _jsDecodeFailures = 0;   // olay geldi ama decodeStandardPid NaN döndü (saklanamadı)
+let _jsValuesStored = 0;     // başarıyla _values'e yazıldı (→ sample adayı)
 
 /* ── Bitmask çözümleme (saf — test edilebilir) ────────────────────────────── */
 
@@ -92,15 +121,36 @@ export function parseSupportedBitmask(basePid: string, dataHex: string): Set<str
 
 /* ── Native senkronizasyon ────────────────────────────────────────────────── */
 
-/** Native'e gidecek güncel liste: keşif kuyruğu + (destek filtresi uygulanmış) izlenenler. */
+/**
+ * Native'e gidecek güncel liste: keşif kuyruğu + (destek filtresi uygulanmış) izlenenler.
+ *
+ * S1 FAIL-CLOSED (#503): `_supported === null` iken izlenen PID'ler native'e **GİTMEZ**.
+ *
+ * ESKİ KUSUR: filtre `_supported !== null && …` yazıyordu → destek kanıtı YOKKEN kapı
+ * SESSİZCE AÇILIYORDU. `notifyObdConnected()` her yeniden bağlanmada `_supported`ı null'a
+ * çekiyor ama izleyicileri (obdService `_extraPidUnsubs` · SensorPanel · Canlı Test)
+ * BIRAKMIYOR — `_clearExtraPidWatches()` yalnız `stopOBD`'de koşar. Sonuç: reconnect'te
+ * 16 (burst'te ≤48) PID'in TAMAMI filtresiz native'e gidiyordu; ELM327'de her desteksiz
+ * sorgu ~200 ms NO-DATA bekletir → tam olarak `seedSupportedPids`in önlemek için yazıldığı
+ * NO-DATA fırtınası (bkz. o fonksiyonun docstring'i).
+ *
+ * NEDEN "izleyicileri de bırak" DEĞİL: izleyicilerin sahibi bu modül değildir; unsubscribe
+ * fonksiyonlarını çağıranlar tutar ve reconnect'te yeniden kurmazlar → panel açıkken sinyal
+ * SESSİZCE ölürdü. Kanıt yokken sorgu göndermemek hem fail-closed hem geri dönüşlüdür:
+ * keşif (`_discoveryQueue`) ya da handshake tohumu (`seedSupportedPids`) `_supported`ı
+ * doldurur doldurmaz `_pushToNative()` yeniden çağrılır ve izlenenler tek turda akmaya başlar.
+ */
 function _buildNativeList(): string[] {
   const watched: string[] = [];
-  for (const pid of _watchers.keys()) {
-    if (!STANDARD_PID_MAP.has(pid)) continue;              // tanımsız PID sorgulanmaz
-    if (STANDARD_PID_MAP.get(pid)!.core) continue;         // core zaten ana yoldan akıyor
-    if (_supported !== null && !_supported.has(pid)) continue; // araç desteklemiyor
-    watched.push(pid);
-    if (watched.length >= (_burst ? ELM_WATCH_CAP_BURST : ELM_WATCH_CAP)) break;
+  // Kanıt yoksa sorgu yok — keşif kuyruğu (bitmask) tek başına gider ve kapıyı o açar.
+  if (_supported !== null) {
+    for (const pid of _watchers.keys()) {
+      if (!STANDARD_PID_MAP.has(pid)) continue;            // tanımsız PID sorgulanmaz
+      if (STANDARD_PID_MAP.get(pid)!.core) continue;       // core zaten ana yoldan akıyor
+      if (!_supported.has(pid)) continue;                  // araç desteklemiyor
+      watched.push(pid);
+      if (watched.length >= (_burst ? ELM_WATCH_CAP_BURST : ELM_WATCH_CAP)) break;
+    }
   }
   return [..._discoveryQueue, ...watched];
 }
@@ -128,6 +178,10 @@ function _onExtendedData(event: { pid: string; data: string }): void {
       const next = idx >= 0 ? DISCOVERY_PIDS[idx + 1] : undefined;
       if (next && found.has(next) && !_discoveryQueue.includes(next)) {
         _discoveryQueue.push(next);
+      } else if (found.size > 0) {
+        /* P0-OBD-CORE-06: continuation CLEAR (ya da son blok) → bu kanal için
+           zincir KESİN bitti. Yanıt çözülemediyse (`found` boş) hüküm YOK. */
+        _supportedCompleteness = 'complete';
       }
       _pushToNative(); // kuyruk değişti → native listeyi tazele
       return;
@@ -136,8 +190,9 @@ function _onExtendedData(event: { pid: string; data: string }): void {
     // Normal PID değeri
     const def = STANDARD_PID_MAP.get(pid);
     if (!def) return;
+    _jsEventsReceived++; // PR-OBD-DIAG-3: bilinen PID için değer olayı JS'e ulaştı
     const value = decodeStandardPid(pid, event.data);
-    if (Number.isNaN(value)) return; // bozuk/sınır dışı — sessizce atla (fail-soft, eski sözleşme)
+    if (Number.isNaN(value)) { _jsDecodeFailures++; return; } // bozuk/sınır dışı — fail-soft (eski sözleşme)
     // raw: ham data hex de saklanır — Canlı Test ekranı doğruluk denetimi için gösterir.
     const entry: ExtendedPidValue = {
       value,
@@ -146,11 +201,97 @@ function _onExtendedData(event: { pid: string; data: string }): void {
       raw: (event.data ?? '').trim(),
     };
     _values.set(pid, entry);
+    _jsValuesStored++; // PR-OBD-DIAG-3: değer saklandı → obdDeep.extended.samples adayı
+
+    /* ── #525 · GERÇEK DEĞER, "VERİLMİYOR" KAYDINI GEÇERSİZ KILAR ────────────
+     * SAHA (2026-08-10): aynı snapshot'ta `lastSuccessfulPid: "33"` ile
+     * `unavailable_pids: "33, 10, 1C"` YAN YANA duruyordu. Kök: `_unavailable`
+     * bir kez yazıldıktan sonra YALNIZ reset/liste değişiminde temizleniyordu;
+     * PID yeniden veri vermeye başlasa bile kayıt KALICI kalıyordu.
+     *
+     * #524 native tarafta "bir kez OK dönen PID kalıcı elenemez" sözleşmesini
+     * kurdu; bu satır TS tarafını AYNI sözleşmeye bağlar — aksi hâlde native
+     * PID'i sıraya geri alırken TS onu hâlâ "araç vermiyor" diye raporluyordu
+     * (ikinci otorite: native 0 elenmiş derken timeline 3 diyordu).
+     *
+     * Silme KANIT KAYBI DEĞİLDİR: elenme olayı `extendedPollTimeline`e zaten
+     * kalıcı yazıldı; burada temizlenen yalnız GÜNCEL durum iddiasıdır. */
+    _unavailable.delete(pid);
+
+    _sampleTimeline(entry.updatedAt);   // #512: eleme ↔ tazelik zaman ekseni
     _watchers.get(pid)?.forEach((cb) => {
       try { cb(entry); } catch (e) { logError('OBD:ExtPidWatcher', e); }
     });
   } catch (e) {
     logError('OBD:ExtPidData', e);
+  }
+}
+
+/* ── Zaman ekseni örneklemesi (kütük #512 · saha hipotezi 2) ────────────────
+ * Eleme ↔ tazelik ilişkisini ölçmek için ZATEN olan iki olaya iliştirilir:
+ * değer geldiğinde ve bir PID elendiğinde. YENİ TIMER KURULMAZ — kanal
+ * sustuğunda örnekleme de durur, ki bu bulgunun kendisidir (boşluk uydurulmaz). */
+function _sampleTimeline(nowMs: number): void {
+  try {
+    const ages: number[] = [];
+    for (const v of _values.values()) {
+      const age = nowMs - v.updatedAt;
+      if (Number.isFinite(age) && age >= 0) ages.push(age);
+    }
+    recordExtendedTimelineSample({
+      atMs:      nowMs,
+      watched:   _watchers.size,
+      demoted:   _unavailable.size,
+      valued:    _values.size,
+      ageMsList: ages,
+    });
+  } catch { /* fail-soft: gözlem ürünü ASLA düşürmez */ }
+}
+
+/** PR-OBD-KWP-1: native demote bildirimi — PID turdan düşürüldü (ardışık NO_DATA/7F). */
+function _onExtendedPidStatus(event: { pid: string; status: string }): void {
+  try {
+    const pid = (event.pid ?? '').toUpperCase();
+    if (!pid) return;
+    const status = event.status || 'no_data';
+
+    /* ── #525 · GEÇİCİ DURAKLATMA "ARAÇ VERMİYOR" DEĞİLDİR ──────────────────
+     * #524 native tarafta iki ayrı sonuç üretiyor:
+     *   · "no_data" → hiç OK dönmemiş PID, oturum-içi KALICI eleme
+     *   · "paused"  → OK dönmüş ama şimdi susan PID, GEÇİCİ duraklatma; süre
+     *                 dolunca sıraya GERİ girer
+     * Eskiden ikisi de aynı kanaldan "no_data" geliyordu ve TS geçici olanı da
+     * kalıcı "araç vermiyor" diye kaydediyordu. Sonuç (saha 2026-08-10): native
+     * `permanentCount: 0` derken TS timeline `demoted: 3` diyordu ve kanıt
+     * motoru "3 PID araç tarafından verilmiyor" cümlesini kuruyordu.
+     * Geçici duraklatma `_unavailable`a YAZILMAZ — durumu native taşır
+     * (`elim.pausedRemainingCycles`, LAB'da kalan turuyla görünür). */
+    if (status === 'paused') {
+      _sampleTimeline(Date.now());   // geçiş anı yine kaydedilir (kanıt kaybı yok)
+      return;
+    }
+
+    /* ── #532 · HAT OLAYI → TS KAYDI DA SIFIRLANIR ──────────────────────────
+     * SAHA (2026-08-11): native `bulkResetCount: 2` (hat olayı iki kez tetiklendi
+     * ve native eleme SIFIRLANDI) ama TS'in `_unavailable` kaydı KALDI →
+     * `timeline.demoted: 1` ile `elim.permanentCount: 0` AYNI snapshot'ta
+     * çelişti ve kanıt motoru "1 PID araç tarafından verilmiyor: 20" dedi.
+     * #525 "değer gelince sil" kuralını koymuştu; ama hiç değer VERMEYEN bir
+     * PID'de o kural çalışmaz — sıfırlama tek taraflı kalıyordu.
+     * `pid === '*'` bu olayın kapsamının TEK PID değil TÜM LİSTE olduğunu söyler. */
+    if (status === 'bulk_reset') {
+      _unavailable.clear();
+      _sampleTimeline(Date.now());
+      return;
+    }
+
+    _unavailable.set(pid, status);
+    /* Eleme ANI throttle'dan MUAF kaydedilir — geçişin tam noktası en değerli örnek. */
+    _sampleTimeline(Date.now());
+    // Değer önbelleği bilinçli KORUNUR: daha önce gerçek değer geldiyse UI onu
+    // "bayat + artık akmıyor" olarak gösterebilir (silmek kanıt kaybı olur).
+  } catch (e) {
+    logError('OBD:ExtPidStatus', e);
   }
 }
 
@@ -161,6 +302,10 @@ function _ensureListener(): void {
   void CarLauncher.addListener('obdExtendedData', _onExtendedData)
     .then((h) => { _listenerHandle = h; _listenerStarting = false; })
     .catch((e) => { _listenerStarting = false; logError('OBD:ExtPidListen', e); });
+  // PR-OBD-KWP-1: demote bildirimi ayrı kanal — eski APK'da olay hiç gelmez (fail-soft).
+  // Handle saklanmaz: dinleyici modül ömrü boyunca yaşar (obdExtendedData ile aynı ömür).
+  void CarLauncher.addListener('obdExtendedPidStatus', _onExtendedPidStatus)
+    .catch(() => { /* eski plugin — durum bilgisi yok, davranış değişmez */ });
 }
 
 /** Keşfi başlat (idempotent) — yalnız izleyici varken çağrılır. */
@@ -216,19 +361,248 @@ export function getSupportedPids(): Set<string> | null {
   return _supported ? new Set(_supported) : null;
 }
 
+/* ── #506: SESSİZLİĞİN SEBEBİ (S1 fail-closed'ın gözlem yüzeyi) ───────────── */
+
+/**
+ * Extended sorgu KAPISININ durumu — "neden hiçbir şey sorulmuyor" sorusunun cevabı.
+ *
+ * NEDEN VAR: #503 ile gürültüyü (NO-DATA fırtınası) SESSİZLİKLE takas ettik. Kapı
+ * kapalıyken sistem doğru davranır ama DIŞARIDAN "poll ölü" ile ayırt edilemez —
+ * `configuredPidCount: 0/1` hem "kimse izlemiyor" hem "destekli PID kanıt bekliyor"
+ * anlamına gelebilirdi. Bu getter ikisini AYIRIR.
+ *
+ * Saf sayım; yan etkisi YOK (native'e hiçbir şey göndermez, durum değiştirmez).
+ */
+export interface ExtendedGateState {
+  /** Destek kanıtı var mı — `false` iken KAPI KAPALIDIR (fail-closed). */
+  supportedKnown: boolean;
+  /** Kanıtlı destekli PID sayısı (kanıt yoksa 0 — "yok" değil "bilinmiyor" demektir). */
+  supportedCount: number;
+  /** Kaç PID için izleyici var (core/tanımsız dahil ham izleyici sayısı). */
+  watchedCount: number;
+  /**
+   * Sorgulanabilir OLDUĞU HÂLDE gitmeyen PID sayısı = "beklemede".
+   *  · kanıt yokken: tüm çözülebilir non-core izlenenler (kapı kapalı),
+   *  · kanıt varken: bitmap'in desteklemediği izlenenler (kalıcı olarak elendi).
+   */
+  gatedCount: number;
+  /** Beklemede olan PID'ler (bounded ≤16) — hangi sinyalin sustuğu görünsün. */
+  gatedPids: string[];
+  /** Bekleyen bitmask keşif sorgusu sayısı (kapıyı açacak olan iş). */
+  discoveryPending: number;
+  /** Şu an native'e gitmekte olan liste boyutu (keşif + izlenen). */
+  nativeListCount: number;
+  /** Tanı BURST modu açık mı (cap'i etkiler). */
+  burst: boolean;
+  /**
+   * P0-OBD-CORE-06 — destek kanıtının BÜTÜNLÜĞÜ. `supportedKnown: true` tek
+   * başına "araç bu PID'leri desteklemiyor" demeye YETMEZ: zincir kırıldıysa
+   * (`incomplete`) sorulmamış blokların PID'leri BİLİNMİYOR.
+   */
+  discoveryCompleteness: DiscoveryCompleteness;
+  /** Kısayol: yalnız `complete` iken "desteklemiyor" çıkarımı yapılabilir. */
+  supportedEvidenceComplete: boolean;
+}
+
+/**
+ * H-A deneyi (kütük #518-HA) için İZLENEN PID listesi — bounded, salt-okunur kopya.
+ *
+ * `getExtendedGateState()` yalnız SAYI verir; deney hangi PID'leri ölçeceğini bilmek
+ * zorunda ve **varsayılan liste UYDURAMAZ**. Elenen (demote) PID'ler de dahildir —
+ * deneyin asıl merak ettiği tam olarak onlardır.
+ */
+export function getWatchedExtendedPids(): string[] {
+  const out: string[] = [];
+  for (const pid of _watchers.keys()) {
+    out.push(pid);
+    if (out.length >= ELM_WATCH_CAP) break;
+  }
+  return out;
+}
+
+export function getExtendedGateState(): ExtendedGateState {
+  const gatedPids: string[] = [];
+  let gatedCount = 0;
+  for (const pid of _watchers.keys()) {
+    const def = STANDARD_PID_MAP.get(pid);
+    if (!def || def.core) continue;                      // zaten sorgulanabilir aday değil
+    if (_supported !== null && _supported.has(pid)) continue; // gidiyor
+    gatedCount++;                                        // GERÇEK sayı (kırpılmaz)
+    if (gatedPids.length < ELM_WATCH_CAP) gatedPids.push(pid); // liste bounded
+  }
+  return {
+    supportedKnown: _supported !== null,
+    supportedCount: _supported ? _supported.size : 0,
+    watchedCount: _watchers.size,
+    gatedCount,
+    gatedPids,
+    discoveryPending: _discoveryQueue.length,
+    nativeListCount: _buildNativeList().length,
+    burst: _burst,
+    discoveryCompleteness: _supportedCompleteness,
+    supportedEvidenceComplete: _supportedCompleteness === 'complete',
+  };
+}
+
+/* ── PR-OBD-KWP-1: per-PID gerçek durum (tek veri gerçeği için) ───────────── */
+
+/**
+ * P0-OBD-02: bu PID için kadans-türevli bayatlık penceresi.
+ *
+ * Kadans bu modülde OKUNMAZ (obdService'e döngüsel import olurdu) — pencere
+ * yalnız izlenen PID adedini ve sinyal sınıfını kullanır; poll periyodu politika
+ * tarafının varsayılanına bırakılır. Kataloğa girmemiş PID'ler `medium` sayılır.
+ */
+function _defaultStaleMs(pid: string): number {
+  const def = CANONICAL_OBD_BY_PID.get(pid);
+  return computeFreshnessWindow({
+    cls:  def?.freshness ?? 'medium',
+    path: 'extended',
+    watchedCount: _buildNativeList().length,
+  }).staleMs;
+}
+
+export type ExtendedPidStatus =
+  | 'live'         // taze değer var (< staleMs)
+  | 'stale'        // değer var ama eski
+  | 'no_data'      // bitmap destekli görünüyor ama ECU vermiyor (native demote kanıtı)
+  | 'unsupported'  // keşif bitmap'i bu PID'i desteklemiyor diyor
+  | 'probing';     // henüz kanıt yok (keşif/ilk sorgu sürüyor)
+
+/**
+ * Bir extended PID'in GERÇEK durumu — UI "neden okunamıyor"u bununla gösterir.
+ * Fail-closed sıra: gerçek değer kanıtı > native no-data kanıtı > bitmap kanıtı > bilinmiyor.
+ *
+ * ── P0-OBD-02 · `staleMs` ARTIK SABİT DEĞİL ───────────────────────────────
+ * Varsayılan 15_000 idi ve TÜM PID'lere uygulanıyordu. Ama genişletilmiş grup
+ * round-robin'dir: turda EN FAZLA 1 PID okunur → 16 PID izlenirken bir PID'in
+ * SAĞLIKLI yaşı ≈ tur × 16'dır (1 s'lik turda ~16 s). Sabit 15 s, mükemmel
+ * çalışan bir PID'i "bayat" ilan ediyordu. Varsayılan artık GERÇEK kadanstan
+ * türer (bkz. `obdFreshnessPolicy.computeFreshnessWindow`); çağıran açıkça bir
+ * değer verirse o kazanır (geriye uyumluluk).
+ *
+ * @param staleMs Açıkça verilmezse kadans + sinyal sınıfından hesaplanır.
+ */
+export function getPidStatus(pid: string, staleMs?: number): ExtendedPidStatus {
+  const key = pid.toUpperCase();
+  const v = _values.get(key);
+  /* #525 — SIRA BİLİNÇLİ OLARAK KORUNDU: bir PID hem "verilmiyor" kaydında hem
+     önbellekte değerliyse, `no_data` doğru cevaptır ("değer var ama ARTIK
+     AKMIYOR"). Sahadaki 0x33 çelişkisinin kökü bu sıra DEĞİLDİ — kayıt bir kez
+     yazılınca HİÇ silinmiyordu. Düzeltme `_onExtendedData` içinde: gerçek değer
+     geldiği anda kayıt düşer, dolayısıyla akan bir PID buraya `no_data` olarak
+     GELEMEZ. Bu satırı gevşetmek "artık akmıyor" bilgisini kaybettirirdi. */
+  if (v && !_unavailable.has(key)) {
+    const win = staleMs ?? _defaultStaleMs(key);
+    return Date.now() - v.updatedAt <= win ? 'live' : 'stale';
+  }
+  if (_unavailable.has(key)) return 'no_data';
+  if (_supported !== null && !_supported.has(key)) return 'unsupported';
+  return 'probing';
+}
+
+/** Native'in demote ettiği PID'ler (kopya) — teşhis raporu/UI listesi için. */
+export function getUnavailablePids(): ReadonlyMap<string, string> {
+  return new Map(_unavailable);
+}
+
+/**
+ * Native Handshake keşif sonucunu (tek doğruluk kaynağı) extended katmana TOHUMLAR —
+ * extended kanaldan YENİDEN bitmask keşfi beklemeye gerek kalmaz.
+ *
+ * NEDEN (gerçek araç blocker'ı): `_supported === null` iken `_buildNativeList` destek
+ * filtresi uygulayamaz → izlenen TÜM PID'ler (burst'te ≤48) native'e gider; araç
+ * desteklemeyen her biri ELM327'de ~200 ms NO-DATA bekletir → poll turu tıkanır
+ * (Canlı Test ekranında "araç desteği keşfediliyor"da kalıcı takılma). Handshake bitmap'i
+ * blok 00–A0'ı (PID 1–160) kapsar; `StandardPidRegistry`'nin en yüksek PID'i 0x8E (142) →
+ * TÜM çözülebilir PID'ler kapsam içindedir (C0/E0 blokları yalnız kayıtta OLMAYAN
+ * PID 193+ taşır → yanlış-negatif riski YOK). Yalnız EKLER (hiçbir PID'i "desteksiz"e
+ * çevirmez); mevcut extended keşif yanıtları geldikçe UNION'lanmaya devam eder (idempotent).
+ *
+ * @param supportedPidNums Handshake'ten desteklenen PID numaraları (ör. 0x2F=47).
+ */
+export function seedSupportedPids(
+  supportedPidNums: Iterable<number>,
+  completeness: DiscoveryCompleteness = 'not_run',
+): void {
+  const seed = _supported ?? new Set<string>();
+  let added = 0;
+  for (const n of supportedPidNums) {
+    if (typeof n !== 'number' || !Number.isInteger(n) || n < 1 || n > 255) continue;
+    const key = n.toString(16).toUpperCase().padStart(2, '0');
+    if (!seed.has(key)) { seed.add(key); added++; }
+  }
+  // Kanıt yoksa dokunma (fail-soft): boş seed + zaten null ise keşif yolu bozulmasın.
+  if (seed.size === 0) return;
+  _supported = seed;
+  /* BÜTÜNLÜK YALNIZ YUKARI DOĞRU GİDER: aynı oturumda ikinci (kısmi) bir tur,
+     daha önce KESİN bitmiş bir zincirin kanıtını "eksik"e ÇEVİREMEZ. */
+  if (completeness === 'complete' || _supportedCompleteness === 'not_run') {
+    _supportedCompleteness = completeness;
+  }
+  if (added > 0 || _watchers.size > 0) _pushToNative(); // destek daraldı → NO-DATA fırtınası biter
+}
+
 /**
  * obdService bağlantı kancası — bağlantı kurulunca çağrılır: izleyici varsa native
  * listeyi tazeler ve (gerekiyorsa) keşfi yeniden başlatır. İzleyici yoksa NO-OP
  * (boş liste zaten native varsayılanı).
  */
 export function notifyObdConnected(): void {
+  // PR-OBD-DIAG-3: yeni bağlantı = yeni oturum → JS akış sayaçları sıfırlanır (native
+  // ExtendedPollEvidence.reset ile hizalı). İzleyici olmasa bile sıfırla (kanıt temiz başlasın).
+  _jsEventsReceived = 0;
+  _jsDecodeFailures = 0;
+  _jsValuesStored = 0;
+  // PR-OBD-KWP-1: yeni bağlantı = native NO_DATA öğrenmesi de sıfırlandı (ExtendedNoDataTracker
+  // reset) → TS aynası da sıfırlanır (farklı araç 'no_data' damgasını miras almasın).
+  _unavailable.clear();
+
+  /* ── P0-OBD-02 · RECONNECT ÖNBELLEK ZEHİRLENMESİ (ölçülen kusur) ──────────
+   * `_unavailable` ve `_supported` her yeniden bağlanmada geçersizleşiyordu ama
+   * `_values` **DOKUNULMADAN** kalıyordu. Sonuç üç ayrı yalan üretiyordu:
+   *   · `getPidValue()` ÖNCEKİ oturumun ölçümünü döndürüyordu;
+   *   · `getPidStatus()` o değerin damgası 15 sn'den yeniyse `live` diyordu —
+   *     yani KOPMUŞ bir hattan "canlı" veri;
+   *   · `watchPid()` yeni aboneye önbellekteki değeri ANINDA veriyordu, dolayısıyla
+   *     kanonik köprü eski oturumun ölçümünü TAZE damgayla mağazaya yazıyordu.
+   * Adaptör bu arada BAŞKA BİR ARACA takılmış olabilir; o yağ sıcaklığı bu araca
+   * ait değildir. Kanıt kaybı DEĞİLDİR: geçmiş `extendedPollTimeline`de kalıcıdır,
+   * burada temizlenen yalnız "GÜNCEL DEĞER" iddiasıdır. */
+  _values.clear();
+  _sessionEpoch++;
+
+  resetExtendedTimeline();   // #512: zaman ekseni de yeni oturuma ait olmalı
   if (_watchers.size === 0) return;
   // Yeni bağlantı = muhtemelen aynı araç ama garanti değil; keşif sonucu YENİDEN
   // doğrulanır (farklı araca takılan adaptör senaryosu).
+  //
+  // S1 (#503): `_supported = null` artık "filtre kapandı" DEĞİL, "kanıt geçersizleşti"
+  // demektir — `_buildNativeList` fail-closed olduğu için bu satır izlenen PID'leri
+  // native listeden ÇIKARIR (aşağıdaki _pushToNative yalnız keşif kuyruğunu gönderir).
+  // İzleyiciler bilinçli olarak YAŞATILIR: sahipleri onları yeniden kurmaz; keşif/tohum
+  // `_supported`ı doldurunca aynı izleyiciler tek turda yeniden akmaya başlar.
   _supported = null;
+  _supportedCompleteness = 'not_run';   // yeni bağlantı = kanıt sıfırdan doğar
   _discoveryQueue = [DISCOVERY_PIDS[0]];
   _ensureListener();
   _pushToNative();
+}
+
+/**
+ * PR-OBD-DIAG-3: JS-tarafı extended akış sayaçları (native kanıtla birleştirilir —
+ * bkz. extendedPollEvidence.ts). eventsReceived vs valuesStored, H3'ün köprü-kaybı mı
+ * decode-kaybı mı olduğunu ayırır; valuesCached = anlık _values boyutu.
+ */
+export function getExtendedJsCounters(): {
+  eventsReceived: number; decodeFailures: number; valuesStored: number; valuesCached: number;
+} {
+  return {
+    eventsReceived: _jsEventsReceived,
+    decodeFailures: _jsDecodeFailures,
+    valuesStored: _jsValuesStored,
+    valuesCached: _values.size,
+  };
 }
 
 /**
@@ -253,12 +627,20 @@ export const _internals = {
     _watchers.clear();
     _values.clear();
     _supported = null;
+    _supportedCompleteness = 'not_run';
     _discoveryQueue = [];
+    _unavailable.clear();
+    _sessionEpoch = 0;
+    resetExtendedTimeline();
     _listenerHandle = null;
     _listenerStarting = false;
     _burst = false;
+    _jsEventsReceived = 0;
+    _jsDecodeFailures = 0;
+    _jsValuesStored = 0;
   },
   onExtendedData: _onExtendedData,
+  onExtendedPidStatus: _onExtendedPidStatus,
   buildNativeList: _buildNativeList,
   getDiscoveryQueue: () => [..._discoveryQueue],
 };

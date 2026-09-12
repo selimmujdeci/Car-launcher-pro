@@ -1,0 +1,159 @@
+{
+  "method": {
+    "pairing": "nearest OSM-derived centroid <=20m",
+    "iou": "deterministic 120x120 raster approximation",
+    "correction": "centroid-preserving uniform scale; benchmark only"
+  },
+  "regions": [
+    {
+      "id": "TARSUS",
+      "morphology": "düşük yoğunluklu bahçeli/müstakil",
+      "counts": {
+        "total": 123,
+        "ml": 112,
+        "osm": 11,
+        "paired": 4,
+        "multiPolygon": 0
+      },
+      "raw": {
+        "mlAreaM2": {
+          "n": 112,
+          "median": 73.8134765625,
+          "mean": 91.59311349051339
+        },
+        "osmAreaM2": {
+          "n": 11,
+          "median": 162.4287109375,
+          "mean": 244.7361505681818
+        },
+        "pairedAreaRatioMlOverOsm": {
+          "n": 4,
+          "median": 0.161272673709019,
+          "mean": 0.17359686778568978
+        },
+        "centroidDisplacementM": {
+          "n": 4,
+          "median": 12.566431806039681,
+          "mean": 12.421765056466661
+        },
+        "iouApprox": {
+          "n": 4,
+          "median": 0,
+          "mean": 0
+        }
+      },
+      "rescue": {
+        "fittedLinearScale": 2.490116161320286,
+        "areaMultiplier": 6.200678496868477,
+        "iouApprox": {
+          "n": 4,
+          "median": 0.06883759274525969,
+          "mean": 0.05164041106197281
+        },
+        "worsenedIou": 0
+      },
+      "falsePositive": "UNKNOWN",
+      "missingBuilding": "UNKNOWN"
+    },
+    {
+      "id": "MERSIN",
+      "morphology": "yoğun apartman",
+      "counts": {
+        "total": 435,
+        "ml": 407,
+        "osm": 28,
+        "paired": 4,
+        "multiPolygon": 0
+      },
+      "raw": {
+        "mlAreaM2": {
+          "n": 407,
+          "median": 135.478515625,
+          "mean": 230.58459862561426
+        },
+        "osmAreaM2": {
+          "n": 28,
+          "median": 425.81640625,
+          "mean": 694.1983119419643
+        },
+        "pairedAreaRatioMlOverOsm": {
+          "n": 4,
+          "median": 0.495536656396404,
+          "mean": 0.312976083308671
+        },
+        "centroidDisplacementM": {
+          "n": 4,
+          "median": 18.605648424126016,
+          "mean": 17.089100933943218
+        },
+        "iouApprox": {
+          "n": 4,
+          "median": 0,
+          "mean": 0
+        }
+      },
+      "rescue": {
+        "fittedLinearScale": 1.4205682600202036,
+        "areaMultiplier": 2.018014181376829,
+        "iouApprox": {
+          "n": 4,
+          "median": 0,
+          "mean": 0
+        },
+        "worsenedIou": 0
+      },
+      "falsePositive": "UNKNOWN",
+      "missingBuilding": "UNKNOWN"
+    },
+    {
+      "id": "ERDEMLI",
+      "morphology": "düşük yoğunluklu banliyö",
+      "counts": {
+        "total": 113,
+        "ml": 112,
+        "osm": 1,
+        "paired": 0,
+        "multiPolygon": 0
+      },
+      "raw": {
+        "mlAreaM2": {
+          "n": 112,
+          "median": 98.146484375,
+          "mean": 105.7369384765625
+        },
+        "osmAreaM2": {
+          "n": 1,
+          "median": 267.8583984375,
+          "mean": 267.8583984375
+        },
+        "pairedAreaRatioMlOverOsm": {
+          "n": 0,
+          "median": null,
+          "mean": null
+        },
+        "centroidDisplacementM": {
+          "n": 0,
+          "median": null,
+          "mean": null
+        },
+        "iouApprox": {
+          "n": 0,
+          "median": null,
+          "mean": null
+        }
+      },
+      "rescue": {
+        "fittedLinearScale": null,
+        "areaMultiplier": null,
+        "iouApprox": {
+          "n": 0,
+          "median": null,
+          "mean": null
+        },
+        "worsenedIou": 0
+      },
+      "falsePositive": "UNKNOWN",
+      "missingBuilding": "UNKNOWN"
+    }
+  ]
+}

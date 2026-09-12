@@ -31,6 +31,12 @@ import {
   interpretRangeVsRoute,
   interpretDtcStatus,
   interpretMaintenanceDue,
+  interpretDiagnosticTrend,
+  classifyDriverStyle,
+  interpretDriverProfile,
+  driverToneInstruction,
+  DIAGNOSTIC_TREND_MAX_CHARS,
+  DRIVER_PROFILE_MAX_CHARS,
 } from '../platform/companion/companionContext';
 
 /* ── 1. interpretTimeOfDay ──────────────────────────────────── */
@@ -587,6 +593,76 @@ describe('interpretMaintenanceDue', () => {
   it('ISO 15008 — kısa cümle (<140 karakter)', () => {
     const r = interpretMaintenanceDue([{ label: 'Muayene', status: 'critical', daysLeft: -3 }]);
     expect(r!.length).toBeLessThan(140);
+  });
+});
+
+/* ── 10b. interpretDiagnosticTrend (GÖREV 2 — araç hafızası) ── */
+
+describe('interpretDiagnosticTrend — geçmiş arıza eğilimi', () => {
+  it('sıfır/negatif/NaN kayıt → null (geçmiş yok = SUS)', () => {
+    expect(interpretDiagnosticTrend(0, 'P0301')).toBeNull();
+    expect(interpretDiagnosticTrend(-3, 'P0301')).toBeNull();
+    expect(interpretDiagnosticTrend(NaN, 'P0301')).toBeNull();
+  });
+
+  it('geçersiz kod → null (kanıtsız bilgi üretilmez, throw etmez)', () => {
+    expect(interpretDiagnosticTrend(3, null)).toBeNull();
+    expect(interpretDiagnosticTrend(3, '')).toBeNull();
+    expect(interpretDiagnosticTrend(3, 'OK')).toBeNull();
+    expect(interpretDiagnosticTrend(3, 'X0301')).toBeNull();     // geçersiz aile
+    expect(interpretDiagnosticTrend(3, 'P9301')).toBeNull();     // geçersiz 2. hane
+    expect(interpretDiagnosticTrend(3, 'VF1ABCDEF')).toBeNull(); // VIN parçası
+    expect(() => interpretDiagnosticTrend(3, undefined as never)).not.toThrow();
+  });
+
+  it('geçerli 3 kayıt → doğru Türkçe metin (ham kod SIZMAZ)', () => {
+    const out = interpretDiagnosticTrend(3, 'P0301');
+    expect(out).toBe('Araçta daha önce 3 kez benzer motor/aktarma arıza kaydı görüldü.');
+    expect(out).not.toContain('P0301');
+  });
+
+  it('kod ailesi Türkçe sistem adına çevrilir + 120 karakter bütçesi aşılmaz', () => {
+    expect(interpretDiagnosticTrend(1, 'b1234')).toContain('gövde elektroniği'); // küçük harf de kabul
+    expect(interpretDiagnosticTrend(2, 'C0035')).toContain('şasi/fren');
+    expect(interpretDiagnosticTrend(5, 'U0100')).toContain('haberleşme ağı');
+    for (const c of ['P0301', 'B1234', 'C0035', 'U0100']) {
+      expect(interpretDiagnosticTrend(999, c)!.length).toBeLessThanOrEqual(DIAGNOSTIC_TREND_MAX_CHARS);
+    }
+  });
+});
+
+/* ── 10c. Driver DNA (GÖREV 3 — sürüş stili) ────────────────── */
+
+describe('classifyDriverStyle / interpretDriverProfile — Driver DNA', () => {
+  it('histerezis eşikleri: calm < 3 ≤ moderate < 6 ≤ aggressive', () => {
+    expect(classifyDriverStyle(0, 0)).toBe('calm');
+    expect(classifyDriverStyle(1, 1)).toBe('calm');
+    expect(classifyDriverStyle(2, 1)).toBe('moderate');   // toplam 3
+    expect(classifyDriverStyle(3, 2)).toBe('moderate');   // toplam 5
+    expect(classifyDriverStyle(4, 2)).toBe('aggressive'); // toplam 6
+    expect(classifyDriverStyle(20, 30)).toBe('aggressive');
+  });
+
+  it('imkânsız/eksik sayaç → null ("sakin" VARSAYILMAZ)', () => {
+    expect(classifyDriverStyle(NaN, 2)).toBeNull();
+    expect(classifyDriverStyle(-1, 0)).toBeNull();
+    expect(classifyDriverStyle(9_000, 0)).toBeNull();     // tavan üstü → sayaç bozuk
+    expect(interpretDriverProfile(NaN, NaN)).toBeNull();
+  });
+
+  it('sakin sürüşte talimat üretilmez; agresif/temkinli üslup ISO 15008 sınırında', () => {
+    expect(interpretDriverProfile(0, 0)).toBeNull();     // calm → sıfır token
+    const moderate   = interpretDriverProfile(2, 1)!;
+    const aggressive = interpretDriverProfile(5, 5)!;
+    expect(moderate).toContain('kısa ve net');
+    expect(aggressive).toContain('kısa ve net');
+    expect(moderate).not.toBe(aggressive);
+    expect(moderate.length).toBeLessThanOrEqual(DRIVER_PROFILE_MAX_CHARS);
+    expect(aggressive.length).toBeLessThanOrEqual(DRIVER_PROFILE_MAX_CHARS);
+    // driverToneInstruction aynı metni stilden doğrudan üretir (tek kaynak).
+    expect(driverToneInstruction('aggressive')).toBe(aggressive);
+    expect(driverToneInstruction('calm')).toBeNull();
+    expect(driverToneInstruction(undefined)).toBeNull();
   });
 });
 

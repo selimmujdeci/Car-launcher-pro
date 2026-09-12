@@ -41,6 +41,9 @@ export const renaultZoePh2Profile: VehicleDidProfile = {
     'odometre/12V akü/dış sıcaklık/motor devri + SOC/SOH/batarya voltajı-sıcaklığı/' +
     'kullanılabilir enerji). Kaynak: OVMS3 (MIT).',
   source: RENAULT_ZOE_PH2_SOURCE,
+  // PR-OBD-KWP-1: bu profil 11-bit CAN (7E0/7E8) adresleme varsayar — KWP/ISO9141
+  // hattinda sorgulanmasi COMM_ERROR firtinasi uretir (Trafic sahasi); kapi ile kapatilir.
+  protocols: ['can'],
   ecus: [
     { id: 'bcm',  name: 'Gövde Kontrol Modülü (BCM)', tx: '745', rx: '765' },
     { id: 'hvac', name: 'Klima Modülü (HVAC)',        tx: '744', rx: '764' },

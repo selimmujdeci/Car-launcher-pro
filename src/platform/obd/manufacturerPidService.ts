@@ -20,12 +20,15 @@ import { CarLauncher } from '../nativePlugin';
 import { logError } from '../crashLogger';
 import { recordDiag } from '../obdDiagnosticRecorder';
 import { getHandshakeVin } from '../safety/vinContext';
+import { recordVinObservation, currentVinEpoch } from '../vehicle/vehicleIdentity';
 import {
   validateVehicleDidProfile,
   compileVehicleDidProfile,
   decodeCompiledDid,
 } from './vehicleDidProfile';
 import type { CompiledDidDef, VehicleDidValue } from './vehicleDidProfile';
+import { getActiveProtocolClass } from './activeProtocol';
+import type { ProtocolClass } from './protocolProfile';
 
 /** Round-robin zamanlayıcı aralığı (ms) — üretici verileri yavaş değişir, 2-5s yeter. */
 export const MANUFACTURER_POLL_INTERVAL_MS = 3000;
@@ -41,12 +44,93 @@ type Watcher = (v: ManufacturerDidValue) => void;
 
 /* ── Modül durumu ─────────────────────────────────────────────────────────── */
 let _profile: ReadonlyMap<string, CompiledDidDef> | null = null;
+/** PR-OBD-KWP-1: profilin protokol kısıtı (null = kısıt yok). Tick, aktif protokol sınıfı
+ *  bu listede DEĞİLSE sorgu yapmaz — CAN header'lı profili KWP hattına göndermek
+ *  COMM_ERROR fırtınasıdır (Trafic sahasındaki "Mode 22 başarısız" kök nedenlerinden biri). */
+let _profileProtocols: ProtocolClass[] | null = null;
 const _watchers = new Map<string, Set<Watcher>>();
 const _values = new Map<string, ManufacturerDidValue>();
 const _unsupported = new Set<string>(); // 7F-31/33 → KALICI desteklenmiyor
+
+/* ── ECU HAT-HATASI DEVRE KESİCİ (saha kanıtı 2026-07-27, Dacia Duster) ─────
+ * SAHADA ÖLÇÜLDÜ: Duster'da (ICE) Zoe EV profili yüklüyken her üretici DID
+ * denemesi `CAN ERROR` döndü. `CAN ERROR` bir hat/adresleme hatasıdır ve
+ * capabilityOutcome sözleşmesi gereği ARAÇ HAKKINDA KANIT DEĞİLDİR → kalıcı
+ * `_unsupported`'a yazılamaz (doğru kural). Sonuç: sonsuz tekrar.
+ * Ham trafikte ölçülen bedel: her deneme ATSP7→ATCP18→ATSH→ATCRA→22xx→ATSP6→
+ * ATSH7DF→ATAR = **9-10 AT komutu + ~700 ms**; 5.4 sn'de 6 başarısız deneme
+ * OBD bant genişliğinin ~yarısını yedi → tazelik penceresi 47 sn'ye uzadı,
+ * `OBD_STALE_DATA` kopması ve `OBD:LinkLost` hatası izledi.
+ *
+ * ÇÖZÜM: ECU ADRESİ başına OTURUM KAPSAMLI susturma. Kalıcı bir yetenek
+ * iddiası DEĞİLDİR (zero-trust korunur): profil yeniden yüklenince veya
+ * o ECU'dan tek bir başarılı yanıt gelince sıfırlanır.
+ *
+ * YARI-AÇIK (half-open) ZORUNLULUĞU: susturma sorguyu tamamen keserse ECU
+ * kendini bir daha ASLA açamaz — çünkü "başarılı yanıt" ancak sorgulanırsa
+ * gelebilir. Bu, GEÇİCİ bir kopmayı (adaptör resetti, kontak çevrimi, 18 sn
+ * link kaybı = 6 ardışık COMM_ERROR) KALICI sessizliğe çevirirdi: bağlantı
+ * geri gelse bile marka DID'leri uygulama yeniden başlayana kadar ölü kalırdı.
+ * Bu yüzden susturma SÜRELİDİR: {@link ECU_MUTE_RETRY_MS} sonra TEK bir yoklama
+ * geçer. Yoklama düşerse pencere yeniden kurulur (maliyet ≈ 1 sorgu/dakika/ECU),
+ * yanıt gelirse susturma kalkar. */
+const ECU_COMM_FAIL_LIMIT = 6;
+/** Susturulmuş ECU'ya yeniden yoklama izni verilene kadar geçen süre (monotonik). */
+export const ECU_MUTE_RETRY_MS = 60_000;
+/** ECU tx adresi → ardışık hat-hatası sayısı (LIMIT'te DOYAR — taşma yok). */
+const _ecuFailStreak = new Map<string, number>();
+/** Bu OTURUMDA susturulmuş ECU tx adresi → susturma anı (monotonik ms). */
+const _ecuMuted = new Map<string, number>();
+/** Susturma uyarısı bu oturumda zaten yazılmış ECU'lar (log seli olmasın). */
+const _ecuMuteWarned = new Set<string>();
+
+/** Monotonik saat — sistem saati geri atlarsa yarı-açık penceresi bozulmasın. */
+function _mono(): number {
+  return typeof performance !== 'undefined' && typeof performance.now === 'function'
+    ? performance.now()
+    : Date.now();
+}
+
+/** Devre kesici durumu — LAB/teşhis için salt-okunur. */
+export function getMutedEcus(): readonly string[] {
+  return [..._ecuMuted.keys()];
+}
 let _timer: ReturnType<typeof setInterval> | null = null;
 let _rrIndex = 0;
 let _inFlight = false; // önceki tur bitmeden yenisi başlamaz (yavaş ECU/pending zinciri)
+
+/* ── PR-OBD-DATA-1: Mode-22 acquisition KANITI (bounded, fail-closed, provenance) ──
+ * "Trafic'te Mode-22'den gerçek değer mi geliyor yoksa fail-closed 'desteklenmiyor/kanıt
+ * yok' mu" sorusunu tek raporla yanıtlar (DIAG-3'ün DID-yolu karşılığı). Her _tick sonucu
+ * (SUPPORTED/UNSUPPORTED/NO_DATA/DECODE_FAIL/COMM_ERROR) sayaca + son-8 halkasına işlenir.
+ * SAHTE DEĞER ÜRETİLMEZ: yalnız native readObdDid gerçekliği kaydedilir. PII yok (DID/ECU
+ * header enum'dur; değer GÖVDESİ saklanmaz, yalnız valuePresent bayrağı). */
+type M22Outcome = 'SUPPORTED' | 'UNSUPPORTED' | 'NO_DATA' | 'DECODE_FAIL' | 'COMM_ERROR';
+const M22_RING_CAP = 8;
+const _m22 = {
+  probed: 0, supported: 0, unsupported: 0, noData: 0, decodeFail: 0, commError: 0,
+  lastOutcome: null as M22Outcome | null,
+  lastDid: null as string | null,
+  lastSupportedDid: null as string | null,
+  lastAt: 0,
+  ring: [] as { did: string; outcome: M22Outcome; tx: string; rx: string; valuePresent: boolean }[],
+};
+const _m22Sat = (n: number): number => (n >= 1_000_000_000 ? n : n + 1);
+function _recordM22(def: CompiledDidDef, outcome: M22Outcome, valuePresent: boolean): void {
+  _m22.probed = _m22Sat(_m22.probed);
+  switch (outcome) {
+    case 'SUPPORTED':   _m22.supported = _m22Sat(_m22.supported); _m22.lastSupportedDid = def.did; break;
+    case 'UNSUPPORTED': _m22.unsupported = _m22Sat(_m22.unsupported); break;
+    case 'NO_DATA':     _m22.noData = _m22Sat(_m22.noData); break;
+    case 'DECODE_FAIL': _m22.decodeFail = _m22Sat(_m22.decodeFail); break;
+    case 'COMM_ERROR':  _m22.commError = _m22Sat(_m22.commError); break;
+  }
+  _m22.lastOutcome = outcome;
+  _m22.lastDid = def.did;
+  _m22.lastAt = Date.now();
+  if (_m22.ring.length >= M22_RING_CAP) _m22.ring.shift();
+  _m22.ring.push({ did: def.did, outcome, tx: def.tx, rx: def.rx, valuePresent });
+}
 
 /* ── Profil yönetimi ──────────────────────────────────────────────────────── */
 
@@ -59,9 +143,14 @@ export function loadProfile(rawProfile: unknown): { ok: true } | { ok: false; er
   const result = validateVehicleDidProfile(rawProfile);
   if (!result.valid) return { ok: false, errors: result.errors };
   _profile = compileVehicleDidProfile(result.profile);
+  _profileProtocols = result.profile.protocols ? [...result.profile.protocols] as ProtocolClass[] : null;
   _unsupported.clear();
+  _ecuFailStreak.clear();
+  _ecuMuted.clear();
+  _ecuMuteWarned.clear();
   _values.clear();
   _rrIndex = 0;
+  _resetM22(); // PR-OBD-DATA-1: yeni profil = yeni acquisition oturumu
   _syncTimer();
   return { ok: true };
 }
@@ -69,9 +158,26 @@ export function loadProfile(rawProfile: unknown): { ok: true } | { ok: false; er
 /** Profili kaldırır — izleyici kalmışsa bile zamanlayıcı durur (profilsiz okunacak DID yok). */
 export function unloadProfile(): void {
   _profile = null;
+  _profileProtocols = null;
   _unsupported.clear();
+  _ecuFailStreak.clear();
+  _ecuMuted.clear();
+  _ecuMuteWarned.clear();
   _values.clear();
+  _resetM22(); // PR-OBD-DATA-1: profil kaldırıldı → kanıt sıfırlanır
   _syncTimer();
+}
+
+/**
+ * PR-OBD-KWP-1: profil bu protokolde uygulanabilir mi? true = sorgu serbest.
+ * Kısıt yoksa VEYA aktif protokol BİLİNMİYORSA (null) serbest — bilinmeyen protokolde
+ * sorguyu kesmek yanlış-negatif üretirdi; kanıt katmanı sonucu zaten dürüst kaydeder.
+ */
+function _protocolAllowed(): boolean {
+  if (_profileProtocols === null) return true;
+  const active = getActiveProtocolClass();
+  if (active === null) return true;
+  return _profileProtocols.includes(active);
 }
 
 /** Yüklü profil var mı. */
@@ -95,7 +201,12 @@ function _watchedDids(): string[] {
   const out: string[] = [];
   for (const did of _watchers.keys()) {
     if (_unsupported.has(did)) continue;
-    if (!_profile?.has(did)) continue;
+    const def = _profile?.get(did);
+    if (!def) continue;
+    // Devre kesici: susturulmuş ECU SORGULANMAZ — ama süreli. Pencere dolduysa
+    // yarı-açık: tek yoklama geçer (link geri geldiyse kendini iyileştirir).
+    const mutedAt = _ecuMuted.get(def.tx);
+    if (mutedAt !== undefined && _mono() - mutedAt < ECU_MUTE_RETRY_MS) continue;
     out.push(did);
   }
   return out;
@@ -105,6 +216,9 @@ async function _tick(): Promise<void> {
   if (_inFlight) return; // önceki tur hâlâ sürüyor — üst üste binme
   const profile = _profile;
   if (!profile) return;
+  // PR-OBD-KWP-1: protokol kapısı — CAN-kısıtlı profil KWP hattında SORGULANMAZ
+  // (COMM_ERROR fırtınası yerine dürüst "protokol uyumsuz"; getMode22Evidence raporlar).
+  if (!_protocolAllowed()) return;
   const dids = _watchedDids();
   if (dids.length === 0 || !CarLauncher.readObdDid) return;
 
@@ -115,23 +229,49 @@ async function _tick(): Promise<void> {
 
   _inFlight = true;
   try {
-    const r = await CarLauncher.readObdDid({ tx: def.tx, rx: def.rx, did: def.did });
+    const r = await CarLauncher.readObdDid({ tx: def.tx, rx: def.rx, did: def.did, service: def.service });
     if (!r.supported) {
       _unsupported.add(did); // KALICI — bir daha sorulmaz
+      _recordM22(def, 'UNSUPPORTED', false); // PR-OBD-DATA-1: fail-closed kanıt (7F)
       return;
     }
-    if (!r.data) return; // fail-soft: veri yok ama açıkça "desteklenmiyor" da değil
+    if (!r.data) { _recordM22(def, 'NO_DATA', false); return; } // fail-soft: veri yok ama 7F de değil
     const value = decodeCompiledDid(def, r.data);
     // NaN yalnız sayısal daldan gelir (metin dalı boş string yerine NaN döner) — type guard
     // `typeof value === 'string'` durumunda Number.isNaN çağrısını atlar (TS + doğruluk).
-    if (typeof value === 'number' && Number.isNaN(value)) return; // sınır dışı/bozuk — sessizce atla
+    if (typeof value === 'number' && Number.isNaN(value)) { _recordM22(def, 'DECODE_FAIL', false); return; } // sınır dışı/bozuk
     const entry: ManufacturerDidValue = { value, def, updatedAt: Date.now() };
     _values.set(did, entry);
+    // Bu ECU gerçekten yanıt verdi → devre kesici TAMAMEN sıfırlanır
+    // (sayaç + susturma + uyarı kilidi) → yarı-açık yoklama kalıcı iyileşmeye döner.
+    _ecuFailStreak.delete(def.tx);
+    _ecuMuted.delete(def.tx);
+    _ecuMuteWarned.delete(def.tx);
+    _recordM22(def, 'SUPPORTED', true); // PR-OBD-DATA-1: gerçek manufacturer value okundu (provenance)
     _watchers.get(did)?.forEach((cb) => {
       try { cb(entry); } catch (e) { logError('OBD:ManufacturerDidWatcher', e); }
     });
   } catch (e) {
     // Bağlantı yok / geçici iletişim hatası — fail-soft, dürüst boş kalır (değer güncellenmez).
+    _recordM22(def, 'COMM_ERROR', false); // PR-OBD-DATA-1: link/adresleme hatası (KWP uyumsuzluğu işareti)
+    // Devre kesici: aynı ECU adresinde ardışık hat hatası. Kalıcı "desteklenmiyor"
+    // DEMEK DEĞİLDİR — yalnız bu oturumda o adrese sorgu israfını durdurur.
+    const prev = _ecuFailStreak.get(def.tx) ?? 0;
+    // Doyan sayaç: LIMIT'i aşmaz (uzun sürüşte sınırsız büyüme/taşma yok).
+    const streak = prev >= ECU_COMM_FAIL_LIMIT ? ECU_COMM_FAIL_LIMIT : prev + 1;
+    _ecuFailStreak.set(def.tx, streak);
+    if (streak >= ECU_COMM_FAIL_LIMIT) {
+      // Yarı-açık yoklama da düştüyse pencere YENİDEN kurulur (mutedAt tazelenir).
+      _ecuMuted.set(def.tx, _mono());
+      if (!_ecuMuteWarned.has(def.tx)) {
+        _ecuMuteWarned.add(def.tx);   // uyarı ECU başına BİR kez (üretimde warn korunuyor)
+        console.warn(
+          `[OBD] ECU ${def.tx} susturuldu — ${streak} ardışık hat hatası ` +
+          `(CAN ERROR/timeout). Kalıcı yetenek kaydı YAPILMADI; ${ECU_MUTE_RETRY_MS / 1000} sn'de ` +
+          'bir yoklanır, yanıt verince veya profil yeniden yüklenince açılır.',
+        );
+      }
+    }
     logError('OBD:ManufacturerDidRead', e);
   } finally {
     _inFlight = false;
@@ -181,6 +321,81 @@ export function getSupportedDids(): CompiledDidDef[] {
   return _profile ? [..._profile.values()] : [];
 }
 
+/* ── PR-OBD-DATA-1: Mode-22 acquisition kanıtı (fail-closed karar) ─────────── */
+
+export type Mode22Decision =
+  | 'NO_PROFILE'        // üretici DID profili yüklü değil → kanıt yok (fail-closed)
+  | 'PROTOCOL_MISMATCH' // PR-OBD-KWP-1: profil bu protokol sınıfında uygulanamaz → hiç sorgulanmadı
+  | 'NOT_PROBED'        // profil var ama henüz DID sorgulanmadı (izleyici yok / yeni)
+  | 'HAS_REAL_VALUE'    // en az bir gerçek manufacturer value okundu
+  | 'ALL_UNSUPPORTED'   // sorgulandı, tümü 7F → araç bu DID'leri DESTEKLEMİYOR (fail-closed)
+  | 'COMM_FAILING'      // sorgulandı, değer yok + iletişim hatası baskın (KWP adresleme/flaky link)
+  | 'INCONCLUSIVE';     // karışık/eksik — kanıt tam değil
+
+export interface Mode22Evidence {
+  profileLoaded: boolean;
+  /** PR-OBD-KWP-1: true = profil aktif protokol sınıfıyla uyumsuz (sorgu kapalı). */
+  protocolGated: boolean;
+  watchedCount: number;
+  probed: number; supported: number; unsupported: number; noData: number;
+  decodeFail: number; commError: number;
+  lastOutcome: M22Outcome | null;
+  lastDid: string | null;
+  lastSupportedDid: string | null;
+  lastAt: number;
+  lastAttempts: { did: string; outcome: M22Outcome; tx: string; rx: string; valuePresent: boolean }[];
+  decision: Mode22Decision;
+  evidenceComplete: boolean;
+}
+
+/** Fail-closed karar — SAHTE değer yok; yalnız native gerçekliğinden türetilir. */
+export function classifyMode22(e: {
+  profileLoaded: boolean; watchedCount: number; probed: number; supported: number;
+  unsupported: number; commError: number; protocolGated?: boolean;
+}): Mode22Decision {
+  if (!e.profileLoaded) return 'NO_PROFILE';
+  // PR-OBD-KWP-1: sorgu hiç yapılmadıysa VE nedeni protokol kapısıysa bunu söyle —
+  // "NOT_PROBED" (izleyici yok) ile "profil bu araçta uygulanamaz" farklı teşhislerdir.
+  if (e.protocolGated && e.probed === 0) return 'PROTOCOL_MISMATCH';
+  if (e.probed === 0) return 'NOT_PROBED';
+  if (e.supported > 0) return 'HAS_REAL_VALUE';
+  if (e.unsupported > 0 && e.commError === 0) return 'ALL_UNSUPPORTED';
+  if (e.commError > 0) return 'COMM_FAILING';
+  return 'INCONCLUSIVE';
+}
+
+/** Bounded Mode-22 acquisition kanıtı — Tanı Gönder (obdDeep.mode22) için. */
+export function getMode22Evidence(): Mode22Evidence {
+  const profileLoaded = _profile !== null;
+  const protocolGated = profileLoaded && !_protocolAllowed();
+  const watchedCount = _watchers.size;
+  const base = {
+    profileLoaded, protocolGated, watchedCount,
+    probed: _m22.probed, supported: _m22.supported, unsupported: _m22.unsupported,
+    commError: _m22.commError,
+  };
+  const decision = classifyMode22(base);
+  return {
+    profileLoaded, protocolGated, watchedCount,
+    probed: _m22.probed, supported: _m22.supported, unsupported: _m22.unsupported,
+    noData: _m22.noData, decodeFail: _m22.decodeFail, commError: _m22.commError,
+    lastOutcome: _m22.lastOutcome, lastDid: _m22.lastDid, lastSupportedDid: _m22.lastSupportedDid,
+    lastAt: _m22.lastAt, lastAttempts: [..._m22.ring],
+    decision,
+    // Kanıt "tam" sayılır: karar belirsiz değil VE (probe olduysa) sayaç tutarlı.
+    evidenceComplete: decision !== 'INCONCLUSIVE'
+      && (_m22.probed === 0
+        || _m22.probed === _m22.supported + _m22.unsupported + _m22.noData + _m22.decodeFail + _m22.commError),
+  };
+}
+
+/** Yeni oturum/profil değişiminde Mode-22 kanıtını sıfırla. */
+function _resetM22(): void {
+  _m22.probed = _m22.supported = _m22.unsupported = _m22.noData = _m22.decodeFail = _m22.commError = 0;
+  _m22.lastOutcome = null; _m22.lastDid = null; _m22.lastSupportedDid = null; _m22.lastAt = 0;
+  _m22.ring = [];
+}
+
 /* ── VIN çapraz doğrulama (Patch 12C) ────────────────────────────────────── */
 
 export interface VinCrossCheckResult {
@@ -208,6 +423,16 @@ export function verifyVinAgainstMode09(): VinCrossCheckResult {
   const f190Vin = typeof f190?.value === 'string' && f190.value.length > 0
     ? f190.value.trim().toUpperCase()
     : null;
+  /* P0-OBD-09: F190 okuması KANONİK kimlik katmanına da kaydedilir. İki bağımsız
+     kaynak (Mode 09 + UDS F190) aynı VIN'i verdiğinde kimlik `VERIFIED` olur;
+     farklı verdiğinde `CONFLICT` olur ve HİÇBİRİ kanonik sayılmaz. Bu fonksiyon
+     yalnız KAYIT eder — çelişki kararını kimlik katmanı verir (tek otorite). */
+  if (f190Vin !== null) {
+    try {
+      recordVinObservation(f190Vin, 'uds_f190', currentVinEpoch(), Date.now(), f190?.def?.rx ?? null);
+    } catch { /* kimlik kaydı çapraz kontrolü DÜŞÜRMEZ */ }
+  }
+
   const mode09Raw = getHandshakeVin();
   const mode09Vin = mode09Raw && mode09Raw.trim().length > 0 ? mode09Raw.trim().toUpperCase() : null;
 
@@ -237,8 +462,12 @@ export const _internals = {
     _watchers.clear();
     _values.clear();
     _unsupported.clear();
+    _ecuFailStreak.clear();
+    _ecuMuted.clear();
+    _ecuMuteWarned.clear();
     _rrIndex = 0;
     _inFlight = false;
+    _resetM22();
   },
   tick: (): Promise<void> => _tick(),
   hasTimer: (): boolean => _timer !== null,

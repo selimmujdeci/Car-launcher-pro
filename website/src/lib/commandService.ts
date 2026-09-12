@@ -8,10 +8,16 @@
  * - Offline guard: Araç çevrimdışıysa kullanıcıya "Sıraya alındı" mesajı
  */
 
-import { supabaseBrowser, isSupabaseConfigured } from './supabase';
+import {
+  requiresE2E, fetchCarPublicKey, encryptE2EPayload, carKeyErrorMessage,
+} from '@/lib/e2eCommandCrypto';
+import { supabaseBrowser, isSupabaseConfigured, ensurePwaSession } from './supabase';
 import { encryptPayload } from './commandCrypto';
 import { getStoredApiKey } from './pairingService';
 import { TIMING } from './constants';
+import {
+  evaluateAccountScopedCapability,
+} from '@/security/accountCleanup/accountCleanupRuntime';
 
 // ── Kritik komut tipi listesi ─────────────────────────────────────────────────
 const CRITICAL_COMMANDS: CommandType[] = ['unlock', 'alarm_off'];
@@ -45,7 +51,17 @@ export interface RoutePayload {
   lat:             number;
   lng:             number;
   address_name:    string;
-  provider_intent: 'google_maps' | 'yandex' | 'waze' | 'apple_maps';
+  /**
+   * Rotanın araçta NEREDE açılacağı.
+   *
+   * `'caros'` = aracın KENDİ navigasyonu (varsayılan). Diğerleri aracın
+   * üzerindeki harici uygulamayı açar.
+   *
+   * SAHA KUSURU (2026-08-21): bu alan yalnız harici uygulama adlarını
+   * taşıyordu ve varsayılanı `'google_maps'`ti → "Araca Gönder" her zaman
+   * Google Maps'i açıyordu; aracın kendi navigasyonu bir SEÇENEK BİLE değildi.
+   */
+  provider_intent: 'caros' | 'google_maps' | 'yandex' | 'waze' | 'apple_maps';
 }
 
 export interface CommandPayload {
@@ -59,6 +75,7 @@ export interface SendResult {
   commandId?: string;
   queued?:    boolean;  // true: araç offline, komut sıraya alındı
   error?:     string;
+  code?:      'ACCOUNT_CLEANUP_LOCKDOWN' | 'SECURITY_RUNTIME_UNAVAILABLE';
 }
 
 export interface SendCommandOptions {
@@ -114,40 +131,20 @@ export async function isVehicleOnline(vehicleId: string): Promise<boolean> {
   return (count ?? 0) > 0;
 }
 
-// ── api_key tabanlı komut gönderimi (login gerektirmez) ──────────────────────
-
-async function sendCommandViaApiKey(
-  vehicleId: string,
-  type:      CommandType,
-  payload:   CommandPayload,
-  apiKey:    string,
-  options:   SendCommandOptions = {},
-): Promise<SendResult> {
-  try {
-    const body: Record<string, unknown> = {
-      vehicleId,
-      type,
-      payload,
-      nonce: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      ttl:   new Date(Date.now() + 5 * 60_000).toISOString(),
-    };
-    if (options.pinHash) body.pinHash = options.pinHash;
-
-    const res = await fetch('/api/pwa/command', {
-      method:  'POST',
-      headers: {
-        'Content-Type':  'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify(body),
-    });
-    const data = (await res.json()) as { ok?: boolean; commandId?: string; error?: string };
-    if (!res.ok || !data.ok) return { ok: false, error: data.error ?? 'Komut gönderilemedi.' };
-    return { ok: true, commandId: data.commandId };
-  } catch {
-    return { ok: false, error: 'Sunucuya ulaşılamadı.' };
-  }
-}
+/* ── OTURUMSUZ (api_key) KOMUT YOLU KALDIRILDI — P0-001A ───────────────────
+ * Buradaki `sendCommandViaApiKey`, ham `api_key`i `Authorization` başlığında
+ * `/api/pwa/command`e gönderiyordu. O uç fail-closed kapatıldı çünkü
+ * doğrulaması (`sha256(raw) === api_key_hash`) düz metin kolona karşı
+ * MATEMATİKSEL OLARAK eşleşemiyordu (üretim: 834/834 satır UUID biçimli).
+ *
+ * Ayrıca yol ZATEN erişilemezdi: kanonik eşleştirme (#631) `api_key`
+ * döndürmez, `getStoredApiKey` boş dizeyi `null`a çevirir → fonksiyon hiç
+ * çağrılmıyordu. Kaldırılması davranış DEĞİŞTİRMEZ, yalnız ölü kodu ve
+ * "ham anahtarı tarayıcıda taşı" desenini ortadan kaldırır.
+ *
+ * Oturumsuz komut yeniden istenirse doğru çözüm bu fonksiyonu geri getirmek
+ * DEĞİL, cihaz anahtarını gerçekten hash'leyip (P0-001H) uca tek doğrulama
+ * otoritesi bağlamaktır (P0-001I). */
 
 // ── Komut gönder ──────────────────────────────────────────────────────────────
 
@@ -157,17 +154,32 @@ export async function sendCommand(
   payload: CommandPayload = {},
   options: SendCommandOptions = {},
 ): Promise<SendResult> {
-  // Giriş yapılmamışsa api_key yolunu kullan (standalone PWA modu)
-  const session = supabaseBrowser
-    ? (await supabaseBrowser.auth.getSession()).data.session
-    : null;
+  const access = evaluateAccountScopedCapability('COMMAND_DISPATCH');
+  if (!access.allowed) {
+    return {
+      ok: false,
+      error: 'Güvenli oturum temizliği sırasında komut gönderilemez.',
+      code: access.code === 'RUNTIME_UNAVAILABLE'
+        ? 'SECURITY_RUNTIME_UNAVAILABLE'
+        : 'ACCOUNT_CLEANUP_LOCKDOWN',
+    };
+  }
+  /* ── GİRİŞ EKRANI YOK (ürün kararı, 2026-09-12) ──────────────────────────
+     Oturum yoksa GÖRÜNMEZ anonim oturum açılır; kullanıcıya hiçbir şey
+     sorulmaz (bkz. `lib/supabase.ts`).
 
-  if (!session) {
-    const apiKey = getStoredApiKey(vehicleId);
-    if (!apiKey) {
-      return { ok: false, error: 'API anahtarı bulunamadı. Aracı yeniden eşleştirin.' };
-    }
-    return sendCommandViaApiKey(vehicleId, type, payload, apiKey, options);
+     P0-001A: oturumsuz (api_key) komut yolu KAPATILDI — gerekçe yukarıda.
+     Eskiden burada "API anahtarı bulunamadı. Aracı yeniden eşleştirin."
+     deniyordu; bu YANLIŞ TEŞHİSTİ — yeniden eşleştirmek anahtar üretmez
+     (kanonik rota anahtar döndürmez), kullanıcı sonsuz döngüye giriyordu.
+     Anonim oturum o döngüyü de kapatır: komut kullanıcı JWT'siyle gider,
+     ham anahtar hiçbir yerde dönmez. */
+  const token = await ensurePwaSession();
+  if (!token) {
+    return {
+      ok: false,
+      error: 'Oturum başlatılamadı — bağlantınızı kontrol edip tekrar deneyin.',
+    };
   }
 
   if (!isSupabaseConfigured || !supabaseBrowser) {
@@ -177,11 +189,32 @@ export async function sendCommand(
   // Araç çevrimdışı uyarısı — komut sıraya girer (TTL sayesinde araç gelince alır)
   const online = await isVehicleOnline(vehicleId);
 
-  // E2E şifreleme: api_key varsa payload'u şifrele
+  /* ── E2E ŞİFRELEME (#672) ────────────────────────────────────────────────
+     Araç tarafı `lock`, `unlock`, `horn`, `alarm_on`, `alarm_off`, `lights_on`, `clear_dtc` için `ecdh_v1`
+     zarfı ŞART koşar ve başka her biçimi `Decryption Error` ile reddeder.
+     Buradaki eski kod ya PBKDF2 `{iv,data}` üretiyordu ya da düz metin
+     gönderiyordu — İKİSİ DE reddediliyordu, üstelik `.catch(() => payload)`
+     şifreleme çökerse SESSİZCE düz metne düşüyordu. Artık:
+       · E2E gerektiren komut → araç public key'iyle `ecdh_v1` zarfı,
+       · anahtar yoksa/şifrelenemezse KOMUT GÖNDERİLMEZ ve gerekçe döner
+         (sessizce reddedilen komut göndermek kullanıcıyı kör bırakır),
+       · diğer komutlar → eski davranış aynen korunur. */
   const apiKey = getStoredApiKey(vehicleId);
-  const finalPayload = apiKey
-    ? await encryptPayload(payload, apiKey).catch(() => payload)
-    : payload;
+  let finalPayload: Record<string, unknown> = payload as Record<string, unknown>;
+
+  if (requiresE2E(type)) {
+    const keyRes = await fetchCarPublicKey(vehicleId);
+    if (!keyRes.ok) return { ok: false, error: carKeyErrorMessage(keyRes.reason) };
+    try {
+      finalPayload = await encryptE2EPayload(payload, keyRes.publicKey) as unknown as Record<string, unknown>;
+    } catch {
+      return { ok: false, error: 'Komut şifrelenemedi; güvenlik gereği gönderilmedi.' };
+    }
+  } else if (apiKey) {
+    finalPayload = await encryptPayload(payload, apiKey)
+      .then((enc) => enc as unknown as Record<string, unknown>)
+      .catch(() => payload as Record<string, unknown>);
+  }
 
   const nonce = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const ttl   = new Date(Date.now() + 5 * 60_000).toISOString();
@@ -234,6 +267,9 @@ export function subscribeCommandStatus(
   onEvent:   (ev: StatusEvent) => void,
   timeoutMs  = 15_000,
 ): () => void {
+  if (!evaluateAccountScopedCapability('COMMAND_DISPATCH').allowed) {
+    return () => {};
+  }
   if (!supabaseBrowser) return () => {};
 
   let settled = false;

@@ -6,7 +6,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Teşekkürler! Doğru teşhis için lütfen kanıta dayalı doldurun (GEMINI.md kültürü: tahmin değil, gözlem).
+        Teşekkürler! Doğru teşhis için lütfen kanıta dayalı doldurun (CLAUDE.md kültürü: tahmin değil, gözlem).
         Güvenlik açıkları için bu formu KULLANMAYIN → `SECURITY.md`.
 
   - type: textarea

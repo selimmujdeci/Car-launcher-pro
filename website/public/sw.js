@@ -16,6 +16,22 @@ const APP_URL  = '/dashboard';
 const ICON_URL = '/icons/icon-192.svg';
 const BADGE_URL = '/icons/badge-72.svg';
 
+function safeNotificationTarget(rawUrl) {
+  try {
+    const parsed = new URL(rawUrl ?? APP_URL, self.location.origin);
+    if (parsed.origin !== self.location.origin) return APP_URL;
+    if (parsed.pathname !== '/dashboard' && !parsed.pathname.startsWith('/dashboard/')) {
+      return APP_URL;
+    }
+    // Account, vehicle and command context from an old notification is never
+    // carried across sessions. The client-side cleanup boot gate re-authorizes
+    // the protected path before mounting it.
+    return parsed.pathname;
+  } catch {
+    return APP_URL;
+  }
+}
+
 /* ── Install: skip waiting so new SW activates immediately ──── */
 
 self.addEventListener('install', (event) => {
@@ -44,7 +60,7 @@ self.addEventListener('push', (event) => {
   const badge   = data.badge   ?? BADGE_URL;
   const tag     = data.tag     ?? 'clp-default';
   // url is at top-level (not nested in data.data)
-  const url     = data.url     ?? APP_URL;
+  const url     = safeNotificationTarget(data.url);
   const urgent  = data.urgent  ?? false;
 
   const options = {
@@ -69,7 +85,7 @@ self.addEventListener('push', (event) => {
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   // url stored in notification.data.url (set above)
-  const targetUrl = event.notification.data?.url ?? APP_URL;
+  const targetUrl = safeNotificationTarget(event.notification.data?.url);
 
   event.waitUntil(
     self.clients
