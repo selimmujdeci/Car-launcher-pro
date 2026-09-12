@@ -188,6 +188,23 @@ const MAX_STORED_TRIPS     = 100;
 const TRIP_START_SPEED_KMH = 5;
 const TRIP_END_IDLE_MS     = 60_000;
 /**
+ * "Bu bir yolculuk SAYILIR mı" eşiği — TEK OTORİTE.
+ *
+ * `_endTrip` bu eşiğin altındaki trip'i `TripRecord`'a çevirmez (özet
+ * ÜRETİLMEZ, yalnız ham kanıt `DISCARDED_TOO_SHORT` ile mühürlenir).
+ *
+ * `tripSessionService` de AYNI eşiği okur — export edilmemiş olsaydı
+ * (gerçek cihaz kusuru, FIELD-2 2026-09-12) session bu sınıra HİÇ
+ * bakmadan segment'i "yolculuğa çıkıldı" sayardı: GPS gürültüsünden açılıp
+ * anında kapanan (mesafe ≈ 0) bir sahte trip bile Mavi'ye "6 dakikadır
+ * yoldayız" DEDİRTİYORDU çünkü session'ın MOLA'ya (STOPPED) geçmiş olması
+ * onu KAPATMIYOR — mola süresi `SESSION_MAX_BREAK_MS` (45 dk) dolana kadar
+ * "yola çıkıldı" gösterime DEVAM eder. İki otorite AYNI eşiği paylaşmazsa
+ * biri "geçersiz" derken öteki "yoldayız" der.
+ */
+export const TRIP_DISCARD_MIN_DURATION_MIN = 1;
+export const TRIP_DISCARD_MIN_DISTANCE_KM  = 0.1;
+/**
  * VERİ SESSİZLİĞİ kapanış eşiği — duruş eşiğinden AYRI ve bilinçli olarak ÇOK
  * DAHA UZUN.
  *
@@ -286,6 +303,23 @@ let _motion: MotionEvidence = emptyMotionEvidence();
 let _lastEndReason: TripEndReason | null = null;
 /** Son KAPANMIŞ yolculuğun kimliği — tamamlandı kartı tek atış kilidi. */
 let _lastCompletedTripId: string | null = null;
+
+/**
+ * HERHANGİ bir örneğin (GPS veya OBD) geldiği son monotonik an — trip AKTİF
+ * OLMASA BİLE.
+ *
+ * ── ÖLÇÜLEN KUSUR (gerçek cihaz — FIELD-2, 2026-09-12) ──────────────────
+ * `getTripJournalGlance()` "son örnek anı"nı yalnız `_active.lastSamplePerfMs`
+ * üzerinden okuyordu. `_active` HİÇ yolculuk yokken (araç park hâlinde,
+ * GPS/OBD sağlıklı akıyor) her zaman `null`dur — dolayısıyla bu alan da
+ * her zaman `null` gönderiliyordu. `deriveTripJournalState` "kanıt yok" ile
+ * "kanıt bayat" ayrımını YAPAMAZ hâle geliyor ve `active=false` dalında
+ * `PARKED`'a ULAŞMASI YAPISAL OLARAK İMKÂNSIZ oluyordu: sistem GPS fix'i
+ * varken bile sürekli `UNKNOWN_DEGRADED` gösteriyordu (gerçek cihazda LAB
+ * ekranında doğrulandı). Bu alan trip yaşam döngüsünden BAĞIMSIZDIR —
+ * yalnız "veri akışı var mı" sorusunu, trip'ten önce de sonra da cevaplar.
+ */
+let _lastAnySampleMonoMs: number | null = null;
 
 // Son OBD verisini cache'le — GPS olmadığında fallback için
 let _lastObdFuel = -1;
@@ -513,7 +547,8 @@ function _endTrip(reason: TripEndReason = 'UNKNOWN'): void {
     : null;
 
   // 1 dakika veya 100m altındaki yolculukları kaydetme
-  if (durationMin < 1 || _active.distanceKm < 0.1) {
+  if (durationMin < TRIP_DISCARD_MIN_DURATION_MIN
+    || _active.distanceKm < TRIP_DISCARD_MIN_DISTANCE_KM) {
     /* Özet ÜRETİLMEZ ama ham kanıt gerekçesiyle mühürlenir: "kaydedilmedi"
        ile "hiç olmadı" aynı şey değildir. */
     try {
@@ -687,6 +722,10 @@ function _endTrip(reason: TripEndReason = 'UNKNOWN'): void {
 function _onGPS(loc: GPSLocation | null): void {
   if (!loc) return;
 
+  /* Seyir durumu kanıtı: trip AKTİF OLMASA BİLE "veri akıyor" damgası
+     yazılır — PARKED'ın türetilebilmesi buna bağlıdır (bkz. tanım). */
+  _lastAnySampleMonoMs = performance.now();
+
   const speedKmh = loc.speed != null ? loc.speed * 3.6 : 0;
 
   // Trip başlat (GPS hızıyla) — TEK fix yetmez, hareket kanıtı birikmelidir.
@@ -803,6 +842,9 @@ function _onOBD(data: OBDData): void {
   const fuelLevel = data.fuelLevel;
   if (speedKmh < 0 || speedKmh > 300) return;
   if (fuelLevel < -1 || fuelLevel > 100) return;
+
+  /* Seyir durumu kanıtı: trip AKTİF OLMASA BİLE (bkz. GPS yolu, aynı gerekçe). */
+  _lastAnySampleMonoMs = performance.now();
 
   if (fuelLevel >= 0) _lastObdFuel = fuelLevel;
 
@@ -991,7 +1033,10 @@ export function getTripJournalGlance(): TripJournalGlance {
       state: deriveTripJournalState({
         monoMs: performance.now(),
         active: trip !== null,
-        lastSampleMonoMs: trip !== null ? trip.lastSamplePerfMs : null,
+        /* Aktif trip varken TRİP'İN kendi damgası (daha kesin — kalitesiz
+           fix de sayılır); trip yokken GENEL veri akışı damgası. İkisi de
+           yoksa (hiç örnek gelmedi) `null` kalır → dürüstçe UNKNOWN_DEGRADED. */
+        lastSampleMonoMs: trip !== null ? trip.lastSamplePerfMs : _lastAnySampleMonoMs,
         stopSinceMonoMs: trip !== null ? trip.metrics.stopSincePerfMs : null,
         endPending: _idleTimer !== null,
         justCompleted: false,

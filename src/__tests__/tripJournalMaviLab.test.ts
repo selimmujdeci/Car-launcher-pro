@@ -42,9 +42,22 @@ describe('Mavi hareket durumu yorumu', () => {
     expect(line).not.toMatch(/hareket hâlindeyiz|duruyoruz\./);
   });
 
-  it('park hâlinde ve tamamlanmışta satır ÜRETİLMEZ (boşta sıfır token)', () => {
-    expect(interpretMotionState('PARKED')).toBeNull();
-    expect(interpretMotionState('COMPLETED')).toBeNull();
+  /**
+   * DEĞİŞEN SÖZLEŞME (gerçek cihaz kusuru, FIELD-2 2026-09-12): PARKED
+   * eskiden `null` dönüyordu ("boşta sıfır token"). Kullanıcı doğrudan
+   * "hareket ediyor muyuz?" sorduğunda context satırı YOKSA LLM CEVAP
+   * UYDURUYORDU — gerçek cihazda araç PARKED iken Mavi "tekerlekler
+   * dönüyor" dedi (ağa giden system prompt'ta doğrulandı: konum vardı,
+   * hareket durumu yoktu). PARKED da artık AÇIKÇA söylenir.
+   */
+  it('PARKED açıkça "hareket etmiyoruz" der — LLM\'in UYDURMASINI önler', () => {
+    const line = interpretMotionState('PARKED') ?? '';
+    expect(line).toContain('hareket etmiyoruz');
+  });
+
+  it('COMPLETED da açıkça "duruyoruz" der (kart tekrarlanmaz, yalnız durum bildirilir)', () => {
+    const line = interpretMotionState('COMPLETED') ?? '';
+    expect(line).toContain('duruyoruz');
   });
 
   it('durum bilinmiyorsa (null/undefined) satır üretilmez', () => {

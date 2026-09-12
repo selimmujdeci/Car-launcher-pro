@@ -66,6 +66,7 @@ import {
   onTripState,
   clearAllTrips,
   deleteTrip,
+  getTripJournalGlance,
   type TripState,
 } from '../platform/tripLogService';
 
@@ -458,3 +459,58 @@ describe('OBD fallback — GPS olmadığında trip başlatır', () => {
     expect(state.active).toBe(true);
   });
 });
+
+/* ═══════════════════════════════════════════════════════════════
+   10. SEYİR DURUMU — PARKED ULAŞILABİLİRLİĞİ (gerçek cihaz kusuru)
+   ═══════════════════════════════════════════════════════════════
+   ÖLÇÜLEN KUSUR (FIELD-2, gerçek cihaz — CarOS LAB): trip HİÇ
+   başlamamışken (`_active === null`) `getTripJournalGlance()` HER ZAMAN
+   UNKNOWN_DEGRADED döndürüyordu — GPS/OBD sağlıklı akıyor ve araç
+   sabitken bile. Kök neden: "son örnek anı" yalnız aktif trip'in kendi
+   damgasından okunuyordu; trip yokken bu alan hiç yazılmıyordu, yani
+   PARKED dalına ULAŞMAK YAPISAL OLARAK İMKÂNSIZDI. */
+
+describe('seyir durumu — PARKED ulaşılabilirliği', () => {
+  beforeEach(resetService);
+  afterEach(resetService);
+
+  it('trip hiç başlamadan GPS örneği gelirse PARKED\'a ULAŞILABİLİR', async () => {
+    startTripLog();
+    // Hareket eşiğinin ALTINDA bir fix — trip AÇILMAMALI.
+    _gpsCb?.(gpsAt(41.0, 29.0, 0, 5));
+
+    await waitForCondition(() => getTripJournalGlance().state !== 'UNKNOWN_DEGRADED');
+    const glance = getTripJournalGlance();
+    expect(glance.state).toBe('PARKED');
+    expect(glance.tripId).toBeNull();
+  });
+
+  /* "Hiç örnek gelmediyse UNKNOWN_DEGRADED" senaryosu `tripJournalModel.test.ts`
+     içinde SAF fonksiyon seviyesinde zaten kilitlidir. Burada tekrarlanmaz:
+     `_lastAnySampleMonoMs` modül seviyesinde paylaşılan bir durumdur ve
+     önceki testlerden kalan damga bu senaryoyu production wiring'de
+     güvenilmez kılar (bu, production'da YANLIŞ bir davranış DEĞİLDİR —
+     gerçek süreçte bu bilgi restart olmadıkça kaybolmamalıdır; yalnız test
+     izolasyonu sorunu). */
+
+  it('OBD örneği de PARKED\'a ULAŞTIRIR (GPS olmadan)', async () => {
+    startTripLog();
+    _obdCb?.(obdData(0));
+
+    await waitForCondition(() => getTripJournalGlance().state !== 'UNKNOWN_DEGRADED');
+    expect(getTripJournalGlance().state).toBe('PARKED');
+  });
+});
+
+/** Koşul sağlanana kadar bekle — polling, fake timer GEREKTİRMEZ. */
+function waitForCondition(pred: () => boolean, timeoutMs = 2000): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const start = Date.now();
+    const tick = () => {
+      if (pred()) { resolve(); return; }
+      if (Date.now() - start > timeoutMs) { reject(new Error('waitForCondition timeout')); return; }
+      setTimeout(tick, 10);
+    };
+    tick();
+  });
+}

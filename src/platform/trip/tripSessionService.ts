@@ -18,7 +18,10 @@
  * bu yüzden yolculuklar arasında hiçbir şey koşmasa da sayılar doğrudur.
  */
 
-import { onTripState, type TripState } from '../tripLogService';
+import {
+  onTripState, TRIP_DISCARD_MIN_DURATION_MIN, TRIP_DISCARD_MIN_DISTANCE_KM,
+  type TripState,
+} from '../tripLogService';
 import { _registerTripSessionReader } from './tripSessionAccess';
 import {
   emptyTripSession, advanceTripSession, projectTripSession,
@@ -99,12 +102,40 @@ export function stopTripSession(): void {
 /* ── Okuma ────────────────────────────────────────────────── */
 
 /**
+ * Bu tek segment "yolculuk sayılır mı" — `tripLogService`nin TripRecord
+ * üretme eşiğiyle AYNI (§ tanım). Farklı bir eşik kullanılırsa iki otorite
+ * ayrışır: biri "geçersiz" derken öteki "yoldayız" der.
+ */
+function _isNegligibleSingleSegment(p: TripSessionProjection): boolean {
+  return p.segmentCount === 1
+    && p.distanceMeters / 1000 < TRIP_DISCARD_MIN_DISTANCE_KM
+    && p.movingMs < TRIP_DISCARD_MIN_DURATION_MIN * 60_000;
+}
+
+/**
  * Senkron anlık görüntü — ASLA throw etmez.
  * Süren mola ve geçen süre bu çağrının ANINA göre türetilir.
+ *
+ * ── ÖLÇÜLEN KUSUR (gerçek cihaz — FIELD-2, 2026-09-12) ──────────────────
+ * GPS gürültüsünden açılıp aniden kapanan bir "trip" (mesafe ≈ 0, hareket
+ * < 1 dk) `tripLogService`de `DISCARDED_TOO_SHORT` sayılır — ama session
+ * bunu HİÇ ÖĞRENMEZ: segment mühürlenip `STOPPED` (mola) durumuna geçer ve
+ * `SESSION_MAX_BREAK_MS` (45 dk) dolana kadar "Yola çıkıldı" göstermeye
+ * DEVAM eder. Sonuç: Mavi "6 dakikadır yoldayız" diyordu — kullanıcı hiç
+ * hareket etmemişken.
+ *
+ * Yalnız `STOPPED` + TEK segment + değersiz (yukarıdaki eşik) durumunda
+ * projeksiyon BOŞA döner. Bu, iç durumu (`_session`) DEĞİŞTİRMEZ — salt
+ * OKUMA anında bir filtredir: gerçek bir ikinci hareket gelirse
+ * (`segmentCount` artarsa) session normal şekilde görünür kalır.
  */
 export function getTripSessionSnapshot(): TripSessionProjection {
   try {
-    return projectTripSession(_session, _mono());
+    const p = projectTripSession(_session, _mono());
+    if (p.state === 'STOPPED' && _isNegligibleSingleSegment(p)) {
+      return projectTripSession(emptyTripSession(), 0);
+    }
+    return p;
   } catch {
     return projectTripSession(emptyTripSession(), 0);
   }

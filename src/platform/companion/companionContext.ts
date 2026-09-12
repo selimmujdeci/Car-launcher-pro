@@ -276,8 +276,18 @@ export function interpretTripSession(s: {
  * TÜRETİLEMEZ: 40 dakikadır yolda olan bir araç şu an kırmızı ışıkta
  * duruyor olabilir. Mavi bunu tahmin etmemeli, OKUMALIDIR.
  *
- * `null` döner = satır üretilmez. Yolculuk yokken ("park hâlinde") bunu her
- * çağrıda prompt'a yazmak boşta token harcar; durum BİLİNMİYORSA ise
+ * ── ÖLÇÜLEN KUSUR (gerçek cihaz — FIELD-2, 2026-09-12) ──────────────────
+ * `PARKED` başlangıçta `null` döndürüyordu ("boşta sıfır token" ilkesiyle —
+ * bu bilgiyi HER çağrıda proaktif olarak prompt'a yazmak gereksiz sayıldı).
+ * Ama kullanıcı DOĞRUDAN "hareket ediyor muyuz?" diye sorduğunda context
+ * satırı YOKSA LLM boşlukta kalıp CEVAP UYDURUYOR: gerçek cihazda, araç
+ * kesinlikle PARKED (`tripId: UNAVAILABLE`) iken Mavi "hareket halindeyiz,
+ * tekerlekler dönüyor" dedi — ağa giden system prompt'ta doğrulandı
+ * (Konum satırı vardı, hareket durumu YOKTU). "Sıfır token" kazancı,
+ * kullanıcının doğrudan sorduğu bir soruda YANLIŞ BİLGİ üretme riskinden
+ * DAHA UCUZ değildir — PARKED de artık AÇIKÇA söylenir.
+ *
+ * `null` yalnız gerçekten "önemsiz" durumlarda kalır. Durum BİLİNMİYORSA
  * uydurma yapmamak için AÇIKÇA söylenir — Mavi "duruyoruz" diyemesin.
  */
 export function interpretMotionState(
@@ -295,7 +305,12 @@ export function interpretMotionState(
       /* Konum/OBD susmuşsa "duruyoruz" DA "gidiyoruz" DA denemez. */
       return 'Şu anda hareket edip etmediğimizi ölçemiyorum (konum ve araç verisi yok).';
     case 'PARKED':
+      return 'Şu anda park hâlindeyiz, hareket etmiyoruz.';
     case 'COMPLETED':
+      /* Kapanış TEK ATIŞLIK bir olaydır (bkz. completion card); bir sonraki
+         okumada zaten PARKED/MOVING'e geçer. Burada "az önce durduk"
+         demek yeterlidir — kartın kendisini TEKRARLAMAZ. */
+      return 'Yolculuk az önce sona erdi, şu anda duruyoruz.';
     default:
       return null;
   }
