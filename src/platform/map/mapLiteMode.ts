@@ -24,6 +24,35 @@
 
 import type { Map as MapLibreMap } from 'maplibre-gl';
 import { hasWeakGpu } from '../../utils/detectWeakGpu';
+import { getDeviceTier } from '../deviceCapabilities';
+
+/**
+ * Lite mode HANGİ cihazda etkin — TEK karar noktası.
+ *
+ * ── SAHA 2026-09-12 · LITE MODE ÖLÜ DOĞMUŞTU ────────────────────────────────
+ * Kapı yalnız `hasWeakGpu()` idi. O fonksiyon WebGL renderer dizesi MASKELİYSE
+ * (`WEBGL_debug_renderer_info` yoksa) bilinçli olarak `false` döner
+ * ("bilinmeyen → downgrade etme"). Bu head unit'te dize okunamıyor → lite mode
+ * HİÇ devreye girmiyordu.
+ *
+ * DENEYSEL KANIT: `MapCore`ta `antialias` da aynı kapıdaydı; oraya tier koşulu
+ * eklenince gerçek cihazda `Slow issue draw commands` 23/24 → 0 ölçüldü.
+ * `hasWeakGpu()` zaten true olsaydı MSAA kapalı olurdu ve o sayaç DEĞİŞMEZDİ.
+ *
+ * ÖLÇÜLEN BEDEL (ceres-b3 · PowerVR GE8300 · 4×A53 1.46 GHz, harita kaydırma):
+ * renderer `CrRendererMain` bir çekirdeğin **%76.6**'sı, `High input latency`
+ * 579/579 kare — kullanıcı "gezinmek neredeyse imkânsız" dedi. Gizlenen
+ * katmanlar dekoratif (halo/halka/gölge/glow/rozet/debug) ve `ROUTE_FLOW`
+ * kodun kendi notuyla "harekette EN PAHALISI" (sürekli rAF).
+ *
+ * YENİ sinyal ÜRETİLMEDİ: `getDeviceTier()` zaten `deviceCapabilities`in
+ * kanonik hükmü ve bu cihazda KANITLI `'low'` (4 çekirdek). GPU kimliği
+ * okunabilen cihazlarda davranış BİREBİR eskisi.
+ */
+function _liteEligible(): boolean {
+  if (hasWeakGpu()) return true;
+  try { return getDeviceTier() === 'low'; } catch { return false; }
+}
 import {
   ROUTE_SHADOW,
   ROUTE_GLOW_SEL,
@@ -74,7 +103,7 @@ function _setVisibility(map: MapLibreMap, id: string, vis: 'none' | 'visible'): 
  * Yalnız zayıf GPU'da etki eder. İdempotent.
  */
 export function enterMapLiteInteraction(map: MapLibreMap | null | undefined): void {
-  if (!map || !hasWeakGpu()) return;
+  if (!map || !_liteEligible()) return;
   // Bekleyen geri-yükleme varsa iptal et (kesintisiz arka arkaya gesture'da titreme yok)
   if (_restoreTimer) { clearTimeout(_restoreTimer); _restoreTimer = null; }
   if (_liteActive) return;
