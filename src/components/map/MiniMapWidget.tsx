@@ -165,9 +165,36 @@ export const MiniMapWidget = memo(function MiniMapWidget({
   // cihazda anında (bootReady=true). Mali-400'de boot'ta eager WebGL = kara
   // ekran/restart → ertelenince app açılır, harita arkadan gelir (bloklamaz).
   const [bootReady, setBootReady] = useState(!IS_LOW_TIER);
+  /* Boot raster kilidini BİZ mi koyduk — yalnız kendi kilidimizi bırakırız
+     (`thermalWatchdog._socEscalated` ile AYNI disiplin). */
+  const bootRasterLockRef = useRef(false);
   useEffect(() => {
-    if (bootReady) return;
+    if (bootReady) {
+      /* ── SAHA 2026-09-12 · İYİ VEKTÖR KATMANI GELİP GİDİYORDU ───────────────
+       * `notifyLowFPS(true)` boot'ta kuruluyordu ama düşük-uçta HİÇBİR YERDEN
+       * bırakılmıyordu: `setMapHeavyNeighbor` gevşetmeyi `getDeviceTier() !==
+       * 'low'` ile kapatıyor (mapSourceManager.ts:696) ve `notifyNavigationRender`
+       * vektöre dönüşü `if (_thermalLock) return` ile atlıyor (:678). Sonuç:
+       * AYNI `_thermalLock` global'ini iki otorite ters yönde yazıyordu —
+       * buradaki VARSAYIM (donanım sınıfı) ve `FullMapView`in ÖLÇÜMÜ (FPS
+       * mandalı, :783). Kullanıcı bunu "katman bir süre görünüp kayboluyor"
+       * diye bildirdi; gerçek cihazda üç ayrı zemin durumu kaydedildi.
+       *
+       * Varsayım ölçümü EZMEMELİ (CLAUDE.md §8). Boot fırtınası koruması AYNEN
+       * KALIR — kilit boot boyunca kurulu; boot bitince BIRAKILIR ve kararı
+       * ölçen mandal devralır. Cihaz vektörü taşıyamıyorsa mandal 3 saniyede
+       * zaten raster'a düşürür: koruma kaybolmaz, KANITA bağlanır.
+       *
+       * Bu değerlendirme MSAA düzeltmesinden (MapCore antialias) SONRA geçerli:
+       * o yamayla `Slow issue draw commands` 23/24 → 0 ölçüldü. */
+      if (bootRasterLockRef.current) {
+        bootRasterLockRef.current = false;
+        notifyLowFPS(false);
+      }
+      return;
+    }
     // Düşük-uç'ta vektör yerine raster kilitle (vektör tile decode Mali-400'ü boğar).
+    bootRasterLockRef.current = true;
     notifyLowFPS(true);
     const w = window as unknown as {
       requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
