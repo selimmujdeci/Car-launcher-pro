@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import type { LiveVehicle } from '@/types/realtime';
-import { MAP_STYLE_URL } from '@/lib/console/mapStyle';
 
 /* ── Parking spot storage ─────────────────────────────────────────────────── */
 
@@ -101,22 +100,29 @@ function parkingMarkerEl(): HTMLElement {
   return el;
 }
 
-/* ── Map style (CARTO dark) ───────────────────────────────────────────────── */
+/* ── Map style (OpenFreeMap dark) ─────────────────────────────────────────── */
 
 /**
- * ÖLÇÜLEN KUSUR (2026-09-12): eski raster uçlar (`a/b.basemaps.cartocdn.com/
- * dark_all/{z}/{x}/{y}@2x.png`) HTTP 200 dönüyor ama gerçek tile yerine
- * CartoDB'nin "API KEY REQUIRED — carto.com/basemaps/apikey" watermark
- * görselini veriyor (doğrulandı: gerçek cihaz ekran görüntüsü + tile
- * indirilip piksel piksel incelendi). CartoDB bu eski ücretsiz raster
- * servisini kısıtlamış.
+ * ÖLÇÜLEN KUSUR (2026-09-12, gerçek cihaz): CartoDB'nin ÜCRETSİZ basemap'leri
+ * artık harita üzerine "API KEY REQUIRED — carto.com/basemaps/apikey"
+ * filigranı basıyor. İki uç da denendi ve İKİSİ DE filigranlı geldi:
+ *   · eski raster:  `a/b.basemaps.cartocdn.com/dark_all/...`  (harita hiç
+ *     çizilmedi, yalnız filigran)
+ *   · GL vektör:    `basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json`
+ *     (harita ÇİZİLDİ — yol/yer adları geldi — ama filigran yine bindi)
+ * HTTP 200 dönmesi "temiz içerik" DEMEK DEĞİLMİŞ; bunu ilk turda yalnız
+ * durum koduna bakarak yanlış doğruladım, cihaz ekran görüntüsü düzeltti.
  *
- * `MAP_STYLE_URL` (konsol tarafının ZATEN kullandığı, TEK OTORİTE — bkz.
- * `lib/console/mapStyle.ts`) CartoDB'nin GL vektör stil ailesidir ve AYRI
- * bir üründür: doğrulandı (style.json 200 + arkasındaki gerçek vektör
- * tile'lar `application/x-protobuf` ile 200 dönüyor, API key istemiyor).
- * İkinci bir CartoDB URL'i icat ETMEK yerine mevcut kanıtlı kaynağa bağlanır.
+ * OpenFreeMap: API key YOK, kayıt YOK, kota YOK (OpenMapTiles şeması,
+ * MapLibre uyumlu). DOĞRULANDI — Tarsus karosu (z11/1222/798) indirildi:
+ * 22,8 KB gerçek veri, içinde "api key"/"required" metni 0 eşleşme, gerçek
+ * yerel yer adları var (Adana · Akdeniz · Akçakocalı · Adanalıoğlu).
+ *
+ * NOT: konsol tarafı (`lib/console/mapStyle.ts`) HÂLÂ CartoDB'dedir ve aynı
+ * filigrandan etkilenir; orası ayrı bir tur (gece okunurluk yaması CARTO
+ * katman adlarına bağlı, sağlayıcı değişince o kurallar da gözden geçirilmeli).
  */
+const MAP_STYLE_DARK = 'https://tiles.openfreemap.org/styles/dark';
 
 /* ── Component ────────────────────────────────────────────────────────────── */
 
@@ -167,7 +173,7 @@ export default function VehicleMapView({ vehicle }: Props) {
 
       const map = new Map({
         container:           containerRef.current,
-        style:               MAP_STYLE_URL.night,
+        style:               MAP_STYLE_DARK,
         center,
         zoom:                vehicle?.lat ? 14 : 10,
         attributionControl:  false,
