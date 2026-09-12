@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import type { LiveVehicle } from '@/types/realtime';
-import { MAP_STYLE_URL } from '@/lib/console/mapStyle';
 
 /* ── Parking spot storage ─────────────────────────────────────────────────── */
 
@@ -111,12 +110,16 @@ function parkingMarkerEl(): HTMLElement {
  * indirilip piksel piksel incelendi). CartoDB bu eski ücretsiz raster
  * servisini kısıtlamış.
  *
- * `MAP_STYLE_URL` (konsol tarafının ZATEN kullandığı, TEK OTORİTE — bkz.
- * `lib/console/mapStyle.ts`) CartoDB'nin GL vektör stil ailesidir ve AYRI
- * bir üründür: doğrulandı (style.json 200 + arkasındaki gerçek vektör
- * tile'lar `application/x-protobuf` ile 200 dönüyor, API key istemiyor).
- * İkinci bir CartoDB URL'i icat ETMEK yerine mevcut kanıtlı kaynağa bağlanır.
+ * CartoDB'nin GL vektör stil ailesi AYRI bir üründür, aynı kısıtlamaya tabi
+ * DEĞİL: doğrulandı (style.json 200 + arkasındaki gerçek vektör tile'lar
+ * `application/x-protobuf` ile 200 dönüyor, API key istemiyor).
+ *
+ * NOT: bu proje dalında (main) henüz `lib/console/mapStyle.ts` (konsol
+ * tarafının kendi harita stil sabiti) YOK — o dosya ayrı bir dalda. Bu URL
+ * o dosyayla AYNI CartoDB stilini gösterir ama BAĞIMSIZ bir sabittir; o dal
+ * main'e ulaştığında iki tanım BİRLEŞTİRİLİP tek otoriteye indirilmelidir.
  */
+const CARTO_GL_STYLE_URL = 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json';
 
 /* ── Component ────────────────────────────────────────────────────────────── */
 
@@ -167,7 +170,7 @@ export default function VehicleMapView({ vehicle }: Props) {
 
       const map = new Map({
         container:           containerRef.current,
-        style:               MAP_STYLE_URL.night,
+        style:               CARTO_GL_STYLE_URL,
         center,
         zoom:                vehicle?.lat ? 14 : 10,
         attributionControl:  false,
