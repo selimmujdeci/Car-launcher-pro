@@ -356,7 +356,7 @@ const corrupted = Buffer.from(after.buffers.get(region.graphFile)!);
 {
   const view = new DataView(corrupted.buffer, corrupted.byteOffset, corrupted.byteLength);
   const nodeCount = view.getUint32(4, true), edgeCount = view.getUint32(8, true), restrictionCount = view.getUint32(12, true);
-  let base = 16 + nodeCount * 16 + edgeCount * 28;
+  const base = 16 + nodeCount * 16 + edgeCount * 28;
   for (let i = 0; i < restrictionCount; i++) {
     const type = view.getUint8(base + i * 16 + 12);
     if ((type & 0x80) !== 0 && (type & 0x40) !== 0) { view.setUint8(base + i * 16 + 12, type & ~0x40); break; }

@@ -31,7 +31,8 @@ const mocks = vi.hoisted(() => {
     channel:       vi.fn(),
     removeChannel: vi.fn(),
   };
-  return { channel, supabase };
+  const ensurePwaSession = vi.fn(async () => 'test-access-token');
+  return { channel, supabase, ensurePwaSession };
 });
 
 const mockChannel  = mocks.channel;
@@ -46,6 +47,10 @@ const cleanupPolicy = vi.hoisted(() => ({
 vi.mock('../lib/supabase', () => ({
   supabaseBrowser:      mocks.supabase,
   isSupabaseConfigured: true,
+  /* PWA oturumu tek giriş noktasından alınır (#giriş-yok kararı): burada
+     oturum HAZIR varsayılır — bu dosyanın kilitleri RLS ve TTL davranışıdır,
+     oturumun nasıl elde edildiği `supabase.ts`in konusudur. */
+  ensurePwaSession:     mocks.ensurePwaSession,
 }));
 
 vi.mock('../security/accountCleanup/accountCleanupRuntime', () => ({
@@ -70,6 +75,7 @@ vi.mock('@/lib/e2eCommandCrypto', async (importOriginal) => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.ensurePwaSession.mockResolvedValue('test-access-token');
   cleanupPolicy.evaluate.mockReturnValue({ allowed: true, generation: 1 });
   mockSupabase.auth.getSession.mockResolvedValue({
     data: { session: { access_token: 'test-access-token' } },

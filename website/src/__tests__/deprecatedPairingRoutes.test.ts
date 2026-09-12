@@ -175,9 +175,13 @@ describe('eşleştirme · PWA ekranı dürüstlüğü', () => {
   it('11c. 🔒 eşleştirme OTURUM ister ve ham anahtar SAKLAMAZ', () => {
     const svc = read('src/lib/pairingService.ts');
     /* Kapalı rotanın kapatılma sebeplerinden biri oturumsuz çalışıp yanıtta
-       ham `api_key` döndürmesiydi; yeni yol o hatayı tekrarlamamalı. */
+       ham `api_key` döndürmesiydi; yeni yol o hatayı tekrarlamamalı.
+       Oturumun NASIL elde edildiği #giriş-yok kararıyla tek giriş noktasına
+       (`lib/supabase.ts` → `ensurePwaSession`) taşındı; kilidin ölçtüğü şey
+       DEĞİŞMEDİ: istek hâlâ gerçek bir `access_token` ile imzalanır. */
     expect(svc).toMatch(/Authorization/);
-    expect(svc).toMatch(/access_token/);
+    expect(svc).toMatch(/ensurePwaSession/);
+    expect(read('src/lib/supabase.ts')).toMatch(/access_token/);
     expect(svc, 'yanıttan api_key okunuyor — kapatılan kusur geri geldi')
       .not.toMatch(/data\.apiKey/);
   });

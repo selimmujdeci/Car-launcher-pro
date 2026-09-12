@@ -1,4 +1,5 @@
 import { getSupabaseBrowserClient, isSupabaseConfigured } from './supabaseBrowser';
+import { canonicalSignInAnonymously } from '@/security/accountCleanup/canonicalAuthMutations';
 
 export { isSupabaseConfigured };
 export const supabaseBrowser = isSupabaseConfigured ? getSupabaseBrowserClient() : null;
@@ -28,6 +29,10 @@ export const supabaseBrowser = isSupabaseConfigured ? getSupabaseBrowserClient()
  * Sunucu tarafı gereksinim: projede "Anonymous sign-ins" AÇIK olmalıdır
  * (`supabase/config.toml` → `auth.enable_anonymous_sign_ins`).
  *
+ * OTORİTE: oturum YAZIMI doğrudan yapılmaz — tek kanonik auth mutation sahibi
+ * `security/accountCleanup/canonicalAuthMutations` üzerinden geçilir (mutation
+ * kilidi + cleanup sözleşmesi orada yaşar).
+ *
  * FAIL-SOFT: anonim oturum alınamazsa `null` döner — çağıran dürüstçe hata
  * gösterir, SAHTE bir başarı ÜRETİLMEZ.
  */
@@ -40,7 +45,7 @@ export async function ensurePwaSession(): Promise<string | null> {
   } catch { /* oturum okunamadı — anonim denenecek */ }
 
   try {
-    const { data, error } = await supabaseBrowser.auth.signInAnonymously();
+    const { data, error } = await canonicalSignInAnonymously(supabaseBrowser);
     if (error) return null;
     return data.session?.access_token ?? null;
   } catch {
