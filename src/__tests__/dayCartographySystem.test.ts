@@ -290,8 +290,11 @@ describe('7 · GECE bu turda DEĞİŞMEDİ', () => {
     buildingFill: '#39445c', buildingOutline: '#485369',
     motorwayCasing: '#1a212c', primaryCasing: '#181e29', secondaryCasing: '#161c26',
     tertiaryCasing: '#111620', minorCasing: '#0e131b',
-    motorway: '#ffffff', primary: '#f9fbfc', secondary: '#f2f5f8',
-    tertiary: '#ecf0f5', minor: '#e9edf2',
+    /* df9f506b (2026-09-09, gerçek cihaz): gece yol merdiveni KASITLI olarak
+       karartıldı — ekranın en parlak öğesi rota olmalı, sokak değil. Referans
+       o turda güncellenmemişti; kilit artık YENİ kasıtlı değerleri dondurur. */
+    motorway: '#8792a5', primary: '#7d8898', secondary: '#737d8d',
+    tertiary: '#6a7383', minor: '#5c6575',
     labelText: '#e6eaf0', labelHalo: '#0a0e16',
     townText: '#e2eaf5', townHalo: '#060c14', cityText: '#ffffff', cityHalo: '#060c14',
     waterText: '#8fb8d8', railway: '#5a6274', pathLine: '#5f6673',

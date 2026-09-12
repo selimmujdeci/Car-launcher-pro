@@ -349,10 +349,15 @@ export const NIGHT_PALETTE: VectorPalette = {
      (zemine karşı 1,24→1,32 ve 1,25→1,36). Ton merdivenine DOKUNULMADI. */
   tertiaryCasing:  '#111620',
   minorCasing:     '#0e131b',
-  /* Gece DEĞİŞMEZ: gövdeyle (`minor` = '#e9edf2') BİREBİR aynı ton + katman
-     tanımında AYNI genişlik ifadesi kullanılır → gece ekranda tek piksel
-     farkı YOK (kasa gövdenin altında tamamen kaybolur, kasıtlı no-op). */
-  serviceCasing:   '#e9edf2',
+  /* Gövdeyle (`minor`) BİREBİR aynı ton + katman tanımında AYNI genişlik
+     ifadesi → gece ekranda tek piksel farkı YOK (kasa gövdenin altında
+     tamamen kaybolur, kasıtlı no-op).
+     ⚠️ df9f506b (rota en parlak öğe olmalı) gece yol merdivenini karartırken
+     bu tokeni GERİDE BIRAKMIŞTI: gövde '#5c6575'e inerken kasa '#e9edf2'
+     (eski, neredeyse beyaz) kalmıştı → "hiçbir yol rotadan parlak olamaz"
+     kuralının altını oyan, gövde kenarından sızabilen açık bir kontur.
+     Token gövdeyle yeniden eşitlendi. */
+  serviceCasing:   '#5c6575',
   /* ── GECE YOLLARI BEYAZ (2026-09-05 akşamı · GERÇEK CİHAZ KARARI) ────────
    * Kullanıcı gece navigasyon ekran görüntüsüyle: *"yolları tam beyaz yap"*.
    * Eski merdiven `#ccd3dc`→`#6f757e` idi ve tali sokaklar koyu gri kalıyordu.
