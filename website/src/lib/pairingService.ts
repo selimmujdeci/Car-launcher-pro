@@ -1,7 +1,7 @@
 import {
   authorizePairingContinuation,
 } from '@/security/accountCleanup/accountCleanupRuntime';
-import { supabaseBrowser } from '@/lib/supabase';
+import { ensurePwaSession } from '@/lib/supabase';
 
 // ── Storage keys ─────────────────────────────────────────────────────────────
 const STORAGE = {
@@ -149,22 +149,25 @@ export async function pairVehicle(code: string): Promise<PairResult> {
     };
   }
 
-  /* Oturum yoksa sunucuya gitmeyiz: rota 401 dönerdi ve kullanıcı sebebini
-     anlamazdı. Bu bir AĞ hatası değildir → `offline` İŞARETLENMEZ (yoksa
-     çevrimdışı kuyruğa yazılır ve sonsuza dek 401 alırdı). */
-  let token: string | null = null;
-  try {
-    const session = supabaseBrowser
-      ? (await supabaseBrowser.auth.getSession()).data.session
-      : null;
-    token = session?.access_token ?? null;
-  } catch { token = null; }
+  /* ── GİRİŞ EKRANI YOK (ürün kararı, 2026-09-12) ──────────────────────────
+     Kullanıcı: *"PWA hiç giriş istememeli."* Oturum yoksa `ensurePwaSession`
+     GÖRÜNMEZ bir anonim oturum açar; kullanıcıya hiçbir şey sorulmaz.
+     Oturumun KENDİSİ kaldırılamaz: `/api/vehicle/link` Bearer ister,
+     `pair_vehicle_to_user` kullanıcı kimliği ister ve araç görünürlüğü RLS'te
+     `auth.uid()`e bağlıdır. Anonim oturum, giriş ekranını kaldırırken bu
+     güvenlik modelini OLDUĞU GİBİ korur (bkz. `lib/supabase.ts`).
+
+     Token yine de alınamazsa (anonim sağlayıcı kapalı / ağ yok) sunucuya
+     GİTMEYİZ: rota 401 dönerdi ve kullanıcı sebebini anlamazdı. Bu bir AĞ
+     hatası değildir → `offline` İŞARETLENMEZ (yoksa çevrimdışı kuyruğa
+     yazılır ve sonsuza dek 401 alırdı). */
+  const token = await ensurePwaSession();
 
   if (!token) {
     return {
       success: false,
       code: 'AUTH_REQUIRED',
-      message: 'Aracı hesabına bağlamak için önce giriş yapmalısın.',
+      message: 'Oturum başlatılamadı — bağlantınızı kontrol edip tekrar deneyin.',
     };
   }
 

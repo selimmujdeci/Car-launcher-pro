@@ -11,7 +11,7 @@
 import {
   requiresE2E, fetchCarPublicKey, encryptE2EPayload, carKeyErrorMessage,
 } from '@/lib/e2eCommandCrypto';
-import { supabaseBrowser, isSupabaseConfigured } from './supabase';
+import { supabaseBrowser, isSupabaseConfigured, ensurePwaSession } from './supabase';
 import { encryptPayload } from './commandCrypto';
 import { getStoredApiKey } from './pairingService';
 import { TIMING } from './constants';
@@ -164,19 +164,21 @@ export async function sendCommand(
         : 'ACCOUNT_CLEANUP_LOCKDOWN',
     };
   }
-  // Giriş yapılmamışsa api_key yolunu kullan (standalone PWA modu)
-  const session = supabaseBrowser
-    ? (await supabaseBrowser.auth.getSession()).data.session
-    : null;
+  /* ── GİRİŞ EKRANI YOK (ürün kararı, 2026-09-12) ──────────────────────────
+     Oturum yoksa GÖRÜNMEZ anonim oturum açılır; kullanıcıya hiçbir şey
+     sorulmaz (bkz. `lib/supabase.ts`).
 
-  /* P0-001A: oturumsuz (api_key) komut yolu KAPATILDI — gerekçe yukarıda.
+     P0-001A: oturumsuz (api_key) komut yolu KAPATILDI — gerekçe yukarıda.
      Eskiden burada "API anahtarı bulunamadı. Aracı yeniden eşleştirin."
      deniyordu; bu YANLIŞ TEŞHİSTİ — yeniden eşleştirmek anahtar üretmez
-     (kanonik rota anahtar döndürmez), kullanıcı sonsuz döngüye giriyordu. */
-  if (!session) {
+     (kanonik rota anahtar döndürmez), kullanıcı sonsuz döngüye giriyordu.
+     Anonim oturum o döngüyü de kapatır: komut kullanıcı JWT'siyle gider,
+     ham anahtar hiçbir yerde dönmez. */
+  const token = await ensurePwaSession();
+  if (!token) {
     return {
       ok: false,
-      error: 'Komut göndermek için hesabınızla giriş yapmalısınız.',
+      error: 'Oturum başlatılamadı — bağlantınızı kontrol edip tekrar deneyin.',
     };
   }
 
