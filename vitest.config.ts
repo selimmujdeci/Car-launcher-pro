@@ -1,32 +1,41 @@
 /// <reference types="vitest" />
 import { fileURLToPath } from 'node:url';
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
+
+/**
+ * `node:sqlite` HER ZAMAN dış modüldür.
+ *
+ * Vite bir `node:` tanımlayıcısını yalnız çalışan Node'un
+ * `module.builtinModules` listesinde görürse dışsal sayar. `sqlite` o
+ * listeye Node 22'de GİRMEZ (deneysel etiketi hâlâ üstünde) — bu yüzden
+ * Vite onu bir npm paketi sanıp bundle etmeye çalışır ve
+ * `scripts/rtg3BuildPreflight.mjs` dönüşümü *"Cannot bundle Node.js
+ * built-in \"node:sqlite\""* ile düşer. Node 24'te aynı ad listede olduğu
+ * için yerelde sorun görünmüyordu; CI (Node 22) kırmızıydı.
+ *
+ * Dışsal ilan etmek HİÇBİR İDDİAYI DEĞİŞTİRMEZ: modül zaten çalışma anında
+ * `await import('node:sqlite')` ile yükleniyor ve preflight onu GERÇEK
+ * sorguyla kanıtlıyor (bayraksız kullanılabilirlik sözleşmesi
+ * `RTG3_TOOLCHAIN.node.min = 22.13.0` ile korunur).
+ */
+
+const nodeSqliteExternal: Plugin = {
+  name: 'caros:node-sqlite-external',
+  enforce: 'pre',
+  resolveId(id) {
+    return id === 'node:sqlite' ? { id, external: true } : null;
+  },
+};
+
 
 export default defineConfig({
+  plugins: [nodeSqliteExternal],
   test: {
     environment: 'jsdom',
     globals:     true,
     include:     ['src/__tests__/**/*.test.ts', 'src/__tests__/**/*.test.tsx'],
     exclude:     ['src/__tests__/**/*.integration.test.ts', 'src/__tests__/fixtures/**'],
     setupFiles: [fileURLToPath(new URL('./src/__tests__/setup.ts', import.meta.url))],
-
-    /**
-     * `node:sqlite` HER ZAMAN dış modüldür.
-     *
-     * Vite bir `node:` tanımlayıcısını yalnız çalışan Node'un
-     * `module.builtinModules` listesinde görürse dışsal sayar. `sqlite` o
-     * listeye Node 22'de GİRMEZ (deneysel etiketi hâlâ üstünde) — bu yüzden
-     * Vite onu bir npm paketi sanıp bundle etmeye çalışır ve
-     * `scripts/rtg3BuildPreflight.mjs` dönüşümü *"Cannot bundle Node.js
-     * built-in \"node:sqlite\""* ile düşer. Node 24'te aynı ad listede olduğu
-     * için yerelde sorun görünmüyordu; CI (Node 22) kırmızıydı.
-     *
-     * Dışsal ilan etmek HİÇBİR İDDİAYI DEĞİŞTİRMEZ: modül zaten çalışma anında
-     * `await import('node:sqlite')` ile yükleniyor ve preflight onu GERÇEK
-     * sorguyla kanıtlıyor (bayraksız kullanılabilirlik sözleşmesi
-     * `RTG3_TOOLCHAIN.node.min = 22.13.0` ile korunur).
-     */
-    server: { deps: { external: [/^node:sqlite$/] } },
 
     /**
      * Varsayılan 5 sn YETMİYOR — ve bu bir ÜRÜN kusuru DEĞİL.
