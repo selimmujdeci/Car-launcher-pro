@@ -100,24 +100,25 @@ function parkingMarkerEl(): HTMLElement {
   return el;
 }
 
-/* ── Map style (CARTO dark) ───────────────────────────────────────────────── */
+/* ── Map style (OpenFreeMap dark) ─────────────────────────────────────────── */
 
-const DARK_STYLE = {
-  version: 8 as const,
-  sources: {
-    carto: {
-      type: 'raster' as const,
-      tiles: [
-        'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png',
-        'https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png',
-      ],
-      tileSize: 256,
-      attribution: '© CARTO · © OpenStreetMap',
-      maxzoom: 19,
-    },
-  },
-  layers: [{ id: 'carto', type: 'raster' as const, source: 'carto' }],
-};
+/**
+ * ÖLÇÜLEN KUSUR (2026-09-12, gerçek cihaz): CartoDB'nin ÜCRETSİZ basemap'leri
+ * artık harita üzerine "API KEY REQUIRED — carto.com/basemaps/apikey"
+ * filigranı basıyor. İKİ uç da denendi, İKİSİ DE filigranlı geldi:
+ *   · eski raster:  `a/b.basemaps.cartocdn.com/dark_all/...` (harita hiç
+ *     çizilmedi, yalnız filigran)
+ *   · GL vektör:    `basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json`
+ *     (harita ÇİZİLDİ — yol/yer adları geldi — ama filigran yine bindi)
+ * HTTP 200 dönmesi "temiz içerik" DEMEK DEĞİLMİŞ; ilk turda yalnız durum
+ * koduna bakarak yanlış doğrulandı, cihaz ekran görüntüsü düzeltti.
+ *
+ * OpenFreeMap: API key YOK, kayıt YOK, kota YOK (OpenMapTiles şeması,
+ * MapLibre uyumlu). DOĞRULANDI — Tarsus karosu (z11/1222/798) indirildi:
+ * 22,8 KB gerçek veri, içinde "api key"/"required" metni 0 eşleşme, gerçek
+ * yerel yer adları var (Adana · Akdeniz · Akçakocalı · Adanalıoğlu).
+ */
+const MAP_STYLE_DARK = 'https://tiles.openfreemap.org/styles/dark';
 
 /* ── Component ────────────────────────────────────────────────────────────── */
 
@@ -168,7 +169,7 @@ export default function VehicleMapView({ vehicle }: Props) {
 
       const map = new Map({
         container:           containerRef.current,
-        style:               DARK_STYLE,
+        style:               MAP_STYLE_DARK,
         center,
         zoom:                vehicle?.lat ? 14 : 10,
         attributionControl:  false,
