@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import type { LiveVehicle } from '@/types/realtime';
+import { MAP_STYLE_URL } from '@/lib/console/mapStyle';
 
 /* ── Parking spot storage ─────────────────────────────────────────────────── */
 
@@ -102,22 +103,20 @@ function parkingMarkerEl(): HTMLElement {
 
 /* ── Map style (CARTO dark) ───────────────────────────────────────────────── */
 
-const DARK_STYLE = {
-  version: 8 as const,
-  sources: {
-    carto: {
-      type: 'raster' as const,
-      tiles: [
-        'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png',
-        'https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png',
-      ],
-      tileSize: 256,
-      attribution: '© CARTO · © OpenStreetMap',
-      maxzoom: 19,
-    },
-  },
-  layers: [{ id: 'carto', type: 'raster' as const, source: 'carto' }],
-};
+/**
+ * ÖLÇÜLEN KUSUR (2026-09-12): eski raster uçlar (`a/b.basemaps.cartocdn.com/
+ * dark_all/{z}/{x}/{y}@2x.png`) HTTP 200 dönüyor ama gerçek tile yerine
+ * CartoDB'nin "API KEY REQUIRED — carto.com/basemaps/apikey" watermark
+ * görselini veriyor (doğrulandı: gerçek cihaz ekran görüntüsü + tile
+ * indirilip piksel piksel incelendi). CartoDB bu eski ücretsiz raster
+ * servisini kısıtlamış.
+ *
+ * `MAP_STYLE_URL` (konsol tarafının ZATEN kullandığı, TEK OTORİTE — bkz.
+ * `lib/console/mapStyle.ts`) CartoDB'nin GL vektör stil ailesidir ve AYRI
+ * bir üründür: doğrulandı (style.json 200 + arkasındaki gerçek vektör
+ * tile'lar `application/x-protobuf` ile 200 dönüyor, API key istemiyor).
+ * İkinci bir CartoDB URL'i icat ETMEK yerine mevcut kanıtlı kaynağa bağlanır.
+ */
 
 /* ── Component ────────────────────────────────────────────────────────────── */
 
@@ -168,7 +167,7 @@ export default function VehicleMapView({ vehicle }: Props) {
 
       const map = new Map({
         container:           containerRef.current,
-        style:               DARK_STYLE,
+        style:               MAP_STYLE_URL.night,
         center,
         zoom:                vehicle?.lat ? 14 : 10,
         attributionControl:  false,
