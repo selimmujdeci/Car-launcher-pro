@@ -964,9 +964,9 @@ export async function scanAllEcus(
        `not_addressable` → not_addressable), aksi halde kısmi bir tur %100
        kapsam gibi görünürdü. */
     if (deferredKeys.has(key) || notAddressableKeys.has(key)) continue;
-    const states = [r.stored, r.pending, r.permanent, r.uds, r.kwp];
-    if (states.some((s) => s === 'ok' || s === 'unsupported')) scannedKeys.add(key);
-    else failedKeys.add(key);
+    const endpoint = classifyEcuCoverageStatus(r);
+    if (endpoint === 'scanned') scannedKeys.add(key);
+    else if (endpoint === 'failed') failedKeys.add(key);
   }
   const skippedKeys = new Set([
     ...ordered.slice(scanList.length).map(ecuCoverageKey),
@@ -1701,6 +1701,29 @@ export function isEcuReadable(r: EcuScanResult): boolean {
   const read = (v: EcuModeStatus | null): boolean => v === 'ok';
   return read(r.stored) || read(r.pending) || read(r.permanent)
     || read(r.uds) || read(r.udsSupported) || read(r.kwp) || read(r.kwp13);
+}
+
+/** ECU varlığı ile DTC alt-servis kapsamını birbirine karıştırmaz. */
+export function isEcuReachable(r: EcuScanResult): boolean {
+  if (r.ecu.probeOutcome === 'responded') return true;
+  const states = [r.stored, r.pending, r.permanent, r.uds, r.udsSupported, r.kwp, r.kwp13];
+  // Açık "unsupported" yanıtı da ECU'nun erişilebilir olduğunun kanıtıdır.
+  return states.some((s) => s === 'ok' || s === 'unsupported');
+}
+
+export function isEcuDtcScanPartial(r: EcuScanResult): boolean {
+  return [r.stored, r.pending, r.permanent, r.uds, r.udsSupported, r.kwp, r.kwp13]
+    .some((s) => s === 'failed' || s === 'deferred');
+}
+
+export type EcuCoverageScanStatus = 'scanned' | 'probed' | 'failed';
+
+/** DTC alt-servisi düşse bile erişim kanıtını ECU-geneli hataya dönüştürmez. */
+export function classifyEcuCoverageStatus(r: EcuScanResult): EcuCoverageScanStatus {
+  const states = [r.stored, r.pending, r.permanent, r.uds, r.udsSupported, r.kwp, r.kwp13];
+  if (states.some((s) => s === 'ok' || s === 'unsupported')) return 'scanned';
+  // Fonksiyonel PID keşfinde yanıt veren ECU erişilebilirdir; DTC boşluğu ayrı kalır.
+  return isEcuReachable(r) ? 'probed' : 'failed';
 }
 
 /** `EcuDtc` → kanonik sınıf. UDS/KWP standart sınıflarla KARIŞTIRILMAZ. */

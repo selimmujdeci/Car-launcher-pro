@@ -1,16 +1,20 @@
 import { memo, useEffect, useMemo, useState } from 'react';
 import { FlaskConical, Fingerprint } from 'lucide-react';
-import { useOBDState, getFuelCalibrationState } from '../../platform/obdService';
+import { useOBDState, getFuelCalibrationState, getObdFreshWindowMs, getObdHealth } from '../../platform/obdService';
 import type { OBDData } from '../../platform/obdTypes';
 import { STANDARD_PIDS, EXTENDED_CANDIDATE_PIDS } from '../../platform/obd/StandardPidRegistry';
 import type { StandardPidDef } from '../../platform/obd/StandardPidRegistry';
 import {
-  watchPid, getPidValue, isPidSupported, getPidStatus, setDiagnosticBurst,
+  watchPid, getPidValue, isPidSupported, getPidStatus, getExtendedGateState, setDiagnosticBurst,
 } from '../../platform/obd/extendedPidService';
 import type { ExtendedPidValue } from '../../platform/obd/extendedPidService';
-import { watchDid, getSupportedDids, isDidSupported } from '../../platform/obd/manufacturerPidService';
+import { watchDid, getSupportedDids, isDidSupported, getMode22Evidence } from '../../platform/obd/manufacturerPidService';
 import type { ManufacturerDidValue } from '../../platform/obd/manufacturerPidService';
 import type { CompiledDidDef, VehicleDidValue } from '../../platform/obd/vehicleDidProfile';
+import {
+  buildSupportedPidSummary, classifyCorePidFreshness, resolveOemDiscoveryState,
+  type LivePidRowStatus,
+} from '../../platform/obd/obdUxModel';
 
 /**
  * ObdLiveTestPanel — OBD Canlı Test (Tüm Veriler).
@@ -23,9 +27,6 @@ import type { CompiledDidDef, VehicleDidValue } from '../../platform/obd/vehicle
  * `active` iken açılır. Kapanınca watchPid bırakılır ve setDiagnosticBurst(false) →
  * native düşük-yük round-robin'e döner (ekstra ECU trafiği yok).
  */
-
-const FRESH_MS = 5_000;
-const STALE_MS = 15_000;
 
 /** Çekirdek PID'ler — obdStore ana (hızlı) akışından okunur; ham hex yoktur. */
 const CORE_ROWS: readonly { pid: string; get: (o: OBDData) => number }[] = [
@@ -51,7 +52,7 @@ const CAT_LABEL: Record<StandardPidDef['category'], string> = {
   elektrik: 'Elektrik', emisyon: 'Emisyon', o2: 'O₂ Sensörleri', tork: 'Tork', mesafe: 'Mesafe',
 };
 
-type Status = 'fresh' | 'stale' | 'suspect' | 'unsupported' | 'nodata' | 'discovering' | 'waiting' | 'nolink';
+type Status = LivePidRowStatus;
 
 const STATUS_STYLE: Record<Status, { cls: string; label: string }> = {
   fresh:       { cls: 'text-[color:var(--oem-good)] border-[var(--oem-good)] bg-[var(--oem-good-soft)]',       label: 'TAZE' },
@@ -97,14 +98,17 @@ const PidRow = memo(function PidRow({
 
 /** Bir PID satırının gösterim durumunu hesaplar (çekirdek → obd, extended → ext snapshot). */
 function computeRow(
-  def: StandardPidDef, obd: OBDData, ext: Record<string, ExtendedPidValue>, now: number, connected: boolean,
+  def: StandardPidDef, obd: OBDData, ext: Record<string, ExtendedPidValue>, now: number,
+  connected: boolean, coreWindowMs: number,
 ): { valueText: string; raw: string; status: Status } {
   const coreGet = CORE_GET.get(def.pid);
   if (coreGet) {
     if (!connected) return { valueText: '—', raw: '', status: 'nolink' };
     const v = coreGet(obd);
     if (!Number.isFinite(v) || v < 0) return { valueText: '—', raw: '', status: 'unsupported' };
-    const stale = obd.lastSeenMs > 0 && now - obd.lastSeenMs > STALE_MS;
+    const freshness = classifyCorePidFreshness(def, obd.lastSeenMs, now, coreWindowMs);
+    if (freshness === 'UNAVAILABLE') return { valueText: '—', raw: '', status: 'waiting' };
+    const stale = freshness === 'STALE';
     // 2F ÖZEL: `obd.fuelLevel` GÖSTERİM değeridir (kalibrasyon ölçeği uygulanmış).
     // Bu panel HAM PID akışını gösterir → kalibre araçta ölçeklenmiş sayıyı "PID 2F"
     // diye sunmak yalan olur. Ham değer gösterilir, ölçek ayrı satırda belirtilir.
@@ -131,8 +135,9 @@ function computeRow(
   // Değer önbelleği olsa bile artık akmıyor demektir; gerçek nedeni göster.
   const noData = getPidStatus(def.pid) === 'no_data';
   if (e && !noData) {
-    const age = now - e.updatedAt;
-    return { valueText: fmtVal(e.value, def.unit), raw: e.raw, status: age > FRESH_MS ? 'stale' : 'fresh' };
+    // Tazelik kararı extendedPidService'in cadence-aware tek politikasından gelir.
+    const freshness = getPidStatus(def.pid);
+    return { valueText: fmtVal(e.value, def.unit), raw: e.raw, status: freshness === 'stale' ? 'stale' : 'fresh' };
   }
   if (noData) return { valueText: '—', raw: e?.raw ?? '', status: 'nodata' };
   const sup = isPidSupported(def.pid);
@@ -151,6 +156,7 @@ function ObdLiveTestPanelInner({ active }: { active: boolean }) {
   const [ext, setExt] = useState<Record<string, ExtendedPidValue>>({});
   const [dids, setDids] = useState<CompiledDidDef[]>([]);
   const [didVals, setDidVals] = useState<Record<string, ManufacturerDidValue>>({});
+  const [oemDiscoveryStartedAt, setOemDiscoveryStartedAt] = useState<number | null>(null);
 
   const connected = obd.connectionState === 'connected' && obd.source === 'real';
 
@@ -168,13 +174,16 @@ function ObdLiveTestPanelInner({ active }: { active: boolean }) {
 
   // Marka Verileri (DID) aboneliği — AYRI yaşam döngüsü.
   useEffect(() => {
-    if (!active) { setDids([]); return; }
-    const list = getSupportedDids();
-    setDids(list);
-    if (list.length === 0) return;
-    const unsubs = list.map((d) => watchDid(d.did, (v) => setDidVals((p) => ({ ...p, [d.did]: v }))));
-    return () => { unsubs.forEach((u) => u()); setDidVals({}); };
+    if (!active) { setDids([]); setOemDiscoveryStartedAt(null); return; }
+    setOemDiscoveryStartedAt(Date.now());
+    setDids(getSupportedDids());
   }, [active]);
+
+  useEffect(() => {
+    if (!active || dids.length === 0) return;
+    const unsubs = dids.map((d) => watchDid(d.did, (v) => setDidVals((p) => ({ ...p, [d.did]: v }))));
+    return () => { unsubs.forEach((u) => u()); setDidVals({}); };
+  }, [active, dids]);
 
   // 1 sn tick: tazelik saati + extended snapshot toplama (48 PID için tek setState).
   useEffect(() => {
@@ -187,6 +196,9 @@ function ObdLiveTestPanelInner({ active }: { active: boolean }) {
         if (v) snap[pid] = v;
       }
       setExt(snap);
+      // Profil bağlantıdan sonra yüklenebilir; mevcut tick'i kullan, yeni timer kurma.
+      const nextDids = getSupportedDids();
+      setDids((prev) => prev.map((d) => d.did).join(',') === nextDids.map((d) => d.did).join(',') ? prev : nextDids);
     }, 1000);
     return () => clearInterval(t);
   }, [active]);
@@ -201,16 +213,26 @@ function ObdLiveTestPanelInner({ active }: { active: boolean }) {
     return byCat;
   }, []);
 
-  // Özet: kaç PID taze/toplam.
+  const coreWindowMs = getObdFreshWindowMs();
+
+  // Ana metrik katalog değil: bu araçta kanıtlı desteklenen veri vs okunabilen veri.
   const summary = useMemo(() => {
-    let live = 0, total = 0;
-    for (const def of STANDARD_PIDS) {
-      total++;
-      const r = computeRow(def, obd, ext, now, connected);
-      if (r.status === 'fresh' || r.status === 'stale') live++;
-    }
-    return { live, total };
-  }, [obd, ext, now, connected]);
+    const supportKnown = getExtendedGateState().supportedKnown;
+    return buildSupportedPidSummary(STANDARD_PIDS.map((def) => ({
+      supported: isPidSupported(def.pid),
+      status: computeRow(def, obd, ext, now, connected, coreWindowMs).status,
+    })), supportKnown);
+  }, [obd, ext, now, connected, coreWindowMs]);
+
+  const oemState = resolveOemDiscoveryState(getMode22Evidence(), now, oemDiscoveryStartedAt);
+  const connectionQuality = getObdHealth().connectionQuality;
+  const oemCopy = {
+    DISCOVERING: 'Üreticiye özel veri desteği doğrulanıyor',
+    SUPPORTED: 'Doğrulanmış üretici verileri',
+    UNSUPPORTED: 'Bu araçta doğrulanmış marka verisi bulunamadı',
+    UNKNOWN: 'Bu araçta üreticiye özel veri henüz doğrulanmadı',
+    ERROR: 'Üreticiye özel veri doğrulanamadı — bağlantıyı kontrol edin',
+  }[oemState];
 
   return (
     <div className="mt-2 flex flex-col gap-3">
@@ -223,9 +245,14 @@ function ObdLiveTestPanelInner({ active }: { active: boolean }) {
           </span>
         </div>
         <span className="text-[10px] font-black tabular-nums text-[color:var(--oem-ink-3)]">
-          {connected ? `${summary.live} / ${summary.total} okunuyor` : 'OBD bağlı değil'}
+          {connected ? summary.label : 'OBD bağlı değil'}
         </span>
       </div>
+      {connected && (
+        <div className="-mt-2 px-1 text-[9px] font-bold text-[color:var(--oem-ink-3)]">
+          {summary.active} canlı · bağlantı {connectionQuality >= 0 ? `%${connectionQuality}` : 'ölçülüyor'} · {summary.catalog} bilinen PID
+        </div>
+      )}
 
       {!connected ? (
         <div className="rounded-xl border border-[var(--oem-line)] bg-[var(--oem-surface-2)] p-4 text-center">
@@ -243,7 +270,7 @@ function ObdLiveTestPanelInner({ active }: { active: boolean }) {
                 {CAT_LABEL[cat]}
               </div>
               {defs.map((def) => {
-                const r = computeRow(def, obd, ext, now, connected);
+                const r = computeRow(def, obd, ext, now, connected, coreWindowMs);
                 return (
                   <PidRow
                     key={def.pid}
@@ -261,16 +288,19 @@ function ObdLiveTestPanelInner({ active }: { active: boolean }) {
         })
       )}
 
-      {/* Marka Verileri (DID) */}
-      {connected && dids.length > 0 && (
+      {/* Marka verisi desteği sonlu state machine ile gösterilir; sonsuz spinner yok. */}
+      {connected && (
         <div className="flex flex-col gap-1.5">
           <div className="flex items-center gap-1.5 px-1">
             <Fingerprint className="w-3.5 h-3.5 text-[color:var(--oem-accent)]" />
             <span className="text-[10px] font-black uppercase tracking-widest text-[color:var(--oem-ink-3)]">
-              Marka Verileri (DID)
+              Marka Verileri
             </span>
           </div>
-          {dids.map((d) => {
+          <div className="rounded-xl border border-[var(--oem-line)] bg-[var(--oem-surface-2)] px-3 py-2 text-[11px] font-bold text-[color:var(--oem-ink-2)]">
+            {oemState === 'DISCOVERING' ? '● ' : ''}{oemCopy}
+          </div>
+          {oemState === 'SUPPORTED' && dids.map((d) => {
             const mv = didVals[d.did];
             const status: Status = mv ? 'fresh' : (isDidSupported(d.did) === false ? 'unsupported' : 'waiting');
             return (
