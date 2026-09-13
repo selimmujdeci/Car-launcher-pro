@@ -1593,8 +1593,9 @@ public final class ElmProtocol {
      * 29-bit restore: yalnız GERÇEKTEN değiştirilmiş alanlar restore edilir —
      *  (1) {@code cpSet} ise {@code ATCP18} (varsayılan CAN önceliği); (2) {@code protocolSwitched}
      *  ise {@code ATSP<önceki protokol>} (öğrenilemediyse ATSP0 otomatik-arama fallback);
-     *  (3) HER ZAMAN {@link #restoreDefaultHeader()} ({@code ATSH7DF}+{@code ATAR}/{@code ATCRA}-off
-     *  — 11-bit ile PAYLAŞILAN, kopyalama yok). Restore başarısızlığı SESSİZCE YUTULMAZ (Patch 12A
+     *  (3) HER ZAMAN {@link #restoreDefaultHeader(String, boolean)} (aktif protokole uygun
+     *  fonksiyonel header + {@code ATAR}/{@code ATCRA}-off). Restore başarısızlığı SESSİZCE
+     *  YUTULMAZ (Patch 12A
      *  yasası — artık protokol/CAN önceliği restore'unu da kapsar); {@link HeaderRestoreException}
      *  ile raporlanır, {@code addSuppressed} zinciri korunur.
      */
@@ -1625,7 +1626,7 @@ public final class ElmProtocol {
                     "Protokol restore (ATSP" + target + ") istisna: " + e.getMessage()));
             }
         }
-        return chain(failure, restoreDefaultHeader());
+        return chain(failure, restoreDefaultHeader(priorProtocol, cpSet));
     }
 
     /** İki restore hatasını TEK zincire birleştirir ({@code addSuppressed}) — ilk null ise ikinciyi döner. */
@@ -1650,20 +1651,36 @@ public final class ElmProtocol {
         }
     }
 
+    /** Aktif protokol alanından fonksiyonel header'a restore. */
+    private Exception restoreDefaultHeader() {
+        return restoreDefaultHeader(activeProtocol, false);
+    }
+
     /**
-     * Varsayılana restore: {@code ATSH7DF} (fonksiyonel/broadcast header) + {@code ATAR}
+     * Varsayılana restore: 11-bit CAN'de {@code ATSH7DF}; protokol 7/9'da
+     * {@code ATCP18}+{@code ATSHDB33F1} (29-bit fonksiyonel OBD header'ı) + {@code ATAR}
      * (Automatically Receive — ATCRA filtresini iptal edip protokolün otomatik alım moduna
      * döner). {@code ATAR} desteklemeyen/eski ELM klonlarında {@code ATCRA} (parametresiz —
      * filtreyi kapat) fallback denenir. İkisi de başarısızsa restore başarısız sayılır.
      *
      * @return null = restore başarılı; değilse fırlatılacak {@link HeaderRestoreException}.
      */
-    private Exception restoreDefaultHeader() {
+    private Exception restoreDefaultHeader(String protocolDigit, boolean priorityAlreadyRestored) {
+        final boolean can29 = is29BitProtocol(protocolDigit);
+        if (can29 && !priorityAlreadyRestored) {
+            try {
+                String cp = channel.send("ATCP" + DEFAULT_29BIT_CAN_PRIORITY, 500);
+                if (!okish(cp)) return new HeaderRestoreException("ATCP18 restore başarısız: " + summarize(cp));
+            } catch (Exception e) {
+                return new HeaderRestoreException("ATCP18 restore istisna: " + e.getMessage());
+            }
+        }
+        final String functionalHeader = can29 ? "DB33F1" : "7DF";
         try {
-            String sh = channel.send("ATSH7DF", 500);
-            if (!okish(sh)) return new HeaderRestoreException("ATSH7DF restore başarısız: " + summarize(sh));
+            String sh = channel.send("ATSH" + functionalHeader, 500);
+            if (!okish(sh)) return new HeaderRestoreException("ATSH" + functionalHeader + " restore başarısız: " + summarize(sh));
         } catch (Exception e) {
-            return new HeaderRestoreException("ATSH7DF restore istisna: " + e.getMessage());
+            return new HeaderRestoreException("ATSH" + functionalHeader + " restore istisna: " + e.getMessage());
         }
         try {
             String ar = channel.send("ATAR", 500);

@@ -399,7 +399,7 @@ public class ElmProtocolTest {
             .on("ATSHDADAF1", "OK")
             .on("ATCRA18DAF1DA", "OK")
             .on("229002", "62900212C0")
-            .on("ATSH7DF", "OK").on("ATAR", "OK");
+            .on("ATSHDB33F1", "OK").on("ATAR", "OK");
         ElmProtocol elm = new ElmProtocol(ch);
 
         String result = elm.withEcuHeader("18DADAF1", "18DAF1DA", () -> elm.readDid("9002"));
@@ -408,9 +408,16 @@ public class ElmProtocolTest {
         // ATSP7 hiç gönderilmedi (zaten 29-bit) VE protokol restore'u da yok (protocolSwitched=false).
         assertFalse(ch.sent.contains("ATSP7"));
         assertFalse(ch.sent.contains("ATSP6"));
+        /* KİLİT (bu testin ESKİ beklentisi kusurun KENDİSİYDİ): protokol 7'de kalınıyorsa
+           fonksiyonel header 11-bit "7DF" OLAMAZ — 29-bit bus'ta o adres geçersizdir ve
+           fiziksel okumadan sonra TÜM fonksiyonel istekler (Mode 01 poll · 03/07/0A · 04)
+           yanlış header'la giderdi. Doğru hedef ISO 15765-4 29-bit fonksiyonel isteği:
+           ATCP18 + ATSHDB33F1 = 18DB33F1. */
+        assertFalse("29-bit bus'ta 11-bit fonksiyonel header restore EDİLEMEZ",
+            ch.sent.contains("ATSH7DF"));
         assertEquals(java.util.Arrays.asList(
             "ATDPN", "ATCP18", "ATSHDADAF1", "ATCRA18DAF1DA", "229002",
-            "ATCP18", "ATSH7DF", "ATAR"
+            "ATCP18", "ATSHDB33F1", "ATAR"
         ), ch.sent);
     }
 
