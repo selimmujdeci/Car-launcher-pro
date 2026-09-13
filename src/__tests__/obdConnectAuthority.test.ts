@@ -241,3 +241,54 @@ describe('obdService — tek çalışan connect denemesi (single-flight)', () =>
     expect(getObdReconnectLifecycle().lastNativeFailureClass).toBeNull();
   });
 });
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   3. TAM TÜKENİŞ — ORPHAN NATIVE TASK KÖK NEDEN FIX'İ
+   ═══════════════════════════════════════════════════════════════════════════
+   SAHA (LAB kanıtı, CONNECT_TIMEOUT/CONNECT_FAIL): candidate=ELM_INIT_INCOMPLETE
+   ve RFCOMM_SOCKET_DROP çiftleri, native'in TEK-THREAD executor'da BLOKE olan
+   3-katmanlı RFCOMM bağlantısının JS'in KENDİ Promise.race timeout'undan (BLE-first
+   8s + fallback 15-28s) UZUN sürebilmesinden doğuyordu: JS vazgeçtiğinde native'e
+   HİÇBİR iptal sinyali gitmiyordu — yalnız primary→fallback GEÇİŞİNDE
+   `disconnectOBD()` çağrılıyordu (obdService.ts:2869), TAM TÜKENİŞTE (her iki
+   transport da zaman aşımına uğradığında) DEĞİL. Orphan native task, bir SONRAKİ
+   connectOBD() çağrısına kadar çalışmaya devam ediyor; OBDManager.disconnect()'in
+   KENDİ yorumu (satır 1096-1102) bu sınırı zaten belgeliyor.
+   FIX: tam tükeniş de primary→fallback geçişiyle AYNI temizlik disiplinini alır —
+   throw'dan ÖNCE disconnectOBD() çağrılır (orphan task'a kapanma sinyali). */
+describe('obdService — tam tükeniş orphan-task temizliği', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+    vi.useFakeTimers();
+    vi.mocked(CarLauncher.connectOBD).mockImplementation(() => new Promise(() => {})); // hiç çözülmez — yalnız iç timeout karar verir
+    vi.mocked(CarLauncher.disconnectOBD).mockResolvedValue(undefined);
+    vi.mocked(CarLauncher.getObdBondState).mockResolvedValue({ bonded: true });
+    vi.mocked(CarLauncher.addListener).mockResolvedValue({ remove: vi.fn() } as unknown as ReturnType<typeof CarLauncher.addListener> extends Promise<infer T> ? T : never);
+  });
+  afterEach(() => {
+    stopOBD();
+    vi.useRealTimers();
+  });
+
+  it('🔒 KİLİT: her iki transport da zaman aşımına uğrayınca disconnectOBD İKİNCİ kez çağrılır (orphan task bırakılmaz)', async () => {
+    startOBD(ADDR);
+    await vi.advanceTimersByTimeAsync(0);
+
+    // 1) BLE-first (ilk bağlantı, bilinen transport yok) zaman aşımına uğrar (8s) →
+    //    primary→fallback geçişi MEVCUT davranışla disconnectOBD'yi BİR KEZ çağırır.
+    await vi.advanceTimersByTimeAsync(8_500);
+    expect(vi.mocked(CarLauncher.connectOBD).mock.calls.length,
+      'primary zaman aşımından sonra fallback (classic) denenmeli').toBe(2);
+    expect(vi.mocked(CarLauncher.disconnectOBD).mock.calls.length,
+      'primary→fallback geçişi MEVCUT temizliği yapmalı').toBe(1);
+
+    // 2) Fallback (classic, CAN varsayılan profili) da zaman aşımına uğrar (15s) →
+    //    TAM TÜKENİŞ — FIX: disconnectOBD İKİNCİ kez çağrılmalı (orphan task'a
+    //    kapanma sinyali), bir SONRAKİ connectOBD() çağrısına kadar BEKLENMEMELİ.
+    await vi.advanceTimersByTimeAsync(15_500);
+    expect(vi.mocked(CarLauncher.disconnectOBD).mock.calls.length,
+      'tam tükeniş orphan native task\'ı DERHAL kapatmalı — bir sonraki denemeye kadar beklenmemeli')
+      .toBe(2);
+  });
+});

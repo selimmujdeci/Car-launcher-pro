@@ -2858,6 +2858,14 @@ async function _runConnectAttempt(opts?: { trustBypass?: boolean }): Promise<voi
           failReason: _connectFailReason(ePrimary),
         });
       }
+      /* ORPHAN NATIVE TASK FIX (LAB kanıtı: CONNECT_TIMEOUT/socket_closed geç
+       * gelir): tek-transport (TCP) denemesi burada TAMAMEN TÜKENİYOR — bir
+       * sonraki reconnect turu (`_scheduleReconnect`) ayrı bir zamanlayıcıyla
+       * gelir, o ana kadar native'e HİÇBİR iptal sinyali gitmiyordu. Primary→
+       * fallback geçişiyle (aşağıda) AYNI temizlik disiplini: throw'dan ÖNCE
+       * dürüstçe kapat. `.catch` ile yutulur — disconnect'in kendi hatası bu
+       * turun asıl hatasını (ePrimary) GÖLGELEMEZ. */
+      try { await CarLauncher.disconnectOBD(); } catch { /* yoksay */ }
       throw ePrimary;
     }
 
@@ -2924,6 +2932,19 @@ async function _runConnectAttempt(opts?: { trustBypass?: boolean }): Promise<voi
           failReason: _reason,
         });
       }
+      /* ORPHAN NATIVE TASK FIX (kök neden — LAB kanıtı: CONNECT_TIMEOUT'un
+       * `timeoutStage:'connect'`i ile `nativeFailureClass:'socket_closed'`/
+       * `'broken_pipe'` FARKLI ANLARDA doğuyordu). Fallback burada TAMAMEN
+       * tükeniyor ama native'in tek-thread executor'da bloke olan 3-katmanlı
+       * RFCOMM denemesine (secure→insecure→reflection) HİÇBİR iptal sinyali
+       * gitmiyordu — yalnız primary→fallback GEÇİŞİNDE (yukarıda) disconnectOBD()
+       * çağrılıyordu, tam tükenişte DEĞİL. Orphan task bir SONRAKİ connectOBD()
+       * çağrısına kadar (native'in KENDİ `disconnect()` yorumu bunu "bilinen
+       * sınır" olarak belgeliyor — OBDManager.java) çalışmaya devam ediyor; geç
+       * biten sonucu (`socket_closed`/`broken_pipe`) BU turun ZATEN kapanmış
+       * kaydına karışıyordu. Primary→fallback ile AYNI disiplin: throw'dan
+       * ÖNCE dürüstçe kapat — orphan native task hemen kapanma sinyali alır. */
+      try { await CarLauncher.disconnectOBD(); } catch { /* yoksay */ }
       throw eFallback;
     }
     _connectedTp = _fallbackTp;
