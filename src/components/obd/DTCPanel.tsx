@@ -16,8 +16,11 @@ import { readDiagnosticStatus, type DiagnosticStatusResult } from '../../platfor
 import { computeDtcVerdict, DTC_ADVISORY_TEXT, type DtcScanMode } from '../../platform/obd/dtcVerdict';
 import { buildScanReport } from '../../platform/obd/scanReport';
 import { DTC_OBSERVATION_CLASS_LABEL } from '../../platform/obd/dtcAuthority';
-import { lookupDtc, isKnownDtcCode } from '../../platform/dtcService';
-import { isEcuReadable, runFullVehicleScan, type MultiEcuScanReport } from '../../platform/obd/multiEcuScan';
+import { getClearableDtcSnapshot, lookupDtc, isKnownDtcCode } from '../../platform/dtcService';
+import {
+  isEcuDtcScanPartial, isEcuReachable, isEcuReadable,
+  runFullVehicleScan, type MultiEcuScanReport,
+} from '../../platform/obd/multiEcuScan';
 import { buildVehicleVerdict } from '../../platform/obd/verdictEngine';
 import { formatDtcDisplayCode, UDS_DTC_STATE_LABEL } from '../../platform/obd/udsDtc';
 import { logError } from '../../platform/crashLogger';
@@ -257,11 +260,10 @@ function DTCPanelInner({ active = false }: { active?: boolean }) {
   const criticalCount = dtc.codes.filter((c) => c.severity === 'critical').length;
   const warningCount  = dtc.codes.filter((c) => c.severity === 'warning').length;
 
-  /* P0-OBD-10 — Mode 04 ile SİLİNEBİLİR kod adedi: onaylanmış (Mode 03) + BEKLEYEN
-     (Mode 07). KALICI (Mode 0A) bilinçli DIŞARIDA — Mode 04 onu silemez, düğmeyi
-     onun için açmak "sil" deyip "silinemedi" demek olurdu. Nihai kapı YİNE serviste
-     (`getClearableDtcSnapshot`); buradaki sayım yalnız düğmenin görünür durumudur. */
-  const clearableCount = dtc.codes.length + pending.length;
+  /* P0-OBD-10 — buton bir DTC truth store değildir. Servis, sesli/uzak komut ve
+     bu projeksiyon AYNI envanteri kullanır: fonksiyonel + fiziksel 03/07;
+     UDS/KWP/0A hariç. */
+  const clearableCount = getClearableDtcSnapshot().count;
 
   const lastReadStr = dtc.lastReadAt
     ? new Date(dtc.lastReadAt).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })
@@ -466,6 +468,7 @@ function DTCPanelInner({ active = false }: { active?: boolean }) {
   const readyMonitors  = diagStatus?.monitors.filter((m) => m.available && m.ready).length ?? 0;
   const totalMonitors  = diagStatus?.monitors.filter((m) => m.available).length ?? 0;
   const isBusy = dtc.isReading || isDeepScanning;
+  const provenEcuCount = multiEcu?.results.filter(isEcuReachable).length ?? 0;
 
   return (
     <div
@@ -647,7 +650,8 @@ function DTCPanelInner({ active = false }: { active?: boolean }) {
               Araç ECU’ları
             </span>
             <span className="text-[10px] font-black uppercase tracking-widest text-[color:var(--oem-accent)]">
-              {multiEcu.scannedEcus} ECU tarandı
+              {provenEcuCount} kanıtlı ECU
+              {multiEcu.scannedEcus > provenEcuCount && ` · ${multiEcu.scannedEcus} denendi`}
               {multiEcu.skippedEcus > 0 && ` · ${multiEcu.skippedEcus} atlandı`}
             </span>
           </div>
@@ -662,18 +666,34 @@ function DTCPanelInner({ active = false }: { active?: boolean }) {
                 /* P0-OBD-PARITY: "okunamadı" hükmü TÜM DTC servislerine bakar
                    — yalnız UDS konuşan bir ECU eskiden yanlışlıkla düşmüş
                    sayılıyordu. Kural `multiEcuScan.isEcuReadable`de TEK yerde. */
-                const failed = !isEcuReadable(r);
+                const readable = isEcuReadable(r);
+                const reachable = isEcuReachable(r);
+                const partial = isEcuDtcScanPartial(r);
+                const standardCount = (mode: 'stored' | 'pending' | 'permanent') =>
+                  r.codes.filter((c) => c.mode === mode && !c.fromUds && !c.fromKwp).length;
+                const serviceCopy = (status: typeof r.stored, count: number): string =>
+                  status === 'ok' ? String(count)
+                    : status === 'unsupported' ? 'desteklenmiyor'
+                      : status === 'deferred' ? 'ertelendi' : 'okunamadı';
                 return (
-                  <div key={r.ecu.txHeader} className="flex items-center justify-between gap-3 text-xs">
-                    <span className="font-bold text-[color:var(--oem-text)]">{r.ecu.label}</span>
+                  <div key={r.ecu.txHeader} className="flex items-start justify-between gap-3 text-xs">
+                    <div>
+                      <div className="font-bold text-[color:var(--oem-text)]">{r.ecu.label}</div>
+                      <div className="mt-0.5 text-[9px] text-[color:var(--oem-text-dim)]">
+                        Kayıtlı: {serviceCopy(r.stored, standardCount('stored'))} ·{' '}
+                        Bekleyen: {serviceCopy(r.pending, standardCount('pending'))} ·{' '}
+                        Kalıcı: {serviceCopy(r.permanent, standardCount('permanent'))}
+                      </div>
+                    </div>
                     <span className={
-                      failed ? 'text-[color:var(--oem-warn)] font-bold'
+                      !reachable || partial ? 'text-[color:var(--oem-warn)] font-bold'
                       : r.codes.length > 0 ? 'text-[color:var(--oem-danger)] font-black'
                       : 'text-[color:var(--oem-success)] font-bold'
                     }>
-                      {failed ? 'okunamadı'
+                      {!reachable ? 'ECU erişimi doğrulanamadı'
                         : r.codes.length > 0 ? `${r.codes.length} kod`
-                        : 'temiz'}
+                        : partial || !readable ? 'ECU erişilebilir · tarama kısmi'
+                          : 'arıza bulunamadı'}
                     </span>
                   </div>
                 );
@@ -795,7 +815,7 @@ function DTCPanelInner({ active = false }: { active?: boolean }) {
 
           {multiEcu.failedReads > 0 && (
             <div className="mt-2 text-[11px] text-[color:var(--oem-warn)]">
-              {multiEcu.failedReads} okuma tamamlanamadı — bu tarama KISMİ, sonuç kesin değil.
+              {multiEcu.failedReads} DTC alt servisi yanıt vermedi — ECU bağlantısı doğrulanmış olsa da tarama kapsamı kısmi.
             </div>
           )}
         </div>
@@ -1166,5 +1186,3 @@ function DTCPanelInner({ active = false }: { active?: boolean }) {
 }
 
 export const DTCPanel = memo(DTCPanelInner);
-
-

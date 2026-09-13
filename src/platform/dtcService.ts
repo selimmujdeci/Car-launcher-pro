@@ -42,7 +42,7 @@ import {
 } from './obd/dtcClearModel';
 import { recordDtcClearAttempt, type DtcClearRereadClass } from './obd/dtcClearEvidence';
 import {
-  beginDtcScanRound, recordDtcObservation, recordDtcServiceScan,
+  beginDtcScanRound, getDtcAuthoritySnapshot, recordDtcObservation, recordDtcServiceScan,
   DTC_CLASS_OF_SERVICE_CANON, type DtcScanOutcome, type DtcSourceService,
 } from './obd/dtcAuthority';
 import { getDiagnosticAdmission } from './obd/diagnosticAdmission';
@@ -461,10 +461,36 @@ export function getClearableDtcSnapshot(): {
     if (c.status === 'permanent') continue;
     byKey.set(`${c.code}|${c.status}`, c);
   }
+
+  /* Fiziksel ECU taraması da AYNI kanonik DTC defterine yazar. Mode 04 yalnız
+     standart emisyon hafızasını temizlediği için burada sadece 03/CONFIRMED ve
+     07/PENDING kabul edilir; UDS/KWP üretici kodları ile 0A permanent bilinçli
+     olarak dışarıda kalır. Oturum bilinmiyorsa fiziksel gözlem taşınmaz. */
+  let physicalScanRan = false;
+  try {
+    const authority = getDtcAuthoritySnapshot();
+    const sameProvenSession = epoch >= 0 && authority.sessionEpoch === epoch;
+    if (sameProvenSession) {
+      physicalScanRan = authority.scans.some((s) => s.ecuKey !== null || s.txHeader !== null);
+      for (const o of authority.observations) {
+        if (o.provenance !== 'physical_ecu') continue;
+        const status: DTCStatus | null =
+          o.sourceService === '03' && o.dtcClass === 'CONFIRMED' ? 'stored'
+            : o.sourceService === '07' && o.dtcClass === 'PENDING' ? 'pending'
+              : null;
+        if (status === null) continue;
+        const code = lookupDtc(o.dtcCode);
+        const key = `${code.code}|${status}`;
+        if (!byKey.has(key)) {
+          byKey.set(key, { ...code, status, ecuLabel: o.ecuKey, sessionEpoch: o.sessionEpoch });
+        }
+      }
+    }
+  } catch { /* Kanonik defter okunamazsa mevcut fonksiyonel envanter korunur. */ }
   return {
     codes: [...byKey.values()],
     count: byKey.size,
-    scanRan: _lastScan !== null || _state.lastReadAt !== null,
+    scanRan: _lastScan !== null || _state.lastReadAt !== null || physicalScanRan,
   };
 }
 
