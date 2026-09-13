@@ -44,6 +44,9 @@ import {
   saveObdProtocol,
   clearObdProtocol,
   clearObdTransport,
+  saveObdSupportedPidBitmap,
+  loadObdSupportedPidBitmap,
+  clearObdSupportedPidBitmap,
 } from '../platform/obdStorage';
 import { initPlatformDetection } from '../platform/headUnitPlatform';
 import {
@@ -99,6 +102,32 @@ describe('VID Mirror Layer (Sprint 2)', () => {
 
       clearObdProtocol();
       expect(useVidStore.getState().obdAdapter.lastProtocolNum).toBeNull();
+    });
+
+    it('saveObdSupportedPidBitmap → supportedPidBitmap güncellenir', () => {
+      saveObdSupportedPidBitmap('BE1FB813');
+      expect(useVidStore.getState().obdAdapter.supportedPidBitmap).toBe('BE1FB813');
+      expect(loadObdSupportedPidBitmap()).toBe('BE1FB813');
+    });
+
+    it('saveObdSupportedPidBitmap birleştirir (OR), önceki kanıtı SİLMEZ', () => {
+      saveObdSupportedPidBitmap('BE1F0000'); // ilk tur: yalnız ilk 2 bayt kanıtlı
+      saveObdSupportedPidBitmap('00008013'); // ikinci tur: farklı baytlar kanıtlı, ilk ikisi bu turda '00' (bilinmiyor değil, kanıt yok)
+      // Bitwise-OR: BE|00=BE, 1F|00=1F, 00|80=80, 00|13=13 → önceki kanıt KAYBOLMAZ.
+      expect(loadObdSupportedPidBitmap()).toBe('BE1F8013');
+    });
+
+    it('boş bitmap NO-OP\'tur — mevcut kalıcı kanıt SİLİNMEZ', () => {
+      saveObdSupportedPidBitmap('BE1FB813');
+      saveObdSupportedPidBitmap('');
+      expect(loadObdSupportedPidBitmap()).toBe('BE1FB813');
+    });
+
+    it('clearObdSupportedPidBitmap → supportedPidBitmap null (kasıtlı temizleme)', () => {
+      saveObdSupportedPidBitmap('BE1FB813');
+      clearObdSupportedPidBitmap();
+      expect(useVidStore.getState().obdAdapter.supportedPidBitmap).toBeNull();
+      expect(loadObdSupportedPidBitmap()).toBeNull();
     });
 
     it('clearObdAddress → lastAddress null (kasıtlı temizleme)', () => {

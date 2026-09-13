@@ -230,6 +230,58 @@ export function clearObdProtocol(): void {
   mirrorObdToVid({ lastProtocolNum: null });
 }
 
+/**
+ * Handshake ile KANITLANMIŞ desteklenen-PID bitmap'i (Mode 01 PID 00/20/40…).
+ *
+ * NEDEN VAR: `extendedPidService.getSupportedPids()` yalnız BELLEKTE yaşar —
+ * her reconnect'te/uygulama yeniden başlatmasında sıfırlanır ve bir sonraki
+ * handshake'in ASENKRON sonucunu bekler. Bu anahtar aynı kanıtı KALICI hale
+ * getirir; `vehicleFingerprintBuilder` onu `useVidStore`'dan okuyup parmak
+ * izinin kimlik imzasına (ve dolayısıyla `vehicleFingerprintStore`'a) taşır.
+ */
+export const OBD_PID_BITMAP_KEY = 'obd:supportedPidBitmap';
+
+/**
+ * Persiste edilmiş bitmap ile YENİ kanıtı bitwise-OR ile birleştirir. Daha
+ * KISA/eksik bir yeni okuma (ör. zincir bu turda erken kırıldı) önceki KANITI
+ * SİLMEZ — yalnız genişletir (aynı disiplin: `obdService._handshakeSupportedPids`
+ * union'ı, `refinePidList`in "BİRLEŞTİR, DEĞİŞTİRME" kuralı).
+ */
+function _mergeBitmapHex(prev: string | null, next: string): string {
+  if (!prev) return next;
+  if (!next) return prev;
+  const len = Math.max(prev.length, next.length);
+  let out = '';
+  for (let i = 0; i < len; i += 2) {
+    const a = parseInt(prev.slice(i, i + 2), 16) || 0;
+    const b = parseInt(next.slice(i, i + 2), 16) || 0;
+    out += (a | b).toString(16).toUpperCase().padStart(2, '0');
+  }
+  return out;
+}
+
+/** Kalıcı bitmap'i okur; hiç kanıt yoksa `null` (boş string DEĞİL). */
+export function loadObdSupportedPidBitmap(): string | null {
+  try { return localStorage.getItem(OBD_PID_BITMAP_KEY) || null; } catch { return null; }
+}
+
+/**
+ * Yeni handshake kanıtını ÖNCEKİYLE birleştirerek kalıcılaştırır (bkz.
+ * `_mergeBitmapHex`). Boş girdi NO-OP'tur (kanıt yoksa mevcut kanıt SİLİNMEZ).
+ */
+export function saveObdSupportedPidBitmap(bitmapHex: string): void {
+  if (!bitmapHex) return;
+  const merged = _mergeBitmapHex(loadObdSupportedPidBitmap(), bitmapHex);
+  try { localStorage.setItem(OBD_PID_BITMAP_KEY, merged); } catch { /* quota */ }
+  mirrorObdToVid({ supportedPidBitmap: merged });
+}
+
+/** Kalıcı bitmap kanıtını siler (adaptör/araç değişimi temizliği ile birlikte kullanılabilir). */
+export function clearObdSupportedPidBitmap(): void {
+  try { localStorage.removeItem(OBD_PID_BITMAP_KEY); } catch { /* ignore */ }
+  mirrorObdToVid({ supportedPidBitmap: null });
+}
+
 /* ── Araç-bazlı yakıt kalibrasyonu (PID 0x2F sensör eğrisi düzeltmesi) ──────────
  * Bazı araçlarda (Fiat/PSA/Renault) OBD PID 2F'nin bildirdiği yüzde, gösterge
  * panelindeki yakıt seviyesiyle UYUŞMAZ (doğrusal-olmayan şamandıra + üretici

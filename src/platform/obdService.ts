@@ -28,11 +28,11 @@ import {
   flushCanSnapshotNow,
   stopCanSnapshot,
 } from './canSnapshotService';
-import { buildHandshakeResult, classifyHandshakeResponse, buildDiscoveryEvidence } from '../core/val/OBDHandshake';
+import { buildHandshakeResult, classifyHandshakeResponse, buildDiscoveryEvidence, extractSupportedPidBitmap } from '../core/val/OBDHandshake';
 import type { DiscoveryEvidence, DiscoveryCompleteness } from '../core/val/OBDHandshake';
 import { vehicleProfileRegistry } from '../core/val/VehicleProfile';
 import type { IVehicleProfile }   from '../core/val/VehicleProfile';
-import { loadObdAddress, saveObdAddress, clearObdAddress, clearObdTransport, loadObdProfileId, saveObdProfileId, loadObdTransport, saveObdTransport, loadObdTransportVerified, saveObdTransportVerified, loadObdProtocol, saveObdProtocol, loadObdFuelCalib, saveObdFuelCalib, isValidTcpAddress, markObdAddressVerified, loadVerifiedObdAddresses, type ObdTransport } from './obdStorage';
+import { loadObdAddress, saveObdAddress, clearObdAddress, clearObdTransport, loadObdProfileId, saveObdProfileId, loadObdTransport, saveObdTransport, loadObdTransportVerified, saveObdTransportVerified, loadObdProtocol, saveObdProtocol, saveObdSupportedPidBitmap, loadObdFuelCalib, saveObdFuelCalib, isValidTcpAddress, markObdAddressVerified, loadVerifiedObdAddresses, type ObdTransport } from './obdStorage';
 import { persistHandshakeVin } from './vehicleProfileService';
 import { getHandshakeVin } from './safety/vinContext';
 import { setVinEpochProvider } from './vehicle/vehicleIdentity';
@@ -3045,6 +3045,17 @@ async function _runConnectAttempt(opts?: { trustBypass?: boolean }): Promise<voi
            `result` nesnesini mutasyona uğratmamak için kopyalanır. */
         _handshakeSupportedPids = new Set(result.supportedPids);
         _handshakeReadBlocks    = new Set(result.readBlocks);
+
+        /* KALICI YETENEK OTORİTESİ (bkz. obdStorage.ts üst yorumu): yukarıdaki
+           `_handshakeSupportedPids` yalnız BELLEKTE yaşar, bu oturum kapanınca
+           kaybolur. Bitmap'i kalıcılaştırmak `vehicleFingerprintBuilder`ın bir
+           sonraki bağlantıda AYNI aracı (protokol+ECU+bitmap imzasıyla) tanımasını
+           ve `getPidListForVehicle` tabanının ötesine geçen kanıtı hayatta
+           tutmasını sağlar. İKİNCİ bir "desteklenen PID" otoritesi KURULMAZ —
+           bu ZATEN hesaplanmış `result`ten türetilir, boşsa (kanıt yok) NO-OP'tur
+           (mevcut kalıcı bitmap SİLİNMEZ). */
+        const bitmapHex = extractSupportedPidBitmap(raw);
+        if (bitmapHex) saveObdSupportedPidBitmap(bitmapHex);
 
         /* ── KANIT AYNI OTURUMDA UYGULANIR (saha 2026-07-31) ──────────────────
          * Eskiden bu kanıt YALNIZ "bir sonraki reconnect"te işe yarıyordu: çekirdek

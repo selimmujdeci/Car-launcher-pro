@@ -139,6 +139,17 @@ describe('bağlantı-tamam + Discovery toplama (SALT-OKUNUR)', () => {
     expect(input.metadata?.adapterMac).toBe('AA:BB:CC:DD');
     expect(input.metadata?.label).toBe('Renault Trafic');
   });
+
+  it('assembleFingerprintInput: handshake bitmap kanıtı (obdAdapter) taşınır', () => {
+    useVidStore.getState().updateObdAdapterInfo({ supportedPidBitmap: 'BE1FB813' });
+    const input = assembleFingerprintInput(useVidStore.getState(), []);
+    expect(input.supportedPidBitmap).toBe('BE1FB813');
+  });
+
+  it('assembleFingerprintInput: bitmap kanıtı yoksa undefined (uydurma yok)', () => {
+    const input = assembleFingerprintInput(useVidStore.getState(), []);
+    expect(input.supportedPidBitmap).toBeUndefined();
+  });
 });
 
 /* ── Otomatik üretici (useVidStore aboneliği) ─────────────────────────────── */

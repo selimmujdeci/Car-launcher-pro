@@ -30,6 +30,7 @@ import {
   normalizeVin,
   normalizeEcuAddress,
   normalizeEcuAddresses,
+  normalizePidBitmap,
   vehicleFingerprintStore,
   VehicleFingerprintStore,
   type VehicleFingerprint,
@@ -177,6 +178,9 @@ export function assembleFingerprintInput(
     vin:          vid.vehicle.vin ?? '',
     protocol:     vid.obdAdapter.lastProtocolNum ?? '',
     ecuAddresses: collectEcuAddresses(observations),
+    /* Handshake'in kanıtladığı desteklenen-PID bitmap'i (bkz. obdStorage.ts
+       `saveObdSupportedPidBitmap` — TEK kaynak, ikinci bir kanıt üretilmez). */
+    supportedPidBitmap: vid.obdAdapter.supportedPidBitmap ?? undefined,
     metadata: {
       adapterMac: vid.obdAdapter.lastAddress ?? undefined,
       label:      label || undefined,
@@ -191,6 +195,11 @@ export function fingerprintInputSignature(input: VehicleFingerprintInput): strin
     (input.protocol ?? '').trim().toUpperCase(),
     normalizeEcuAddresses(input.ecuAddresses).join(','),
     (input.metadata?.adapterMac ?? '').trim().toUpperCase(),
+    /* Bitmap İMZAYA DAHİL: aksi halde zincir SONRADAN tamamlanıp (incomplete →
+       complete) daha geniş bir kanıt üretse bile vin/protocol/ecu/mac aynı
+       kaldığı için `_onVidChange` "değişiklik yok" sanıp yeni kanıtı ASLA
+       kalıcı parmak izine taşımazdı. */
+    normalizePidBitmap(input.supportedPidBitmap),
   ].join('|');
 }
 

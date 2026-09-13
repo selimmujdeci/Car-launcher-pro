@@ -95,6 +95,7 @@ vi.mock('../platform/obdStorage', () => ({
   loadObdProtocol:   vi.fn(() => null),
   saveObdProtocol:   vi.fn(),
   clearObdProtocol:  vi.fn(),
+  saveObdSupportedPidBitmap: vi.fn(),
   // obdService'in obdStorage'dan İMPORT ETTİĞİ HER ŞEY burada olmalı: eksik export
   // undefined döner ve ilk çağrıda TypeError ile bağlantı zincirini sessizce koparır
   // (handshake/data_gate aşamalarına HİÇ ulaşılmaz → o diag'lar üretilmez).

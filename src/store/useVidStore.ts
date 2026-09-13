@@ -28,6 +28,12 @@ export interface VidObdAdapterInfo {
   lastTransport: 'classic' | 'ble' | 'tcp' | null;
   isTransportVerified: boolean;
   lastProtocolNum: string | null;
+  /**
+   * Handshake (Mode 01 PID 00/20/40…) ile KANITLANMIŞ desteklenen PID bitmap'i
+   * (hex, ör. `"BE1FB813"`) — parmak izinin kimlik imzasına GİRER (bkz.
+   * `vehicleFingerprintService.canonicalFingerprintKey`). `null` = henüz kanıt yok.
+   */
+  supportedPidBitmap: string | null;
 }
 
 /** Araç kimliği (VIN + marka/model çözümlemesi). */
@@ -115,6 +121,7 @@ function createInitialSchema(): VehicleIntelligenceSchema {
       lastTransport: null,
       isTransportVerified: false,
       lastProtocolNum: null,
+      supportedPidBitmap: null,
     },
     vehicle: {
       vin: null,

@@ -72,7 +72,7 @@ vi.mock('../platform/obdStorage', () => ({
   loadObdTransport: vi.fn(() => 'classic'), saveObdTransport: vi.fn(),
   loadObdTransportVerified: vi.fn(() => true), saveObdTransportVerified: vi.fn(), clearObdTransport: vi.fn(),
   loadObdProfileId: vi.fn(() => null), saveObdProfileId: vi.fn(),
-  loadObdProtocol: vi.fn(() => M.protocol), saveObdProtocol: vi.fn(), clearObdProtocol: vi.fn(),
+  loadObdProtocol: vi.fn(() => M.protocol), saveObdProtocol: vi.fn(), clearObdProtocol: vi.fn(), saveObdSupportedPidBitmap: vi.fn(),
   loadObdFuelCalib: vi.fn(() => 1), saveObdFuelCalib: vi.fn(),
   isValidTcpAddress: vi.fn(() => false), markObdAddressVerified: vi.fn(),
 }));

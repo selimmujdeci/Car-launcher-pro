@@ -23,6 +23,7 @@ import {
   parseSupportedPIDs,
   buildHandshakeResult,
   classifyHandshakeResponse,
+  extractSupportedPidBitmap,
   type RawHandshake,
 } from '../core/val/OBDHandshake';
 import { getPidListForVehicle, refinePidList } from '../platform/obdPidConfig';
@@ -168,5 +169,28 @@ describe('W5-OBD-PR1 · Regresyon güvencesi (item 10)', () => {
     // Blok 0x00 okunmadı → tüm ICE tabanı korunur, üstüne 2F eklenir
     for (const p of base) expect(pids).toContain(p);
     expect(pids).toContain('0x2F');
+  });
+});
+
+describe('W5-OBD-PR2 · Kalıcı yetenek otoritesi — bitmap hex türetme', () => {
+  it('tek bloklu kanıttan tam bitmap hex üretir (İKİNCİ decoder DEĞİL)', () => {
+    const bitmap = extractSupportedPidBitmap({ raw09: '', raw0100: RAW_0100 });
+    expect(bitmap).toBe('BE1FB813');
+  });
+
+  it('çok-bloklu kanıtı SIRALI birleştirir', () => {
+    const bitmap = extractSupportedPidBitmap({ raw09: '', raw0100: RAW_0100, raw0120: RAW_0120 });
+    expect(bitmap).toBe('BE1FB81300020000');
+  });
+
+  it('kanıt yoksa boş string döner (çağıran bunu "değişiklik yok" saymalı)', () => {
+    expect(extractSupportedPidBitmap({ raw09: '', raw0100: '' })).toBe('');
+    expect(extractSupportedPidBitmap({ raw09: '', raw0100: 'NO DATA' })).toBe('');
+  });
+
+  it('0120 okunamazsa (NO DATA) yalnız 0100 kanıtı taşınır — sonraki blok EKLENMEZ', () => {
+    // Devam biti SET (0100 byte D bit0=1) ama 0120 sustu → zincir orada kırıldı.
+    const bitmap = extractSupportedPidBitmap({ raw09: '', raw0100: RAW_0100, raw0120: 'NO DATA' });
+    expect(bitmap).toBe('BE1FB813'); // yalnız 1 blok (4 bayt = 8 hex hane)
   });
 });

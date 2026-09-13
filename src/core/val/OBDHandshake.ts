@@ -507,3 +507,28 @@ export function buildDiscoveryEvidence(raw: RawHandshake): DiscoveryEvidence {
     finalStopReason === 'CONTINUATION_CLEAR' || finalStopReason === 'MAX_STANDARD_BLOCK';
   return { blocks, finalStopReason, evidenceComplete };
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Kalıcı yetenek otoritesi için bitmap hex — İKİNCİ DECODER DEĞİL
+   ══════════════════════════════════════════════════════════════════════════
+   `buildDiscoveryEvidence`in ZATEN hesapladığı per-blok `bitmapBytes`i sıralı
+   birleştirir. Yalnız TÜRETİR — yeni bir ayrıştırma kuralı YAZMAZ.
+══════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * `RawHandshake`ten kalıcılaştırılabilir TAM bitmap hex string'i üretir
+ * (ör. `"BE1FB813"`). Zincirin durduğu/kırıldığı ilk noktadan SONRASI dahil
+ * edilmez — "bilinmiyor"u "00" gibi göstermek yanlış bir kanıt üretir.
+ *
+ * Kanıt yoksa (`0100` bile okunmadıysa) boş string döner — çağıran bunu
+ * "değişiklik yok" olarak ele almalıdır (mevcut kalıcı kanıt SİLİNMEMELİDİR).
+ */
+export function extractSupportedPidBitmap(raw: RawHandshake): string {
+  const evidence = buildDiscoveryEvidence(raw);
+  let out = '';
+  for (const block of evidence.blocks) {
+    if (!block.bitmapBytes) break;
+    out += block.bitmapBytes;
+  }
+  return out;
+}
