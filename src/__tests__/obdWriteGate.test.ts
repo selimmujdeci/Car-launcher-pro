@@ -10,19 +10,18 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   evaluateDtcClearGate,
-  WRITE_GATE_MAX_DATA_AGE_MS,
   WRITE_GATE_STOPPED_SPEED_KMH,
   type WriteGateContext,
 } from '../platform/obd/writeGate';
 
-/* ── Ortak kanıt tabanı: araç bağlı, duruyor, veri taze, kullanıcı onayladı ── */
-const NOW = 1_700_000_000_000;
+/* ── Ortak kanıt tabanı: araç bağlı, duruyor, kullanıcı onayladı ──
+   Tazelik artık bu katmanın GİRDİSİ değil: `speedKmh` çağıranın (dtcService)
+   `getObdSpeedFresh()`ten okuduğu ZATEN-doğrulanmış değerdir — saf karar bunu
+   yeniden hesaplamaz (bkz. writeGate.ts üst yorumu). */
 const OK: WriteGateContext = {
   connectionState: 'connected',
   speedKmh:        0,
   rpm:             0,
-  lastSeenMs:      NOW - 500,
-  nowMs:           NOW,
   confirmed:       true,
 };
 
@@ -53,18 +52,6 @@ describe('OBD-OS-F0-6 · evaluateDtcClearGate (saf karar)', () => {
     const nan = evaluateDtcClearGate({ ...OK, speedKmh: Number.NaN });
     expect(nan.allowed).toBe(false);
     if (!nan.allowed) expect(nan.reason).toBe('speed_unknown');
-  });
-
-  it('FAIL-CLOSED: telemetri BAYAT → "hız 0" iddiası kanıt sayılmaz (sahte güven yok)', () => {
-    const d = evaluateDtcClearGate({ ...OK, lastSeenMs: NOW - (WRITE_GATE_MAX_DATA_AGE_MS + 1) });
-    expect(d.allowed).toBe(false);
-    if (!d.allowed) expect(d.reason).toBe('stale_data');
-  });
-
-  it('FAIL-CLOSED: hiç veri gelmemiş (lastSeenMs=0) → reddedilir', () => {
-    const d = evaluateDtcClearGate({ ...OK, lastSeenMs: 0 });
-    expect(d.allowed).toBe(false);
-    if (!d.allowed) expect(d.reason).toBe('stale_data');
   });
 
   it('bağlantı yoksa reddedilir (en temel önkoşul, hız kapısından ÖNCE)', () => {
@@ -113,32 +100,38 @@ vi.mock('../platform/nativePlugin', () => ({
 }));
 vi.mock('../platform/obdService', () => ({
   getOBDDataSnapshot: vi.fn(),
+  getObdSpeedFresh:   vi.fn(),
 }));
 
 import { CarLauncher } from '../platform/nativePlugin';
-import { getOBDDataSnapshot } from '../platform/obdService';
+import { getOBDDataSnapshot, getObdSpeedFresh } from '../platform/obdService';
 import { clearDTCCodes, readDTCCodes } from '../platform/dtcService';
-/* ARCH-05 FIXTURE (kilit ZAYIFLATMASI DEĞİL): `clearDTCCodes` artık write
-   gate'in YANINDA bir yetki kapısı da taşır ve o kapı araç kapsamını
-   `capabilityStore`dan, hareketi `obdService.getObdSpeedFresh`ten okur.
-   Bu dosyada `obdService` mocklandığı için o okuyucular ölçüm bulamaz ve
-   fail-closed davranır. Aşağıdaki bağlam, testin ZATEN kurduğu araç durumunu
-   (kimlikli araç + mocklanan hız) güvenlik katmanına da ANLATIR; hiçbir
-   iddia gevşetilmez — kapı hâlâ gerçekten çalışır (bkz.
-   `arch05ProductionEnforcement.test.ts` E ve G blokları). */
+/* `clearDTCCodes` hareketi/tazeliği `obdService.getObdSpeedFresh()`ten okur
+   (TEK owner — writeGate.ts üst yorumu); `getOBDDataSnapshot` artık gate'i
+   etkilemez. Bu yüzden `mockObd` HER İKİSİNİ de aynı araç durumuna göre kurar:
+   `getObdSpeedFresh` bayat/hiç-gelmemiş veride `null` döner (üretimdeki
+   `_lastSpeedRxMs`/`_staleThresholdMs` sözleşmesiyle birebir). Yetki kapısının
+   (principal/authorization) AYRICA çalıştığı `arch05ProductionEnforcement.test.ts`
+   G bloğunda kanıtlanır; burası SADECE fiziksel write gate'i sınar. */
 import { _setSecurityContextForTest } from '../platform/security/enforcement';
 
 const TEST_VEHICLE_REF = 'a1b2c3d4e5f60718';
+const FRESH_WINDOW_MS = 3_000;
 
 /** OBD servisinin döndüreceği anlık veri — testler bunu araç durumu olarak kurar. */
 function mockObd(over: { speed?: number; rpm?: number; connectionState?: string; lastSeenMs?: number }): void {
   const speed = over.speed ?? 0;
+  const lastSeenMs = over.lastSeenMs ?? Date.now();
   vi.mocked(getOBDDataSnapshot).mockReturnValue({
     connectionState: over.connectionState ?? 'connected',
     speed,
     rpm:        over.rpm ?? 0,
-    lastSeenMs: over.lastSeenMs ?? Date.now(),
+    lastSeenMs,
   } as ReturnType<typeof getOBDDataSnapshot>);
+  // Bayat/hiç-gelmemiş veri → `null` ("bilinmiyor"), gerçek `getObdSpeedFresh()`
+  // sözleşmesiyle aynı: tazelik burada ölçülür, writeGate'te DEĞİL.
+  const fresh = Date.now() - lastSeenMs <= FRESH_WINDOW_MS ? speed : null;
+  vi.mocked(getObdSpeedFresh).mockReturnValue(fresh);
   /* Güvenlik bağlamı AYNI araç durumunu görür — iki katman çelişmez. */
   _setSecurityContextForTest({
     vehicleRef: TEST_VEHICLE_REF, motion: speed < 1 ? 'PARKED' : 'MOVING',
@@ -181,7 +174,10 @@ describe('OBD-OS-F0-6 · clearDTCCodes kapıyı ZORLAR (native yazma engellenir)
 
     expect(CarLauncher.clearDTC).not.toHaveBeenCalled();
     expect(d.allowed).toBe(false);
-    if (!d.allowed) expect(d.reason).toBe('stale_data');
+    // Tazelik artık `getObdSpeedFresh()`te çözülür: bayat veri `null` → NaN →
+    // 'speed_unknown' ("hız 0" DEĞİL, "hız bilinmiyor"). `stale_data` bu
+    // katmanda artık ÜRETİLMEZ (bkz. writeGate.ts WriteGateDenyReason yorumu).
+    if (!d.allowed) expect(d.reason).toBe('speed_unknown');
   });
 
   it('araç duruyor + taze veri + onay → native clearDTC ÇAĞRILIR (kapı geçirgen)', async () => {

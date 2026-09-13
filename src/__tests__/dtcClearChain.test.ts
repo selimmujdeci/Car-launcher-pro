@@ -186,6 +186,29 @@ describe('P0-OBD-10 · B) Silme hükmü — "komut gönderildi" ≠ "kod silindi
     });
     expect(v.verdict).toBe('CLEARED');
   });
+
+  it('🔒 B10 — 03 veya 07 no_response ise pozitif Mode 04 doğrulanmış sayılmaz', () => {
+    for (const completeness of [
+      { stored: 'no_response', pending: 'ok', permanent: 'ok' },
+      { stored: 'ok', pending: 'no_response', permanent: 'ok' },
+    ] as const) {
+      const v = evaluateClearVerdict({
+        outcome: 'POSITIVE', before: [c('P0089', 'pending')], after: [],
+        afterCompleteness: completeness,
+      });
+      expect(v.verdict).toBe('UNVERIFIED');
+    }
+  });
+
+  it('🔒 B11 — 0A unsupported/failed/no_response tek başına stored/pending clear başarısını bozmaz', () => {
+    for (const permanent of ['unsupported', 'failed', 'no_response'] as const) {
+      const v = evaluateClearVerdict({
+        outcome: 'POSITIVE', before: [c('P0089', 'pending')], after: [],
+        afterCompleteness: { stored: 'ok', pending: 'ok', permanent },
+      });
+      expect(v.verdict).toBe('CLEARED');
+    }
+  });
 });
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -208,6 +231,7 @@ vi.mock('../platform/obdService', () => ({
   getOBDDataSnapshot: vi.fn(() => ({
     connectionState: 'connected', speed: 0, rpm: 0, lastSeenMs: Date.now(),
   })),
+  getObdSpeedFresh: vi.fn(() => 0),
   getObdSessionEpoch: vi.fn(() => 7),
 }));
 
@@ -218,6 +242,9 @@ import {
 } from '../platform/dtcService';
 import { getDtcClearEvidence, _resetDtcClearEvidenceForTest } from '../platform/obd/dtcClearEvidence';
 import { _resetDtcEvidenceForTest } from '../platform/obd/dtcScanEvidence';
+import {
+  _resetDtcAuthorityForTest, recordDtcObservation,
+} from '../platform/obd/dtcAuthority';
 /* ARCH-05 FIXTURE (kilit ZAYIFLATMASI DEĞİL): `clearDTCCodes` artık write
    gate'in yanında bir YETKİ kapısı da taşır; o kapı araç kapsamını
    `capabilityStore`dan, hareketi `obdService.getObdSpeedFresh`ten okur ve bu
@@ -252,11 +279,16 @@ describe('P0-OBD-10 · C) clearDTCCodes zinciri (native)', () => {
     _resetDtcServiceForTest();
     _resetDtcClearEvidenceForTest();
     _resetDtcEvidenceForTest();
+    _resetDtcAuthorityForTest();
     vi.mocked(CarLauncher.clearDtcCodes!).mockResolvedValue({ tx: '04', raw: '44', outcome: 'POSITIVE', elapsedMs: 120 });
     // Oturum mührünü her testte SIFIRLA — C10 onu bilinçli olarak değiştirir ve
     // `clearAllMocks` implementasyonu (mockReturnValue) sıfırlamaz.
     const obd = await import('../platform/obdService');
     vi.mocked(obd.getObdSessionEpoch).mockReturnValue(7);
+    vi.mocked(obd.getObdSpeedFresh).mockReturnValue(0);
+    vi.mocked(obd.getOBDDataSnapshot).mockReturnValue({
+      connectionState: 'connected', speed: 0, rpm: 0, lastSeenMs: Date.now(),
+    } as ReturnType<typeof obd.getOBDDataSnapshot>);
     _setSecurityContextForTest({ vehicleRef: 'a1b2c3d4e5f60718', motion: 'PARKED' });
     programClasses({});
   });
@@ -290,6 +322,36 @@ describe('P0-OBD-10 · C) clearDTCCodes zinciri (native)', () => {
     return readAllDTCs().then(() => {
       expect(getClearableDtcSnapshot().count).toBe(0);
     });
+  });
+
+  it('🔒 C2b — fiziksel ECU Mode 03/07 gözlemleri clearable snapshot\'a girer', () => {
+    recordDtcObservation({
+      dtcCode: 'P0301', dtcClass: 'CONFIRMED', sourceService: '03',
+      ecuKey: '18DAF110', ecuRole: null, rxHeader: '18DAF110', txHeader: '18DA10F1',
+      protocol: '7', sessionEpoch: 7, provenance: 'physical_ecu',
+    });
+    recordDtcObservation({
+      dtcCode: 'P0089', dtcClass: 'PENDING', sourceService: '07',
+      ecuKey: '18DAF110', ecuRole: null, rxHeader: '18DAF110', txHeader: '18DA10F1',
+      protocol: '7', sessionEpoch: 7, provenance: 'physical_ecu',
+    });
+
+    expect(getClearableDtcSnapshot().codes.map((c) => `${c.code}/${c.status}`).sort())
+      .toEqual(['P0089/pending', 'P0301/stored']);
+  });
+
+  it('🔒 C2c — fiziksel UDS/KWP/permanent gözlemleri Mode 04 envanterine girmez', () => {
+    for (const [dtcCode, dtcClass, sourceService] of [
+      ['P1000', 'UDS', '19'], ['P1001', 'KWP', '18'], ['P0420', 'PERMANENT', '0A'],
+    ] as const) {
+      recordDtcObservation({
+        dtcCode, dtcClass, sourceService,
+        ecuKey: '18DAF110', ecuRole: null, rxHeader: '18DAF110', txHeader: '18DA10F1',
+        protocol: '7', sessionEpoch: 7, provenance: 'physical_ecu',
+      });
+    }
+
+    expect(getClearableDtcSnapshot().count).toBe(0);
   });
 
   it('🔒 C3 — KİLİT: NEGATİF yanıt → "temizlendi" DENMEZ, liste KORUNUR', async () => {
@@ -471,5 +533,23 @@ describe('P0-OBD-10 · C) clearDTCCodes zinciri (native)', () => {
     } finally {
       CarLauncher.clearDtcCodes = saved;
     }
+  });
+
+  it('🔒 C15 — araç hareketliyken Mode 04 fail-closed: komut hatta çıkmaz', async () => {
+    programClasses({ '07': ['P0089'] });
+    await readAllDTCs();
+    const obd = await import('../platform/obdService');
+    vi.mocked(obd.getOBDDataSnapshot).mockReturnValue({
+      connectionState: 'connected', speed: 42, rpm: 2_000, lastSeenMs: Date.now(),
+    } as ReturnType<typeof obd.getOBDDataSnapshot>);
+    // Hareket kararı artık `getObdSpeedFresh()`ten okunur — `getOBDDataSnapshot`
+    // tek başına gate'i etkilemez (bkz. dtcService.clearDTCCodes).
+    vi.mocked(obd.getObdSpeedFresh).mockReturnValue(42);
+
+    const r = await clearDTCCodes({ confirmed: true });
+
+    expect(r.allowed).toBe(false);
+    if (!r.allowed) expect(r.reason).toBe('vehicle_moving');
+    expect(CarLauncher.clearDtcCodes).not.toHaveBeenCalled();
   });
 });
