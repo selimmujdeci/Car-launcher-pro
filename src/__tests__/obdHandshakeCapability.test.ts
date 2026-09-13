@@ -93,6 +93,31 @@ describe('W5-OBD-PR1 · Capability-güdümlü poll listesi (item 2/3/4)', () => 
     const pids = refinePidList(base, r.supportedPids, r.readBlocks);
     expect(pids).not.toContain('0x2F');
   });
+
+  // PID 0x0B (MAP) — byte B'nin bit5'i (offset0 + PID11): 0x1F → 0x3F (RAW_0100'ün
+  // AYNI RPM/hız/coolant desteğini korur, yalnız 0x0B'yi de destekli işaretler).
+  const RAW_0100_WITH_MAP = '41 00 BE 3F B8 13';
+
+  it('MAP (0x0B) bitmap kanıtıyla oto-aktive olur — ICE tabanında YOK (item 4/MAP)', () => {
+    expect(base).not.toContain('0x0B'); // taban ICE listede MAP YOK (statik)
+    const r = buildHandshakeResult({ raw09: '', raw0100: RAW_0100_WITH_MAP });
+    const pids = refinePidList(base, r.supportedPids, r.readBlocks);
+    expect(pids).toContain('0x0B'); // kanıtlı destekli → eklendi
+    expect(pids).toContain('0x0C'); // mevcut RPM desteği regresyonsuz korunur
+  });
+
+  it('MAP (0x0B) desteklenmiyorsa eklenmez (varsayım yok)', () => {
+    const r = buildHandshakeResult({ raw09: '', raw0100: RAW_0100 }); // orijinal fixture: 0x0B set değil
+    const pids = refinePidList(base, r.supportedPids, r.readBlocks);
+    expect(pids).not.toContain('0x0B');
+  });
+
+  it('DIESEL tabanında MAP zaten statik var — kanıt yokken KORUNUR (regresyon)', () => {
+    const dieselBase = getPidListForVehicle('diesel');
+    expect(dieselBase).toContain('0x0B');
+    const same = refinePidList(dieselBase, new Set(), new Set());
+    expect(same).toContain('0x0B');
+  });
 });
 
 describe('W5-OBD-PR1 · VIN (item 5/6)', () => {

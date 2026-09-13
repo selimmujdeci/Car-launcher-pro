@@ -40,6 +40,20 @@ export function getPidListForVehicle(type: VehicleType): string[] {
 /** PID 0x2F — yakıt seviyesi (yalnız bitmap kanıtı varsa oto-aktive edilir). */
 const FUEL_PID_HEX  = '0x2F';
 const FUEL_PID_NUM  = 0x2F;
+/**
+ * PID 0x0B — emme manifoldu mutlak basıncı (MAP). ICE tabanında BİLİNÇLİ YOK
+ * (turbo'suz/çoğu benzinli araç desteklemez; 0x2F ile AYNI gerekçe — kör sorgu
+ * her turda 200ms NO-DATA bekletir). Yalnız bitmap kanıtı VARSA capability-aware
+ * eklenir; DIESEL tabanında zaten statik olarak var (bu liste orayı DEĞİŞTİRMEZ).
+ */
+const MAP_PID_HEX   = '0x0B';
+const MAP_PID_NUM   = 0x0B;
+/** Bitmap kanıtıyla oto-aktive edilen PID'ler — statik kara/beyaz liste YOK,
+ *  yalnız pozitif kanıt kapıyı açar (yeni bir PID eklemek için TEK satır). */
+const CAPABILITY_GATED_PIDS: ReadonlyArray<readonly [number, string]> = [
+  [FUEL_PID_NUM, FUEL_PID_HEX],
+  [MAP_PID_NUM, MAP_PID_HEX],
+];
 const BLOCK_SIZE    = 32;
 
 /** '0x0D' / '0x2f' → 13 / 47 (decimal). Geçersizse null. */
@@ -87,9 +101,10 @@ export function refinePidList(
     if (supported.has(num)) out.push(pidStr);
   }
 
-  // Yakıt (0x2F): bitmap'te kanıtlı destekleniyorsa oto-aktive et.
-  if (supported.has(FUEL_PID_NUM) && !out.some((p) => _pidToNumber(p) === FUEL_PID_NUM)) {
-    out.push(FUEL_PID_HEX);
+  // Capability-aware oto-aktivasyon: bitmap'te KANITLI destekleniyorsa eklenir
+  // (0x2F yakıt + 0x0B MAP — AYNI disiplin, statik varsayım yok).
+  for (const [num, hex] of CAPABILITY_GATED_PIDS) {
+    if (supported.has(num) && !out.some((p) => _pidToNumber(p) === num)) out.push(hex);
   }
 
   return out;
