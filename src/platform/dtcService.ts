@@ -15,7 +15,7 @@ import { vdkDtcClassFn, isReplayActive } from './obd/vdkTransport';
 import { resolveFunctionalDtcSource } from './obd/functionalDtcSource';
 import { recordFunctionalDtcEvidence } from './obd/functionalDtcEvidence';
 import { logError } from './crashLogger';
-import { getOBDDataSnapshot, getObdSessionEpoch } from './obdService';
+import { getOBDDataSnapshot, getObdSessionEpoch, getObdSpeedFresh } from './obdService';
 import { evaluateDtcClearGate, type WriteGateDecision } from './obd/writeGate';
 /* ARCH-05 — CLEAR_DTC ürün yaptırımı. Write gate FİZİKSEL önkoşulu (hız ·
    tazelik · bağlantı), authorization ise ÇAĞIRANIN YETKİSİNİ denetler; ikisi
@@ -615,12 +615,14 @@ export async function clearDTCCodes(opts: ClearDtcOptions): Promise<DtcClearResu
 
   // ── WRITE GATE (fail-closed) ────────────────────────────────────────────
   const obd = getOBDDataSnapshot();
+  let freshSpeedKmh: number | null = null;
+  try { freshSpeedKmh = getObdSpeedFresh(); } catch { freshSpeedKmh = null; }
   const decision = evaluateDtcClearGate({
     connectionState: obd.connectionState,
-    speedKmh:        obd.speed,
+    /* Tazelik kararı OBD owner'ına aittir. null = hiç ölçülmedi VEYA bayat;
+       ikisi de yazma için "hız bilinmiyor"dur ve fail-closed reddedilir. */
+    speedKmh:        freshSpeedKmh ?? Number.NaN,
     rpm:             obd.rpm,
-    lastSeenMs:      obd.lastSeenMs,
-    nowMs:           Date.now(),
     confirmed:       opts.confirmed,
   });
   // Web/demo modunda gerçek araç yoktur (native yazma da yapılmaz) → kapı yalnız

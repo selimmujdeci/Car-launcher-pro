@@ -20,7 +20,7 @@
 /** Yazma reddedilme sebebi — UI'ın kullanıcıya ne söyleyeceğini belirler. */
 export type WriteGateDenyReason =
   | 'not_connected'    // OBD bağlı değil → yazma imkânsız
-  | 'stale_data'       // son telemetri çok eski → hız iddiası doğrulanamaz
+  | 'stale_data'       // eski kanıt kayıtlarıyla geriye uyumluluk; bu kapı artık üretmez
   | 'speed_unknown'    // araç hız PID'ini desteklemiyor/vermiyor
   | 'vehicle_moving'   // araç hareket halinde
   | 'not_confirmed'    // kullanıcı açık onay vermedi
@@ -42,24 +42,13 @@ export type WriteGateDecision =
 export interface WriteGateContext {
   /** OBD bağlantı durumu — 'connected' dışındaki her şey yazmayı bloklar. */
   connectionState: string;
-  /** Son OBD hızı (km/h). Negatif/NaN → araç bu PID'i vermiyor (bilinmiyor). */
+  /** `getObdSpeedFresh()` ile doğrulanmış OBD hızı. Negatif/NaN → bilinmiyor veya bayat. */
   speedKmh: number;
   /** Motor devri (RPM). Negatif → bilinmiyor/EV (advisory üretmez, BLOKLAMAZ). */
   rpm: number;
-  /** Son gerçek telemetri paketinin Unix ms zamanı. 0 = hiç veri gelmedi. */
-  lastSeenMs: number;
-  /** Şimdi (Unix ms) — tazelik hesabı için enjekte edilir (saf/test edilebilir). */
-  nowMs: number;
   /** Kullanıcı yıkıcı eylemi AÇIKÇA onayladı mı (iki-aşamalı UI onayı). */
   confirmed: boolean;
 }
-
-/**
- * Telemetri bu süreden eskiyse "hız 0" iddiası KANIT sayılmaz. 3 sn: OBD poll
- * döngüsü sağlıklıyken ~3 Hz veri akar; 3 sn sessizlik = en az ~9 kayıp paket
- * → bağlantı/ECU sorunlu, o hız değeri artık aracın gerçeğini temsil etmiyor.
- */
-export const WRITE_GATE_MAX_DATA_AGE_MS = 3_000;
 
 /**
  * Bu hızın ALTI "duruyor" sayılır. OBD hızı tamsayı km/h yayınlar; 1 km/h eşiği
@@ -72,7 +61,8 @@ export const WRITE_GATE_STOPPED_SPEED_KMH = 1;
  * Mode 04 (DTC hafızasını sil) yazma kapısı.
  *
  * Kapılar FAIL-CLOSED sırayla değerlendirilir; ilk düşen kapı kararı verir
- * (en temel önkoşuldan en spesifiğe: bağlantı → kanıt tazeliği → hız → onay).
+ * (en temel önkoşuldan en spesifiğe: bağlantı → doğrulanmış hız → onay).
+ * Hız tazeliğini bu katman yeniden hesaplamaz; tek owner `getObdSpeedFresh()`tir.
  */
 export function evaluateDtcClearGate(ctx: WriteGateContext): WriteGateDecision {
   const advisories: WriteGateAdvisory[] = [];
@@ -88,14 +78,8 @@ export function evaluateDtcClearGate(ctx: WriteGateContext): WriteGateDecision {
     return deny('not_connected', 'Araç bağlı değil — arıza hafızası silinemez.');
   }
 
-  // Tazelik: hız/RPM iddiası ancak CANLI telemetriyle kanıtlanır.
-  const dataAgeMs = ctx.lastSeenMs > 0 ? ctx.nowMs - ctx.lastSeenMs : Number.POSITIVE_INFINITY;
-  if (!(dataAgeMs <= WRITE_GATE_MAX_DATA_AGE_MS)) {
-    return deny('stale_data', 'Araç verisi güncel değil — güvenlik gereği silme yapılmadı. Bağlantı düzelince tekrar deneyin.');
-  }
-
   if (!Number.isFinite(ctx.speedKmh) || ctx.speedKmh < 0) {
-    return deny('speed_unknown', 'Araç hızı doğrulanamıyor — güvenlik gereği silme yapılmadı.');
+    return deny('speed_unknown', 'Araç hızı güncel olarak doğrulanamıyor — güvenlik gereği silme yapılmadı.');
   }
 
   if (ctx.speedKmh >= WRITE_GATE_STOPPED_SPEED_KMH) {
