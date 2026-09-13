@@ -2810,6 +2810,40 @@ public final class ElmProtocol {
         return (hex.length() % 2 == 1 && hex.length() >= 3) ? hex.substring(3) : hex;
     }
 
+    /** ELM327 CAN protokolleri: 6/8 (11-bit) · 7/9 (29-bit). */
+    private static boolean isCanProtocol(String protocolDigit) {
+        return "6".equals(protocolDigit) || "8".equals(protocolDigit) || is29BitProtocol(protocolDigit);
+    }
+
+    /** ELM327 yavas seri hat protokolleri: 3 (ISO 9141-2) · 4/5 (ISO 14230-4 KWP). */
+    private static boolean isKLineProtocol(String protocolDigit) {
+        return "3".equals(protocolDigit) || "4".equals(protocolDigit) || "5".equals(protocolDigit);
+    }
+
+    /**
+     * Protokol AILESINE gore fonksiyonel header restore — {@link #restoreDefaultHeader(String,
+     * boolean)} (CAN) ile {@link #restoreKwpDefaultHeader(String)} (K-line) arasinda SECIM yapar;
+     * UCUNCU bir otorite kurmaz, header degerlerini KENDI uretmez. Tek cagiran
+     * {@link #clearDtcCodesDetailed()}tir (Mode 04 fonksiyonel istegi).
+     *
+     * NEDEN AILE AYRIMI ZORUNLU: {@code restoreDefaultHeader} CAN'e ozeldir — K-line'da
+     * {@code ATSH7DF} (CAN adresi) kurup {@code ATAR}/{@code ATCRA} (CAN-only komutlar;
+     * bkz. {@link #withEcuHeaderKwp} yorumu: klonlarda "?" uretir) gonderirdi; ikisi de
+     * dusunce restore BASARISIZ sayilir ve fail-closed kapi Mode 04'u HIC gondermezdi.
+     * Yani K-line araclarda (Renault Trafic · Doblo · 2000-2008 AB araclari) silme KALICI
+     * olarak bloklanirdi — duzeltilmek istenen kusurdan daha buyuk bir kusur.
+     *
+     * AILE BILINMIYORSA (ATDPN hane vermedi · J1850 · J1939/USER) header'a DOKUNULMAZ:
+     * kanonik fonksiyonel adresi BILMEDIGIMIZ bir hatta tahmin yurutmek calisan durumu
+     * bozar; bu, Mode 04'un bu turdan ONCEKI davranisinin ta kendisidir. Hukum yine
+     * ECU'nun olculen yanitindan gelir, uydurulmaz.
+     */
+    private Exception restoreFunctionalHeaderForProtocol(String protocolDigit) {
+        if (isCanProtocol(protocolDigit))   return restoreDefaultHeader(protocolDigit, false);
+        if (isKLineProtocol(protocolDigit)) return restoreKwpDefaultHeader(protocolDigit);
+        return null;
+    }
+
     /**
      * Ariza kodlarini ve freeze-frame verisini siler (Mode 04) - KANITLI yol.
      *
@@ -2824,6 +2858,16 @@ public final class ElmProtocol {
         final long t0 = System.currentTimeMillis();
         final String raw;
         try {
+            /* Mode 04 fonksiyonel bir OBD isteğidir. Önceki fiziksel ECU taraması
+               adaptörde ATSH/ATCRA bırakmış olabilir (restore DÜŞTÜYSE üst katman
+               tarama turunu fail-soft sürdürür → header ASILI KALIR); komuttan
+               HEMEN önce gerçek ATDPN'e uygun fonksiyonel header kesin olarak
+               kurulur. Restore düşerse Mode 04 HATTA ÇIKMAZ (fail-closed: bilinmeyen
+               header'la yazma, kör yazmadır). */
+            String protocolDigit = queryActiveProtocolDigit();
+            if (protocolDigit == null) protocolDigit = activeProtocol;
+            Exception headerFailure = restoreFunctionalHeaderForProtocol(protocolDigit);
+            if (headerFailure != null) throw headerFailure;
             raw = sendChecked("04", MODE04_TIMEOUT_MS);
         } catch (IOException e) {
             throw e;

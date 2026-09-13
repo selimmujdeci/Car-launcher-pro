@@ -639,4 +639,167 @@ public class ElmProtocolTest {
         ElmProtocol elm = new ElmProtocol(ch);
         elm.readDid("F190", 30); // 30ms kısa üst sınır — test 10sn değil, hızlı biter
     }
+
+    /* ═════════════════════════════════════════════════════════════════════════
+       MODE 04 — FONKSİYONEL HEADER KİLİTLERİ
+       ═════════════════════════════════════════════════════════════════════════
+       ÖLÇÜLEN KÖK NEDEN: `restoreDefaultHeader()` protokol KÖRDÜ ve HER ZAMAN
+       11-bit "7DF" kuruyordu. 29-bit bus'ta (protokol 7/9) bu adres GEÇERSİZDİR
+       → fiziksel ECU taramasından sonra fonksiyonel adresleme bozuluyor, Mode 04
+       (ve ondan sonraki 03/07/0A doğrulama okuması) yanlış header'la gidiyordu.
+
+       Mode 04 fonksiyonel bir istektir ve `readDtcClass` header YÖNETMEZ (bilinçli:
+       fiziksel ECU okumasında `withEcuHeader` bloğunun İÇİNDE çağrılır). Bu yüzden
+       fonksiyonel header'ı kesinleştirme görevi Mode 04 çağrısının KENDİSİNDEDİR.
+       ═════════════════════════════════════════════════════════════════════════ */
+
+    @Test
+    public void mode04_11BitCan_fonksiyonelHeaderKurulurSONRA04Gonderilir() throws Exception {
+        RecordingFakeChannel ch = new RecordingFakeChannel()
+            .on("ATDPN", "6")
+            .on("ATSH7DF", "OK").on("ATAR", "OK")
+            .on("04", "44");
+        ElmProtocol elm = new ElmProtocol(ch);
+
+        ElmProtocol.ClearResult r = elm.clearDtcCodesDetailed();
+
+        assertEquals("POSITIVE", r.outcome);
+        assertEquals(java.util.Arrays.asList("ATDPN", "ATSH7DF", "ATAR", "04"), ch.sent);
+        assertTrue("04 header'dan ÖNCE gitti (yanlış ECU'ya yazma riski)",
+            ch.sent.indexOf("04") > ch.sent.indexOf("ATSH7DF"));
+    }
+
+    @Test
+    public void mode04_29BitCan_11BitDegil29BitFonksiyonelHeaderKurulur() throws Exception {
+        RecordingFakeChannel ch = new RecordingFakeChannel()
+            .on("ATDPN", "A7")              // otomatik tespit + protokol 7 (29-bit)
+            .on("ATCP18", "OK").on("ATSHDB33F1", "OK").on("ATAR", "OK")
+            .on("04", "44");
+        ElmProtocol elm = new ElmProtocol(ch);
+
+        ElmProtocol.ClearResult r = elm.clearDtcCodesDetailed();
+
+        assertEquals("POSITIVE", r.outcome);
+        /* ANA KİLİT: 29-bit bus'ta 11-bit fonksiyonel adres KURULAMAZ. */
+        assertFalse("29-bit bus'ta ATSH7DF kuruldu — kök neden geri geldi",
+            ch.sent.contains("ATSH7DF"));
+        assertEquals(java.util.Arrays.asList(
+            "ATDPN", "ATCP18", "ATSHDB33F1", "ATAR", "04"), ch.sent);
+    }
+
+    @Test
+    public void mode04_fizikselEcuHeaderiAsiliKalmissa_fonksiyonelHeaderYENIDENKurulur() throws Exception {
+        /* Gerçek sıra: çoklu-ECU taramasında bir ECU'nun restore'u DÜŞTÜ (üst katman
+           fail-soft devam etti) → adaptörde ATSH7E3/ATCRA7EB ASILI kaldı. */
+        RecordingFakeChannel ch = new RecordingFakeChannel()
+            .on("ATSH7E3", "OK").on("ATCRA7EB", "OK").on("03", "43 00")
+            /* 1. çağrı "?" → tarama turunun restore'u DÜŞER (header asılı kalır);
+               2. çağrı "OK" → silme turunda adaptör yanıt verir. */
+            .on("ATSH7DF", "?", "OK").on("ATAR", "OK")
+            .on("ATDPN", "6")
+            .on("04", "44");
+        ElmProtocol elm = new ElmProtocol(ch);
+        try {
+            elm.withEcuHeader("7E3", "7EB", () -> elm.readDtcClass("03"));
+            fail("restore düştü — HeaderRestoreException bekleniyordu");
+        } catch (ElmProtocol.HeaderRestoreException expected) { /* tarama fail-soft sürer */ }
+
+        int leftover = ch.sent.size();
+        ElmProtocol.ClearResult r = elm.clearDtcCodesDetailed();
+
+        assertEquals("POSITIVE", r.outcome);
+        java.util.List<String> afterClear = ch.sent.subList(leftover, ch.sent.size());
+        assertEquals(java.util.Arrays.asList("ATDPN", "ATSH7DF", "ATAR", "04"), afterClear);
+        assertTrue("Mode 04, asılı fiziksel header temizlenMEDEN gönderildi",
+            afterClear.indexOf("04") > afterClear.indexOf("ATSH7DF"));
+    }
+
+    @Test
+    public void mode04_headerRestoreDuserse_04HATTACIKMAZ_failClosed() {
+        RecordingFakeChannel ch = new RecordingFakeChannel()
+            .on("ATDPN", "6")
+            .on("ATSH7DF", "?")            // fonksiyonel header KURULAMADI
+            .on("04", "44");               // ECU hazır olsa BİLE sorulmamalı
+        ElmProtocol elm = new ElmProtocol(ch);
+
+        try {
+            elm.clearDtcCodesDetailed();
+            fail("header kurulamadı — Mode 04 gönderilmemeli, istisna bekleniyordu");
+        } catch (IOException expected) {
+            /* KÖR MODE 04 YOK: bilinmeyen header'la yazma yapılmaz. */
+        }
+        assertFalse("header belirsizken Mode 04 hatta çıktı (kör yazma)", ch.sent.contains("04"));
+    }
+
+    @Test
+    public void mode04_kwpKLine_CANHeaderiKURULMAZ_kwpFonksiyonelHeaderKurulur() throws Exception {
+        /* REGRESYON KİLİDİ: K-line'da "7DF" bir CAN adresidir, ATAR/ATCRA ise CAN-only
+           komutlardır (klonlarda "?" üretir) → CAN restore'u K-line'a uygulamak, restore'u
+           HER ZAMAN başarısız yapar ve fail-closed kapı silmeyi KALICI bloklardı. */
+        RecordingFakeChannel ch = new RecordingFakeChannel()
+            .on("ATDPN", "5")              // ISO 14230-4 KWP (hızlı init)
+            .on("ATSHC133F1", "OK")
+            .on("04", "44");
+        ElmProtocol elm = new ElmProtocol(ch);
+
+        ElmProtocol.ClearResult r = elm.clearDtcCodesDetailed();
+
+        assertEquals("POSITIVE", r.outcome);
+        assertFalse("K-line'da CAN fonksiyonel adresi kuruldu", ch.sent.contains("ATSH7DF"));
+        assertFalse("K-line'da CAN-only ATAR gönderildi", ch.sent.contains("ATAR"));
+        assertEquals(java.util.Arrays.asList("ATDPN", "ATSHC133F1", "04"), ch.sent);
+    }
+
+    @Test
+    public void mode04_iso9141_kendiFonksiyonelHeaderiniKurar() throws Exception {
+        RecordingFakeChannel ch = new RecordingFakeChannel()
+            .on("ATDPN", "3")              // ISO 9141-2
+            .on("ATSH686AF1", "OK")
+            .on("04", "44");
+        ElmProtocol elm = new ElmProtocol(ch);
+
+        assertEquals("POSITIVE", elm.clearDtcCodesDetailed().outcome);
+        assertEquals(java.util.Arrays.asList("ATDPN", "ATSH686AF1", "04"), ch.sent);
+    }
+
+    @Test
+    public void mode04_protokolAilesiBilinmiyorsa_headerADOKUNULMAZ() throws Exception {
+        /* ATDPN hane vermedi (otomatik arama sürüyor) / J1939-USER: kanonik fonksiyonel
+           adres BİLİNMİYOR → tahmin yürütülmez, çalışan durum BOZULMAZ. Hüküm yine
+           ECU'nun ölçülen yanıtından gelir. */
+        RecordingFakeChannel ch = new RecordingFakeChannel()
+            .on("ATDPN", "A")
+            .on("04", "44");
+        ElmProtocol elm = new ElmProtocol(ch);
+
+        assertEquals("POSITIVE", elm.clearDtcCodesDetailed().outcome);
+        assertEquals(java.util.Arrays.asList("ATDPN", "04"), ch.sent);
+    }
+
+    @Test
+    public void mode04_negatifYanit_hukumUYDURULMAZ_hamYanitTasinir() throws Exception {
+        RecordingFakeChannel ch = new RecordingFakeChannel()
+            .on("ATDPN", "6").on("ATSH7DF", "OK").on("ATAR", "OK")
+            .on("04", "7F 04 22");         // conditionsNotCorrect
+        ElmProtocol elm = new ElmProtocol(ch);
+
+        ElmProtocol.ClearResult r = elm.clearDtcCodesDetailed();
+
+        assertEquals("NEGATIVE", r.outcome);
+        assertEquals("22", r.nrc);
+        assertTrue("ham yanıt kanıt olarak taşınmadı", r.raw.contains("7F"));
+    }
+
+    @Test
+    public void readDtcClass_headerYONETMEZ_fizikselOkumaRegresyonu() throws Exception {
+        /* Mode 03/07/0A'ya header restore EKLENMEMELİDİR: `readDtcClassFromEcu`
+           bu metodu `withEcuHeader` bloğunun İÇİNDE çağırır — burada bir restore
+           fiziksel ECU header'ını ezerdi ve ECU-başına tarama ÇÖKERDİ. */
+        RecordingFakeChannel ch = new RecordingFakeChannel().on("03", "43 00");
+        ElmProtocol elm = new ElmProtocol(ch);
+
+        elm.readDtcClass("03");
+
+        assertEquals(java.util.Arrays.asList("03"), ch.sent);
+    }
 }
