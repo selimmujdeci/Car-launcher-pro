@@ -35,6 +35,15 @@ public final class ElmProtocol {
     /** Ardışık çekirdek Mode-01 NO_DATA sayacı — tüm komutlar tek executor'dan geçer (cmdQueue). */
     private int coreNoDataStreak = 0;
 
+    /**
+     * CAN ölü-oturum sayacı — KWP merdiveninden AYRI tutulur.
+     *
+     * NEDEN AYRI: KWP yolu {@code KwpRecoveryEvidence} defterine yazar ve o defter
+     * K-line saha kanıtıdır; CAN sayımını oraya karıştırmak KWP kanıtını kirletirdi
+     * (bkz. {@code noteKwpSessionHealth}: "CAN kurtarma davranışı ile sıfır temas").
+     */
+    private int canNoDataStreak = 0;
+
     /* ── LIVE_STREAM_STOP_REASON izlenebilirliği (P0 saha 2026-07-23) ──────────
      * Akış durduğunda "neden durdu" sorusu KANITLA yanıtlanmalı. Aşağıdaki alanlar
      * yalnız çekirdek Mode-01 yolunda güncellenir (ek maliyet ihmal edilebilir). */
@@ -50,6 +59,34 @@ public final class ElmProtocol {
 
     /** Bu kadar ardışık çekirdek NO_DATA = oturum ölü kabul (≈2 poll turu / ~6s). */
     static final int KWP_DEAD_SESSION_THRESHOLD = 4;
+
+    /**
+     * CAN'de ölü oturum eşiği — ardışık ÇEKİRDEK NO_DATA sayısı.
+     *
+     * ── SAHA KÖK NEDENİ (2026-09-13, Renault protokol 7, motor rölantide) ──────────
+     * Poll izi tek bir blok gösterdi: 15 başarılı sorgu → **36 ARDIŞIK NO_DATA**
+     * (~60 sn tam kararma) → sonra tekrar tam başarı. Kararma boyunca HER PID düştü
+     * (010C/010D/0105/010F/0149/014A), yani PID'e özel değildi. Ham içerik temizdi
+     * (literal "NO DATA", prompt görüldü) ve adaptör bize cevap veriyordu — telefon↔
+     * dongle hattı SAĞLAMDI, ölü olan dongle↔araç tarafıydı. Motor kesintisiz çalıştı
+     * (öncesi 858 dev/dk → sonrası 830; su 82→85 °C), yani kontak da kapanmamıştı.
+     *
+     * TOPARLANMAYI ARAÇ DEĞİL BİZ SAĞLADIK: kararmanın sonunda log'da `ATZ` + `ATSP7`
+     * göründü (17:33:04) ve veri 2 sn sonra geri geldi. Yani ELM327 oturumu ölüyor ve
+     * YALNIZ tam re-init diriltiyor. 60 saniyenin sebebi ECU değil, bizim TESPİT
+     * GECİKMEMİZ: KWP/ISO için yazılmış ölü-oturum merdiveni CAN'de HİÇ çalışmıyordu
+     * ({@code noteKwpSessionHealth} ilk satırındaki {@code !isSlowSerialActive()} kapısı)
+     * → CAN'de tek çare yavaş transport watchdog'uydu. KWP'de düzeltilmeden önceki
+     * durumun aynısı ("recovery bu moda TAMAMEN KÖRDÜ ... ~2dk sonra kurtarıyordu").
+     *
+     * ⚠️ 6 ÖLÇÜLMEDİ, SEÇİLDİ. Gerekçe: çekirdek rotasyonda 010D ve 010C HER turda
+     * sorulur, dolayısıyla sağlıklı araçta sayaç sürekli sıfırlanır; 6 ardışık düşüş
+     * ≈ 3 tam tur boyunca TEK BİR başarı yok demektir — gerçekten ölü oturumdur.
+     * KWP'nin 4'ü alınmadı: CAN rotasyonunda araca göre desteklenmeyen PID bulunabilir
+     * (ör. 0111/012F) ve daha düşük eşik boşuna re-init tetikleyebilirdi.
+     * Ölçülen maliyet: NO_DATA başına ~870 ms → kararma ~60 sn yerine ~5 sn.
+     */
+    static final int CAN_DEAD_SESSION_THRESHOLD = 6;
 
     /**
      * Sayaç YALNIZ çekirdek poll PID'lerinde ilerler. EXTENDED keşif PID'leri BİLEREK
@@ -74,6 +111,7 @@ public final class ElmProtocol {
      */
     public String initELM327(String protocol) throws IOException {
         coreNoDataStreak = 0; // taze oturum — kurtarma sayacı sıfırdan
+        canNoDataStreak  = 0; // CAN merdiveni de (ilk bağlantı dahil TÜM init yolları)
         activeProtocol = new ElmInitSequencer(channel).init(protocol);
         return activeProtocol;
     }
@@ -1022,9 +1060,19 @@ public final class ElmProtocol {
     private ElmResponseParser.Result sendAndClassify(String cmd, int timeoutMs, String mode, String pid) {
         boolean core = cmd != null && CORE_MODE01.contains(cmd);
         if (core) coreRequestSeq++;
+        final long _t0 = System.currentTimeMillis();
         try {
             String raw = sendObserved(cmd, timeoutMs);
             ElmResponseParser.Result r = ElmResponseParser.classify(raw, mode, pid);
+            /* TEŞHİS (GEÇİCİ · 2026-09-13): poll döngüsünde HANGİ PID'in ne döndürdüğü
+             * ürün içinden görünmüyordu; "veri neden kesiliyor" sorusu ancak tahminle
+             * cevaplanabiliyordu. Süre de basılır — NO_DATA (hızlı) ile timeout (yavaş)
+             * ayrımı ölçümle yapılsın. Kök neden kapanınca KALDIRILIR. */
+            if (com.cockpitos.pro.BuildConfig.DEBUG) {
+                android.util.Log.i("OBD", "[PollTrace] " + cmd + " -> " + r.kind
+                    + " (" + (System.currentTimeMillis() - _t0) + "ms) raw=\""
+                    + (raw == null ? "<null>" : raw.replace("\r", "\\r").replace("\n", "\\n")) + "\"");
+            }
             // Son BAŞARILI paketin künyesi — durma kaydı "en son ne çalışmıştı"yı söylesin.
             if (core) {
                 if (r.kind == ElmResponseParser.Kind.OK) {
@@ -1048,8 +1096,17 @@ public final class ElmProtocol {
                 }
             }
             noteKwpSessionHealth(cmd, r.kind, raw);
+            noteCanSessionHealth(cmd, r.kind);
             return r;
         } catch (Exception e) {
+            /* TEŞHİS (GEÇİCİ · 2026-09-13) — istisna yolu da görünsün. */
+            if (com.cockpitos.pro.BuildConfig.DEBUG) {
+                android.util.Log.w("OBD", "[PollTrace] " + cmd + " -> EXCEPTION "
+                    + e.getClass().getSimpleName() + " (" + (System.currentTimeMillis() - _t0) + "ms) "
+                    + (e instanceof ElmPromptTimeoutException
+                        ? "partial=\"" + ((ElmPromptTimeoutException) e).partialResponse + "\""
+                        : String.valueOf(e.getMessage())));
+            }
             // SESSİZ EXCEPTION YASAK (P0 saha 2026-07-23): kanal hatası eskiden hiçbir
             // yere yazılmıyordu — "veri neden durdu" sorusu cevapsız kalıyordu.
             if (core) {
@@ -1244,10 +1301,47 @@ public final class ElmProtocol {
             channel.send("ATWS", 1000);           // warm start — soket KAPANMAZ
             String p = initELM327(activeProtocol); // öğrenilmiş protokolle taze init
             coreNoDataStreak = 0;
+            canNoDataStreak  = 0;   // CAN merdiveni de taze oturumdan başlar
             return p != null;
         } catch (Exception e) {
             return false; // fail-soft — TS son çareye (transport reconnect) geçer
         }
+    }
+
+    /**
+     * CAN'de ölü oturum takibi — KWP merdiveninin CAN karşılığı (bkz.
+     * {@link #CAN_DEAD_SESSION_THRESHOLD} yorumundaki saha kök nedeni).
+     *
+     * KWP'den FARKLAR (bilinçli):
+     *  · ATPC GÖNDERİLMEZ — o K-line "protocol close" komutudur, CAN'de karşılığı yok.
+     *    Sahada kararmayı gerçekten bitiren şey ATZ+ATSP idi; o yüzden doğrudan
+     *    {@link #reinitSession()} (ATWS + öğrenilmiş protokolle taze init) çağrılır.
+     *  · {@code KwpRecoveryEvidence} defterine YAZILMAZ (K-line kanıtı kirlenmesin).
+     *  · Yeni timer/thread YOK: karar yalnız mevcut poll yanıtının sınıfından doğar.
+     */
+    private void noteCanSessionHealth(String cmd, ElmResponseParser.Kind kind) {
+        if (cmd == null || !CORE_MODE01.contains(cmd) || !isCanActive()) return;
+        if (kind == ElmResponseParser.Kind.OK) { canNoDataStreak = 0; return; }
+        // Yalnız "ECU sustu" formları sayılır; ELM/soket hataları transport tarafının işi.
+        if (kind != ElmResponseParser.Kind.NO_DATA
+            && kind != ElmResponseParser.Kind.TIMEOUT_PARTIAL) return;
+        if (++canNoDataStreak < CAN_DEAD_SESSION_THRESHOLD) return;
+        canNoDataStreak = 0;
+        try {
+            android.util.Log.w("OBD", "[CanRecover] " + CAN_DEAD_SESSION_THRESHOLD
+                + " ardışık çekirdek NO DATA (protokol=" + activeProtocol
+                + ") → ATWS+reinit (ölü CAN oturumu)");
+        } catch (Throwable ignored) { /* JVM unit test: Log mock yok */ }
+        reinitSession();   // fail-soft: false dönerse TS transport reconnect'e düşer
+    }
+
+    /** Aktif protokol CAN mı ('6'-'9', 'A'-'C')? Yavaş seri / bilinmeyen → false. */
+    private boolean isCanActive() {
+        String p = activeProtocol;
+        if (p == null || p.isEmpty()) return false;
+        char c = Character.toUpperCase(p.charAt(0));
+        return c == '6' || c == '7' || c == '8' || c == '9'
+            || c == 'A' || c == 'B' || c == 'C';
     }
 
     /** Aktif protokol yavaş seri mi (ISO 9141-2 '3' / KWP2000 '4'-'5')? CAN/J1850 → false. */
