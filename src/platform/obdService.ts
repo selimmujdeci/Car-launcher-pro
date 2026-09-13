@@ -19,6 +19,7 @@ import { getConfig, onPerformanceModeChange } from './performanceMode';
 import { runtimeManager }                     from '../core/runtime/AdaptiveRuntimeManager';
 import { logError } from './crashLogger';
 import { probeAdapterIdentity, resetAdapterIdentity } from './obd/adapterIdentityService';
+import { queryCalibrationId } from './obd/calibrationIdService';
 import { useRafSmoothed } from './rafSmoother';
 import { parseBinaryOBDFrame, hasBinaryFrame, clearAccumulatedBuffer } from './obdBinaryParser';
 import {
@@ -3142,6 +3143,18 @@ async function _runConnectAttempt(opts?: { trustBypass?: boolean }): Promise<voi
             result.failedBlock ? `, kirildi@01${result.failedBlock}` : ''})`,
           '→ profil:', profile.name,
           result.supportedPids.has(0x2F) ? '· yakıt(2F) destekli' : '');
+
+        /* Mode 09 PID 04 (Kalibrasyon Kimliği) — el sıkışma zincirinin PARÇASI
+           DEĞİL (native `performHandshakeRaw` bunu taşımaz); AYRI, mevcut genel
+           salt-okunur PDU yolundan (bkz. calibrationIdService.ts üst yorumu) TEK
+           seferlik sorgu. PARALELLEŞTİRİLİR: handshake zincirini bloklamaz,
+           hata fail-soft yutulur (CAL ID okunamaması OBD akışını ETKİLEMEZ). */
+        void queryCalibrationId()
+          .then((r) => {
+            if (_stale()) return;
+            console.info('[OBD:CalId]', r.value ? `CAL ID: ${r.value}` : `okunamadı (${r.outcome})`);
+          })
+          .catch((e: unknown) => logError('OBD:CalibrationId', e));
       })
       .catch((err: unknown) => {
         persistHandshakeVin(null);

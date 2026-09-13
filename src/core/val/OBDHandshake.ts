@@ -532,3 +532,45 @@ export function extractSupportedPidBitmap(raw: RawHandshake): string {
   }
   return out;
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Mode 09 PID 04 — Kalibrasyon Kimliği (CAL ID)
+══════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * SAE J1979 Mode 09 PID 04 (Calibration ID) pozitif yanıtını ayrıştırır.
+ * Çerçeveleme {@link parseVIN} (PID 02) ile AYNI desendir: `49 04 <blokNo>
+ * <ASCII...>` bir ya da birden çok kez tekrarlanabilir (çok-modüllü ECU birden
+ * fazla CAL ID döndürebilir — burada TÜM bloklardaki yazdırılabilir baytlar
+ * sırayla toplanır; ayrı-ayrı modül ayrımı bu görevin kapsamı DIŞINDADIR).
+ *
+ * VIN'den FARKI: sabit 17 karakter ZORUNLULUĞU YOKTUR — CAL ID üreticiye göre
+ * değişken uzunluktadır. Yalnız yazdırılabilir ASCII baytlar toplanır, sondaki
+ * dolgu (boşluk/NUL) kırpılır. Hiçbir uzunluk/karakter seti UYDURULMAZ.
+ */
+export function parseCalibrationId(raw: string | null | undefined): string | null {
+  if (raw == null) return null;
+  const tokens = _hexTokens(raw);
+
+  const startIdx = tokens.findIndex((t, i) => t === '49' && tokens[i + 1] === '04');
+  if (startIdx < 0) return null;
+
+  const bytes: number[] = [];
+  let i = startIdx;
+  while (i < tokens.length) {
+    if (tokens[i] === '49' && tokens[i + 1] === '04') {
+      i += 3; // 49, 04, blokNo/adet atla
+      while (i < tokens.length && !(tokens[i] === '49' && tokens[i + 1] === '04')) {
+        const byte = parseInt(tokens[i]!, 16);
+        if (byte >= 0x20 && byte <= 0x7E) bytes.push(byte); // yazdırılabilir ASCII
+        i++;
+      }
+    } else {
+      i++;
+    }
+  }
+
+  if (bytes.length === 0) return null;
+  const calId = bytes.map((b) => String.fromCharCode(b)).join('').trimEnd();
+  return calId.length > 0 ? calId : null;
+}

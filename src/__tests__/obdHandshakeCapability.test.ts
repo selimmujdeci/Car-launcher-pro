@@ -24,6 +24,7 @@ import {
   buildHandshakeResult,
   classifyHandshakeResponse,
   extractSupportedPidBitmap,
+  parseCalibrationId,
   type RawHandshake,
 } from '../core/val/OBDHandshake';
 import { getPidListForVehicle, refinePidList } from '../platform/obdPidConfig';
@@ -217,5 +218,32 @@ describe('W5-OBD-PR2 · Kalıcı yetenek otoritesi — bitmap hex türetme', () 
     // Devam biti SET (0100 byte D bit0=1) ama 0120 sustu → zincir orada kırıldı.
     const bitmap = extractSupportedPidBitmap({ raw09: '', raw0100: RAW_0100, raw0120: 'NO DATA' });
     expect(bitmap).toBe('BE1FB813'); // yalnız 1 blok (4 bayt = 8 hex hane)
+  });
+});
+
+describe('W5-OBD-PR3 · Mode 09 PID 04 — Kalibrasyon Kimliği (CAL ID)', () => {
+  it('tek bloklu gerçek-benzeri CAL ID doğru ayrıştırılır', () => {
+    // "1037524791013000" → ASCII hex: 31 30 33 37 35 32 34 37 39 31 30 31 33 30 30 30
+    const raw = '49 04 01 31 30 33 37 35 32 34 37 39 31 30 31 33 30 30 30';
+    expect(parseCalibrationId(raw)).toBe('1037524791013000');
+  });
+
+  it('bitişik (ATS0) hex akışında da AYNI sonucu üretir', () => {
+    const raw = '49040131303337353234373931303133303030';
+    expect(parseCalibrationId(raw)).toBe('1037524791013000');
+  });
+
+  it('desteklenmiyorsa null döner, throw etmez', () => {
+    expect(parseCalibrationId('NO DATA')).toBeNull();
+    expect(parseCalibrationId('7F 09 12')).toBeNull();
+    expect(parseCalibrationId('')).toBeNull();
+    expect(parseCalibrationId(null)).toBeNull();
+    expect(parseCalibrationId(undefined)).toBeNull();
+  });
+
+  it('sondaki NUL/boşluk dolgusu kırpılır, sabit uzunluk ZORUNLU DEĞİL', () => {
+    // 16 baytlık blok, "ABC" + 13× 0x00 dolgu — CAL ID üreticiye göre kısa olabilir.
+    const raw = '49 04 01 41 42 43 00 00 00 00 00 00 00 00 00 00 00 00 00';
+    expect(parseCalibrationId(raw)).toBe('ABC');
   });
 });

@@ -43,6 +43,8 @@ export interface VidVehicleInfo {
   model: string | null;
   modelYear: number | null;
   vehicleType: 'ice' | 'diesel' | 'ev' | 'hybrid' | 'phev';
+  /** SAE J1979 Mode 09 PID 04 — ECU kalibrasyon kimliği; sorgulanmadıysa `null`. */
+  calibrationId: string | null;
 }
 
 /** Zero-trust telemetri özeti (güven + sağlık + termal + akıl-yürütme sonuçları). */
@@ -129,6 +131,7 @@ function createInitialSchema(): VehicleIntelligenceSchema {
       model: null,
       modelYear: null,
       vehicleType: 'ice',
+      calibrationId: null,
     },
     telemetry: {
       trustScore: 1.0,
