@@ -22,7 +22,9 @@ export type DiscoverySourceKind =
   | 'standard_pid_bitmap'
   | 'profile_candidate'
   | 'auto_did_cache'
-  | 'repository_recall';
+  | 'repository_recall'
+  /** OEM DISCOVERY FAZ 1: `oem/oemSignalRegistry` kataloğundan gelen adaylar. */
+  | 'oem_catalog';
 
 export interface DiscoveredDataRecord {
   vehicleFingerprint: string;
@@ -45,6 +47,28 @@ export interface DiscoveredDataRecord {
   averageLatencyMs: number;
   recommendedPollClass: PollClass;
   discoverySource: DiscoverySourceKind;
+
+  /* ── OEM DISCOVERY FAZ 1 · EK KANIT ALANLARI (hepsi OPSİYONEL) ───────────
+   * Neden AYRI bir depo açılmadı: aynı araç parmak izi altında AYNI (kind·identifier·
+   * ecuAddress) anahtarına yazılan kayıt zaten budur; ikinci bir kalıcı yetenek
+   * deposu açmak "tek otorite" kuralını bozardı. Alanlar opsiyoneldir → ÖNCEKİ
+   * sürümlerin yazdığı dosyalar OKUNMAYA DEVAM EDER (şema sürümü artırmak gerekmez;
+   * eksik alan `undefined` gelir ve OEM katmanı bunu UNKNOWN sayar — fail-closed). */
+
+  /** `OemSignalId` (kararlı anlam kimliği); OEM kaydı değilse yok. */
+  oemSignalId?: string | null;
+  /** `OemCapabilityState` metni; tanınmayan/eksik değer OEM katmanında UNKNOWN'a düşer. */
+  oemState?: string | null;
+  /** `OemDecoderStatus` metni. */
+  oemDecoderStatus?: string | null;
+  /** Son `capabilityOutcome` sınıfı — durumu neyin ürettiği. */
+  oemLastOutcome?: string | null;
+  /** Son negatif yanıt kodu (7F xx yy → yy). */
+  oemLastNrc?: number | null;
+  /** Son pozitif yanıt anı (ms). */
+  oemLastPositiveAt?: number | null;
+  /** Bu kapsamdaki ardışık kanıt-olmayan (timeout/hat) sonuç sayısı. */
+  oemTimeoutCount?: number;
 }
 
 const KEY_PREFIX = 'obd:discovery:v1:';
@@ -124,6 +148,32 @@ export interface UpsertDiscoveredInput {
   success: boolean;
   recommendedPollClass: PollClass;
   discoverySource: DiscoverySourceKind;
+
+  /** OEM DISCOVERY FAZ 1 — verilmezse mevcut kayıttaki değer KORUNUR (silinmez). */
+  oemSignalId?: string | null;
+  oemState?: string | null;
+  oemDecoderStatus?: string | null;
+  oemLastOutcome?: string | null;
+  oemLastNrc?: number | null;
+  oemLastPositiveAt?: number | null;
+  oemTimeoutCount?: number;
+}
+
+/** OEM alanlarını girdiden alır; verilmeyen alanda önceki kaydı korur (kısmi güncelleme). */
+function mergeOemFields(
+  prev: Partial<DiscoveredDataRecord>,
+  input: UpsertDiscoveredInput,
+): Pick<DiscoveredDataRecord,
+  'oemSignalId' | 'oemState' | 'oemDecoderStatus' | 'oemLastOutcome' | 'oemLastNrc' | 'oemLastPositiveAt' | 'oemTimeoutCount'> {
+  return {
+    oemSignalId:       input.oemSignalId       ?? prev.oemSignalId       ?? null,
+    oemState:          input.oemState          ?? prev.oemState          ?? null,
+    oemDecoderStatus:  input.oemDecoderStatus  ?? prev.oemDecoderStatus  ?? null,
+    oemLastOutcome:    input.oemLastOutcome    ?? prev.oemLastOutcome    ?? null,
+    oemLastNrc:        input.oemLastNrc        ?? prev.oemLastNrc        ?? null,
+    oemLastPositiveAt: input.oemLastPositiveAt ?? prev.oemLastPositiveAt ?? null,
+    oemTimeoutCount:   input.oemTimeoutCount   ?? prev.oemTimeoutCount   ?? 0,
+  };
 }
 
 /**
@@ -163,6 +213,7 @@ export function upsertDiscoveredRecord(
       averageLatencyMs: input.latencyMs,
       recommendedPollClass: input.recommendedPollClass,
       discoverySource: input.discoverySource,
+      ...mergeOemFields({}, input),
     };
     records.push(created);
     saveRecords(fingerprint, records);
@@ -185,6 +236,7 @@ export function upsertDiscoveredRecord(
     averageLatencyMs: prev.averageLatencyMs + (input.latencyMs - prev.averageLatencyMs) / totalReads,
     recommendedPollClass: input.recommendedPollClass,
     discoverySource: input.discoverySource,
+    ...mergeOemFields(prev, input),
   };
   records[idx] = updated;
   saveRecords(fingerprint, records);

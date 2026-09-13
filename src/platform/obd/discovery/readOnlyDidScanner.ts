@@ -41,8 +41,10 @@ export interface DidScannerDeps {
 
 const defaultSleep = (ms: number): Promise<void> => new Promise((resolve) => { setTimeout(resolve, ms); });
 
-/** Ham `readObdDid` yanıtını (PR-CAP-2 kind/nrc kanıtı öncelikli) capabilityOutcome'a çevirir. */
-function classifyReadObdDidResult(r: ReadObdDidResult): CapabilityOutcome {
+/** Ham `readObdDid` yanıtını (PR-CAP-2 kind/nrc kanıtı öncelikli) capabilityOutcome'a çevirir.
+ *  DIŞA AÇIK: OEM keşif koordinatörü de AYNI sınıflandırmayı kullanır — ham yanıtın anlamı
+ *  için ikinci bir otorite oluşmaz. */
+export function classifyReadObdDidResult(r: ReadObdDidResult): CapabilityOutcome {
   if (r.kind === 'NO_DATA') return 'no_data';
   if (r.kind === 'NEG_7F') return classifyNrc(r.nrc ?? -1) ?? 'condition_required';
   if (r.kind === 'OK') return r.data ? 'working' : 'parse_error';
