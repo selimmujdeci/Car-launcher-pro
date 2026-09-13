@@ -451,7 +451,7 @@ export function _setIdentityForTest(id: VehicleIdentityInput, nowMs = Date.now()
   _identity = id;
   _lastIdentitySig = _identitySig({
     vin: id.vin, make: id.make, model: id.model, modelYear: id.modelYear,
-    vehicleType: 'ice',
+    vehicleType: 'ice', calibrationId: null,
   });
   _recompute(nowMs);
 }
