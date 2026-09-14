@@ -10,12 +10,16 @@
  *  1. `VolumeGestureLayer` (App.tsx, window capture) yalnız DİKEY baskın
  *     hareketi ses jesti sayar. Bu model ise YALNIZ YATAY baskın hareketi
  *     kabul eder (`HORIZONTAL_DOMINANCE`) → iki jest eksen olarak ayrıktır.
- *  2. HOME'da jest YALNIZ SAĞ KENAR BANDINDAN başlayabilir. Bu bilinçlidir:
- *     HOME'un ortasında yatay kaydırılabilir listeler (uygulama ızgarası,
- *     müzik kartı) vardır; sayfa jestini ekranın tamamına açmak onları bozardı.
- *     Kenar-başlangıcı, OEM head unit ve Android sistem jestlerinin desenidir.
- *  3. Cockpit sayfasında yatay kaydırılabilir içerik YOKTUR → geri dönüş jesti
- *     ekranın her yerinden başlayabilir.
+ *  2. Jest EKRANIN HER YERİNDEN başlayabilir — hem HOME'da hem Cockpit'te.
+ *     (Önceki sürümde HOME'da yalnız sağ kenar bandı kabul ediliyordu; gerçek
+ *     cihazda kullanıcı ekranın herhangi bir yerinden kaydırmayı BEKLİYOR —
+ *     kenar kısıtı kaldırıldı.) HOME'un İÇİNDE gerçekten yatay kaydırılabilen
+ *     kartlar (dock/carousel, `touch-action:pan-x`) bu jestin kurbanı OLMASIN
+ *     diye kendilerini `data-no-page-swipe` ile İŞARETLER — dışlama DOM
+ *     katmanındadır (`CockpitPager.isBlockedByDom`), bu SAF modülde değil.
+ *  3. YÖN DAYATILMAZ: yatay baskın her iki yön de sayfa jestidir. Sayfanın
+ *     hangi kenardan geleceği jestin yönünden TÜRETİLİR — bkz.
+ *     {@link classifyPageDrag} ve {@link entrySideForDrag}.
  *  4. Harita/çekmece/geri vites gibi tam ekran yüzeyler açıkken jest HİÇ
  *     başlamaz (`blocked`) — karar çağırana aittir, bu model onu yalnız uygular.
  *
@@ -27,11 +31,6 @@ export type CockpitPage = 'home' | 'cockpit';
 /* ══════════════════════════════════════════════════════════════════════════
  * Eşikler
  * ════════════════════════════════════════════════════════════════════════ */
-
-/** HOME'da jestin başlayabileceği sağ kenar bandı — viewport genişliğinin oranı. */
-export const EDGE_BAND_RATIO = 0.22;
-export const EDGE_BAND_MIN_PX = 120;
-export const EDGE_BAND_MAX_PX = 280;
 
 /** Jestin "yatay" sayılması için gereken asgari hareket (px). */
 export const ENGAGE_PX = 14;
@@ -54,25 +53,10 @@ export const FLING_VELOCITY_PX_PER_MS = 0.9;
 export const FLING_MIN_DISTANCE_PX = 60;
 
 /* ══════════════════════════════════════════════════════════════════════════
- * Kenar bandı
- * ════════════════════════════════════════════════════════════════════════ */
-
-/** HOME sağ kenar bandının genişliği (px), sınırlar içinde kırpılmış. */
-export function edgeBandPx(viewportWidth: number): number {
-  if (!Number.isFinite(viewportWidth) || viewportWidth <= 0) return EDGE_BAND_MIN_PX;
-  const raw = viewportWidth * EDGE_BAND_RATIO;
-  return Math.max(EDGE_BAND_MIN_PX, Math.min(EDGE_BAND_MAX_PX, raw));
-}
-
-/* ══════════════════════════════════════════════════════════════════════════
  * 1) Jest başlayabilir mi
  * ════════════════════════════════════════════════════════════════════════ */
 
 export interface PageSwipeBeginInput {
-  readonly page: CockpitPage;
-  /** Dokunmanın başladığı X (px, viewport koordinatı). */
-  readonly startX: number;
-  readonly viewportWidth: number;
   /**
    * Üstte tam ekran bir yüzey var mı (harita · çekmece · geri vites · tiyatro ·
    * uyku). `true` ise jest HİÇ başlamaz — fail-closed.
@@ -80,14 +64,14 @@ export interface PageSwipeBeginInput {
   readonly blocked: boolean;
 }
 
+/**
+ * Jest ekranın HER YERİNDEN başlayabilir — tek koşul üstte bloklayan bir yüzey
+ * olmaması. Belirli bir DOM bölgesinden (harita, form elemanı, gerçekten yatay
+ * kaydırılabilen kart) başlamasını engellemek bu SAF modülün işi DEĞİLDİR;
+ * o karar `CockpitPager.isBlockedByDom`dadır (gerçek DOM/CSS okur, burası okumaz).
+ */
 export function canBeginPageSwipe(i: PageSwipeBeginInput): boolean {
-  if (i.blocked) return false;
-  if (!Number.isFinite(i.startX) || !Number.isFinite(i.viewportWidth)) return false;
-  if (i.viewportWidth <= 0) return false;
-  // Cockpit'te geri dönüş jesti her yerden başlayabilir (yatay içerik yok).
-  if (i.page === 'cockpit') return true;
-  // HOME'da yalnız sağ kenar bandı — iç yatay listeleri bozmamak için.
-  return i.startX >= i.viewportWidth - edgeBandPx(i.viewportWidth);
+  return !i.blocked;
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -109,20 +93,39 @@ export interface PageDragInput {
 }
 
 /**
- * HOME'dan Cockpit'e geçiş SOLA kaydırmadır (dx < 0); Cockpit'ten HOME'a dönüş
- * SAĞA kaydırmadır (dx > 0). Ters yön `rejected`tır — HOME'un solunda bir sayfa
- * YOKTUR ve "lastik" hissi taklit edilmez.
+ * YÖN KISITI YOKTUR — yatay baskın HER hareket sayfa jestidir.
+ *
+ * ── NEDEN (saha dersi, iki tur yanlış tahmin) ─────────────────────────────
+ * Önce "HOME'da SOLA kaydır" seçildi, kullanıcı açamadı; sonra "SAĞA kaydır"a
+ * çevrildi, yine açamadı. Kök sorun yönün KENDİSİ değil, ÜRÜNÜN KULLANICIYA
+ * BİR YÖN DAYATMASIYDI: tek komşu sayfası olan bir kabukta "yanlış yön"
+ * diye bir şey YOKTUR — kullanıcı yatay kaydırdıysa niyeti bellidir.
+ *
+ * Bu yüzden her iki yatay yön de `engaged` sayılır; sayfanın HANGİ KENARDAN
+ * geleceği jestin yönünden TÜRETİLİR (`entrySideForDrag`), böylece parmak
+ * hangi yöne giderse sayfa o yönde akar — ters/"lastik" his oluşmaz.
+ * Dikey baskın hareket hâlâ REDDEDİLİR (ses jesti · scroll dokunulmaz).
  */
 export function classifyPageDrag(i: PageDragInput): PageDragVerdict {
-  const { dx, dy, page } = i;
+  const { dx, dy } = i;
   if (!Number.isFinite(dx) || !Number.isFinite(dy)) return 'rejected';
   const ax = Math.abs(dx);
   const ay = Math.abs(dy);
   if (ax < ENGAGE_PX && ay < ENGAGE_PX) return 'pending';
   // Dikey baskınsa bu bir ses/scroll jestidir — sayfa jesti DEĞİL.
   if (ax < ay * HORIZONTAL_DOMINANCE) return 'rejected';
-  const wantedSign = page === 'home' ? -1 : 1;
-  return Math.sign(dx) === wantedSign ? 'engaged' : 'rejected';
+  return 'engaged';
+}
+
+/** Kokpitin ekrana gireceği kenar. */
+export type CockpitEntrySide = 'right' | 'left';
+
+/**
+ * Parmak SOLA giderse sayfa SAĞDAN girer; SAĞA giderse SOLDAN girer.
+ * Yani içerik her zaman parmağın gittiği yöne akar (doğal sayfa hissi).
+ */
+export function entrySideForDrag(dx: number): CockpitEntrySide {
+  return dx < 0 ? 'right' : 'left';
 }
 
 /* ══════════════════════════════════════════════════════════════════════════

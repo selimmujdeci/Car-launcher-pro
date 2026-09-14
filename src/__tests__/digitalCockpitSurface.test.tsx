@@ -23,8 +23,8 @@ import {
   coolantFill, fuelFill, rpmFill, gearLabel, driveModeLabel,
 } from '../components/cockpit/cockpitDataModel';
 import {
-  canBeginPageSwipe, classifyPageDrag, resolvePageSwipe, commitDistancePx, edgeBandPx,
-  COMMIT_RATIO_PARKED, COMMIT_RATIO_DRIVING,
+  canBeginPageSwipe, classifyPageDrag, resolvePageSwipe, commitDistancePx,
+  entrySideForDrag, COMMIT_RATIO_PARKED, COMMIT_RATIO_DRIVING,
 } from '../components/cockpit/cockpitSwipeModel';
 import { DigitalCockpitScreen } from '../components/cockpit/DigitalCockpitScreen';
 import { COCKPIT_REFERENCE_STATE, COCKPIT_REFERENCE_CLOCK } from './fixtures/cockpitReferenceState';
@@ -239,38 +239,40 @@ describe('ekran — ölçüm yokken hiçbir sayı UYDURMAZ', () => {
 describe('sayfa jesti — mevcut jestlerle çakışmaz, sürüşte kontrollü', () => {
   const VW = 1280;
 
-  it('HOME: jest YALNIZ sağ kenar bandından başlar (iç yatay listeler korunur)', () => {
-    const band = edgeBandPx(VW);
-    expect(canBeginPageSwipe({ page: 'home', startX: VW - 5, viewportWidth: VW, blocked: false })).toBe(true);
-    expect(canBeginPageSwipe({ page: 'home', startX: VW - band + 2, viewportWidth: VW, blocked: false })).toBe(true);
-    expect(canBeginPageSwipe({ page: 'home', startX: VW / 2, viewportWidth: VW, blocked: false })).toBe(false);
-    expect(canBeginPageSwipe({ page: 'home', startX: 10, viewportWidth: VW, blocked: false })).toBe(false);
-  });
-
-  it('Cockpit: geri dönüş jesti her yerden başlayabilir', () => {
-    expect(canBeginPageSwipe({ page: 'cockpit', startX: 12, viewportWidth: VW, blocked: false })).toBe(true);
+  it('jest EKRANIN HER YERİNDEN başlayabilir — hem HOME hem Cockpit (saha talebi)', () => {
+    expect(canBeginPageSwipe({ blocked: false })).toBe(true);
+    // Sabit kenar bandı YOK: tek koşul üstte bloklayan bir yüzeyin olmaması.
   });
 
   it('tam ekran yüzey açıkken (blocked) jest HİÇ başlamaz', () => {
-    expect(canBeginPageSwipe({ page: 'home', startX: VW - 5, viewportWidth: VW, blocked: true })).toBe(false);
-    expect(canBeginPageSwipe({ page: 'cockpit', startX: 400, viewportWidth: VW, blocked: true })).toBe(false);
+    expect(canBeginPageSwipe({ blocked: true })).toBe(false);
   });
 
   it('DİKEY baskın hareket reddedilir — ses jestiyle (VolumeGestureLayer) çakışmaz', () => {
-    expect(classifyPageDrag({ page: 'home', dx: -20, dy: -90 })).toBe('rejected');
-    expect(classifyPageDrag({ page: 'home', dx: -20, dy: 60 })).toBe('rejected');
+    expect(classifyPageDrag({ page: 'home', dx: 20, dy: -90 })).toBe('rejected');
+    expect(classifyPageDrag({ page: 'home', dx: 20, dy: 60 })).toBe('rejected');
     // Yatay baskınlık sağlanınca kabul edilir.
-    expect(classifyPageDrag({ page: 'home', dx: -80, dy: 20 })).toBe('engaged');
+    expect(classifyPageDrag({ page: 'home', dx: 80, dy: 20 })).toBe('engaged');
   });
 
-  it('ters yön reddedilir (HOME\'un solunda sayfa YOK)', () => {
-    expect(classifyPageDrag({ page: 'home', dx: 90, dy: 5 })).toBe('rejected');
-    expect(classifyPageDrag({ page: 'cockpit', dx: -90, dy: 5 })).toBe('rejected');
+  it('YÖN DAYATILMAZ: HOME\'da her iki yatay yön de sayfa jestidir', () => {
+    // Saha dersi: önce SOLA, sonra SAĞA dayatıldı; ikisinde de kullanıcı açamadı.
+    expect(classifyPageDrag({ page: 'home', dx: -90, dy: 5 })).toBe('engaged');
+    expect(classifyPageDrag({ page: 'home', dx: 90, dy: 5 })).toBe('engaged');
+  });
+
+  it('Cockpit\'te de her iki yatay yön HOME\'a döndürür', () => {
     expect(classifyPageDrag({ page: 'cockpit', dx: 90, dy: 5 })).toBe('engaged');
+    expect(classifyPageDrag({ page: 'cockpit', dx: -90, dy: 5 })).toBe('engaged');
+  });
+
+  it('giriş kenarı jestten TÜRETİLİR — içerik parmağın gittiği yöne akar', () => {
+    expect(entrySideForDrag(-120)).toBe('right'); // parmak sola → sayfa sağdan
+    expect(entrySideForDrag(120)).toBe('left');   // parmak sağa → sayfa soldan
   });
 
   it('küçük hareket kararsızdır (normal dokunuşlar UI\'ya gider)', () => {
-    expect(classifyPageDrag({ page: 'home', dx: -6, dy: 3 })).toBe('pending');
+    expect(classifyPageDrag({ page: 'home', dx: 6, dy: 3 })).toBe('pending');
   });
 
   it('SÜRÜŞTE eşik park hâlinden BELİRGİN yüksektir (yanlışlıkla geçiş olmaz)', () => {
@@ -280,26 +282,26 @@ describe('sayfa jesti — mevcut jestlerle çakışmaz, sürüşte kontrollü', 
     expect(driving).toBeCloseTo(VW * COMMIT_RATIO_DRIVING, 5);
     expect(driving).toBeGreaterThan(parked * 1.5);
 
-    // Park hâlinde geçen mesafe sürüşte GEÇMEZ.
-    const dx = -(parked + 10);
+    // Park hâlinde geçen mesafe sürüşte GEÇMEZ. (HOME → sağa kaydırma: dx > 0.)
+    const dx = parked + 10;
     expect(resolvePageSwipe({ page: 'home', dx, viewportWidth: VW, isDriving: false }).committed).toBe(true);
     expect(resolvePageSwipe({ page: 'home', dx, viewportWidth: VW, isDriving: true }).committed).toBe(false);
   });
 
   it('hızlı fırlatma kabul edilir ama titreme (çok kısa yol) kabul EDİLMEZ', () => {
     const fling = resolvePageSwipe({
-      page: 'home', dx: -90, viewportWidth: VW, isDriving: true, velocityPxPerMs: 1.4,
+      page: 'home', dx: 90, viewportWidth: VW, isDriving: true, velocityPxPerMs: 1.4,
     });
     expect(fling.committed).toBe(true);
     const jitter = resolvePageSwipe({
-      page: 'home', dx: -20, viewportWidth: VW, isDriving: false, velocityPxPerMs: 3,
+      page: 'home', dx: 20, viewportWidth: VW, isDriving: false, velocityPxPerMs: 3,
     });
     expect(jitter.committed).toBe(false);
   });
 
   it('kabul edilen jest doğru hedefe gider', () => {
-    expect(resolvePageSwipe({ page: 'home', dx: -600, viewportWidth: VW, isDriving: false }).target).toBe('cockpit');
-    expect(resolvePageSwipe({ page: 'cockpit', dx: 600, viewportWidth: VW, isDriving: false }).target).toBe('home');
+    expect(resolvePageSwipe({ page: 'home', dx: 600, viewportWidth: VW, isDriving: false }).target).toBe('cockpit');
+    expect(resolvePageSwipe({ page: 'cockpit', dx: -600, viewportWidth: VW, isDriving: false }).target).toBe('home');
   });
 });
 
@@ -321,6 +323,55 @@ describe('HOME dokunulmazlığı — bağımlılık TEK YÖNLÜ', () => {
       'src/components/themes/ExpeditionLayout.tsx',
     ]) {
       expect(readSrc(f), `${f} kokpite bağlanmamalı`).not.toMatch(/components\/cockpit/);
+    }
+  });
+
+  it('gerçekten yatay kaydırılabilen HOME kartları data-no-page-swipe ile korunur (jest artık her yerden başlıyor)', () => {
+    // Kenar bandı kısıtı kaldırıldığı için dock/carousel'lerin `touch-action:pan-x`
+    // kaydırması sayfa jestine kurban gitmesin.
+    for (const f of [
+      'src/components/layout/DockBar.tsx',
+      'src/components/themes/TeslaLayout.tsx',
+      'src/components/themes/ProLayout.tsx',
+      'src/components/themes/HorizonLayout.tsx',
+      'src/components/themes/ExpeditionLayout.tsx',
+    ]) {
+      expect(readSrc(f), `${f} touch-action:pan-x kaydırıcısı data-no-page-swipe taşımalı`)
+        .toMatch(/data-no-page-swipe/);
+    }
+  });
+
+  it('DrawerShell KULLANMAYAN düşük z-index tam ekran yüzeyler data-no-page-swipe ile korunur (saha bulgusu)', () => {
+    // FullMapView (z=50) · SplitScreen (z=60) · RearViewCamera (z=90) kendi
+    // z-index'lerini yönetir ve `isBlockedByDom`'un z≥900 taramasından KAÇAR.
+    // ÖLÇÜLDÜ: tam ekran navigasyonun manevra kartı üzerinden başlayan bir
+    // kaydırma, bu öznitelik olmadan sayfa jestine kurban gidiyordu.
+    for (const f of [
+      'src/components/map/FullMapView.tsx',
+      'src/components/split/SplitScreen.tsx',
+      'src/components/camera/RearViewCamera.tsx',
+    ]) {
+      expect(readSrc(f), `${f} düşük z-index'li kökü data-no-page-swipe taşımalı`)
+        .toMatch(/data-no-page-swipe/);
+    }
+  });
+
+  it('mini harita ve alt dock kökü sayfa jestinden MUAF (kullanıcı haritayı sağa-sola çekebilmeli)', () => {
+    // Saha talebi: harita üstünde yatay çekme = harita pan; dock üstünde = dock kaydırma.
+    // Sayfa jesti yalnız bu iki yüzeyin DIŞINDA çalışır.
+    expect(readSrc('src/components/map/MiniMapWidget.tsx'), 'mini harita kökü data-no-page-swipe taşımalı')
+      .toMatch(/data-no-page-swipe/);
+
+    const dockRoots: Array<[string, RegExp]> = [
+      ['src/components/layout/DockBar.tsx', /data-dock="main"[^>]*data-no-page-swipe|data-no-page-swipe[^>]*data-dock="main"/],
+      ['src/components/themes/ProLayout.tsx', /data-editable="pro\.dock"[^>]*data-no-page-swipe/],
+      ['src/components/themes/TeslaLayout.tsx', /data-editable="tesla\.dock"[^>]*data-no-page-swipe/],
+      ['src/components/themes/HorizonLayout.tsx', /data-editable="horizon\.dock"[^>]*data-no-page-swipe/],
+      ['src/components/themes/ExpeditionLayout.tsx', /data-editable="expedition\.dock"[^>]*data-no-page-swipe/],
+    ];
+    for (const [f, re] of dockRoots) {
+      expect(readSrc(f), `${f} dock KÖKÜ data-no-page-swipe taşımalı (yalnız iç kaydırıcı yetmez)`)
+        .toMatch(re);
     }
   });
 

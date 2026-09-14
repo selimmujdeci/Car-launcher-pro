@@ -688,7 +688,7 @@ const DockScrollZone = memo(function DockScrollZone({ children }: { children: Re
     if (drag.current.moved) { e.stopPropagation(); e.preventDefault(); drag.current.moved = false; }
   };
   return (
-    <div ref={ref} className="ex-dock-scroll"
+    <div ref={ref} className="ex-dock-scroll" data-no-page-swipe
       onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerLeave={onPointerUp} onClickCapture={onClickCapture}
       style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'stretch', overflowX: 'auto', overflowY: 'hidden', scrollSnapType: 'x proximity', scrollbarWidth: 'none', msOverflowStyle: 'none', cursor: 'grab', touchAction: 'pan-x', WebkitOverflowScrolling: 'touch', overscrollBehaviorX: 'contain' }}>
       {children}
@@ -710,7 +710,7 @@ const ExpeditionDock = memo(function ExpeditionDock({ onOpenMap, onOpenApps, onO
   // kaydırınca diğerleri gelir. Ortadaki pusula ve metal şerit aynen korunur.
   return (
     <div style={{ position: 'relative', flex: '0 0 auto', height: 124 }}>
-      <div data-editable="expedition.dock" data-editable-type="dock" style={{ ...plateStyle(p), position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, display: 'flex', alignItems: 'stretch', overflow: 'hidden' }}>
+      <div data-editable="expedition.dock" data-editable-type="dock" data-no-page-swipe style={{ ...plateStyle(p), position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, display: 'flex', alignItems: 'stretch', overflow: 'hidden' }}>
         <Rivets />
         {/* Sol grup — kaydırılabilir */}
         <DockScrollZone>

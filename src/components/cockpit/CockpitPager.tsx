@@ -27,6 +27,20 @@
  * Geri vites · tiyatro · uyku · tam ekran harita/çekmece açıkken jest HİÇ
  * başlamaz. Geri vites devreye girerse kokpit ANINDA HOME'a döner (kamera
  * önceliği mutlaktır).
+ *
+ * ── JEST: NE KENAR KISITI NE YÖN KISITI (saha düzeltmesi) ─────────────────
+ * Jest EKRANIN HER YERİNDEN ve HER İKİ YATAY YÖNDEN başlar. İkisi de saha
+ * dersidir: önce "yalnız sağ kenar bandı" kısıtı kondu (kullanıcı açamadı),
+ * sonra "yalnız SOLA" ve ardından "yalnız SAĞA" yön dayatıldı (yine açamadı).
+ * Tek komşu sayfası olan bir kabukta "yanlış yön" YOKTUR: kullanıcı yatay
+ * kaydırdıysa niyeti bellidir. Sayfanın hangi kenardan geleceği jestin
+ * yönünden TÜRETİLİR (`entrySideForDrag`) — parmak sola giderse sayfa sağdan,
+ * sağa giderse soldan gelir; ters/"lastik" his oluşmaz.
+ *
+ * Dikey baskın hareket hâlâ REDDEDİLİR (ses jesti/scroll dokunulmaz) ve
+ * gerçekten yatay kaydırılabilen HOME kartları (dock/carousel) ile düşük
+ * z-index'li tam ekran yüzeyler `data-no-page-swipe` ile korunur
+ * (`isBlockedByDom`) — kenar kısıtı olmadığı için bu tek koruma kaldı.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -34,8 +48,8 @@ import { useStore } from '../../store/useStore';
 import { useSystemStore } from '../../store/useSystemStore';
 import { DigitalCockpitPage } from './DigitalCockpitPage';
 import {
-  canBeginPageSwipe, classifyPageDrag, resolvePageSwipe,
-  type CockpitPage,
+  canBeginPageSwipe, classifyPageDrag, resolvePageSwipe, entrySideForDrag,
+  type CockpitPage, type CockpitEntrySide,
 } from './cockpitSwipeModel';
 
 /** Sayfa oturma animasyonu — akıcı ama ağır değil (OEM hissi). */
@@ -54,14 +68,36 @@ const COCKPIT_Z = 9600;
 
 /**
  * Dokunuşun başladığı nokta HOME'un normal içeriğinde mi, yoksa üstte duran
- * bir yüzeyde mi? Harita tuvali ve kaydırılabilir/etkileşimli öğeler de burada
- * elenir — böylece mevcut hiçbir jest bozulmaz.
+ * bir yüzeyde mi? Jest artık EKRANIN HER YERİNDEN başlayabildiği için (kenar
+ * bandı kısıtı kaldırıldı — saha talebi) bu fonksiyon TEK savunma hattıdır ve
+ * İKİ mekanizma kullanır (blanket `canvas` kuralı KALDIRILDI — bkz. gövdedeki
+ * not: mini harita tuvali HOME'un merkezini kapladığı için o kural jestin
+ * gerçek parmakla hiç çalışmamasının kök nedeniydi):
+ *   1. `data-no-page-swipe` — GERÇEKTEN yatay kaydırılabilen dock/carousel'ler
+ *      VE kendi z-index'i düşük tam-ekran yüzeyler (FullMapView z=50,
+ *      SplitScreen z=60, RearViewCamera z=90 — bunlar `DrawerShell` ARACILIĞIYLA
+ *      açılmaz, kendi z-index'lerini yönetirler, bu yüzden aşağıdaki z≥900
+ *      taraması onları YAKALAMAZ; ÖLÇÜLDÜ saha bulgusu: tam ekran navigasyonun
+ *      "Yol sonunda dönün" kartı üzerinden başlayan bir kaydırma, dışlama
+ *      olmadan sayfa jestine kurban gidiyordu).
+ *   2. z≥900 sabit ata taraması (aşağıda) — `DrawerShell` tabanlı ÇEKMECELER
+ *      (apps/music/phone/settings/climate/… — hepsi z-1000/z-9999) ve
+ *      `AddressNavCard` (z-9500) bununla yakalanır.
  */
 function isBlockedByDom(target: EventTarget | null): boolean {
   if (!(target instanceof Element)) return false;
-  // Harita etkileşimini ASLA bozma.
-  if (target.closest('.maplibregl-canvas, .maplibregl-map, canvas')) return true;
-  // Açıkça dışlanmak isteyen öğeler (ileride bir bileşen kendini korumak isterse).
+  /* ── TEK KAPI: `data-no-page-swipe` (saha kararı) ────────────────────────
+   * Blanket `canvas` kuralı KALDIRILDI: jestin gerçek parmakla hiç
+   * çalışmamasının kök nedeni oydu (sentetik testler `window`a olay
+   * gönderdiği için bu kapıyı hiç görmüyordu).
+   *
+   * Yerine AÇIK işaretleme kullanılır. Sayfa jestinden muaf yüzeyler:
+   *   · mini harita (`MiniMapWidget` kökü) — kullanıcı haritayı sağa/sola pan
+   *     edebilmeli; sayfa jesti haritayı çalmaz,
+   *   · alt dock kökü (`DockBar` + 4 tema dock'u) — yatay dock kaydırması,
+   *   · tam ekran harita / split / kamera kökleri,
+   *   · metin girişi ve slider'lar.
+   * Bunların DIŞINDA kalan her yerden yatay kaydırma sayfayı değiştirir. */
   if (target.closest('[data-no-page-swipe]')) return true;
   // Metin girişi / kaydırıcı üzerinde sayfa jesti olmaz.
   if (target.closest('input, textarea, select, [role="slider"], [contenteditable="true"]')) return true;
@@ -86,6 +122,13 @@ export function CockpitPager() {
   const [mounted, setMounted] = useState(false);
   /** Sürükleme sırasındaki anlık kayma (px). `null` = sürükleme yok. */
   const [dragDx, setDragDx] = useState<number | null>(null);
+  /**
+   * Kokpitin ekrana HANGİ KENARDAN gireceği — jestin yönünden TÜRETİLİR.
+   * Kullanıcıya yön DAYATILMAZ (iki tur yanlış tahminin dersi): parmak sola
+   * giderse sayfa sağdan, sağa giderse soldan gelir; içerik her zaman parmağın
+   * gittiği yöne akar.
+   */
+  const [entrySide, setEntrySide] = useState<CockpitEntrySide>('right');
 
   const isReverse = useSystemStore((s) => s.isReverseActive);
   const isTheater = useSystemStore((s) => s.isTheaterModeActive);
@@ -128,9 +171,7 @@ export function CockpitPager() {
   useEffect(() => {
     const onDown = (e: PointerEvent) => {
       if (g.current.active) return;
-      if (blocked) return;
-      const vw = window.innerWidth || 1;
-      if (!canBeginPageSwipe({ page, startX: e.clientX, viewportWidth: vw, blocked: false })) return;
+      if (!canBeginPageSwipe({ blocked })) return;
       if (isBlockedByDom(e.target)) return;
       g.current = {
         active: true, engaged: false, pointerId: e.pointerId,
@@ -149,12 +190,21 @@ export function CockpitPager() {
 
       if (!st.engaged) {
         st.engaged = true;
+        /* Giriş kenarı YALNIZ jest devreye girerken, HOME'dayken belirlenir;
+           tur ortasında değişmez (sayfa zıplamaz). */
+        if (page === 'home') setEntrySide(entrySideForDrag(dx));
         if (!mounted) setMounted(true);
       }
       st.dx = dx;
       setDragDx(dx);
-      /* Jest DOĞRULANDIKTAN sonra altdaki UI'ya sızmasın (yanlış tıklama yok). */
+      /* ── JEST DOĞRULANDIKTAN SONRA OLAYI SAHİPLEN ────────────────────────
+       * `stopPropagation` ŞART: dinleyiciler CAPTURE fazındadır, yani olay
+       * hedefe (ör. MapLibre tuvali) İNMEDEN önce buradan geçer. Yalnız
+       * yatay baskınlık KANITLANDIKTAN sonra durdururuz — o ana kadar tüm
+       * dokunuşlar (harita pan/zoom, dikey kaydırma, butonlar) normal
+       * çalışır. Bu, `VolumeGestureLayer`ın kullandığı desenin AYNISIDIR. */
       e.preventDefault();
+      e.stopPropagation();
     };
 
     const onUp = (e: PointerEvent) => {
@@ -162,17 +212,47 @@ export function CockpitPager() {
       if (!st.active || e.pointerId !== st.pointerId) return;
       endDrag(true);
     };
-    const onCancel = () => { if (g.current.active) endDrag(false); };
+    /* ── POINTERCANCEL: NİYETİ ATMA (saha bulgusu) ──────────────────────
+     * Harita gibi kendi dokunma akışını süren bileşenler devreye girince
+     * tarayıcı bize `pointercancel` gönderip pointer akışını KESER. Eskiden
+     * bunu `endDrag(false)` ile çöpe atıyorduk — yani harita üzerinden
+     * başlayan kaydırma, mesafe yeterli olsa bile sessizce DÜŞÜYORDU.
+     * Jest zaten DEVREYE GİRDİYSE karar normal bırakma gibi verilir
+     * (eşik/hız kapısı `resolvePageSwipe`te AYNEN uygulanır). */
+    const onCancel = () => {
+      const st = g.current;
+      if (!st.active) return;
+      endDrag(st.engaged);
+    };
 
-    window.addEventListener('pointerdown', onDown, { passive: true });
-    window.addEventListener('pointermove', onMove, { passive: false });
-    window.addEventListener('pointerup', onUp, { passive: true });
-    window.addEventListener('pointercancel', onCancel, { passive: true });
+    /* ── DOKUNMA AKIŞINI DA SAHİPLEN ────────────────────────────────────
+     * MapLibre pointer DEĞİL **touch** olaylarını dinler; pointer akışını
+     * durdurmak onu durdurmaz. Jest doğrulandıktan SONRA touch akışını da
+     * capture fazında keseriz: hem native kaydırma (ve onun tetiklediği
+     * `pointercancel`) engellenir, hem harita altta kaymaz. Jest devreye
+     * girmeden HİÇBİR touch olayına dokunulmaz — harita pan/zoom ve
+     * dikey kaydırma aynen çalışır. */
+    const onTouchMove = (e: TouchEvent) => {
+      if (!g.current.engaged) return;
+      if (e.cancelable) e.preventDefault();
+      e.stopPropagation();
+    };
+
+    /* CAPTURE fazı: olay hedefe (MapLibre tuvali vb.) inmeden BURADAN geçer;
+       jest doğrulanınca `stopPropagation` ile sahiplenebilelim diye şart. */
+    const capPassive: AddEventListenerOptions = { capture: true, passive: true };
+    const capActive: AddEventListenerOptions = { capture: true, passive: false };
+    window.addEventListener('pointerdown', onDown, capPassive);
+    window.addEventListener('pointermove', onMove, capActive);
+    window.addEventListener('pointerup', onUp, capPassive);
+    window.addEventListener('pointercancel', onCancel, capPassive);
+    window.addEventListener('touchmove', onTouchMove, capActive);
     return () => {
-      window.removeEventListener('pointerdown', onDown);
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
-      window.removeEventListener('pointercancel', onCancel);
+      window.removeEventListener('pointerdown', onDown, capPassive);
+      window.removeEventListener('pointermove', onMove, capActive);
+      window.removeEventListener('pointerup', onUp, capPassive);
+      window.removeEventListener('pointercancel', onCancel, capPassive);
+      window.removeEventListener('touchmove', onTouchMove, capActive);
     };
   }, [page, blocked, mounted, endDrag]);
 
@@ -189,12 +269,18 @@ export function CockpitPager() {
 
   if (!mounted) return null;
 
-  /* Kapalıyken ekranın SAĞINDA bekler; açıkken 0. Sürükleme anlık kaymayı ekler. */
-  const restPct = page === 'cockpit' ? 0 : 100;
+  /* Kapalıyken jestin geldiği KENARDA bekler (sağ: +100% · sol: -100%);
+     açıkken 0. Sürükleme anlık kaymayı ekler ve kırpma o kenara göre yapılır —
+     böylece parmak hangi yöne giderse sayfa o yönde akar. */
+  const closedPct = entrySide === 'right' ? 100 : -100;
+  const restPct = page === 'cockpit' ? 0 : closedPct;
   const dragging = dragDx !== null;
   const vw = typeof window !== 'undefined' ? (window.innerWidth || 1) : 1;
   const dragPct = dragging ? (dragDx / vw) * 100 : 0;
-  const translatePct = Math.max(0, Math.min(100, restPct + dragPct));
+  const raw = restPct + dragPct;
+  const translatePct = entrySide === 'right'
+    ? Math.max(0, Math.min(100, raw))
+    : Math.max(-100, Math.min(0, raw));
   const open = page === 'cockpit';
 
   return (

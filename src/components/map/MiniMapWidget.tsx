@@ -950,7 +950,8 @@ export const MiniMapWidget = memo(function MiniMapWidget({
    * `--z-map-chip` gibi) ayrı bir tasarım kararıdır ve bilinçli olarak bu
    * turun DIŞINDADIR. */
   return (
-    <div className="w-full h-full min-h-0 min-w-0 glass-card flex flex-col overflow-hidden relative border-none !shadow-none">
+    <div data-no-page-swipe
+      className="w-full h-full min-h-0 min-w-0 glass-card flex flex-col overflow-hidden relative border-none !shadow-none">
       {/* Ambient glow */}
       <div className="absolute -top-12 -left-12 w-32 h-32 bg-[#E0A23C]/[0.05] rounded-full blur-[40px] pointer-events-none" />
 

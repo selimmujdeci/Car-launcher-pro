@@ -1910,6 +1910,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
 
   return (
     <div ref={outerDivRef} data-theme-surface="nav" data-editable="nav.screen" data-editable-type="panel"
+      data-no-page-swipe
       className="fixed inset-0 glass-card border-none !shadow-none z-[var(--z-map-surface)]">
       {/* ═══ #529 · KONUM BAYAT ROZETİ (vizyon §7.9 Katman 6: ekranda dürüstlük) ═══
           Konum bayatken harita BUNU SÖYLER; akıcı animasyonla taze veri varmış

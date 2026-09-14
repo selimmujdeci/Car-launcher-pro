@@ -210,6 +210,7 @@ export const RearViewCamera = memo(function RearViewCamera({ onClose }: RearView
     <div
       ref={containerRef}
       data-theme-surface="camera" data-editable="camera.screen" data-editable-type="panel"
+      data-no-page-swipe
       className="fixed inset-0 z-[90] bg-black flex flex-col items-center justify-center"
     >
       {/* Video */}

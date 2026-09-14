@@ -237,6 +237,7 @@ export const SplitScreen = memo(function SplitScreen({ onClose }: SplitScreenPro
   return (
     <div
       data-theme-surface="split" data-editable="split.screen" data-editable-type="panel"
+      data-no-page-swipe
       className="fixed inset-0 z-[60] flex flex-col"
       style={{
         background:
