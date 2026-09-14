@@ -963,7 +963,27 @@ export async function scanAllEcus(
        ikisi de kapsam paydasında ayrı sınıftır (`deferred` → skipped,
        `not_addressable` → not_addressable), aksi halde kısmi bir tur %100
        kapsam gibi görünürdü. */
-    if (deferredKeys.has(key) || notAddressableKeys.has(key)) continue;
+    if (deferredKeys.has(key)) continue;
+    /* P0-OBD-UX-DTC-FIX — TEK REACHABILITY OTORİTESİ ÜST ÖZETİ EZER.
+     * ÖLÇÜLEN ÇELİŞKİ: `notAddressableKeys` yalnız DAR bir fiziksel probun
+     * (standart Mode 03/07/0A + KWP oturum/adresleme matrisi) sonucuna
+     * bakıyordu — satırın ZATEN kullandığı `isEcuReachable` (fonksiyonel
+     * `probeOutcome==='responded'` veya herhangi bir DTC alt-servisinin
+     * 'ok'/'unsupported' dönmesi) HİÇ SORULMUYORDU. Sonuç: bir ECU satırda
+     * "erişilebilir" derken üst özet AYNI ECU'yu "ULAŞILAMADI" sayıyordu —
+     * aynı kanıt zincirinden iki çelişkili hüküm.
+     *
+     * DÜZELTME: bu ECU dar probla `notAddressableKeys`e girmiş olsa bile,
+     * TEK otorite (`isEcuReachable`) onu erişilebilir sayıyorsa buradan
+     * ÇIKARILIR — "03/07/0A yanıtsız" artık "ECU ulaşılamadı" ANLAMINA
+     * gelmez, yalnız DTC taramasının kısmi kaldığı ANLAMINA gelir
+     * (bkz. `isEcuDtcScanPartial`, satır rozetinde AYRICA gösterilir).
+     * Otorite de erişilemez diyorsa (gerçekten hiç fiziksel/fonksiyonel
+     * kanıt yok) ECU `notAddressableKeys`te KALIR — davranış DEĞİŞMEZ. */
+    if (notAddressableKeys.has(key) && isEcuReachable(r)) {
+      notAddressableKeys.delete(key);
+    }
+    if (notAddressableKeys.has(key)) continue;
     const endpoint = classifyEcuCoverageStatus(r);
     if (endpoint === 'scanned') scannedKeys.add(key);
     else if (endpoint === 'failed') failedKeys.add(key);

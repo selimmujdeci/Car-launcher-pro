@@ -178,9 +178,27 @@ describe('P0-OBD-FINAL-01 · ölçülen sonuç ve ham yanıt', () => {
 
     const report = await scanAllEcus(twoEcuTopology());
     const obs = getEcuObservations();
+    /* GRANÜLER fiziksel-prob kanıtı (LAB/tanı katmanı) DEĞİŞMEDİ: 7E9 standart
+       Mode 03/07/0A'ya fiziksel olarak sessiz kaldı — bu ÖLÇÜM aynen doğru. */
     expect(obs.find((o) => o.rxHeader === '7E8')?.addressability).toBe('PROVEN');
     expect(obs.find((o) => o.rxHeader === '7E9')?.addressability).toBe('NOT_ADDRESSABLE');
+    /* ── P0-OBD-UX-DTC-FIX (DÜZELTME — eski beklenti ÇELİŞKİYİ kilitliyordu) ──
+     * `twoEcuTopology()` HER İKİ ECU'yu da FONKSİYONEL 0100 yanıtından kurar
+     * (`buildTopology` → `probeOutcome:'responded'`); yani 7E9 de tıpkı 7E8
+     * gibi FONKSİYONEL olarak kanıtlıdır, yalnız fiziksel Mode 03/07/0A'ya
+     * sessiz kalmıştır. Eski beklenti (`na.toHaveLength(1)`) bu ECU'yu üst
+     * özette "ULAŞILAMADI" sayıyordu — TAM OLARAK saha bulgusundaki çelişki
+     * (satır "erişilebilir" derken özet "ULAŞILAMADI" diyordu). Artık TEK
+     * otorite (`isEcuReachable`) 7E9'u erişilebilir sayar ve üst özet
+     * `notAddressable`e HİÇ girmez; 7E9 'probed' durumuna düşer (kanıt
+     * kaybolmaz, yalnız "ULAŞILAMADI" YANLIŞ etiketi kalkar). */
+    expect(report.completeness.notAddressable).toBe(0);
     const na = report.completeness.evidence.filter((e) => e.status === 'not_addressable');
-    expect(na).toHaveLength(1);
+    expect(na).toHaveLength(0);
+    /* Kesin durum (scanned/probed) bu testte UDS mock'unun yan etkisidir
+       (0x19 "unsupported" de erişilebilirlik kanıtıdır — isEcuReachable
+       kuralı); asıl iddia yalnız 'not_addressable' OLMADIĞIdır. */
+    expect(report.completeness.evidence.find((e) => e.rxHeader.includes('7E9'))?.status)
+      .not.toBe('not_addressable');
   });
 });
