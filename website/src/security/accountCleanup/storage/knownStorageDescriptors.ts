@@ -186,6 +186,20 @@ const DESCRIPTORS: readonly AccountScopedStorageDescriptor[] = [
     description: 'Legacy vehicle speed alert configuration.',
   },
   {
+    id: 'active-vehicle-preference',
+    backend: 'LOCAL_STORAGE',
+    scope: 'ACCOUNT_VEHICLE',
+    sensitivity: 'PREFERENCE',
+    cleanupPolicies: ['PURGE_ON_LOGOUT', 'PURGE_ON_ACCOUNT_SWITCH'],
+    physicalKey: 'caros_active_vehicle_id',
+    namespaceVersion: 1,
+    ownerRequirements: { accountId: true, vehicleId: true },
+    verifyStrategy: 'KEY_ABSENT',
+    valueFormat: 'OPAQUE',
+    description: 'Last-selected active vehicle UX hint for multi-vehicle Kumanda — ' +
+      'never an authorization target; re-validated against the paired vehicle list on every read.',
+  },
+  {
     id: 'device-theme',
     backend: 'LOCAL_STORAGE',
     scope: 'GLOBAL_DEVICE',

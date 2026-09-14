@@ -36,7 +36,14 @@ function baseVehicle(over: Partial<LiveVehicle> = {}): LiveVehicle {
 }
 
 function render(v: LiveVehicle): string {
-  return renderToStaticMarkup(<MobileCarControl vehicle={v} />);
+  return renderToStaticMarkup(
+    <MobileCarControl
+      vehicle={v}
+      vehicles={[v]}
+      onSelectVehicle={() => {}}
+      onAddVehicle={() => {}}
+    />,
+  );
 }
 
 /**

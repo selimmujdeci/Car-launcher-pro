@@ -10,7 +10,13 @@ import { useCommandTracker } from '@/hooks/useCommandTracker';
 import type { CmdPhase, CommandResult } from '@/hooks/useCommandTracker';
 import type { CommandType, RoutePayload } from '@/lib/commandService';
 
-interface Props { vehicle: LiveVehicle | null }
+interface Props {
+  vehicle:          LiveVehicle | null;
+  /** Kullanıcının TÜM eşleştirilmiş araçları — selector listesi için. */
+  vehicles:         LiveVehicle[];
+  onSelectVehicle:  (id: string) => void;
+  onAddVehicle:     () => void;
+}
 
 type NavProvider = RoutePayload['provider_intent'];
 
@@ -852,10 +858,124 @@ const TelemetryTile = memo(function TelemetryTile({
   );
 });
 
+/* ── Vehicle selector (bottom sheet) ────────────────────────────────────────── */
+
+function StatusPill({ status }: { status: LiveVehicle['status'] }) {
+  const online = status !== 'offline';
+  const color  = status === 'alarm' ? '#f87171' : online ? '#34d399' : 'var(--pwa-text-3)';
+  const bg     = status === 'alarm' ? 'rgba(239,68,68,0.1)' : online ? 'rgba(52,211,153,0.1)' : 'var(--pwa-surface)';
+  const border = status === 'alarm' ? 'rgba(239,68,68,0.25)' : online ? 'rgba(52,211,153,0.25)' : 'var(--pwa-border)';
+  return (
+    <span className="text-[9px] font-black uppercase tracking-widest px-2.5 py-1 rounded-lg flex-shrink-0"
+      style={{ color, background: bg, border: `1px solid ${border}` }}>
+      {status === 'online' ? 'Online' : status === 'alarm' ? 'Alarm' : 'Offline'}
+    </span>
+  );
+}
+
+function VehicleSelectorSheet({
+  vehicles, activeId, onSelect, onAdd, onClose,
+}: {
+  vehicles: LiveVehicle[];
+  activeId: string | null;
+  onSelect: (id: string) => void;
+  onAdd:    () => void;
+  onClose:  () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center" role="dialog" aria-modal="true">
+      <div
+        className="absolute inset-0"
+        style={{ background: 'rgba(0,0,0,0.55)' }}
+        onClick={onClose}
+      />
+      <div
+        className="relative w-full max-w-md rounded-t-3xl p-4 pb-safe"
+        style={{
+          background: 'linear-gradient(180deg, var(--pwa-card-a) 0%, var(--pwa-card-b) 100%)',
+          border: '1px solid var(--pwa-border)',
+          boxShadow: '0 -20px 60px rgba(0,0,0,0.4)',
+          animation: 'slideUp 0.22s cubic-bezier(0.34,1.56,0.64,1)',
+        }}
+      >
+        <div className="w-10 h-1 rounded-full mx-auto mb-4" style={{ background: 'var(--pwa-border)' }} />
+
+        <div className="flex items-center justify-between mb-3 px-1">
+          <p className="text-[11px] font-black uppercase tracking-widest pwa-text-3">Araçlarım</p>
+          <button onClick={onClose}
+            className="w-7 h-7 flex items-center justify-center rounded-lg"
+            style={{ background: 'var(--pwa-surface)', border: '1px solid var(--pwa-border)' }}>
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+              <path d="M2 2l6 6M8 2l-6 6" stroke="var(--pwa-text-3)" strokeWidth="1.5" strokeLinecap="round"/>
+            </svg>
+          </button>
+        </div>
+
+        <div className="flex flex-col gap-2 max-h-[50vh] overflow-y-auto">
+          {vehicles.map((v) => {
+            const active = v.id === activeId;
+            return (
+              <button
+                key={v.id}
+                onClick={() => onSelect(v.id)}
+                className="flex items-center gap-3 px-4 py-3.5 rounded-2xl text-left transition-all active:scale-[0.98]"
+                style={{
+                  background: active ? 'rgba(59,130,246,0.1)' : 'var(--pwa-surface-3)',
+                  border: `1.5px solid ${active ? 'rgba(59,130,246,0.4)' : 'var(--pwa-border-soft)'}`,
+                }}
+              >
+                <span
+                  className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0"
+                  style={{
+                    background: active ? '#3b82f6' : 'transparent',
+                    border: active ? 'none' : '1.5px solid var(--pwa-border)',
+                  }}
+                >
+                  {active && (
+                    <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+                      <path d="M2 5.5l2.2 2.2L9 3" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  )}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <p className="font-mono font-bold pwa-text text-sm">{v.plate}</p>
+                  <p className="text-[10px] pwa-text-3 truncate">
+                    {v.name}{v.driver && v.driver !== '—' ? ` · ${v.driver}` : ''}
+                  </p>
+                </div>
+                <StatusPill status={v.status} />
+              </button>
+            );
+          })}
+        </div>
+
+        <button
+          onClick={onAdd}
+          className="w-full mt-3 py-3.5 rounded-2xl text-sm font-black uppercase tracking-widest transition-all active:scale-[0.98]"
+          style={{ background: 'rgba(59,130,246,0.08)', border: '1.5px dashed rgba(59,130,246,0.3)', color: '#60a5fa' }}
+        >
+          + Araç Ekle
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /* ── Main component ─────────────────────────────────────────────────────────── */
 
-export default function MobileCarControl({ vehicle }: Props) {
+export default function MobileCarControl({ vehicle, vehicles, onSelectVehicle, onAddVehicle }: Props) {
   const { phases, result, dispatch, retry } = useCommandTracker(vehicle?.id ?? null);
+  const [selectorOpen, setSelectorOpen] = useState(false);
+
+  const handleSelect = useCallback((id: string) => {
+    onSelectVehicle(id);
+    setSelectorOpen(false);
+  }, [onSelectVehicle]);
+
+  const handleAdd = useCallback(() => {
+    setSelectorOpen(false);
+    onAddVehicle();
+  }, [onAddVehicle]);
 
   const handleSendRoute = useCallback(
     (loc: GeoResult, provider: NavProvider) => {
@@ -874,6 +994,8 @@ export default function MobileCarControl({ vehicle }: Props) {
   const navBusy = ['pending', 'accepted', 'executing'].includes(phases.route_send ?? 'idle');
 
   if (!vehicle) {
+    // Birden fazla eşleştirilmiş araç var ama hiçbiri aktif değil (belirsiz) —
+    // veya hiç araç yok. Komut FAIL CLOSED kalır; kullanıcı açıkça seçmeli.
     return (
       <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
         <div className="w-16 h-16 rounded-3xl pwa-surface border border-white/[0.07] flex items-center justify-center">
@@ -883,6 +1005,24 @@ export default function MobileCarControl({ vehicle }: Props) {
           </svg>
         </div>
         <p className="text-sm pwa-text-3">Araç seçilmedi</p>
+        {vehicles.length > 1 && (
+          <button
+            onClick={() => setSelectorOpen(true)}
+            className="mt-1 px-4 py-2 rounded-xl text-xs font-bold transition-all active:scale-95"
+            style={{ background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.3)', color: '#60a5fa' }}
+          >
+            {vehicles.length} araçtan birini seç →
+          </button>
+        )}
+        {selectorOpen && (
+          <VehicleSelectorSheet
+            vehicles={vehicles}
+            activeId={null}
+            onSelect={handleSelect}
+            onAdd={handleAdd}
+            onClose={() => setSelectorOpen(false)}
+          />
+        )}
       </div>
     );
   }
@@ -892,9 +1032,13 @@ export default function MobileCarControl({ vehicle }: Props) {
   return (
     <div className="flex flex-col gap-4 px-1">
 
-      {/* Vehicle identity */}
-      <div className="flex items-center gap-3 px-4 py-3 rounded-2xl"
-        style={{ background: 'var(--pwa-surface-3)', border: '1px solid var(--pwa-border-soft)' }}>
+      {/* Vehicle identity — birden fazla araç varsa dokunulabilir selector */}
+      <button
+        onClick={() => vehicles.length > 1 && setSelectorOpen(true)}
+        disabled={vehicles.length <= 1}
+        className="flex items-center gap-3 px-4 py-3 rounded-2xl text-left transition-all active:scale-[0.99] disabled:active:scale-100"
+        style={{ background: 'var(--pwa-surface-3)', border: '1px solid var(--pwa-border-soft)' }}
+      >
         <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
           vehicle.status === 'online' ? 'bg-emerald-400 neon-online' :
           vehicle.status === 'alarm'  ? 'bg-red-400 neon-alarm animate-pulse' : 'bg-white/20'
@@ -911,7 +1055,22 @@ export default function MobileCarControl({ vehicle }: Props) {
           }}>
           {vehicle.status === 'online' ? 'Online' : vehicle.status === 'alarm' ? 'Alarm' : 'Offline'}
         </span>
-      </div>
+        {vehicles.length > 1 && (
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="flex-shrink-0">
+            <path d="M3 4.5l3 3 3-3" stroke="var(--pwa-text-3)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        )}
+      </button>
+
+      {selectorOpen && (
+        <VehicleSelectorSheet
+          vehicles={vehicles}
+          activeId={vehicle.id}
+          onSelect={handleSelect}
+          onAdd={handleAdd}
+          onClose={() => setSelectorOpen(false)}
+        />
+      )}
 
       {/* Offline banner */}
       {!isOnline && <OfflineBanner plate={vehicle.plate} />}

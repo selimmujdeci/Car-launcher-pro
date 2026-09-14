@@ -51,11 +51,46 @@ function isValidSensorData(u: VehicleUpdate, existing: LiveVehicle): boolean {
    düzeltilip öteki eski kuralda kalınca sahada "eşleşti ama araç yok"
    kusurunu üretmişti. */
 
+/**
+ * `activeVehicleId` için kalıcı UX HINT'i — KESİNLİKLE bir yetkilendirme
+ * otoritesi DEĞİLDİR. Her okuma (`getActiveVehicle`) bunu güncel eşleştirilmiş
+ * araç listesine karşı YENİDEN DOĞRULAR; hesabın artık sahip olmadığı bir id
+ * sessizce YOK SAYILIR (fail closed), asla komut hedefi olarak KULLANILMAZ.
+ *
+ * Hesap-kapsamlı storage temizlik sözleşmesine kayıtlıdır:
+ * `security/accountCleanup/storage/knownStorageDescriptors.ts` →
+ * `active-vehicle-preference` (PURGE_ON_LOGOUT + PURGE_ON_ACCOUNT_SWITCH).
+ * Fiziksel temizlik `clearVehicleAuthority()` içinde yapılır — bu, zaten
+ * `VehicleMemoryAuthorityCleanupParticipant` tarafından her cleanup'ta
+ * çağrılan MEVCUT otoritedir; ikinci bir purge participant KURULMADI.
+ */
+export const ACTIVE_VEHICLE_STORAGE_KEY = 'caros_active_vehicle_id';
+
+function readPersistedActiveVehicleId(): string | null {
+  try {
+    return localStorage.getItem(ACTIVE_VEHICLE_STORAGE_KEY);
+  } catch { return null; }
+}
+
+function writePersistedActiveVehicleId(id: string | null): void {
+  try {
+    if (id) localStorage.setItem(ACTIVE_VEHICLE_STORAGE_KEY, id);
+    else localStorage.removeItem(ACTIVE_VEHICLE_STORAGE_KEY);
+  } catch { /* kota/SSR — best-effort; bellek-içi state otorite kalır */ }
+}
+
 interface VehicleStoreState {
   vehicles: Record<string, LiveVehicle>;
   connectionStatus: ConnectionStatus;
   loading: boolean;
   error: string | null;
+  /**
+   * TEK OTORİTE: Kumanda/vehicle-control işlemlerinin hedeflediği araç.
+   * `vehicles` (eşleştirilmiş + online liste) ile KARIŞTIRILMAZ — birden
+   * fazla araç aynı anda ONLINE olabilir, ama komutlar yalnız BURADA
+   * işaretli araca gider. `null` = belirsiz → control command FAIL CLOSED.
+   */
+  activeVehicleId: string | null;
   /** Instant load from localStorage — no network, no auth. Call first. */
   initializeFromLocal: () => void;
   initializeFromSupabase: () => Promise<void>;
@@ -80,6 +115,23 @@ interface VehicleStoreState {
   ) => void;
   clearVehicleAuthority: () => void;
   isVehicleAuthorityEmpty: () => boolean;
+  /**
+   * Aktif aracı değiştirir. FAIL CLOSED: hedef `vehicles` içinde yoksa
+   * (kullanıcının eşleştirilmiş listesinde değil / henüz yüklenmedi)
+   * SESSİZCE REDDEDİLİR — mevcut seçim korunur, yanlış/hayalet araç
+   * asla aktif olmaz.
+   */
+  setActiveVehicleId: (id: string | null) => void;
+  /**
+   * Kanonik aktif araç okuması — TÜM vehicle-scoped ekranlar (Kumanda,
+   * Harita, Seyir, Teşhis, Kayıtlar) buradan okur.
+   *
+   * - `activeVehicleId` geçerliyse (hâlâ eşleştirilmiş listede) o araç.
+   * - Tek eşleştirilmiş araç varsa UX'i zorlaştırmadan o araç (madde 7).
+   * - Birden fazla araç var ve seçim yok/geçersizse `null` — ekran
+   *   "araç seçilmedi" der, HİÇBİR komut ilk/online/last araca gitmez.
+   */
+  getActiveVehicle: () => LiveVehicle | null;
 }
 
 export const useVehicleStore = create<VehicleStoreState>((set, get) => ({
@@ -87,6 +139,7 @@ export const useVehicleStore = create<VehicleStoreState>((set, get) => ({
   connectionStatus: 'disconnected',
   loading: true,
   error: null,
+  activeVehicleId: null,
 
   initializeFromLocal: () => {
     const generation = captureCleanupGeneration();
@@ -138,7 +191,15 @@ export const useVehicleStore = create<VehicleStoreState>((set, get) => ({
         telemetry: buildVehicleFreshness({ now: Date.now(), row: null, readable: true }),
       };
       if (!isCleanupGenerationCurrent(generation)) return;
-      set({ vehicles: { [id]: vehicle }, loading: false });
+      /* ÇOKLU ARAÇ KUSURU (bu turda bulundu): önceden `vehicles: { [id]: vehicle }`
+         yazılıyordu — bu, o ANDAKİ TÜM `state.vehicles`i tek yeni kayıtla
+         DEĞİŞTİRİYORDU. İkinci bir araç eşleştirildiğinde (`handlePaired` bunu
+         her pairing sonrası çağırır) önceden Supabase'ten yüklenmiş diğer
+         araçlar (ör. Megane) ekrandan ANLIK olarak siliniyordu — yalnız
+         ardından gelen `initializeFromSupabase()` tamamlanınca kendini
+         onarıyordu (çevrimdışıyken onarmıyordu). Artık mevcut kayıt SPREAD
+         edilir; ikinci otorite kurulmaz, yalnız eksik giriş eklenir. */
+      set((state) => ({ vehicles: { ...state.vehicles, [id]: vehicle }, loading: false }));
     } catch { set({ loading: false }); }
   },
 
@@ -287,6 +348,11 @@ export const useVehicleStore = create<VehicleStoreState>((set, get) => ({
 
   removeVehicle: (id: string) => {
     if (isAccountAccessLocked()) return;
+    // Kaldırılan araç kalıcı tercih hint'iyse (unpair), o hint invalidate
+    // edilir — aksi halde artık var olmayan bir araca işaret eden bir
+    // "yetim" tercih storage'da kalır. `getActiveVehicle` bunu zaten
+    // varlık kontrolüyle görmezden gelirdi; bu satır yalnız hijyen içindir.
+    if (readPersistedActiveVehicleId() === id) writePersistedActiveVehicleId(null);
     set((state) => {
       const next = { ...state.vehicles };
       delete next[id];
@@ -315,11 +381,18 @@ export const useVehicleStore = create<VehicleStoreState>((set, get) => ({
 
   clearVehicleAuthority: () => {
     _lastRenderMs.clear();
+    /* Kalıcı tercih hint'i de temizlenir — bir sonraki hesap (logout/account
+       switch) bu hesabın aktif araç seçimini MİRAS ALMAZ. Bu fonksiyon zaten
+       `VehicleMemoryAuthorityCleanupParticipant` tarafından HER cleanup'ta
+       (`LOCAL_PRIVATE_DATA_PURGE` fazı) çağrılan tek otoritedir — ikinci bir
+       storage-purge participant kurulmadı. */
+    writePersistedActiveVehicleId(null);
     set({
       vehicles: {},
       connectionStatus: 'disconnected',
       loading: false,
       error: null,
+      activeVehicleId: null,
     });
   },
 
@@ -327,6 +400,42 @@ export const useVehicleStore = create<VehicleStoreState>((set, get) => ({
     const state = get();
     return Object.keys(state.vehicles).length === 0 &&
       state.connectionStatus === 'disconnected' &&
-      state.error === null;
+      state.error === null &&
+      state.activeVehicleId === null;
+  },
+
+  setActiveVehicleId: (id) => {
+    if (isAccountAccessLocked()) return;
+    const state = get();
+    // FAIL CLOSED: kullanıcının eşleştirilmiş/erişimli listesinde olmayan
+    // hedef asla aktif olamaz — sessizce reddedilir, mevcut seçim kalır.
+    if (id !== null && !state.vehicles[id]) return;
+    // Kalıcı hint yalnız UX tercihi olarak yazılır — bkz. `getActiveVehicle`
+    // yorumu: bu değer hiçbir zaman doğrudan bir authorization kararı
+    // ÜRETMEZ, yalnız bir sonraki okumada YENİDEN doğrulanacak bir ipucudur.
+    writePersistedActiveVehicleId(id);
+    set({ activeVehicleId: id });
+  },
+
+  getActiveVehicle: () => {
+    const state = get();
+    if (state.activeVehicleId && state.vehicles[state.activeVehicleId]) {
+      return state.vehicles[state.activeVehicleId];
+    }
+    const list = Object.values(state.vehicles);
+    // Tek araç varsa doğal olarak aktif (madde 7) — belirsiz seçim asla
+    // ilk/online/son-bağlanan araca otomatik düşmez (fail closed).
+    if (list.length === 1) return list[0];
+    if (list.length > 1) {
+      /* Kalıcı UX hint'i restore edilir — ANCAK yalnız güncel eşleştirilmiş
+         listeye karşı YENİDEN DOĞRULANDIKTAN sonra. Hesabın artık sahip
+         olmadığı / hiç var olmamış bir id (bozuk değer, başka hesabın
+         eskiden kalan tercihi, unpair edilmiş araç) burada SESSİZCE
+         reddedilir — asla komut hedefi olarak kullanılmaz, crash da üretmez
+         (salt bir obje-anahtarı bakışıdır). */
+      const persisted = readPersistedActiveVehicleId();
+      if (persisted && state.vehicles[persisted]) return state.vehicles[persisted];
+    }
+    return null;
   },
 }));

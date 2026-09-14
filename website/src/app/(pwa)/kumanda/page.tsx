@@ -1,13 +1,13 @@
 'use client';
 
-import { useEffect, useMemo, useCallback, useState, lazy, Suspense } from 'react';
+import { useEffect, useCallback, useState, lazy, Suspense } from 'react';
 import Link from 'next/link';
 import MobileCarControl from '@/components/dashboard/MobileCarControl';
 import PairingScreen from '@/components/pwa/PairingScreen';
 import { PwaErrorBoundary } from '@/components/pwa/PwaErrorBoundary';
 import { useVehicleStore } from '@/store/vehicleStore';
 import { useRealtime } from '@/hooks/useRealtime';
-import { clearLocalVehicle } from '@/lib/pairingService';
+import { clearLocalVehicle, getLocalVehicle } from '@/lib/pairingService';
 
 const VehicleMapView     = lazy(() => import('@/components/pwa/VehicleMapView'));
 const DiagnosticsPanel   = lazy(() => import('@/components/pwa/DiagnosticsPanel'));
@@ -23,6 +23,7 @@ export default function KumandaPage() {
   const loading  = useVehicleStore((s) => s.loading);
   const error    = useVehicleStore((s) => s.error);
   const vehicles = useVehicleStore((s) => s.getList());
+  const setActiveVehicleId = useVehicleStore((s) => s.setActiveVehicleId);
 
   const [activeTab, setActiveTab] = useState<Tab>('kumanda');
   const [pwaTheme, setPwaTheme] = useState<'dark' | 'light'>('dark');
@@ -42,10 +43,12 @@ export default function KumandaPage() {
     });
   }, []);
 
-  const vehicle = useMemo(
-    () => vehicles.find((v) => v.status === 'online') ?? vehicles[0] ?? null,
-    [vehicles],
-  );
+  /* TEK OTORİTE: canonical activeVehicleId üzerinden okunur (vehicleStore).
+     ÖNCEDEN: `vehicles.find(online) ?? vehicles[0]` — birden fazla eşleştirilmiş
+     araç varken kullanıcı seçim YAPAMIYORDU, ekran sessizce "ilk online / ilk"
+     araca kilitleniyordu. Artık belirsiz seçimde `null` döner (fail closed);
+     kullanıcı vehicle selector'dan açıkça seçer. */
+  const vehicle = useVehicleStore((s) => s.getActiveVehicle());
 
   const hasPairedVehicle = vehicles.length > 0;
 
@@ -67,14 +70,28 @@ export default function KumandaPage() {
        denip eşleştirme ekranına geri dönülüyordu. */
     useVehicleStore.getState().initializeFromLocal();
     void useVehicleStore.getState().initializeFromSupabase();
+    /* Az önce eşleştirilen araç açıkça aktif yapılır (kullanıcının niyeti
+       budur). `getLocalVehicle()` tam bu anda `pairVehicle()`in yazdığı
+       kaydı döndürür; `setActiveVehicleId` zaten `vehicles` içinde
+       olmayan bir id'yi FAIL CLOSED reddeder — ikinci bir doğrulama
+       gerekmez. Mevcut çoklu-araçlı kullanıcı için diğer araçların
+       seçimini DEĞİŞTİRMEZ. */
+    const justPaired = getLocalVehicle();
+    if (justPaired) useVehicleStore.getState().setActiveVehicleId(justPaired.id);
     setActiveTab('kumanda');
   }, []);
 
   const handleUnpair = useCallback(() => {
-    clearLocalVehicle();
-    useVehicleStore.getState().setVehicles([]);
-    setActiveTab('eslestir');
-  }, []);
+    /* ÖNCEDEN: `setVehicles([])` — yalnız AKTİF aracın yerel eşleşmesi
+       koparılmak istenirken TÜM eşleştirilmiş araçlar (ör. Megane ONLINE
+       iken Doblo'yu koparmak) ekrandan siliniyordu. Artık yalnız aktif
+       araç kaldırılır; `clearLocalVehicle()` ise yalnız bu cihazın tekil
+       yerel kaydı GERÇEKTEN bu araca aitse çağrılır. */
+    if (!vehicle) return;
+    const local = getLocalVehicle();
+    if (local?.id === vehicle.id) clearLocalVehicle();
+    useVehicleStore.getState().removeVehicle(vehicle.id);
+  }, [vehicle]);
 
   const lazySpinner = (
     <div className="flex items-center justify-center gap-2 py-10 text-sm pwa-text-3">
@@ -123,8 +140,21 @@ export default function KumandaPage() {
 
       return (
         <>
-          <MobileCarControl vehicle={vehicle} />
-          {hasPairedVehicle && (
+          {/* `key`: aktif araç değiştiğinde MobileCarControl (ve içindeki
+             useCommandTracker) TAMAMEN yeniden kurulur. Bu, eski araca ait
+             bekleyen bir komutun (ör. Doblo için gönderilmiş "Kilitle")
+             geç gelen sonucunun yeni aktif aracın (Megane) ekranına
+             "Kilitli ✓" olarak sızmasını engeller — aksi halde stale
+             subscription yeni vehicleId ile render olsa bile eski
+             dispatch'in closure'ı ve tracker state'i hayatta kalırdı. */}
+          <MobileCarControl
+            key={vehicle?.id ?? 'no-active-vehicle'}
+            vehicle={vehicle}
+            vehicles={vehicles}
+            onSelectVehicle={setActiveVehicleId}
+            onAddVehicle={() => setActiveTab('eslestir')}
+          />
+          {vehicle && (
             <button
               onClick={handleUnpair}
               className="mt-4 w-full text-xs pwa-text-3 hover:text-red-400/60 transition-colors py-2"

@@ -252,7 +252,9 @@ describe('account-scoped storage registry', () => {
     expect(registry.listStorageDescriptors()).toHaveLength(
       PRODUCTION_STORAGE_DESCRIPTOR_COUNT,
     );
-    expect(PRODUCTION_STORAGE_DESCRIPTOR_COUNT).toBe(18);
+    // Bu turda eklendi: 'active-vehicle-preference' (caros_active_vehicle_id) —
+    // çoklu araçlı Kumanda seçimi için hesap-kapsamlı persistence hint'i.
+    expect(PRODUCTION_STORAGE_DESCRIPTOR_COUNT).toBe(19);
   });
 });
 
