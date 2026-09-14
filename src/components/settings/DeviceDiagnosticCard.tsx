@@ -17,7 +17,10 @@
  */
 import { useState } from 'react';
 import { Capacitor } from '@capacitor/core';
-import { getCapabilities, getDeviceTier, supportsModuleWorker } from '../../platform/deviceCapabilities';
+import {
+  getCapabilities, getDeviceTier, supportsModuleWorker,
+  getNativeResourceEvidence, getResourceEvidenceSource,
+} from '../../platform/deviceCapabilities';
 import { getGpuRenderer } from '../../utils/detectWeakGpu';
 import { useHALStatusStore } from '../../platform/vehicleDataLayer/halStatusStore';
 import { getPushStatus } from '../../platform/pushService';
@@ -56,6 +59,8 @@ export function DeviceDiagnosticCard() {
   const c        = getCapabilities();
   const tier     = getDeviceTier();
   const modWkr   = supportsModuleWorker();
+  const resSrc   = getResourceEvidenceSource();
+  const resEv    = getNativeResourceEvidence();
   const renderer = getGpuRenderer();
   const native   = Capacitor.isNativePlatform();
   const platform = Capacitor.getPlatform();
@@ -75,7 +80,11 @@ export function DeviceDiagnosticCard() {
     `Android     : ${c.androidVersion || 'bilinmiyor'}`,
     `Cihaz sınıfı: ${tier.toUpperCase()}`,
     `GPU         : ${renderer || 'maskeli'}${c.weakGpu ? ' (ZAYIF)' : ''}`,
-    `CPU / RAM   : ${c.cores || '?'} çekirdek / ${c.memoryMb ? Math.round(c.memoryMb / 1024) + 'GB' : 'bilinmiyor'}`,
+    `CPU / RAM   : ${c.cores || '?'} çekirdek / ${c.memoryMb ? Math.round(c.memoryMb / 1024 * 10) / 10 + 'GB' : 'bilinmiyor'} (${resSrc === 'native' ? 'native ölçüm' : 'tahmini'})`,
+    /* HYBRID-F0 · gerçek kaynak kanıtı (yalnız GÖZLEM — tier'a girmez).
+       Native profil yoksa (eski APK/web) alanlar `undefined` → 'bilinmiyor'. */
+    `Boş RAM     : ${resEv?.availMemMb ? resEv.availMemMb + 'MB' : 'bilinmiyor'}  ·  Depolama: ${resEv?.usableStorageMb ? Math.round(resEv.usableStorageMb / 1024 * 10) / 10 + 'GB boş' : 'bilinmiyor'}`,
+    `ABI         : ${resEv?.supportedAbis?.length ? resEv.supportedAbis.join(', ') : 'bilinmiyor'}`,
     `Ekran       : ${w}×${h} @${dpr}x (${orient})`,
     `Modül worker: ${yn(modWkr)}  ·  SAB: ${yn(c.hasWorkerSAB)}`,
     `Özellikler  : WebGL ${yn(c.supportsWebGL)} · backdrop ${yn(c.supportsBackdropFilter)} · dvh ${yn(c.supportsDvh)} · @layer ${yn(c.supportsCssLayer)}`,

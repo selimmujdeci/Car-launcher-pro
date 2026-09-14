@@ -5900,6 +5900,34 @@ public class CarLauncherPlugin extends Plugin {
             r.put("totalRamMb",      totalRamMb);
             r.put("isLowRamDevice",  am.isLowRamDevice());
 
+            /* ── HYBRID-F0 · GERÇEK KAYNAK KANITI (yalnız ÖLÇÜM — karar BURADA VERİLMEZ) ──
+             * `deviceCapabilities.ts` (JS) TEK tier otoritesi kalır; bu alanlar yalnız onun
+             * `navigator.deviceMemory` gibi güvenilmez WebView tahminleri yerine kullanacağı
+             * GERÇEK native girdidir. Her ölçüm ayrı try/catch: birinin başarısızlığı diğer
+             * alanları ya da genel profili DÜŞÜRMEZ (fail-soft) — okunamayan alan JS'e hiç
+             * gitmez (JSObject'te yok) → orada `undefined` = "bilinmiyor", sahte 0 ÜRETİLMEZ. */
+            try {
+                r.put("availMemMb", mi.availMem / (1024L * 1024L));
+            } catch (Exception ignored) { /* alan eksik kalır → JS'te unknown */ }
+
+            try {
+                r.put("cpuCoreCount", Runtime.getRuntime().availableProcessors());
+            } catch (Exception ignored) { /* alan eksik kalır → JS'te unknown */ }
+
+            try {
+                String[] abis = Build.SUPPORTED_ABIS;
+                if (abis != null && abis.length > 0) {
+                    JSArray abiArr = new JSArray();
+                    for (String abi : abis) abiArr.put(abi);
+                    r.put("supportedAbis", abiArr);
+                }
+            } catch (Exception ignored) { /* alan eksik kalır → JS'te unknown */ }
+
+            try {
+                long usableBytes = getContext().getFilesDir().getUsableSpace();
+                r.put("usableStorageMb", usableBytes / (1024L * 1024L));
+            } catch (Exception ignored) { /* alan eksik kalır → JS'te unknown */ }
+
             DisplayMetrics dm = getContext().getResources().getDisplayMetrics();
             r.put("screenWidth",  dm.widthPixels);
             r.put("screenHeight", dm.heightPixels);

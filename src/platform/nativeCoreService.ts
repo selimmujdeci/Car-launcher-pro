@@ -16,7 +16,7 @@ import { Capacitor } from '@capacitor/core';
 import { CarLauncher } from './nativePlugin';
 import type { NativeDeviceProfile, NativeScreenMetrics } from './nativePlugin';
 import { initFromDeviceProfile } from './performanceMode';
-import { setNativeScreenMetrics, getDeviceTier } from './deviceCapabilities';
+import { setNativeScreenMetrics, setNativeResourceEvidence, getDeviceTier } from './deviceCapabilities';
 
 /* ── Module state ─────────────────────────────────────────── */
 
@@ -80,6 +80,23 @@ export async function initNativeCore(): Promise<void> {
     const profile = await CarLauncher.getDeviceProfile();
     _profile = profile;
     notifyProfile();
+
+    /* ══════════════════════════════════════════════════════════════════════
+     * HYBRID-F0 · GERÇEK KAYNAK KANITI — SINIFLANDIRMADAN ÖNCE beslenir
+     * (ekran ölçümüyle AYNI sıra kuralı, kütük #599 dersi: ölçüm varken
+     * tahminle karar vermek veriyi çöpe atmaktır). Eksik/yeni-olmayan plugin
+     * sürümünde alanlar `undefined` gelir → `setNativeResourceEvidence` onları
+     * tek tek eler, `deviceCapabilities` tahmin dalında kalır (fail-soft).
+     * BU İKİNCİ OTORİTE DEĞİLDİR: tier kararı yine `getDeviceTier()`dadır. */
+    setNativeResourceEvidence({
+      totalRamMb:      profile.totalRamMb,
+      availMemMb:      profile.availMemMb,
+      isLowRamDevice:  profile.isLowRamDevice,
+      cpuCoreCount:    profile.cpuCoreCount,
+      supportedAbis:   profile.supportedAbis,
+      usableStorageMb: profile.usableStorageMb,
+      sdkInt:          profile.sdkInt,
+    });
 
     /* TEK OTORİTE: performans modu KANONİK cihaz sınıfından türetilir
        (`performanceMode.ts` kendisi de "tek kaynak: deviceCapabilities" diyor).

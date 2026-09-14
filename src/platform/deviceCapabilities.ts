@@ -132,6 +132,78 @@ function _supportsCssLayer(): boolean {
  */
 let _nativeScreen: { readonly widthPx: number; readonly heightPx: number } | null = null;
 
+/* ── HYBRID-F0 · Native kaynak kanıtı (RAM/ABI/depolama/çekirdek) ─────────────
+ *
+ * NEDEN VAR: `getCapabilities()` bugüne kadar `cores`/`memoryMb` için YALNIZ
+ * `navigator.hardwareConcurrency`/`navigator.deviceMemory`ye güveniyordu — bu
+ * WebView tahminleri head unit'lerde SIK SIK `0` (bilinmiyor) ya da yanlıştır
+ * (ör. K24 ekranı "6GB" gösterirken gerçek `/proc/meminfo` 2 GB'tır, saha
+ * kanıtlı: DEVICE_VALIDATION_LEDGER.md). `nativeCoreService` artık ÖLÇÜLMÜŞ
+ * `ActivityManager.MemoryInfo`/`Runtime.availableProcessors()` besliyor.
+ *
+ * ⚠️ BU İKİNCİ OTORİTE DEĞİLDİR (ekran ölçümüyle AYNI ilke): tier kararı yine
+ * BU dosyadadır; native veri yalnız `cores`/`memoryMb` girdisini tahminden
+ * ölçüme çevirir. ABI/kullanılabilir depolama/anlık boş RAM `getDeviceTier()`
+ * kriterlerine HİÇ GİRMEZ (mevcut tier sözleşmesi bu fazda DEĞİŞMEZ) — yalnız
+ * `getNativeResourceEvidence()` ile gözlem/LAB için ayrı taşınır.
+ *
+ * Geçersiz/eksik alan (0, negatif, boş dizi) YOK SAYILIR — sahte ölçüm,
+ * tahminden kötüdür (aynı kural `setNativeScreenMetrics` ile).
+ */
+export interface NativeResourceEvidence {
+  /** `ActivityManager.MemoryInfo.totalMem` (MB). 0/negatif = geçersiz → alınmaz. */
+  readonly totalRamMb?:     number;
+  /** `ActivityManager.MemoryInfo.availMem` (MB) — anlık ölçüm, tier'a GİRMEZ. */
+  readonly availMemMb?:     number;
+  /** `ActivityManager.isLowRamDevice()`. */
+  readonly isLowRamDevice?: boolean;
+  /** `Runtime.getRuntime().availableProcessors()`. */
+  readonly cpuCoreCount?:   number;
+  /** `Build.SUPPORTED_ABIS` — ör. `["arm64-v8a","armeabi-v7a"]`. */
+  readonly supportedAbis?:  readonly string[];
+  /** `filesDir.getUsableSpace()` (MB) — tier'a GİRMEZ, yalnız gözlem. */
+  readonly usableStorageMb?: number;
+  /** `Build.VERSION.SDK_INT`. */
+  readonly sdkInt?:         number;
+}
+
+let _nativeResource: NativeResourceEvidence | null = null;
+
+/**
+ * Native kaynak kanıtını besler (yalnız `nativeCoreService` çağırır — TEK yazıcı,
+ * `setNativeScreenMetrics` ile AYNI desen). Geçersiz sayısal alanlar (≤0/NaN)
+ * ve boş ABI dizisi tek tek ELENİR — kısmi kanıt kabul edilir, tamamı reddedilmez.
+ */
+export function setNativeResourceEvidence(e: NativeResourceEvidence | null): void {
+  if (!e || typeof e !== 'object') {
+    _nativeResource = null;
+  } else {
+    const clean: { -readonly [K in keyof NativeResourceEvidence]?: NativeResourceEvidence[K] } = {};
+    if (Number.isFinite(e.totalRamMb) && (e.totalRamMb as number) > 0) clean.totalRamMb = e.totalRamMb;
+    if (Number.isFinite(e.availMemMb) && (e.availMemMb as number) > 0) clean.availMemMb = e.availMemMb;
+    if (typeof e.isLowRamDevice === 'boolean') clean.isLowRamDevice = e.isLowRamDevice;
+    if (Number.isFinite(e.cpuCoreCount) && (e.cpuCoreCount as number) > 0) clean.cpuCoreCount = e.cpuCoreCount;
+    if (Array.isArray(e.supportedAbis) && e.supportedAbis.length > 0) {
+      clean.supportedAbis = e.supportedAbis.filter((a): a is string => typeof a === 'string' && a.length > 0);
+    }
+    if (Number.isFinite(e.usableStorageMb) && (e.usableStorageMb as number) > 0) clean.usableStorageMb = e.usableStorageMb;
+    if (Number.isFinite(e.sdkInt) && (e.sdkInt as number) > 0) clean.sdkInt = e.sdkInt;
+    _nativeResource = Object.keys(clean).length > 0 ? Object.freeze(clean) : null;
+  }
+  _caps = null;   // cores/memoryMb girdisi değişebilir → yeniden problanmalı
+  _tier = null;
+}
+
+/** Ham native kaynak kanıtı — GÖZLEM içindir (LAB). Tier hesaplamasının parçası DEĞİLDİR. */
+export function getNativeResourceEvidence(): NativeResourceEvidence | null {
+  return _nativeResource;
+}
+
+/** `cores`/`memoryMb` kaynağı — gözlem içindir (LAB). */
+export function getResourceEvidenceSource(): 'native' | 'estimated' {
+  return _nativeResource ? 'native' : 'estimated';
+}
+
 /**
  * Native ekran ölçümünü besler (yalnız `nativeCoreService` çağırır — TEK yazıcı).
  *
@@ -216,13 +288,21 @@ let _caps: DeviceCapabilities | null = null;
 export function getCapabilities(): DeviceCapabilities {
   if (_caps) return _caps;
   const ua       = typeof navigator !== 'undefined' ? (navigator.userAgent || '') : '';
-  const cores    = (typeof navigator !== 'undefined' ? navigator.hardwareConcurrency : 0) || 0;
-  const memGb    = typeof navigator !== 'undefined'
+
+  /* ÖLÇÜM VARSA TAHMİN KULLANILMAZ (ekran metriğiyle AYNI ilke — kütük #599).
+   * `navigator.hardwareConcurrency`/`deviceMemory` head unit WebView'larında
+   * sık sık `0` (bilinmiyor) ya da yanlıştır (ekran "6GB" derken gerçek RAM
+   * 2 GB olabilir, saha kanıtlı). Native ÖLÇÜM varsa o esas alınır. */
+  const cores = _nativeResource?.cpuCoreCount
+    ?? (typeof navigator !== 'undefined' ? navigator.hardwareConcurrency : 0)
+    ?? 0;
+  const nativeMemoryMb = _nativeResource?.totalRamMb;
+  const memGb = typeof navigator !== 'undefined'
     ? ((navigator as { deviceMemory?: number }).deviceMemory ?? 0)
     : 0;
   _caps = {
     cores,
-    memoryMb:               memGb > 0 ? memGb * 1024 : 0,
+    memoryMb:               nativeMemoryMb ?? (memGb > 0 ? memGb * 1024 : 0),
     weakGpu:                hasWeakGpu(),
     supportsWebGL:          _supportsWebGL(),
     supportsBackdropFilter: _supportsBackdrop(),
@@ -298,4 +378,5 @@ export function _resetCapabilitiesForTest(): void {
   _caps = null;
   _tier = null;
   _nativeScreen = null;
+  _nativeResource = null;
 }

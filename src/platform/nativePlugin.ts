@@ -678,6 +678,19 @@ export interface NativeDeviceProfile {
   webViewVersion: string;   // Chrome version string or ""
   /** 'low' | 'mid' | 'high' — mapped from RAM + SDK level */
   deviceClass:    'low' | 'mid' | 'high';
+  /**
+   * HYBRID-F0 · GERÇEK KAYNAK KANITI (opsiyonel — eski APK/plugin sürümünde YOK).
+   * `ActivityManager.MemoryInfo.availMem` — o anki kullanılabilir RAM (MB). Anlık
+   * ölçümdür (arka plan basıncına göre dalgalanır); tier kararı BURADAN verilmez,
+   * yalnız `deviceCapabilities`'in girdisidir.
+   */
+  availMemMb?:      number;
+  /** `Runtime.getRuntime().availableProcessors()` — `navigator.hardwareConcurrency`in native karşılığı. */
+  cpuCoreCount?:    number;
+  /** `Build.SUPPORTED_ABIS` — ör. `["arm64-v8a","armeabi-v7a"]`. Boşsa alan hiç YOK (uydurma dizi üretilmez). */
+  supportedAbis?:   string[];
+  /** `filesDir.getUsableSpace()` (MB) — uygulamanın yazabileceği gerçek boş alan. */
+  usableStorageMb?: number;
 }
 
 /**
