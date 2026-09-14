@@ -24,6 +24,7 @@ import {
 import { getGpuRenderer } from '../../utils/detectWeakGpu';
 import { useHALStatusStore } from '../../platform/vehicleDataLayer/halStatusStore';
 import { getPushStatus } from '../../platform/pushService';
+import { decideLocalModelEligibility } from '../../platform/ai/local/localModelEligibility';
 
 const PUSH_TEXT: Record<string, string> = {
   web:         '— (web)',
@@ -51,6 +52,25 @@ function webViewBand(chrome: number): string {
   return `Chrome ${chrome} · tam modern (modül worker)`;
 }
 
+/**
+ * HYBRID-F2 · `ai.local_model` LAB etiketi — `runtimeCapabilityProviders.ts`
+ * `_localModelResult` ile AYNI SIRALI mantık (DEVICE ELIGIBILITY → RUNTIME
+ * AVAILABILITY → MODEL LOADED), yalnız insan-okur metne çevrilir. Bu fazda
+ * `runtimeAvailable`/`modelLoaded` HER ZAMAN `false`'tur (gerçek runtime/model
+ * yok) → capability BURADA da HER KOŞULDA `UNAVAILABLE` kalır (fail-closed,
+ * `eligible ≠ available`).
+ */
+function localModelCapabilityLabel(
+  eligibilityStatus: 'eligible' | 'ineligible' | 'unknown',
+  runtimeAvailable: boolean,
+  modelLoaded: boolean,
+): string {
+  if (eligibilityStatus !== 'eligible') return 'UNAVAILABLE';
+  if (!runtimeAvailable)                return 'UNAVAILABLE';
+  if (!modelLoaded)                     return 'UNAVAILABLE';
+  return 'AVAILABLE';
+}
+
 export function DeviceDiagnosticCard() {
   const [copied, setCopied] = useState(false);
   const activeSource = useHALStatusStore((s) => s.activeSource);
@@ -72,6 +92,25 @@ export function DeviceDiagnosticCard() {
   const dpr = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
   const orient = w > h ? 'yatay' : 'dikey';
 
+  /* HYBRID-F1/F2 · yerel LLM uygunluk kararı (SAF, F0 kanıtından türetilir).
+     Bu kart bir OTORİTE DEĞİLDİR: kararı yeniden VERMEZ, yalnız F1 sonucunu
+     GÖSTERİR. Thermal/memory pressure bu ekranda okunmuyor (opsiyonel alan —
+     eksikliği eligibility'yi ENGELLEMEZ, bkz. localModelEligibility.ts). */
+  const localEligibility = decideLocalModelEligibility({
+    deviceTier:      tier,
+    isLowRamDevice:  resEv?.isLowRamDevice,
+    supportedAbis:   resEv?.supportedAbis,
+    totalRamMb:      resEv?.totalRamMb,
+    availMemMb:      resEv?.availMemMb,
+    usableStorageMb: resEv?.usableStorageMb,
+    cpuCoreCount:    resEv?.cpuCoreCount,
+    sdkInt:          resEv?.sdkInt,
+  });
+  const localEligLabel  = localEligibility.status.toUpperCase();
+  const localEligReason = localEligibility.status !== 'eligible' ? ` (${localEligibility.reason})` : '';
+  // Bu fazda gerçek runtime/model YOK — sabit `false` (HYBRID-F5/F6'da gerçek kanıtla değişir).
+  const localModelCapability = localModelCapabilityLabel(localEligibility.status, false, false);
+
   // Kopyalanabilir / fotoğraflanabilir düz metin — sahaya çıkan tek veri.
   const report = [
     `CarOS Pro v${version}`,
@@ -85,6 +124,9 @@ export function DeviceDiagnosticCard() {
        Native profil yoksa (eski APK/web) alanlar `undefined` → 'bilinmiyor'. */
     `Boş RAM     : ${resEv?.availMemMb ? resEv.availMemMb + 'MB' : 'bilinmiyor'}  ·  Depolama: ${resEv?.usableStorageMb ? Math.round(resEv.usableStorageMb / 1024 * 10) / 10 + 'GB boş' : 'bilinmiyor'}`,
     `ABI         : ${resEv?.supportedAbis?.length ? resEv.supportedAbis.join(', ') : 'bilinmiyor'}`,
+    /* HYBRID-F2 · ai.local_model: DEVICE ELIGIBILITY (F1) ile RUNTIME AVAILABILITY
+       AYRI sorulardır — eligible olmak capability'yi AVAILABLE yapmaz. */
+    `ai.local_model: ${localModelCapability} — eligibility ${localEligLabel}${localEligReason} · runtime: absent · model: not_loaded`,
     `Ekran       : ${w}×${h} @${dpr}x (${orient})`,
     `Modül worker: ${yn(modWkr)}  ·  SAB: ${yn(c.hasWorkerSAB)}`,
     `Özellikler  : WebGL ${yn(c.supportsWebGL)} · backdrop ${yn(c.supportsBackdropFilter)} · dvh ${yn(c.supportsDvh)} · @layer ${yn(c.supportsCssLayer)}`,

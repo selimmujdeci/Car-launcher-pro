@@ -3,10 +3,11 @@
  *
  * Kapsam (12–45): GPS/mikrofon/bluetooth/wifi/cellular browser-API presence & type;
  * secure storage authoritative; deep_scan/vehicle_learning/assistant_context/ota runtime;
- * offline commands/conversation; gemini/groq/claude configured; grok yok; local model yok;
+ * offline commands/conversation; gemini/groq/claude configured; grok yok; local model
+ * eligibility(F1)+runtime+model üçlüsü (HYBRID-F2, tier'dan BAĞIMSIZ — §30/41);
  * safety kernel; offline map/routing; push/cloud commands; factory bounded; fail-soft;
- * privacy; immutability; input mutate yok; low-tier ağır provider yok; timer/SystemBoot/
- * EventBus wiring yok; import yan etkisiz.
+ * privacy; immutability; input mutate yok; timer/SystemBoot/EventBus wiring yok;
+ * import yan etkisiz.
  */
 
 import { describe, it, expect, vi } from 'vitest';
@@ -221,11 +222,11 @@ describe('AI providers', () => {
     expect(m.has('ai.grok')).toBe(false);
   });
 
-  it('30) Local model — high tier + probe modelLoaded=false → unavailable; non-high → provider yok', async () => {
-    const high = build({ env: { deviceTier: 'high' }, probes: { localModel: () => ({ modelLoaded: false }) } });
-    expect((await read(high.get('ai.local_model')))?.status).toBe('unavailable');
-    // low/mid tier → ağır provider hiç oluşturulmaz.
-    expect(build({ env: { deviceTier: 'low' }, probes: { localModel: () => ({ modelLoaded: true }) } }).has('ai.local_model')).toBe(false);
+  it('30) HYBRID-F2 · Local model — eligible ama runtime yok → unavailable (eligible ≠ available)', async () => {
+    const eligibleNoRuntime = build({
+      probes: { localModel: () => ({ eligibilityStatus: 'eligible', runtimeAvailable: false, modelLoaded: false }) },
+    });
+    expect((await read(eligibleNoRuntime.get('ai.local_model')))?.status).toBe('unavailable');
   });
 
   it('31) Safety Kernel runtime availability', async () => {
@@ -272,7 +273,8 @@ describe('sözleşme ve hijyen', () => {
         deepScan: () => ({ runtimeReady: true }), vehicleLearning: () => ({ runtimeReady: true }),
         assistantContext: () => ({ runtimeReady: true }), ota: () => ({ runtimeReady: true }),
         offlineCommands: () => ({ runtimeReady: true }), offlineConversation: () => ({ runtimeReady: true }),
-        localModel: () => ({ modelLoaded: true }), safetyKernel: () => ({ runtimeReady: true }),
+        localModel: () => ({ eligibilityStatus: 'eligible', runtimeAvailable: true, modelLoaded: true }),
+        safetyKernel: () => ({ runtimeReady: true }),
         offlineMap: () => ({ present: true }), offlineRouting: () => ({ present: true, ready: true }),
         pushNotifications: () => ({ runtimeReady: true }), cloudCommands: () => ({ runtimeReady: true }),
       },
@@ -315,11 +317,22 @@ describe('sözleşme ve hijyen', () => {
     expect(JSON.stringify({ env: { deviceTier: deps.env?.deviceTier } })).toBe(before);
   });
 
-  it('41) low-tier ağır provider yok — ai.local_model oluşturulmaz', () => {
-    const m = build({ env: { deviceTier: 'low' }, probes: { localModel: () => ({ modelLoaded: true }) } });
-    expect(m.has('ai.local_model')).toBe(false);
-    const mid = build({ env: { deviceTier: 'mid' }, probes: { localModel: () => ({ modelLoaded: true }) } });
-    expect(mid.has('ai.local_model')).toBe(false);
+  it('41) HYBRID-F2 · ai.local_model TIER\'DAN BAĞIMSIZ oluşturulur — ikinci tier kapısı YOK (F1 zaten kapsar)', async () => {
+    // low/mid tier'da bile provider OLUŞUR (F1 eligibility zaten tier'ı ilk adımda değerlendirir;
+    // burada TEKRAR bir tier kontrolü koymak ikinci bir cihaz-sınıflandırma otoritesi doğururdu).
+    const low = build({
+      env: { deviceTier: 'low' },
+      probes: { localModel: () => ({ eligibilityStatus: 'ineligible', eligibilityReason: 'device_tier_low', runtimeAvailable: false, modelLoaded: false }) },
+    });
+    expect(low.has('ai.local_model')).toBe(true);
+    expect((await read(low.get('ai.local_model')))?.status).toBe('unavailable');
+
+    const mid = build({
+      env: { deviceTier: 'mid' },
+      probes: { localModel: () => ({ eligibilityStatus: 'ineligible', eligibilityReason: 'device_tier_mid', runtimeAvailable: false, modelLoaded: false }) },
+    });
+    expect(mid.has('ai.local_model')).toBe(true);
+    expect((await read(mid.get('ai.local_model')))?.status).toBe('unavailable');
   });
 
   it('42) kaynak dosyada timer/polling YOK', () => {
