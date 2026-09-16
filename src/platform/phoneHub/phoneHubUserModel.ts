@@ -166,7 +166,13 @@ export function deriveUserState(raw: PhoneHubLinkSnapshotRaw): PhoneHubUserState
   if (raw.pairing?.awaitingConfirmation === true) return 'AWAITING_CODE_CONFIRMATION';
 
   const session = raw.session;
-  if (session) {
+  /* Bırakılmış (disposed) oturum, `trulyEstablished` hâlâ true taşısa bile
+     üst basamakların hiçbirini kanıtlamaz — aynı invariant `phoneHubNativeIngress
+     .classifyPhoneLinkStage`de zaten kilitlidir ("Oturum bırakılmışsa üst
+     basamakların hiçbiri geçerli değildir"). Bu okuyucu onu tekrarlamıyordu;
+     sonuç, bırakılmış bir oturumun kullanıcıya YANLIŞLIKLA "Telefon Bağlandı"
+     gösterebilmesiydi. */
+  if (session && session.disposed !== true) {
     if (session.trulyEstablished === true) {
       return session.state === 'DEGRADED' ? 'WEAK' : 'CONNECTED';
     }

@@ -17,6 +17,7 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
@@ -63,6 +64,130 @@ public final class PhoneHubLinkController implements RfcommServerTransport.Callb
 
     private final AtomicReference<LinkSession> session = new AtomicReference<>(null);
     private final AtomicReference<PendingPairing> pendingPairing = new AtomicReference<>(null);
+
+    /**
+     * F2 — uygulama mesajı köprüsü. TEK dinleyici (Capacitor plugin) kayıt
+     * olabilir; bu sınıf hiçbir yetki/karar VERMEZ, yalnız "doğrulanmış/taze
+     * PhoneHub session'ından gelen opak bir mesaj var" der. Mesajın içeriğini
+     * yorumlamak, izin vermek/vermemek TS tarafının (canonical authorization)
+     * işidir — native köprü authorization authority HALİNE GELMEZ.
+     */
+    public interface ApplicationMessageListener {
+        /**
+         * @param peerFingerprintRef native ESTABLISHED oturumun kimlik parmak
+         *                           izi — TELEFONUN İDDİASI DEĞİL, handshake'in
+         *                           imza-doğrulanmış sonucu.
+         * @param sessionEpoch       native oturum nesli ({@code LinkSession.generation}).
+         * @param payloadUtf8        opak UTF-8 metin (TS'in JSON zarfı — bu
+         *                           katman içeriğini ayrıştırmaz).
+         */
+        void onApplicationMessage(String peerFingerprintRef, long sessionEpoch, String payloadUtf8);
+    }
+
+    /**
+     * Uygulama mesajı için native-taraf kaba tavan. {@code LinkKeyValue}
+     * dokümantasyonunun kendi kuralı: uygulama mesajları bu katman için
+     * OPAKTIR, tam şema/komut doğrulaması TS ingress'inde yapılır. Burada
+     * yalnız köprüyü aşırı büyük/bozuk baytla boğmayı önleyen kaba bir bayt
+     * sınırı var — 64 KB'lık genel çerçeve tavanından KASITLI OLARAK çok
+     * daha dar (küçük, versiyonlu bir JSON komutu bunu asla aşmaz).
+     */
+    public static final int MAX_APPLICATION_MESSAGE_BYTES = 4096;
+
+    private volatile ApplicationMessageListener applicationMessageListener;
+
+    /** Plugin kendi yaşam döngüsünde (load/handleOnDestroy) kayıt olur/çıkar. */
+    public void setApplicationMessageListener(ApplicationMessageListener listener) {
+        applicationMessageListener = listener;
+    }
+
+    /**
+     * TS ingress'inin, gelen bir mesaja verdiği ACK/REJECTED yanıtını mevcut
+     * şifreli oturumdan gönderir. Bu metot yetki KARARI VERMEZ — çağıranın
+     * (TS) zaten verdiği kararı, var olan {@link LinkSession#sendApplicationMessage}
+     * yoluyla taşır. Oturum yoksa/kapandıysa sessizce {@code false} döner.
+     */
+    public boolean sendApplicationMessage(String payloadUtf8) {
+        LinkSession s = session.get();
+        if (s == null || payloadUtf8 == null) return false;
+        return s.sendApplicationMessage(payloadUtf8.getBytes(StandardCharsets.UTF_8));
+    }
+
+    /* ══════════════════════════════════════════════════════════════════════
+     * F4.1 — KANONİK LIFECYCLE OLAYI (native → TS, event-driven)
+     * ════════════════════════════════════════════════════════════════════ */
+
+    /**
+     * Yaşam döngüsü geçişi dinleyicisi. F2'nin uygulama-mesajı köprüsüyle
+     * AYNI desen: TEK dinleyici (Capacitor plugin), hiçbir karar BURADA yok.
+     *
+     * Bu köprü YENİ bir lifecycle authority KURMAZ — {@code LinkSession}'ın
+     * zaten ürettiği geçişi dışarı YANSITIR. Amaç F3'te kalan tek riski
+     * kapatmaktır: oturum düştüğünde TS'in bunu bir sonraki HTTP isteğini ya
+     * da Music olayını BEKLEMEDEN öğrenmesi.
+     */
+    public interface LinkStateListener {
+        /**
+         * @param state       kanonik durum adı ({@link PhoneHubLinkStateMapping.LinkState})
+         * @param sessionEpoch native oturum nesli; oturum yoksa {@code -1}
+         * @param fingerprint  imza-doğrulanmış eş parmak izi; yoksa {@code null}
+         * @param reason       sınırlı gerekçe kategorisi (serbest metin DEĞİL)
+         */
+        void onLinkStateChanged(String state, long sessionEpoch, String fingerprint, String reason);
+    }
+
+    private volatile LinkStateListener linkStateListener;
+
+    /** Plugin kendi yaşam döngüsünde kayıt olur/çıkar (zero-leak). */
+    public void setLinkStateListener(LinkStateListener listener) {
+        linkStateListener = listener;
+    }
+
+    /**
+     * Son hata kodu — YALNIZ gerekçe KATEGORİSİNE çevrilmek için tutulur.
+     * Kodun kendisi TS'e TAŞINMAZ (saldırgana güvenlik katmanının iç
+     * davranışını anlatırdı).
+     */
+    private final AtomicReference<LinkErrorCode> pendingReason = new AtomicReference<>(null);
+
+    /** Son yayılan geçiş — aynı (durum, nesil) ikinci kez YAYILMAZ (dedupe). */
+    private volatile String lastEmittedKey = null;
+
+    /**
+     * Geçişi yayar. Deterministik ve tekrarsızdır: aynı {@code (state, epoch)}
+     * çifti art arda gelirse İKİNCİSİ DÜŞÜRÜLÜR — böylece TS tarafındaki
+     * iptal dizisi de idempotent kalır.
+     *
+     * Hiçbir kripto materyali, eşleşme kodu, ham anahtar, exception mesajı
+     * veya stack trace TAŞINMAZ.
+     */
+    private void emitLinkState(LinkSession.State nativeState, long generation) {
+        PhoneHubLinkStateMapping.LinkState canonical =
+            PhoneHubLinkStateMapping.toLinkState(nativeState);
+
+        String key = canonical.name() + "#" + generation;
+        if (key.equals(lastEmittedKey)) return;   // duplicate transition → tek olay
+        lastEmittedKey = key;
+
+        /* Parmak izi YALNIZ nesli eşleşen, kimliği doğrulanmış oturumdan
+         * okunur — bayat bir oturumun kimliği YENİ olaya SIZDIRILMAZ. */
+        String fingerprint = null;
+        LinkSession s = session.get();
+        if (s != null && s.generation() == generation) {
+            fingerprint = s.handshake().peerFingerprint();
+        }
+
+        PhoneHubLinkStateMapping.LinkStateReason reason =
+            PhoneHubLinkStateMapping.toReason(pendingReason.getAndSet(null));
+
+        LinkStateListener l = linkStateListener;
+        if (l == null) return;
+        try {
+            l.onLinkStateChanged(canonical.name(), generation, fingerprint, reason.name());
+        } catch (RuntimeException ignored) {
+            /* Köprü hatası oturum durum makinesini BOZMAZ (fail-soft). */
+        }
+    }
 
     private volatile String lastSessionState = "IDLE";
     private volatile String lastErrorCode;
@@ -170,7 +295,13 @@ public final class PhoneHubLinkController implements RfcommServerTransport.Callb
 
         LinkSession newSession = new LinkSession(cfg, generation);
         LinkSession previous = session.getAndSet(newSession);
-        if (previous != null) previous.close(LinkErrorCode.SOCKET_CLOSED);
+        if (previous != null) {
+            /* F4.1 — bu kopuşun gerekçesi "uzak taraf kapattı" DEĞİL,
+             * "oturum yenisiyle değiştirildi"dir; kategori doğru taşınır. */
+            pendingReason.set(LinkErrorCode.SOCKET_CLOSED);
+            emitLinkState(LinkSession.State.CLOSED, previous.generation());
+            previous.close(LinkErrorCode.SOCKET_CLOSED);
+        }
 
         try {
             if (!newSession.start(socket.getInputStream(), socket.getOutputStream())) {
@@ -203,6 +334,10 @@ public final class PhoneHubLinkController implements RfcommServerTransport.Callb
     @Override
     public void onStateChanged(LinkSession.State state, long generation) {
         lastSessionState = state.name();
+        /* F4.5 SIRA: önce OTORİTE düşer (TS kanonik olayı burada alır), sonra
+         * native kaynak temizliği. Tersi, yetkinin hâlâ ayakta olduğu bir
+         * temizlik penceresi bırakırdı. */
+        emitLinkState(state, generation);
         if (state == LinkSession.State.CLOSED || state == LinkSession.State.FAILED) {
             pendingPairing.set(null);
             server.onActiveSessionClosed();
@@ -211,9 +346,39 @@ public final class PhoneHubLinkController implements RfcommServerTransport.Callb
 
     @Override
     public void onApplicationMessage(byte[] payload, long generation) {
-        /* P1-A kapsamında uygulama mesajı YÜRÜTÜLMEZ: yalnız sayılır.
-         * Yürütme, yetenek otoritesi belirlendikten sonra tasarlanacak
-         * (GÖREV 18 — handler'lar bilinçli olarak kapalı). */
+        /* F2 — GÖREV 18 artık AÇIK: mesaj TS'e taşınır. Yürütme/yetki KARARI
+         * hâlâ burada YOK — yalnız native'in kanıtladığı (fingerprint + nesil)
+         * bir zarf, opak yükle birlikte köprüye verilir. Ret/ALLOW kararı
+         * canonical authorization'a (TS) aittir. */
+        if (!isAcceptableApplicationPayloadSize(payload)) {
+            return; // boş/aşırı büyük yük sessizce düşürülür — köprü boğulmaz
+        }
+        LinkSession s = session.get();
+        /* Nesil eşleşmiyorsa (bayat oturum geç geldi) TAŞINMAZ. */
+        if (s == null || s.generation() != generation) return;
+        LinkHandshake hs = s.handshake();
+        String fingerprint = hs.peerFingerprint();
+        if (fingerprint == null) return; // kimliği doğrulanmamış oturumdan mesaj taşınmaz
+
+        ApplicationMessageListener l = applicationMessageListener;
+        if (l == null) return;
+        String text;
+        try {
+            text = new String(payload, StandardCharsets.UTF_8);
+        } catch (RuntimeException e) {
+            return; // kodlama bozuksa sessizce düşür
+        }
+        l.onApplicationMessage(fingerprint, generation, text);
+    }
+
+    /**
+     * Saf, Android'e bağlı olmayan kaba boyut kontrolü — doğrudan JUnit'te
+     * sürülebilir (bkz. {@code PhoneHubApplicationMessageTest}). Boş/aşırı
+     * büyük yük kabul edilmez; içerik hiç YORUMLANMAZ (opak).
+     */
+    public static boolean isAcceptableApplicationPayloadSize(byte[] payload) {
+        return payload != null && payload.length > 0
+            && payload.length <= MAX_APPLICATION_MESSAGE_BYTES;
     }
 
     @Override
@@ -243,6 +408,8 @@ public final class PhoneHubLinkController implements RfcommServerTransport.Callb
     public void onError(LinkErrorCode code, String safeDetails, long generation) {
         lastErrorCode = code.name();
         lastErrorAtMs = LinkSession.SYSTEM_CLOCK.nowMs();
+        /* F4.1 — yalnız GEREKÇE KATEGORİSİ için saklanır; kod TS'e gitmez. */
+        pendingReason.set(code);
     }
 
     /* ══════════════════════════════════════════════════════════════════════

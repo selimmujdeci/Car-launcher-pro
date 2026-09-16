@@ -8,6 +8,9 @@ import com.cockpitos.phonehub.protocol.LinkDiagnosticEvent
 import com.cockpitos.phonehub.protocol.LinkErrorCode
 import com.cockpitos.phonehub.protocol.LinkSession
 import com.cockpitos.phonehub.protocol.LinkSessionSnapshot
+import org.json.JSONObject
+import java.nio.charset.StandardCharsets
+import java.util.UUID
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
@@ -186,6 +189,100 @@ class CompanionLinkController private constructor(
         publish(view.copy(trustedPeerKnown = false))
     }
 
+    /* ══════════════════════════════════════════════════════════════════════
+     * F8.1 — Destination Push
+     *
+     * YENİ BİR PROTOKOL/BAĞLANTI YOK: aynı `LinkSession.sendApplicationMessage`
+     * (zaten baştan beri var, yalnız hiç çağrılmıyordu) üzerinden ZATEN kurulu
+     * şifreli oturuma tek bir JSON zarf yazılır. Zarf biçimi TS tarafındaki
+     * `PhoneLinkNavDestinationPushRequest` ile BİREBİR aynıdır.
+     * ════════════════════════════════════════════════════════════════════ */
+
+    enum class DestinationPushResult { SENT, NOT_CONNECTED, INVALID_INPUT, TRANSPORT_FAILURE }
+
+    /**
+     * Koordinat hedefini CarOS'a gönderir. Yalnız şifreli oturum `CONNECTED`
+     * iken çalışır (`session.get()` null ise `NOT_CONNECTED` — kripto olmadan
+     * hiçbir bayt YAZILMAZ). Geçersiz koordinat BURADA, ağa hiç çıkmadan
+     * reddedilir (CarOS tarafı zaten AYNI aralığı yeniden doğrular — savunma
+     * derinliği, tek doğrulayıcı DEĞİL).
+     *
+     * Her çağrı YENİ bir istek kimliği üretir — retry/tekrar gönderim UI
+     * tarafından "gönderiliyor" durumunda buton KİLİTLENEREK önlenir
+     * (`CompanionView.destinationSending`); bu fonksiyon kendi başına dedupe
+     * YAPMAZ (o CarOS'un işi, `messageId` zaten oradan geçer).
+     */
+    fun sendDestinationPush(latitude: Double, longitude: Double, label: String?): DestinationPushResult {
+        if (!latitude.isFinite() || latitude < -90.0 || latitude > 90.0) return DestinationPushResult.INVALID_INPUT
+        if (!longitude.isFinite() || longitude < -180.0 || longitude > 180.0) return DestinationPushResult.INVALID_INPUT
+
+        val s = session.get() ?: return DestinationPushResult.NOT_CONNECTED
+        if (s.state() != LinkSession.State.CONNECTED) return DestinationPushResult.NOT_CONNECTED
+        val requestId = UUID.randomUUID().toString().replace("-", "")
+
+        val json = JSONObject()
+        json.put("v", 1)
+        json.put("id", requestId)
+        json.put("type", "NAV_DESTINATION_PUSH")
+        json.put("latitude", latitude)
+        json.put("longitude", longitude)
+        val trimmedLabel = label?.trim()
+        if (!trimmedLabel.isNullOrEmpty()) json.put("label", trimmedLabel)
+
+        val sent = try {
+            s.sendApplicationMessage(json.toString().toByteArray(StandardCharsets.UTF_8))
+        } catch (e: Exception) { false }
+        if (!sent) return DestinationPushResult.TRANSPORT_FAILURE
+
+        publish(view.copy(
+            destinationSending = true,
+            lastDestinationRequestId = requestId,
+            lastDestinationStatus = null))
+        return DestinationPushResult.SENT
+    }
+
+    /* ══════════════════════════════════════════════════════════════════════
+     * F9 — Mavi Assistant Bridge
+     *
+     * AYNI `LinkSession.sendApplicationMessage` — yeni taşıma/protokol YOK.
+     * Zarf `{v, id, type:"ASSISTANT_BRIDGE_REQUEST", text}` — TS tarafındaki
+     * `PhoneLinkAssistantBridgeRequest` ile BİREBİR aynı.
+     * ════════════════════════════════════════════════════════════════════ */
+
+    enum class AssistantBridgeSendResult { SENT, NOT_CONNECTED, INVALID_INPUT, TRANSPORT_FAILURE }
+
+    /**
+     * Mavi'ye sınırlı bir metin isteği gönderir. Yalnız şifreli oturum
+     * `CONNECTED` iken çalışır. Boş/yalnız-boşluk metin BURADA, ağa hiç
+     * çıkmadan reddedilir (CarOS tarafı AYNI kuralı yeniden doğrular).
+     */
+    fun sendAssistantBridgeRequest(text: String): AssistantBridgeSendResult {
+        val trimmed = text.trim()
+        if (trimmed.isEmpty()) return AssistantBridgeSendResult.INVALID_INPUT
+
+        val s = session.get() ?: return AssistantBridgeSendResult.NOT_CONNECTED
+        if (s.state() != LinkSession.State.CONNECTED) return AssistantBridgeSendResult.NOT_CONNECTED
+        val requestId = UUID.randomUUID().toString().replace("-", "")
+
+        val json = JSONObject()
+        json.put("v", 1)
+        json.put("id", requestId)
+        json.put("type", "ASSISTANT_BRIDGE_REQUEST")
+        json.put("text", trimmed)
+
+        val sent = try {
+            s.sendApplicationMessage(json.toString().toByteArray(StandardCharsets.UTF_8))
+        } catch (e: Exception) { false }
+        if (!sent) return AssistantBridgeSendResult.TRANSPORT_FAILURE
+
+        publish(view.copy(
+            assistantSending = true,
+            lastAssistantRequestId = requestId,
+            lastAssistantStatus = null,
+            lastAssistantResponse = null))
+        return AssistantBridgeSendResult.SENT
+    }
+
     private fun submitConnect(device: BluetoothDevice) {
         publish(view.copy(
             state = CompanionUiState.CONNECTING,
@@ -292,8 +389,47 @@ class CompanionLinkController private constructor(
         }
     }
 
+    /**
+     * F8.1/F9 — CarOS'tan gelen uygulama-mesajı yanıtı. TEK yorumlanan zarf
+     * `{v, id, status, result?}`dir (TS tarafındaki `PhoneLinkApplicationResponse`
+     * ile AYNI, ikinci bir protokol İCAT EDİLMEDİ). `id`, hangi BEKLEYEN
+     * isteğe (hedef push YA DA Mavi sorusu) ait olduğunu belirler — eşleşmeyen
+     * yanıt SESSİZCE yok sayılır, ekrana YANLIŞ sonuç YANSITILMAZ.
+     *
+     * F9 EKİ: `status == "RECEIVED"` Mavi'nin GERÇEK cevabı DEĞİLDİR (§10) —
+     * yalnız "istek yetkilendirildi" der; `assistantSending` `RECEIVED` sonrası
+     * da `true` KALIR (terminal ACK'i bekler). `result.text` YALNIZ `ACCEPTED`
+     * ACK'inde dolu olabilir — CarOS'un GERÇEKTEN ürettiği cevaptır.
+     */
     override fun onApplicationMessage(payload: ByteArray?, generation: Long) {
-        /* P1-A'da uygulama mesajı YÜRÜTÜLMEZ; yetenek otoritesi belirlenmedi. */
+        if (generation != generationSource.get()) return   // bayat nesil
+        if (payload == null) return
+        val json = try {
+            JSONObject(String(payload, StandardCharsets.UTF_8))
+        } catch (e: Exception) { return }                    // opak/yorumlanamaz — sessizce düş
+
+        val id = json.optString("id", "")
+        val status = json.optString("status", "")
+        if (id.isEmpty() || status.isEmpty()) return
+
+        if (id == view.lastDestinationRequestId) {
+            publish(view.copy(destinationSending = false, lastDestinationStatus = status))
+            return
+        }
+        if (id == view.lastAssistantRequestId) {
+            val responseText = if (status == "ACCEPTED") {
+                json.optJSONObject("result")?.optString("text")?.takeIf { it.isNotEmpty() }
+            } else null
+            /* `RECEIVED` ARA durumdur — gönderim göstergesi hâlâ açık kalır,
+               yalnız TERMİNAL bir durumda (ACCEPTED/FAILED/...) kapanır. */
+            publish(view.copy(
+                assistantSending = status == "RECEIVED",
+                lastAssistantStatus = status,
+                lastAssistantResponse = responseText,
+            ))
+            return
+        }
+        // Ne son hedef push'a ne son Mavi isteğine ait — eski/ilgisiz yanıt.
     }
 
     override fun onPairingCodeReady(code: String?, expiresAtMs: Long, generation: Long) {

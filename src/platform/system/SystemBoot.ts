@@ -1166,6 +1166,20 @@ class SystemBoot {
     _log('  › IncomingLocationBridge');
     this._reg(startIncomingLocationBridge());
 
+    // PHONE LINK F6.2 — ürün açılışı. F6.1'e kadar Phone Link YALNIZ LAB
+    // ekranındaki "Server'ı Başlat" düğmesiyle çalışıyordu; artık kanonik
+    // boot altyapıyı hazırlar. Dinleyiciler sunucudan ÖNCE kurulur (ilk
+    // ESTABLISHED olayı kaçmaz). Bluetooth KAPALIYSA hiçbir şey açılmaz:
+    // durum WAITING_FOR_USER_CONNECTIVITY'de kalır, timer/retry KURULMAZ.
+    // İdempotenttir → Activity recreation ikinci sunucu/dinleyici üretmez.
+    // DİNAMİK import (deponun `offlineAutoCache` ile AYNI deseni): Phone Link
+    // modül grafiği Capacitor `registerPlugin` çağrıları içerir; statik import
+    // bu grafiği SystemBoot'u içe aktaran HER tüketiciye (ve `@capacitor/core`
+    // kısmi mock kullanan testlere) taşırdı. Yükleme yalnız boot ANINDA olur.
+    _log('  › PhoneLink ProductBoot');
+    const { startPhoneLinkProductBoot } = await import('../phoneLink/phoneLinkProductBoot');
+    this._regNamed('PhoneLinkProductBoot', startPhoneLinkProductBoot());
+
     // Mavi Çekirdeği Faz-2 wiring (SHADOW/coexistence). WakeWordService + VoiceService'ten SONRA
     // kaydedilir → LIFO shutdown'da bunlardan ÖNCE dispose olur (köprü kapanırken voiceService
     // komut akışı hâlâ ayakta). Model A: pilot handler'lar no-op → mevcut komut davranışı DEĞİŞMEZ,

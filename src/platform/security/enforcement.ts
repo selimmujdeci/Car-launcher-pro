@@ -623,6 +623,12 @@ export const CAPABILITY_STATUS: Readonly<Record<Capability, CapabilityStatusClas
   DIAGNOSTIC_PRIVILEGED: 'DENY_DEFAULT',
   RUNTIME_ADMIN: 'SUPPORTED_GATED',
   SETTINGS_WRITE: 'SUPPORTED_GATED',
+  /* PHONE LINK F5 — Phone Link grant'ı üzerinden gated; veri düzlemini OS
+     taşır, CarOS yalnız politika üretir. */
+  INTERNET_SHARE: 'SUPPORTED_GATED',
+  /* PHONE LINK F9 — Phone Link grant'ı üzerinden gated (yalnız TRUSTED cihaz);
+     yalnız Mavi'nin `kind:'chat'` dalına erişim verir, eylem/komut YÜRÜTMEZ. */
+  ASSISTANT_BRIDGE: 'SUPPORTED_GATED',
   STORAGE_ADMIN: 'SUPPORTED_GATED',
   REMOTE_INPUT: 'DENY_DEFAULT',
   SCREEN_PROJECTION: 'SUPPORTED_GATED',

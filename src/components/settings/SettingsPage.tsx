@@ -40,6 +40,7 @@ import { OfflineDataPanel } from './OfflineDataPanel';
 import { HomeWorkAddressPanel } from './HomeWorkAddressPanel';
 import i18n from '../../i18n/config';
 import { MobileLinkWidget } from './MobileLinkWidget';
+import { CarOsConnectionPriorityCard } from './CarOsConnectionPriorityCard';
 import { OtaUpdateCard } from './OtaUpdateCard';
 import { SupportSnapshotCard } from './SupportSnapshotCard';
 import { DeviceDiagnosticCard } from './DeviceDiagnosticCard';
@@ -1782,6 +1783,9 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
                 <SectionTitle icon={Home} title={i18n.t('navigation.settings_title')} sub={i18n.t('navigation.settings_sub')} color="#60a5fa" />
                 <HomeWorkAddressPanel />
               </Panel>
+
+              {/* ── CarOS Bağlantı Önceliği (Phone Link F6) ── */}
+              <CarOsConnectionPriorityCard />
 
               {/* ── Hotspot / İnternet Bağlantısı ── */}
               <Panel accent="#22d3ee">

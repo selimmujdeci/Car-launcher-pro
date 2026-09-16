@@ -41,7 +41,9 @@ export type HandoffChannel =
   /** Telefondaki "Arabam Cebimde" → Araca Gönder (uzak komut). */
   | 'REMOTE_COMMAND'
   /** Başka bir uygulamanın paylaştığı konum (`geo:` / harita bağlantısı). */
-  | 'GEO_INTENT';
+  | 'GEO_INTENT'
+  /** PHONE LINK F8 — şifreli oturumdan `NAV_DESTINATION_PUSH` (yetki BU kapıdan ÖNCE verilir). */
+  | 'PHONE_LINK';
 
 export interface IncomingDestination {
   readonly lat: number;

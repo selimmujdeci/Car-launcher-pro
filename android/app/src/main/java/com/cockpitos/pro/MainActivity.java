@@ -228,6 +228,12 @@ public class MainActivity extends BridgeActivity {
         // PHONE-HUB P1-A: bağlantı yaşam döngüsü AYRI plugin'de tutulur —
         // soket/iş parçacığı/anahtar sahipliği CarLauncherPlugin'e karışmasın.
         registerPlugin(com.cockpitos.pro.phonehub.link.PhoneHubLinkPlugin.class);
+        // PHONE LINK F3: misafir Music Remote portalının YEREL dinleyicisi de
+        // AYRI plugin'dir — portal soketi RFCOMM oturumuna karışmasın.
+        registerPlugin(com.cockpitos.pro.phonelink.PhoneLinkPortalPlugin.class);
+        // PHONE LINK F5: ag GOZLEMI de ayri plugin — yalniz ConnectivityManager
+        // callback'i tasir, hicbir yetki/kimlik karari VERMEZ.
+        registerPlugin(com.cockpitos.pro.phonelink.PhoneInternetObserverPlugin.class);
         super.onCreate(savedInstanceState);
 
         // ── Ekran ayarları ──

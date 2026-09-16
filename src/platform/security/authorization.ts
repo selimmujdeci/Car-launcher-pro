@@ -6,7 +6,7 @@
 export type PrincipalType = 'LOCAL_UI' | 'MAVI' | 'PHONE_DEVICE' | 'NATIVE_SYSTEM' | 'SYSTEM_INTERNAL' | 'REPLAY_SOURCE' | 'IMPORTED_SOURCE' | 'LAB' | 'UNKNOWN';
 export type AuthenticationState = 'AUTHENTICATED' | 'NOT_AUTHENTICATED' | 'UNKNOWN';
 export type Provenance = 'LIVE' | 'REPLAY' | 'IMPORTED' | 'SYNTHETIC' | 'LAB' | 'UNKNOWN';
-export type Capability = 'MEDIA_CONTROL' | 'NAVIGATION_CONTROL' | 'PHONE_CONTROL' | 'VEHICLE_READ' | 'DIAGNOSTIC_READ' | 'CLEAR_DTC' | 'DIAGNOSTIC_PRIVILEGED' | 'RUNTIME_ADMIN' | 'SETTINGS_WRITE' | 'STORAGE_ADMIN' | 'REMOTE_INPUT' | 'SCREEN_PROJECTION' | 'HARDWARE_MEDIA' | 'UNKNOWN';
+export type Capability = 'MEDIA_CONTROL' | 'NAVIGATION_CONTROL' | 'PHONE_CONTROL' | 'VEHICLE_READ' | 'DIAGNOSTIC_READ' | 'CLEAR_DTC' | 'DIAGNOSTIC_PRIVILEGED' | 'RUNTIME_ADMIN' | 'SETTINGS_WRITE' | 'STORAGE_ADMIN' | 'REMOTE_INPUT' | 'SCREEN_PROJECTION' | 'HARDWARE_MEDIA' | 'INTERNET_SHARE' | 'ASSISTANT_BRIDGE' | 'UNKNOWN';
 export type RiskClass = 'READ_ONLY' | 'USER_CONTROL' | 'VEHICLE_CONTROL' | 'PRIVILEGED' | 'DESTRUCTIVE' | 'SECURITY_SENSITIVE' | 'UNKNOWN';
 export type MotionClass = 'MOVING' | 'PARKED' | 'UNKNOWN';
 export type AuthorizationDecision = 'ALLOW' | 'DENY' | 'BLOCKED' | 'STALE' | 'NOT_AUTHENTICATED' | 'NOT_ATTACHED' | 'CAPABILITY_NOT_GRANTED' | 'MOTION_RESTRICTED' | 'NOT_SUPPORTED' | 'UNAVAILABLE' | 'UNKNOWN';
@@ -69,6 +69,41 @@ export const CAPABILITIES: Readonly<Record<Capability, CapabilityDescriptor>> = 
   REMOTE_INPUT: { id: 'REMOTE_INPUT', owner: 'PhoneHub', riskClass: 'PRIVILEGED', requiresAuthenticatedPrincipal: true, requiresAttachedSession: true, requiresVehicleScope: true, parkedOnly: true, requiresNativePermission: true, replayAllowed: false },
   SCREEN_PROJECTION: { id: 'SCREEN_PROJECTION', owner: 'PhoneHub', riskClass: 'USER_CONTROL', requiresAuthenticatedPrincipal: true, requiresAttachedSession: true, requiresVehicleScope: false, parkedOnly: false, requiresNativePermission: true, replayAllowed: false },
   HARDWARE_MEDIA: { id: 'HARDWARE_MEDIA', owner: 'MediaAuthority', riskClass: 'USER_CONTROL', requiresAuthenticatedPrincipal: false, requiresAttachedSession: false, requiresVehicleScope: false, parkedOnly: false, requiresNativePermission: true, replayAllowed: false },
+  /**
+   * PHONE LINK F5 — bağlı telefonun internet yolunu KULLANMA yetkisi.
+   *
+   * ── BU YETENEK VERİ TAŞIMAZ ───────────────────────────────────────────
+   * `INTERNET_SHARE` bir POLİTİKA yeteneğidir: paketleri CarOS taşımaz,
+   * OS network stack taşır (bkz. `phoneLinkInternetGateway.ts`). Yetenek
+   * yalnız "bu oturumun internet yolu politika olarak kullanılabilir mi"
+   * sorusunu yanıtlar.
+   *
+   * ── `requiresNativePermission: false` NEDEN ───────────────────────────
+   * Fiziksel ağın VARLIĞI bir yetki değil bir DURUMDUR. Grant ile fiziksel
+   * ağı karıştırmak, ağ düştüğünde yetkiyi "yok" göstermek gibi yanlış bir
+   * eşitlik kurardı. Ağ gerçeği `PhoneInternetState`de yaşar.
+   *
+   * ── `parkedOnly: false` NEDEN ─────────────────────────────────────────
+   * İnternet erişimi sürüş sırasında meşrudur (trafik, yeniden rota). Bu
+   * yetenek hiçbir araç fonksiyonunu KONTROL ETMEZ.
+   */
+  INTERNET_SHARE: { id: 'INTERNET_SHARE', owner: 'PhoneHub', riskClass: 'USER_CONTROL', requiresAuthenticatedPrincipal: true, requiresAttachedSession: true, requiresVehicleScope: false, parkedOnly: false, requiresNativePermission: false, replayAllowed: false },
+  /**
+   * PHONE LINK F9 — telefondan Mavi'ye sınırlı METİN isteği köprüsü.
+   *
+   * ── BU YETENEK ARAÇ/KOMUT YÜRÜTME İZNİ VERMEZ ───────────────────────────
+   * `ASSISTANT_BRIDGE` yalnız "bu oturum Mavi'ye salt bilgi/sohbet amaçlı bir
+   * metin isteği iletebilir" der. Mavi'nin `kind:'action'` ürettiği HER sonuç
+   * bridge adaptöründe (`phoneLinkAssistantBridgeAdapter.ts`) YAPISAL OLARAK
+   * reddedilir — bu capability o kararı GEVŞETMEZ, adaptör onu hiç yürütücüye
+   * TAŞIMAZ. `MEDIA_CONTROL`/`NAVIGATION_CONTROL`den bağımsızdır (F5.15 ile
+   * AYNI ilke: bir yeteneğin grant'ı başka birini AÇMAZ).
+   *
+   * `requiresAttachedSession: true` + `requiresAuthenticatedPrincipal: true` —
+   * `INTERNET_SHARE` ile AYNI, `MEDIA_CONTROL`dan daha sıkı eşik (Phone Link
+   * katmanında ayrıca yalnız TRUSTED cihaza verilir, bkz. `phoneLinkCapabilityGrant`).
+   */
+  ASSISTANT_BRIDGE: { id: 'ASSISTANT_BRIDGE', owner: 'MaviAssistant', riskClass: 'USER_CONTROL', requiresAuthenticatedPrincipal: true, requiresAttachedSession: true, requiresVehicleScope: false, parkedOnly: false, requiresNativePermission: false, replayAllowed: false },
   UNKNOWN: { id: 'UNKNOWN', owner: 'Unknown', riskClass: 'UNKNOWN', requiresAuthenticatedPrincipal: true, requiresAttachedSession: true, requiresVehicleScope: true, parkedOnly: true, requiresNativePermission: true, replayAllowed: false },
 });
 

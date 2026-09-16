@@ -46,6 +46,7 @@ import { AddressNavCard } from '../common/AddressNavCard';
 import { useDayNightManager } from '../../hooks/useDayNightManager';
 import { VehicleReminderModal } from '../modals/VehicleReminderModal';
 import { IncomingCallOverlay } from '../common/IncomingCallOverlay';
+import { PhoneLinkNavProposalOverlay } from '../common/PhoneLinkNavProposalOverlay';
 import FieldTestBadge from '../common/FieldTestBadge';
 import { setRemoteCommandContext } from '../../platform/vehicleDataLayer';
 import { useUnifiedVehicleStore } from '../../platform/vehicleDataLayer/UnifiedVehicleStore';
@@ -501,6 +502,9 @@ export default function MainLayout() {
 
       {/* Gelen arama overlay */}
       <IncomingCallOverlay />
+
+      {/* Phone Link F8.1 — telefondan gelen hedef önerisi onay kartı */}
+      <PhoneLinkNavProposalOverlay />
 
       {/* Theater Mode — araç dururken medya odaklı tam ekran (z-9990) */}
       <TheaterOverlay />

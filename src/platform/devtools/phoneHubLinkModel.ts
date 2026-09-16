@@ -312,7 +312,9 @@ function _countersSection(raw: PhoneHubLinkSnapshotRaw, present: boolean): Phone
     _num(s.bytesSent) === null ? null : `${s.bytesSent} / ${s.bytesReceived}`,
     'Ham bayt toplamı — İÇERİK taşınmaz.');
   push('cnt-app-messages', 'Uygulama mesajı alındı', _num(s.appMessagesReceived),
-    'Bu fazda mesajlar SAYILIR ama YÜRÜTÜLMEZ.');
+    'F2: doğrulanmış mesajlar artık TS ingress\'ine taşınır ve (yetkiliyse) '
+    + 'kanonik Music kapısına yürütülür — bu sayaç yalnız native alım adedidir, '
+    + 'kabul/ret ayrımı için `phoneLinkApplicationIngress` gözlemlenebilirliğine bakın.');
   push('cnt-queue', 'Yazma kuyruğu',
     _num(s.writeQueueDepth) === null ? null
       : `${s.writeQueueDepth} / ${s.writeQueueCapacity}`,

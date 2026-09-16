@@ -52,6 +52,15 @@ class CompanionActivity : AppCompatActivity() {
     private var permissionAskedOnce = false
     private var showDiagnostics = false
 
+    /* F8.1 — hedef gönderme ekranının KENDİ giriş durumu. Controller/CompanionView
+       BUNU TUTMAZ (yalnız gönderim/sonuç durumu tutar) — girdi salt bu ekrana aittir. */
+    private var destLatText = ""
+    private var destLngText = ""
+    private var destLabelText = ""
+
+    /* F9 — Mavi'ye Sor ekranının KENDİ giriş durumu (soru metni CompanionView'da TUTULMAZ). */
+    private var assistantText = ""
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         controller = CompanionLinkController.get(this, appVersion())
@@ -240,6 +249,187 @@ class CompanionActivity : AppCompatActivity() {
             addKeyValue("Eş kimliği", view.peerFingerprintShort ?: "BİLİNMİYOR")
             addText("Bağlantı kurulmuş olması medya, çağrı veya bildirim " +
                 "yetkisi verildiği anlamına GELMEZ.", size = 12f, color = "#9AA7B4")
+        }
+        if (view.state == CompanionUiState.CONNECTED) {
+            renderDestinationPush(view)
+            renderAssistantBridge(view)
+        }
+    }
+
+    /* ══════════════════════════════════════════════════════════════════════
+     * F8.1 — CarOS'a Hedef Gönder
+     *
+     * ── SAHTE BAŞARI YOK (§9) ────────────────────────────────────────────
+     * "Gönderildi" YALNIZ `sendDestinationPush` gerçekten byte yazdıysa
+     * gösterilir. Ardından gelen ASIL sonuç (`view.lastDestinationStatus`)
+     * CarOS'un şifreli ACK'inden gelir — bu ekran "Navigasyon başladı" gibi
+     * bir iddiayı KENDİSİ ÜRETMEZ, yalnız CarOS'un söylediğini YANSITIR.
+     * ════════════════════════════════════════════════════════════════════ */
+
+    private fun renderDestinationPush(view: CompanionView) {
+        addDivider()
+        addSectionLabel("CAROS'A HEDEF GÖNDER")
+
+        addLabeledInput("Enlem (ör. 41.0082)", destLatText) { destLatText = it }
+        addLabeledInput("Boylam (ör. 28.9784)", destLngText) { destLngText = it }
+        addLabeledInput("Hedef adı (opsiyonel)", destLabelText) { destLabelText = it }
+
+        val lat = destLatText.trim().replace(',', '.').toDoubleOrNull()
+        val lng = destLngText.trim().replace(',', '.').toDoubleOrNull()
+        val validCoords = lat != null && lat >= -90.0 && lat <= 90.0
+            && lng != null && lng >= -180.0 && lng <= 180.0
+        if (destLatText.isNotEmpty() && (lat == null || lat < -90.0 || lat > 90.0)) {
+            addText("Enlem -90..90 arasında bir sayı olmalı.", size = 12f, color = "#F2A0A0")
+        }
+        if (destLngText.isNotEmpty() && (lng == null || lng < -180.0 || lng > 180.0)) {
+            addText("Boylam -180..180 arasında bir sayı olmalı.", size = 12f, color = "#F2A0A0")
+        }
+
+        val sendButton = Button(this).apply {
+            text = if (view.destinationSending) "Gönderiliyor…" else "CarOS'a Gönder"
+            isAllCaps = false
+            textSize = 15f
+            isEnabled = validCoords && !view.destinationSending
+            alpha = if (isEnabled) 1f else 0.5f
+            setTextColor(Color.parseColor("#0B0F14"))
+            setBackgroundColor(Color.parseColor("#5CC8FF"))
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(10) }
+            setOnClickListener {
+                val la = lat ?: return@setOnClickListener
+                val lo = lng ?: return@setOnClickListener
+                when (controller.sendDestinationPush(la, lo, destLabelText)) {
+                    CompanionLinkController.DestinationPushResult.SENT -> { /* view zaten güncellendi */ }
+                    CompanionLinkController.DestinationPushResult.NOT_CONNECTED ->
+                        toast("Bağlantı yok — gönderilemedi")
+                    CompanionLinkController.DestinationPushResult.INVALID_INPUT ->
+                        toast("Geçersiz koordinat")
+                    CompanionLinkController.DestinationPushResult.TRANSPORT_FAILURE ->
+                        toast("Gönderim başarısız — bağlantı kopmuş olabilir")
+                }
+            }
+        }
+        root.addView(sendButton)
+
+        destinationStatusLabel(view)?.let { (text, color) ->
+            addText(text, size = 13f, color = color)
+        }
+    }
+
+    /** CarOS'un ACK durumunu KULLANICI DİLİNE çevirir — ham kod ekrana ASLA basılmaz. */
+    private fun destinationStatusLabel(view: CompanionView): Pair<String, String>? {
+        if (view.destinationSending) return "Gönderildi, CarOS'un yanıtı bekleniyor…" to "#9AA7B4"
+        return when (view.lastDestinationStatus) {
+            null -> null
+            "PENDING_USER_APPROVAL" -> "Araçta onay bekleniyor…" to "#F2C572"
+            "ACCEPTED" -> "Sürücü kabul etti — hedef araca iletildi." to "#7FB7A3"
+            "REJECTED_BY_USER" -> "Sürücü reddetti." to "#F2A0A0"
+            "EXPIRED" -> "Onay süresi doldu." to "#F2A0A0"
+            "REJECTED_STALE_SESSION" -> "Bağlantı bu arada değişti — tekrar gönderin." to "#F2A0A0"
+            "REJECTED_UNAUTHORIZED" -> "Bu cihaz için hedef gönderme yetkisi yok." to "#F2A0A0"
+            "INVALID_DESTINATION" -> "Hedef araç tarafından geçersiz sayıldı." to "#F2A0A0"
+            "NAVIGATION_UNAVAILABLE" -> "Araçta navigasyon şu an kullanılamıyor." to "#F2A0A0"
+            "DUPLICATE" -> "Bu hedef az önce zaten gönderilmiş." to "#9AA7B4"
+            else -> "Durum: ${view.lastDestinationStatus}" to "#9AA7B4"
+        }
+    }
+
+    /** Basit tek satır etiket + giriş alanı — yazılan değer Activity alanında KALICI tutulur. */
+    private fun addLabeledInput(hint: String, current: String, onChanged: (String) -> Unit) {
+        addText(hint, size = 12f, color = "#7A8A9A")
+        root.addView(android.widget.EditText(this).apply {
+            setText(current)
+            setTextColor(Color.parseColor("#E6EDF3"))
+            setHintTextColor(Color.parseColor("#4A5A6A"))
+            setBackgroundColor(Color.parseColor("#131B24"))
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+            textSize = 15f
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(2); bottomMargin = dp(8) }
+            addTextChangedListener(object : android.text.TextWatcher {
+                override fun afterTextChanged(s: android.text.Editable?) { onChanged(s?.toString() ?: "") }
+                override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+                override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+            })
+        })
+    }
+
+    /* ══════════════════════════════════════════════════════════════════════
+     * F9 — Mavi'ye Sor
+     *
+     * ── METİN TABANLI, SES YOK (§16) ────────────────────────────────────
+     * Bu ekran mikrofonu AÇMAZ, TTS OYNATMAZ — yalnız metin girer/okur.
+     * ── SAHTE CEVAP YOK ───────────────────────────────────────────────────
+     * `lastAssistantResponse` YALNIZ CarOS'un `ACCEPTED` ACK'inde gönderdiği
+     * `result.text`tir — bu ekran KENDİ cevabını ÜRETMEZ/TAHMİN ETMEZ.
+     * ════════════════════════════════════════════════════════════════════ */
+
+    private fun renderAssistantBridge(view: CompanionView) {
+        addDivider()
+        addSectionLabel("MAVİ'YE SOR")
+        addText("Yalnız bilgi/sohbet soruları — araç kontrolü veya ayar " +
+            "değişikliği bu yoldan YAPILAMAZ.", size = 11f, color = "#7A8A9A")
+
+        addLabeledInput("Sorunuz (ör. hava durumu nasıl?)", assistantText) { assistantText = it }
+
+        val trimmed = assistantText.trim()
+        val sendButton = Button(this).apply {
+            text = if (view.assistantSending) "Bekleniyor…" else "Mavi'ye Gönder"
+            isAllCaps = false
+            textSize = 15f
+            isEnabled = trimmed.isNotEmpty() && !view.assistantSending
+            alpha = if (isEnabled) 1f else 0.5f
+            setTextColor(Color.parseColor("#0B0F14"))
+            setBackgroundColor(Color.parseColor("#5CC8FF"))
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(10) }
+            setOnClickListener {
+                when (controller.sendAssistantBridgeRequest(trimmed)) {
+                    CompanionLinkController.AssistantBridgeSendResult.SENT -> { /* view zaten güncellendi */ }
+                    CompanionLinkController.AssistantBridgeSendResult.NOT_CONNECTED ->
+                        toast("Bağlantı yok — gönderilemedi")
+                    CompanionLinkController.AssistantBridgeSendResult.INVALID_INPUT ->
+                        toast("Boş soru gönderilemez")
+                    CompanionLinkController.AssistantBridgeSendResult.TRANSPORT_FAILURE ->
+                        toast("Gönderim başarısız — bağlantı kopmuş olabilir")
+                }
+            }
+        }
+        root.addView(sendButton)
+
+        assistantStatusLabel(view)?.let { (text, color) ->
+            addText(text, size = 13f, color = color)
+        }
+        view.lastAssistantResponse?.let { response ->
+            root.addView(TextView(this).apply {
+                text = response
+                textSize = 14f
+                setTextColor(Color.parseColor("#E6EDF3"))
+                setPadding(dp(10), dp(10), dp(10), dp(10))
+                setBackgroundColor(Color.parseColor("#131B24"))
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { topMargin = dp(8) }
+            })
+        }
+    }
+
+    /** CarOS'un ACK durumunu KULLANICI DİLİNE çevirir — ham kod ekrana ASLA basılmaz. */
+    private fun assistantStatusLabel(view: CompanionView): Pair<String, String>? {
+        if (view.assistantSending) return "Mavi düşünüyor…" to "#9AA7B4"
+        return when (view.lastAssistantStatus) {
+            null -> null
+            "ACCEPTED" -> null // cevap metni zaten ayrı kutuda gösteriliyor
+            "ACTION_NOT_PERMITTED" -> "Bu bir eylem isteğiydi — telefon üzerinden yalnız bilgi/sohbet desteklenir." to "#F2A0A0"
+            "NO_ANSWER" -> "Mavi bir cevap üretemedi." to "#F2A0A0"
+            "TIMED_OUT" -> "Yanıt zaman aşımına uğradı." to "#F2A0A0"
+            "REJECTED_STALE_SESSION" -> "Bağlantı bu arada değişti — tekrar gönderin." to "#F2A0A0"
+            "REJECTED_UNAUTHORIZED" -> "Bu cihaz için Mavi'ye soru gönderme yetkisi yok." to "#F2A0A0"
+            "FAILED" -> "Bir hata oluştu." to "#F2A0A0"
+            else -> "Durum: ${view.lastAssistantStatus}" to "#9AA7B4"
         }
     }
 

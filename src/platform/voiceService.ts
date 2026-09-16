@@ -1529,7 +1529,12 @@ let _pendingAt  = 0;
 /* ── AI anahtar çözümü (tembel — yalnız AI yolları çağırır) ──
  * Bozuk persist kaydı (JSON.parse throw) komut akışını öldürmesin: provider
  * 'none'a düşer, yerel parser çalışmaya devam eder (fail-soft, CLAUDE.md §2). */
-async function _resolveAiKeys(): Promise<{
+/**
+ * PHONE LINK F9: dışa açıldı (yalnız `export` eklendi — gövde/davranış
+ * DEĞİŞMEDİ) — `phoneLinkAssistantBridgeAdapter.ts` AYNI anahtar/sağlayıcı
+ * çözümünü kullanır; ikinci bir çözümleme YAZILMADI (tek otorite, §7).
+ */
+export async function _resolveAiKeys(): Promise<{
   provider: AIProvider; apiKey: string; hasNet: boolean; tavilyKey: string;
   /**
    * Gemini = ARAMA MOTORU anahtarı. Sohbet zincirinde olsun olmasın, web/güncel
