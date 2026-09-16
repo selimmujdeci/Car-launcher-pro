@@ -5,7 +5,7 @@
  * bağımlılıklar bağlanır; saf katman (gateway/provider) bunların HİÇBİRİNİ
  * bilmez:
  *   - OpenRouter sağlayıcısı  ← BYOK anahtar kaynağı
- *   - Çevrimdışı kapısı       ← `navigator.onLine`
+ *   - Çevrimdışı kapısı       ← kanonik `ConnectivityPolicy`
  *   - Devre kesici            ← mevcut `aiHealth` (Gemini/Haiku hattıyla ORTAK;
  *                                yavaş/arızalı ağda AI yollarını birlikte kapatır)
  *
@@ -21,6 +21,7 @@
  */
 
 import { createAiGateway } from '../aiGateway';
+import { allowsConnectivity } from '../../../connectivity/connectivityGate';
 import { DEFAULT_AI_MODEL, DEFAULT_GEMINI_MODEL } from '../models';
 import { createOpenRouterProvider } from '../providers/openRouterProvider';
 import { createGeminiProvider } from '../providers/geminiProvider';
@@ -48,9 +49,16 @@ const aiHealthPort: AiHealthPort = {
   },
 };
 
-/** Tarayıcı/WebView ağ durumu (yoksa "çevrimiçi" varsayılır — kapı yanlış kapanmasın). */
+/**
+ * Ağ durumu portu — F7-B'den beri KANONİK otoriteden beslenir.
+ *
+ * Bulut AI kullanıcının BEKLEDİĞİ etkileşimli bir çağrıdır → `CLOUD_INTERACTIVE`.
+ * Kanıt yokken (`UNKNOWN`) kapı KAPANMAZ: eski davranış da belirsizlikte
+ * deniyordu ve native gözlemcinin bağlanmadığı bir ROM'da AI'ı tamamen kapatmak
+ * gerçek bir gerileme olurdu (§19). `CAPTIVE` artık boşuna denenmez.
+ */
 const browserNetworkStatus: AiNetworkStatus = {
-  isOnline: () => (typeof navigator === 'undefined' ? true : navigator.onLine !== false),
+  isOnline: () => allowsConnectivity('CLOUD_INTERACTIVE'),
 };
 
 let _gateway:   AiGateway | null = null;

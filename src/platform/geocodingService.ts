@@ -7,7 +7,7 @@
  * Her iki servis de rate-limit dostu; retry yok, sadece timeout.
  *
  * Fast-Fail Fallback (geocodeAddress):
- *   navigator.onLine === false  → anında offline fallback (<500ms)
+ *   kanonik kapı kapalı         → anında offline fallback (<500ms)
  *   Nominatim > FAST_FAIL_MS    → offline fallback DÖNER, istek İPTAL EDİLMEZ;
  *                                 geç gelen yanıt önbelleğe düşer (bkz. _lateCache)
  *   Nominatim ağ hatası         → offline fallback
@@ -15,6 +15,7 @@
  */
 
 import { searchOffline, searchPOI } from './offlineSearchService';
+import { allowsConnectivity } from './connectivity/connectivityGate';
 import type { POISearchResult }      from './offlineSearchService';
 import { searchStreetByName, extractStreetQuery } from './streetSearchService';
 import { premiumGeocode }            from './geocodingProviders';
@@ -426,7 +427,7 @@ interface NominatimItem {
  * currentLat/Lng verilirse viewbox bias uygulanır.
  *
  * Fast-Fail Timeout (2s):
- *   - navigator.onLine === false → anında _offlineFallback() (rate-limiter atlanır)
+ *   - kanonik kapı kapalı → anında _offlineFallback() (rate-limiter atlanır)
  *   - Nominatim 2s içinde yanıt vermezse → _offlineFallback() DÖNER; istek
  *     iptal EDİLMEZ, geç yanıt önbelleğe yazılır → sonraki arama onu bulur
  *   - Nominatim ağ hatası → _offlineFallback()
@@ -440,7 +441,7 @@ export async function geocodeAddress(
      Ölçüm hiçbir kararı değiştirmez: aşağıdaki akış BİREBİR eskisi gibidir. */
   const t0          = Date.now();
   const hadLocation = currentLat != null && currentLng != null;
-  const online      = typeof navigator === 'undefined' ? true : navigator.onLine;
+  const online      = allowsConnectivity('LIGHTWEIGHT_INTERNET');
   /* Son şans (Overpass) için kullanılabilir bir sokak sorgusu ÜRETİLEBİLİR Mİ.
      Ölçüm 2026-08-11: adlı sokaklarda üretilen regex şehir/mahalle önekini de
      içerdiği için OSM adıyla asla eşleşmiyor — o yüzden "üretildi" ile
@@ -556,8 +557,8 @@ export async function geocodeAddress(
     });
   };
 
-  /* Hızlı yol: ağ bağlantısı yok → rate-limiter atlanır, anında offline */
-  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+  /* Hızlı yol: kullanılabilir internet yolu yok → rate-limiter atlanır, anında offline */
+  if (!online) {
     const off = gate(await _offlineFallback(query, currentLat, currentLng, offlineSink));
     pushOfflineAttempts();
     /* Çevrimiçi sağlayıcılar HİÇ denenmedi — "ulaşıldı, 0 döndü" DEĞİL. */
@@ -904,7 +905,7 @@ export const REVERSE_GEOCODE_TIMEOUT_MS = 3_000;
  *  - BOUNDED — `timeoutMs` toplam bütçedir; Nominatim ToS rate-limit beklemesi de bu
  *    bütçeden harcanır, bütçe biterse istek HİÇ yapılmaz ve null döner (aşım olamaz).
  *  - THROW ETMEZ — ağ · HTTP · JSON parse · abort, hepsi null'a indirgenir.
- *  - Çevrimdışıyken (navigator.onLine === false) ağa HİÇ çıkılmaz → anında null.
+ *  - Çevrimdışıyken (kanonik kapı kapalı) ağa HİÇ çıkılmaz → anında null.
  *  - LOG YOK: URL, koordinat, header ve yanıt gövdesi hiçbir yere yazılmaz (konum PII'dir;
  *    ayrıca diagnostic loglara hassas alan yazma yasağı — CLAUDE.md).
  */
@@ -915,7 +916,7 @@ export async function reverseGeocode(
 ): Promise<string | null> {
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
   if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
-  if (typeof navigator !== 'undefined' && !navigator.onLine) return null;
+  if (!allowsConnectivity('LIGHTWEIGHT_INTERNET')) return null;
 
   const budget = Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : REVERSE_GEOCODE_TIMEOUT_MS;
   const startedAt = Date.now();
@@ -995,7 +996,7 @@ export async function reverseGeocodeParts(
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
   if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
   if (lat === 0 && lng === 0) return null;              // Null Island sentinel
-  if (typeof navigator !== 'undefined' && !navigator.onLine) return null;
+  if (!allowsConnectivity('LIGHTWEIGHT_INTERNET')) return null;
 
   const budget = Number.isFinite(timeoutMs) && timeoutMs > 0
     ? timeoutMs : REVERSE_GEOCODE_TIMEOUT_MS;

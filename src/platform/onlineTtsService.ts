@@ -16,6 +16,7 @@
 
 import { signalWithTimeout } from '../utils/abortCompat';
 import { sensitiveKeyStore } from './sensitiveKeyStore';
+import { allowsConnectivity } from './connectivity/connectivityGate';
 import { requestDuck, type DuckHandle } from './media/authority/duckRequest';
 import type { DuckReason } from './media/authority/duckPolicy';
 /* MAVI-F0: TTS sentez + ilk duyulabilir ses ölçümü (YALNIZ ÖLÇÜM). */
@@ -86,7 +87,8 @@ function _pcmToWavUrl(b64: string, sampleRate: number): string {
 
 /** Online TTS şu an kullanılabilir mi (online + anahtar var + kota açık). */
 export async function isOnlineTtsAvailable(): Promise<boolean> {
-  if (typeof navigator !== 'undefined' && navigator.onLine === false) return false;
+  /* F7-B: bulut TTS kullanıcı beklerken çalışır → `CLOUD_INTERACTIVE`. */
+  if (!allowsConnectivity('CLOUD_INTERACTIVE')) return false;
   if (_now() < _rateLimitedUntil) return false;
   const key = await sensitiveKeyStore.get('geminiApiKey').catch(() => '');
   return !!key;
@@ -97,7 +99,7 @@ async function _synthesize(text: string): Promise<string | null> {
   const cached = _cache.get(text);
   if (cached) return cached;
 
-  if (typeof navigator !== 'undefined' && navigator.onLine === false) return null;
+  if (!allowsConnectivity('CLOUD_INTERACTIVE')) return null;
   if (_now() < _rateLimitedUntil) return null;
 
   const apiKey = await sensitiveKeyStore.get('geminiApiKey').catch(() => '');

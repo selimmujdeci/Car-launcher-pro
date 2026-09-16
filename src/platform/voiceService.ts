@@ -10,6 +10,7 @@
  */
 import { useState, useEffect } from 'react';
 import { isNative } from './bridge';
+import { allowsConnectivity } from './connectivity/connectivityGate';
 import { isLowEndDevice } from './headUnitCompat';
 import { CarLauncher } from './nativePlugin';
 import {
@@ -1593,7 +1594,7 @@ async function _resolveAiKeys(): Promise<{
   // penceresinde hasNet=false döner → TÜM AI yolları atlanır, yerel zincir anında
   // cevap verir. Yavaş hotspot'ta her cümlenin 3 ardışık timeout (6+5+3 sn)
   // beklemesi ve sürekli "İnternet yavaş..." duyulması böyle kesilir.
-  const hasNet = typeof navigator !== 'undefined' && navigator.onLine && isAiNetHealthy();
+  const hasNet = allowsConnectivity('CLOUD_INTERACTIVE') && isAiNetHealthy();
   return { provider, apiKey, hasNet, tavilyKey, searchKey, chain };
 }
 
@@ -2611,14 +2612,16 @@ export function startListening(opts?: StartListeningOpts): void {
         // aksi halde cihaz-içi Vosk. Native tarafta da yönlendirilir: preferOffline=false +
         // Google mevcut → online; aksi halde Vosk (onlineFallback çift yönlü: online koparsa Vosk).
         //
-        // GERÇEK BAĞLANTI KAPISI (sahte onLine koruması): online STT yalnız
-        // navigator.onLine VE isAiNetHealthy() iken açılır. navigator.onLine tek başına
-        // güvenilmez — head unit internetsizken bile 'true' raporlayabilir. Gemini devre
-        // kesicisi (isAiNetHealthy) art arda gerçek AI ağ hatasında düşer → ağ sahte/ölü
+        // GERÇEK BAĞLANTI KAPISI (F7-B): online STT yalnız kanonik bağlantı
+        // politikası İZİN VERİYORSA ve isAiNetHealthy() iken açılır. Tek bir
+        // tarayıcı bayrağı güvenilmezdi — head unit internetsizken bile 'true'
+        // raporlayabiliyordu; kanonik otorite bunu NET_CAPABILITY_VALIDATED ile
+        // ayırır ve captive portalı "online" saymaz. Gemini devre kesicisi
+        // (isAiNetHealthy) art arda gerçek AI ağ hatasında düşer → ağ sahte/ölü
         // ise STT de Vosk'a iner (en çok ilk 1-2 komut online dener, sonra breaker
         // kapatır; 90s soğuma). Böylece: internetli head unit ≈ Siri (online STT + Gemini),
         // internetsiz/sahte-online head unit → Vosk. Cihaz tier'ından BAĞIMSIZ.
-        preferOffline: !(typeof navigator !== 'undefined' && navigator.onLine && isAiNetHealthy()),
+        preferOffline: !(allowsConnectivity('CLOUD_INTERACTIVE') && isAiNetHealthy()),
         // n-best: STT'nin ilk birkaç alternatifini iste — beyin doğru olanı seçer
         // (Vosk küçük TR modeli tek "en iyi"de sık yanılıyor). Wake yolu kendi path'i.
         onlineFallback: true, language: 'tr-TR', maxResults: STT_MAX_ALTERNATIVES,
@@ -2626,11 +2629,12 @@ export function startListening(opts?: StartListeningOpts): void {
         // döndürür → JS bulut STT'ye (Groq Whisper / Gemini) gönderir (OEM doğruluk),
         // başarısızsa Vosk metni kalır (tek yakalama, çakışma yok). Telefon (Google STT)
         // yolu WAV üretmez → doğrudan Google metni kullanılır. Offline → returnAudio false.
-        // Bulut STT kapısı: yalnız navigator.onLine. isAiNetHealthy() (Gemini devre
-        // kesici) BİLİNÇLİ olarak çıkarıldı — Groq Whisper STT ayrı endpoint, Gemini
-        // beyninin 429/hatası bulut TANIMAYI bloke etmemeli (saha: companion_groq
-        // çalışıyor ama cloud STT hiç girmiyordu). Kötü ağı 6sn timeout + fail-soft toparlar.
-        returnAudio: typeof navigator !== 'undefined' && navigator.onLine,
+        // Bulut STT kapısı: yalnız kanonik bağlantı politikası. isAiNetHealthy()
+        // (Gemini devre kesici) BİLİNÇLİ olarak çıkarıldı — Groq Whisper STT ayrı
+        // endpoint, Gemini beyninin 429/hatası bulut TANIMAYI bloke etmemeli (saha:
+        // companion_groq çalışıyor ama cloud STT hiç girmiyordu). Kötü ağı 6sn
+        // timeout + fail-soft toparlar.
+        returnAudio: allowsConnectivity('CLOUD_INTERACTIVE'),
         // OFFLINE KOMUT GRAMMAR'ı (Yol A): internetsizken Vosk'u komut sözlüğüne kısıtla
         // → offline komut doğruluğu OEM-hissine çıkar. ONLINE'da verilmez (bulut tam
         // dikteyi çözer; grammar serbest cümleyi [unk]'a düşürürdü). Native full-vocab fallback'li.
@@ -2641,7 +2645,7 @@ export function startListening(opts?: StartListeningOpts): void {
         // kapı `resolveActiveGrammar` içinde `undefined` döndürür. Fail-soft:
         // bağlam/sözlük kurulamazsa genele düşer, o da olmazsa gramer verilmez.
         grammar: resolveActiveGrammar(
-          typeof navigator !== 'undefined' && navigator.onLine, Date.now(),
+          allowsConnectivity('CLOUD_INTERACTIVE'), Date.now(),
         ),
         // Araç içi hassasiyet (voiceTuning.ts): kazanç + dinleme penceresi.
         // Native tarafta clamp'lenir; wake word bu opsiyonları geçmediği için etkilenmez.

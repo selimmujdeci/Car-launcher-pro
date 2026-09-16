@@ -1,6 +1,7 @@
 import { memo, type ReactNode, useState, useCallback, useEffect, useRef, lazy, Suspense } from 'react';
 const SecureAccessModal = lazy(() => import('../admin/SecureAccessModal').then(m => ({ default: m.SecureAccessModal })));
 import { useCarTheme, isDay, baseOf, toDay, toNight, type BaseTheme } from '../../store/useCarTheme';
+import { allowsConnectivity } from '../../platform/connectivity/connectivityGate';
 import expeditionEmblem from '../../assets/expedition/emblem.png';
 import {
   Sun, Smartphone, Zap, Palette, Layout, Check, PenTool as Tool, Volume2,
@@ -865,7 +866,7 @@ function LiveStatsRow() {
   const [load,   setLoad]   = useState(0);   // ana thread yükü — longtask ms / pencere
   const [ramMb,  setRamMb]  = useState(0);   // usedJSHeapSize (MB); yoksa 0 → "—"
   const [netMs,  setNetMs]  = useState(-1);  // navigator.connection.rtt; yoksa -1
-  const [online, setOnline] = useState(() => typeof navigator === 'undefined' || navigator.onLine);
+  const [online, setOnline] = useState(() => allowsConnectivity('LIGHTWEIGHT_INTERNET'));
 
   useEffect(() => {
     // Yük ölçümü longtask tabanlı: rAF döngüsü YOK (K24 boşta-çizim seli yasağı).
@@ -886,7 +887,7 @@ function LiveStatsRow() {
       setRamMb(mem?.usedJSHeapSize ? Math.round(mem.usedJSHeapSize / 1048576) : 0);
       const rtt = (navigator as { connection?: { rtt?: number } }).connection?.rtt;
       setNetMs(typeof rtt === 'number' ? rtt : -1);
-      setOnline(navigator.onLine);
+      setOnline(allowsConnectivity('LIGHTWEIGHT_INTERNET'));
     }, PERIOD_MS);
     return () => { obs?.disconnect(); clearInterval(id); };
   }, []);

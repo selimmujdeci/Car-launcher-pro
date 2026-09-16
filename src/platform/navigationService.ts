@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { Address } from './addressBookService';
+import { allowsConnectivity } from './connectivity/connectivityGate';
 import { sensitiveKeyStore } from './sensitiveKeyStore';
 import {
   setRerouteContext,
@@ -1398,8 +1399,8 @@ async function addToHistory(address: Address): Promise<void> {
  * Başarısız olursa false döner (ağ yok / adres bulunamadı).
  */
 export async function navigateToAddress(text: string): Promise<boolean> {
-  // 1. Network Check
-  if (!navigator.onLine) {
+  // 1. Kanonik bağlantı kapısı (F7-B) — çevrimdışı eşleşme yolu KORUNUR.
+  if (!allowsConnectivity('LIGHTWEIGHT_INTERNET')) {
     const offlineMatch = await searchOffline(text);
     if (offlineMatch) {
       startNavigation(offlineMatch, true, 'USER_SEARCH');

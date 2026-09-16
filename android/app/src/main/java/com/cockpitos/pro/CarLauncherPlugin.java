@@ -708,6 +708,22 @@ public class CarLauncherPlugin extends Plugin {
         result.put("btConnected", btConnected);
         result.put("btDevice",    btDevice);
 
+        /*
+         * CONNECTIVITY F7-B (§15) — ACIK ISTISNA: SALT GOSTERGE.
+         *
+         * Burasi "Wi-Fi bagli mi + SSID" GOSTERIR; INTERNET GERCEGI URETMEZ ve
+         * hicbir karar yolu bunu okumaz (tuketici zinciri: deviceApi →
+         * StatusControls / Ayarlar kutucugu / vehicleProfileService ad alani).
+         * "Bu is yapilabilir mi" sorusu YALNIZ TS tarafindaki kanonik
+         * ConnectivityPolicy'ye sorulur; tetherService'in "zaten bagli mi"
+         * kapisi F7-B'de oraya TASINDI.
+         *
+         * Deprecated {@code NetworkInfo} BILEREK korundu: modern karsiligi
+         * (aktif agin NetworkCapabilities'i) yalnizca VARSAYILAN yolu bildirir;
+         * Ethernet aktifken Wi-Fi da bagliysa SSID gostergesi KAYBOLURDU.
+         * Gosterge semantigini bozmamak icin burada buyuk bir native refactor
+         * ACILMADI — kalan deprecated kullanim raporlanmistir.
+         */
         ConnectivityManager cm =
             (ConnectivityManager) getContext().getSystemService(Context.CONNECTIVITY_SERVICE);
         NetworkInfo wifiInfo = cm.getNetworkInfo(ConnectivityManager.TYPE_WIFI);

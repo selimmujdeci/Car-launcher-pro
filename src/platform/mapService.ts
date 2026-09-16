@@ -13,6 +13,7 @@
 // (geriye dönük uyumlu — import yolları değişmedi). Davranış değişikliği YOK.
 // ══════════════════════════════════════════════════════════════════════════
 import { searchOffline } from './offlineSearchService';
+import { allowsConnectivity, observedInternetReachability } from './connectivity/connectivityGate';
 import type { StoredLocation } from './offlineSearchService';
 import { searchGlobal } from './poi/offlinePoiService';
 import { NOMINATIM_URL, NOMINATIM_UA } from './map/_mapState';
@@ -391,7 +392,7 @@ export async function searchPlaces(
          sorusu burada ANLAMSIZ; sahte `false` yerine ölçülmedi (`null`). */
       fastFailHit:         null,
       hadLocation:         userLat != null && userLng != null,
-      online:              typeof navigator === 'undefined' ? null : navigator.onLine,
+      online:              observedInternetReachability(),
       fallbackQueryUsable: (userLat != null && userLng != null)
         ? extractStreetQuery(query) !== null : null,
       biasDroppedCount:    _biasDropped,
@@ -406,10 +407,10 @@ export async function searchPlaces(
 
   /* Sorgunun ANLAMI — kategori mi, ad mı, adres mi (saf; bkz. placeQueryModel). */
   const _intent = detectPlaceIntent(query);
-  /* YALNIZ AÇIKÇA `false` çevrimdışıdır (bkz. overpassCategorySearch'teki aynı
-     kural): bayrağı tanımlamayan çalışma zamanında çevrimiçi katman sessizce
-     KAPANMAZ. Yanlış tarafa düşmenin bedeli yok — ağ hatası zaten `[]`dir. */
-  const _online = typeof navigator === 'undefined' || navigator.onLine !== false;
+  /* F7-B kanonik kapı. Kanıt YOKKEN (`UNKNOWN`) çevrimiçi katman sessizce
+     KAPANMAZ — `LIGHTWEIGHT_INTERNET` belirsizlikte denemeye izin verir; yanlış
+     tarafa düşmenin bedeli yok, ağ hatası zaten `[]`dir. */
+  const _online = allowsConnectivity('LIGHTWEIGHT_INTERNET');
 
   /* Adaylar katman etiketiyle taşınır: sıralama ve tekilleştirme "hangi kaynak
      daha zengin/güvenilir" sorusunu bu etiketle cevaplar. Etiket DIŞARI SIZMAZ. */

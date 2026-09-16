@@ -13,6 +13,7 @@
 import { getOBDStatusSnapshot, getOBDDataSnapshot, getTransportStats, getHandshakeDiagnostics, getObdConnLifecycle } from './obdService';
 import type { DiscoveryEvidence } from '../core/val/OBDHandshake';
 import { getObdHealth } from './obd/ObdHealthMonitor';
+import { allowsConnectivity } from './connectivity/connectivityGate';
 import { getSupportedPids, getPidValue, getUnavailablePids } from './obd/extendedPidService';
 import { getExtendedPollEvidence, type ExtendedPollEvidenceSnapshot } from './obd/extendedPollEvidence';
 import { getKwpRecoveryEvidence, type KwpRecoveryEvidenceSnapshot } from './obd/kwpRecoveryEvidence';
@@ -234,9 +235,8 @@ export interface NetAiSnapshot {
 }
 
 export function buildNetAiSnapshot(): NetAiSnapshot {
-  const online = _safe(
-    () => (typeof navigator !== 'undefined' ? !!navigator.onLine : true), true,
-  );
+  /* F7-B: LAB gözlemcidir, otorite değil — kanonik hükmü YANSITIR. */
+  const online = _safe(() => allowsConnectivity('LIGHTWEIGHT_INTERNET'), true);
   const ai = _safe(() => getAiHealthSnapshot(), { healthy: true, consecFails: 0, consecTimeouts: 0, blockedForMs: 0 });
   const quota = _safe(() => getProviderQuotaSnapshot(), {
     geminiCooldownMs: 0, groqCooldownMs: 0, haikuCooldownMs: 0,

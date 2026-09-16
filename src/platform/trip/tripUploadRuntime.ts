@@ -21,6 +21,7 @@
 
 import { onTripState, getTripSnapshot, type TripRecord } from '../tripLogService';
 import { callVehicleRpc } from '../vehicleIdentityService';
+import { allowsConnectivity } from '../connectivity/connectivityGate';
 import { safeGetRaw, safeSetRaw } from '../../utils/safeStorage';
 import {
   TripUploadCoordinator,
@@ -192,7 +193,8 @@ class TripUploadRuntime {
     if (rec === null) return;
     if (rec.startArea !== null && rec.endArea !== null) return;
     if (rec.startLocation === null && rec.endLocation === null) return;
-    if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+    /* F7-B: kullanıcı beklemiyor → arka plan senkronu. */
+    if (!allowsConnectivity('BACKGROUND_SYNC')) return;
 
     const { reverseGeocodeParts } = await import('../geocodingService');
 

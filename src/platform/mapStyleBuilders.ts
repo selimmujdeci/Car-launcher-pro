@@ -1,5 +1,6 @@
 import type { StyleSpecification, LayerSpecification, FilterSpecification } from 'maplibre-gl';
 import type { MapSource } from './mapSourceTypes';
+import { allowsConnectivity } from './connectivity/connectivityGate';
 /* #552 — kimlikler `_mapState`'ten DEĞİL, döngüsüz `_mapIds`'ten alınır.
  * `_mapState` bu dosyadan `RASTER_PAINT_*` aldığı için eski import bir döngü
  * kuruyordu ve paletler `shieldImage: undefined` ile donuyordu. */
@@ -963,12 +964,12 @@ function roadWidth(
  * Bu yüzden çevrimiçi vektör yalnız KULLANILABİLİR olduğunda seçilir.
  *
  * İki kapı vardır:
- *   1. `navigator.onLine === false` → açılışta hiç denenmez.
+ *   1. Kanonik bağlantı kapısı kapalı → açılışta hiç denenmez.
  *   2. Karo hataları eşiği aşıldıysa (`blockOnlineVector()`) → oturum boyunca
- *      denenmez. Bu ikincisi ŞART: aksi hâlde raster'a düşen fallback yeniden
- *      `getMapStyle()` çağırır, o yine vektör döner ve **sonsuz döngü** olur.
- *      "Bağlı ama internet yok" durumunu `navigator.onLine` yakalayamaz;
- *      gerçek kanıt karo hatasıdır.
+ *      denenmez. Bu ikincisi ŞART KALIR: kanonik otorite "yol var" dese bile
+ *      SUNUCU tarafı bozuk olabilir (§27: izin ≠ başarı garantisi). Aksi hâlde
+ *      raster'a düşen fallback yeniden `getMapStyle()` çağırır, o yine vektör
+ *      döner ve **sonsuz döngü** olur.
  */
 let _onlineVectorBlocked = false;
 
@@ -982,9 +983,8 @@ export function isOnlineVectorBlocked(): boolean { return _onlineVectorBlocked; 
 
 function onlineVectorUsable(): boolean {
   if (_onlineVectorBlocked) return false;
-  // `navigator.onLine` yalnız KESİN çevrimdışıyı bildirir; true olması
-  // internet garantisi DEĞİLDİR — o yüzden tek dayanak değil, ilk kapıdır.
-  if (typeof navigator !== 'undefined' && navigator.onLine === false) return false;
+  /* F7-B: kanonik kapı ilk süzgeçtir; karo hatası ikinci ve KESİN kanıttır. */
+  if (!allowsConnectivity('LIGHTWEIGHT_INTERNET')) return false;
   return true;
 }
 

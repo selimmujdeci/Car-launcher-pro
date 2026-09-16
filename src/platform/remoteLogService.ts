@@ -33,6 +33,7 @@ import {
   type CrashEntry,
 } from './crashLogger';
 import { pushVehicleEvent }  from './vehicleIdentityService';
+import { allowsConnectivity } from './connectivity/connectivityGate';
 import { healthMonitor }     from './system/SystemHealthMonitor';
 import { getOBDStatusSnapshot } from './obdService';
 import { useOtaStore, getCurrentVersionCode } from './otaUpdateService';
@@ -892,10 +893,10 @@ async function _triggerSnapshot(
     }
   } catch { /* tanı ön-kontrolü snapshot akışını asla kıramaz */ }
 
-  // Fail-open: yalnız onLine === false kesin "çevrimdışı"dır; alan yoksa
-  // (eski WebView / test ortamı) çevrimiçi varsayılır — kuyruk at-least-once
-  // olduğundan yanlış 'queued' veri kaybettirmez.
-  const online = typeof navigator === 'undefined' || navigator.onLine !== false;
+  // F7-B: kanonik kapı. Eskisi gibi fail-open kalır — kanıt yokken (`UNKNOWN`)
+  // `BACKGROUND_SYNC` İZİNLİDİR, yani belirsizlikte yine denenir. Kuyruk
+  // at-least-once olduğundan yanlış 'queued' veri kaybettirmez.
+  const online = allowsConnectivity('BACKGROUND_SYNC');
 
   // Idempotency: her tetikleme deterministik-benzersiz reportId alır; kuyruğun
   // retry'leri AYNI reportId'yi taşır → defter tek kayıt tutar (duplicate yok).

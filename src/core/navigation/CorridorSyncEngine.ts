@@ -19,6 +19,7 @@
  */
 
 import { downloadRegion }  from '../../platform/offlineDataService';
+import { allowsConnectivity } from '../../platform/connectivity/connectivityGate';
 import { cacheLRUManager } from '../storage/CacheLRUManager';
 import { isFeatureEnabled, recordFault } from '../../platform/safety/SafetyBrain';
 /* NAV v3 · F1 — karo matematiğinin TEK kaynağı (L1 MapStore). */
@@ -70,18 +71,28 @@ function _havM(la1: number, lo1: number, la2: number, lo2: number): number {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-/* ── Ağ durum kontrolleri ────────────────────────────────────────────────── */
+/* ── Ağ durum kontrolleri (F7-B: kanonik otorite) ────────────────────────── */
 
+/**
+ * Ağ yolu kullanılabilir mi — koridor işlerinin DEVAM kapısı.
+ * Küçük, tekrar denenebilir istekler → `LIGHTWEIGHT_INTERNET` (belirsizlikte
+ * denenir; eski `navigator.onLine` davranışı KORUNUR).
+ */
 function _isOnline(): boolean {
-  if (typeof navigator === 'undefined') return false;
-  return navigator.onLine;
+  return allowsConnectivity('LIGHTWEIGHT_INTERNET');
 }
 
-/** Hücresel bağlantıda mı? Evet → tile indirme yok (veri limiti koruması). */
-function _isCellular(): boolean {
-  const conn = (navigator as { connection?: { type?: string } }).connection;
-  if (!conn || !conn.type) return false; // API yok → bilinmiyor, optimist
-  return conn.type === 'cellular';
+/**
+ * Karo ÖN-YÜKLEMESİ yapılabilir mi — MALİYET kapısı.
+ *
+ * F7-B (§6/§21): eski kapı `navigator.connection.type === 'cellular'` idi;
+ * tüketicinin taşıma türünü yorumlaması yasaktır ve API yoksa "optimist"
+ * davranıp ölçülü bağlantıda indirme yapabiliyordu. Maliyet kararı artık
+ * politikadadır: `BULK_TRANSFER` yalnız açıkça ölçülü-DEĞİL bir yolda izin
+ * verir (`metered === null` ÜCRETSİZ SAYILMAZ, `UNKNOWN` başlatmaz).
+ */
+function _bulkTilesAllowed(): boolean {
+  return allowsConnectivity('BULK_TRANSFER');
 }
 
 /* ── BackgroundFetchQueue ────────────────────────────────────────────────── */
@@ -314,7 +325,7 @@ export class CorridorSyncEngine {
         id:       `tile:${z}/${x}/${y}`,
         priority: 2,
         execute:  async (signal) => {
-          if (!_isOnline() || _isCellular()) return; // hücresel → atla
+          if (!_bulkTilesAllowed()) return; // ölçülü/bilinmeyen maliyet → atla
           const hosts = ['a', 'b', 'c'] as const;
           const host  = hosts[Math.floor(Math.random() * 3)];
           try {

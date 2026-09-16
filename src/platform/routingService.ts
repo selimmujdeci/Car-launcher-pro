@@ -13,6 +13,8 @@
  */
 import { create } from 'zustand';
 import { isNative } from './bridge';
+import { getConnectivitySnapshot } from './connectivity/connectivityAuthority';
+import { allowsConnectivity } from './connectivity/connectivityGate';
 import { DEFAULT_FUEL_L_PER_100KM } from './vehicleAssumptions';
 import {
   parseRouteDurations, remainingRouteDurationS,
@@ -1108,14 +1110,19 @@ export async function fetchRoute(
   }
 
   // ── Katman 1-2: Uzak OSRM (Fail-Fast) ──────────────────────────────────────
-  // navigator.onLine=false → uzak sunucu denemesi yapmadan offline katmana geç.
+  // Kanonik bağlantı kapısı → uzak sunucu denemesi yapmadan offline katmana geç.
   // İlk OSRM isteği HEADERS_TIMEOUT_MS içinde yanıt vermezse → tüm sunucular kesilir,
   // anında Katman 3'e (A* Worker) düşülür. Kullanıcı "Hesaplanıyor..." ekranında beklemez.
-  if (!navigator.onLine) {
+  //
+  // F7-B: rota İSTEĞİ küçük ve tekrar denenebilir → `LIGHTWEIGHT_INTERNET`.
+  // `UNKNOWN`/`DEGRADED`da AYNEN denenir (davranış korunur); `CAPTIVE` ve
+  // `LOCAL_ONLY` artık boşuna denenmez. KATMAN 0/3/4 (native daemon, A* worker,
+  // düz hat) bu kapıdan BAĞIMSIZDIR — offline rota çekirdeği internete BAĞLANMAZ.
+  if (!allowsConnectivity('LIGHTWEIGHT_INTERNET')) {
     /* Çevrimdışı: uzak sağlayıcılar DENENMEDİ. "0 rota döndü" DEMEK DEĞİLDİR —
        bu ayrım olmadan hüküm katmanı yok yere "veri boşluğu" sanar. */
     _note('REMOTE_OSRM', 'SKIPPED_OFFLINE', null, null);
-    console.warn('[ROUTE] Fail-Fast: navigator.onLine=false → offline katmana geç');
+    console.warn(`[ROUTE] Fail-Fast: ${getConnectivitySnapshot().state} → offline katmana geç`);
   } else {
     const servers = getRoutingServers();
     for (const server of servers) {
@@ -1274,8 +1281,8 @@ export async function fetchRoute(
   }
 
   // ── Katman 4: Düz hat — NAVİGASYON ROTASI DEĞİLDİR ───────────
-  // NAV-2: DÜRÜST TEŞHİS — bu katmana iki AYRI sebeple düşülür: (1) navigator.onLine=false
-  // (gerçekten internet yok), (2) internet AÇIK ama tüm rota sunucuları hata/timeout verdi
+  // NAV-2: DÜRÜST TEŞHİS — bu katmana iki AYRI sebeple düşülür: (1) kanonik kapı
+  // kapalı (gerçekten kullanılabilir internet yolu yok), (2) internet AÇIK ama tüm rota sunucuları hata/timeout verdi
   // (sunucu tarafı). Eskiden ikisinde de "internet yok" deniyordu → yanlış teşhis. Artık ayrık.
   //
   // Doğrulama kapısı burada UYGULANMAZ: düz hat bir rota adayı değil, açıkça
@@ -1287,7 +1294,7 @@ export async function fetchRoute(
     _sealChain();
     return;
   }
-  const _offline = typeof navigator !== 'undefined' && !navigator.onLine;
+  const _offline = !allowsConnectivity('LIGHTWEIGHT_INTERNET');
   console.warn(`[ROUTE] All OSRM layers failed — straight-line fallback (offline=${_offline})`);
   speakNavigation(_offline
     ? 'İnternet bağlantısı yok. Düz hat navigasyon aktif.'
@@ -1743,8 +1750,8 @@ export async function fetchRouteLeg(
     } catch { /* fail-soft: sonraki katman */ }
   }
 
-  // Katman 1-2: Uzak OSRM — yalnız çevrimiçiyse; her sunucu fail-soft, store yazMAZ.
-  if (typeof navigator === 'undefined' || navigator.onLine) {
+  // Katman 1-2: Uzak OSRM — yalnız kanonik kapı açıksa; her sunucu fail-soft, store yazMAZ.
+  if (allowsConnectivity('LIGHTWEIGHT_INTERNET')) {
     for (const server of getRoutingServers()) {
       try {
         const r = await _tryServer(server, fromLon, fromLat, toLon, toLat, _currentHeadingDeg());

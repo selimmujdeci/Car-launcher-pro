@@ -31,6 +31,8 @@
 
 import type { RealtimeChannel }               from '@supabase/supabase-js';
 import { getSupabaseClient }                   from './supabaseClient';
+import { subscribeConnectivity }               from './connectivity/connectivityAuthority';
+import { allowsConnectivity }                  from './connectivity/connectivityGate';
 import { logInfo }                             from './debug';
 import { getVehicleIdentity }                  from './vehicleIdentityService';
 import { updateRemoteCommandStatus,
@@ -342,7 +344,8 @@ async function _processCommand(
     }
   }
 
-  if (!navigator.onLine && !fromQueue) {
+  /* F7-B: komut durumunu backend'e yazabilmek arka plan senkronudur. */
+  if (!allowsConnectivity('BACKGROUND_SYNC') && !fromQueue) {
     if (isCritical) {
       // Kritik komut: TTL içinde bağlantı gelince yeniden denenir
       _enqueueRetry(row);
@@ -430,7 +433,8 @@ async function _processCommand(
 
 let _active:  boolean         = false;
 let _channel: RealtimeChannel | null = null;
-let _onlineHandler: (() => void) | null = null;
+/** Kanonik bağlantı aboneliğini söken thunk (eski pencere `online` olayı yerine). */
+let _connectivityUnsub: (() => void) | null = null;
 
 // ── "Ulaşılamıyor" — Çevrimdışı Komut Fetch ──────────────────────────────
 //
@@ -485,15 +489,22 @@ export async function startRemoteCommands(): Promise<void> {
 
   _active = true;
 
-  // Online event → retry queue'yu boşalt + kaçırılan komutları fetch et
-  _onlineHandler = () => {
-    void _drainRetryQueue();
-    void _fetchMissedCommands();
-  };
-  window.addEventListener('online', _onlineHandler);
+  /* Kanonik bağlantı geri geldi → retry queue'yu boşalt + kaçırılan komutları çek.
+     F7-B: tarayıcının `online` olay dinleyicisi KALDIRILDI — tarayıcı ipucu otorite
+     değildir (§16) ve ikinci bir ağ gözlemcisi açılmaz (§29). Geçiş KENARI
+     (izinsiz → izinli) eskisiyle aynı anlamı taşır. */
+  let _wasAllowed = allowsConnectivity('BACKGROUND_SYNC');
+  _connectivityUnsub = subscribeConnectivity(() => {
+    const allowed = allowsConnectivity('BACKGROUND_SYNC');
+    if (allowed && !_wasAllowed) {
+      void _drainRetryQueue();
+      void _fetchMissedCommands();
+    }
+    _wasAllowed = allowed;
+  });
 
-  // Başlangıçta online ise queue'yu hemen boşalt (restart recovery)
-  if (navigator.onLine && _retryQueue.length > 0) {
+  // Başlangıçta izinliyse queue'yu hemen boşalt (restart recovery)
+  if (allowsConnectivity('BACKGROUND_SYNC') && _retryQueue.length > 0) {
     setTimeout(() => { void _drainRetryQueue(); }, 500);
   }
 
@@ -527,9 +538,9 @@ export async function startRemoteCommands(): Promise<void> {
 export function stopRemoteCommands(): void {
   _active = false;
 
-  if (_onlineHandler) {
-    window.removeEventListener('online', _onlineHandler);
-    _onlineHandler = null;
+  if (_connectivityUnsub) {
+    _connectivityUnsub();
+    _connectivityUnsub = null;
   }
   if (_channel) {
     _channel.unsubscribe();

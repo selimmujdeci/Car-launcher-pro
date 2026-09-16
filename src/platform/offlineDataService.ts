@@ -14,6 +14,8 @@
  * - Limitsiz IndexedDB büyütme
  */
 
+import { allowsConnectivity } from './connectivity/connectivityGate';
+
 const DB_NAME       = 'caros-offline-places-v2';
 const PLACES_STORE  = 'places';
 const REGIONS_STORE = 'regions';
@@ -429,7 +431,11 @@ function _haversineKm(la1: number, lo1: number, la2: number, lo2: number): numbe
  * yeni bölgeyi sessizce indirir.
  */
 export function triggerAutoDownload(lat: number, lon: number): void {
-  if (!navigator.onLine) return;
+  /* F7-B (§10/§21): otomatik BÖLGE indirme toplu transferdir — maliyet kararı
+     tüketicide değil politikadadır. `metered !== false` (ölçülü YA DA bilinmiyor)
+     ve kanıtsız (`UNKNOWN`) durumda BAŞLATILMAZ: fail-closed.
+     DAVRANIŞ DEĞİŞİKLİĞİ (kasıtlı): eskiden yalnız açık çevrimdışıyken dururdu. */
+  if (!allowsConnectivity('BULK_TRANSFER')) return;
   const now = Date.now();
   if (now - _lastAutoMs < AUTO_COOLDOWN_MS) return;
   if (_haversineKm(lat, lon, _lastAutoLat, _lastAutoLon) < AUTO_TRIGGER_KM && _lastAutoMs > 0) return;

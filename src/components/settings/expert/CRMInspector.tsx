@@ -12,6 +12,8 @@
 
 import { memo, useEffect, useState } from 'react';
 import { Radio, Thermometer, Wifi, WifiOff, CloudOff, Cloud } from 'lucide-react';
+import { subscribeConnectivity } from '../../../platform/connectivity/connectivityAuthority';
+import { allowsConnectivity } from '../../../platform/connectivity/connectivityGate';
 import { useHazardStore }              from '../../../store/useHazardStore';
 import { useVehicleIntelligenceStore } from '../../../store/useVehicleIntelligenceStore';
 import { getPendingBatch, getLastPullSync } from '../../../platform/communityService';
@@ -33,26 +35,26 @@ export const CRMInspector = memo(function CRMInspector() {
   const thermalStatus   = useVehicleIntelligenceStore((s) => s.thermalStatus);
 
   // Ağ ve pull zamanı — bir dakikada bir yenile (1Hz'den fazla değil)
-  const [online,       setOnline]       = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
+  const [online,       setOnline]       = useState(() => allowsConnectivity('LIGHTWEIGHT_INTERNET'));
   const [queueSize,    setQueueSize]    = useState(0);
   const [lastPull,     setLastPull]     = useState(0);
   const [_tick,        setTick]         = useState(0);  // göreli zaman güncelleme tetikleyicisi
 
   useEffect(() => {
     const refresh = () => {
-      setOnline(navigator.onLine);
+      setOnline(allowsConnectivity('LIGHTWEIGHT_INTERNET'));
       setQueueSize(getPendingBatch().length);
       setLastPull(getLastPullSync());
       setTick((n) => n + 1);
     };
     refresh(); // ilk render
     const interval = setInterval(refresh, 15_000); // 15s — yeterince taze
-    window.addEventListener('online',  refresh);
-    window.addEventListener('offline', refresh);
+    /* F7-B: tarayıcı `online`/`offline` olayları yerine kanonik hüküm dinlenir
+       (§24/§25 — LAB gözlemcidir, otorite değil). Yeni timer AÇILMAZ. */
+    const unsub = subscribeConnectivity(refresh);
     return () => {
       clearInterval(interval);
-      window.removeEventListener('online',  refresh);
-      window.removeEventListener('offline', refresh);
+      unsub();
     };
   }, []);
 

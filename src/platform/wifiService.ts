@@ -3,13 +3,20 @@
  *
  * Android: CarLauncherPlugin.getDeviceStatus() üzerinden ACCESS_WIFI_STATE
  *          izniyle SSID ve bağlantı durumu alır.
- * Web:     navigator.onLine ile sadece online/offline durumu bilinir.
+ * Web:     Wi-Fi API'si yoktur; kanonik `ConnectivityAuthority`nin bildirdiği
+ *          AKTİF TAŞIMA okunur (`transport === 'WIFI'`).
  *
- * 30 saniyede bir poll eder; web'de online/offline eventlerini de yakalar.
+ * ⚠️ BU SERVİS İNTERNET GERÇEĞİ ÜRETMEZ (§22). "Wi-Fi bağlı" ile "internet var"
+ * AYNI ŞEY DEĞİLDİR ve tersi de doğrudur: Wi-Fi yokken Ethernet üzerinden
+ * çevrimiçi olunabilir. Bir işin yapılıp yapılamayacağı YALNIZ
+ * `ConnectivityPolicy`den sorulur.
+ *
+ * 30 saniyede bir poll eder (SSID için); web'de kanonik hükmü dinler.
  */
 import { useState, useEffect } from 'react';
 import { isNative } from './bridge';
 import { CarLauncher } from './nativePlugin';
+import { getConnectivitySnapshot, subscribeConnectivity } from './connectivity/connectivityAuthority';
 
 /* ── Types ───────────────────────────────────────────────── */
 
@@ -21,8 +28,13 @@ export interface WifiState {
 
 /* ── Module state ────────────────────────────────────────── */
 
+/** Kanonik hükmün bildirdiği aktif taşıma Wi-Fi mi (web yolu için). */
+function _canonicalWifi(): boolean {
+  return getConnectivitySnapshot().transport === 'WIFI';
+}
+
 const INITIAL: WifiState = {
-  connected: typeof navigator !== 'undefined' ? navigator.onLine : true,
+  connected: _canonicalWifi(),
   ssid:      '',
   polling:   false,
 };
@@ -48,29 +60,28 @@ async function poll(): Promise<void> {
         // Plugin erişilemez — mevcut durumu koru
       }
     } else {
-      push({ connected: navigator.onLine, ssid: '' });
+      push({ connected: _canonicalWifi(), ssid: '' });
     }
   } catch { /* outer guard: push failure must not crash the poll */ }
 }
 
 /* ── Web event listeners (online/offline) ────────────────── */
 
-let _onOnline:  (() => void) | null = null;
-let _onOffline: (() => void) | null = null;
+let _connectivityUnsub: (() => void) | null = null;
 
 function attachWebEvents(): void {
-  if (isNative || _onOnline) return;
-  _onOnline  = () => { try { push({ connected: true }); } catch { /* ignore */ } };
-  _onOffline = () => { try { push({ connected: false, ssid: '' }); } catch { /* ignore */ } };
+  if (isNative || _connectivityUnsub) return;
+  /* F7-B: tarayıcı `online`/`offline` olayları DİNLENMEZ — kanonik hüküm
+     dinlenir; ikinci ağ gözlemcisi AÇILMAZ (§29). */
   try {
-    window.addEventListener('online',  _onOnline);
-    window.addEventListener('offline', _onOffline);
-  } catch { /* window.addEventListener failure must not crash service init */ }
+    _connectivityUnsub = subscribeConnectivity(() => {
+      try { push({ connected: _canonicalWifi(), ssid: '' }); } catch { /* ignore */ }
+    });
+  } catch { /* abonelik hatası servis kurulumunu ASLA kırmaz */ }
 }
 
 function detachWebEvents(): void {
-  if (_onOnline)  { window.removeEventListener('online',  _onOnline);  _onOnline  = null; }
-  if (_onOffline) { window.removeEventListener('offline', _onOffline); _onOffline = null; }
+  if (_connectivityUnsub) { _connectivityUnsub(); _connectivityUnsub = null; }
 }
 
 /* ── Public API ──────────────────────────────────────────── */

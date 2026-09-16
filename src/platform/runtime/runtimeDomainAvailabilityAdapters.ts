@@ -1,5 +1,7 @@
 /** ARCH-01/F9.2 — read-only domain evidence adapters. */
 import { getRouteState } from '../routingService';
+import { getConnectivitySnapshot } from '../connectivity/connectivityAuthority';
+import { allowsConnectivity } from '../connectivity/connectivityGate';
 import { getNavigationState } from '../navigationService';
 import { getOfflineRoutingStatus } from '../navigation/offlineRoutingStatus';
 import { getProviderReadinessSnapshot } from '../navigation/core/routeProviderReadiness';
@@ -67,9 +69,13 @@ export function readRuntimeDomainAvailabilityAdapters(nowMs: number): readonly R
     out.push({ serviceId: 'safe-storage', availability: 'UNKNOWN', freshness: 'UNKNOWN', allowedOperations: storage.readable === true ? ['runtime-read'] : [], deniedOperations: ['persistence-write'], fallback: null, reason: storage.readable === true ? 'Read surface is available, but writable persistence is intentionally unproven without an I/O probe.' : 'Storage read surface is unavailable or unmeasured.', provenance: [...storage.provenance], readinessEvidence: `platform=${storage.platform}; nativeCacheHydrated=${String(storage.nativeCacheHydrated)}; readable=${String(storage.readable)}`, healthEvidence: `writable=${storage.writable}; observedAt=${String(storage.observedAt)}` });
   } catch { /* storage evidence unavailable */ }
   try {
-    const browserOnline = typeof navigator === 'undefined' ? null : navigator.onLine;
-    if (browserOnline === false) {
-      out.push({ serviceId: 'CommunityService', availability: 'UNAVAILABLE', freshness: 'CURRENT', allowedOperations: [], deniedOperations: ['network-community-sync'], fallback: null, reason: 'Community service checks the browser connectivity hint and it is explicitly offline.', provenance: ['navigator.onLine (CommunityService hard network gate)'], readinessEvidence: 'navigator.onLine=false', healthEvidence: 'Network reachability beyond the explicit offline hint is not claimed.' });
+    /* F7-B: kanıt artık kanonik otoriteden gelir — bu adaptör GÖZLEMCİDİR,
+       karar vermez. Sağlayıcı (provenance) gerçek kaynağı taşır. */
+    const conn = getConnectivitySnapshot();
+    /* Karar POLITIKANIN: bu satır kendi durum kuralını YAZMAZ (§19); anlık
+       görüntü yalnız KANIT alanlarını (provenance) doldurmak için okunur. */
+    if (!allowsConnectivity('BACKGROUND_SYNC')) {
+      out.push({ serviceId: 'CommunityService', availability: 'UNAVAILABLE', freshness: 'CURRENT', allowedOperations: [], deniedOperations: ['network-community-sync'], fallback: null, reason: 'Canonical connectivity authority reports no usable internet path for the community sync operation.', provenance: [`ConnectivityAuthority (${conn.source})`], readinessEvidence: `state=${conn.state}; transport=${conn.transport}; validated=${String(conn.validated)}`, healthEvidence: 'Reachability beyond the canonical connectivity verdict is not claimed.' });
     }
   } catch { /* network evidence unavailable */ }
   return Object.freeze(out);

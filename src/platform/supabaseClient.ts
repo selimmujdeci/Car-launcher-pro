@@ -8,6 +8,7 @@
 
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { connectivityService } from './connectivityService';
+import { allowsConnectivity } from './connectivity/connectivityGate';
 import { sensitiveKeyStore }   from './sensitiveKeyStore';
 
 const SUPABASE_URL      = import.meta.env.VITE_SUPABASE_URL      as string | undefined;
@@ -97,7 +98,10 @@ export async function callProcessIntent(
   context: Record<string, unknown> = {},
 ): Promise<Record<string, unknown> | null> {
   const supabase = getSupabaseClient();
-  if (!supabase || !navigator.onLine) return null;
+  /* F7-B: kanonik kapı. Eski kapı `navigator.onLine` idi; `CLOUD_INTERACTIVE`
+     `UNKNOWN`/`DEGRADED`da AYNEN dener (davranış korunur), `CAPTIVE`de ise artık
+     denemez — giriş portalı isteği zaten anlamsız bir yanıt döndürür. */
+  if (!supabase || !allowsConnectivity('CLOUD_INTERACTIVE')) return null;
 
   try {
     const { data, error } = await supabase.functions.invoke('process_intent', {

@@ -14,7 +14,8 @@
  */
 
 import { signalWithTimeout } from '../utils/abortCompat';
-import { Network } from '@capacitor/network';
+import { subscribeConnectivity } from './connectivity/connectivityAuthority';
+import { allowsConnectivity } from './connectivity/connectivityGate';
 import { logInfo } from './debug';
 import {
   classifyHttpOutcome, classifyGenericOutcome, shouldKeepInQueue, markSending, applyOutcome,
@@ -165,28 +166,41 @@ function uid(): string {
 // ── ConnectivityService ───────────────────────────────────────────────────────
 
 class ConnectivityService {
-  private _online     = true;
   private _running    = false;
   private _timer: ReturnType<typeof setTimeout> | null = null;
   private _networkListener: (() => void) | null = null;
 
-  async init(): Promise<void> {
-    // Mevcut ağ durumunu al
-    try {
-      const status = await Network.getStatus();
-      this._online = status.connected;
-    } catch { this._online = navigator.onLine; }
+  /**
+   * F7-B: bu servis ARTIK KENDİ internet gerçeğini ÜRETMEZ. Yön TEK yönlüdür:
+   * `ConnectivityAuthority` → `ConnectivityPolicy` → bu kuyruk. Kuyruk boşaltma
+   * arka plan senkronudur (kullanıcı beklemez) → `BACKGROUND_SYNC`.
+   *
+   * ── DAVRANIŞ KORUNDU ─────────────────────────────────────────────────────
+   * Eski kapı `Network.getStatus().connected` idi (doğrulama garantisi YOK);
+   * kanonik karşılığı `DEGRADED`dir ve `BACKGROUND_SYNC` orada da İZİNLİDİR.
+   * Kanıt yokken (`UNKNOWN`) de izinlidir — eski `navigator.onLine` yedeği aynı
+   * yönde davranırdı. Kuyruk at-least-once olduğundan fazladan bir "izin" veri
+   * KAYBETTİRMEZ, yalnız bir deneme harcar (backoff zaten sınırlar).
+   *
+   * ── YENİ ve KASITLI: CAPTIVE ARTIK DURDURUR ──────────────────────────────
+   * Giriş portalı rastgele URL'lere 2xx dönebilir; eski kapı bunu "teslim
+   * edildi" sayıp öğeyi kuyruktan SİLERDİ. Bu gerçek bir veri kaybı yoluydu.
+   */
+  private get _online(): boolean { return allowsConnectivity('BACKGROUND_SYNC'); }
 
-    // Ağ değişimlerini dinle
-    const { remove } = await Network.addListener('networkStatusChange', ({ connected }: { connected: boolean }) => {
-      const wasOffline = !this._online;
-      this._online = connected;
-      if (connected && wasOffline) {
+  async init(): Promise<void> {
+    /* İKİNCİ AĞ GÖZLEMCİSİ YOK (§29): kendi `Network.addListener` kaydımız
+       KALDIRILDI; kanonik otoritenin TEK gözlemi dinlenir. Geçiş kenarı
+       (izinsiz → izinli) eskisiyle aynı anlamı taşır: bağlantı geri geldi. */
+    let wasAllowed = this._online;
+    this._networkListener = subscribeConnectivity(() => {
+      const allowed = this._online;
+      if (allowed && !wasAllowed) {
         logInfo('[Connectivity] Bağlantı geldi — kuyruk boşaltılıyor');
         void this._drainQueue();
       }
+      wasAllowed = allowed;
     });
-    this._networkListener = remove;
 
     // Başlangıçta bekleyen öğeleri işle
     if (this._online) void this._drainQueue();

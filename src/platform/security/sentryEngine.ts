@@ -24,6 +24,7 @@ import {
   captureEmergencyClip,
 } from '../dashcamService';
 import { uploadSentryClip, insertVehicleEvent, getSupabaseClient } from '../supabaseClient';
+import { allowsConnectivity } from '../connectivity/connectivityGate';
 import { showToast } from '../errorBus';
 
 /* ── Sabitler ────────────────────────────────────────────────── */
@@ -261,7 +262,8 @@ async function _retryPending(): Promise<void> {
   if (_pendingBlobs.size === 0) return;
 
   for (const [alertId, blob] of Array.from(_pendingBlobs.entries())) {
-    if (!navigator.onLine) break;
+    /* F7-B: bekleyen klipler arka planda yüklenir. */
+    if (!allowsConnectivity('BACKGROUND_SYNC')) break;
 
     const result = await _doUpload(alertId, blob);
     if (result !== null) {
