@@ -567,6 +567,21 @@ class SystemBoot {
       logError('SystemBoot:panicHandler', e);   // fail-soft: boot panic yüzünden DURMAZ
     }
 
+    // CAROS F7 — KANONİK BAĞLANTI OTORİTESİ. CarOS'ta "internet var mı"
+    // sorusunun TEK sahibi; Wi-Fi/Ethernet/Phone Link/Capacitor/tarayıcı
+    // yalnız KANIT üretir. Olay tabanlıdır (NetworkCallback + Capacitor +
+    // online/offline): timer, ping, speedtest ve yoklama YOKTUR. Kanıt yoksa
+    // hüküm UNKNOWN'dır (fail-closed) — hiçbir ağ AÇILMAZ/KAPATILMAZ.
+    // DİNAMİK import (F6.2 dersi): modül `registerPlugin` çağırır; statik
+    // import bu grafiği SystemBoot'u içe aktaran HER tüketiciye taşırdı.
+    _log('  › ConnectivityAuthority');
+    try {
+      const { startConnectivityAuthority } = await import('../connectivity/connectivityAuthority');
+      this._regNamed('ConnectivityAuthority', startConnectivityAuthority());
+    } catch (e) {
+      logError('SystemBoot:connectivityAuthority', e);   // fail-soft → UNKNOWN
+    }
+
     // Platform Event Bus (PR-W3) — EN ÖNCE kurulur: publisher/bridge/Kernel'den ÖNCE var olmalı.
     // _reg (İSİMSİZ) ile kaydedilir → restartService adayı DEĞİL (restart = sessiz abonelik ölümü).
     // İlk kaydedilen olduğu için LIFO shutdown'da EN SON dispose olur → bridge/publisher'lar
