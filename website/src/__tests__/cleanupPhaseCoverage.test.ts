@@ -144,3 +144,46 @@ describe('DEVICE_AND_PUSH_REVOKE katılımcısı', () => {
     expect(result).toMatchObject({ ok: false, failureCode: 'DEVICE_PUSH_REVOKE_FAILED' });
   });
 });
+
+describe('VERIFY_EMPTY · hesap-kapsamlı depo doğrulaması', () => {
+  /* ── ÖLÇÜLEN KUSUR (production, 2026-09-18) ─────────────────────────────
+     `verifyAccountScopedStorageEmpty`, `GLOBAL_DEVICE` ve `SECURITY_SYSTEM`
+     dışındaki HER `CUSTOM` tanım için doğrulayıcı arar; biri eksikse
+     `REGISTRY_INVALID` döner. Üç doğrulayıcı eksikti (notification ·
+     realtime · mavi) ve çıkış son fazda düşüyordu. Kullanıcının
+     telefonunda görülen tam iz:
+       "PARTICIPANT_FAILED_BLOCKING · account-scoped-storage-verification:REGISTRY_INVALID"
+  */
+  beforeEach(() => {
+    resetAccountSecurityLockdownForTests();
+    window.localStorage.clear();
+  });
+
+  it('temiz durumda doğrulama GEÇER (eksik doğrulayıcı yok)', async () => {
+    activateAccountSecurityLockdown('cleanup-verify', 'logout', Date.now());
+    const { participantRegistry } = createVehicleCleanupComposition();
+
+    const participant = participantRegistry
+      .listForPhase('VERIFY_EMPTY')
+      .find((candidate) => candidate.id === 'account-scoped-storage-verification');
+
+    expect(participant).toBeDefined();
+    expect(participant?.verifyEmpty).toBeTypeOf('function');
+
+    const context = {
+      cleanupId: 'cleanup-verify',
+      reason: 'logout' as const,
+      generation: getCleanupGeneration(),
+    };
+    /* Koordinatörün sırası: önce `clear()` (doğrulamayı yürütür ve sonucu
+       saklar), sonra `verifyEmpty()` (o sonucu okur). */
+    const cleared = await participant!.clear(context);
+    expect(cleared, JSON.stringify(cleared)).toMatchObject({ ok: true });
+
+    const empty = await participant!.verifyEmpty!(context);
+
+    /* Eski kodda burada `false` dönüyordu (REGISTRY_INVALID) ve koordinatör
+       çıkışı FAILED_BLOCKING ile bitiriyordu. */
+    expect(empty).toBe(true);
+  });
+});

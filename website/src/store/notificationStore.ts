@@ -7,6 +7,17 @@ interface NotificationStoreState {
   markRead: (id: string) => void;
   markAllRead: () => void;
   unreadCount: () => number;
+  /**
+   * Hesap temizliğinin (çıkış / hesap değişimi) kullandığı tek kapı.
+   *
+   * Bildirimler araç bağlamı ve derin bağlantı taşır (`ACCOUNT_VEHICLE`
+   * kapsamı) — yani ÖNCEKİ hesabın verisidir. Depo tanımı bunu
+   * `PURGE_ON_LOGOUT` olarak işaretliyordu ama temizleyen kimse YOKTU;
+   * çıkış doğrulaması da bu yüzden düşüyordu.
+   */
+  clearAuthority: () => void;
+  /** Doğrulama: önceki hesaba ait bildirim kalmadı mı? */
+  isAuthorityEmpty: () => boolean;
 }
 
 export const useNotificationStore = create<NotificationStoreState>((set, get) => ({
@@ -33,4 +44,8 @@ export const useNotificationStore = create<NotificationStoreState>((set, get) =>
     })),
 
   unreadCount: () => get().notifications.filter((n) => !n.read).length,
+
+  clearAuthority: () => set({ notifications: [] }),
+
+  isAuthorityEmpty: () => get().notifications.length === 0,
 }));
