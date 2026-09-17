@@ -2,6 +2,10 @@ import { usePinDialogStore } from '@/store/pinDialogStore';
 import { useVehicleStore } from '@/store/vehicleStore';
 import { CleanupParticipantRegistry } from './cleanupParticipantRegistry';
 import {
+  DevicePushRevokeParticipant,
+  productionDevicePushAdapter,
+} from './devicePushCleanupParticipants';
+import {
   AccountScopedStorageVerificationParticipant,
   BrowserStorageAdapter,
   createProductionStorageRegistry,
@@ -91,6 +95,12 @@ export function createVehicleCleanupComposition(
       offlineAuthority.ownership,
       offlineAuthority.pairing,
     ),
+  );
+  /* DEVICE_AND_PUSH_REVOKE fazı katılımcısız kalırsa koordinatör o faza
+     gelince `MISSING_PHASE_PARTICIPANT` ile DURUR ve çıkış hiçbir zaman
+     tamamlanamaz (production'da ölçüldü). */
+  participantRegistry.register(
+    new DevicePushRevokeParticipant(productionDevicePushAdapter),
   );
   participantRegistry.register(
     new ServerSessionVerificationParticipant(serverSessionAdapter),
