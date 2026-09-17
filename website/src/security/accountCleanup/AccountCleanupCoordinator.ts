@@ -229,6 +229,9 @@ export class AccountCleanupCoordinator {
             result.retryable
               ? 'PARTICIPANT_FAILED_RETRYABLE'
               : 'PARTICIPANT_FAILED_BLOCKING',
+            /* Katılımcının kendi gerekçesi burada TAŞINIR; eskiden atılıyor
+               ve sahada teşhis edilemez bir "çıkış tamamlanamadı" kalıyordu. */
+            { id: participant.id, failureCode: result.failureCode },
           );
         }
         if (phase === 'VERIFY_EMPTY') {
@@ -311,6 +314,8 @@ export class AccountCleanupCoordinator {
     entry: CleanupLedgerEntry,
     state: 'FAILED_RETRYABLE' | 'FAILED_BLOCKING',
     failureCode: CleanupFailureCode,
+    /* Yalnız gözlem: hangi katılımcı hangi gerekçeyle düştü. */
+    participantFailure?: Readonly<{ id: string; failureCode: string }>,
   ): CleanupRunResult {
     const failed = this.transition(entry, state, {
       failedStep: entry.state,
@@ -325,6 +330,7 @@ export class AccountCleanupCoordinator {
       cleanupId: entry.cleanupId,
       state,
       failureCode,
+      ...(participantFailure ? { participantFailure } : {}),
     };
   }
 

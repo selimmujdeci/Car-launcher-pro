@@ -288,9 +288,14 @@ function KumandaApp() {
       /* Temizlik tamamlanmadıysa oturumu "kapandı" GÖSTERMEYİZ (§8).
          Gerekçe kodu da gösterilir: aksi hâlde saha teşhisi ancak tarayıcı
          konsoluna erişimle yapılabiliyordu. */
+      const detail = (result as {
+        participantFailure?: { id: string; failureCode: string };
+      }).participantFailure;
       const reason = [
         result.state,
         (result as { failureCode?: string }).failureCode,
+        /* Hangi katılımcı hangi gerekçeyle düştü — sahada tek teşhis izi. */
+        detail ? `${detail.id}:${detail.failureCode}` : null,
       ].filter(Boolean).join(' · ');
       setLogoutError(`Çıkış tamamlanamadı (${reason}). Lütfen tekrar deneyin.`);
       setLogoutBusy(false);

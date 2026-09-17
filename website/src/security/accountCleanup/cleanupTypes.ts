@@ -113,6 +113,16 @@ export type CleanupRunResult =
         | 'PARTIAL_CLEANUP'
         | 'RECOVERY_REQUIRED';
       failureCode: CleanupFailureCode;
+      /**
+       * Hangi katılımcı, hangi gerekçeyle düştü.
+       *
+       * `PARTICIPANT_FAILED_BLOCKING` tek başına teşhis için YETERSİZDİ:
+       * koordinatör katılımcının kendi `id`/`failureCode` bilgisini atıyordu
+       * ve sahada "çıkış tamamlanamadı" dışında hiçbir iz kalmıyordu
+       * (production'da ölçüldü). Bu alan yalnız GÖZLEM içindir; karar
+       * mantığı `failureCode` üzerinden yürür.
+       */
+      participantFailure?: Readonly<{ id: string; failureCode: string }>;
     };
 
 export type CleanupBootGateResult =
