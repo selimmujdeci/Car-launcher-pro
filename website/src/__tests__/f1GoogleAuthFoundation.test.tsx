@@ -70,6 +70,15 @@ vi.mock('@/security/accountCleanup/canonicalLogout', () => ({
   requestCanonicalLogout: logout.fn,
 }));
 
+/* AUTH_ERROR ekranı kurtarma yolu sunduğu için temizlik runtime'ını okur. */
+vi.mock('@/security/accountCleanup/useAccountCleanupRuntime', () => ({
+  useAccountCleanupRuntime: () => ({
+    runtime: { retryRecovery: vi.fn(async () => undefined) },
+    snapshot: { initialized: true, bootStatus: 'SAFE_TO_START' },
+    isBrowser: true,
+  }),
+}));
+
 import KumandaPage from '@/app/(pwa)/kumanda/page';
 import {
   buildPwaOAuthRedirectUrl,

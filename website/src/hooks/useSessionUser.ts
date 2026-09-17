@@ -86,6 +86,19 @@ export function useSessionUser(): {
         setAuthError(true);
         setLoading(false);
       }).finally(() => finishAuthSessionOperation(hydration));
+    } else {
+      /* ── AÇILIŞ ASLA ASILI KALMAZ (production kusuru, 2026-09-17) ──────
+         `beginAuthSessionOperation()` NULL döner: hesap temizliği auth
+         yazımlarını kilitlemişken (ör. yarıda kalmış bir çıkış) veya çok
+         sayıda işlem beklerken. Eskiden bu dal HİÇ YOKTU: `loading` sonsuza
+         dek `true` kalıyor, Arabam Cebimde açılış ekranında donuyordu
+         (telefonda ölçüldü — spinner hiç bitmiyor).
+
+         Oturum SORULAMADIĞI için "giriş yapılmamış" DENMEZ (§8): bilinmezlik
+         `authError` ile dürüstçe taşınır, kapı da kullanıcıya kurtarma yolu
+         gösterir. */
+      setAuthError(true);
+      setLoading(false);
     }
 
     const { data: sub } = supabaseBrowser.auth.onAuthStateChange((_event, session) => {

@@ -12,6 +12,7 @@ import { useRealtime } from '@/hooks/useRealtime';
 import { useSessionUser } from '@/hooks/useSessionUser';
 import { resolvePwaAuthPhase } from '@/lib/pwaAuth';
 import { requestCanonicalLogout } from '@/security/accountCleanup/canonicalLogout';
+import { useAccountCleanupRuntime } from '@/security/accountCleanup/useAccountCleanupRuntime';
 import { clearLocalVehicle, getLocalVehicle, unpairVehicle } from '@/lib/pairingService';
 
 const VehicleMapView     = lazy(() => import('@/components/pwa/VehicleMapView'));
@@ -61,18 +62,63 @@ function PwaBootScreen() {
   );
 }
 
+/**
+ * Oturum SORULAMADI — ve kullanıcı burada MAHSUR KALMAZ.
+ *
+ * ── ÖLÇÜLEN KUSUR (telefonda, 2026-09-17) ────────────────────────────────
+ * Yarıda kalmış bir çıkış, hesap temizliğinin auth-yazma kilidini açık
+ * bırakıyordu. O durumda oturum okunamıyor ve kullanıcının hiçbir çıkış
+ * yolu yoktu: uygulama açılış ekranında donuyordu. Filo panelinde bu durum
+ * için kurtarma ekranı vardı, tüketici yüzeyinde YOKTU.
+ *
+ * Kurtarma, KANONİK yoldan yapılır (`runtime.retryRecovery()` — filo boot
+ * gate'inin kullandığı aynı çağrı); ikinci bir temizlik otoritesi yoktur.
+ */
 function PwaAuthErrorScreen() {
+  const { runtime, snapshot } = useAccountCleanupRuntime();
+  const [busy, setBusy] = useState(false);
+  const recoveryNeeded = snapshot.bootStatus === 'CLEANUP_RECOVERY_REQUIRED';
+
+  const handleRetry = useCallback(async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      if (recoveryNeeded && runtime) await runtime.retryRecovery();
+    } catch { /* aşağıda yeniden yükleme yine denenir */ }
+    window.location.reload();
+  }, [busy, recoveryNeeded, runtime]);
+
   return (
     <div
       data-testid="pwa-auth-error-screen"
       className="h-[100dvh] flex flex-col items-center justify-center px-8 text-center"
       style={{ background: 'var(--pwa-bg, #060d1a)', color: 'var(--pwa-text, #e8eefc)' }}
     >
-      <p className="text-sm">Oturum bilgisi okunamadı.</p>
-      <p className="mt-2 text-[12px] opacity-55">
-        Araçlarınız ve kayıtlarınız hesabınızda duruyor. Bağlantınızı kontrol
-        edip uygulamayı yeniden açın.
+      <p className="text-sm">
+        {recoveryNeeded
+          ? 'Güvenli oturum temizliği yarıda kalmış.'
+          : 'Oturum bilgisi okunamadı.'}
       </p>
+      <p className="mt-2 text-[12px] opacity-55 leading-relaxed">
+        Araçlarınız ve kayıtlarınız hesabınızda duruyor.
+        {recoveryNeeded
+          ? ' Aşağıdaki düğme temizliği tamamlar ve uygulamayı açar.'
+          : ' Bağlantınızı kontrol edip tekrar deneyin.'}
+      </p>
+      <button
+        type="button"
+        onClick={() => { void handleRetry(); }}
+        disabled={busy}
+        data-testid="pwa-auth-recover-button"
+        className="mt-6 rounded-xl px-5 py-2.5 text-[13px] font-semibold transition-colors disabled:opacity-60"
+        style={{
+          background: 'rgba(59,130,246,0.14)',
+          border: '1px solid rgba(59,130,246,0.3)',
+          color: '#93c5fd',
+        }}
+      >
+        {busy ? 'Tamamlanıyor…' : recoveryNeeded ? 'Temizliği Tamamla' : 'Tekrar Dene'}
+      </button>
     </div>
   );
 }
