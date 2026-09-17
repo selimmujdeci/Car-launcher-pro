@@ -57,10 +57,15 @@ vi.mock('@/lib/supabase', () => ({
 const cleanup = vi.hoisted(() => ({
   bootStatus: 'CLEANUP_RECOVERY_REQUIRED' as string,
   retry: vi.fn(async () => undefined),
+  init: vi.fn(async () => undefined),
+  order: [] as string[],
 }));
 vi.mock('@/security/accountCleanup/useAccountCleanupRuntime', () => ({
   useAccountCleanupRuntime: () => ({
-    runtime: { retryRecovery: cleanup.retry },
+    runtime: {
+      retryRecovery: async () => { cleanup.order.push('retry'); return cleanup.retry(); },
+      initialize: async () => { cleanup.order.push('init'); return cleanup.init(); },
+    },
     snapshot: { initialized: true, bootStatus: cleanup.bootStatus },
     isBrowser: true,
   }),
@@ -82,6 +87,8 @@ beforeEach(() => {
   guard.blocked = false;
   cleanup.bootStatus = 'CLEANUP_RECOVERY_REQUIRED';
   cleanup.retry.mockClear();
+  cleanup.init.mockClear();
+  cleanup.order.length = 0;
   host = document.createElement('div');
   document.body.appendChild(host);
   root = createRoot(host);
@@ -144,7 +151,7 @@ describe('açılış · kurtarma yolu', () => {
     expect(host.textContent).toContain('hesabınızda duruyor');
   });
 
-  it('4 — düğme KANONİK kurtarmayı çağırır (ikinci temizlik otoritesi yok)', async () => {
+  it('4 — düğme runtime\'ı HAZIRLAYIP kanonik kurtarmayı çağırır', async () => {
     guard.blocked = true;
     const reload = vi.fn();
     Object.defineProperty(window, 'location', {
@@ -156,21 +163,39 @@ describe('açılış · kurtarma yolu', () => {
     const button = host.querySelector('[data-testid="pwa-auth-recover-button"]') as HTMLButtonElement;
     await act(async () => { button.click(); });
 
+    expect(cleanup.init).toHaveBeenCalledTimes(1);
     expect(cleanup.retry).toHaveBeenCalledTimes(1);
+    /* SIRA: kurtarma kararı ancak runtime hazırken doğru verilir. */
+    expect(cleanup.order).toEqual(['init', 'retry']);
     expect(reload).toHaveBeenCalled();
   });
 
-  it('5 — temizlik gerekmiyorsa metin ve eylem "tekrar dene"ye döner', async () => {
+  it('5 — snapshot henüz CHECKING iken de kurtarma DENENİR (yarış kilitlemez)', async () => {
     guard.blocked = true;
-    cleanup.bootStatus = 'SAFE_TO_START';
+    /* İlk render'da initialize asenkron olduğu için snapshot böyle gelebilir;
+       eskiden düğme bu durumda kurtarmayı ATLIYOR ve kullanıcı kilitli
+       ekranda kalıyordu. */
+    cleanup.bootStatus = 'CHECKING';
+    const reload = vi.fn();
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: { ...window.location, reload },
+    });
 
     await act(async () => { root.render(createElement(KumandaPage)); });
-
-    expect(host.textContent).toContain('Oturum bilgisi okunamadı');
-    expect(host.querySelector('[data-testid="pwa-auth-recover-button"]')).not.toBeNull();
-    /* Kurtarma gerekmiyorken temizlik ÇAĞRILMAZ. */
     const button = host.querySelector('[data-testid="pwa-auth-recover-button"]') as HTMLButtonElement;
     await act(async () => { button.click(); });
-    expect(cleanup.retry).not.toHaveBeenCalled();
+
+    expect(cleanup.init).toHaveBeenCalledTimes(1);
+    expect(cleanup.retry).toHaveBeenCalledTimes(1);
+  });
+
+  it('6 — kurtarma da yetmezse kullanıcıya SON ÇARE yolu gösterilir', async () => {
+    guard.blocked = true;
+    await act(async () => { root.render(createElement(KumandaPage)); });
+
+    /* Kullanıcı hiçbir koşulda mahsur kalmamalı. */
+    expect(host.textContent).toContain('verilerini temizleyip');
+    expect(host.textContent).toContain('hesabınızda kalır');
   });
 });

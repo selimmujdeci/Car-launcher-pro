@@ -83,10 +83,19 @@ function PwaAuthErrorScreen() {
     if (busy) return;
     setBusy(true);
     try {
-      if (recoveryNeeded && runtime) await runtime.retryRecovery();
+      if (runtime) {
+        /* SIRA ÖNEMLİ: kurtarma kararını `retryRecovery` kendi içinde
+           `bootStatus`a bakarak verir, ama ilk render'da snapshot henüz
+           `CHECKING` olabilir (initialize asenkron). `recoveryNeeded`e
+           bakıp çağrıyı atlamak, kullanıcıyı kilitli ekranda bırakan bir
+           YARIŞ üretiyordu — bu yüzden önce hazır olması beklenir, sonra
+           kanonik kurtarma her durumda denenir (gerekmiyorsa no-op). */
+        await runtime.initialize();
+        await runtime.retryRecovery();
+      }
     } catch { /* aşağıda yeniden yükleme yine denenir */ }
     window.location.reload();
-  }, [busy, recoveryNeeded, runtime]);
+  }, [busy, runtime]);
 
   return (
     <div
@@ -119,6 +128,14 @@ function PwaAuthErrorScreen() {
       >
         {busy ? 'Tamamlanıyor…' : recoveryNeeded ? 'Temizliği Tamamla' : 'Tekrar Dene'}
       </button>
+      {/* SON ÇARE: kilit tarayıcıdaki bir temizlik işaretinden geliyorsa ve
+          kanonik kurtarma da tamamlanamıyorsa kullanıcı burada MAHSUR
+          KALMAMALI. Araç sahipliği sunucuda olduğu için site verilerini
+          silmek güvenlidir; yalnız yeniden giriş gerekir. */}
+      <p className="mt-5 text-[11px] opacity-35 leading-relaxed max-w-xs">
+        Sorun sürerse tarayıcı ayarlarından bu sitenin verilerini temizleyip
+        yeniden giriş yapın. Araçlarınız hesabınızda kalır.
+      </p>
     </div>
   );
 }
