@@ -197,8 +197,14 @@ function KumandaApp() {
     setLogoutError(null);
     const result = await requestCanonicalLogout();
     if (!result.ok) {
-      /* Temizlik tamamlanmadıysa oturumu "kapandı" GÖSTERMEYİZ (§8). */
-      setLogoutError('Çıkış tamamlanamadı. Lütfen tekrar deneyin.');
+      /* Temizlik tamamlanmadıysa oturumu "kapandı" GÖSTERMEYİZ (§8).
+         Gerekçe kodu da gösterilir: aksi hâlde saha teşhisi ancak tarayıcı
+         konsoluna erişimle yapılabiliyordu. */
+      const reason = [
+        result.state,
+        (result as { failureCode?: string }).failureCode,
+      ].filter(Boolean).join(' · ');
+      setLogoutError(`Çıkış tamamlanamadı (${reason}). Lütfen tekrar deneyin.`);
       setLogoutBusy(false);
     }
     /* Başarıda `onAuthStateChange` → kapı SIGNED_OUT'a geçer ve giriş ekranı

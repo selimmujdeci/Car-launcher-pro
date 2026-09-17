@@ -1,4 +1,5 @@
 import { createBrowserClient } from '@supabase/ssr';
+import { NavigatorLockAcquireTimeoutError } from '@supabase/auth-js';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 const url     = process.env.NEXT_PUBLIC_SUPABASE_URL     ?? '';
@@ -56,11 +57,25 @@ export function getSupabaseBrowserClient(): SupabaseClient | null {
   return browserClient;
 }
 
+/**
+ * Tek seferlik DOĞRULAMA istemcisi (hesap temizliği kullanır).
+ *
+ * `autoRefreshToken: false` ZORUNLUDUR, iki ayrı sebeple:
+ *   1. DOĞRULUK — bu istemcinin tek işi "temizlikten sonra depoda hâlâ
+ *      oturum var mı" sorusunu yanıtlamaktır. Token yenileyebilseydi
+ *      ölmüş bir oturumu DİRİLTİP kendi kontrolünü yanlış pozitife
+ *      çevirebilirdi.
+ *   2. KİLİT TRAFİĞİ — yenileme zamanlayıcısı, tekil istemciyle AYNI
+ *      depolama anahtarının kilidini periyodik olarak ister. Tarayıcı
+ *      konsolunda ölçülen "Multiple GoTrueClient instances detected …
+ *      same storage key" uyarısının ve eşlik eden kilit yarışının
+ *      kaynağı buydu.
+ */
 export function createFreshSupabaseBrowserClient(): SupabaseClient | null {
   if (!isSupabaseConfigured || typeof window === 'undefined') return null;
   return createBrowserClient(url, anonKey, {
     isSingleton: false,
-    auth: { lock: canonicalSupabaseAuthLock },
+    auth: { lock: canonicalSupabaseAuthLock, autoRefreshToken: false },
   });
 }
 
@@ -169,7 +184,36 @@ export async function canonicalSupabaseAuthLock<T>(
         ? { mode: 'exclusive', ifAvailable: true }
         : { mode: 'exclusive', signal: controller.signal },
       async (heldLock) => {
-        if (!heldLock) throw new Error('SUPABASE_AUTH_STORAGE_LOCK_UNAVAILABLE');
+        if (!heldLock) {
+          /* ── SUPABASE KİLİT SÖZLEŞMESİ (auth-js 2.110.1) ────────────────
+             `acquireTimeout === 0` "kilit MEŞGULSE BEKLEME, ATLA" demektir
+             ve bu dal tam olarak o durumdur. auth-js bunu ancak
+             `LockAcquireTimeoutError` TÜREVİ bir hatadan anlar:
+
+               GoTrueClient.js · _autoRefreshTokenTick
+                 catch (e) {
+                   if (e instanceof LockAcquireTimeoutError) { ...atla... }
+                   else { throw e }          ← generic Error buraya düşer
+                 }
+
+             ── ÖLÇÜLEN KUSUR (production, 2026-09-17) ─────────────────────
+             Burada generic `Error` fırlatılıyordu; auth-js onu tanıyamayıp
+             yeniden fırlatıyor ve tarayıcı konsoluna
+             `Uncaught (in promise) Error: SUPABASE_AUTH_STORAGE_LOCK_UNAVAILABLE`
+             düşüyordu. Asıl zarar çıkışta görülüyordu: hesap temizliği
+             ikinci bir GoTrueClient açıp (`createFreshSupabaseBrowserClient`)
+             aynı depolama anahtarının kilidini isteyince bu hata
+             `getSession()` içinde yakalanıp `SERVER_SESSION_READ_FAILED`e
+             dönüşüyor, temizlik FAILED_BLOCKING bitiyor ve kullanıcı
+             "Çıkış tamamlanamadı" görüyordu (fail-closed olduğu için oturum
+             açık kalıyordu — veri kaybı YOKTU).
+
+             Kilit politikası DEĞİŞMEDİ: meşgul kilit yine alınmaz. Yalnızca
+             "alınamadı" bilgisi SDK'nın anladığı tipte iletilir. */
+          throw new NavigatorLockAcquireTimeoutError(
+            `Acquiring an exclusive Navigator LockManager lock "${name}" immediately failed`,
+          );
+        }
         return operation();
       },
     );
