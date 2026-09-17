@@ -59,11 +59,16 @@ const cleanup = vi.hoisted(() => ({
   retry: vi.fn(async () => undefined),
   init: vi.fn(async () => undefined),
   order: [] as string[],
+  retryResult: { initialized: true, bootStatus: 'SAFE_TO_START' } as { initialized: boolean; bootStatus: string },
 }));
 vi.mock('@/security/accountCleanup/useAccountCleanupRuntime', () => ({
   useAccountCleanupRuntime: () => ({
     runtime: {
-      retryRecovery: async () => { cleanup.order.push('retry'); return cleanup.retry(); },
+      retryRecovery: async () => {
+        cleanup.order.push('retry');
+        await cleanup.retry();
+        return cleanup.retryResult;
+      },
       initialize: async () => { cleanup.order.push('init'); return cleanup.init(); },
     },
     snapshot: { initialized: true, bootStatus: cleanup.bootStatus },
@@ -89,6 +94,7 @@ beforeEach(() => {
   cleanup.retry.mockClear();
   cleanup.init.mockClear();
   cleanup.order.length = 0;
+  cleanup.retryResult = { initialized: true, bootStatus: 'SAFE_TO_START' };
   host = document.createElement('div');
   document.body.appendChild(host);
   root = createRoot(host);
@@ -195,7 +201,33 @@ describe('açılış · kurtarma yolu', () => {
     await act(async () => { root.render(createElement(KumandaPage)); });
 
     /* Kullanıcı hiçbir koşulda mahsur kalmamalı. */
-    expect(host.textContent).toContain('verilerini temizleyip');
+    expect(host.textContent).toContain('yerel veriler sıfırlanır');
     expect(host.textContent).toContain('hesabınızda kalır');
+  });
+
+  it('7 — kanonik kurtarma ÇÖZEMEZSE yerel sıfırlama yapılır (mahsur kalma yok)', async () => {
+    guard.blocked = true;
+    /* Bir temizlik FAILED_BLOCKING ile bitmişse boot gate bunu döndürür ve
+       `retryRecovery()` o durumda hiçbir şey yapamaz — eskiden kullanıcı
+       burada kalıcı olarak kilitli kalıyordu. */
+    cleanup.bootStatus = 'SECURITY_RESET_REQUIRED';
+    cleanup.retryResult = { initialized: true, bootStatus: 'SECURITY_RESET_REQUIRED' };
+    window.localStorage.setItem('eski-hesap-kalintisi', 'x');
+    const reload = vi.fn();
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: { ...window.location, reload },
+    });
+
+    await act(async () => { root.render(createElement(KumandaPage)); });
+    /* Kullanıcı ne olacağını ÖNCEDEN görür. */
+    expect(host.textContent).toContain('yerel verileri sıfırlar');
+
+    const button = host.querySelector('[data-testid="pwa-auth-recover-button"]') as HTMLButtonElement;
+    await act(async () => { button.click(); });
+
+    /* Kilidin amacı zayıflamaz, en sert biçimde yerine getirilir. */
+    expect(window.localStorage.getItem('eski-hesap-kalintisi')).toBeNull();
+    expect(reload).toHaveBeenCalled();
   });
 });

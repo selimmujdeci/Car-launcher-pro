@@ -13,6 +13,7 @@ import { useSessionUser } from '@/hooks/useSessionUser';
 import { resolvePwaAuthPhase } from '@/lib/pwaAuth';
 import { requestCanonicalLogout } from '@/security/accountCleanup/canonicalLogout';
 import { useAccountCleanupRuntime } from '@/security/accountCleanup/useAccountCleanupRuntime';
+import { performLocalSecurityReset } from '@/security/accountCleanup/localSecurityReset';
 import { clearLocalVehicle, getLocalVehicle, unpairVehicle } from '@/lib/pairingService';
 
 const VehicleMapView     = lazy(() => import('@/components/pwa/VehicleMapView'));
@@ -78,6 +79,7 @@ function PwaAuthErrorScreen() {
   const { runtime, snapshot } = useAccountCleanupRuntime();
   const [busy, setBusy] = useState(false);
   const recoveryNeeded = snapshot.bootStatus === 'CLEANUP_RECOVERY_REQUIRED';
+  const resetNeeded = snapshot.bootStatus === 'SECURITY_RESET_REQUIRED';
 
   const handleRetry = useCallback(async () => {
     if (busy) return;
@@ -91,9 +93,26 @@ function PwaAuthErrorScreen() {
            YARIŞ üretiyordu — bu yüzden önce hazır olması beklenir, sonra
            kanonik kurtarma her durumda denenir (gerekmiyorsa no-op). */
         await runtime.initialize();
-        await runtime.retryRecovery();
+        const next = await runtime.retryRecovery();
+
+        /* ── SON ÇARE (production kusuru, 2026-09-17) ────────────────────
+           Bir temizlik `FAILED_BLOCKING` ile bittiyse boot gate
+           `SECURITY_RESET_REQUIRED` döner ve `retryRecovery()` o durumda
+           HİÇBİR ŞEY YAPMAZ. İşaret çerezi de durduğu için auth yazımı
+           kilitli kalıyor ve kullanıcı kendi hesabına giremiyordu.
+           Kanonik yol tükendiyse yerel durum sıfırlanır: kilidin amacı
+           (eski hesabın yerel verisi sızmasın) zayıflamaz, en sert
+           biçimde yerine getirilir. Sunucudaki araç sahipliği DURUR. */
+        if (next.bootStatus === 'SECURITY_RESET_REQUIRED') {
+          performLocalSecurityReset();
+        }
+      } else {
+        performLocalSecurityReset();
       }
-    } catch { /* aşağıda yeniden yükleme yine denenir */ }
+    } catch {
+      /* Kurtarma yürütülemiyorsa da kullanıcı mahsur kalmamalı. */
+      performLocalSecurityReset();
+    }
     window.location.reload();
   }, [busy, runtime]);
 
@@ -104,15 +123,19 @@ function PwaAuthErrorScreen() {
       style={{ background: 'var(--pwa-bg, #060d1a)', color: 'var(--pwa-text, #e8eefc)' }}
     >
       <p className="text-sm">
-        {recoveryNeeded
-          ? 'Güvenli oturum temizliği yarıda kalmış.'
-          : 'Oturum bilgisi okunamadı.'}
+        {resetNeeded
+          ? 'Güvenli oturum temizliği tamamlanamamış.'
+          : recoveryNeeded
+            ? 'Güvenli oturum temizliği yarıda kalmış.'
+            : 'Oturum bilgisi okunamadı.'}
       </p>
       <p className="mt-2 text-[12px] opacity-55 leading-relaxed">
         Araçlarınız ve kayıtlarınız hesabınızda duruyor.
-        {recoveryNeeded
-          ? ' Aşağıdaki düğme temizliği tamamlar ve uygulamayı açar.'
-          : ' Bağlantınızı kontrol edip tekrar deneyin.'}
+        {resetNeeded
+          ? ' Aşağıdaki düğme bu cihazdaki yerel verileri sıfırlar; sonra yeniden giriş yaparsınız.'
+          : recoveryNeeded
+            ? ' Aşağıdaki düğme temizliği tamamlar ve uygulamayı açar.'
+            : ' Bağlantınızı kontrol edip tekrar deneyin.'}
       </p>
       <button
         type="button"
@@ -126,15 +149,17 @@ function PwaAuthErrorScreen() {
           color: '#93c5fd',
         }}
       >
-        {busy ? 'Tamamlanıyor…' : recoveryNeeded ? 'Temizliği Tamamla' : 'Tekrar Dene'}
+        {busy
+          ? 'Tamamlanıyor…'
+          : resetNeeded
+            ? 'Yerel Verileri Sıfırla'
+            : recoveryNeeded ? 'Temizliği Tamamla' : 'Tekrar Dene'}
       </button>
-      {/* SON ÇARE: kilit tarayıcıdaki bir temizlik işaretinden geliyorsa ve
-          kanonik kurtarma da tamamlanamıyorsa kullanıcı burada MAHSUR
-          KALMAMALI. Araç sahipliği sunucuda olduğu için site verilerini
-          silmek güvenlidir; yalnız yeniden giriş gerekir. */}
+      {/* Düğme, kanonik kurtarma tükenirse yerel sıfırlamaya düşer — bu
+          yüzden kullanıcı ne olabileceğini ÖNCEDEN bilir. */}
       <p className="mt-5 text-[11px] opacity-35 leading-relaxed max-w-xs">
-        Sorun sürerse tarayıcı ayarlarından bu sitenin verilerini temizleyip
-        yeniden giriş yapın. Araçlarınız hesabınızda kalır.
+        Kurtarma tamamlanamazsa bu cihazdaki yerel veriler sıfırlanır ve
+        yeniden giriş istenir. Araçlarınız hesabınızda kalır.
       </p>
     </div>
   );
