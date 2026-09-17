@@ -164,16 +164,16 @@ export async function sendCommand(
         : 'ACCOUNT_CLEANUP_LOCKDOWN',
     };
   }
-  /* ── GİRİŞ EKRANI YOK (ürün kararı, 2026-09-12) ──────────────────────────
-     Oturum yoksa GÖRÜNMEZ anonim oturum açılır; kullanıcıya hiçbir şey
-     sorulmaz (bkz. `lib/supabase.ts`).
+  /* ── OTURUM ZORUNLU (F1, 2026-09-17) ────────────────────────────────────
+     `ensurePwaSession` ARTIK oturum AÇMAZ; yalnız var olanı okur. Giriş
+     Google ile yapılır ve PWA kapısı (`app/(pwa)/kumanda`) zaten oturumsuz
+     kullanıcıyı buraya kadar getirmez — bu kontrol ikinci savunma hattıdır.
 
      P0-001A: oturumsuz (api_key) komut yolu KAPATILDI — gerekçe yukarıda.
      Eskiden burada "API anahtarı bulunamadı. Aracı yeniden eşleştirin."
      deniyordu; bu YANLIŞ TEŞHİSTİ — yeniden eşleştirmek anahtar üretmez
      (kanonik rota anahtar döndürmez), kullanıcı sonsuz döngüye giriyordu.
-     Anonim oturum o döngüyü de kapatır: komut kullanıcı JWT'siyle gider,
-     ham anahtar hiçbir yerde dönmez. */
+     Komut kullanıcı JWT'siyle gider; ham anahtar hiçbir yerde dönmez. */
   const token = await ensurePwaSession();
   if (!token) {
     return {

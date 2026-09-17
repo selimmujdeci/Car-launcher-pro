@@ -19,7 +19,11 @@ export type CmdPhase =
   | 'queued'     // araç offline — sıraya alındı (TTL içinde araç alacak)
   | 'accepted'   // araç kabul etti
   | 'executing'  // araç yürütüyor
-  | 'ok'         // tamamlandı
+  /* F0.3 · `ok` = DB `completed` = "araç komutu yürüttü ve taşıma kabul etti".
+     FİZİKSEL EYLEMİN GERÇEKLEŞTİĞİ ANLAMINA GELMEZ — araç tarafında donanım
+     ACK'i yoktur (bkz. `lib/commandEvidence.ts`). Arayüz bunu `DELIVERED`
+     kanıt seviyesiyle sunar; "onaylandı" DEMEZ. */
+  | 'ok'
   | 'err';       // başarısız
 
 export interface CommandResult {
@@ -30,21 +34,29 @@ export interface CommandResult {
   queued?:    boolean;
 }
 
+/**
+ * Komut etiketleri — F0.3'te GEÇMİŞ ZAMAN KİPİNDEN çıkarıldı.
+ *
+ * Eskiden "Kapılar Kilitlendi" / "Korna Çalındı" yazıyordu; bunlar fiziksel
+ * eylemin gerçekleştiği İDDİASIDIR ve araçta böyle bir ölçüm YOKTUR
+ * (bkz. `lib/commandEvidence.ts`). Etiket artık KOMUTU adlandırır; sonucun
+ * kanıt seviyesini `EVIDENCE_TITLE`/`EVIDENCE_DETAIL` söyler.
+ */
 const CMD_LABELS: Record<CommandType, string> = {
-  lock:              'Kapılar Kilitlendi',
-  unlock:            'Kapılar Açıldı',
-  horn:              'Korna Çalındı',
-  alarm_on:          'Alarm Aktifleştirildi',
-  alarm_off:         'Alarm Durduruldu',
-  lights_on:         'Işıklar Açıldı',
-  route_send:        'Rota Araca İletildi',
-  navigation_start:  'Navigasyon Başlatıldı',
-  theme_change:      'Tema Değiştirildi',
-  layout_change:     'Ekran Düzeni Gönderildi',
-  read_dtc:          'Arıza Kodları Okundu',
-  clear_dtc:         'Arıza Kodları Temizlendi',
-  read_voltage:      'Akü Voltajı Okundu',
-  set_speed_alert:   'Hız Uyarısı Güncellendi',
+  lock:              'Kilitleme komutu',
+  unlock:            'Kilit açma komutu',
+  horn:              'Korna komutu',
+  alarm_on:          'Alarm açma komutu',
+  alarm_off:         'Alarm kapatma komutu',
+  lights_on:         'Işık komutu',
+  route_send:        'Rota gönderimi',
+  navigation_start:  'Navigasyon komutu',
+  theme_change:      'Tema değişikliği',
+  layout_change:     'Ekran düzeni',
+  read_dtc:          'Arıza kodu okuma',
+  clear_dtc:         'Arıza kodu temizleme',
+  read_voltage:      'Akü voltajı okuma',
+  set_speed_alert:   'Hız uyarısı ayarı',
 };
 
 const CRITICAL_CMDS: CommandType[] = ['unlock'];

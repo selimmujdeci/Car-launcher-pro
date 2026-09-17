@@ -13,6 +13,7 @@ import {
   canonicalSetSession,
 } from
   '@/security/accountCleanup/canonicalAuthMutations';
+import { resolveAuthFailureRedirect } from '@/lib/pwaAuth';
 
 export default function HashCallbackPage() {
   const router = useRouter();
@@ -27,16 +28,21 @@ export default function HashCallbackPage() {
       : '/dashboard';
     if (code) {
       const supabase = getSupabaseBrowserClient();
-      if (!supabase) { router.replace('/login?error=auth'); return; }
+      if (!supabase) {
+        router.replace(resolveAuthFailureRedirect(next, 'auth'));
+        return;
+      }
       const operation = beginAuthSessionOperation();
       if (!operation) {
-        router.replace('/login?error=security_cleanup');
+        router.replace(resolveAuthFailureRedirect(next, 'security_cleanup'));
         return;
       }
       canonicalExchangeCodeForSession(supabase, code)
         .then(({ error }) => {
           if (!canApplyAuthSessionOperation(operation)) return;
-          router.replace(error ? '/login?error=expired' : next);
+          router.replace(
+            error ? resolveAuthFailureRedirect(next, 'expired') : next,
+          );
         })
         .finally(() => finishAuthSessionOperation(operation));
       return;
@@ -51,7 +57,10 @@ export default function HashCallbackPage() {
 
     if (type === 'recovery' && accessToken && refreshToken) {
       const supabase = getSupabaseBrowserClient();
-      if (!supabase) { router.replace('/login?error=auth'); return; }
+      if (!supabase) {
+        router.replace(resolveAuthFailureRedirect(next, 'auth'));
+        return;
+      }
       const operation = beginAuthSessionOperation();
       if (!operation) {
         router.replace('/login?error=security_cleanup');
@@ -72,7 +81,7 @@ export default function HashCallbackPage() {
         })
         .finally(() => finishAuthSessionOperation(operation));
     } else {
-      router.replace('/login?error=auth');
+      router.replace(resolveAuthFailureRedirect(next, 'auth'));
     }
   }, [router]);
 

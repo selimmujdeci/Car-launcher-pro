@@ -9,6 +9,8 @@ import {
 import { useCommandTracker } from '@/hooks/useCommandTracker';
 import type { CmdPhase, CommandResult } from '@/hooks/useCommandTracker';
 import type { CommandType, RoutePayload } from '@/lib/commandService';
+/* F0.3 · Komut sonucunun kanıt seviyesi — tek eşleme, ikinci otorite değil. */
+import { EVIDENCE_TITLE, EVIDENCE_DETAIL } from '@/lib/commandEvidence';
 
 interface Props {
   vehicle:          LiveVehicle | null;
@@ -46,12 +48,21 @@ const QueueIcon = () => (
 
 /* ── Phase label helper ─────────────────────────────────────────────────────── */
 
+/**
+ * F0.3 · Düğme alt metni KANIT SEVİYESİNİ söyler.
+ *
+ * `'ok'` fazı DB `completed`tir ve "araç komutu yürüttü + taşıma kabul etti"
+ * demektir. Eskiden burada **"Onaylandı ✓"** yazıyordu; bu, araçta karşılığı
+ * OLMAYAN bir fiziksel doğrulama iddiasıydı (donanım ACK'i yok —
+ * bkz. `lib/commandEvidence.ts`). Artık `DELIVERED` seviyesinin dürüst
+ * metni kullanılır.
+ */
 function phaseLabel(phase: CmdPhase, defaultLabel: string, defaultSub: string) {
   if (phase === 'pending')   return { label: 'Gönderiliyor',   sub: 'Bekle...' };
-  if (phase === 'queued')    return { label: defaultLabel,      sub: 'Sıraya alındı' };
-  if (phase === 'accepted')  return { label: 'Kabul Edildi',   sub: 'Araç hazır' };
+  if (phase === 'queued')    return { label: defaultLabel,      sub: EVIDENCE_TITLE.QUEUED };
+  if (phase === 'accepted')  return { label: defaultLabel,      sub: EVIDENCE_TITLE.RECEIVED };
   if (phase === 'executing') return { label: 'Yürütülüyor',    sub: 'Lütfen bekle' };
-  if (phase === 'ok')        return { label: defaultLabel,      sub: 'Onaylandı ✓' };
+  if (phase === 'ok')        return { label: defaultLabel,      sub: EVIDENCE_TITLE.DELIVERED };
   if (phase === 'err')       return { label: 'Hata',           sub: 'Tekrar dene' };
   return { label: defaultLabel, sub: defaultSub };
 }
@@ -223,9 +234,12 @@ function CommandToast({ result }: { result: CommandResult }) {
       <div className="flex-1 min-w-0">
         <p className="text-sm font-bold leading-tight truncate"
           style={{ color: result.ok ? '#34d399' : '#f87171' }}>{result.label}</p>
+        {/* F0.3 · Buradaki eski metin araçta fiziksel doğrulama yapıldığını
+            ima ediyordu. Araç tarafında böyle bir ölçüm ÜRETİLMİYOR (donanım
+            ACK'i yok); en güçlü dürüst ifade `DELIVERED` seviyesidir. */}
         <p className="text-[10px] mt-0.5"
           style={{ color: result.ok ? 'rgba(52,211,153,0.55)' : 'rgba(248,113,113,0.5)' }}>
-          {result.ok ? 'Araçta onaylandı' : 'Araç yanıt vermedi'}
+          {result.ok ? EVIDENCE_DETAIL.DELIVERED : EVIDENCE_DETAIL.FAILED}
         </p>
       </div>
       {result.ok && result.durationMs > 0 && (

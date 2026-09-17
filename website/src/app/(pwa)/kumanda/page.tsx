@@ -4,10 +4,15 @@ import { useEffect, useCallback, useState, lazy, Suspense } from 'react';
 import Link from 'next/link';
 import MobileCarControl from '@/components/dashboard/MobileCarControl';
 import PairingScreen from '@/components/pwa/PairingScreen';
+import PwaLoginScreen from '@/components/pwa/PwaLoginScreen';
+import PwaInstallPrompt from '@/components/pwa/PwaInstallPrompt';
 import { PwaErrorBoundary } from '@/components/pwa/PwaErrorBoundary';
 import { useVehicleStore } from '@/store/vehicleStore';
 import { useRealtime } from '@/hooks/useRealtime';
-import { clearLocalVehicle, getLocalVehicle } from '@/lib/pairingService';
+import { useSessionUser } from '@/hooks/useSessionUser';
+import { resolvePwaAuthPhase } from '@/lib/pwaAuth';
+import { requestCanonicalLogout } from '@/security/accountCleanup/canonicalLogout';
+import { clearLocalVehicle, getLocalVehicle, unpairVehicle } from '@/lib/pairingService';
 
 const VehicleMapView     = lazy(() => import('@/components/pwa/VehicleMapView'));
 const DiagnosticsPanel   = lazy(() => import('@/components/pwa/DiagnosticsPanel'));
@@ -17,7 +22,62 @@ const ThemeStudio        = lazy(() => import('@/components/pwa/ThemeStudio').the
 
 type Tab = 'kumanda' | 'eslestir' | 'harita' | 'seyir' | 'teshis' | 'kayitlar' | 'tema';
 
+/**
+ * F1 · OTURUM KAPISI.
+ *
+ * Uygulama gövdesi YALNIZ `AUTHENTICATED` iken kurulur. Bu bilinçlidir:
+ * giriş yapılmamışken realtime aboneliği, araç deposu ve komut izleyicisi hiç
+ * başlamaz — önceki kullanıcının verisi yeni kullanıcıya "bir kare" bile
+ * sızamaz (mount edilmeyen ağaç render etmez).
+ */
 export default function KumandaPage() {
+  const { userId, loading, isAnonymous, authError } = useSessionUser();
+  const phase = resolvePwaAuthPhase({ loading, authError, userId, isAnonymous });
+
+  if (phase === 'BOOTING') return <PwaBootScreen />;
+  if (phase === 'AUTH_ERROR') return <PwaAuthErrorScreen />;
+  if (phase === 'SIGNED_OUT') {
+    return <PwaLoginScreen hasPendingAnonymousData={isAnonymous} />;
+  }
+
+  /* `key`: hesap değiştiğinde tüm PWA ağacı (store okumaları, realtime
+     aboneliği, komut izleyicisi) SIFIRDAN kurulur. */
+  return <KumandaApp key={userId ?? 'no-account'} />;
+}
+
+function PwaBootScreen() {
+  return (
+    <div
+      data-testid="pwa-boot-screen"
+      className="h-[100dvh] flex items-center justify-center"
+      style={{ background: 'var(--pwa-bg, #060d1a)', color: 'var(--pwa-text-3, rgba(232,238,252,0.45))' }}
+    >
+      <svg className="animate-spin w-6 h-6" viewBox="0 0 20 20" fill="none" aria-label="Yükleniyor">
+        <circle cx="10" cy="10" r="7" stroke="currentColor" strokeWidth="1.5"
+          strokeDasharray="32" strokeDashoffset="10" opacity="0.4" />
+        <path d="M10 3a7 7 0 017 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      </svg>
+    </div>
+  );
+}
+
+function PwaAuthErrorScreen() {
+  return (
+    <div
+      data-testid="pwa-auth-error-screen"
+      className="h-[100dvh] flex flex-col items-center justify-center px-8 text-center"
+      style={{ background: 'var(--pwa-bg, #060d1a)', color: 'var(--pwa-text, #e8eefc)' }}
+    >
+      <p className="text-sm">Oturum bilgisi okunamadı.</p>
+      <p className="mt-2 text-[12px] opacity-55">
+        Araçlarınız ve kayıtlarınız hesabınızda duruyor. Bağlantınızı kontrol
+        edip uygulamayı yeniden açın.
+      </p>
+    </div>
+  );
+}
+
+function KumandaApp() {
   useRealtime();
 
   const loading  = useVehicleStore((s) => s.loading);
@@ -27,6 +87,12 @@ export default function KumandaPage() {
 
   const [activeTab, setActiveTab] = useState<Tab>('kumanda');
   const [pwaTheme, setPwaTheme] = useState<'dark' | 'light'>('dark');
+  /* F0.4 · Ayırma sunucu-otoritelidir; hem bekleme hem gerekçe görünür olmalı. */
+  const [unpairBusy,  setUnpairBusy]  = useState(false);
+  const [unpairError, setUnpairError] = useState<string | null>(null);
+  /* F1 · Çıkış kanonik hesap temizliğidir; sonucu gizlenmez. */
+  const [logoutBusy,  setLogoutBusy]  = useState(false);
+  const [logoutError, setLogoutError] = useState<string | null>(null);
 
   // Tema tercihi (gece/gündüz) — localStorage'dan; SSR default gece, mount'ta oku.
   useEffect(() => {
@@ -81,17 +147,63 @@ export default function KumandaPage() {
     setActiveTab('kumanda');
   }, []);
 
-  const handleUnpair = useCallback(() => {
+  const handleUnpair = useCallback(async () => {
     /* ÖNCEDEN: `setVehicles([])` — yalnız AKTİF aracın yerel eşleşmesi
        koparılmak istenirken TÜM eşleştirilmiş araçlar (ör. Megane ONLINE
        iken Doblo'yu koparmak) ekrandan siliniyordu. Artık yalnız aktif
        araç kaldırılır; `clearLocalVehicle()` ise yalnız bu cihazın tekil
-       yerel kaydı GERÇEKTEN bu araca aitse çağrılır. */
-    if (!vehicle) return;
-    const local = getLocalVehicle();
-    if (local?.id === vehicle.id) clearLocalVehicle();
-    useVehicleStore.getState().removeVehicle(vehicle.id);
-  }, [vehicle]);
+       yerel kaydı GERÇEKTEN bu araca aitse çağrılır.
+
+       ── F0.4 · SUNUCU ÖNCE ────────────────────────────────────────────
+       ÖNCEKİ KUSUR: burada YALNIZ yerel durum siliniyordu; sunucuda
+       `vehicles.owner_id` ve `vehicle_pairings` AYNEN kalıyordu. Kullanıcı
+       aracı "bıraktığını" sanıyor, bireysel 3 araç kotası dolu kalıyor ve
+       (PWA anonim oturum kullandığı için) kimliğini kaybederse araç
+       KALICI olarak erişilemez hâle geliyordu.
+
+       Artık sıra PAZARLIKSIZ: önce sunucu ayırması KANITLANIR, sonra yerel
+       durum silinir. Sunucu reddederse/ulaşılamazsa yerel kayıt DURUR —
+       kullanıcı hâlâ aracını görür ve tekrar deneyebilir (sessiz veri
+       kaybı yok). */
+    if (!vehicle || unpairBusy) return;
+    setUnpairBusy(true);
+    setUnpairError(null);
+    try {
+      const res = await unpairVehicle(vehicle.id);
+      if (!res.success) {
+        setUnpairError(res.message);
+        return;
+      }
+      const local = getLocalVehicle();
+      if (local?.id === vehicle.id) clearLocalVehicle();
+      useVehicleStore.getState().removeVehicle(vehicle.id);
+    } finally {
+      setUnpairBusy(false);
+    }
+  }, [vehicle, unpairBusy]);
+
+  /**
+   * ÇIKIŞ ≠ ARAÇ AYIRMA.
+   *
+   * Kanonik hesap temizliği yalnız oturumu ve KULLANICIYA AİT YEREL durumu
+   * siler; sunucudaki araç sahipliğine (`vehicles.owner_id`,
+   * `vehicle_pairings`) DOKUNMAZ. Kullanıcı aynı Google hesabıyla tekrar
+   * girdiğinde araçları yerinde durur. Aracı gerçekten bırakmak ayrı ve
+   * açık bir eylemdir ("Araç bağlantısını kes").
+   */
+  const handleLogout = useCallback(async () => {
+    if (logoutBusy) return;
+    setLogoutBusy(true);
+    setLogoutError(null);
+    const result = await requestCanonicalLogout();
+    if (!result.ok) {
+      /* Temizlik tamamlanmadıysa oturumu "kapandı" GÖSTERMEYİZ (§8). */
+      setLogoutError('Çıkış tamamlanamadı. Lütfen tekrar deneyin.');
+      setLogoutBusy(false);
+    }
+    /* Başarıda `onAuthStateChange` → kapı SIGNED_OUT'a geçer ve giriş ekranı
+       kurulur; burada ayrıca yönlendirme yapılmaz (tek otorite oturumdur). */
+  }, [logoutBusy]);
 
   const lazySpinner = (
     <div className="flex items-center justify-center gap-2 py-10 text-sm pwa-text-3">
@@ -154,13 +266,25 @@ export default function KumandaPage() {
             onSelectVehicle={setActiveVehicleId}
             onAddVehicle={() => setActiveTab('eslestir')}
           />
+          {/* Henüz kurmadıysa tüketici kurulum teklifi burada yapılır. */}
+          <div className="mt-4">
+            <PwaInstallPrompt />
+          </div>
           {vehicle && (
-            <button
-              onClick={handleUnpair}
-              className="mt-4 w-full text-xs pwa-text-3 hover:text-red-400/60 transition-colors py-2"
-            >
-              Araç bağlantısını kes
-            </button>
+            <>
+              <button
+                onClick={() => { void handleUnpair(); }}
+                disabled={unpairBusy}
+                className="mt-4 w-full text-xs pwa-text-3 hover:text-red-400/60 transition-colors py-2 disabled:opacity-50"
+              >
+                {unpairBusy ? 'Ayrılıyor…' : 'Araç bağlantısını kes'}
+              </button>
+              {/* Sunucu reddettiyse/ulaşılamadıysa araç HÂLÂ bağlıdır; bunu
+                  sessizce geçmek eski kusurun ta kendisiydi. */}
+              {unpairError && (
+                <p className="mt-1 text-center text-[11px] text-red-300/80">{unpairError}</p>
+              )}
+            </>
           )}
         </>
       );
@@ -269,14 +393,33 @@ export default function KumandaPage() {
             )}
           </button>
 
+          {/* ÜRÜN SINIRI: kurulu uygulamada filo paneli GÖRÜNMEZ (manifest
+              scope'u da oraya izin vermez). Web tarayıcısında açıkken kalır —
+              filo müşterisi aynı siteden panele geçebilsin. */}
           <Link
             href="/dashboard"
-            className="text-[11px] font-semibold text-blue-400/80 hover:text-blue-400 transition-colors px-3 py-1.5 rounded-lg border border-blue-500/25 bg-blue-500/[0.08]"
+            className="hide-in-standalone text-[11px] font-semibold text-blue-400/80 hover:text-blue-400 transition-colors px-3 py-1.5 rounded-lg border border-blue-500/25 bg-blue-500/[0.08]"
           >
             Panele Git →
           </Link>
+
+          <button
+            onClick={() => { void handleLogout(); }}
+            disabled={logoutBusy}
+            data-testid="pwa-logout-button"
+            className="text-[11px] font-semibold pwa-text-3 hover:text-red-400/70 transition-colors px-2.5 py-1.5 rounded-lg disabled:opacity-50"
+            style={{ border: '1px solid var(--pwa-border)' }}
+          >
+            {logoutBusy ? '…' : 'Çıkış'}
+          </button>
         </div>
       </header>
+
+      {logoutError && (
+        <p role="alert" className="relative z-10 px-5 -mt-1 pb-1 text-[11px] text-red-300/80">
+          {logoutError}
+        </p>
+      )}
 
       {/* Main */}
       {activeTab === 'harita' ? (

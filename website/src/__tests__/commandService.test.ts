@@ -46,6 +46,11 @@ const cleanupPolicy = vi.hoisted(() => ({
 vi.mock('../lib/supabase', () => ({
   supabaseBrowser:      mocks.supabase,
   isSupabaseConfigured: true,
+  /* `sendCommand` komutu kullanıcı JWT'siyle gönderir; oturum jetonunu bu
+     tek yerden okur. Mock'ta eksikti ve jetonun okunduğu satırda test
+     "No export is defined on the mock" ile düşüyordu — yani RLS/TTL
+     kilitleri hiç ölçülmüyordu. Oturum VAR senaryosu varsayılandır. */
+  ensurePwaSession:     vi.fn(async () => 'test-access-token'),
 }));
 
 vi.mock('../security/accountCleanup/accountCleanupRuntime', () => ({

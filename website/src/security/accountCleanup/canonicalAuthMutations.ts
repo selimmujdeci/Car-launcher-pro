@@ -1,4 +1,7 @@
-import type { SupabaseClient } from '@supabase/supabase-js';
+import type {
+  SignInWithOAuthCredentials,
+  SupabaseClient,
+} from '@supabase/supabase-js';
 import { withAuthSessionMutationLock } from './authSessionMutationLock';
 
 type AuthClient = SupabaseClient['auth'];
@@ -57,6 +60,23 @@ export function canonicalSignInAnonymously(
   value?: Parameters<AuthClient['signInAnonymously']>[0],
 ): ReturnType<AuthClient['signInAnonymously']> {
   return runCanonicalAuthMutation(() => client.auth.signInAnonymously(value));
+}
+
+/**
+ * Mevcut oturuma (ör. anonim kullanıcıya) bir OAuth kimliği BAĞLAR.
+ *
+ * `signInWithOAuth`ten farkı KRİTİKTİR: `linkIdentity` isteği mevcut oturumun
+ * JWT'siyle `/user/identities/authorize` uçuna gider (auth-js 2.110 kaynağı),
+ * yani YENİ kullanıcı yaratmaz — kimliği MEVCUT `auth.uid()`e ekler. Anonim
+ * kullanıcının araç sahipliğinin korunması buna dayanır.
+ */
+export function canonicalLinkIdentity(
+  client: SupabaseClient,
+  /* `linkIdentity` aşırı yüklüdür (OAuth · OIDC id_token). `Parameters<>`
+     son aşırı yüklemeyi seçtiği için OAuth şekli AÇIKÇA yazılır. */
+  value: SignInWithOAuthCredentials,
+): ReturnType<AuthClient['signInWithOAuth']> {
+  return runCanonicalAuthMutation(() => client.auth.linkIdentity(value));
 }
 
 export function canonicalExchangeCodeForSession(

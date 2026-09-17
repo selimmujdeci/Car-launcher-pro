@@ -177,7 +177,11 @@ describe('eşleştirme · PWA ekranı dürüstlüğü', () => {
     /* Kapalı rotanın kapatılma sebeplerinden biri oturumsuz çalışıp yanıtta
        ham `api_key` döndürmesiydi; yeni yol o hatayı tekrarlamamalı. */
     expect(svc).toMatch(/Authorization/);
-    expect(svc).toMatch(/access_token/);
+    /* Oturum jetonu artık TEK kanonik okuyucudan gelir (`ensurePwaSession`);
+       eskiden burada ham `access_token` alanı aranıyordu ama jeton okuması
+       `lib/supabase`e taşındığı için o desen eşleşmiyordu. Ölçülen kural
+       değişmedi: eşleştirme OTURUM ister. */
+    expect(svc).toMatch(/ensurePwaSession/);
     expect(svc, 'yanıttan api_key okunuyor — kapatılan kusur geri geldi')
       .not.toMatch(/data\.apiKey/);
   });

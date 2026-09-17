@@ -40,12 +40,13 @@ export const metadata: Metadata = {
   title: 'Caros Pro — Araç İçi Yazılım Platformu',
   description: 'Filo yönetimi, araç verisi entegrasyonu ve kurumsal kontrol paneli.',
   keywords: 'araç yazılımı, filo yönetimi, OBD, navigasyon, kurumsal',
-  manifest: '/manifest.webmanifest',
-  appleWebApp: {
-    capable: true,
-    statusBarStyle: 'black-translucent',
-    title: 'CLP Dashboard',
-  },
+  /* MANIFEST BURADA BAĞLANMAZ.
+     Manifest "Arabam Cebimde" tüketici ürününü tarif eder; kökten bağlanınca
+     filo/pazarlama sayfalarında da sunuluyor ve filo kullanıcısı "Ana ekrana
+     ekle" dediğinde telefonuna tüketici ürünü kuruluyordu (canlı üretimde
+     doğrulandı). Artık yalnız `app/(pwa)/layout.tsx` bağlar.
+     iOS `appleWebApp` başlığı da aynı sebeple oraya taşındı: bu alan da
+     ürün adı yayar ve filo yüzeyinde yanlış marka gösteriyordu. */
   icons: {
     // public/'te yalnız SVG var; .png referansı 404 veriyordu (konsol hatası → BP).
     icon: '/icons/icon-192.svg',

@@ -261,7 +261,7 @@ describe('canonical auth storage authority', () => {
         join(root, 'app/auth/callback/route.ts'),
       ]);
       const forbidden =
-        /\.auth\.(signInWithPassword|signUp|signInAnonymously|signInWithOAuth|setSession|refreshSession|updateUser|verifyOtp|signOut)\(/;
+        /\.auth\.(signInWithPassword|signUp|signInAnonymously|signInWithOAuth|linkIdentity|setSession|refreshSession|updateUser|verifyOtp|signOut)\(/;
       for (const file of files) {
         if (allowlist.has(file)) continue;
         expect(await readFile(file, 'utf8'), file).not.toMatch(forbidden);
