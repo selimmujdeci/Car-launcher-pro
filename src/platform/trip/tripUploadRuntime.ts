@@ -337,6 +337,15 @@ class TripUploadRuntime {
     put('speedViolation', s.metrics.speedViolations);
     put('harshBrake', s.metrics.harshBrakeCount);
     put('harshAccel', s.metrics.harshAccelCount);
+    /* ── F3.1 · YÜZDE PROVENANCE'I NEDEN BURADA YOK ────────────────────
+       `p_sources.fuel` LİTREYİ anlatır ve depo kapasitesi bilinmediğinde
+       `ESTIMATED` olur. Yüzde için AYRI bir provenance alanı eklemek ilk
+       bakışta gerekli görünür — ama gerekli DEĞİLDİR ve eklenmedi:
+       `tripLogService` `fuelUsedPercent`i YALNIZ `verdict.measured` dalında
+       yazar, yani sunucudaki `fuel_used_percent` alanının DOLU OLMASI
+       zaten "araçtan ölçüldü" demektir. Alanın varlığı provenance'ın
+       kendisidir; ikinci bir kolon aynı gerçeği ikinci kez saklardı.
+       Bu invariant `tripFuelEvidenceF31` testlerinde kilitlidir. */
     return out;
   }
 
