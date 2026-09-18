@@ -168,3 +168,53 @@ describe('freshness · kaynak dürüstlüğü', () => {
     expect(build({ healthObservedAt: null }).health).toBe('NEVER_SEEN');
   });
 });
+
+/* ── F5.1 · "ölçülmedi" ile "ölçüldü ve sıfır" AYRI GERÇEKLERDİR ────────
+   ÖLÇÜLEN KUSUR: `vehicle_telemetry.fuel` kolonu 066 öncesi
+   `NOT NULL DEFAULT 0` idi; o dönemde açılan satırlara 0 yazıldı. 066 kolonu
+   nullable yaptı ama MEVCUT SATIRLARA DOKUNMADI ve `push_vehicle_event`
+   UPDATE dalı `fuel = COALESCE(EXCLUDED.fuel, t.fuel)` kullanıyor → OBD'si
+   olmayan araçta yeni olaylar yakıt taşımadığı için o 0 HİÇ DÜŞMEZ.
+   `plausibleSignal('fuel', 0)` bu 0'ı geçerli saydığı için `measure()`
+   `observedAt === null` olmasına RAĞMEN `value: 0` döndürüyordu; ekranda
+   çıplak "0 %" görünüyordu. Bu bloktaki kilitler o yalanı geri getiren her
+   değişiklikte DÜŞER. */
+
+describe('F5.1 · gözlenmemiş alan ÖLÇÜM DEĞİLDİR', () => {
+  it('18. 🔒 OBD hiç gözlenmedi ama satırda eski 0 duruyor → yakıt BİLİNMİYOR', () => {
+    const f = build({ obdObservedAt: null, fuel: 0 });
+    expect(f.engine).toBe('NEVER_SEEN');
+    /* MUTASYON KAPISI: eskiden `0` dönüyordu. */
+    expect(f.fuelPercent.value).toBeNull();
+    expect(f.fuelPercent.state).toBe('NEVER_SEEN');
+    expect(measurementLabel(f.fuelPercent, '%')).toBe('Veri yok');
+  });
+
+  it('19. 🔒 aynı kural rpm/temp/hız için de geçerlidir', () => {
+    const f = build({ obdObservedAt: null, rpm: 0, temp: 0, speed: 0 });
+    expect(f.rpm.value).toBeNull();
+    expect(f.engineTempC.value).toBeNull();
+    expect(f.speedKmh.value).toBeNull();
+  });
+
+  it('20. 🔒 GERÇEK ölçülmüş %0 KORUNUR (damgası olan 0 silinmez)', () => {
+    const f = build({ obdObservedAt: iso(5_000), fuel: 0 });
+    expect(f.engine).toBe('LIVE');
+    expect(f.fuelPercent.value).toBe(0);
+    expect(f.fuelPercent.state).toBe('LIVE');
+  });
+
+  it('21. 🔒 BAYAT ölçülmüş %0 "canlı" DİYE sunulmaz ama SİLİNMEZ de', () => {
+    const f = build({ obdObservedAt: iso(FRESHNESS_WINDOWS_MS.ENGINE + 60_000), fuel: 0 });
+    expect(f.fuelPercent.value).toBe(0);
+    expect(f.fuelPercent.state).not.toBe('LIVE');
+    expect(measurementLabel(f.fuelPercent, '%')).toContain('eski veri');
+  });
+
+  it('22. 🔒 gözlenmemiş alan YAŞ da UYDURMAZ', () => {
+    const f = build({ obdObservedAt: null, fuel: 0 });
+    expect(f.fuelPercent.observedAt).toBeNull();
+    expect(f.fuelPercent.ageMs).toBeNull();
+    expect(ageLabel(f.fuelPercent.ageMs)).toBe('Bilinmiyor');
+  });
+});

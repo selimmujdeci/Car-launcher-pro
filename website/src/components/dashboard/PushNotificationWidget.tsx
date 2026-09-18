@@ -4,18 +4,26 @@
  * PushNotificationWidget — Topbar'da push bildirim izin rozeti.
  *
  * Durumlar:
- *   unsupported → gizli (render yok)
- *   prompt      → "Hırsız Savar" butonu — OLED black + neon red
- *   subscribed  → "Bildirimler Aktif" neon pill — neon-alarm animasyonu
- *   denied      → "İzin Verilmedi" sönük gri pill
- *   error       → gizli
+ *   UNSUPPORTED         → gizli (render yok)
+ *   PERMISSION_REQUIRED → "Hırsız Savar" butonu — OLED black + neon red
+ *   REGISTERING         → "Bağlanıyor" spinner
+ *   ACTIVE              → "Bildirimler Aktif" neon pill
+ *   DENIED              → "İzin Verilmedi" sönük gri pill
+ *   FAILED              → "Bildirim Kurulamadı" — GİZLENMEZ
+ *
+ * ── ÖLÇÜLEN KUSUR (F5.1) ─────────────────────────────────────────────────
+ * `error` durumu GİZLENİYORDU ve `subscribe()` backend kaydı düşse bile
+ * `'subscribed'` dönüyordu → rozet "Bildirimler Aktif" diyordu ama hiçbir
+ * bildirim gelmiyordu. Artık `ACTIVE` yalnız backend kaydı kanıtlanınca
+ * gösterilir; başarısızlık SESSİZCE GİZLENMEZ, kullanıcıya söylenir.
  *
  * Zero-Leak: mount'ta bir kez initPushEngine çağrılır.
  * İzin yalnızca kullanıcı tıklayınca istenir.
  */
 
 import { useEffect, useState } from 'react';
-import { initPushEngine, subscribe, type PushState } from '@/lib/pushEngine';
+import { initPushEngine, subscribe,
+         type PushState, type PushFailureReason } from '@/lib/pushEngine';
 
 /* ── Shield alarm icon (inline SVG) ─────────────────────────── */
 
@@ -41,30 +49,45 @@ function BellCheckIcon({ className }: { className?: string }) {
   );
 }
 
+/* ── Başarısızlık sebebi → kullanıcı metni ───────────────────
+   Hiçbiri endpoint/anahtar/token TAŞIMAZ; teknik ayrıntı sızdırılmaz. */
+
+const FAILURE_TITLE: Record<PushFailureReason, string> = {
+  NO_VAPID_KEY:           'Bildirim sunucusu bu kurulumda yapılandırılmamış.',
+  SW_REGISTRATION_FAILED: 'Tarayıcı arka plan servisi kaydedilemedi.',
+  SUBSCRIBE_FAILED:       'Tarayıcı bildirim aboneliği oluşturulamadı.',
+  NOT_AUTHENTICATED:      'Bildirimler için oturum açmanız gerekir.',
+  BACKEND_UNAVAILABLE:    'Sunucuya ulaşılamadı; bildirim kaydı yapılamadı.',
+  BACKEND_PERSIST_FAILED: 'Bildirim kaydı sunucuda oluşturulamadı.',
+};
+
 /* ── Widget ──────────────────────────────────────────────────── */
 
 export function PushNotificationWidget() {
   const [state,   setState]   = useState<PushState | 'loading'>('loading');
+  const [reason,  setReason]  = useState<PushFailureReason | undefined>(undefined);
   const [working, setWorking] = useState(false);
 
-  // Init once on mount — read current state without prompting
+  // Init once on mount — izin İSTEMEDEN mevcut durumu oku
   useEffect(() => {
-    initPushEngine().then((res) => setState(res.state));
+    initPushEngine().then((res) => { setState(res.state); setReason(res.reason); });
   }, []);
 
   async function handleClick() {
-    if (working || state === 'subscribed' || state === 'denied') return;
+    if (working || state === 'ACTIVE' || state === 'DENIED') return;
     setWorking(true);
     const res = await subscribe();
     setState(res.state);
+    setReason(res.reason);
     setWorking(false);
   }
 
-  // Hide until we know the state, or if unsupported/error
-  if (state === 'loading' || state === 'unsupported' || state === 'error') return null;
+  /* Yalnız durum HENÜZ BİLİNMİYORKEN veya tarayıcı desteklemiyorken gizlenir.
+     FAILED ARTIK GİZLENMEZ — sessiz başarısızlık bu kusurun ta kendisiydi. */
+  if (state === 'loading' || state === 'UNSUPPORTED') return null;
 
-  /* ── Subscribed — neon red active pill ─────────────────────── */
-  if (state === 'subscribed') {
+  /* ── ACTIVE — neon red active pill (backend kaydı KANITLI) ── */
+  if (state === 'ACTIVE') {
     return (
       <div
         className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-full select-none"
@@ -96,8 +119,8 @@ export function PushNotificationWidget() {
     );
   }
 
-  /* ── Denied — sönük gri pill ───────────────────────────────── */
-  if (state === 'denied') {
+  /* ── DENIED — sönük gri pill ───────────────────────────────── */
+  if (state === 'DENIED') {
     return (
       <div
         className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-full select-none"
@@ -109,6 +132,25 @@ export function PushNotificationWidget() {
       >
         <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 bg-white/20" />
         <span className="text-[10px] font-medium text-t3">İzin Verilmedi</span>
+      </div>
+    );
+  }
+
+  /* ── FAILED — kurulamadı, AÇIKÇA söylenir ──────────────────── */
+  if (state === 'FAILED') {
+    return (
+      <div
+        className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-full select-none"
+        style={{
+          background: 'rgba(245,158,11,0.07)',
+          border:     '1px solid rgba(245,158,11,0.22)',
+        }}
+        title={FAILURE_TITLE[reason ?? 'BACKEND_PERSIST_FAILED']}
+      >
+        <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: '#f59e0b' }} />
+        <span className="text-[10px] font-black uppercase tracking-[0.28em]" style={{ color: '#f59e0b' }}>
+          Bildirim Kurulamadı
+        </span>
       </div>
     );
   }

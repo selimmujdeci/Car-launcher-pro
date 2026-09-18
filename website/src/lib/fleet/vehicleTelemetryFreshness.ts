@@ -227,6 +227,32 @@ function measure(
     // BİLİNMİYOR: değer yok → 0 GÖSTERİLMEZ, durum da ölçüm yokluğunu yansıtır.
     return { value: null, state: state === 'UNKNOWN' ? 'UNKNOWN' : 'NEVER_SEEN', observedAt, ageMs, source };
   }
+
+  /* ── HİÇ GÖZLENMEMİŞ ALAN ÖLÇÜM DEĞİLDİR (F5.1) ──────────────────────────
+     ÖLÇÜLEN KUSUR: satırda yakıt için bir sayı DURUYOR olabilir ama o sayı hiç
+     ölçülmemiştir. 066 öncesi `vehicle_telemetry.fuel` kolonu
+     `NOT NULL DEFAULT 0` idi; o dönemde açılan her satıra 0 yazıldı. 066 kolonu
+     nullable yaptı, AMA mevcut satırlara dokunmadı (bilinçli — geriye dönük
+     çıkarım uydurma olurdu) ve `push_vehicle_event` UPDATE dalı
+     `fuel = COALESCE(EXCLUDED.fuel, t.fuel)` kullanıyor. Yani OBD'si olmayan
+     araçta yeni olay yakıt TAŞIMADIĞI için eski 0 hiç düşmez: SONSUZA DEK çivili.
+
+     Bu değer `plausibleSignal('fuel', 0)` kapısından GEÇİYORDU (0, 0–100
+     aralığında geçerli), dolayısıyla `observedAt === null` → `NEVER_SEEN`
+     olmasına rağmen `value: 0` dönüyordu — kendi kendiyle çelişen bir ölçüm.
+     `measurementLabel` NEVER_SEEN için hiçbir nitel ek basmaz (LIVE/STALE/
+     OFFLINE dalları tutmaz, düz değere düşer) → ekranda ÇIPLAK "0 %" görünür,
+     `buildFuel` de `m.value !== null` gördüğü için onu `kind: 'MEASURED'`
+     sayardı. Kullanıcıya ölçülmemiş depo "%0 yakıt" diye sunuluyordu.
+
+     Sahte 0'ın üçüncü kardeşi (bkz. #667 sahte -1, 042/066 sahte DEFAULT 0).
+     GERÇEK 0 KORUNUR: ölçülmüş bir 0'ın `obd_observed_at` damgası VARDIR →
+     durumu LIVE/STALE/OFFLINE olur, bu dal HİÇ çalışmaz. Ayrılan şey yalnız
+     "hiç gözlenmedi" ile "ölçüldü ve sıfır"dır (§8). */
+  if (state === 'NEVER_SEEN' || observedAt === null) {
+    return { value: null, state: 'NEVER_SEEN', observedAt: null, ageMs: null, source };
+  }
+
   return { value: v, state, observedAt, ageMs, source };
 }
 
