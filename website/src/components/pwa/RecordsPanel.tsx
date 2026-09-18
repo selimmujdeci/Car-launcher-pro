@@ -142,7 +142,13 @@ interface ServiceDef {
   intervalDays: number;
 }
 
-const SERVICE_DEFS: ServiceDef[] = [
+/**
+ * F4.3: `export` — Araç Hafızası servis anahtarını Türkçe etikete çevirmek
+ * için AYNI sözlüğü okur. Etiketler burada TEK yerde durur; ikinci bir
+ * servis kataloğu kurulmaz. (Aralık alanları hafızada KULLANILMAZ: hafıza
+ * geçmişi listeler, bakım zamanı hesaplamaz.)
+ */
+export const SERVICE_DEFS: ServiceDef[] = [
   { key: 'oil',    label: 'Yağ Değişimi',     icon: '🛢',  intervalKm: 10_000, intervalDays: 365 },
   { key: 'tires',  label: 'Lastik Rotasyonu', icon: '🔄',  intervalKm: 15_000, intervalDays: 365 },
   { key: 'brakes', label: 'Fren Balata',      icon: '🛑',  intervalKm: 30_000, intervalDays: 730 },

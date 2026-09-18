@@ -23,6 +23,7 @@ const VehicleMapView     = lazy(() => import('@/components/pwa/VehicleMapView'))
 const DiagnosticsPanel   = lazy(() => import('@/components/pwa/DiagnosticsPanel'));
 const VehicleHealthCard  = lazy(() => import('@/components/pwa/VehicleHealthCard'));
 const RecordsPanel       = lazy(() => import('@/components/pwa/RecordsPanel'));
+const VehicleMemoryPanel = lazy(() => import('@/components/pwa/VehicleMemoryPanel'));
 const TripJournalPanel   = lazy(() => import('@/components/pwa/TripJournalPanel'));
 const ThemeStudio        = lazy(() => import('@/components/pwa/ThemeStudio').then(m => ({ default: m.ThemeStudio })));
 
@@ -38,7 +39,7 @@ const ThemeStudio        = lazy(() => import('@/components/pwa/ThemeStudio').the
  * "Araç Ekle") aynen çalışmaya devam eder.
  */
 type PrimaryTab = 'aracim' | 'yolculuklar' | 'saglik' | 'harita' | 'daha';
-type SecondaryTab = 'eslestir' | 'kayitlar' | 'tema';
+type SecondaryTab = 'eslestir' | 'kayitlar' | 'hafiza' | 'tema';
 type Tab = PrimaryTab | SecondaryTab;
 
 
@@ -119,6 +120,7 @@ function MoreMenu({
 }) {
   const items: ReadonlyArray<{ id: SecondaryTab; label: string; hint: string }> = [
     { id: 'eslestir', label: hasVehicle ? 'Araç Ekle / Değiştir' : 'Aracınızı Bağlayın', hint: 'Eşleştirme' },
+    { id: 'hafiza',   label: 'Araç Hafızası', hint: 'Geçmiş yolculuk ve kayıtlar' },
     { id: 'kayitlar', label: 'Kayıtlar',  hint: 'Yakıt · servis · masraf' },
     { id: 'tema',     label: 'Görünüm',   hint: 'Tema ve renkler' },
   ];
@@ -548,6 +550,14 @@ function KumandaApp() {
             <VehicleHealthCard vehicle={vehicle} />
             <DiagnosticsPanel vehicle={vehicle} />
           </div>
+        </Suspense>
+      );
+    }
+
+    if (activeTab === 'hafiza') {
+      return (
+        <Suspense fallback={lazySpinner}>
+          <VehicleMemoryPanel vehicle={vehicle} />
         </Suspense>
       );
     }

@@ -72,7 +72,14 @@ describe('F3 · navigasyon sadeleşmesi', () => {
   });
 
   it('ikincil yüzeyler KAYBOLMADI — `daha` altından erişilir', () => {
-    expect(PAGE).toContain("type SecondaryTab = 'eslestir' | 'kayitlar' | 'tema'");
+    /* Literal union'ı birebir sınamak KIRILGANDI: F4.3'te `hafiza` eklenince
+       düştü ama korunan gerçek (ikincil yüzey KAYBOLMASIN) bozulmamıştı.
+       Kilit artık her yüzeyi TEK TEK arar — yeni yüzey eklenmesi kırmaz,
+       mevcut bir yüzeyin silinmesi kırar. */
+    const secondary = PAGE.slice(PAGE.indexOf('type SecondaryTab'));
+    for (const surface of ['eslestir', 'kayitlar', 'tema']) {
+      expect(secondary, surface).toContain(`'${surface}'`);
+    }
     expect(PAGE).toContain("activeTab === 'daha'");
     /* Araç yokken otomatik eşleştirmeye geçiş yolu KIRILMADI. */
     expect(PAGE).toContain("setActiveTab('eslestir')");
