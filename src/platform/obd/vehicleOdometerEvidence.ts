@@ -26,6 +26,7 @@
 
 import { getDidValue, getSupportedDids } from './manufacturerPidService';
 import type { CompiledDidDef } from './vehicleDidProfile';
+import { getHandshakeVin } from '../safety/vinContext';
 
 /* ── Sözleşme ──────────────────────────────────────────────────────────── */
 
@@ -38,10 +39,62 @@ import type { CompiledDidDef } from './vehicleDidProfile';
  * göstermek olurdu.
  */
 export type OdometerEvidenceStatus =
-  | 'MEASURED'     // araçtan okundu, birim/aralık doğrulandı
-  | 'UNSUPPORTED'  // yüklü profilde `vehicle_odometer` rolü YOK
-  | 'UNKNOWN'      // rol var ama henüz geçerli bir okuma gelmedi
-  | 'INVALID';     // okuma geldi ama güvenilmez (birim/aralık/sayı)
+  | 'MEASURED'     // araçtan okundu, kimlik+birim+aralık doğrulandı
+  | 'UNSUPPORTED'  // yüklü profilde `vehicle_odometer` rolü YOK / profil bu araca ait değil
+  | 'UNKNOWN'      // rol var ama kimlik kanıtlanmadı ya da henüz okuma gelmedi
+  | 'INVALID';     // okuma geldi ama güvenilmez (birim/aralık/sayı/zaman)
+
+/**
+ * PROFİL ↔ ARAÇ KİMLİĞİ KAPISI (F4.2.1).
+ *
+ * ── ÖLÇÜLEN RİSK ─────────────────────────────────────────────────────────
+ * Üretici DID profili bir KULLANICI AYARIDIR (`syncManufacturerDidProfile`)
+ * ve hiçbir kimlik kontrolü yapmaz. Doblo kullanan biri Zoe profilini
+ * seçerse, Zoe'nin EVC ECU'suna DID 2006 sorulur; makul üç bayt dönerse
+ * bu sayı ARACIN ODOMETRESİ sanılırdı — kanıtsız bir sayı `ECU_REPORTED`
+ * damgasıyla gerçek olurdu. Bu, ürünün kabul edemeyeceği türden bir yalan.
+ *
+ * ── KURAL ────────────────────────────────────────────────────────────────
+ * OEM katmanının zaten uyguladığı disiplinin aynısı: profil kimlik kapsamı
+ * (`vehicleWmi`) beyan etmelidir VE kanonik VIN o kapsamla eşleşmelidir.
+ *   · profil kapsam beyan etmiyorsa  → odometre GÜVENİLMEZ (UNSUPPORTED)
+ *   · kanonik VIN yoksa              → kimlik KANITLANMADI (UNKNOWN)
+ *   · WMI eşleşmiyorsa               → yanlış profil (UNSUPPORTED)
+ *
+ * Kanonik VIN `safety/vinContext.getHandshakeVin()`tir: doğrulanmış, bu
+ * oturuma ait ve çelişkisiz; aksi hâlde `null`. Yeni bir kimlik otoritesi
+ * KURULMAZ.
+ */
+export type OdometerIdentityGate =
+  | { ok: true; wmi: string }
+  | { ok: false; status: 'UNKNOWN' | 'UNSUPPORTED'; reason: string };
+
+export function checkOdometerIdentity(
+  def: CompiledDidDef,
+  vin: string | null,
+): OdometerIdentityGate {
+  const scope = def.vehicleWmi;
+  if (!scope || scope.length === 0) {
+    return {
+      ok: false, status: 'UNSUPPORTED',
+      reason: 'Profil hangi araçlara ait olduğunu beyan etmiyor',
+    };
+  }
+  if (typeof vin !== 'string' || vin.length < 3) {
+    return {
+      ok: false, status: 'UNKNOWN',
+      reason: 'Araç kimliği (VIN) doğrulanmadı — odometre güvenilemez',
+    };
+  }
+  const wmi = vin.slice(0, 3).toUpperCase();
+  if (!scope.includes(wmi)) {
+    return {
+      ok: false, status: 'UNSUPPORTED',
+      reason: 'Seçili profil bu araca ait değil',
+    };
+  }
+  return { ok: true, wmi };
+}
 
 export interface OdometerEvidence {
   readonly status: OdometerEvidenceStatus;
@@ -152,6 +205,17 @@ export function readVehicleOdometerEvidence(): OdometerEvidence {
 
   const def = found.def;
   const protocol = def.service === '21' ? 'KWP' : 'UDS';
+
+  /* ── KİMLİK KAPISI — okumadan ÖNCE ──────────────────────────────────
+     Sıra bilinçli: yanlış araca ait bir profilin değeri hiç yorumlanmaz.
+     Kimlik kanıtlanmadan hiçbir sayı `MEASURED` olamaz. */
+  let vin: string | null = null;
+  try { vin = getHandshakeVin(); } catch { vin = null; }
+  const identity = checkOdometerIdentity(def, vin);
+  if (!identity.ok) {
+    return { ...NO_EVIDENCE(identity.status, identity.reason),
+      protocol, ecu: def.ecuId, identifier: def.did };
+  }
 
   const cached = getDidValue(def.did);
   if (!cached) {

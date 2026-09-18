@@ -103,6 +103,25 @@ export interface VehicleDidProfile {
    *  DID'ler HİÇ sorgulanmaz (yanlış transporta CAN header'ı göndermek = COMM_ERROR
    *  fırtınası). Tanımsız = kısıt yok (geriye dönük uyum). */
   protocols?: ('can' | 'kwp' | 'iso9141' | 'j1850' | 'unknown')[];
+  /**
+   * F4.2.1 — PROFİLİN GEÇERLİ OLDUĞU ARAÇ KİMLİĞİ (WMI, ISO 3779).
+   *
+   * ── NEDEN EKLENDİ (F4.2'de kendi bıraktığım açık) ──────────────────────
+   * Profil seçimi bir KULLANICI AYARIDIR: Doblo kullanan biri Zoe profilini
+   * seçebilir. O hâlde Zoe'nin EVC ECU'suna (29-bit `18DADAF1`) DID 2006
+   * sorulur ve makul üç bayt dönerse, bu sayı ARACIN ODOMETRESİ sanılırdı.
+   * Yani kanıtsız bir sayı `ECU_REPORTED` damgasıyla gerçek olurdu.
+   *
+   * OEM katmanı (`oemEcuProfile`) bu disiplini ZATEN uyguluyor: orada
+   * `vehicle.wmi` ZORUNLUDUR ve gerekçesi yazılıdır — "VIN'siz araçta profil
+   * DENENMEZ". Aynı kural artık odometre rolü için de geçerli.
+   *
+   * KAPSAM: bu alan yalnız `role` taşıyan DID'lerin GÜVENİLİRLİĞİNİ kapılar.
+   * Sensör paneli/sesli sorgu gibi mevcut okuma yolları DEĞİŞMEZ — onlar
+   * zaten değeri kendi adıyla ve kaynağıyla gösterir, kalıcı araç gerçeği
+   * üretmez.
+   */
+  vehicleWmi?: readonly string[];
   ecus: VehicleEcuDef[];
   dids: VehicleDidDef[];
 }
@@ -122,6 +141,8 @@ const VALID_PROTOCOL_CLASSES: ReadonlySet<string> = new Set(['can', 'kwp', 'iso9
  *  3 hex hane (11-bit ISO 15765-4, ör. '7E0'), 6 hex hane (KWP/ISO 3-bayt header,
  *  ör. '8110F1') veya 8 hex hane (29-bit, ör. '18DADAF1') olabilir — diğer uzunluklar
  *  belirsizdir ve native withEcuHeader'ın hiçbir dalıyla eşleşmez (sessiz yanlış komut riski). */
+/** ISO 3779 WMI — `oemEcuProfile`teki kuralla AYNI. */
+const PROFILE_WMI_RE = /^[0-9A-Z]{3}$/;
 const ECU_ADDR_RE = /^(?:|[0-9A-Fa-f]{3}|[0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$/;
 
 /**
@@ -143,6 +164,19 @@ export function validateVehicleDidProfile(input: unknown): VehicleDidProfileVali
   }
   if (p.note !== undefined && typeof p.note !== 'string') {
     errors.push('note: string olmalı (opsiyonel)');
+  }
+  /* F4.2.1: kimlik kapsamı opsiyoneldir ama verildiyse ISO 3779 biçiminde
+     olmalı — bozuk WMI sessizce "eşleşmedi" sayılmaz, profil YÜKLENMEZ. */
+  if (p.vehicleWmi !== undefined) {
+    if (!Array.isArray(p.vehicleWmi) || p.vehicleWmi.length === 0) {
+      errors.push('vehicleWmi: en az 1 öğeli dizi olmalı (opsiyonel alan)');
+    } else {
+      p.vehicleWmi.forEach((w, i) => {
+        if (typeof w !== 'string' || !PROFILE_WMI_RE.test(w)) {
+          errors.push(`vehicleWmi[${i}]: 3 haneli büyük harf/rakam olmalı`);
+        }
+      });
+    }
   }
 
   const ecuIds = new Set<string>();
@@ -275,6 +309,9 @@ export interface CompiledDidDef {
   /** F4.2 — kanonik anlam rolü (varsa). Tüketici "odometre hangisi?" sorusunu
    *  serbest metne değil BUNA bakarak cevaplar. */
   role?: DidSemanticRole;
+  /** F4.2.1 — profilin beyan ettiği araç kimliği kapsamı (WMI). Rol taşıyan
+   *  DID'lerin güven kapısı bunu kullanır. */
+  vehicleWmi?: readonly string[];
   /** Ham data baytları → fiziksel değer VEYA metin (Patch 12C `ascii`). Geçersiz sayısal
    *  girişte NaN (StandardPidRegistry ile aynı sözleşme); metin DID'lerinde boş olmayan string. */
   decode: (b: number[]) => VehicleDidValue;
@@ -349,6 +386,7 @@ export function compileVehicleDidProfile(profile: VehicleDidProfile): ReadonlyMa
       min: d.min,
       max: d.max,
       ...(d.role !== undefined ? { role: d.role } : {}),
+      ...(profile.vehicleWmi !== undefined ? { vehicleWmi: profile.vehicleWmi } : {}),
       category: d.category,
       decode: compileDidDecoder(d.decode, d.bytes),
       isText: d.decode.fn === 'ascii',

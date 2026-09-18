@@ -30,6 +30,11 @@ const svc = vi.hoisted(() => ({
   throwOnDefs: false,
 }));
 
+const vin = vi.hoisted(() => ({ value: 'VF1RJL00X12345678' as string | null }));
+vi.mock('../platform/safety/vinContext', () => ({
+  getHandshakeVin: () => vin.value,
+}));
+
 vi.mock('../platform/obd/manufacturerPidService', () => ({
   getSupportedDids: () => {
     if (svc.throwOnDefs) throw new Error('profil okunamadı');
@@ -43,6 +48,7 @@ import {
   readVehicleOdometerKmOrNull,
   findOdometerDid,
   validateOdometerReading,
+  checkOdometerIdentity,
 } from '../platform/obd/vehicleOdometerEvidence';
 import type { CompiledDidDef } from '../platform/obd/vehicleDidProfile';
 import {
@@ -58,13 +64,18 @@ function def(over: Partial<CompiledDidDef> = {}): CompiledDidDef {
     name: 'Kilometre (Odometre)', unit: 'km', bytes: 3,
     min: 0, max: 999999, category: 'kilometre',
     role: 'vehicle_odometer',
+    /* F4.2.1: kimlik kapsamı olmayan profil odometre için GÜVENİLMEZ. */
+    vehicleWmi: ['VF1', 'VF6'],
     decode: (b: number[]) => b[0]! * 65536 + b[1]! * 256 + b[2]!,
     isText: false,
     ...over,
   };
 }
 
-beforeEach(() => { svc.defs = []; svc.values.clear(); svc.throwOnDefs = false; });
+beforeEach(() => {
+  svc.defs = []; svc.values.clear(); svc.throwOnDefs = false;
+  vin.value = 'VF1RJL00X12345678';   // doğrulanmış Renault VIN'i
+});
 
 /* ═══ 1 · Kaynak yokluğu ════════════════════════════════════════════════ */
 
@@ -216,7 +227,11 @@ describe('F4.2 · odometre ≠ mesafe ≠ kullanıcı girdisi', () => {
     expect(kod).not.toMatch(/odometer_km/);
     /* İzin verilen TEK veri kaynağı üretici DID servisidir. */
     const imports = [...kod.matchAll(/from '([^']+)'/g)].map((m) => m[1]);
-    expect(imports.sort()).toEqual(['./manufacturerPidService', './vehicleDidProfile']);
+    expect(imports.sort()).toEqual([
+      '../safety/vinContext',        // KİMLİK kanıtı — mesafe/kullanıcı deposu DEĞİL
+      './manufacturerPidService',
+      './vehicleDidProfile',
+    ]);
   });
 });
 
@@ -257,5 +272,86 @@ describe('F4.2 · Renault Zoe PH2 profili gerçek kanıtla çalışır', () => {
       const compiled = compileVehicleDidProfile(p);
       expect(findOdometerDid([...compiled.values()]).ok, p.brand).toBe(false);
     }
+  });
+});
+
+/* ═══ 6 · F4.2.1 · PROFİL ↔ ARAÇ KİMLİĞİ KAPISI ════════════════════════════
+   ÖLÇÜLEN RİSK: profil seçimi bir KULLANICI AYARIDIR ve hiçbir kimlik
+   kontrolü yapmaz. Doblo kullanan biri Zoe profilini seçerse, Zoe'nin EVC
+   ECU'suna DID 2006 sorulur; makul üç bayt dönerse o sayı ARACIN ODOMETRESİ
+   sanılırdı — kanıtsız bir sayı `ECU_REPORTED` damgasıyla gerçek olurdu. */
+
+describe('F4.2.1 · yanlış profil odometre üretemez', () => {
+  it('WMI eşleşmezse odometre KABUL EDİLMEZ (Doblo aracına Zoe profili)', () => {
+    svc.defs = [def()];                       // Renault kapsamlı profil
+    svc.values.set('2006', { value: 92_451, def: def(), updatedAt: 1 });
+    vin.value = 'ZFA26300006123456';          // Fiat WMI — Doblo
+
+    const e = readVehicleOdometerEvidence();
+    expect(e.status).toBe('UNSUPPORTED');
+    expect(e.reason).toBe('Seçili profil bu araca ait değil');
+    /* En kritik satır: makul bir sayı DÖNDÜĞÜ hâlde kabul edilmedi. */
+    expect(e.valueKm).toBeNull();
+    expect(readVehicleOdometerKmOrNull()).toBeNull();
+  });
+
+  it('VIN doğrulanmamışsa odometre GÜVENİLMEZ (UNKNOWN)', () => {
+    svc.defs = [def()];
+    svc.values.set('2006', { value: 92_451, def: def(), updatedAt: 1 });
+    vin.value = null;                          // çelişkili/bayat/okunmamış VIN
+
+    const e = readVehicleOdometerEvidence();
+    expect(e.status).toBe('UNKNOWN');
+    expect(e.reason).toContain('VIN');
+    expect(e.valueKm).toBeNull();
+  });
+
+  it('profil kimlik kapsamı BEYAN ETMİYORSA odometre güvenilmez', () => {
+    /* Kapsamsız profil "her araca uyar" DEMEK DEĞİLDİR — tam tersi. */
+    svc.defs = [def({ vehicleWmi: undefined })];
+    svc.values.set('2006', { value: 92_451, def: def(), updatedAt: 1 });
+    const e = readVehicleOdometerEvidence();
+    expect(e.status).toBe('UNSUPPORTED');
+    expect(e.reason).toContain('beyan etmiyor');
+    expect(e.valueKm).toBeNull();
+  });
+
+  it('doğru araçta kapı AÇILIR — tek yönlü kilit değil', () => {
+    svc.defs = [def()];
+    svc.values.set('2006', { value: 92_451, def: def(), updatedAt: 1 });
+    vin.value = 'VF6RJL00X12345678';           // VF6 de kapsamda
+    expect(readVehicleOdometerEvidence().status).toBe('MEASURED');
+  });
+
+  it('kimlik kapısı SAF olarak da sınanabilir', () => {
+    expect(checkOdometerIdentity(def(), 'VF1AAAAAAAAAAAAAA').ok).toBe(true);
+    expect(checkOdometerIdentity(def(), 'ZFA26300006123456')).toMatchObject({
+      ok: false, status: 'UNSUPPORTED',
+    });
+    expect(checkOdometerIdentity(def(), null)).toMatchObject({
+      ok: false, status: 'UNKNOWN',
+    });
+    /* Kısa/bozuk VIN kimlik sayılmaz. */
+    expect(checkOdometerIdentity(def(), 'VF').ok).toBe(false);
+  });
+
+  it('Zoe profili gerçekten kimlik kapsamı BEYAN EDİYOR', () => {
+    const v = validateVehicleDidProfile(renaultZoePh2Profile);
+    expect(v.valid).toBe(true);
+    if (!v.valid) throw new Error(v.errors.join(' · '));
+    expect(v.profile.vehicleWmi).toEqual(['VF1', 'VF6']);
+
+    /* Kapsam derlenmiş tanıma TAŞINIR — kapı onu orada okur. */
+    const compiled = compileVehicleDidProfile(v.profile);
+    const found = findOdometerDid([...compiled.values()]);
+    expect(found.ok).toBe(true);
+    if (found.ok) expect(found.def.vehicleWmi).toEqual(['VF1', 'VF6']);
+  });
+
+  it('bozuk WMI beyanı profili YÜKLETMEZ', () => {
+    const bad = { ...renaultZoePh2Profile, vehicleWmi: ['VF1', 'bozuk'] };
+    const v = validateVehicleDidProfile(bad);
+    expect(v.valid).toBe(false);
+    if (!v.valid) expect(v.errors.join(' ')).toContain('vehicleWmi');
   });
 });

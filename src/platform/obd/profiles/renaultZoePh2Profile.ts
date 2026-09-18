@@ -35,6 +35,12 @@ export const RENAULT_ZOE_PH2_SOURCE =
   'rz2_pids_BCM.cpp + rz2_pids_HVAC.cpp + rz2_pids_EVC.cpp + rz2_pids_LBC.cpp; formüller kaynak koddan birebir)';
 
 export const renaultZoePh2Profile: VehicleDidProfile = {
+  /* F4.2.1 — KİMLİK KAPSAMI. Zoe bir Renault'dur; WMI listesi bu üründe
+     ZATEN tanımlı olan `oemProfileRegistry.RENAULT_WMI` ile AYNIDIR
+     (VF1/VF6 — ISO 3779 üretici önekleri). Yeni bir WMI iddiası
+     ÜRETİLMEDİ. Bu alan odometre rolünün güven kapısını besler:
+     VIN yoksa ya da WMI tutmuyorsa odometre GÜVENİLMEZ. */
+  vehicleWmi: ['VF1', 'VF6'] as const,
   brand: 'Renault Zoe Ph2 (ZE50)',
   note:
     '11-bit ECU\'lar (BCM/HVAC) + Patch 13 ile eklenen 29-bit ECU\'lar (EVC/LBC — ' +
