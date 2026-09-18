@@ -18,6 +18,16 @@ interface Props {
   vehicles:         LiveVehicle[];
   onSelectVehicle:  (id: string) => void;
   onAddVehicle:     () => void;
+  /**
+   * F3 · GÖMÜLÜ KULLANIM.
+   *
+   * `embedded` iken kimlik satırı ve telemetri şeridi BASILMAZ: ana ekranda
+   * bunların karşılığı zaten var (başlık · sağlık kartı · yakıt kartı) ve
+   * ikisini birden göstermek aynı gerçeği iki kez, iki farklı dille anlatırdı.
+   * Araç SEÇİCİ kaybolmaz — birden fazla araç varken kimlik satırı seçici
+   * olarak çalıştığı için o durumda korunur.
+   */
+  variant?:         'standalone' | 'embedded';
 }
 
 type NavProvider = RoutePayload['provider_intent'];
@@ -977,7 +987,9 @@ function VehicleSelectorSheet({
 
 /* ── Main component ─────────────────────────────────────────────────────────── */
 
-export default function MobileCarControl({ vehicle, vehicles, onSelectVehicle, onAddVehicle }: Props) {
+export default function MobileCarControl({
+  vehicle, vehicles, onSelectVehicle, onAddVehicle, variant = 'standalone',
+}: Props) {
   const { phases, result, dispatch, retry } = useCommandTracker(vehicle?.id ?? null);
   const [selectorOpen, setSelectorOpen] = useState(false);
 
@@ -1046,12 +1058,20 @@ export default function MobileCarControl({ vehicle, vehicles, onSelectVehicle, o
   return (
     <div className="flex flex-col gap-4 px-1">
 
-      {/* Vehicle identity — birden fazla araç varsa dokunulabilir selector */}
+      {/* Vehicle identity — birden fazla araç varsa dokunulabilir selector.
+          Gömülü kullanımda TEK araç varken bu satır yalnız bir TEKRAR olurdu
+          (düğme zaten devre dışı ve plakayı ana başlık söylüyor). */}
       <button
         onClick={() => vehicles.length > 1 && setSelectorOpen(true)}
         disabled={vehicles.length <= 1}
         className="flex items-center gap-3 px-4 py-3 rounded-2xl text-left transition-all active:scale-[0.99] disabled:active:scale-100"
-        style={{ background: 'var(--pwa-surface-3)', border: '1px solid var(--pwa-border-soft)' }}
+        style={{
+          background: 'var(--pwa-surface-3)',
+          border: '1px solid var(--pwa-border-soft)',
+          /* Satır içi `display` sınıfı EZER — `hidden` özniteliği Tailwind'in
+             `.flex` kuralına yenik düşerdi. */
+          ...(variant === 'embedded' && vehicles.length <= 1 ? { display: 'none' } : {}),
+        }}
       >
         <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
           vehicle.status === 'online' ? 'bg-emerald-400 neon-online' :
@@ -1174,8 +1194,13 @@ export default function MobileCarControl({ vehicle, vehicles, onSelectVehicle, o
       {/* Command toast */}
       {result && <CommandToast result={result} />}
 
-      {/* Telemetry strip — tazelik katmanına bağlı (bkz. TelemetryTile) */}
-      <div className="grid grid-cols-3 gap-2">
+      {/* Telemetry strip — tazelik katmanına bağlı (bkz. TelemetryTile).
+          Gömülü kullanımda basılmaz: yakıt ana ekranın kendi kartında, motor
+          sıcaklığı sağlık kanıtlarında ZATEN gösteriliyor. */}
+      <div
+        className="grid grid-cols-3 gap-2"
+        style={variant === 'embedded' ? { display: 'none' } : undefined}
+      >
         <TelemetryTile label="Hız"   unit="km/h" m={vehicle.telemetry?.speedKmh}    fallback={vehicle.speed}      tint={speedTint} />
         <TelemetryTile label="Yakıt" unit="%"    m={vehicle.telemetry?.fuelPercent} fallback={vehicle.fuel}       tint={fuelTint} />
         <TelemetryTile label="Motor" unit="°C"   m={vehicle.telemetry?.engineTempC} fallback={vehicle.engineTemp} tint={tempTint} />

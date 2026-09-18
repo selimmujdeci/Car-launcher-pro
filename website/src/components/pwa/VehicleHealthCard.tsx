@@ -12,23 +12,19 @@
  * başlatmak kullanıcının açık eylemidir ve altındaki teşhis panelinde durur.
  */
 
-import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import { memo } from 'react';
 import type { LiveVehicle } from '@/types/realtime';
 import {
-  buildVehicleHealthSummary,
   healthMeasuredAtLabel,
   type VehicleHealthSummary,
 } from '@/lib/diagnostics/vehicleHealth';
-import {
-  readLatestDtcOutcome,
-  readLatestVoltageOutcome,
-} from '@/lib/diagnostics/dtcResultReader';
+import { useVehicleHealth } from '@/hooks/useVehicleHealth';
 import type { Verdict } from '@/lib/console/evidenceModel';
 
 /* ── Görsel dil ────────────────────────────────────────────────────────────
    Korkutucu kırmızı YALNIZ `CRITICAL`de. `NO_EVIDENCE` sakin gri: "bilmiyoruz"
    bir hata durumu gibi gösterilmez (§16). */
-const TONE: Record<Verdict, { fg: string; bg: string; border: string; glyph: string }> = {
+export const HEALTH_TONE: Record<Verdict, { fg: string; bg: string; border: string; glyph: string }> = {
   VERIFIED:    { fg: '#34d399', bg: 'rgba(52,211,153,0.08)',  border: 'rgba(52,211,153,0.22)', glyph: '✓' },
   WARNING:     { fg: '#fbbf24', bg: 'rgba(251,191,36,0.08)',  border: 'rgba(251,191,36,0.25)', glyph: '!' },
   CRITICAL:    { fg: '#f87171', bg: 'rgba(239,68,68,0.10)',   border: 'rgba(239,68,68,0.28)',  glyph: '!' },
@@ -40,39 +36,9 @@ interface Props {
 }
 
 function VehicleHealthCardBase({ vehicle }: Props) {
-  const [summary, setSummary] = useState<VehicleHealthSummary | null>(null);
-  const [loading, setLoading] = useState(false);
-  const mounted = useRef(true);
-
-  useEffect(() => {
-    mounted.current = true;
-    return () => { mounted.current = false; };
-  }, []);
-
-  const vehicleId = vehicle?.id ?? null;
-  const telemetry = vehicle?.telemetry;
-
-  const load = useCallback(async () => {
-    if (!vehicleId) { setSummary(null); return; }
-    setLoading(true);
-    /* İki okuma de RLS üzerinden ve PARALEL: yetki sunucudadır, burada ikinci
-       bir yetki katmanı kurulmaz. Okunamayan kanıt `null` kalır — sahte veri
-       ÜRETİLMEZ, projeksiyon onu "kanıt yok" olarak işler. */
-    const [dtc, voltage] = await Promise.all([
-      readLatestDtcOutcome(vehicleId),
-      readLatestVoltageOutcome(vehicleId),
-    ]);
-    if (!mounted.current) return;
-    setSummary(buildVehicleHealthSummary({
-      now: Date.now(),
-      freshness: telemetry,
-      dtc,
-      voltage,
-    }));
-    setLoading(false);
-  }, [vehicleId, telemetry]);
-
-  useEffect(() => { void load(); }, [load]);
+  /* Okuma ve bileşim TEK yerdedir (`useVehicleHealth`) — ana ekran da aynı
+     yolu kullanır, yani iki yüzey arasında ikinci bir bileşim doğmaz. */
+  const { summary, loading } = useVehicleHealth(vehicle?.id ?? null, vehicle?.telemetry);
 
   if (!vehicle) return null;
   return <HealthCardView summary={summary} loading={loading} now={Date.now()} />;
@@ -108,7 +74,7 @@ export function HealthCardView({
     );
   }
 
-  const tone = TONE[summary.verdict];
+  const tone = HEALTH_TONE[summary.verdict];
 
   return (
     <section
@@ -163,7 +129,7 @@ export function HealthCardView({
       {/* ── Kanıtlar: veri yoksa SAHTE KART DOLDURULMAZ ─────────────────── */}
       <ul className="grid grid-cols-3 gap-2" aria-label="Sağlık kanıtları">
         {summary.evidence.map((e) => {
-          const t = TONE[e.verdict];
+          const t = HEALTH_TONE[e.verdict];
           return (
             <li key={e.id}
               className="px-2.5 py-2.5 rounded-xl flex flex-col gap-1"

@@ -30,11 +30,17 @@ vi.mock('@/hooks/useSessionUser', () => ({
 /* ── Ağır PWA çocukları: gate testinin konusu değiller ── */
 vi.mock('@/hooks/useRealtime', () => ({ useRealtime: () => undefined }));
 const mounts = vi.hoisted(() => ({ carControl: 0 }));
-vi.mock('@/components/dashboard/MobileCarControl', () => ({
+/* F3: ana ekran yüzeyi artık `AracimHome` (kumanda yüzeyini o kurar ve
+   `MobileCarControl`ü içinde barındırır). Sonda o yüzden BURAYA bakar —
+   ölçülen iddia değişmedi: hesap değişince ağaç sıfırdan kurulmalı. */
+vi.mock('@/components/pwa/AracimHome', () => ({
   default: () => {
     mounts.carControl += 1;
-    return createElement('div', { 'data-testid': 'car-control' });
+    return createElement('div', { 'data-testid': 'aracim-home' });
   },
+}));
+vi.mock('@/components/dashboard/MobileCarControl', () => ({
+  default: () => createElement('div', { 'data-testid': 'car-control' }),
 }));
 vi.mock('@/components/pwa/PairingScreen', () => ({
   default: () => createElement('div', { 'data-testid': 'pairing-screen' }),
