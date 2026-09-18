@@ -18,6 +18,7 @@ import { clearLocalVehicle, getLocalVehicle, unpairVehicle } from '@/lib/pairing
 
 const VehicleMapView     = lazy(() => import('@/components/pwa/VehicleMapView'));
 const DiagnosticsPanel   = lazy(() => import('@/components/pwa/DiagnosticsPanel'));
+const VehicleHealthCard  = lazy(() => import('@/components/pwa/VehicleHealthCard'));
 const RecordsPanel       = lazy(() => import('@/components/pwa/RecordsPanel'));
 const TripJournalPanel   = lazy(() => import('@/components/pwa/TripJournalPanel'));
 const ThemeStudio        = lazy(() => import('@/components/pwa/ThemeStudio').then(m => ({ default: m.ThemeStudio })));
@@ -417,9 +418,15 @@ function KumandaApp() {
     }
 
     if (activeTab === 'teshis') {
+      /* F2.2 · ÖNCE SONUÇ, SONRA SENSÖR.
+         Sağlık kartı aracın DAHA ÖNCE yazdığı ölçümü okur ve yeni komut
+         göndermez; altındaki panel kullanıcının açık tarama eylemidir. */
       return (
         <Suspense fallback={lazySpinner}>
-          <DiagnosticsPanel vehicle={vehicle} />
+          <div className="flex flex-col gap-4">
+            <VehicleHealthCard vehicle={vehicle} />
+            <DiagnosticsPanel vehicle={vehicle} />
+          </div>
         </Suspense>
       );
     }

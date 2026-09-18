@@ -3,10 +3,13 @@
 import { memo, useState, useCallback, useRef, useEffect } from 'react';
 import type { LiveVehicle } from '@/types/realtime';
 import { sendCommand, subscribeCommandStatus } from '@/lib/commandService';
-import { getStoredApiKey } from '@/lib/pairingService';
-import type { DtcCode, DtcResult } from '@/app/api/pwa/dtc-result/route';
-import { describeDtcOutcome, type DtcOutcome } from '@/lib/diagnostics/dtcResultContract';
-import { readDtcOutcome } from '@/lib/diagnostics/dtcResultReader';
+import { describeDtcOutcome, type DtcCode, type DtcOutcome } from '@/lib/diagnostics/dtcResultContract';
+import { judge, BATTERY_RULE, type Verdict } from '@/lib/console/evidenceModel';
+import {
+  readDtcOutcome,
+  readDtcOutcomeForType,
+  readVoltageOutcome,
+} from '@/lib/diagnostics/dtcResultReader';
 
 interface Props { vehicle: LiveVehicle | null }
 
@@ -31,18 +34,32 @@ const SEV_CONFIG = {
 
 // ── Battery voltage gauge ─────────────────────────────────────────────────────
 
+/* ── F2.2 · TEK AKÜ EŞİĞİ ──────────────────────────────────────────────────
+   ÖLÇÜLEN ÇELİŞKİ: bu gösterge kendi eşiklerini taşıyordu (11.5 / 12.0),
+   sağlık hükmü ise kanonik `BATTERY_RULE`u (11.8 / 12.2). 12.1 V'ta aynı
+   ekranda gösterge "Normal" derken sağlık kartı "kontrol edilmeli" diyebilirdi.
+   Alarm sınırları artık TEK otoriteden gelir; 12.7/13.5 üstü etiketler ise
+   eşik değil, şarj durumunu anlatan betimlemedir. */
+function voltageVerdict(v: number): Verdict {
+  return judge(
+    { value: v, state: 'LIVE', observedAt: null, ageMs: null, source: 'HEAD_UNIT_OBD' },
+    BATTERY_RULE,
+  ).verdict;
+}
+
 function voltageColor(v: number): string {
-  if (v < 11.5) return '#ef4444';
-  if (v < 12.0) return '#f59e0b';
-  if (v < 12.7) return '#34d399';
-  return '#60a5fa';
+  const verdict = voltageVerdict(v);
+  if (verdict === 'CRITICAL') return '#ef4444';
+  if (verdict === 'WARNING')  return '#f59e0b';
+  return v < 12.7 ? '#34d399' : '#60a5fa';
 }
 
 function voltageLabel(v: number): string {
-  if (v < 11.5) return 'Kritik — Araç Çalışmayabilir';
-  if (v < 12.0) return 'Düşük — Şarj Önerili';
-  if (v < 12.7) return 'Normal';
-  if (v < 13.5) return 'Şarj Edilmiş';
+  const verdict = voltageVerdict(v);
+  if (verdict === 'CRITICAL') return 'Kritik — Araç Çalışmayabilir';
+  if (verdict === 'WARNING')  return 'Düşük — Şarj Önerili';
+  if (v < 12.7)  return 'Normal';
+  if (v < 13.5)  return 'Şarj Edilmiş';
   return 'Motor Çalışıyor (Alternatör)';
 }
 
@@ -130,23 +147,26 @@ const BatteryGauge = memo(function BatteryGauge({
           </div>
 
           {/* Alert banner */}
-          {v < 12.0 && (
-            <div className="flex items-center gap-2 px-3 py-2 rounded-xl"
-              style={{
-                background: v < 11.5 ? 'rgba(239,68,68,0.08)' : 'rgba(245,158,11,0.08)',
-                border: `1px solid ${v < 11.5 ? 'rgba(239,68,68,0.3)' : 'rgba(245,158,11,0.3)'}`,
-              }}>
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                <path d="M7 1L13 12H1L7 1Z" stroke={v < 11.5 ? '#ef4444' : '#f59e0b'} strokeWidth="1.3" strokeLinejoin="round"/>
-                <path d="M7 5.5v3M7 10v.5" stroke={v < 11.5 ? '#ef4444' : '#f59e0b'} strokeWidth="1.3" strokeLinecap="round"/>
-              </svg>
-              <p className="text-[10px] font-semibold" style={{ color: v < 11.5 ? '#f87171' : '#fbbf24' }}>
-                {v < 11.5
-                  ? 'Akü kritik seviyede! Aracı çalıştırın veya acil şarj edin.'
-                  : 'Akü düşük. En yakın fırsatta şarj edin.'}
-              </p>
-            </div>
-          )}
+          {voltageVerdict(v) !== 'VERIFIED' && (() => {
+            const critical = voltageVerdict(v) === 'CRITICAL';
+            return (
+              <div className="flex items-center gap-2 px-3 py-2 rounded-xl"
+                style={{
+                  background: critical ? 'rgba(239,68,68,0.08)' : 'rgba(245,158,11,0.08)',
+                  border: `1px solid ${critical ? 'rgba(239,68,68,0.3)' : 'rgba(245,158,11,0.3)'}`,
+                }}>
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                  <path d="M7 1L13 12H1L7 1Z" stroke={critical ? '#ef4444' : '#f59e0b'} strokeWidth="1.3" strokeLinejoin="round"/>
+                  <path d="M7 5.5v3M7 10v.5" stroke={critical ? '#ef4444' : '#f59e0b'} strokeWidth="1.3" strokeLinecap="round"/>
+                </svg>
+                <p className="text-[10px] font-semibold" style={{ color: critical ? '#f87171' : '#fbbf24' }}>
+                  {critical
+                    ? 'Akü kritik seviyede! Aracı çalıştırın veya acil şarj edin.'
+                    : 'Akü düşük. En yakın fırsatta şarj edin.'}
+                </p>
+              </div>
+            );
+          })()}
         </>
       ) : (
         <div className="flex items-center justify-center gap-2 py-4 text-sm text-center"
@@ -195,22 +215,16 @@ const DtcCard = memo(function DtcCard({ dtc }: { dtc: DtcCode }) {
 
 type DtcPhase = 'idle' | 'sending' | 'waiting' | 'done' | 'error' | 'clearing';
 
-/**
- * Komut sonucunu araçtan okur. Modül seviyesinde — hem DTC hem voltaj akışı
- * AYNI okuma yolunu kullanır (paralel gerçek kaynağı kurulmaz).
- */
-async function fetchDiagResult(commandId: string, vid: string): Promise<DtcResult> {
-  const apiKey = getStoredApiKey(vid);
-  const headers: Record<string, string> = {};
-  if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+/* ── F2.2 · TOMBSTONE BAĞIMLILIĞI KALDIRILDI ───────────────────────────────
+   Buradaki `fetchDiagResult`, `/api/pwa/dtc-result` uçuna (410) gidiyordu ve
+   ÜÇ akışın da (DTC · voltaj · silme doğrulaması) tek ortak kusuruydu. Üçü de
+   artık kanonik RLS yolunu kullanır: `dtcResultReader` + `dtcResultContract`.
 
-  const res = await fetch(
-    `/api/pwa/dtc-result?commandId=${encodeURIComponent(commandId)}&vehicleId=${encodeURIComponent(vid)}`,
-    { headers },
-  );
-  if (!res.ok) throw new Error('Sonuç alınamadı');
-  return (await res.json()) as DtcResult;
-}
+   Beraberinde ölü `demo-cmd-` dalları da düştü: repoda hiçbir yer bu ön eke
+   sahip bir `commandId` ÜRETMİYORDU (`sendCommand` dâhil), yani dal
+   production'dan erişilemezdi ve yalnız kapalı uca bağımlılığı ayakta
+   tutuyordu. Demo verisi yüzeyi (`demo` bayrağı) korunur — araçtan gelmeyen
+   sonucun etiketlenmesi hâlâ gereklidir. */
 
 function useDtcReader(vehicleId: string | null) {
   const [phase,   setPhase]   = useState<DtcPhase>('idle');
@@ -230,16 +244,6 @@ function useDtcReader(vehicleId: string | null) {
       mounted.current = false;
       unsubRef.current?.();
     };
-  }, []);
-
-  const fetchResult = useCallback(fetchDiagResult, []);
-
-  /** Sonucu tek yerde uygular — üç ekranın gerçeği ayrışmasın. */
-  const applyResult = useCallback((data: DtcResult) => {
-    setDtcs(data.dtcs);
-    setReadAt(data.readAt);
-    setPartial(data.partial === true);
-    setDemo(data.demo === true);
   }, []);
 
   /**
@@ -282,20 +286,6 @@ function useDtcReader(vehicleId: string | null) {
       return;
     }
 
-    // Demo mode (commandId starts with 'demo-')
-    if (result.commandId?.startsWith('demo-cmd-')) {
-      setPhase('waiting');
-      try {
-        const data = await fetchResult(result.commandId, vehicleId);
-        if (!mounted.current) return;
-        applyResult(data);
-        setPhase('done');
-      } catch {
-        if (mounted.current) { setPhase('error'); setErrMsg('Demo sonuç alınamadı.'); }
-      }
-      return;
-    }
-
     setPhase('waiting');
 
     unsubRef.current?.();
@@ -314,7 +304,7 @@ function useDtcReader(vehicleId: string | null) {
       }
     });
     unsubRef.current = unsub;
-  }, [vehicleId, phase, fetchResult, applyResult, applyOutcome]);
+  }, [vehicleId, phase, applyOutcome]);
 
   const clearDtc = useCallback(async () => {
     if (!vehicleId || phase === 'clearing') return;
@@ -330,48 +320,43 @@ function useDtcReader(vehicleId: string | null) {
       return;
     }
 
-    // Demo modunda araç yoktur — silme DOĞRULANAMAZ, o yüzden sonuç okunur.
-    if (result.commandId?.startsWith('demo-cmd-')) {
-      try {
-        const data = await fetchDiagResult(result.commandId, vehicleId);
-        if (!mounted.current) return;
-        applyResult(data);
-      } catch { /* demo sonucu okunamadı — liste KORUNUR */ }
-      if (mounted.current) setPhase('done');
-      return;
-    }
-
     /* ÖNCEDEN: komut gönderildikten 2 sn sonra liste körlemesine boşaltılıyor ve
        "temizlendi" izlenimi veriliyordu — araç komutu REDDETSE bile (write-gate:
        araç hareket halinde) kullanıcı kodların silindiğini sanıyordu. Artık
        aracın terminal durumu BEKLENİR ve silme sonrası DOĞRULAMA okuması
-       (`result.dtcs`) uygulanır: kalan kod varsa dürüstçe listede kalır. */
+       uygulanır: kalan kod varsa dürüstçe listede kalır.
+
+       F2.2: O doğrulama okuması da 410 tombstone'a çarptığı için HİÇ
+       çalışmıyordu (fail-closed olduğu için yalan üretmiyordu, ama "temizlendi"
+       de kanıtlanamıyordu). Artık kanonik RLS yolu kullanılır. */
     unsubRef.current?.();
     const unsub = subscribeCommandStatus(result.commandId!, async (ev) => {
       if (!mounted.current) return;
-      if (ev.status === 'completed') {
-        try {
-          const data = await fetchDiagResult(result.commandId!, vehicleId);
-          if (!mounted.current) return;
-          applyResult(data);
-        } catch {
-          // Sonuç okunamadı → liste TEMİZLENMEZ (yalancı temizleme yok).
-          if (mounted.current) setErrMsg('Silme sonucu okunamadı — listeyi yeniden tarayın.');
+      if (!['completed', 'failed', 'expired', 'rejected'].includes(ev.status)) return;
+
+      const outcome = await readDtcOutcomeForType(result.commandId!, vehicleId, 'clear_dtc');
+      if (!mounted.current) return;
+
+      if (outcome.kind === 'RESULT' || outcome.kind === 'NO_DTC') {
+        /* Silme sonrası DOĞRULAMA okuması: kalan kod varsa listede KALIR. */
+        setDtcs(outcome.kind === 'RESULT' ? outcome.dtcs : []);
+        setPartial(outcome.partial);
+        if (outcome.readAt) setReadAt(outcome.readAt);
+        if (outcome.kind === 'RESULT') {
+          setErrMsg('Bazı kodlar silinemedi — listede kalanlar araçta hâlâ kayıtlı.');
         }
-        if (mounted.current) setPhase('done');
-      } else if (['failed', 'expired', 'rejected'].includes(ev.status)) {
-        try {
-          const data = await fetchDiagResult(result.commandId!, vehicleId);
-          if (mounted.current) setErrMsg(data.errorReason || 'Araç arıza kodlarını silemedi.');
-        } catch {
-          if (mounted.current) setErrMsg('Araç arıza kodlarını silemedi.');
-        }
-        // Kodlar SİLİNMEDİ → liste olduğu gibi kalır.
-        if (mounted.current) setPhase('done');
+      } else {
+        /* Doğrulanamadı → liste TEMİZLENMEZ (yalancı temizleme yok). */
+        setErrMsg(
+          ev.status === 'completed'
+            ? 'Silme sonucu doğrulanamadı — listeyi yeniden tarayın.'
+            : describeDtcOutcome(outcome),
+        );
       }
+      setPhase('done');
     });
     unsubRef.current = unsub;
-  }, [vehicleId, phase, applyResult]);
+  }, [vehicleId, phase]);
 
   const reset = useCallback(() => {
     setPhase('idle');
@@ -414,31 +399,29 @@ export default function DiagnosticsPanel({ vehicle }: Props) {
            ölçüm yoksa SAHTE 12,4 V gösteriliyordu — ve komutun kendi sonucu
            hiç okunmuyordu. Artık tek gerçek kaynak aracın yazdığı `result.voltage`;
        ölçüm yoksa sayı BASILMAZ, gerekçe gösterilir. */
-    const readVoltageResult = async () => {
-      try {
-        const data = await fetchDiagResult(result.commandId!, vid);
-        if (typeof data.voltage === 'number' && Number.isFinite(data.voltage)) {
-          setVoltage(data.voltage);
-        } else {
-          setVoltageErr(data.errorReason || 'Akü voltajı ölçülemedi.');
-        }
-      } catch {
-        setVoltageErr('Voltaj sonucu okunamadı.');
+    /* ── F2.2 · VOLTAJ DA ARAÇTAN OKUNUR ───────────────────────────────
+       ÖLÇÜLEN KUSUR: bu okuma hâlâ `/api/pwa/dtc-result` üzerinden
+       yapılıyordu, yani F2.1'de DTC için kapatılan AYNI 410 tombstone'a
+       çarpıyordu. Sonuç: komut gidiyor, araç ölçüyor, ekranda DAİMA
+       "Voltaj sonucu okunamadı" yazıyordu. Artık satır RLS ile okunur ve
+       kanonik sözleşme yorumlar; `completed` gelmesi ölçüm başarısı
+       DEĞİLDİR — gövde yoksa gerekçe gösterilir, sayı BASILMAZ. */
+    const readVoltage = async () => {
+      const outcome = await readVoltageOutcome(result.commandId!, vid);
+      if (outcome.kind === 'RESULT') {
+        setVoltage(outcome.volts);
+      } else if (outcome.kind === 'WAITING_FOR_VEHICLE' || outcome.kind === 'READING') {
+        /* Henüz sonuçlanmadı: hata DEME, beklemeye devam et. */
+        return;
+      } else {
+        setVoltageErr(outcome.reason);
       }
       setVoltageLoading(false);
     };
 
-    if (result.commandId?.startsWith('demo-cmd-')) {
-      await readVoltageResult();
-      return;
-    }
-
     const unsub = subscribeCommandStatus(result.commandId!, (ev) => {
-      if (ev.status === 'completed') {
-        void readVoltageResult();
-        unsub();
-      } else if (['failed', 'expired', 'rejected'].includes(ev.status)) {
-        void readVoltageResult(); // gerekçe `error_reason`'dan okunur
+      if (['completed', 'failed', 'expired', 'rejected'].includes(ev.status)) {
+        void readVoltage();
         unsub();
       }
     });

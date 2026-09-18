@@ -246,6 +246,98 @@ export function classifyDtcCommand(input: ClassifyInput): DtcOutcome {
   };
 }
 
+/* ── AKÜ VOLTAJI (F2.2) ───────────────────────────────────────────────────
+   ÖLÇÜLEN KUSUR: `read_voltage` sonucu da telefona ULAŞMIYORDU. Panel voltajı
+   yine `/api/pwa/dtc-result` üzerinden istiyordu, yani DTC'de kapatılan aynı
+   410 tombstone'a çarpıyordu: komut gidiyor, araç ölçüyor, ekranda daima
+   "Voltaj sonucu okunamadı" yazıyordu.
+
+   Ölçüm otoritesi ARAÇTIR (`remoteDiagnosticCommands.executeReadVoltage`) ve
+   fail-closed'dır: ATRV gelmiyorsa SONUÇ YAZMAZ ("sahte 0 V YASAK").
+   Telefon yalnız o kaydı yorumlar; kendi voltaj aralığını UYDURMAZ. Aşağıdaki
+   geçerlilik kapısı aracın `isReportableVoltage` kapısının AYNISIDIR (`v > 0`)
+   — ikinci bir eşik otoritesi kurulmaz. */
+
+export type VoltageOutcome =
+  | { kind: 'WAITING_FOR_VEHICLE' }
+  | { kind: 'READING' }
+  | { kind: 'RESULT';  volts: number; readAt?: string }
+  | { kind: 'OFFLINE'; reason: string }
+  | { kind: 'TIMEOUT'; reason: string }
+  | { kind: 'FAILED';  reason: string }
+  | { kind: 'STALE';   reason: string };
+
+/**
+ * Voltaj gövdesini ayrıştırır. Ölçülmemiş/sentinel değer `null` döner —
+ * `0 V` "akü bitti" diye SUNULMAZ, "ölçülmedi"dir.
+ */
+export function parseVoltageResult(
+  raw: unknown,
+): { volts: number; readAt?: string } | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const body = raw as Record<string, unknown>;
+  const v = body.voltage;
+  /* Aracın kapısıyla aynı: sonlu ve sıfırdan büyük. */
+  if (typeof v !== 'number' || !Number.isFinite(v) || v <= 0) return null;
+  return {
+    volts: v,
+    ...(typeof body.readAt === 'string' ? { readAt: body.readAt } : {}),
+  };
+}
+
+/**
+ * `read_voltage` komut satırını duruma çevirir — SAF.
+ *
+ * Sıra DTC ile AYNIDIR (bağ → yaşam döngüsü → gövde): `completed` gelmesi
+ * ölçüm başarısı DEĞİLDİR, gövde yoksa `FAILED` üretilir.
+ */
+export function classifyVoltageCommand(input: ClassifyInput): VoltageOutcome {
+  const { row, expectedVehicleId, expectedType } = input;
+
+  if (!row) return { kind: 'FAILED', reason: 'Komut kaydı okunamadı' };
+  if (row.vehicle_id !== expectedVehicleId) {
+    return { kind: 'FAILED', reason: 'Komut bu araca ait değil' };
+  }
+  if (row.type !== expectedType) {
+    return { kind: 'FAILED', reason: 'Komut türü voltaj okuması değil' };
+  }
+
+  const status = (row.status ?? '').toLowerCase();
+  if (IN_FLIGHT.has(status)) return { kind: 'WAITING_FOR_VEHICLE' };
+  if (EXECUTING.has(status)) return { kind: 'READING' };
+
+  if (TERMINAL_BAD.has(status)) {
+    const reason = row.error_message?.trim() || 'Araç voltaj okumasını tamamlamadı';
+    if (status === 'expired' || status === 'timeout') return { kind: 'TIMEOUT', reason };
+    if (/bağlantı|baglanti|offline|link/i.test(reason)) return { kind: 'OFFLINE', reason };
+    return { kind: 'FAILED', reason };
+  }
+  if (!TERMINAL_OK.has(status)) return { kind: 'WAITING_FOR_VEHICLE' };
+
+  const parsed = parseVoltageResult(row.result);
+  if (!parsed) {
+    return {
+      kind: 'FAILED',
+      reason: row.error_message?.trim() || 'Akü voltajı ölçülemedi',
+    };
+  }
+
+  const ageLimit = input.maxAgeMs;
+  if (ageLimit && parsed.readAt) {
+    const measuredAt = Date.parse(parsed.readAt);
+    const now = input.now ?? Date.now();
+    if (Number.isFinite(measuredAt) && now - measuredAt > ageLimit) {
+      return { kind: 'STALE', reason: 'Voltaj ölçümü güncel değil' };
+    }
+  }
+
+  return {
+    kind: 'RESULT',
+    volts: parsed.volts,
+    ...(parsed.readAt ? { readAt: parsed.readAt } : {}),
+  };
+}
+
 /** Kullanıcıya gösterilecek tek cümle — "arıza yok" yalnız NO_DTC'de. */
 export function describeDtcOutcome(outcome: DtcOutcome): string {
   switch (outcome.kind) {
