@@ -29,6 +29,8 @@ import {
   type AracimHome as HomeModel,
   type RangeTripSample,
 } from '@/lib/home/aracimHome';
+import { buildWeeklySummary } from '@/lib/home/weeklySummary';
+import WeeklySummaryCard from '@/components/pwa/WeeklySummaryCard';
 import { ALERT_THRESHOLDS } from '@/lib/constants';
 
 /** PostgREST `numeric`i metin döndürür; boş metin `0` TUZAĞINA düşülmez. */
@@ -94,6 +96,18 @@ function AracimHomeBase({
 
   const latest = trips?.[0] ?? null;
 
+  /* F5 · HAFTALIK ÖZET — YENİ OKUMA YOK.
+     Yalnız yukarıda ZATEN okunmuş yolculuklar sayılır. Yakıt/servis kaynakları
+     bu yüzeyde okunmadığı için `undefined` geçilir: projeksiyon onlar hakkında
+     hiçbir sayı ÜRETMEZ ("0 servis kaydı" demek, okunmamış kaynağı okunmuş
+     göstermek olurdu). Tam özet Araç Hafızası yüzeyindedir. */
+  const weekly = buildWeeklySummary({
+    now: Date.now(),
+    trips,
+    fuel: undefined,
+    services: undefined,
+  });
+
   const home = buildAracimHome({
     now: Date.now(),
     vehicle,
@@ -129,6 +143,8 @@ function AracimHomeBase({
       />
 
       {home.recentTrip && <RecentTripCard home={home} />}
+      {/* "Son zamanlarda ne oldu?" — kanıt varsa; yoksa kart hiç çıkmaz. */}
+      {weekly.headline && <WeeklySummaryCard summary={weekly} compact />}
     </div>
   );
 }

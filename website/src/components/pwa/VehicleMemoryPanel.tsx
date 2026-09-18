@@ -28,6 +28,11 @@ import {
   type VehicleMemory,
   type VehicleMemoryEvent,
 } from '@/lib/memory/vehicleMemory';
+import { buildWeeklySummary, type WeeklySummary } from '@/lib/home/weeklySummary';
+import WeeklySummaryCard from '@/components/pwa/WeeklySummaryCard';
+import { buildVehicleShareReport } from '@/lib/reports/vehicleShareReport';
+import { useVehicleHealth } from '@/hooks/useVehicleHealth';
+import { vehicleSubtitle, vehicleTitle } from '@/lib/vehicleDisplay';
 
 const SERVICE_LABELS: Readonly<Record<string, string>> = Object.fromEntries(
   SERVICE_DEFS.map((d) => [d.key, d.label]),
@@ -48,7 +53,12 @@ function dayLabel(key: string): string {
 
 function VehicleMemoryPanelBase({ vehicle }: { vehicle: LiveVehicle | null }) {
   const [memory, setMemory] = useState<VehicleMemory | null>(null);
+  /* Haftalık özet AYNI okumadan üretilir — ikinci sorgu YOK. */
+  const [weekly, setWeekly] = useState<WeeklySummary | null>(null);
   const [loading, setLoading] = useState(false);
+  /* Sağlık TEK kanonik yoldan okunur (`useVehicleHealth`); paylaşılan özet
+     kendi hükmünü ÜRETMEZ, F2.2 projeksiyonunu taşır. */
+  const { summary: health } = useVehicleHealth(vehicle?.id ?? null, vehicle?.telemetry);
   const mounted = useRef(true);
   /**
    * Hangi araç için okuma başlatıldı — GEÇ GELEN SONUÇ KORUMASI.
@@ -64,7 +74,7 @@ function VehicleMemoryPanelBase({ vehicle }: { vehicle: LiveVehicle | null }) {
   const vehicleId = vehicle?.id ?? null;
 
   const load = useCallback(async () => {
-    if (!vehicleId) { setMemory(null); requestedFor.current = null; return; }
+    if (!vehicleId) { setMemory(null); setWeekly(null); requestedFor.current = null; return; }
     requestedFor.current = vehicleId;
     setLoading(true);
 
@@ -78,13 +88,19 @@ function VehicleMemoryPanelBase({ vehicle }: { vehicle: LiveVehicle | null }) {
 
     if (!mounted.current || requestedFor.current !== vehicleId) return;
 
+    const trips = tripRes.ok ? tripRes.rows : null;
+    const fuel = fuelRes.error ? null : fuelRes.entries;
+    const services = svcRes.error ? null : svcRes.entries;
+
     setMemory(buildVehicleMemory({
       vehicleId,
-      trips: tripRes.ok ? tripRes.rows : null,
-      fuel: fuelRes.error ? null : fuelRes.entries,
-      services: svcRes.error ? null : svcRes.entries,
+      trips,
+      fuel,
+      services,
       serviceLabels: SERVICE_LABELS,
     }));
+    /* Üç kaynağın da OKUNDUĞU tek yüzey burasıdır; tam özet bu yüzden burada. */
+    setWeekly(buildWeeklySummary({ now: Date.now(), trips, fuel, services }));
     setLoading(false);
   }, [vehicleId]);
 
@@ -120,6 +136,15 @@ function VehicleMemoryPanelBase({ vehicle }: { vehicle: LiveVehicle | null }) {
         </p>
       </header>
 
+      {weekly && <WeeklySummaryCard summary={weekly} />}
+
+      <ShareSummaryButton
+        vehicle={vehicle}
+        memory={memory}
+        weekly={weekly}
+        health={health}
+      />
+
       {/* Okunamayan kaynak "kayıt yok" DEĞİLDİR — ayrıca söylenir. */}
       {memory.unreadableSources.length > 0 && (
         <p className="text-[11px] px-3 py-2 rounded-xl"
@@ -149,6 +174,83 @@ function VehicleMemoryPanelBase({ vehicle }: { vehicle: LiveVehicle | null }) {
           Yalnız son {MEMORY_PAGE_SIZE} olay gösteriliyor.
         </p>
       )}
+    </div>
+  );
+}
+
+/* ── Paylaşılabilir özet ───────────────────────────────────────────────── */
+
+/**
+ * "Servise gönderilebilir özet" — TEK EYLEM, YENİ OTORİTE YOK.
+ *
+ * Metin `buildVehicleShareReport` tarafından üretilir; bu bileşen yalnız
+ * paylaşım yüzeyini seçer: `navigator.share` varsa o, yoksa panoya kopyalama.
+ * İkisi de yoksa düğme SAHTE BAŞARI göstermez, gerekçeyi söyler.
+ */
+function ShareSummaryButton({
+  vehicle, memory, weekly, health,
+}: {
+  vehicle: LiveVehicle;
+  memory: VehicleMemory;
+  weekly: WeeklySummary | null;
+  health: ReturnType<typeof useVehicleHealth>['summary'];
+}) {
+  const [state, setState] = useState<'idle' | 'busy' | 'copied' | 'failed'>('idle');
+
+  const share = useCallback(async () => {
+    setState('busy');
+    const report = buildVehicleShareReport({
+      now: Date.now(),
+      title: vehicleTitle(vehicle),
+      subtitle: vehicleSubtitle(vehicle),
+      health,
+      weekly,
+      events: memory.events,
+    });
+
+    try {
+      const nav = typeof navigator === 'undefined' ? null : navigator;
+      if (nav && typeof nav.share === 'function') {
+        await nav.share({ title: report.title, text: report.text });
+        setState('idle');
+        return;
+      }
+      if (nav?.clipboard && typeof nav.clipboard.writeText === 'function') {
+        await nav.clipboard.writeText(report.text);
+        setState('copied');
+        return;
+      }
+      setState('failed');
+    } catch (err) {
+      /* Kullanıcı paylaşım sayfasını KAPATTIYSA bu bir hata değildir. */
+      const aborted = err instanceof DOMException && err.name === 'AbortError';
+      setState(aborted ? 'idle' : 'failed');
+    }
+  }, [vehicle, memory, weekly, health]);
+
+  return (
+    <div className="flex flex-col gap-1">
+      <button
+        type="button"
+        onClick={() => { void share(); }}
+        disabled={state === 'busy'}
+        data-testid="share-vehicle-summary"
+        className="w-full min-h-[48px] rounded-2xl px-4 text-[13px] font-semibold transition-transform active:scale-[0.99] disabled:opacity-60"
+        style={{
+          background: 'rgba(59,130,246,0.12)',
+          border: '1px solid rgba(59,130,246,0.28)',
+          color: '#93c5fd',
+        }}
+      >
+        {state === 'busy' ? 'Hazırlanıyor…' : 'Araç Durum Özetini Paylaş'}
+      </button>
+      <p className="text-[10px] pwa-text-3 px-1 leading-snug">
+        {state === 'copied'
+          ? 'Özet panoya kopyalandı.'
+          : state === 'failed'
+            ? 'Özet paylaşılamadı; cihazınız paylaşmayı ve panoya kopyalamayı desteklemiyor.'
+            : 'Servise iletilebilir sade özet — yalnız gerçekten kaydedilmiş bilgiler.'}
+      </p>
     </div>
   );
 }

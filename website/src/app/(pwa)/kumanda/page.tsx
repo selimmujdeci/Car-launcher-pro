@@ -18,6 +18,7 @@ import { requestCanonicalLogout } from '@/security/accountCleanup/canonicalLogou
 import { useAccountCleanupRuntime } from '@/security/accountCleanup/useAccountCleanupRuntime';
 import { performLocalSecurityReset } from '@/security/accountCleanup/localSecurityReset';
 import { clearLocalVehicle, getLocalVehicle, unpairVehicle } from '@/lib/pairingService';
+import { freshnessLabel } from '@/lib/fleet/vehicleTelemetryFreshness';
 
 const VehicleMapView     = lazy(() => import('@/components/pwa/VehicleMapView'));
 const DiagnosticsPanel   = lazy(() => import('@/components/pwa/DiagnosticsPanel'));
@@ -150,7 +151,7 @@ function MoreMenu({
           <button
             onClick={onUnpair}
             disabled={unpairBusy}
-            className="mt-2 w-full text-xs pwa-text-3 hover:text-red-400/60 transition-colors py-3 disabled:opacity-50"
+            className="mt-2 w-full min-h-11 text-xs pwa-text-3 hover:text-red-400/60 transition-colors py-3 disabled:opacity-50"
           >
             {unpairBusy ? 'Ayrılıyor…' : 'Araç bağlantısını kes'}
           </button>
@@ -316,7 +317,9 @@ function PwaAuthErrorScreen() {
 }
 
 function KumandaApp() {
-  useRealtime();
+  /* F5 · ÜRÜN SINIRI: filo uyarı kuralları (hız limiti · geofence · motor
+     sıcaklığı) tüketici ürününde ÇALIŞMAZ. Bkz. `useRealtime` gerekçesi. */
+  useRealtime({ fleetAlerts: false });
 
   const loading  = useVehicleStore((s) => s.loading);
   const error    = useVehicleStore((s) => s.error);
@@ -355,6 +358,14 @@ function KumandaApp() {
   const vehicle = useVehicleStore((s) => s.getActiveVehicle());
 
   const hasPairedVehicle = vehicles.length > 0;
+
+  /* Başlık durumu — TEK otorite `vehicleTelemetryFreshness`. Araç seçilmemiş
+     ya da telemetri okunamamışsa "canlı" DENMEZ; bilinmeyen bilinmeyen kalır. */
+  const headerStatusLabel = !hasPairedVehicle
+    ? 'Araç Eşleştir'
+    : vehicle?.telemetry
+      ? freshnessLabel(vehicle.telemetry.device)
+      : 'Durum bilinmiyor';
 
   // Auto-switch to pairing screen when no vehicle
   useEffect(() => {
@@ -633,8 +644,16 @@ function KumandaApp() {
           </div>
           <div>
             <p className="pwa-text font-bold text-sm leading-none">Arabam Cebimde</p>
-            <p className="pwa-text-3 text-[10px] mt-0.5">
-              {hasPairedVehicle ? 'Canlı Bağlantı' : 'Araç Eşleştir'}
+            {/* F5 · BAŞLIK CANLILIK İDDİA EDEMEZ.
+                ÖLÇÜLEN KUSUR: burada araç eşleşmiş olduğu SÜRECE "Canlı
+                Bağlantı" yazıyordu — aracın telemetrisi günlerce eski olsa
+                bile. Production ölçümü (2026-09-18): 94 telemetri satırının
+                son 24 saatte güncellenmiş olanı YALNIZ 2. Yani bu etiket
+                sahadaki çoğu durumda YALANDI (STALE → CURRENT).
+                Artık hüküm kanonik tazelik otoritesinden okunur; burada
+                eşik/karar ÜRETİLMEZ. */}
+            <p className="pwa-text-3 text-[10px] mt-0.5" data-testid="pwa-connection-label">
+              {headerStatusLabel}
             </p>
           </div>
         </div>
@@ -644,7 +663,8 @@ function KumandaApp() {
           <button
             onClick={togglePwaTheme}
             aria-label={pwaTheme === 'dark' ? 'Gündüz moduna geç' : 'Gece moduna geç'}
-            className="w-9 h-9 rounded-lg flex items-center justify-center transition-colors pwa-surface pwa-border"
+            /* F5 · DOKUNMA HEDEFİ: 36px, telefon için önerilen 44px'in altındaydı. */
+            className="w-11 h-11 rounded-lg flex items-center justify-center transition-colors pwa-surface pwa-border"
             style={{ border: '1px solid var(--pwa-border)' }}
           >
             {pwaTheme === 'dark' ? (
@@ -668,7 +688,7 @@ function KumandaApp() {
               filo müşterisi aynı siteden panele geçebilsin. */}
           <Link
             href="/dashboard"
-            className="hide-in-standalone text-[11px] font-semibold text-blue-400/80 hover:text-blue-400 transition-colors px-3 py-1.5 rounded-lg border border-blue-500/25 bg-blue-500/[0.08]"
+            className="hide-in-standalone inline-flex items-center min-h-11 text-[11px] font-semibold text-blue-400/80 hover:text-blue-400 transition-colors px-3 rounded-lg border border-blue-500/25 bg-blue-500/[0.08]"
           >
             Panele Git →
           </Link>
@@ -677,7 +697,7 @@ function KumandaApp() {
             onClick={() => { void handleLogout(); }}
             disabled={logoutBusy}
             data-testid="pwa-logout-button"
-            className="text-[11px] font-semibold pwa-text-3 hover:text-red-400/70 transition-colors px-2.5 py-1.5 rounded-lg disabled:opacity-50"
+            className="inline-flex items-center min-h-11 text-[11px] font-semibold pwa-text-3 hover:text-red-400/70 transition-colors px-3 rounded-lg disabled:opacity-50"
             style={{ border: '1px solid var(--pwa-border)' }}
           >
             {logoutBusy ? '…' : 'Çıkış'}
