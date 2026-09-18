@@ -14,7 +14,8 @@
  */
 
 import { signalWithTimeout } from '../utils/abortCompat';
-import { subscribeConnectivity } from './connectivity/connectivityAuthority';
+import { getConnectivitySnapshot, subscribeConnectivity } from './connectivity/connectivityAuthority';
+import type { ConnectivitySnapshot } from './connectivity/connectivityEvidence';
 import { allowsConnectivity } from './connectivity/connectivityGate';
 import { logInfo } from './debug';
 import {
@@ -150,6 +151,17 @@ async function dbDelete(id: string): Promise<void> {
 // ── Backoff hesaplama ─────────────────────────────────────────────────────────
 
 const MAX_BACKOFF_MS = 30_000;
+/**
+ * Olumsuz bir bağlantı hükmünün "kanıtlanmış" sayıldığı üst yaş (V-02).
+ *
+ * Bundan eski bir olumsuz hüküm artık ölçüm değil, ESKİ BİR İZLENİMDİR; kuyruk
+ * onun yüzünden süresiz susturulmaz. Sürekli kanıtın normal yayın aralığının
+ * çok üstünde seçildi: sağlıklı bir gözlemci bu sınıra HİÇ ulaşmaz, yalnız
+ * SUSMUŞ bir gözlemci ulaşır.
+ */
+const STALE_VERDICT_MS = 120_000;
+/** Kapı kapalıyken kuyruğun yeniden sorma aralığı — gönderim DENEMESİ değildir. */
+const CLOSED_GATE_RECHECK_MS = 30_000;
 const BASE_BACKOFF_MS = 1_000;
 
 function nextRetry(attempts: number): number {
@@ -161,6 +173,30 @@ function nextRetry(attempts: number): number {
 
 function uid(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+/**
+ * Kuyruğun GÖNDERİM DENEMESİ yapıp yapamayacağına dair SAF karar (V-02).
+ *
+ * Bu fonksiyon bağlantı HÜKMÜ ÜRETMEZ — hüküm `ConnectivityAuthority`nindir.
+ * Yalnızca "bu olumsuz hüküm hâlâ KANIT mı, yoksa eski bir izlenim mi?"
+ * sorusunu yanıtlar.
+ *
+ * · `gateAllows` true  → kapı zaten açık, tartışma yok.
+ * · CAPTIVE             → yaş ne olursa olsun DUR (portal 2xx'i "teslim edildi"
+ *                         sanılıp öğe silinirdi; gerçek veri kaybı yolu).
+ * · Olumsuz + kanıt TAZE→ DUR (kanıtlanmış çevrimdışı; boşuna radyo yakmayız).
+ * · Olumsuz + kanıt BAYAT→ BİR DENEME HAKKI. Sürekli kanıt hiç bayatlamadığı
+ *                         ve `recompute()` yalnız yeni kanıtta çalıştığı için
+ *                         susmuş bir gözlemci hükmü süresiz çivileyebiliyordu.
+ */
+export function shouldAttemptQueuedDelivery(
+  gateAllows: boolean,
+  snapshot: Pick<ConnectivitySnapshot, 'state' | 'captivePortal' | 'evidenceAgeMs'>,
+): boolean {
+  if (gateAllows) return true;
+  if (snapshot.captivePortal === true || snapshot.state === 'CAPTIVE') return false;
+  return snapshot.evidenceAgeMs >= STALE_VERDICT_MS;
 }
 
 // ── ConnectivityService ───────────────────────────────────────────────────────
@@ -186,7 +222,39 @@ class ConnectivityService {
    * Giriş portalı rastgele URL'lere 2xx dönebilir; eski kapı bunu "teslim
    * edildi" sayıp öğeyi kuyruktan SİLERDİ. Bu gerçek bir veri kaybı yoluydu.
    */
-  private get _online(): boolean { return allowsConnectivity('BACKGROUND_SYNC'); }
+  private get _online(): boolean {
+    if (allowsConnectivity('BACKGROUND_SYNC')) return true;
+
+    /* ── V-02: BAYAT OLUMSUZ HÜKÜM KUYRUĞU SONSUZA DEK KİLİTLEYEMEZ ───────
+     * ÖLÇÜLEN KUSUR (gerçek cihaz, Xiaomi 23090RA98I, CDP ağ yakalaması,
+     * 2026-09-18): araç eşleşmiş ve `fetch_pending_vehicle_commands`
+     * 200 dönerken `push_vehicle_event` 38 DAKİKA boyunca HİÇ gitmedi.
+     * Uygulama yeniden başlatılınca 17:53 ve 18:00'e ait `update_command_status`
+     * kayıtları ve bekleyen heartbeat'ler TOPLU HÂLDE aktı ve hepsi 200 aldı.
+     * Yani RPC, şema ve api_key SAĞLAMDI; tıkanan tek şey BU KUYRUKTU.
+     *
+     * KÖK: hüküm `ConnectivityAuthority`de ÖNBELLEKLENİR ve `recompute()`
+     * YALNIZ yeni/silinen kanıtta çalışır — okumada ve zamanla ÇALIŞMAZ.
+     * `isEvidenceStale` ise `continuous` kanıta HİÇ uygulanmaz
+     * (`if (evidence.continuous) return false`). `ANDROID_NETWORK_CALLBACK`
+     * hem sürekli hem en yüksek güvendedir (100). Dolayısıyla o gözlemci bir
+     * kez OFFLINE/LOCAL_ONLY deyip SUSARSA hüküm SÜREÇ ÖMRÜ BOYUNCA çivilenir.
+     * Doğrudan `fetch` yapan yollar (komut yoklaması, kimlik RPC'si) bu kapıya
+     * BAKMADIĞI için çalışmaya devam eder — kullanıcı tam olarak bunu gördü:
+     * "tema gidiyor ama araç offline".
+     *
+     * BURADA HÜKÜM DEĞİŞTİRİLMEZ (§6: otorite bu dosya değildir). Yalnız
+     * KENDİ at-least-once canlılığımız korunur: olumsuz hüküm KANITI
+     * bayatlamışsa artık "kanıtlanmış çevrimdışı" değildir, bu yüzden bir
+     * deneme hakkı verilir. Denemenin maliyeti sınırlıdır (backoff 30 sn ile
+     * kapalı) ve kuyruk at-least-once olduğu için fazladan deneme VERİ
+     * KAYBETTİRMEZ — dosyanın kendi gerekçesi de bunu söylüyor.
+     *
+     * CAPTIVE İSTİSNADIR ve BİLİNÇLİDİR: giriş portalı rastgele URL'lere 2xx
+     * dönebilir, o yanıt "teslim edildi" sanılıp öğe SİLİNİRDİ. Gerçek veri
+     * kaybı yolu olduğu için captive'de yaş ne olursa olsun DURULUR. */
+    return shouldAttemptQueuedDelivery(false, getConnectivitySnapshot());
+  }
 
   async init(): Promise<void> {
     /* İKİNCİ AĞ GÖZLEMCİSİ YOK (§29): kendi `Network.addListener` kaydımız
@@ -245,7 +313,12 @@ class ConnectivityService {
 
     await dbPut(entry);
 
-    if (this._online && !this._running) {
+    /* Kapı kapalı olsa bile zincir BAŞLATILIR: `_drainQueue` kendi kapısını
+       zaten uygular ve kapalıysa yeniden deneme tik'i kurar. Eskiden burada
+       `this._online` şartı vardı → kapı kapalıyken eklenen öğe HİÇBİR ZAMAN
+       zincir başlatmıyordu ve yalnız dışarıdan gelen bir geçiş olayı onu
+       uyandırabiliyordu (V-02 tıkanmasının ikinci yarısı). */
+    if (!this._running) {
       void this._drainQueue();
     }
     return entry.id;
@@ -254,7 +327,21 @@ class ConnectivityService {
   // ── Kuyruk boşaltma ───────────────────────────────────────────────────────
 
   private async _drainQueue(): Promise<void> {
-    if (this._running || !this._online) return;
+    if (this._running) return;
+
+    if (!this._online) {
+      /* Kapı kapalı → HİÇBİR ŞEY GÖNDERİLMEZ, ama zincir KOPMAZ.
+         Eskiden burada koşulsuz `return` vardı; `finally` bloğuna hiç
+         girilmediği için yeniden deneme timer'ı da KURULMUYORDU. Sonuç:
+         kuyruk yalnız dışarıdan gelen bir "bağlantı geldi" kenarıyla
+         uyanabiliyordu — o kenar hiç gelmezse süresiz susuyordu (V-02). */
+      try {
+        const pending = await dbGetAll();
+        if (pending.length > 0) this._scheduleDrain(CLOSED_GATE_RECHECK_MS);
+      } catch { /* IDB okunamadı — bir sonraki enqueue zinciri yeniden kurar */ }
+      return;
+    }
+
     this._running = true;
 
     try {
@@ -309,19 +396,30 @@ class ConnectivityService {
         }
       }
 
-      // Kalan varsa timer kur
-      if (remaining.length > 0 && this._online) {
+      /* Kalan varsa timer kur. `this._online` ŞARTI KALDIRILDI: kapı tur
+         sırasında kapandıysa (`break`) öğeler kuyrukta KALIR ve eskiden hiçbir
+         timer kurulmazdı → zincir tam orada ölürdü. Artık tik kurulur; kapı
+         hâlâ kapalıysa `_drainQueue` yine gönderim YAPMAZ, sadece yeniden
+         sorar. */
+      if (remaining.length > 0) {
         const earliestRetry = Math.min(...remaining.map((e) => e.nextRetryAt));
-        const delay = Math.max(500, earliestRetry - Date.now());
-        if (this._timer) clearTimeout(this._timer);
-        this._timer = setTimeout(() => {
-          this._timer = null;
-          void this._drainQueue();
-        }, delay);
+        const delay = this._online
+          ? Math.max(500, earliestRetry - Date.now())
+          : Math.max(CLOSED_GATE_RECHECK_MS, earliestRetry - Date.now());
+        this._scheduleDrain(delay);
       }
     } finally {
       this._running = false;
     }
+  }
+
+  /** Tek yeniden deneme tik'i — her zaman TEK timer tutulur. */
+  private _scheduleDrain(delayMs: number): void {
+    if (this._timer) clearTimeout(this._timer);
+    this._timer = setTimeout(() => {
+      this._timer = null;
+      void this._drainQueue();
+    }, delayMs);
   }
 
   /**
