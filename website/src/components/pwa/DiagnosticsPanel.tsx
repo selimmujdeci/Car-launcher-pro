@@ -5,6 +5,8 @@ import type { LiveVehicle } from '@/types/realtime';
 import { sendCommand, subscribeCommandStatus } from '@/lib/commandService';
 import { getStoredApiKey } from '@/lib/pairingService';
 import type { DtcCode, DtcResult } from '@/app/api/pwa/dtc-result/route';
+import { describeDtcOutcome, type DtcOutcome } from '@/lib/diagnostics/dtcResultContract';
+import { readDtcOutcome } from '@/lib/diagnostics/dtcResultReader';
 
 interface Props { vehicle: LiveVehicle | null }
 
@@ -240,6 +242,32 @@ function useDtcReader(vehicleId: string | null) {
     setDemo(data.demo === true);
   }, []);
 
+  /**
+   * Kanonik sonucu ekrana bağlar.
+   *
+   * `done` fazına YALNIZ gerçek bir ölçüm (RESULT/NO_DTC) geçebilir; diğer
+   * her durum gerekçesiyle `error`dır. Böylece zaman aşımı, çevrimdışı,
+   * desteklenmeyen ve bozuk gövde hiçbir zaman "Arıza Kodu Yok" olarak
+   * sunulmaz.
+   */
+  const applyOutcome = useCallback((outcome: DtcOutcome) => {
+    if (outcome.kind === 'RESULT' || outcome.kind === 'NO_DTC') {
+      setDtcs(outcome.kind === 'RESULT' ? outcome.dtcs : []);
+      setReadAt(outcome.readAt ?? '');
+      setPartial(outcome.partial);
+      setDemo(false);
+      setErrMsg('');
+      setPhase('done');
+      return;
+    }
+    if (outcome.kind === 'WAITING_FOR_VEHICLE' || outcome.kind === 'READING') {
+      setPhase('waiting');
+      return;
+    }
+    setErrMsg(describeDtcOutcome(outcome));
+    setPhase('error');
+  }, []);
+
   const readDtc = useCallback(async () => {
     if (!vehicleId || phase === 'sending' || phase === 'waiting') return;
     setPhase('sending');
@@ -273,30 +301,20 @@ function useDtcReader(vehicleId: string | null) {
     unsubRef.current?.();
     const unsub = subscribeCommandStatus(result.commandId!, async (ev) => {
       if (!mounted.current) return;
-      if (ev.status === 'completed') {
-        try {
-          const data = await fetchResult(result.commandId!, vehicleId);
-          if (!mounted.current) return;
-          applyResult(data);
-          setPhase('done');
-        } catch {
-          if (mounted.current) { setPhase('error'); setErrMsg('Araç verileri alınamadı.'); }
-        }
-      } else if (['failed', 'expired', 'rejected'].includes(ev.status)) {
+      /* ── F2.1 · SONUÇ ARAÇTAN OKUNUR ────────────────────────────────
+         Eski yol `/api/pwa/dtc-result` idi ve o uç bilinçli 410
+         tombstone'du: zincirin kopuk halkası buydu. Artık satır RLS ile
+         okunur ("commands: okuyabilir") ve KANONİK sözleşme yorumlar.
+         `completed` gelmesi ölçüm başarısı DEĞİLDİR (F0 invariantı) —
+         gövde yoksa `FAILED` üretilir, "arıza yok" DENMEZ. */
+      if (['completed', 'failed', 'expired', 'rejected'].includes(ev.status)) {
+        const outcome = await readDtcOutcome(result.commandId!, vehicleId);
         if (!mounted.current) return;
-        // Aracın bildirdiği GERÇEK gerekçeyi göster — genel metin son çaredir.
-        try {
-          const data = await fetchResult(result.commandId!, vehicleId);
-          if (!mounted.current) return;
-          setErrMsg(data.errorReason || 'Araç DTC okumasını tamamlayamadı.');
-        } catch {
-          if (mounted.current) setErrMsg('Araç DTC okumasını tamamlayamadı.');
-        }
-        if (mounted.current) setPhase('error');
+        applyOutcome(outcome);
       }
     });
     unsubRef.current = unsub;
-  }, [vehicleId, phase, fetchResult, applyResult]);
+  }, [vehicleId, phase, fetchResult, applyResult, applyOutcome]);
 
   const clearDtc = useCallback(async () => {
     if (!vehicleId || phase === 'clearing') return;
