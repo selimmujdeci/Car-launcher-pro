@@ -97,6 +97,10 @@ export const renaultZoePh2Profile: VehicleDidProfile = {
       // OVMS: StandardMetrics.ms_v_pos_odometer->SetValue((float)CAN_UINT24(0), Kilometers);
       did: '2006', ecu: 'evc', name: 'Kilometre (Odometre)', unit: 'km', bytes: 3,
       min: 0, max: 999999, category: 'kilometre', decode: { fn: 'linear', a: 1, b: 0 },
+      /* F4.2 — ARACIN TOPLAM KİLOMETRESİ. Rol, zaten kanıtlanmış olan anlamı
+         makine-okunur kılar; yeni bir DID/ölçek İDDİA ETMEZ. Kaynak yukarıdaki
+         OVMS satırıdır (CAN_UINT24 → km, çarpan 1). */
+      role: 'vehicle_odometer',
     },
     {
       // OVMS: StandardMetrics.ms_v_charge_12v_voltage->SetValue((float)(CAN_UINT(0) * 0.01), Volts);

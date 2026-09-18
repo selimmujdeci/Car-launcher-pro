@@ -67,8 +67,31 @@ export interface VehicleDidDef {
   /** Serbest metin gruplama kategorisi (StandardPidRegistry'nin sabit union'ından bilinçli
    *  olarak ayrık — üretici DID'leri 'sanziman'/'karoser' gibi yeni kategoriler gerektirebilir). */
   category: string;
+  /**
+   * F4.2 — ANLAM ROLÜ (opsiyonel, KAPALI küme).
+   *
+   * `category` bilinçli olarak SERBEST METİNDİR ve gruplama içindir; bir
+   * tüketicinin "bu araçtaki odometre hangisi?" sorusunu serbest metne
+   * bakarak cevaplaması kırılgandır ('kilometre' · 'km' · 'odometre' hepsi
+   * yazılabilir). Rol, o soruyu DOĞRULANMIŞ ve kapalı bir kümeyle cevaplar.
+   *
+   * Rol bir DID'e ANLAM ATAMAZ — yalnız profil yazarının zaten kanıtladığı
+   * anlamı makine-okunur kılar. Kaynak zorunluluğu (`source`) aynen geçerlidir.
+   */
+  role?: DidSemanticRole;
   decode: DidDecodeSpec;
 }
+
+/**
+ * Bir DID'in kanonik anlamı. Kapalı küme — yeni rol eklemek AÇIK bir karardır.
+ *
+ * `vehicle_odometer`: ARACIN TOPLAM KİLOMETRESİ (gösterge paneli/fabrika
+ * sayacı). Yolculuk mesafesi, GPS integrali veya kullanıcı girdisi DEĞİLDİR.
+ */
+export type DidSemanticRole = 'vehicle_odometer';
+
+/** Geçerli rol değerleri — doğrulayıcı bunun dışını REDDEDER. */
+export const DID_SEMANTIC_ROLES: readonly DidSemanticRole[] = ['vehicle_odometer'];
 
 export interface VehicleDidProfile {
   brand: string;
@@ -207,6 +230,12 @@ export function validateVehicleDidProfile(input: unknown): VehicleDidProfileVali
       if (typeof d.category !== 'string' || d.category.trim().length === 0) {
         errors.push(`dids[${i}].category: boş olmayan string olmalı`);
       }
+      /* F4.2: rol OPSİYONELDİR ama verildiyse KAPALI kümeden olmalı —
+         bilinmeyen rol sessizce yok sayılmaz, profil YÜKLENMEZ. */
+      if (d.role !== undefined &&
+          !(DID_SEMANTIC_ROLES as readonly string[]).includes(String(d.role))) {
+        errors.push(`dids[${i}].role: bilinmeyen anlam rolü (${String(d.role)})`);
+      }
 
       if (typeof d.decode !== 'object' || d.decode === null) {
         errors.push(`dids[${i}].decode: nesne olmalı`);
@@ -243,6 +272,9 @@ export interface CompiledDidDef {
   min: number;
   max: number;
   category: string;
+  /** F4.2 — kanonik anlam rolü (varsa). Tüketici "odometre hangisi?" sorusunu
+   *  serbest metne değil BUNA bakarak cevaplar. */
+  role?: DidSemanticRole;
   /** Ham data baytları → fiziksel değer VEYA metin (Patch 12C `ascii`). Geçersiz sayısal
    *  girişte NaN (StandardPidRegistry ile aynı sözleşme); metin DID'lerinde boş olmayan string. */
   decode: (b: number[]) => VehicleDidValue;
@@ -316,6 +348,7 @@ export function compileVehicleDidProfile(profile: VehicleDidProfile): ReadonlyMa
       bytes: d.bytes,
       min: d.min,
       max: d.max,
+      ...(d.role !== undefined ? { role: d.role } : {}),
       category: d.category,
       decode: compileDidDecoder(d.decode, d.bytes),
       isText: d.decode.fn === 'ascii',

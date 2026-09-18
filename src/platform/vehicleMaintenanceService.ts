@@ -9,7 +9,7 @@
  */
 
 import { sensitiveKeyStore } from './sensitiveKeyStore';
-import { useUnifiedVehicleStore as useVehicleStore } from './vehicleDataLayer/UnifiedVehicleStore';
+import { readVehicleOdometerKmOrNull } from './obd/vehicleOdometerEvidence';
 import { addSystemNotification } from './notificationService';
 import { speakAlert } from './ttsService';
 
@@ -156,11 +156,21 @@ export async function getMaintenanceData() {
  *   · production `vehicles` tablosunda 1083 aracın **tamamında**
  *     `odometer_km = 0` (tek farklı değer) — hiç yazılmamış
  *
- * Bu yüzden fonksiyon `null` döner ve km tabanlı bakım `unknown` kalır.
- * Gerçek bir araç odometresi kaynağı doğduğunda YALNIZ burası değişir.
+ * ── F4.2 · KANONİK KAPI BAĞLANDI ─────────────────────────────────────────
+ * Artık tek kanıt kapısı `vehicleOdometerEvidence`tir: yüklü araç profilinde
+ * `vehicle_odometer` rollü bir DID varsa ve ondan birim/aralık/ölçüm-anı
+ * doğrulanmış bir okuma geldiyse sayı döner; aksi hâlde `null`.
+ *
+ * Desteklenen araç yoksa davranış DEĞİŞMEZ (F4'teki `unknown` korunur) —
+ * yani bu bağlama hiçbir araçta sahte kilometre AÇMAZ.
  */
 function readVehicleOdometerKm(): number | null {
-  return null;
+  try {
+    return readVehicleOdometerKmOrNull();
+  } catch {
+    /* Kanıt katmanı okunamıyorsa bakım hükmü bilinmez kalır — fail-closed. */
+    return null;
+  }
 }
 
 /**
