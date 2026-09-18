@@ -147,7 +147,11 @@ implements AccountCleanupParticipant {
       : {
           ok: false,
           retryable: this.lastResult.failureCode === 'STORAGE_UNAVAILABLE',
-          failureCode: this.lastResult.failureCode,
+          /* Yalnız failureCode ile saha teşhisi yapılamıyordu: hangi fiziksel
+             anahtarın kaydı eksik olduğu hiçbir yere ulaşmıyordu. Anahtar
+             ADLARI eklenir — DEĞERLER asla. Ad, hesap kimliği taşıyan
+             namespace'li anahtarlarda uzun olabildiği için maskelenir. */
+          failureCode: describeStorageFailure(this.lastResult),
         };
   }
 
@@ -158,6 +162,23 @@ implements AccountCleanupParticipant {
   getLastResult(): StorageVerifyEmptyResult | null {
     return this.lastResult;
   }
+}
+
+/**
+ * Hata kodunu, saha teşhisi için anahtar ADLARIYLA zenginleştirir.
+ *
+ * GİZLİLİK: yalnız anahtar ADI taşınır, DEĞER asla. Namespace'li anahtarlar
+ * hesap kimliği içerebildiği için ad kısaltılır (kimliğin tamamı sızmaz);
+ * teşhis için gereken, anahtarın hangi aileye ait olduğudur.
+ */
+function describeStorageFailure(result: StorageVerifyEmptyResult): string {
+  if (result.ok) return 'OK';
+  const keys = result.physicalKeys ?? [];
+  if (keys.length === 0) return result.failureCode;
+  const masked = keys.slice(0, 3).map((key) =>
+    key.length > 28 ? `${key.slice(0, 28)}…` : key);
+  const suffix = keys.length > 3 ? `,+${keys.length - 3}` : '';
+  return `${result.failureCode}:${masked.join(',')}${suffix}`;
 }
 
 function ids(entries: readonly { descriptorId?: string }[]): string[] {

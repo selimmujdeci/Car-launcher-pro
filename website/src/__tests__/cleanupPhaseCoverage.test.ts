@@ -187,3 +187,77 @@ describe('VERIFY_EMPTY · hesap-kapsamlı depo doğrulaması', () => {
     expect(empty).toBe(true);
   });
 });
+
+describe('VERIFY_EMPTY · kayıtsız depo kapısı (FAIL-CLOSED korunur)', () => {
+  /* ── ÖLÇÜLEN KUSUR (production, 2026-09-18) ─────────────────────────────
+     Kullanıcının telefonunda görülen iz:
+       "account-scoped-storage-verification:UNREGISTERED_ACCOUNT_STORAGE_FOUND"
+     Tarayıcı deposunda `caros`/`pwa-`/`clp_` önekli ama KAYITSIZ iki anahtar
+     vardı (`caros-console-theme`, `caros-theme-studio-v2`). Kapı doğru
+     davrandı — eksik olan kayıttı. */
+
+  async function runVerification() {
+    activateAccountSecurityLockdown('cleanup-store', 'logout', Date.now());
+    const { participantRegistry } = createVehicleCleanupComposition();
+    const participant = participantRegistry
+      .listForPhase('VERIFY_EMPTY')
+      .find((candidate) => candidate.id === 'account-scoped-storage-verification');
+    return participant!.clear({
+      cleanupId: 'cleanup-store',
+      reason: 'logout',
+      generation: getCleanupGeneration(),
+    });
+  }
+
+  beforeEach(() => {
+    resetAccountSecurityLockdownForTests();
+    window.localStorage.clear();
+  });
+
+  it('cihaz tercihi anahtarları doluyken doğrulama GEÇER (GLOBAL_DEVICE)', async () => {
+    /* Bu ikisi artık kayıtlı ve cihaz tercihi kapsamında; çıkışta SİLİNMEZ. */
+    window.localStorage.setItem('caros-console-theme', 'night');
+    window.localStorage.setItem('caros-theme-studio-v2', '{"manifests":{}}');
+    window.localStorage.setItem('caros-theme', 'dark');
+
+    const result = await runVerification();
+
+    expect(result, JSON.stringify(result)).toMatchObject({ ok: true });
+    /* Cihaz tercihi KORUNUR — çıkış onları temizlemeye çalışmaz. */
+    expect(window.localStorage.getItem('caros-console-theme')).toBe('night');
+  });
+
+  it('GERÇEKTEN bilinmeyen CarOS anahtarı FAIL-CLOSED kalır ve adı bildirilir', async () => {
+    window.localStorage.setItem('caros_yeni_bilinmeyen_kayit', 'x');
+
+    const result = await runVerification();
+
+    expect(result.ok).toBe(false);
+    const code = (result as { failureCode: string }).failureCode;
+    /* Guard gevşetilmedi: kayıtsız anahtar hâlâ çıkışı durdurur. */
+    expect(code).toContain('UNREGISTERED_ACCOUNT_STORAGE_FOUND');
+    /* Saha teşhisi: hangi anahtar olduğu artık görünür. */
+    expect(code).toContain('caros_yeni_bilinmeyen_kayit');
+  });
+
+  it('kayıtlı ama PURGE EDİLMEMİŞ hesap deposu farklı kodla düşer', async () => {
+    /* `caros_fuel_log` kayıtlı ve ACCOUNT_VEHICLE kapsamında. */
+    window.localStorage.setItem('caros_fuel_log', '[{"l":10}]');
+
+    const result = await runVerification();
+
+    expect(result.ok).toBe(false);
+    expect((result as { failureCode: string }).failureCode)
+      .toContain('REGISTERED_STORAGE_NOT_EMPTY');
+  });
+
+  it('teşhis anahtar ADINI taşır, DEĞERİNİ taşımaz', async () => {
+    window.localStorage.setItem('caros_gizli_bir_kayit', 'COK-GIZLI-DEGER');
+
+    const result = await runVerification();
+    const code = (result as { failureCode: string }).failureCode;
+
+    expect(code).toContain('caros_gizli_bir_kayit');
+    expect(code).not.toContain('COK-GIZLI-DEGER');
+  });
+});

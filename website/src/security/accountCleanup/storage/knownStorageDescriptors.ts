@@ -206,7 +206,31 @@ const DESCRIPTORS: readonly AccountScopedStorageDescriptor[] = [
     sensitivity: 'PREFERENCE',
     cleanupPolicies: ['RETAIN_DEVICE_PREFERENCE'],
     physicalKey: 'caros-theme',
-    legacyKeys: ['pwa-theme', 'caros-theme-studio'],
+    /* ── EKLENDİ (production kusuru, 2026-09-18) ──────────────────────────
+       Çıkış doğrulaması `UNREGISTERED_ACCOUNT_STORAGE_FOUND` ile düşüyordu:
+       tarayıcı deposunda `caros`/`pwa-`/`clp_` önekli ama KAYITSIZ anahtar
+       bulunca kapı FAIL-CLOSED davranır. Kaynak taramasıyla bulunan iki
+       gerçek yazıcı:
+
+         · `caros-console-theme`   — lib/console/consoleTheme.ts:36
+             Değer YALNIZ 'night' | 'day'. Kök layout'un boot script'i her
+             sayfada okur. Hesap/araç kimliği YOK.
+         · `caros-theme-studio-v2` — lib/theme/themeStudioState.ts:44
+             Tema manifest seti + geri-al geçmişi. Hesap/araç kimliği YOK
+             (kaynak taramasıyla doğrulandı) ve v1 anahtarı
+             (`caros-theme-studio`) ZATEN bu kaydın parçası.
+
+       Bu yüzden ikisi de bu kaydın kapsamındadır: cihaz görüntü tercihi.
+       Sınıflandırma "çıkış geçsin" diye SEÇİLMEDİ — içerikte hesap verisi
+       olmadığı ve aynı ailenin diğer anahtarlarının zaten burada olduğu
+       kanıtlandı. Hesap/araç kimliği taşıyan bir tema anahtarı eklenirse
+       ACCOUNT kapsamına ALINMALIDIR (purge + verifier ile). */
+    legacyKeys: [
+      'pwa-theme',
+      'caros-theme-studio',
+      'caros-theme-studio-v2',
+      'caros-console-theme',
+    ],
     namespaceVersion: 1,
     ownerRequirements: { accountId: false, vehicleId: false },
     verifyStrategy: 'CUSTOM',
