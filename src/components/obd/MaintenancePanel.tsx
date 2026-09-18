@@ -22,13 +22,29 @@ export const MaintenancePanel = memo(() => {
   const inspectionAssessment = assessments.find(a => a.id === 'inspection');
   const insuranceAssessment = assessments.find(a => a.id === 'insurance');
 
-  // Oil Life percentage calculation based on remaining km
-  const nextOilKm = maintenance.nextOilChangeKm || 10000;
-  const lastOilKm = maintenance.lastOilChangeKm || 0;
-  const totalInterval = nextOilKm - lastOilKm || 10000;
-  const currentKm = odometer ?? 0;
-  const kmsLeft = Math.max(0, nextOilKm - currentKm);
-  const oilLifePct = Math.max(0, Math.min(100, (kmsLeft / totalInterval) * 100));
+  /* ── F4 · YAĞ ÖMRÜ YÜZDESİ ARTIK UYDURULMUYOR ───────────────────────────
+     ÖLÇÜLEN KUSUR: yüzde üç uydurma girdiden hesaplanıyordu —
+       · `nextOilChangeKm || 10000`  → kullanıcı aralık girmediyse SABİT 10.000
+       · `nextOilKm - lastOilKm || 10000` → aynı sabit ikinci kez
+       · `odometer ?? 0` → bu ARACIN KİLOMETRESİ DEĞİL, uygulama içi trip
+         mesafe sayacıdır (halAdapter T7 bunu `trip_distance`e taşımıştı)
+     Sonuç: her araçta, hiçbir kanıt olmadan büyük bir "%100 Kalan" göstergesi.
+
+     Artık yüzde YALNIZ kanonik değerlendirme gerçek bir `kmsLeft` ürettiyse
+     hesaplanır. Aralık kullanıcı tanımlıdır; yoksa yüzde YOKTUR. */
+  const lastOilKm = maintenance.lastOilChangeKm ?? null;
+  const nextOilKm = maintenance.nextOilChangeKm ?? null;
+  const intervalKm =
+    nextOilKm !== null && lastOilKm !== null && nextOilKm > lastOilKm
+      ? nextOilKm - lastOilKm
+      : null;
+
+  const oilLifePct: number | null =
+    oilAssessment?.status !== 'unknown' &&
+    typeof oilAssessment?.kmsLeft === 'number' &&
+    intervalKm !== null
+      ? Math.max(0, Math.min(100, (Math.max(0, oilAssessment.kmsLeft) / intervalKm) * 100))
+      : null;
 
   /* Durum rengi: Tailwind arbitrary-value ile oem token → tema duyarlı */
   const getStatusColor = (status?: string) => {
@@ -75,19 +91,26 @@ export const MaintenancePanel = memo(() => {
           </div>
           <div className="flex items-baseline gap-2 mb-2">
             <span className={`text-3xl font-bold ${getStatusColor(oilAssessment?.status)}`}>
-              {Math.round(oilLifePct)}%
+              {/* Kanıt yoksa SAYI BASILMAZ — em-dash bir yüzde iddiası değildir. */}
+              {oilLifePct !== null ? `${Math.round(oilLifePct)}%` : '—'}
             </span>
-            <span className="text-xs text-slate-500">Kalan</span>
+            <span className="text-xs text-slate-500">
+              {oilLifePct !== null ? 'Kalan' : 'Veri yok'}
+            </span>
           </div>
-          {/* İlerleme çubuğu: oem-surface-3 zemin, renk inline style ile oem token */}
-          <div className="h-1.5 bg-[var(--oem-surface-3)] rounded-full overflow-hidden">
-            <div
-              className="h-full transition-all duration-500"
-              style={{ width: `${oilLifePct}%`, background: getStatusBgColor(oilAssessment?.status) }}
-            />
-          </div>
+          {/* İlerleme çubuğu YALNIZ gerçek yüzde varken çizilir; boş bir çubuk
+              "ömür bitti" izlenimi verirdi. */}
+          {oilLifePct !== null && (
+            <div className="h-1.5 bg-[var(--oem-surface-3)] rounded-full overflow-hidden">
+              <div
+                className="h-full transition-all duration-500"
+                style={{ width: `${oilLifePct}%`, background: getStatusBgColor(oilAssessment?.status) }}
+              />
+            </div>
+          )}
           <div className="mt-3 text-[10px] text-slate-600 font-medium uppercase tracking-wider">
-            {oilAssessment?.message || `Son Değişim: ${lastOilKm} KM`}
+            {oilAssessment?.message
+              ?? (lastOilKm !== null ? `Son Değişim: ${lastOilKm} KM` : 'Bakım kaydı girilmemiş')}
           </div>
         </div>
 
