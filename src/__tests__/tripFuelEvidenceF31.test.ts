@@ -51,9 +51,10 @@ function obd(
 /* ═══ 1 · Yetenek gerçeği ile kaçırılan ölçüm ayrımı ═════════════════════ */
 
 describe('F3.1 · reddin gerçek gerekçesi', () => {
-  it('6/7 — araç yakıtı HİÇ bildirmiyorsa NO_FUEL_CAPABILITY (NO_START değil)', () => {
+  it('6/7 — OBD aktı ama yakıt hiç gözlenmediyse FUEL_LEVEL_UNOBSERVED', () => {
     /* Sentinel `-1` = "okuyamadım". Production'daki 149 satırın büyük
-       olasılıkla gerçek sebebi budur; artık ölçülebilir.
+       olasılıkla gerçek sebebi budur; artık ölçülebilir. Bu gerekçe aracın
+       YETENEĞİ hakkında hüküm VERMEZ — yalnız gözlemi bildirir (F3.2).
        Gözlem penceresi AŞILMALI: yakıt ~20 sn kadansta olduğu için birkaç
        çerçevede görmemek kanıt değildir. */
     let acc = createAccumulator();
@@ -64,7 +65,7 @@ describe('F3.1 · reddin gerçek gerekçesi', () => {
     expect(acc.fuelSampleCount).toBe(0);
     expect(acc.obdSampleWithoutFuelCount).toBe(13);
     expect(evaluateFuelMeasurement(acc, 12)).toEqual({
-      measured: false, reason: 'NO_FUEL_CAPABILITY',
+      measured: false, reason: 'FUEL_LEVEL_UNOBSERVED',
     });
   });
 
@@ -80,7 +81,7 @@ describe('F3.1 · reddin gerçek gerekçesi', () => {
     });
   });
 
-  it('KISA gözlemden "desteklemiyor" SONUCU ÇIKARILMAZ', () => {
+  it('KISA gözlemden "gözlenmedi" SONUCU BİLE ÇIKARILMAZ', () => {
     /* Yakıt ~20 sn kadansta; 5 saniyelik pencerede yakıt görmemek aracın
        o sinyali vermediğini KANITLAMAZ. Dürüst cevap `NO_START` kalır. */
     let acc = createAccumulator();
@@ -90,7 +91,7 @@ describe('F3.1 · reddin gerçek gerekçesi', () => {
     });
   });
 
-  it('6 — desteklenmeyen yetenek SIFIR tüketim ÜRETMEZ', () => {
+  it('6 — gözlenmeyen yakıt SIFIR tüketim ÜRETMEZ', () => {
     let acc = createAccumulator();
     for (let i = 0; i <= 12; i += 1) acc = obd(acc, i * 6_000, { fuelPercent: -1 });
     const v = evaluateFuelMeasurement(acc, 20);
@@ -183,7 +184,7 @@ describe('F3.1 · provenance kaybı yok', () => {
     const reasons: Array<TripMetricsAccumulator> = [];
     let a = createAccumulator();                       // hiç örnek yok
     reasons.push(a);
-    a = createAccumulator();                                   // yetenek yok
+    a = createAccumulator();                                   // yakıt gözlenmedi
     for (let i = 0; i <= 12; i += 1) a = obd(a, i * 6_000, { fuelPercent: -1 });
     reasons.push(a);
     a = obd(createAccumulator(), 1000, { fuelPercent: 30 });

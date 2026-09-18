@@ -7569,9 +7569,38 @@ describe('E-05 · yakıt varsayımı tek otoriteden gelir', () => {
       .not.toMatch(/L_PER_100KM = 7\.5/);
   });
 
-  it('🔒 yolculuk kaydı politikadan okur', () => {
-    expect(tripLogServiceSrc, 'tripLogService yerel sabite dönmüş')
-      .toMatch(/const FUEL_L_PER_100KM\s+= DEFAULT_FUEL_L_PER_100KM;/);
+  /**
+   * F3.2 · BU KİLİT ZAYIFLATILMADI, GÜÇLENDİRİLDİ.
+   *
+   * E-05'in amacı "yolculuk kaydı KENDİ yakıt sabitini türetmesin"di ve
+   * kilit bunu sabitin TEK OTORİTEDEN okunmasıyla sağlıyordu. F3.2'de
+   * ölçüldü ki asıl kusur daha derindi: sabit, doğru otoriteden okunsa bile
+   * KALICI ölçüm alanına (`fuel_used_l`) yazılıyordu — production'daki
+   * 157 satırın 157'si bu formüle uyuyor, 99'unda değer sahte `0`.
+   *
+   * Artık yolculuk kaydı yakıt sabitini HİÇ kullanmıyor: kanıt yoksa alan
+   * `null` kalıyor. Kilit de bunu sınıyor — "tek otoriteden oku" yerine
+   * "bu dosyada yakıt tüketimi sabiti HİÇ OLMASIN".
+   */
+  it('🔒 yolculuk kaydı yakıt sabiti KULLANMAZ (uydurma litre geri gelmez)', () => {
+    expect(tripLogServiceSrc, 'tripLogService yakıt sabitini geri getirmiş')
+      .not.toMatch(/FUEL_L_PER_100KM\s*=/);
+    expect(tripLogServiceSrc, 'yolculuk kaydına yakıt varsayımı sızmış')
+      .not.toMatch(/DEFAULT_FUEL_L_PER_100KM/);
+    expect(tripLogServiceSrc, 'yerel yakıt fiyatı sabiti geri gelmiş')
+      .not.toMatch(/FUEL_PRICE_TL_PER_L\s*=/);
+    /* Mesafeden litre türeten formülün KENDİSİ de geri gelmemeli — sabit
+       ister isimle ister SATIR İÇİ yazılsın. (İlk yazımda yalnız isimli
+       sabit sınanıyordu; `* 8.5 *` yazan bir mutasyon kilitten SIZDI.
+       Kilit mutasyonla sınandı ve bu satır o boşluğu kapatıyor.) */
+    expect(tripLogServiceSrc, 'mesafeden litre türetme formülü geri gelmiş')
+      .not.toMatch(/distanceKm\s*\/\s*100\s*\)\s*\*/);
+    /* Kod içinde çıplak 8.5 de olmamalı; yalnız açıklama metninde geçebilir. */
+    const kod = tripLogServiceSrc
+      .replace(/\/\*[\s\S]*?\*\//g, '')   // blok yorumlar
+      .replace(/\/\/[^\n]*/g, '');        // satır yorumları
+    expect(kod, 'tripLogService koduna çıplak 8.5 sabiti sızmış')
+      .not.toMatch(/\b8\.5\b/);
   });
 
   it('🔒 beyan edilen değer korunur (8.5)', () => {

@@ -100,8 +100,16 @@ export interface LegacyTripRecord {
   readonly durationMin: number;
   readonly avgSpeedKmh: number;
   readonly maxSpeedKmh: number;
-  readonly fuelConsumptionL: number;
-  readonly fuelCostTL: number;
+  /**
+   * F3.2: `null` = LİTRE BİLİNMİYOR.
+   *
+   * Eski kayıtlarda bu alan DAİMA doluydu ama değeri bir ölçüm değil,
+   * `mesafe/100 × 8.5` varsayımıydı. Artık kanıt yoksa `null` gelir ve
+   * kanonik katman `UNAVAILABLE`'a düşer — "0 litre yaktı" İDDİASI YOK.
+   */
+  readonly fuelConsumptionL: number | null;
+  /** F3.2: litre bilinmiyorsa maliyet de bilinmez → `null`. */
+  readonly fuelCostTL: number | null;
   readonly drivingScore: number;
   readonly harshEvents: number;
 

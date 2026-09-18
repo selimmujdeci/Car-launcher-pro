@@ -87,7 +87,8 @@ export function TripSummaryBanner({ trip, onClose, onViewDetails }: Props) {
               <span>/100</span>
             </span>
             {/* Yakıt maliyeti */}
-            {trip.fuelCostTL > 0 && (
+            {/* F3.2: maliyet bilinmiyorsa satır HİÇ ÇIKMAZ (sahte tutar yok). */}
+            {trip.fuelCostTL !== null && trip.fuelCostTL > 0 && (
               <span className="flex items-center gap-1">
                 <Fuel size={12} />
                 <span>₺{trip.fuelCostTL}</span>

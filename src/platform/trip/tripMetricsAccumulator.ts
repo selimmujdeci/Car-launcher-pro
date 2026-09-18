@@ -130,14 +130,15 @@ export interface TripMetricsAccumulator {
    * ── NEDEN EKLENDİ (production ölçümü, 2026-09-18) ────────────────────
    * 157 yolculuğun **149'u** `NO_START` ile reddedilmişti. Ama `NO_START`
    * iki BAMBAŞKA gerçeği aynı kefeye koyuyordu:
-   *   · araç yakıt seviyesini HİÇ bildirmiyor (yetenek gerçeği), ya da
-   *   · bildiriyor ama biz o yolculukta hiç örnek yakalayamadık.
-   * Birincisi bir kusur DEĞİLDİR ve kodla düzelmez; ikincisi düzelir.
-   * Ayrımı yapamadan gerçek araç testi de cevap veremezdi. Bu sayaç,
-   * reddin gerekçesini ölçülebilir kılar — yeni bir otorite kurmaz.
+   *   · OBD hiç akmadı (yakıt hakkında hiçbir şey bilmiyoruz), ya da
+   *   · OBD aktı ama yakıt seviyesi hiç gözlenmedi.
+   * İkisi farklı sorulara işaret eder ve farklı yerlerde çözülür. Ayrımı
+   * yapamadan gerçek araç testi de cevap veremezdi. Bu sayaç reddin
+   * gerekçesini ölçülebilir kılar — yeni bir otorite KURMAZ ve aracın
+   * yeteneği hakkında HÜKÜM VERMEZ (bkz. `FUEL_LEVEL_UNOBSERVED`).
    */
   readonly fuelSampleCount: number;
-  /** Yakıt taşımayan OBD örneği sayısı — yetenek yorumunun paydası. */
+  /** Yakıt taşımayan OBD örneği sayısı — gözlem penceresinin paydası. */
   readonly obdSampleWithoutFuelCount: number;
   /** İlk/son OBD örneğinin anı — gözlem penceresinin uzunluğu için. */
   readonly firstObdPerfMs: number | null;
@@ -422,7 +423,20 @@ export type FuelVerdict =
 export const NO_FUEL_OBSERVATION_WINDOW_MS = 60_000;
 
 export type FuelRejectReason =
-  | 'NO_FUEL_CAPABILITY' // OBD aktı ama yakıt seviyesi HİÇ okunamadı (F3.1)
+  /**
+   * OBD aktı ama yakıt seviyesi bu yolculukta HİÇ GÖZLENMEDİ.
+   *
+   * ── F3.2 · İSİM DÜZELTİLDİ ───────────────────────────────────────────
+   * F3.1'de bu gerekçe "NO_FUEL_CAPABILITY" diye adlandırılmıştı. Yanlıştı:
+   * bir örnek gözlememek, aracın o YETENEĞE SAHİP OLMADIĞINI kanıtlamaz.
+   * Beş ayrı gerçek vardır ve karıştırılamaz:
+   *     ECU PID DESTEĞİ ≠ GEÇERLİ ÖRNEK GÖZLENDİ ≠ GÜVENİLİR TRIP ÖLÇÜMÜ
+   *     ≠ DEPO KAPASİTESİ VAR ≠ LİTRE HESAPLANABİLİR
+   * Yetenek hükmünün kanonik sahibi `extendedPidService.isPidSupported`tir
+   * (handshake destek haritası; `true`/`false`/`null`). Bu saf modül onu
+   * IMPORT ETMEZ ve yerine geçmez — yalnız KENDİ gözlemini bildirir.
+   */
+  | 'FUEL_LEVEL_UNOBSERVED'
   | 'NO_START'          // başlangıç okuması yok
   | 'NO_END'            // bitiş okuması yok
   | 'REFUEL_SUSPECTED'  // trip içinde yakıt arttı
@@ -453,7 +467,7 @@ export function evaluateFuelMeasurement(
       acc.firstObdPerfMs !== null && acc.lastObdPerfMs !== null &&
       acc.lastObdPerfMs - acc.firstObdPerfMs >= NO_FUEL_OBSERVATION_WINDOW_MS
     ) {
-      return { measured: false, reason: 'NO_FUEL_CAPABILITY' };
+      return { measured: false, reason: 'FUEL_LEVEL_UNOBSERVED' };
     }
     return { measured: false, reason: 'NO_START' };
   }

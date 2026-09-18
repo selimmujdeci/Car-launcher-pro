@@ -12,7 +12,7 @@
 
 import { useState, useEffect } from 'react';
 import { onOBDData }       from './obdService';
-import { DEFAULT_FUEL_L_PER_100KM } from './vehicleAssumptions';
+
 import { onGPSLocation }   from './gpsService';
 import type { GPSLocation } from './gpsService';
 import type { OBDData }    from './obdTypes';
@@ -55,8 +55,23 @@ export interface TripRecord {
   durationMin:      number;
   avgSpeedKmh:      number;
   maxSpeedKmh:      number;
-  fuelConsumptionL: number;
-  fuelCostTL:       number;
+  /**
+   * Yolculukta harcanan yakıt (L).
+   *
+   * ── F3.2 · ARTIK `null` OLABİLİR ─────────────────────────────────────
+   * ÖLÇÜLEN KUSUR (production, 2026-09-18): 157 yolculuğun **157'si**
+   * `round(distanceKm/100 × 8.5, 1)` formülüne BİREBİR uyuyordu ve
+   * **99'unda değer `0`** idi. Yani "ne kadar yaktığını bilmiyoruz" bilgisi
+   * veritabanına *uydurulmuş bir sayı* olarak, üstelik çoğunlukla **sahte
+   * sıfır** olarak yazılıyordu. Bugün arayüz bunu ölçüm gibi göstermiyor,
+   * ama KALICI veri yanlıştı: menzil · maliyet · analitik · özet gibi
+   * gelecekteki her tüketici onu gerçek ölçüm sanabilirdi.
+   *
+   * `null` = BİLİNMİYOR. `0` yalnız gerçekten ölçülmüş sıfır olabilir.
+   */
+  fuelConsumptionL: number | null;
+  /** Yolculuk maliyeti (₺). Litre bilinmiyorsa `null` — uydurma maliyet YOK. */
+  fuelCostTL:       number | null;
   drivingScore:     number;
   harshEvents:      number;
 
@@ -218,8 +233,12 @@ export const TRIP_DISCARD_MIN_DISTANCE_KM  = 0.1;
  * KAYBETTİK — bunu "düzgün kapanış" saymak sahte güven üretirdi.
  */
 const TRIP_SILENCE_END_MS  = 15 * 60_000;
-const FUEL_L_PER_100KM     = DEFAULT_FUEL_L_PER_100KM;  // E-05: tek otorite
-const FUEL_PRICE_TL_PER_L  = 45;
+/* F3.2: `FUEL_L_PER_100KM` ve `FUEL_PRICE_TL_PER_L` sabitleri BU DOSYADAN
+   KALDIRILDI. İkisi de yolculuk kaydına uydurma litre/tutar yazmak için
+   kullanılıyordu; artık kanıt yoksa alan `null` kalıyor. Varsayım otoritesi
+   (`vehicleAssumptions`) yerinde durur ve rota ÖNCESİ tahmin için
+   (`routingService.computeFuelEstimate`) kullanılmaya devam eder — orası
+   bir tahmin yüzeyidir ve öyle etiketlenir; burası ÖLÇÜM kaydıdır. */
 
 // GPS mesafe filtreleri
 const GPS_MIN_ACCURACY_M   = 50;   // 50m'den kötü fix mesafeye eklenmez
@@ -598,18 +617,22 @@ function _endTrip(reason: TripEndReason = 'UNKNOWN'): void {
         fuelL = litres;
         fuelSource = 'DERIVED';
       } else {
-        /* Depo kapasitesi yok/güvenilmez → litre ÜRETİLMEZ. Yüzde ölçümü
-           saklanır; litre alanı sabit varsayıma DÜŞER (ESTIMATED). */
-        fuelL = Math.round((distanceKm / 100) * FUEL_L_PER_100KM * 10) / 10;
-        fuelSource = 'ESTIMATED';
+        /* ── F3.2 · DEPO KAPASİTESİ YOKSA LİTRE ÜRETİLMEZ ──────────────
+           Eskiden burada `distanceKm/100 × 8.5` yazılıyordu. Bu bir ölçüm
+           DEĞİL, bir varsayımdı — ama kalıcı alana SAYI olarak giriyordu.
+           Yüzde ölçümü KORUNUR (aşağıda), litre `null` kalır. */
+        fuelL = null;
+        fuelSource = 'UNAVAILABLE';
         fuelRejectReason = 'NO_TANK_CAPACITY';
       }
       p2 = { ...p2, fuelUsedPercent: verdict.usedPercent };
     } else {
-      /* Ölçüm kapıları geçilmedi → mevcut 8,5 L/100km SABİTİ kullanılır ama
-         `ESTIMATED` etiketiyle; gerçek ölçüm gibi SUNULMAZ. */
-      fuelL = Math.round((distanceKm / 100) * FUEL_L_PER_100KM * 10) / 10;
-      fuelSource = 'ESTIMATED';
+      /* Ölçüm kapıları geçilmedi → LİTRE DE BİLİNMİYOR.
+         Eski davranış sabiti yazıp `ESTIMATED` etiketlemekti; etiket
+         doğruydu ama VERİ yanlıştı ve 157 satırın 99'unda sahte `0`
+         üretiyordu. Bilinmeyen sayıya çevrilmez. */
+      fuelL = null;
+      fuelSource = 'UNAVAILABLE';
       fuelRejectReason = verdict.reason;
     }
 
@@ -670,8 +693,11 @@ function _endTrip(reason: TripEndReason = 'UNKNOWN'): void {
     p2 = {};
   }
 
-  /* Eski sözleşme: P2 üretilemediyse sabit varsayım kullanılır (DEĞİŞMEDİ). */
-  const legacyFuelL = Math.round((distanceKm / 100) * FUEL_L_PER_100KM * 10) / 10;
+  /* ── F3.2 · ESKİ SABİT TABAN KALDIRILDI ────────────────────────────────
+     Burası P2 metrikleri üretilemediğinde devreye giren "eski sözleşme"
+     tabanıydı ve koşulsuz olarak `distanceKm/100 × 8.5` yazıyordu. P2 zaten
+     fail-soft; metrik üretimi düşerse doğru cevap "yakıt bilinmiyor"dur,
+     bir varsayımı ölçüm alanına yazmak değil. */
 
   const endedAtMs = Date.now();
 
@@ -684,8 +710,9 @@ function _endTrip(reason: TripEndReason = 'UNKNOWN'): void {
     durationMin,
     avgSpeedKmh:      avgSpeed,
     maxSpeedKmh:      Math.round(_active.maxSpeedKmh),
-    fuelConsumptionL: legacyFuelL,
-    fuelCostTL:       Math.round(legacyFuelL * FUEL_PRICE_TL_PER_L),
+    /* Kanıt yoksa `null` — `...p2` gerçek değer ürettiyse onu EZER. */
+    fuelConsumptionL: null,
+    fuelCostTL:       null,
     drivingScore,
     harshEvents:      _active.harshEvents,
     ...p2,

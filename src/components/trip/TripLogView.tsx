@@ -52,7 +52,12 @@ const TripCard = memo(function TripCard({ trip }: { trip: TripRecord }) {
         <Stat icon={Route} color="blue" value={String(trip.distanceKm)} unit="km" label="Mesafe" />
         <Stat icon={Clock} color="purple" value={fmtDuration(trip.durationMin)} unit="" label="Süre" />
         <Stat icon={Zap} color="emerald" value={String(trip.avgSpeedKmh)} unit="km/h" label="Ort. Hız" />
-        <Stat icon={Fuel} color="amber" value={`${trip.fuelCostTL}₺`} unit="" label="Yakıt" />
+        {/* F3.2: maliyet bilinmiyorsa SAYI BASILMAZ — em-dash bir sayı
+            iddiası değildir. (Eskiden sabit 8,5 L/100km × sabit fiyatla
+            üretilmiş bir tutar gösteriliyordu.) */}
+        <Stat icon={Fuel} color="amber"
+          value={trip.fuelCostTL !== null ? `${trip.fuelCostTL}₺` : '—'}
+          unit="" label="Yakıt" />
       </div>
 
       {/* Sub-stats bölme çizgisi → oem-line */}
@@ -61,7 +66,9 @@ const TripCard = memo(function TripCard({ trip }: { trip: TripRecord }) {
           Maks <span className="text-slate-400 font-bold">{trip.maxSpeedKmh} km/h</span>
         </div>
         <div className="text-[11px] text-slate-600">
-          Yakıt <span className="text-slate-400 font-bold">{trip.fuelConsumptionL} L</span>
+          Yakıt <span className="text-slate-400 font-bold">
+            {trip.fuelConsumptionL !== null ? `${trip.fuelConsumptionL} L` : '—'}
+          </span>
         </div>
         <div className="ml-auto flex items-center gap-1.5">
           <span className="text-[10px] text-slate-600 uppercase tracking-wide">Sürüş</span>
