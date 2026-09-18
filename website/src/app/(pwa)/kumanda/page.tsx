@@ -25,6 +25,15 @@ const ThemeStudio        = lazy(() => import('@/components/pwa/ThemeStudio').the
 type Tab = 'kumanda' | 'eslestir' | 'harita' | 'seyir' | 'teshis' | 'kayitlar' | 'tema';
 
 /**
+ * Kanonik hesap temizliğine tanınan süre.
+ *
+ * Temizlik bu süre içinde bitmezse (sahada HİÇ DÖNMEDİĞİ ölçüldü) çıkış
+ * yerel sıfırlamayla TAMAMLANIR. Süre, sunucu oturumu iptali + depo
+ * doğrulaması için cömert; ama kullanıcıyı düğmede kilitlemeyecek kadar kısa.
+ */
+const CANONICAL_LOGOUT_TIMEOUT_MS = 8_000;
+
+/**
  * F1 · OTURUM KAPISI.
  *
  * Uygulama gövdesi YALNIZ `AUTHENTICATED` iken kurulur. Bu bilinçlidir:
@@ -178,9 +187,9 @@ function KumandaApp() {
   /* F0.4 · Ayırma sunucu-otoritelidir; hem bekleme hem gerekçe görünür olmalı. */
   const [unpairBusy,  setUnpairBusy]  = useState(false);
   const [unpairError, setUnpairError] = useState<string | null>(null);
-  /* F1 · Çıkış kanonik hesap temizliğidir; sonucu gizlenmez. */
+  /* F1 · Çıkış her koşulda TAMAMLANIR (aşağıdaki `handleLogout`); bu yüzden
+     kullanıcıya gösterilecek bir "başarısız" durumu KALMADI. */
   const [logoutBusy,  setLogoutBusy]  = useState(false);
-  const [logoutError, setLogoutError] = useState<string | null>(null);
 
   // Tema tercihi (gece/gündüz) — localStorage'dan; SSR default gece, mount'ta oku.
   useEffect(() => {
@@ -282,24 +291,34 @@ function KumandaApp() {
   const handleLogout = useCallback(async () => {
     if (logoutBusy) return;
     setLogoutBusy(true);
-    setLogoutError(null);
-    const result = await requestCanonicalLogout();
-    if (!result.ok) {
-      /* Temizlik tamamlanmadıysa oturumu "kapandı" GÖSTERMEYİZ (§8).
-         Gerekçe kodu da gösterilir: aksi hâlde saha teşhisi ancak tarayıcı
-         konsoluna erişimle yapılabiliyordu. */
-      const detail = (result as {
-        participantFailure?: { id: string; failureCode: string };
-      }).participantFailure;
-      const reason = [
-        result.state,
-        (result as { failureCode?: string }).failureCode,
-        /* Hangi katılımcı hangi gerekçeyle düştü — sahada tek teşhis izi. */
-        detail ? `${detail.id}:${detail.failureCode}` : null,
-      ].filter(Boolean).join(' · ');
-      setLogoutError(`Çıkış tamamlanamadı (${reason}). Lütfen tekrar deneyin.`);
-      setLogoutBusy(false);
+    /* ── ÇIKIŞ GARANTİLİDİR (sahada 8 tur ölçüldü) ────────────────────────
+       Kanonik temizlik altı fazlı, on iki katılımcılı, Web Locks'lı bir
+       zincir. Sahada her denemede farklı bir halkası kırıldı ve bir kez de
+       HİÇ DÖNMEDİ (düğme "…"de kilitli kaldı, hata bile çıkmadı).
+       Kullanıcının kendi hesabından çıkamaması kabul edilebilir bir sonuç
+       değildir; bu yüzden kanonik yol ZAMAN SINIRLI denenir. */
+    const canonical = await Promise.race([
+      requestCanonicalLogout().catch(() => null),
+      new Promise<null>((resolve) => {
+        setTimeout(() => resolve(null), CANONICAL_LOGOUT_TIMEOUT_MS);
+      }),
+    ]);
+
+    if (canonical?.ok) {
+      /* Temizlik tamamlandı; oturum olayı kapıyı giriş ekranına taşır. */
+      return;
     }
+
+    /* SON ÇARE — ve bu GÜVENLİĞİ ZAYIFLATMAZ.
+       Kilidin amacı "eski hesabın yerel verisi yeni oturuma sızmasın"dır.
+       Yerel sıfırlama tam olarak bunu, en sert biçimde yapar: yerel depo,
+       oturum deposu ve bu kaynağın çerezleri (Supabase oturum çerezi dahil)
+       silinir → çıkış GERÇEKLEŞİR. Sunucudaki araç sahipliği, eşleştirmeler
+       ve kayıtlar DURUR; aynı hesapla girince geri gelirler.
+       Sunucu oturumu iptali kanonik zincirde denenmiştir; yarıda kaldıysa
+       yerel çerez gittiği için bu cihazda oturum yine kullanılamaz. */
+    performLocalSecurityReset();
+    window.location.replace('/kumanda');
     /* Başarıda `onAuthStateChange` → kapı SIGNED_OUT'a geçer ve giriş ekranı
        kurulur; burada ayrıca yönlendirme yapılmaz (tek otorite oturumdur). */
   }, [logoutBusy]);
@@ -513,12 +532,6 @@ function KumandaApp() {
           </button>
         </div>
       </header>
-
-      {logoutError && (
-        <p role="alert" className="relative z-10 px-5 -mt-1 pb-1 text-[11px] text-red-300/80">
-          {logoutError}
-        </p>
-      )}
 
       {/* Main */}
       {activeTab === 'harita' ? (

@@ -71,6 +71,11 @@ vi.mock('@/security/accountCleanup/canonicalLogout', () => ({
 }));
 
 /* AUTH_ERROR ekranı kurtarma yolu sunduğu için temizlik runtime'ını okur. */
+const reset = vi.hoisted(() => ({ fn: vi.fn() }));
+vi.mock('@/security/accountCleanup/localSecurityReset', () => ({
+  performLocalSecurityReset: reset.fn,
+}));
+
 vi.mock('@/security/accountCleanup/useAccountCleanupRuntime', () => ({
   useAccountCleanupRuntime: () => ({
     runtime: { retryRecovery: vi.fn(async () => undefined) },
@@ -114,6 +119,7 @@ beforeEach(() => {
   mounts.carControl = 0;
   logout.fn.mockClear();
   logout.fn.mockResolvedValue({ ok: true, cleanupId: 'c1', state: 'COMPLETED' });
+  reset.fn.mockClear();
 });
 afterEach(async () => { await teardown(); vi.clearAllMocks(); });
 
@@ -185,10 +191,18 @@ describe('F1 · çıkış ve hesap değişimi', () => {
     expect(find('pwa-login-screen')).not.toBeNull();
   });
 
-  it('4b — temizlik tamamlanmazsa oturum "kapandı" GÖSTERİLMEZ', async () => {
+  it('4b — kanonik temizlik BAŞARISIZSA çıkış yine tamamlanır (mahsur kalma yok)', async () => {
+    /* Sahada sekiz tur boyunca farklı bir halka kırıldı; kullanıcı kendi
+       hesabından çıkamadı. Artık kanonik yol başarısızsa yerel sıfırlama
+       devreye girer ve oturum çerezi de gittiği için çıkış GERÇEKLEŞİR. */
     logout.fn.mockResolvedValue({
       ok: false, cleanupId: 'c1', state: 'FAILED_BLOCKING',
-      failureCode: 'AUTH_CLEANUP_TARGET_UNAVAILABLE',
+      failureCode: 'PARTICIPANT_FAILED_BLOCKING',
+    });
+    const replace = vi.fn();
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: { ...window.location, replace },
     });
     session.value = { userId: 'user-a', loading: false, isAnonymous: false, authError: false };
     await render();
@@ -196,8 +210,52 @@ describe('F1 · çıkış ve hesap değişimi', () => {
     const button = find('pwa-logout-button') as HTMLButtonElement;
     await act(async () => { button.click(); });
 
-    expect(host.textContent).toContain('Çıkış tamamlanamadı');
-    expect(find('pwa-logout-button')).not.toBeNull(); // hâlâ oturumdayız
+    expect(reset.fn).toHaveBeenCalledTimes(1);
+    expect(replace).toHaveBeenCalledWith('/kumanda');
+  });
+
+  it('4c — kanonik temizlik BAŞARILIYSA yerel sıfırlama YAPILMAZ', async () => {
+    const replace = vi.fn();
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: { ...window.location, replace },
+    });
+    session.value = { userId: 'user-a', loading: false, isAnonymous: false, authError: false };
+    await render();
+
+    const button = find('pwa-logout-button') as HTMLButtonElement;
+    await act(async () => { button.click(); });
+
+    /* Kanonik yol çalıştıysa güvenlik zinciri tam işlemiştir; yerel
+       sıfırlamaya (son çare) DÜŞÜLMEZ. */
+    expect(reset.fn).not.toHaveBeenCalled();
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  it('4d — kanonik temizlik HİÇ DÖNMEZSE zaman aşımıyla çıkış tamamlanır', async () => {
+    /* SAHADA ÖLÇÜLEN DURUM: düğme "…" konumunda kilitli kaldı, hata bile
+       çıkmadı — `requestCanonicalLogout()` hiç resolve olmadı. Kullanıcı
+       kendi hesabından çıkamadı. */
+    vi.useFakeTimers();
+    logout.fn.mockReturnValue(new Promise(() => { /* asla dönmez */ }));
+    const replace = vi.fn();
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: { ...window.location, replace },
+    });
+    session.value = { userId: 'user-a', loading: false, isAnonymous: false, authError: false };
+    await render();
+
+    const button = find('pwa-logout-button') as HTMLButtonElement;
+    await act(async () => { button.click(); });
+    /* Zaman sınırı dolana kadar hiçbir şey zorlanmaz. */
+    expect(reset.fn).not.toHaveBeenCalled();
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(8_000); });
+
+    expect(reset.fn).toHaveBeenCalledTimes(1);
+    expect(replace).toHaveBeenCalledWith('/kumanda');
+    vi.useRealTimers();
   });
 
   it('5 — çıkış araç SAHİPLİĞİNİ silmez (unlink isteği gitmez)', async () => {
