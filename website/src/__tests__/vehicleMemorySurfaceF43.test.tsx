@@ -66,9 +66,22 @@ describe('F4.3 · ikinci otorite kurulmadı', () => {
     expect(kod).not.toContain('fetch(');
     /* `Date.now()` yok: "şimdi" uydurulamaz. */
     expect(kod).not.toContain('Date.now()');
-    /* İzin verilen import'lar YALNIZ tip taşıyıcıları. */
+    /* İzin verilen import'lar: tip taşıyıcıları + SAF projeksiyon yardımcıları.
+       `diagnosticHistory` (F5.3) bir DEĞER import'udur ama I/O YAPMAZ ve yeni
+       otorite KURMAZ — teşhis cümlesini TEK yerde tutar. Onu buraya almamak,
+       aynı metni ikinci kez yazmak (yani ikinci otorite) anlamına gelirdi. */
     const imports = [...kod.matchAll(/from '([^']+)'/g)].map((m) => m[1]).sort();
-    expect(imports).toEqual(['@/lib/fleet/vehicleTripsView', '@/lib/recordsService']);
+    expect(imports).toEqual([
+      '@/lib/diagnostics/diagnosticHistory',
+      '@/lib/fleet/vehicleTripsView',
+      '@/lib/recordsService',
+    ]);
+    /* Guard'ın ASIL amacı korunur: izin verilen her import da saf olmalı. */
+    const diag = read('src/lib/diagnostics/diagnosticHistory.ts')
+      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+    expect(diag).not.toContain('supabase');
+    expect(diag).not.toContain('fetch(');
+    expect(diag).not.toContain('Date.now()');
   });
 });
 

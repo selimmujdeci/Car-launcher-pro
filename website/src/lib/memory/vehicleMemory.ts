@@ -10,7 +10,17 @@
  *   · servis kaydı   : `vehicle_service_records` / `recordsService`
  *   · yetkilendirme  : Supabase RLS (istemci `vehicle_id` filtresi YETKİ DEĞİL)
  *
- * ── TEŞHİS GEÇMİŞİ NEDEN YOK (ölçüldü, 2026-09-18) ───────────────────────
+ * ── TEŞHİS GEÇMİŞİ (F5.3 · güncellendi 2026-09-19) ───────────────────────
+ * `DIAGNOSTIC_SCAN` ARTIK VAR — çünkü kalıcı kaynağı tasarlandı:
+ * `vehicle_diagnostic_scans` (migration 080, HAZIR/UYGULANMADI) ve onun
+ * kod tarafı sözleşmesi `lib/diagnostics/diagnosticHistory`.
+ *
+ * Bu dosya yine hiçbir şey ÖLÇMEZ: tarama ARAÇTA yapılır, sınıflandırma
+ * F2.1 `classifyDtcCommand`indir. Buradaki tek iş, kalıcı kaydı zaman
+ * çizelgesine çevirmektir. Kayıt verilmezse (`undefined`) olay ÜRETİLMEZ;
+ * yani migration uygulanana kadar çizelge eskisi gibi davranır.
+ *
+ * ── ESKİ ÖLÇÜM (neden bu kaynak gerekliydi, 2026-09-18) ──────────────────
  * `vehicle_commands` KALICI DEĞİLDİR: terminal durumdaki satırlar
  * **14 GÜN** sonra siliniyor (`cleanup` fonksiyonu). Production'da
  * tamamlanmış `read_dtc` sayısı ayrıca **0**. `vehicle_events` de çare değil:
@@ -18,13 +28,16 @@
  * sonra siliniyor; kalanlar (`heartbeat` 52k · `location_delta` 30k) telemetri
  * gürültüsüdür ve zaman çizelgesine DÖKÜLMEZ.
  *
- * Bu yüzden "3 ay önce şu arıza vardı" İDDİASI KURULAMAZ ve bu dosya
- * `DIAGNOSTIC` olayı ÜRETMEZ. Eksik kalıcılık bir sonraki fazın işidir;
- * uydurma geçmiş üretmek değil.
+ * Bu yüzden F4.3'te `DIAGNOSTIC` olayı ÜRETİLMİYORDU. F5.3 eksik kalıcılığı
+ * kapattı; uydurma geçmiş üretmedi.
  *
  * SAF: I/O YOK · timer YOK · `Date.now()` YOK · React YOK.
  */
 
+import {
+  summarizeScan,
+  type DiagnosticScanRecord,
+} from '@/lib/diagnostics/diagnosticHistory';
 import type { TripRow } from '@/lib/fleet/vehicleTripsView';
 import type { FuelEntry, ServiceEntry } from '@/lib/recordsService';
 
@@ -33,11 +46,11 @@ import type { FuelEntry, ServiceEntry } from '@/lib/recordsService';
 /**
  * Olay türü — KAPALI küme ve her biri GERÇEK bir kaynağa dayanır.
  *
- * `DIAGNOSTIC` bilinçli olarak YOKTUR: kalıcı teşhis geçmişi kaynağı
- * bulunmadı (yukarıya bakın). Tür eklemek, o türün kalıcı kaynağını
- * kanıtlamayı gerektirir.
+ * Tür eklemek, o türün KALICI kaynağını kanıtlamayı gerektirir.
+ * `DIAGNOSTIC_SCAN` kaynağı: `vehicle_diagnostic_scans` (080).
  */
-export type MemoryEventType = 'TRIP' | 'FUEL_RECORD' | 'SERVICE_RECORD';
+export type MemoryEventType =
+  | 'TRIP' | 'FUEL_RECORD' | 'SERVICE_RECORD' | 'DIAGNOSTIC_SCAN';
 
 /**
  * Olayın kanıt gücü.
@@ -263,6 +276,13 @@ export interface MemoryBuildInput {
   readonly trips: readonly TripRow[] | null;
   readonly fuel: readonly FuelEntry[] | null;
   readonly services: readonly ServiceEntry[] | null;
+  /**
+   * Kalıcı teşhis taramaları (F5.3).
+   *   `undefined` = bu kaynak İSTENMEDİ (migration 080 uygulanmadan önceki hâl)
+   *   `null`      = istendi ama OKUNAMADI → `unreadableSources`a düşer
+   * İkisi AYNI ŞEY DEĞİLDİR: biri "sormadık", öteki "soramadık".
+   */
+  readonly diagnosticScans?: readonly DiagnosticScanRecord[] | null;
   /** Servis anahtarı → Türkçe etiket (mevcut kayıt ekranının sözlüğü). */
   readonly serviceLabels: Readonly<Record<string, string>>;
   readonly pageSize?: number;
@@ -284,6 +304,49 @@ export interface VehicleMemory {
  * ile kırılır. Aksi hâlde aynı gün içindeki iki olay her render'da yer
  * değiştirebilir ve sayfalama tutarsızlaşır.
  */
+/**
+ * Kalıcı teşhis taramasını çizelge olayına çevirir (F5.3).
+ *
+ * KURAL: zamanı bilinmeyen tarama çizelgeye GİRMEZ (`null` döner) — "ne zaman
+ * olduğunu bilmiyoruz" ile "bugün oldu" AYNI ŞEY DEĞİLDİR.
+ *
+ * Metin `summarizeScan`ten gelir; burada YENİ CÜMLE KURULMAZ. Başarısız
+ * tarama "arıza yok" DEMEZ, kısmi tarama TAM gibi sunulmaz.
+ *
+ * DTC kodları ölçüm olarak TAŞINIR: kullanıcı teknik ayrıntıyı görmek
+ * isterse kod SAKLANMAZ (§18). Ham ECU/çerçeve verisi TAŞINMAZ.
+ */
+export function diagnosticScanToMemoryEvent(
+  scan: DiagnosticScanRecord,
+  vehicleId: string,
+): VehicleMemoryEvent | null {
+  const occurredAt = toEpochMs(scan.measuredAt) ?? toEpochMs(scan.completedAt);
+  if (occurredAt === null) return null;
+
+  const s = summarizeScan(scan);
+
+  /* Kodlar ölçüm satırı olur. `MEASURED`: kodu ARAÇ bildirdi, kullanıcı değil. */
+  const measurements: MemoryMeasurement[] = scan.dtcs.map((d) => ({
+    label: d.code,
+    value: d.desc && d.desc.trim().length > 0 ? d.desc : (d.system ?? '—'),
+    provenance: 'MEASURED' as const,
+  }));
+
+  return {
+    id: `diag:${scan.sourceCommandId}`,
+    vehicleId,
+    type: 'DIAGNOSTIC_SCAN',
+    occurredAt,
+    title: 'Arıza taraması',
+    summary: s.headline,
+    provenance: 'MEASURED',
+    sourceRef: 'vehicle_diagnostic_scans',
+    measurements,
+    /* Kapsam sınırları KAYBOLMAZ; boş liste "her şey kapsandı" DEMEK DEĞİL. */
+    limitations: s.limitations,
+  };
+}
+
 export function buildVehicleMemory(input: MemoryBuildInput): VehicleMemory {
   const { vehicleId, trips, fuel, services, serviceLabels } = input;
   const limit = input.pageSize ?? MEMORY_PAGE_SIZE;
@@ -306,6 +369,16 @@ export function buildVehicleMemory(input: MemoryBuildInput): VehicleMemory {
   else for (const s of services) {
     const e = serviceEntryToMemoryEvent(s, vehicleId, serviceLabels[s.serviceKey] ?? 'Servis kaydı');
     if (e) events.push(e);
+  }
+
+  /* `undefined` → kaynak istenmedi, sessizce atlanır (regresyonsuz).
+     `null` → istendi ama okunamadı; bu KAYIT YOK demek DEĞİLDİR. */
+  if (input.diagnosticScans === null) unreadable.push('Arıza taramaları');
+  else if (input.diagnosticScans !== undefined) {
+    for (const d of input.diagnosticScans) {
+      const e = diagnosticScanToMemoryEvent(d, vehicleId);
+      if (e) events.push(e);
+    }
   }
 
   events.sort((a, b) =>

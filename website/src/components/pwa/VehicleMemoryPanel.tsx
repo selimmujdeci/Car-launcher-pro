@@ -39,9 +39,12 @@ const SERVICE_LABELS: Readonly<Record<string, string>> = Object.fromEntries(
 );
 
 const TYPE_TINT: Record<VehicleMemoryEvent['type'], string> = {
-  TRIP:           '#60a5fa',
-  FUEL_RECORD:    '#34d399',
-  SERVICE_RECORD: '#fbbf24',
+  TRIP:            '#60a5fa',
+  FUEL_RECORD:     '#34d399',
+  SERVICE_RECORD:  '#fbbf24',
+  /* Teşhis taraması nötr moru: tek başına "arıza var" RENGİ DEĞİLDİR —
+     taramanın sonucunu metin söyler, renk olay TÜRÜNÜ ayırt eder. */
+  DIAGNOSTIC_SCAN: '#a78bfa',
 };
 
 function dayLabel(key: string): string {
