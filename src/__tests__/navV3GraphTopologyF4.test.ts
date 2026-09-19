@@ -34,11 +34,8 @@ vi.mock('../platform/vehicleDataLayer/UnifiedVehicleStore', () => ({
   useUnifiedVehicleStore: { getState: () => ({ speed: null }) },
 }));
 
-import {
-  parseRoutingGraph, edgeIsOneway, edgeRoadClass, isValidNodeIndex,
-  RTG2_MAGIC, RTG_NODE_STRIDE, RTG2_EDGE_STRIDE, RTG_MAX_EDGE_COUNT,
-  type RoutingGraphView,
-} from '../platform/navigation/map/graph/rtg2Reader';
+import { edgeIsOneway, edgeRoadClass, isValidNodeIndex, RTG2_MAGIC, RTG_NODE_STRIDE, RTG2_EDGE_STRIDE, RTG_MAX_EDGE_COUNT, type RoutingGraphView } from '../platform/navigation/map/graph/rtg2Reader';
+import { parseRoutingGraph } from '../platform/navigation/map/graph/rtg2Parse';
 import {
   buildGraphAdjacency, buildReverseAdjacency, outgoingRange, outDegree,
   edgeEndpoints, isDirectlyConnected,
@@ -1049,7 +1046,10 @@ const graphFiles = () => readdirSync(resolve(SRC, 'platform/navigation/map/graph
 describe('F4 · mimari kilitler', () => {
   it('K1 — `RTG2` ayrıştırıcısı `src/` genelinde TEK tanımlı', () => {
     const hits = walkSrc().filter((f) => readSrc(f).includes('export function parseRoutingGraph'));
-    expect(hits).toEqual(['platform/navigation/map/graph/rtg2Reader.ts']);
+    /* #1218: ayrıştırıcı `rtg2Parse.ts`e TAŞINDI (BigInt sözdizimi legacy
+       startup chunk'ına sızıyordu). Kilit KALDIRILMADI — tek-tanım iddiası
+       yeni sahibi gösterir; ikinci bir ayrıştırıcı hâlâ yasaktır. */
+    expect(hits).toEqual(['platform/navigation/map/graph/rtg2Parse.ts']);
   });
 
   it('K2 — worker içinde İKİNCİ binary ayrıştırma mantığı YOK', () => {

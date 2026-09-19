@@ -11,10 +11,8 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
-import {
-  edgeAccessRole, parseRoutingGraph, turnIsAllowed, viaWayStep,
-  type RoutingGraphView,
-} from '../src/platform/navigation/map/graph/rtg2Reader';
+import { edgeAccessRole, turnIsAllowed, viaWayStep, type RoutingGraphView } from '../src/platform/navigation/map/graph/rtg2Reader';
+import { parseRoutingGraph } from '../src/platform/navigation/map/graph/rtg2Parse';
 import {
   acquireRegionalRoutingGraph, releaseRoutingGraph, _resetGraphResidencyForTest,
 } from '../src/platform/navigation/map/graph/graphResidencyRuntime';

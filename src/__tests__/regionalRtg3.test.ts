@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { parseRoutingGraph } from '../platform/navigation/map/graph/rtg2Reader';
+import { parseRoutingGraph } from '../platform/navigation/map/graph/rtg2Parse';
 import { buildGraphAdjacency, outgoingRange } from '../platform/navigation/map/graph/graphAdjacency';
-import {
-  mergeRegionalGraphViews, validateTurkeyGraphManifest,
-} from '../platform/navigation/map/graph/turkeyGraphManifest';
+import { validateTurkeyGraphManifest } from '../platform/navigation/map/graph/turkeyGraphManifest';
+/* #1218: bölgesel birleştirici BigInt taşır → ayrı modül (tembel yüklenir). */
+import { mergeRegionalGraphViews } from '../platform/navigation/map/graph/regionalGraphMerge';
 import {
   _resetGraphResidencyForTest, acquireRegionalRoutingGraph, getGraphResidencySnapshot,
 } from '../platform/navigation/map/graph/graphResidencyRuntime';

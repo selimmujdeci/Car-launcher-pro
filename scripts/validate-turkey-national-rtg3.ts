@@ -16,7 +16,8 @@ import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
-import { parseRoutingGraph, stableDirectedEdgeId, type RoutingGraphView } from '../src/platform/navigation/map/graph/rtg2Reader';
+import { type RoutingGraphView } from '../src/platform/navigation/map/graph/rtg2Reader';
+import { parseRoutingGraph, stableDirectedEdgeId } from '../src/platform/navigation/map/graph/rtg2Parse';
 import {
   acquireRegionalRoutingGraph, releaseRoutingGraph, _resetGraphResidencyForTest,
   REGIONAL_GRAPH_MAX_BYTES, REGIONAL_GRAPH_MAX_RESIDENT,

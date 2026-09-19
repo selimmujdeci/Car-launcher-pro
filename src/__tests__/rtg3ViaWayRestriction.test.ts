@@ -1,11 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import {
-  parseRoutingGraph, turnIsAllowed, viaWayStep,
-  RTG3_MAGIC, RTG3_VIA_WAY_FLAG, RTG3_VIA_WAY_FINAL, RTG3_MAX_VIA_WAY_SLOTS_PER_EDGE,
-  type RoutingGraphView,
-} from '../platform/navigation/map/graph/rtg2Reader';
+import { turnIsAllowed, viaWayStep, RTG3_MAGIC, RTG3_VIA_WAY_FLAG, RTG3_VIA_WAY_FINAL, RTG3_MAX_VIA_WAY_SLOTS_PER_EDGE, type RoutingGraphView } from '../platform/navigation/map/graph/rtg2Reader';
+import { parseRoutingGraph } from '../platform/navigation/map/graph/rtg2Parse';
 
 /* ══════════════════════════════════════════════════════════════════════════
    Via-way dönüş kısıtı — kenar dizisi semantiği.

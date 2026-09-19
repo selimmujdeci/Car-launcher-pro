@@ -196,7 +196,13 @@ export function shouldAttemptQueuedDelivery(
 ): boolean {
   if (gateAllows) return true;
   if (snapshot.captivePortal === true || snapshot.state === 'CAPTIVE') return false;
-  return snapshot.evidenceAgeMs >= STALE_VERDICT_MS;
+
+  /* Yaş BİLİNMİYOR (`null`) ise olumsuz hükmün TAZE olduğunu İDDİA EDEMEYİZ.
+     `null`u sessizce 0 saymak (eski davranış) "kanıt yok"u "kanıt taptaze"ye
+     çevirirdi ve kuyruğu tam da bu turun kapattığı biçimde süresiz susturabilirdi.
+     Bilinmeyende bir deneme hakkı verilir: başarısız teslim öğeyi silmez. */
+  const ageMs = snapshot.evidenceAgeMs;
+  return ageMs === null || ageMs >= STALE_VERDICT_MS;
 }
 
 // ── ConnectivityService ───────────────────────────────────────────────────────

@@ -13,15 +13,13 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { RTG4_MAGIC, remapViaWayMask, RTG3_VIA_WAY_FLAG, RTG3_VIA_WAY_FINAL, viaWayStep, type RoutingGraphView } from '../platform/navigation/map/graph/rtg2Reader';
+import { parseRoutingGraph, stableDirectedEdgeId } from '../platform/navigation/map/graph/rtg2Parse';
 import {
-  RTG4_MAGIC, parseRoutingGraph, remapViaWayMask, stableDirectedEdgeId,
-  RTG3_VIA_WAY_FLAG, RTG3_VIA_WAY_FINAL, viaWayStep,
-  type RoutingGraphView,
-} from '../platform/navigation/map/graph/rtg2Reader';
-import {
-  planCrossRegionSearchEnvelope, mergeRegionalGraphWindow, validateTurkeyGraphManifest,
-  REGION_WINDOW_NO_LOCAL,
+  planCrossRegionSearchEnvelope, validateTurkeyGraphManifest, REGION_WINDOW_NO_LOCAL,
 } from '../platform/navigation/map/graph/turkeyGraphManifest';
+/* #1218: bölgesel birleştirici BigInt taşır → ayrı modül (tembel yüklenir). */
+import { mergeRegionalGraphWindow } from '../platform/navigation/map/graph/regionalGraphMerge';
 import {
   acquireRegionWindow, releaseRegionWindow, getGraphResidencySnapshot,
   _resetGraphResidencyForTest,

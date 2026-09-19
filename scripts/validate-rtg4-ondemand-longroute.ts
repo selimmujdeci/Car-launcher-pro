@@ -29,7 +29,7 @@ import {
   type RegionWindowIdentity, type TurkeyGraphManifest,
 } from '../src/platform/navigation/map/graph/turkeyGraphManifest';
 import { auditRouteLegality, type RouteLegalityReport } from './rtg4RouteLegalityAudit';
-import { parseRoutingGraph } from '../src/platform/navigation/map/graph/rtg2Reader';
+import { parseRoutingGraph } from '../src/platform/navigation/map/graph/rtg2Parse';
 
 const RUN = resolve(process.env.RTG4_RUN_DIR ?? 'field-runs/rtg4-portal-v2-national-20260908');
 const OUT = resolve(process.env.RTG4_OUT_DIR ?? 'field-runs/rtg4-ondemand-longroute-20260908');

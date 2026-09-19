@@ -18,7 +18,7 @@
  * indeksi ≈ 2,5 MB. Bunu boşta taşımak düşük-uç head unit'te gereksiz bellektir.
  *
  * ── İKİNCİ PARSER YOK ────────────────────────────────────────────────────
- * Ayrıştırma **yalnız** `rtg2Reader.parseRoutingGraph` ile yapılır — worker da
+ * Ayrıştırma **yalnız** `rtg2Parse.parseRoutingGraph` ile yapılır — worker da
  * aynı okuyucuyu kullanır. İki ayrı parser, aynı baytların iki farklı yorumu
  * demektir (kilit test `src/` ağacını tarar).
  *
@@ -31,7 +31,10 @@
  */
 
 import type { RoutingGraphView } from './rtg2Reader';
-import { parseRoutingGraph } from './rtg2Reader';
+/* #1218: ayrıştırıcı BigInt SÖZDİZİMİ taşır ve statik import onu legacy
+   startup chunk'ına sokuyordu (ölçüm: `useStore-legacy` ES2015 parse ölümü).
+   Artık YALNIZ gerçekten graf okunacağı anda `import()` ile yüklenir. */
+import { loadRoutingGraphParser, loadRegionalGraphMerge } from './rtg2ParseLoader';
 import type { GraphAdjacency } from './graphAdjacency';
 import { buildGraphAdjacency, buildReverseAdjacency } from './graphAdjacency';
 import type { EdgeSpatialIndex } from './edgeSpatialIndex';
@@ -39,7 +42,7 @@ import { buildEdgeSpatialIndex } from './edgeSpatialIndex';
 import { recordOfflineGraphOutcome } from '../../offlineRoutingStatus';
 import { readMonotonicNow } from '../../time/navClock';
 import {
-  mergeRegionalGraphViews, mergeRegionalGraphWindow, validateTurkeyGraphManifest,
+  validateTurkeyGraphManifest,
   type RegionWindowIdentity, type TurkeyGraphManifest, type TurkeyGraphRegion,
   type TurkeyGraphAltLandmarkSet,
 } from './turkeyGraphManifest';
@@ -150,7 +153,7 @@ async function _load(): Promise<RoutingGraphView | null> {
     _bytes = buf.byteLength;
 
     const t0 = readMonotonicNow();
-    const parsed = parseRoutingGraph(buf);
+    const parsed = (await loadRoutingGraphParser())(buf);
     const t1 = readMonotonicNow();
     _parseMs = (t0 !== null && t1 !== null) ? Math.max(0, t1 - t0) : null;
 
@@ -248,14 +251,14 @@ export async function acquireRegionalRoutingGraph(
       if (buffer.byteLength !== region!.byteSize || await _sha256(buffer) !== region!.sha256) {
         _report('CORRUPT', `${region!.regionId}: SHA/boyut uyumsuz`); return null;
       }
-      const parsed = parseRoutingGraph(buffer);
+      const parsed = (await loadRoutingGraphParser())(buffer);
       const expectedVersion = manifest.graphFormat === 'RTG4' ? 4 : 3;
       if (parsed.outcome !== 'OK' || !parsed.view || parsed.view.version !== expectedVersion) {
         _report('CORRUPT', `${region!.regionId}: ${parsed.outcome}`); return null;
       }
       views.push(parsed.view);
     }
-    const merged = mergeRegionalGraphViews(views);
+    const merged = (await loadRegionalGraphMerge()).mergeRegionalGraphViews(views);
     if (!merged) { _report('CORRUPT', 'region portal kimlikleri birleştirilemedi'); return null; }
     _strongView = merged; _weakView = new WeakRef(merged); _bytes = bytes;
     _residentRegions = [...requiredRegionIds];
@@ -322,7 +325,15 @@ async function _fetchRegionView(
   if (buffer.byteLength !== region.byteSize || await _sha256(buffer) !== region.sha256) {
     _report('CORRUPT', `${region.regionId}: SHA/boyut uyumsuz`); return null;
   }
-  const parsed = parseRoutingGraph(buffer);
+  /* #1218 FAIL-SOFT: ayrıştırıcı chunk'ı eski WebView'da PARSE EDİLEMEZ
+     (BigInt). `import()` o cihazda reddeder; bu bir ÇÖKME sebebi DEĞİL,
+     "RTG bu cihazda yok" demektir. Sessizce başarı SAYILMAZ: dürüstçe
+     raporlanır ve `null` dönülür — uygulama boot etmeye devam eder. */
+  let parse;
+  try { parse = await loadRoutingGraphParser(); }
+  catch { _report('MISSING', `${region.regionId}: ayrıştırıcı bu cihazda yüklenemiyor`); return null; }
+
+  const parsed = parse(buffer);
   if (parsed.outcome !== 'OK' || !parsed.view || parsed.view.version !== expectedVersion) {
     _report('CORRUPT', `${region.regionId}: ${parsed.outcome}`); return null;
   }
@@ -442,7 +453,17 @@ export async function acquireRegionWindow(
     _onDemandRegionLoads++;
   }
 
-  const merged = mergeRegionalGraphWindow(regionIds.map((id) => _regionCache.get(id)!.view), regionIds);
+  /* Aynı fail-soft gerekçe: birleştirici de BigInt taşır ve eski cihazda
+     yüklenemez. Yüklenemezse pencere AÇILMAZ; yarım birleştirme yayımlanmaz. */
+  let mergeMod;
+  try { mergeMod = await loadRegionalGraphMerge(); }
+  catch {
+    _windowFailClosedReason = 'WINDOW_MERGE_UNAVAILABLE';
+    _report('MISSING', 'bölgesel birleştirici bu cihazda yüklenemiyor');
+    return null;
+  }
+  const merged = mergeMod
+    .mergeRegionalGraphWindow(regionIds.map((id) => _regionCache.get(id)!.view), regionIds);
   if (!merged) {
     _windowFailClosedReason = 'WINDOW_MERGE_FAILED';
     _report('CORRUPT', 'pencere portal kimlikleri birleştirilemedi');

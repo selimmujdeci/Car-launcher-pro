@@ -4574,8 +4574,11 @@ describe('NAV-CORE-P0 kilitleri', () => {
       return out;
     };
     const hits = walk('src').filter((f) => read(f).includes('export function parseRoutingGraph'));
+    /* #1218: ayrıştırıcı `rtg2Parse.ts`e TAŞINDI (BigInt sözdizimi legacy
+       startup chunk'ına sızıyordu). Kilit KALDIRILMADI — tek-sahip iddiası
+       yeni sahibi gösterir; ikinci bir parser hâlâ yasaktır. */
     expect(hits, 'ikinci RTG2 parser').toEqual(
-      ['src/platform/navigation/map/graph/rtg2Reader.ts']);
+      ['src/platform/navigation/map/graph/rtg2Parse.ts']);
   });
 
   it('🔒 NAV v3 F4: worker binary ayrıştırma SAHİBİ DEĞİL (A* sahibi KALDI)', () => {
@@ -4607,8 +4610,15 @@ describe('NAV-CORE-P0 kilitleri', () => {
       'ikinci via-way otomatı').toEqual(['src/platform/navigation/map/graph/rtg2Reader.ts']);
     expect(files.filter((f) => read(f).includes('export function buildViaWayIndex')),
       'ikinci via-way indeks kurucusu').toEqual(['src/platform/navigation/map/graph/rtg2Reader.ts']);
-    /* Yuva/zincir iç yapısına okuyucu DIŞINDA dokunan olmamalı. */
-    const outsiders = files.filter((f) => f !== 'src/platform/navigation/map/graph/rtg2Reader.ts'
+    /* Yuva/zincir iç yapısına okuyucu DIŞINDA dokunan olmamalı.
+       #1218: okuyucu İKİ dosyaya bölündü (`rtg2Reader` saf/statik ·
+       `rtg2Parse` BigInt taşıyan ayrıştırıcı). İkisi TEK mantıksal
+       okuyucudur; kilit gevşetilmedi, sahibi iki dosyayla ifade edildi. */
+    const READER_PAIR = [
+      'src/platform/navigation/map/graph/rtg2Reader.ts',
+      'src/platform/navigation/map/graph/rtg2Parse.ts',
+    ];
+    const outsiders = files.filter((f) => !READER_PAIR.includes(f)
       && stripSrc(read(f)).includes('slotsByEdge'));
     expect(outsiders, 'via-way iç yapısı okuyucu dışına sızdı').toEqual([]);
   });
@@ -4719,7 +4729,7 @@ describe('NAV-CORE-P0 kilitleri', () => {
   });
 
   it('🔒 NAV v3 F4: BOZUK/kısa graf ASLA başarı gibi sunulamaz', async () => {
-    const { parseRoutingGraph } = await import('../platform/navigation/map/graph/rtg2Reader');
+    const { parseRoutingGraph } = await import('../platform/navigation/map/graph/rtg2Parse');
     /* Başlıksız çöp + kesilmiş tablo: ikisi de fail-closed. */
     expect(parseRoutingGraph(new ArrayBuffer(4)).view).toBeNull();
     expect(parseRoutingGraph(new ArrayBuffer(64)).view).toBeNull();

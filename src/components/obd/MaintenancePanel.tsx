@@ -148,7 +148,13 @@ export const MaintenancePanel = memo(() => {
       <div className="flex gap-2 mt-2">
         {/* Yağ değişimi aksiyonu → good token (tamamlandı/onay) */}
         <button
-          onClick={() => updateMaintenance({ lastOilChangeKm: currentKm, lastServiceDate: new Date().toISOString().split('T')[0] })}
+          /* F4 ARTIĞI: burada `currentKm` yazıyordu; o değişken F4'te KALDIRILDI
+             (bkz. yukarıdaki not — `odometer` aracın kilometresi DEĞİL, uygulama
+             içi trip sayacıdır). Tanımsız isim `tsc -b`yi düşürüyordu.
+             Kilometreyi uydurmak yerine YALNIZ gerçekten bildiğimiz şey yazılır:
+             servis TARİHİ. `lastOilChangeKm` kullanıcı girene kadar BİLİNMEZ
+             kalır ve yağ yüzdesi F4'teki gibi hesaplanmaz. */
+          onClick={() => updateMaintenance({ lastServiceDate: new Date().toISOString().split('T')[0] })}
           className="flex-1 py-3 rounded-xl bg-[var(--oem-good-soft)] border border-[var(--oem-good)] text-[color:var(--oem-good)] text-xs font-bold uppercase tracking-widest hover:opacity-80 transition-all active:scale-95"
         >
           Yağ Değişimi Yapıldı

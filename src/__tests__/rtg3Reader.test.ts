@@ -1,9 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import {
-  parseRoutingGraph, RTG3_MAGIC, edgeAccessRole, edgeRoadClass, turnIsAllowed,
-} from '../platform/navigation/map/graph/rtg2Reader';
+import { RTG3_MAGIC, edgeAccessRole, edgeRoadClass, turnIsAllowed } from '../platform/navigation/map/graph/rtg2Reader';
+import { parseRoutingGraph } from '../platform/navigation/map/graph/rtg2Parse';
 
 function fixture(): ArrayBuffer {
   const b = new ArrayBuffer(16 + 3 * 16 + 2 * 28 + 16);

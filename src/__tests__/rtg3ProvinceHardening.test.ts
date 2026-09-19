@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { parseRoutingGraph } from '../platform/navigation/map/graph/rtg2Reader';
+import { parseRoutingGraph } from '../platform/navigation/map/graph/rtg2Parse';
 import { selectRegionalRouteCorridor, validateTurkeyGraphManifest } from '../platform/navigation/map/graph/turkeyGraphManifest';
 import { _resetGraphResidencyForTest, acquireRegionalRoutingGraph, getGraphResidencySnapshot } from '../platform/navigation/map/graph/graphResidencyRuntime';
 
