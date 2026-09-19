@@ -125,6 +125,18 @@ public final class UsbSerialTransport implements ICanTransport {
     @Override
     public boolean isConnected() { return _connected; }
 
+    /**
+     * MRI F-01: USB cihazı ancak kullanıcı Android izin diyaloğunda AÇIKÇA onayladıysa
+     * açılır (`usbManager.hasPermission`, connect()); bu onay bu transportun pozitif
+     * kanıtıdır (USER_GRANTED_USB). Kör UART taramasından farkı: kullanıcı hangi
+     * cihaza izin verdiğini görür; OEM'in iç UART'ı bu yoldan açılamaz.
+     */
+    @Override
+    public boolean writeAuthorized() { return _connected; }
+
+    @Override
+    public String evidenceLabel() { return _connected ? "USER_GRANTED_USB" : "NONE"; }
+
     @Override
     public String name() { return "USB"; }
 

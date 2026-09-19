@@ -34,6 +34,7 @@ import java.util.concurrent.Executors;
 
 import com.cockpitos.pro.can.CanBusManager;
 import com.cockpitos.pro.can.McuCommandFactory;
+import com.cockpitos.pro.can.SerialDiscoveryLedger;
 
 /**
  * CarLauncherForegroundService — arka plan GPS + mola hatırlatıcısı.
@@ -172,6 +173,8 @@ public class CarLauncherForegroundService extends Service {
     /** CanBusManager referansı — plugin başlatınca inject edilir */
     private static volatile CanBusManager sCanBusManager = null;
     private final Runnable watchdogRunnable = this::sendHeartbeat;
+    /** MRI F-01 heartbeat kapısı son defter durumu: null · "ENABLED" · "SUPPRESSED". */
+    private volatile String _heartbeatGateState = null;
 
     public static void setCanBusManager(CanBusManager mgr) {
         sCanBusManager = mgr;
@@ -268,6 +271,11 @@ public class CarLauncherForegroundService extends Service {
      * 1 Hz heartbeat döngüsünü başlatır.
      * Seri port kapalıysa silent fail — port açılınca heartbeat otomatik gider.
      * Native katman donarsa heartbeat kesilir → MCU Safe Mode'a girer.
+     *
+     * MRI F-01 — HEARTBEAT KAPISI: heartbeat YALNIZ yazma yetkisi kanıtlanmış
+     * (`CanBusManager.isWriteAuthorized()`) transporta gider. K24'ü resetleyen ilk
+     * bayt bu döngüden çıkmıştı (OEM MCU hattı /dev/ttyS2'ye 1 Hz heartbeat).
+     * Kanıtsız/gözlemdeki transporta kör yayın YOKTUR; bastırma bir kez defterlenir.
      */
     private void startWatchdog() {
         mainHandler.postDelayed(watchdogRunnable, WATCHDOG_INTERVAL_MS);
@@ -287,12 +295,29 @@ public class CarLauncherForegroundService extends Service {
 
         CanBusManager mgr = sCanBusManager;
         if (mgr != null) {
-            byte[] packet = McuCommandFactory.heartbeat();
-            if (packet != null) {
-                boolean sent = mgr.sendCommand(packet);
-                // Silent operation: sadece verbose seviyede log
-                if (sent) Log.v(TAG, "Heartbeat gönderildi");
-                // Sessiz fail: gönderilmese bile sistemi durdurmaz
+            String port = mgr.openPortPath();   // null → transport yok (zaten hedef yok)
+            if (!mgr.isWriteAuthorized()) {
+                // NO VERIFIED TRANSPORT → NO HEARTBEAT WRITE (fail-closed).
+                // Durum değişince BİR kez defterlenir: transport var ama kanıt yok.
+                if (port != null && !"SUPPRESSED".equals(_heartbeatGateState)) {
+                    _heartbeatGateState = "SUPPRESSED";
+                    SerialDiscoveryLedger.record(SerialDiscoveryLedger.Kind.HEARTBEAT_SUPPRESSED,
+                        port, "evidence=" + mgr.activeEvidenceLabel());
+                }
+                if (port == null) _heartbeatGateState = null;
+            } else {
+                if (!"ENABLED".equals(_heartbeatGateState)) {
+                    _heartbeatGateState = "ENABLED";
+                    SerialDiscoveryLedger.record(SerialDiscoveryLedger.Kind.HEARTBEAT_ENABLED,
+                        String.valueOf(port), "evidence=" + mgr.activeEvidenceLabel());
+                }
+                byte[] packet = McuCommandFactory.heartbeat();
+                if (packet != null) {
+                    boolean sent = mgr.sendCommand(packet);
+                    // Silent operation: sadece verbose seviyede log
+                    if (sent) Log.v(TAG, "Heartbeat gönderildi");
+                    // Sessiz fail: gönderilmese bile sistemi durdurmaz
+                }
             }
         }
         _keepFanOn();
