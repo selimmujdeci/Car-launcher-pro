@@ -27,8 +27,62 @@ import { logError } from './crashLogger';
 const DEVICE_PRIV_KEY     = 'car-e2e-private-key';
 const DEVICE_PUB_KEY      = 'car-e2e-public-key';
 const HKDF_INFO_STR       = 'caros-cmd-v1';
-const TIMESTAMP_WINDOW_MS = 30_000;   // 30 s Replay Attack penceresi
-const NONCE_WINDOW_MS     = 60_000;   // Nonce TTL (kullanılan nonce'lar bu süre tutulur)
+
+/* ── GEÇERLİLİK POLİTİKASI (MRI N-7, 2026-09-19) ───────────────────────────
+ *
+ * ESKİ: zarf 30 s'den eskiyse red (`TIMESTAMP_WINDOW_MS = 30_000`), nonce
+ * 60 s hatırlanıyordu. Oysa ürün katmanı komutu 5 dk geçerli sayıyor
+ * (`vehicle_commands.ttl` = oluşturma + 5 dk; sunucu `ttl > now()` süzer) ve
+ * telefon "araç çevrimdışı — sıraya alındı" diyordu. Araç 30 s'den geç alınca
+ * (çevrimdışı kuyruk, 15 s yoklama gecikmesi, ya da head-unit saati telefondan
+ * 30 s sapmış) meşru komut `Stale Command` ile ölüyordu — retry de yok.
+ *
+ * YENİ INVARIANT: USER-PROMISED VALIDITY == SERVER ACCEPTANCE == CRYPTO POLICY.
+ *   · `COMMAND_VALIDITY_WINDOW_MS` = 5 dk — sunucu TTL'iyle AYNI sayı. Telefon
+ *     (`website/src/lib/commandService.ts`, `COMMAND_TTL_MS`) da aynı değeri yazar.
+ *   · Tazelik referansı MÜMKÜNSE SUNUCU SAATİDİR (`validity.serverNowMs`,
+ *     yoklama yanıtının `Date` başlığından; bkz. `serverClock`). Head-unit
+ *     duvar saati yalnız sunucu gözlemi yokken kullanılır.
+ *   · Zarf, DB satırına BAĞLANIR: şifreli `_ts` ile sunucunun `created_at`'i
+ *     `CLOCK_SKEW_TOLERANCE_MS` içinde olmalı. Eski bir zarfı yeni satır olarak
+ *     yeniden sokmak (replay) nonce hafızası dolsa bile buradan reddedilir.
+ *   · Nonce hafızası pencereden UZUNDUR: pencere içindeki her zarf nonce'la,
+ *     pencere dışındaki her zarf yaşla reddedilir → replay boşluğu yok.
+ *
+ * Replay güvenliği ZAYIFLAMADI: nonce + satır bağlama + yaş üst sınırı birlikte
+ * eski 30 s kuralından daha dar bir kabul kümesi tanımlar (yaş sınırı büyüdü ama
+ * satır bağlama eklendi; nonce ömrü yaş sınırının üstünde).
+ */
+/** Komutun ürünce vaat edilen geçerlilik süresi — sunucu TTL'i ile birebir (5 dk). */
+export const COMMAND_VALIDITY_WINDOW_MS = 5 * 60_000;
+/** Telefon↔sunucu / head-unit↔sunucu saat sapması toleransı (gelecek tarihli zarf dâhil). */
+export const CLOCK_SKEW_TOLERANCE_MS     = 60_000;
+/** Nonce hafızası: pencere + iki yönlü sapma → pencere içinde unutulan nonce yok. */
+export const NONCE_WINDOW_MS             = COMMAND_VALIDITY_WINDOW_MS + 2 * CLOCK_SKEW_TOLERANCE_MS;
+
+/** Zaman kanıtı — çağıran (commandListener) sunucu satırından/yanıtından taşır. */
+export interface CommandValidityContext {
+  /** Sunucu saatinin tahmini (ms). `null` = gözlem yok → yerel saat kullanılır. */
+  readonly serverNowMs?: number | null;
+  /** DB satırının sunucu-yazımlı `created_at` değeri (ms). Varsa zarf ona bağlanır. */
+  readonly rowCreatedAtMs?: number | null;
+}
+
+/**
+ * SAF yaş kararı — test edilebilir. `age = ref − ts`.
+ * Kabul: `-CLOCK_SKEW_TOLERANCE_MS ≤ age ≤ COMMAND_VALIDITY_WINDOW_MS`.
+ */
+export function isEnvelopeAgeAcceptable(ageMs: number): boolean {
+  return Number.isFinite(ageMs)
+    && ageMs >= -CLOCK_SKEW_TOLERANCE_MS
+    && ageMs <= COMMAND_VALIDITY_WINDOW_MS;
+}
+
+/** SAF: zarf damgası sunucu satırıyla uyumlu mu (|_ts − created_at| ≤ tolerans). */
+export function isEnvelopeBoundToRow(innerTsMs: number, rowCreatedAtMs: number): boolean {
+  return Number.isFinite(innerTsMs) && Number.isFinite(rowCreatedAtMs)
+    && Math.abs(innerTsMs - rowCreatedAtMs) <= CLOCK_SKEW_TOLERANCE_MS;
+}
 
 // Legacy PBKDF2
 const PBKDF2_SALT  = 'caros-cmd-crypto-v1';
@@ -346,8 +400,9 @@ export async function encryptE2EPayload(
  * Başarı: temiz uygulama payload nesnesini döner.
  * Hata:   açıklayıcı mesajla Error fırlatır — çağıran ASLA komutu icra etmemeli.
  *
- * @throws 'Stale Command: Xs old'     — 30 s pencere dışı (erken red, ECDH yapılmadan)
- * @throws 'Stale Command (inner)'     — şifreli _ts tamper edilmiş
+ * @throws 'Stale Command: Xs old'     — geçerlilik penceresi dışı (erken red, ECDH yapılmadan)
+ * @throws 'Stale Command (inner)'     — şifreli _ts tamper edilmiş / pencere dışı
+ * @throws 'Stale Command (row)'       — zarf damgası DB satırının created_at'ine bağlanamadı
  * @throws 'Replay Attack'             — nonce daha önce kullanılmış
  * @throws 'Decryption Error: ...'     — yanlış anahtar, bozuk veri veya geçersiz format
  */
@@ -362,11 +417,18 @@ export async function decryptE2EPayload(
      * Enjeksiyon deseni: commandCrypto Capacitor'a bağımlı kalmaz, test-edilebilir.
      */
     crossChannelNonceCheck?: (nonce: string) => Promise<boolean | undefined>;
+    /** MRI N-7: sunucu saati / satır damgası — tazelik yerel duvar saatine mahkûm değil. */
+    validity?: CommandValidityContext;
   },
 ): Promise<Record<string, unknown>> {
+  /* Tazelik referansı: sunucu saati (yoklama `Date` başlığı) varsa o; yoksa yerel. */
+  const refNow = typeof opts?.validity?.serverNowMs === 'number' && Number.isFinite(opts.validity.serverNowMs)
+    ? opts.validity.serverNowMs
+    : Date.now();
+
   // 1. Erken timestamp kontrolü — ECDH hesabından önce (Mali-400 tasarrufu)
-  const outerAge = Date.now() - encrypted.ts;
-  if (outerAge < 0 || outerAge > TIMESTAMP_WINDOW_MS) {
+  const outerAge = refNow - encrypted.ts;
+  if (!isEnvelopeAgeAcceptable(outerAge)) {
     throw new Error(`Stale Command: ${Math.round(outerAge / 1000)}s old`);
   }
 
@@ -415,9 +477,21 @@ export async function decryptE2EPayload(
   // 6. Otoriter timestamp kontrolü (_ts şifreli içindeydi, manipüle edilemez)
   const innerTs = inner._ts;
   if (typeof innerTs !== 'number') throw new Error('Decryption Error: missing _ts');
-  const innerAge = Date.now() - innerTs;
-  if (innerAge < 0 || innerAge > TIMESTAMP_WINDOW_MS) {
+  const innerAge = refNow - innerTs;
+  if (!isEnvelopeAgeAcceptable(innerAge)) {
     throw new Error(`Stale Command (inner): ${Math.round(innerAge / 1000)}s old`);
+  }
+
+  // 6b. SATIR BAĞLAMA (MRI N-7): zarf, sunucunun `created_at`'i ile aynı komuta ait
+  //     olmalı. Eski bir zarfı yeni satır olarak yeniden sokmak burada düşer —
+  //     nonce hafızasından BAĞIMSIZ ikinci replay katmanı.
+  const rowCreatedAt = opts?.validity?.rowCreatedAtMs;
+  if (typeof rowCreatedAt === 'number' && Number.isFinite(rowCreatedAt)) {
+    if (!isEnvelopeBoundToRow(innerTs, rowCreatedAt)) {
+      throw new Error(
+        `Stale Command (row): zarf ${Math.round((innerTs - rowCreatedAt) / 1000)}s satırdan sapmış`,
+      );
+    }
   }
 
   // 7. Nonce deduplication — Replay Attack koruması

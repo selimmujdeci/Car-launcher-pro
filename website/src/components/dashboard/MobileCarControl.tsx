@@ -210,7 +210,7 @@ function CommandToast({ result }: { result: CommandResult }) {
         </div>
         <div className="flex-1 min-w-0">
           <p className="text-sm font-bold text-yellow-300 leading-tight truncate">Sıraya Alındı</p>
-          <p className="text-[10px] mt-0.5 text-yellow-400/55">Araç çevrimiçi olduğunda otomatik çalışacak</p>
+          <p className="text-[10px] mt-0.5 text-yellow-400/55">{EVIDENCE_DETAIL.QUEUED}</p>
         </div>
       </div>
     );

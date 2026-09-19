@@ -56,12 +56,23 @@ public final class NativeCryptoManager {
 
     private static final String TAG           = "NativeCrypto";
     private static final String HKDF_INFO     = "caros-cmd-v1";
+    /*
+     * MRI N-7 (2026-09-19): JS tarafı (`commandCrypto.ts`) zarf yaşını artık ürün
+     * TTL'i (5 dk) + saat toleransı ile ve SUNUCU saatine göre değerlendiriyor.
+     * Bu native uyku yolu DORMANT'tır: güncel Push-to-Wake mesajı (`fcmDelivery.ts
+     * buildWakeMessage`) `e2e_payload`/`cmd_id` taşımaz, dolayısıyla
+     * `decryptCommandPayload` üretimde çağrılmaz. Kasıtlı olarak DAHA DAR (30 s,
+     * yerel saat) bırakıldı: dormant bir yürütücünün JS'ten daha geniş kabul
+     * etmesi istenmez (fail-closed). Yalnız paylaşılan nonce hafızası JS ile
+     * hizalandı (aşağıda) — cross-channel replay kontrolü pencere içinde unutmasın.
+     */
     private static final long   TS_WINDOW_MS  = 30_000L;
 
-    // C10: Replay koruması — kullanılmış _nonce'lar persist edilir (JS commandCrypto
-    // NONCE_WINDOW_MS=60s ile uyumlu; restart sonrası da replay engellenir).
+    // C10: Replay koruması — kullanılmış _nonce'lar persist edilir; restart sonrası
+    // da replay engellenir. JS `commandCrypto.NONCE_WINDOW_MS` ile BİREBİR aynı:
+    // 5 dk geçerlilik + 2×60 s saat toleransı = 7 dk (MRI N-7).
     private static final String NONCE_PREFS     = "native_e2e_nonces";
-    private static final long   NONCE_WINDOW_MS = 60_000L;
+    private static final long   NONCE_WINDOW_MS = 7 * 60_000L;
 
     /** CarLauncherPlugin secureStoreGet'te kullandığı EncryptedSharedPreferences alias */
     private static final String PRIV_KEY_STORE_KEY = "car-e2e-private-key";

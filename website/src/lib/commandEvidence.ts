@@ -30,6 +30,7 @@
  */
 
 import type { CommandStatus, CommandType } from './commandService';
+import { COMMAND_TTL_MINUTES } from './commandService';
 
 /**
  * Kanıt seviyeleri — zayıftan güçlüye.
@@ -113,7 +114,7 @@ export const EVIDENCE_TITLE: Readonly<Record<CommandEvidenceLevel, string>> = Ob
  * DÜRÜSTÇE söyler — sessizce "oldu" ima etmez.
  */
 export const EVIDENCE_DETAIL: Readonly<Record<CommandEvidenceLevel, string>> = Object.freeze({
-  QUEUED:    'Araç çevrimiçi olduğunda otomatik çalışacak',
+  QUEUED:    `Araç ${COMMAND_TTL_MINUTES} dk içinde çevrimiçi olursa çalışacak; sonra iptal olur`,
   RECEIVED:  'Araç komutu okudu, yürütüyor',
   DELIVERED: 'Araç komutu yürüttü — sonucu araçtan kontrol edin',
   VERIFIED:  'Araç eylemin gerçekleştiğini bildirdi',

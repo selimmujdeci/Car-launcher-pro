@@ -6,7 +6,7 @@
  *  - encryptE2EPayload + decryptE2EPayload tam tur (Round-Trip)
  *  - PFS: her mesajda farklı eph_pub ve ciphertext (Perfect Forward Secrecy)
  *  - Replay Attack: aynı nonce ikinci kez reddedilir
- *  - Timestamp penceresi: 30 s dışı komut reddedilir (erken + geç)
+ *  - Geçerlilik penceresi (MRI N-7): ürün TTL'i (5 dk) dışı komut reddedilir; sunucu saati + satır bağlama
  *  - Şifreli _ts manipülasyonu → "Stale Command (inner)" hatası
  *  - Bozuk ephemeral key → "Decryption Error: invalid ephemeral public key"
  *  - Yanlış araç private key → "Decryption Error: invalid ciphertext or wrong key"
@@ -20,7 +20,7 @@
  * Edge Case Riskleri:
  *  [LOW]  Çok büyük payload (>10KB) Mali-400'de AES-GCM süresi ölçülmedi
  *  [LOW]  P-256 dışı eğri reject path'i test edilmedi (runtime'da fırlatır)
- *  [INFO] NONCE_WINDOW_MS=60s → ağır trafik altında bellek baskısı minimal
+ *  [INFO] NONCE_WINDOW_MS=7dk (MRI N-7: geçerlilik 5 dk + 2×60 s tolerans) → bellek baskısı minimal
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -60,6 +60,11 @@ import {
   isE2EPayload,
   isEncryptedPayload,
   type E2EEncryptedPayload,
+  COMMAND_VALIDITY_WINDOW_MS,
+  CLOCK_SKEW_TOLERANCE_MS,
+  NONCE_WINDOW_MS,
+  isEnvelopeAgeAcceptable,
+  isEnvelopeBoundToRow,
 } from '../platform/commandCrypto';
 
 /* ── Yardımcılar ───────────────────────────────────────────── */
@@ -290,34 +295,139 @@ describe('Timestamp validation — stale komut reddi', () => {
     carPubB64 = b64enc(new Uint8Array(spki));
   });
 
-  it('outer ts 31 saniye geride → "Stale Command" hatası (ECDH yapılmadan)', async () => {
+  /* MRI N-7 (2026-09-19): pencere 30 s DEĞİL, ürün TTL'i (5 dk) + saat toleransı.
+     Eski "31 s geride → Stale" iddiası, telefonun "sıraya alındı" dediği komutu
+     araçta öldürüyordu; artık gerçek sınır COMMAND_VALIDITY_WINDOW_MS'dir. */
+  it('outer ts pencere DIŞINDA (5 dk + 1 s) → "Stale Command" hatası (ECDH yapılmadan)', async () => {
     const enc = await encryptE2EPayload({ cmd: 'test' }, carPubB64);
-    // outer ts'yi 31 s geride göster
-    const stale: E2EEncryptedPayload = { ...enc, ts: Date.now() - 31_000 };
+    const stale: E2EEncryptedPayload = { ...enc, ts: Date.now() - COMMAND_VALIDITY_WINDOW_MS - 1_000 };
 
     await expect(decryptE2EPayload(stale, carPair.privateKey))
       .rejects.toThrow('Stale Command');
   });
 
-  it('outer ts gelecekte (negatif yaş) → "Stale Command" hatası', async () => {
+  it('outer ts gelecekte, tolerans DIŞI (+61 s) → "Stale Command" hatası', async () => {
     const enc = await encryptE2EPayload({ cmd: 'test' }, carPubB64);
-    const future: E2EEncryptedPayload = { ...enc, ts: Date.now() + 60_000 };
+    const future: E2EEncryptedPayload = { ...enc, ts: Date.now() + CLOCK_SKEW_TOLERANCE_MS + 1_000 };
 
     await expect(decryptE2EPayload(future, carPair.privateKey))
       .rejects.toThrow('Stale Command');
   });
 
-  it('28 saniye önce oluşturulmuş paket → kabul edilir', async () => {
-    // Bu test ts'yi doğrudan geçerli tutarak şifreler
+  it('outer ts 28 saniye geride → kabul edilir (eski sınırın içi, yeni sınırın da içi)', async () => {
     const enc = await encryptE2EPayload({ cmd: 'ok' }, carPubB64);
-    // Outer ts'yi 28 s geride ayarla — pencere içinde
     const recent: E2EEncryptedPayload = { ...enc, ts: Date.now() - 28_000 };
-
-    // Inner _ts hâlâ şu anki zamanı gösterdiği için inner check geçer
-    // Outer ts 28s < 30s TIMESTAMP_WINDOW_MS → erken red yapılmaz
-    // AMA inner _ts da taze olduğu için başarılı olabilir ya da olmayabilir
-    // Bu test sadece outer check'in 30s sınırını doğrular
     await expect(decryptE2EPayload(recent, carPair.privateKey)).resolves.toBeDefined();
+  });
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   5b. MRI N-7 — GEÇERLİLİK POLİTİKASI (kuyruk · yoklama gecikmesi · saat sapması)
+═══════════════════════════════════════════════════════════════ */
+
+describe('MRI N-7 — komut geçerliliği == ürün TTL == kripto penceresi', () => {
+  let carPair: CryptoKeyPair;
+  let carPubB64: string;
+
+  beforeEach(async () => {
+    carPair = await makeKeyPair();
+    const spki = await crypto.subtle.exportKey('spki', carPair.publicKey);
+    carPubB64 = b64enc(new Uint8Array(spki));
+  });
+
+  /** Telefonun `ts` anını geriye taşıyan sahte zarf: inner _ts de aynı ana çekilir. */
+  async function envelopeCreatedAt(atMs: number, payload: Record<string, unknown> = { cmd: 'unlock' }) {
+    const spy = vi.spyOn(Date, 'now').mockReturnValue(atMs);
+    try { return await encryptE2EPayload(payload, carPubB64); } finally { spy.mockRestore(); }
+  }
+
+  it('INVARIANT: nonce hafızası geçerlilik penceresinden UZUN (replay boşluğu yok)', () => {
+    expect(NONCE_WINDOW_MS).toBeGreaterThan(COMMAND_VALIDITY_WINDOW_MS + CLOCK_SKEW_TOLERANCE_MS);
+    expect(COMMAND_VALIDITY_WINDOW_MS).toBe(5 * 60_000);   // sunucu TTL'i (PWA COMMAND_TTL_MS)
+  });
+
+  it('SAF yaş kararı: pencere içi kabul, dışı red, küçük gelecek toleransı', () => {
+    expect(isEnvelopeAgeAcceptable(0)).toBe(true);
+    expect(isEnvelopeAgeAcceptable(4 * 60_000)).toBe(true);
+    expect(isEnvelopeAgeAcceptable(COMMAND_VALIDITY_WINDOW_MS)).toBe(true);
+    expect(isEnvelopeAgeAcceptable(COMMAND_VALIDITY_WINDOW_MS + 1)).toBe(false);
+    expect(isEnvelopeAgeAcceptable(-CLOCK_SKEW_TOLERANCE_MS)).toBe(true);
+    expect(isEnvelopeAgeAcceptable(-CLOCK_SKEW_TOLERANCE_MS - 1)).toBe(false);
+    expect(isEnvelopeAgeAcceptable(Number.NaN)).toBe(false);
+  });
+
+  it('SAF satır bağlama: |_ts − created_at| toleransta ise bağlı', () => {
+    const t = 1_700_000_000_000;
+    expect(isEnvelopeBoundToRow(t, t + 2_000)).toBe(true);
+    expect(isEnvelopeBoundToRow(t, t - CLOCK_SKEW_TOLERANCE_MS)).toBe(true);
+    expect(isEnvelopeBoundToRow(t, t + CLOCK_SKEW_TOLERANCE_MS + 1)).toBe(false);
+    expect(isEnvelopeBoundToRow(Number.NaN, t)).toBe(false);
+  });
+
+  it('2) Meşru yoklama gecikmesi: 4 dk önce oluşturulmuş (çevrimdışı kuyruk) komut KABUL edilir', async () => {
+    const createdAt = Date.now() - 4 * 60_000;
+    const enc = await envelopeCreatedAt(createdAt);
+    const dec = await decryptE2EPayload(enc, carPair.privateKey, {
+      validity: { serverNowMs: Date.now(), rowCreatedAtMs: createdAt + 500 },
+    });
+    expect(dec.cmd).toBe('unlock');
+  });
+
+  it('4) Gerçekten süresi dolmuş (6 dk) komut REDDEDİLİR', async () => {
+    const createdAt = Date.now() - 6 * 60_000;
+    const enc = await envelopeCreatedAt(createdAt);
+    await expect(decryptE2EPayload(enc, carPair.privateKey, {
+      validity: { serverNowMs: Date.now(), rowCreatedAtMs: createdAt + 500 },
+    })).rejects.toThrow('Stale Command');
+  });
+
+  it('3) Head-unit saati 3 dk GERİDE: sunucu saatiyle değerlendirilen taze komut REDDEDİLMEZ', async () => {
+    const trueNow = Date.now();
+    const enc = await envelopeCreatedAt(trueNow - 10_000);           // telefon: 10 s önce
+    const huClock = vi.spyOn(Date, 'now').mockReturnValue(trueNow - 3 * 60_000);
+    try {
+      /* Yerel saate göre zarf "gelecekten" (−170 s) gelirdi → eski kod reddederdi.
+         Sunucu saati gözlemi (yoklama Date başlığı) referans olunca yaş 10 s'dir. */
+      const dec = await decryptE2EPayload(enc, carPair.privateKey, {
+        validity: { serverNowMs: trueNow, rowCreatedAtMs: trueNow - 10_000 },
+      });
+      expect(dec.cmd).toBe('unlock');
+    } finally { huClock.mockRestore(); }
+  });
+
+  it('3b) Head-unit saati 3 dk İLERİDE ve sunucu gözlemi YOK: yerel saate düşer, 10 s\'lik komut yine kabul (pencere 5 dk)', async () => {
+    const trueNow = Date.now();
+    const enc = await envelopeCreatedAt(trueNow - 10_000);
+    const huClock = vi.spyOn(Date, 'now').mockReturnValue(trueNow + 3 * 60_000);
+    try {
+      const dec = await decryptE2EPayload(enc, carPair.privateKey, { validity: { serverNowMs: null } });
+      expect(dec.cmd).toBe('unlock');
+    } finally { huClock.mockRestore(); }
+  });
+
+  it('REPLAY (satır bağlama): eski zarf yeni satırla yeniden sokulursa REDDEDİLİR — nonce hafızası olmasa bile', async () => {
+    const createdAt = Date.now() - 3 * 60_000;
+    const enc = await envelopeCreatedAt(createdAt);                  // 3 dk önceki zarf
+    await expect(decryptE2EPayload(enc, carPair.privateKey, {
+      validity: { serverNowMs: Date.now(), rowCreatedAtMs: Date.now() },   // "yeni" satır
+    })).rejects.toThrow('Stale Command (row)');
+  });
+
+  it('5) REPLAY (nonce): aynı zarf ikinci kez → "Replay Attack" (pencere içinde bile)', async () => {
+    const createdAt = Date.now() - 60_000;
+    const enc = await envelopeCreatedAt(createdAt);
+    const validity = { serverNowMs: Date.now(), rowCreatedAtMs: createdAt };
+    await expect(decryptE2EPayload(enc, carPair.privateKey, { validity })).resolves.toBeDefined();
+    await expect(decryptE2EPayload(enc, carPair.privateKey, { validity })).rejects.toThrow('Replay Attack');
+  });
+
+  it('1) Çevrimiçi + taze komut → kabul (sunucu saati ve satır bağlamayla)', async () => {
+    const createdAt = Date.now() - 1_000;
+    const enc = await envelopeCreatedAt(createdAt);
+    const dec = await decryptE2EPayload(enc, carPair.privateKey, {
+      validity: { serverNowMs: Date.now(), rowCreatedAtMs: createdAt + 300 },
+    });
+    expect(dec.cmd).toBe('unlock');
   });
 });
 

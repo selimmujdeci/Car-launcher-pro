@@ -15,6 +15,8 @@ import { Capacitor }              from '@capacitor/core';
 import { sensitiveKeyStore }      from './sensitiveKeyStore';
 import { connectivityService }    from './connectivityService';
 import { CarLauncher }            from './nativePlugin';
+/* MRI N-7: sunucu `Date` başlığı gözlemi — komut geçerliliği yerel saate mahkûm kalmasın. */
+import { observeServerDate }      from './serverClock';
 
 const SK_DEVICE_ID  = 'veh_device_id'  as const;
 const SK_API_KEY    = 'veh_api_key'    as const;
@@ -553,6 +555,9 @@ export async function callVehicleRpc(
       headers: { 'Content-Type': 'application/json', apikey: SUPABASE_ANON_KEY },
       body: JSON.stringify({ p_api_key: apiKey, ...args }),
     });
+    /* Sunucu saati gözlemi: yanıt (hata olsa bile) sunucudan geldiyse `Date`
+       başlığı sunucu-yazımlıdır. Sır içermez; offset dışında hiçbir şey saklanmaz. */
+    try { observeServerDate(res.headers.get('date'), `rpc:${fn}`); } catch { /* gözlem opsiyonel */ }
     if (!res.ok) return null;
     return await res.json();
   } catch {

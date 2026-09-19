@@ -73,10 +73,25 @@ export interface CommandPayload {
 export interface SendResult {
   ok:         boolean;
   commandId?: string;
-  queued?:    boolean;  // true: araç offline, komut sıraya alındı
+  /**
+   * true: araç çevrimdışı; komut satırı `COMMAND_TTL_MS` boyunca sunucuda bekler.
+   * Araç bu süre içinde yoklama yaparsa komutu alır; süre dolarsa sunucu satırı
+   * bir daha VERMEZ (`fetch_pending_vehicle_commands` `ttl > now()`), telefon
+   * `EXPIRED` görür. Araç tarafı da aynı 5 dk'yı kabul eder (MRI N-7:
+   * `src/platform/commandCrypto.COMMAND_VALIDITY_WINDOW_MS`).
+   */
+  queued?:    boolean;
   error?:     string;
   code?:      'ACCOUNT_CLEANUP_LOCKDOWN' | 'SECURITY_RUNTIME_UNAVAILABLE';
 }
+
+/**
+ * Komutun ürünce vaat edilen geçerlilik süresi — `vehicle_commands.ttl`.
+ * Araç tarafındaki kripto kabul penceresiyle (`COMMAND_VALIDITY_WINDOW_MS`)
+ * BİREBİR aynı olmak ZORUNDADIR; iki sayı ayrışırsa "sıraya alındı" yalan olur.
+ */
+export const COMMAND_TTL_MS = 5 * 60_000;
+export const COMMAND_TTL_MINUTES = COMMAND_TTL_MS / 60_000;
 
 export interface SendCommandOptions {
   requireCriticalAuth?: boolean;
@@ -217,7 +232,7 @@ export async function sendCommand(
   }
 
   const nonce = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  const ttl   = new Date(Date.now() + 5 * 60_000).toISOString();
+  const ttl   = new Date(Date.now() + COMMAND_TTL_MS).toISOString();
 
   // Kritik komut: PIN hash ile verify_and_send_critical_command RPC
   if (isCriticalCommand(type) && options.pinHash) {
