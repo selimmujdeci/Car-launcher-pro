@@ -59,16 +59,22 @@
 --        ⚠️ PRIVATE anahtar depoya, log'a, dokümana YAZILMAZ.
 --      Anahtar yoksa istemci `FAILED/NO_VAPID_KEY` der (F5.1) — sahte
 --      "aktif" ÜRETMEZ, yani bu adım atlanırsa ürün YALAN SÖYLEMEZ.
---   2. Slug çakışması çözülür: A ve B AYNI ada deploy EDİLEMEZ.
---      Önerilen ayrım (kod değişikliği gerektirir, bu turda YAPILMADI):
---        `push-notify`  → A (tüketici Web Push)
---        `vehicle-wake` → B (FCM araç uyandırma)
---      Çağrı yerleri B'yi bekliyor; yeniden adlandırma ONLARI DA günceller:
---        website/src/lib/commandService.ts:96      (Push-to-Wake → B)
---        src/platform/commandListener.ts:78        (araç tarafı    → B)
---        website/src/store/vehicleStore.ts:285     (insan bildirimi→ A, auth EKSİK)
---      Sıra ÖNEMLİ: önce B yeni adına deploy edilip doğrulanır, SONRA A
---      eski ada konur. Ters sırada Push-to-Wake penceresi kapanır.
+--   2. Slug çakışması ÇÖZÜLDÜ (F5.2):
+--        A (tüketici Web Push) → `supabase/functions/consumer-push-notify`
+--        B (araç uyandırma)    → `website/supabase/functions/push-notify`
+--      A taşındı, B YERİNDE BIRAKILDI. Neden bu yön: B production'da CANLI ve
+--      Push-to-Wake'i taşıyor; çağrı yerleri (`commandService.ts`,
+--      `commandListener.ts`) ve native `CommandService.java` onun slug'ını
+--      bekliyor. B'yi yeniden adlandırmak koordineli bir fonksiyon+website
+--      deploy'u gerektirir ve ARADA Push-to-Wake penceresini kapatır — bu
+--      turda BİLİNÇLİ OLARAK yapılmadı. A ise production'da zaten ölüydü,
+--      taşınması sıfır risklidir.
+--      Artık `supabase functions deploy <slug>` hangi dizinden koşulursa
+--      koşulsun diğerini EZEMEZ. Regresyon kilidi:
+--        src/__tests__/pushArchitectureSeparationF52.test.ts
+--      KALAN İŞ (ayrı, koordineli tur): B'yi `vehicle-push-wake` gibi
+--      anlamını söyleyen bir ada taşımak — önce fonksiyon yeni ada deploy
+--      edilir ve doğrulanır, SONRA çağıranlar güncellenir.
 --   3. Bu migration `supabase db push` ile ÖNCE staging'e
 --      (azvmrbjaxiwzaweraozi) uygulanır ve orada doğrulanır.
 --   4. Doğrulama: aşağıdaki §4 bloğu hatasız geçmeli.
@@ -97,6 +103,24 @@ CREATE TABLE IF NOT EXISTS public.push_subscriptions (
 
 CREATE INDEX IF NOT EXISTS push_subs_user_idx
   ON public.push_subscriptions (user_id);
+
+-- ── F5.2 DENETİM NOTU · HESAP DEĞİŞİMİ ve endpoint SAHİPLİĞİ ────────
+-- `endpoint` GLOBAL olarak UNIQUE'tir ve bu BİLİNÇLİDİR. Alternatif
+-- (`UNIQUE(user_id, endpoint)`) aynı tarayıcı endpoint'ini İKİ kullanıcıya
+-- birden bağlardı; gönderici o endpoint'e yazdığında B, A'nın aracına ait
+-- bildirimi görürdü. Yani "kullanıcı başına unique" bir SIZINTI yoludur.
+--
+-- Sonuç (kabul edilen davranış): aynı tarayıcıda A çıkış yapmadan B giriş
+-- yaparsa, B'nin upsert'i A'nın satırını RLS yüzünden GÖREMEZ ve kayıt
+-- BAŞARISIZ olur. Bu FAIL-CLOSED'dur ve doğrudur:
+--   · B, A'nın aboneliğini DEVRALMAZ (sızıntı yok),
+--   · istemci bunu sessizce yutmaz — `FAILED/BACKEND_PERSIST_FAILED` der.
+--
+-- "endpoint'i talep eden herkes devralabilsin" TÜRÜ bir policy EKLENMEDİ:
+-- endpoint'i bilen biri başkasının kaydını silebilir/ele geçirebilirdi.
+-- Güvenli kurtarma yolu İSTEMCİDEDİR: `pushEngine.unsubscribe()` ile eski
+-- abonelik iptal edilir, yeniden `subscribe()` YENİ bir endpoint üretir.
+-- Kanonik çıkış temizliği (`DEVICE_AND_PUSH_REVOKE`) bunu zaten yapar.
 
 -- ── 2. RLS — fail-closed, sahiplik ZORUNLU ──────────────────────────
 ALTER TABLE public.push_subscriptions ENABLE ROW LEVEL SECURITY;

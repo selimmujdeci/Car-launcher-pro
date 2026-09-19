@@ -1,5 +1,24 @@
 /**
- * push-notify — Supabase Edge Function
+ * consumer-push-notify — TÜKETİCİ (Arabam Cebimde) Web Push göndericisi.
+ *
+ * ── İNSANA BİLDİRİM ≠ ARACI UYANDIRMA ────────────────────────────────────
+ * Bu fonksiyon İNSANA görünür bildirim gönderir (Web Push / VAPID) ve hedefi
+ * DAİMA tüketici yüzeyidir (`/kumanda`).
+ *
+ * Aracı uyandıran (Push-to-Wake) fonksiyon AYRIDIR:
+ *   `website/supabase/functions/push-notify` — FCM data-only,
+ *   `vehicle_push_tokens` okur, görünür bildirim GÖNDERMEZ.
+ *
+ * ÖLÇÜLEN KUSUR (F5.1, 2026-09-18): İKİSİ de `push-notify` slug'ını
+ * paylaşıyordu. Bir slug'a yalnız BİRİ deploy edilebildiği için production'da
+ * FCM sürümü canlıydı ve tüketici Web Push yolu TAMAMEN ÖLÜYDÜ
+ * (ölçüm: `GET /functions/v1/push-notify` → 405, yalnız FCM sürümünün method
+ * kapısından çıkan yanıt). Slug'lar AYRILDI; artık deploy sırasında biri
+ * diğerini EZEMEZ.
+ *
+ * Eski ad: `push-notify` (kök). Yeni ad: `consumer-push-notify`.
+ *
+ * ── Supabase Edge Function
  *
  * POST /functions/v1/push-notify
  * Body: { event, vehicleId, payload }
@@ -82,7 +101,10 @@ function buildPayload(event: PushEvent, data: Record<string, unknown>): PushPayl
         icon:   `${appUrl}/icons/icon-192.svg`,
         badge:  `${appUrl}/icons/badge-72.svg`,
         tag:    `alarm-${String(data.vehicleId ?? '')}`,
-        url:    `${appUrl}/dashboard`,
+        /* TÜKETİCİ fonksiyonu filo yüzeyine YÖNLENDİREMEZ: kullanıcı kendi
+           ürününden çıkıp hiç kullanmadığı panele atılırdı (F5 saha kusuru).
+           `sw.js` allowlist'i zaten reddeder; kaynakta da doğru olsun. */
+        url:    `${appUrl}/kumanda`,
         urgent: true,
       };
     case 'geofence_breach':
@@ -92,7 +114,10 @@ function buildPayload(event: PushEvent, data: Record<string, unknown>): PushPayl
         icon:   `${appUrl}/icons/icon-192.svg`,
         badge:  `${appUrl}/icons/badge-72.svg`,
         tag:    `geo-${String(data.vehicleId ?? '')}`,
-        url:    `${appUrl}/dashboard`,
+        /* TÜKETİCİ fonksiyonu filo yüzeyine YÖNLENDİREMEZ: kullanıcı kendi
+           ürününden çıkıp hiç kullanmadığı panele atılırdı (F5 saha kusuru).
+           `sw.js` allowlist'i zaten reddeder; kaynakta da doğru olsun. */
+        url:    `${appUrl}/kumanda`,
         urgent: false,
       };
     case 'speed_alert':
@@ -118,7 +143,10 @@ function buildPayload(event: PushEvent, data: Record<string, unknown>): PushPayl
         icon:   `${appUrl}/icons/icon-192.svg`,
         badge:  `${appUrl}/icons/badge-72.svg`,
         tag:    `offline-${String(data.vehicleId ?? '')}`,
-        url:    `${appUrl}/dashboard`,
+        /* TÜKETİCİ fonksiyonu filo yüzeyine YÖNLENDİREMEZ: kullanıcı kendi
+           ürününden çıkıp hiç kullanmadığı panele atılırdı (F5 saha kusuru).
+           `sw.js` allowlist'i zaten reddeder; kaynakta da doğru olsun. */
+        url:    `${appUrl}/kumanda`,
         urgent: false,
       };
   }
@@ -173,7 +201,7 @@ serve(async (req: Request): Promise<Response> => {
     const vapidEmail   = Deno.env.get('VAPID_EMAIL') ?? 'mailto:admin@cockpitos.com';
 
     if (!vapidPublic || !vapidPrivate) {
-      console.error('[push-notify] VAPID keys missing');
+      console.error('[consumer-push-notify] VAPID keys missing');
       return new Response(
         JSON.stringify({ error: 'VAPID yapılandırması eksik' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
@@ -188,23 +216,47 @@ serve(async (req: Request): Promise<Response> => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
     );
 
-    const { data: vehicleUsers, error: vuErr } = await supabase
-      .from('vehicle_users')
+    /* ── ALICILAR KANONİK İLİŞKİDEN ÇÖZÜLÜR ───────────────────────────────
+     * ÖNCEDEN `vehicle_users` okunuyordu. O tablo canlıda MEVCUT ama araç↔
+     * kullanıcı KANONİK otoritesi DEĞİL: production RLS'i `is_paired()`
+     * üzerinden `vehicle_pairings`e, sahipliği de `vehicles.owner_id`e bakar
+     * (`is_vehicle_owner()`). Tüketici eşleştirmesi (`pair_vehicle_by_code`)
+     * `vehicle_pairings`e yazar → `vehicle_users` ile çözülen alıcı kümesi
+     * gerçek kullanıcıları KAÇIRIRDI.
+     *
+     * ŞİRKET/FİLO ÜYELERİ BİLİNÇLİ OLARAK DIŞARIDA: burası tüketici ürünüdür.
+     * Filo bildirimi ayrı bir üründür ve bu fonksiyondan gönderilmez (§12). */
+    const recipientIds = new Set<string>();
+
+    const { data: pairings, error: pairErr } = await supabase
+      .from('vehicle_pairings')
       .select('user_id')
       .eq('vehicle_id', vehicleId);
-
-    if (vuErr) {
-      console.error('[push-notify] vehicle_users sorgusu hatası:', vuErr.message);
+    if (pairErr) {
+      console.error('[consumer-push-notify] vehicle_pairings sorgusu hatası:', pairErr.message);
+    }
+    for (const row of pairings ?? []) {
+      if (row?.user_id) recipientIds.add(row.user_id as string);
     }
 
-    if (!vehicleUsers?.length) {
+    const { data: vehicleRow, error: vehErr } = await supabase
+      .from('vehicles')
+      .select('owner_id')
+      .eq('id', vehicleId)
+      .maybeSingle();
+    if (vehErr) {
+      console.error('[consumer-push-notify] vehicles sorgusu hatası:', vehErr.message);
+    }
+    if (vehicleRow?.owner_id) recipientIds.add(vehicleRow.owner_id as string);
+
+    if (recipientIds.size === 0) {
       return new Response(
         JSON.stringify({ sent: 0, reason: 'no linked users' }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
       );
     }
 
-    const userIds = vehicleUsers.map((u: { user_id: string }) => u.user_id);
+    const userIds = [...recipientIds];
 
     // ── 4. Push subscriptions'ları çek ───────────────────────
     const { data: subs, error: subErr } = await supabase
@@ -213,7 +265,7 @@ serve(async (req: Request): Promise<Response> => {
       .in('user_id', userIds);
 
     if (subErr) {
-      console.error('[push-notify] push_subscriptions sorgusu hatası:', subErr.message);
+      console.error('[consumer-push-notify] push_subscriptions sorgusu hatası:', subErr.message);
     }
 
     if (!subs?.length) {
@@ -248,14 +300,14 @@ serve(async (req: Request): Promise<Response> => {
             // Subscription expired
             expired.push(row.id);
           } else {
-            console.warn('[push-notify] Unexpected status:', result.statusCode, row.endpoint);
+            console.warn('[consumer-push-notify] Unexpected status:', result.statusCode, row.endpoint);
           }
         } catch (err: unknown) {
           const statusCode = (err as { statusCode?: number }).statusCode;
           if (statusCode === 410 || statusCode === 404) {
             expired.push(row.id);
           } else {
-            console.error('[push-notify] sendNotification hatası:', err);
+            console.error('[consumer-push-notify] sendNotification hatası:', err);
           }
         }
       }),
@@ -267,17 +319,17 @@ serve(async (req: Request): Promise<Response> => {
         .from('push_subscriptions')
         .delete()
         .in('id', expired);
-      console.log(`[push-notify] ${expired.length} süresi dolmuş subscription temizlendi`);
+      console.log(`[consumer-push-notify] ${expired.length} süresi dolmuş subscription temizlendi`);
     }
 
-    console.log(`[push-notify] ${event} → ${sent}/${subs.length} gönderildi`);
+    console.log(`[consumer-push-notify] ${event} → ${sent}/${subs.length} gönderildi`);
 
     return new Response(
       JSON.stringify({ sent, total: subs.length, expired: expired.length }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
     );
   } catch (err) {
-    console.error('[push-notify] Beklenmeyen hata:', err);
+    console.error('[consumer-push-notify] Beklenmeyen hata:', err);
     return new Response(
       JSON.stringify({ error: String(err) }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },

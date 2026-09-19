@@ -1,5 +1,5 @@
 /**
- * pushNotifyAuth.test.ts — push-notify Edge Function yetkilendirme (E1 fix)
+ * pushNotifyAuth.test.ts — consumer-push-notify Edge Function yetkilendirme (E1 fix)
  *
  * Kapsam (saf auth kararı; Deno runtime gerektirmez):
  *  - Authorization yok → reddedilir (401)
@@ -12,11 +12,11 @@
  * "cihazda/deploy'da doğrulanmadı". Burada yalnız auth karar sözleşmesi test edilir.
  */
 import { describe, it, expect } from 'vitest';
-import { authorizePushRequest } from '../../supabase/functions/push-notify/auth';
+import { authorizePushRequest } from '../../supabase/functions/consumer-push-notify/auth';
 
 const SERVICE_ROLE = 'sk_service_role_secret_123';
 
-describe('push-notify auth — authorizePushRequest', () => {
+describe('consumer-push-notify auth — authorizePushRequest', () => {
   it('Authorization header yok → reddedilir', () => {
     expect(authorizePushRequest(null, SERVICE_ROLE)).toBe(false);
     expect(authorizePushRequest(undefined, SERVICE_ROLE)).toBe(false);

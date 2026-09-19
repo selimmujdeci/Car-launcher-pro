@@ -5,7 +5,7 @@
  *
  * Durumlar:
  *   UNSUPPORTED         → gizli (render yok)
- *   PERMISSION_REQUIRED → "Hırsız Savar" butonu — OLED black + neon red
+ *   PERMISSION_REQUIRED → "Bildirimleri Aç" butonu — OLED black + neon red
  *   REGISTERING         → "Bağlanıyor" spinner
  *   ACTIVE              → "Bildirimler Aktif" neon pill
  *   DENIED              → "İzin Verilmedi" sönük gri pill
@@ -155,7 +155,13 @@ export function PushNotificationWidget() {
     );
   }
 
-  /* ── Prompt — neon red "Hırsız Savar" button ──────────────── */
+  /* ── Prompt — neon red "Bildirimleri Aç" butonu ────────────────
+     ── YETENEK AŞIMI DÜZELTİLDİ (F5.2 §11) ─────────────────────────────
+     Düğme eskiden "Hırsız Savar" diyordu. Bastığında yaptığı tek iş tarayıcı
+     BİLDİRİM İZNİ istemektir. Üründe hırsızlık KANITI üreten bir yetenek
+     YOKTUR: tüketici tarafında kontak/kapı/CAN kanıtı okunmaz ve GPS
+     değişimi tek başına hırsızlık kanıtı DEĞİLDİR. Düğmenin adı yaptığı işi
+     söyler; pazarlama metni teknik gerçeği aşamaz. */
   return (
     <button
       onClick={handleClick}
@@ -172,7 +178,7 @@ export function PushNotificationWidget() {
       onMouseLeave={(e) => {
         (e.currentTarget as HTMLElement).style.boxShadow = 'none';
       }}
-      title="Hırsız Savar alarm bildirimlerini etkinleştir"
+      title="Bu cihazda bildirimleri etkinleştir"
     >
       {working ? (
         /* Spinner */
@@ -189,7 +195,7 @@ export function PushNotificationWidget() {
         <AlarmShieldIcon className="text-critical group-hover:scale-110 transition-transform" />
       )}
       <span className="text-[10px] font-black uppercase tracking-[0.28em] text-critical">
-        {working ? 'Bağlanıyor' : 'Hırsız Savar'}
+        {working ? 'Bağlanıyor' : 'Bildirimleri Aç'}
       </span>
     </button>
   );
