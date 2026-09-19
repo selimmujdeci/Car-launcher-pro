@@ -282,6 +282,77 @@ export function clearObdSupportedPidBitmap(): void {
   mirrorObdToVid({ supportedPidBitmap: null });
 }
 
+/* ── ARACA BAĞLI bitmap kanıtı (saha 2026-09-18, Renault · gerçek araç) ───────
+ * `OBD_PID_BITMAP_KEY` TEK ve GLOBAL bir anahtardır; `_mergeBitmapHex` her
+ * kaydı bitwise-OR ile birleştirir. Bu, parmak izi/gözlem için doğrudur ama
+ * KARAR girdisi olarak KULLANILAMAZ: iki farklı araca bağlanan kullanıcıda
+ * anahtar iki aracın yeteneklerinin BİRLEŞİMİNİ tutar ve A aracının
+ * desteklediği bir PID, B aracında körlemesine sorulmaya başlanırdı (her
+ * turda 200 ms NO-DATA — `obdPidConfig.ts`'in 0x2F'i tabandan çıkarma
+ * gerekçesinin ta kendisi).
+ *
+ * Bu yüzden KARAR için kanıt ARACA bağlanır. Anahtarlama `obd:fuelCalib`
+ * ile AYNI derstir (bkz. yukarıdaki VIN uyarısı): yetenek de kalibrasyon da
+ * ARACIN özelliğidir, ADAPTÖRÜN değil. VIN varsa VIN'e yazılır; VIN handshake
+ * bağlantıdan SONRA geldiği için bağlantı ANINDA genelde yalnız MAC bilinir —
+ * o yüzden MAC yolu da tutulur (aynı fail-soft öncelik: VIN → MAC → yok).
+ *
+ * Global anahtar DEĞİŞTİRİLMEDEN korunur (fingerprint tüketicileri onu okur). */
+const OBD_PID_BITMAP_MAC_PREFIX = 'obd:supportedPidBitmap:mac:';
+const OBD_PID_BITMAP_VIN_PREFIX = 'obd:supportedPidBitmap:vin:';
+
+function _vinBitmapKey(vin: string | null | undefined): string | null {
+  const n = vin?.trim().toUpperCase() ?? '';
+  return /^[A-HJ-NPR-Z0-9]{17}$/.test(n) ? OBD_PID_BITMAP_VIN_PREFIX + n : null;
+}
+
+function _readBitmapKey(key: string): string | null {
+  try { return localStorage.getItem(key) || null; } catch { return null; }
+}
+
+/**
+ * Bu ARACA ait kalıcı bitmap kanıtı. ÖNCELİK: VIN → adaptör MAC → `null`.
+ *
+ * `null` = kanıt YOK (boş string DEĞİL) → çağıran taban listeyi aynen kullanır.
+ */
+export function loadObdSupportedPidBitmapFor(
+  address: string | null | undefined,
+  vin?: string | null,
+): string | null {
+  const vinKey = _vinBitmapKey(vin);
+  if (vinKey) {
+    const byVin = _readBitmapKey(vinKey);
+    if (byVin) return byVin;
+  }
+  if (!address) return null;
+  return _readBitmapKey(OBD_PID_BITMAP_MAC_PREFIX + address);
+}
+
+/**
+ * Bitmap kanıtını ARACA bağlı olarak kalıcılaştırır.
+ *
+ * Global kayıttaki disiplinin AYNISI: yeni kanıt öncekiyle OR'lanır — kısmi bir
+ * okuma önceki kanıtı SİLMEZ, yalnız genişletir. Boş girdi NO-OP'tur.
+ * VIN ve MAC anahtarları AYRI tutulur: aynı araca farklı dongle takılırsa VIN
+ * kaydı taşınır, aynı dongle başka araca takılırsa VIN kaydı KARIŞMAZ.
+ */
+export function saveObdSupportedPidBitmapFor(
+  address: string | null | undefined,
+  vin: string | null | undefined,
+  bitmapHex: string,
+): void {
+  if (!bitmapHex) return;
+  const keys: string[] = [];
+  const vinKey = _vinBitmapKey(vin);
+  if (vinKey) keys.push(vinKey);
+  if (address) keys.push(OBD_PID_BITMAP_MAC_PREFIX + address);
+  for (const key of keys) {
+    try {
+      localStorage.setItem(key, _mergeBitmapHex(_readBitmapKey(key), bitmapHex));
+    } catch { /* quota */ }
+  }
+}
+
 /* ── Araç-bazlı yakıt kalibrasyonu (PID 0x2F sensör eğrisi düzeltmesi) ──────────
  * Bazı araçlarda (Fiat/PSA/Renault) OBD PID 2F'nin bildirdiği yüzde, gösterge
  * panelindeki yakıt seviyesiyle UYUŞMAZ (doğrusal-olmayan şamandıra + üretici

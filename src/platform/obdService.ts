@@ -29,11 +29,11 @@ import {
   flushCanSnapshotNow,
   stopCanSnapshot,
 } from './canSnapshotService';
-import { buildHandshakeResult, classifyHandshakeResponse, buildDiscoveryEvidence, extractSupportedPidBitmap } from '../core/val/OBDHandshake';
+import { buildHandshakeResult, classifyHandshakeResponse, buildDiscoveryEvidence, extractSupportedPidBitmap, decodeSupportedPidBitmap } from '../core/val/OBDHandshake';
 import type { DiscoveryEvidence, DiscoveryCompleteness } from '../core/val/OBDHandshake';
 import { vehicleProfileRegistry } from '../core/val/VehicleProfile';
 import type { IVehicleProfile }   from '../core/val/VehicleProfile';
-import { loadObdAddress, saveObdAddress, clearObdAddress, clearObdTransport, loadObdProfileId, saveObdProfileId, loadObdTransport, saveObdTransport, loadObdTransportVerified, saveObdTransportVerified, loadObdProtocol, saveObdProtocol, saveObdSupportedPidBitmap, loadObdFuelCalib, saveObdFuelCalib, isValidTcpAddress, markObdAddressVerified, loadVerifiedObdAddresses, type ObdTransport } from './obdStorage';
+import { loadObdAddress, saveObdAddress, clearObdAddress, clearObdTransport, loadObdProfileId, saveObdProfileId, loadObdTransport, saveObdTransport, loadObdTransportVerified, saveObdTransportVerified, loadObdProtocol, saveObdProtocol, saveObdSupportedPidBitmap, loadObdSupportedPidBitmapFor, saveObdSupportedPidBitmapFor, loadObdFuelCalib, saveObdFuelCalib, isValidTcpAddress, markObdAddressVerified, loadVerifiedObdAddresses, type ObdTransport } from './obdStorage';
 import { persistHandshakeVin } from './vehicleProfileService';
 import { getHandshakeVin } from './safety/vinContext';
 import { setVinEpochProvider } from './vehicle/vehicleIdentity';
@@ -2620,10 +2620,43 @@ async function _runConnectAttempt(opts?: { trustBypass?: boolean }): Promise<voi
   //    Race against a timeout so a non-responsive BT device doesn't hang.
   // W5-OBD-PR1: statik taban → handshake bitmap KANITIYLA rafine edilir.
   // Kanıt yoksa (ilk bağlantı / handshake başarısız) taban aynen kullanılır (fail-soft).
+  /* ── KALICI KANIT ARTIK GERİ OKUNUYOR (saha 2026-09-18, gerçek araç) ──────
+   * ÖLÇÜLEN KUSUR (Renault VF1FLBUBCBY406165, motor rölantide, 90 sn, 35 OBD
+   * paketi): `rpm` her pakette, `engineTemp` 5 turda bir geldi — ama
+   * `fuelLevel` 35/35 pakette `-1` idi. Yani yakıt bozuk DEĞİL, HİÇ SORULMUYORDU.
+   *
+   * Zincir: PID 0x2F ICE tabanından BİLİNÇLİ çıkarılmıştır (`obdPidConfig.ts`:
+   * çoğu Fiat/PSA/Renault desteklemez, kör sorgu her turda 200 ms NO-DATA).
+   * Onu geri açan TEK yol bitmap kanıtıdır. Kanıt handshake'te üretilip
+   * `saveObdSupportedPidBitmap` ile diske YAZILIYORDU — ama ÜRETİMDE HİÇ
+   * OKUNMUYORDU (`loadObdSupportedPidBitmap` yalnız testlerde çağrılıyordu).
+   * Handshake o oturumda blok okuyamazsa `refinePidList` `readBlocks.size === 0`
+   * görüp tabanı aynen döndürüyor → `012F` native'e hiç gitmiyordu. Oysa bu
+   * aracın kendi kanıtı (bitmap grup 2 → 0x2F = destekleniyor) diskte DURUYORDU.
+   *
+   * Artık oturum-içi kanıt YOKSA araca bağlı kalıcı kanıt tohum olarak kullanılır.
+   * İKİNCİ OTORİTE KURULMAZ: aynı `refinePidList` kapısı, aynı bitmap biçimi,
+   * yalnız kaynağı bellek yerine disk. Oturum-içi kanıt geldiğinde O KAZANIR
+   * (aşağıdaki handshake dalı `setObdCorePids` ile listeyi anında tazeler).
+   * Kanıt araca bağlıdır (VIN → MAC): global OR'lanmış anahtar KARAR için
+   * kullanılamaz, başka aracın yeteneğini bu araca taşırdı. */
+  let _seedSupported = _handshakeSupportedPids;
+  let _seedReadBlocks = _handshakeReadBlocks;
+  if (_seedReadBlocks.size === 0) {
+    const persistedBitmap = loadObdSupportedPidBitmapFor(
+      candidate?.address ?? _lastKnownAddress,
+      getHandshakeVin(),
+    );
+    const decoded = decodeSupportedPidBitmap(persistedBitmap);
+    if (decoded.readBlocks.size > 0) {
+      _seedSupported  = decoded.supportedPids;
+      _seedReadBlocks = decoded.readBlocks;
+    }
+  }
   const pidList = refinePidList(
     getPidListForVehicle(_current.vehicleType),
-    _handshakeSupportedPids,
-    _handshakeReadBlocks,
+    _seedSupported,
+    _seedReadBlocks,
   );
   // ELM327 ATSP numaraları: undefined=ATSP0 otomatik · 6=CAN 11/500 · 5=KWP hızlı init ·
   // 4=KWP 5-baud · 3=ISO 9141-2 · 7=CAN 29/500. Otomatik çoğu aracı bulur; bulamazsa sırayla denenir.
@@ -3056,7 +3089,12 @@ async function _runConnectAttempt(opts?: { trustBypass?: boolean }): Promise<voi
            bu ZATEN hesaplanmış `result`ten türetilir, boşsa (kanıt yok) NO-OP'tur
            (mevcut kalıcı bitmap SİLİNMEZ). */
         const bitmapHex = extractSupportedPidBitmap(raw);
-        if (bitmapHex) saveObdSupportedPidBitmap(bitmapHex);
+        if (bitmapHex) {
+          saveObdSupportedPidBitmap(bitmapHex);
+          /* Global anahtar fingerprint içindir (OR'lanmış, araç-ötesi). KARAR
+             girdisi olarak bir sonraki bağlantıda okunacak kopya ARACA bağlanır. */
+          saveObdSupportedPidBitmapFor(_lastKnownAddress, getHandshakeVin(), bitmapHex);
+        }
 
         /* ── KANIT AYNI OTURUMDA UYGULANIR (saha 2026-07-31) ──────────────────
          * Eskiden bu kanıt YALNIZ "bir sonraki reconnect"te işe yarıyordu: çekirdek
