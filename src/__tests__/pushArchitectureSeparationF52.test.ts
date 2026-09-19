@@ -67,27 +67,35 @@ describe('F5.2 · slug çakışması regresyon kilidi', () => {
 
 describe('F5.2 · tarayıcı aboneliği ile araç token\'ı ayrı depolardır', () => {
   const consumer = codeOf(resolve(CONSUMER_DIR, 'index.ts'));
-  const vehicle  = codeOf(resolve(VEHICLE_DIR, 'index.ts'));
+  /**
+   * PROD-1A2: taşıma katmanı `index.ts`ten ayrıldı (`fcmDelivery`/`googleAuth`/
+   * `wakeDispatch`). Kilit SİLİNMEDİ, GERÇEK SAHİBİNE taşındı — aksi hâlde
+   * "araç tarafı FCM kullanıyor" iddiası sessizce boş geçerdi.
+   */
+  const vehicleAll = readdirSync(VEHICLE_DIR)
+    .filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts'))
+    .map((f) => codeOf(resolve(VEHICLE_DIR, f)))
+    .join('\n');
 
   it('4. 🔒 tüketici fonksiyonu `vehicle_push_tokens` OKUMAZ', () => {
     expect(consumer).not.toContain('vehicle_push_tokens');
   });
 
   it('5. 🔒 araç-uyandırma fonksiyonu `push_subscriptions` OKUMAZ', () => {
-    expect(vehicle).not.toContain('push_subscriptions');
+    expect(vehicleAll).not.toContain('push_subscriptions');
   });
 
   it('6. 🔒 her biri KENDİ taşıyıcısını kullanır', () => {
     expect(consumer).toContain('push_subscriptions');
     expect(consumer).toMatch(/web-push|webpush/);
-    expect(vehicle).toContain('vehicle_push_tokens');
-    expect(vehicle).toMatch(/fcm\.googleapis\.com/i);
+    expect(vehicleAll).toContain('vehicle_push_tokens');
+    expect(vehicleAll).toMatch(/fcm\.googleapis\.com/i);
   });
 
   it('7. 🔒 araç-uyandırma GÖRÜNÜR bildirim göndermez (data-only kalır)', () => {
     /* `notification` bloğu FCM payload'ına girerse araç sessiz uyanmaz,
        kullanıcının telefonunda/ekranında bildirim belirir. */
-    expect(vehicle).not.toMatch(/message:\s*\{[\s\S]*notification:/);
+    expect(vehicleAll).not.toMatch(/message:\s*\{[\s\S]*notification:/);
   });
 });
 
