@@ -38,6 +38,11 @@ import {
   evaluateVehicleNotification,
   type DeliveryOutcome,
 } from '@/lib/notifications/serverNotificationTrigger';
+import {
+  durableScanToCurrentDtcEvidence,
+  rowToDiagnosticScanRecord,
+  type DiagnosticScanRow,
+} from '@/lib/diagnostics/diagnosticHistory';
 
 const SUPABASE_URL     = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -75,6 +80,11 @@ interface TelemetryRowDb {
 
 interface VehicleLabelRow { plate: string | null; name: string | null }
 interface NotifyStateRow  { open_incident_key: string | null }
+
+/** `vehicle_diagnostic_scans`ten okunan kolonlar (en az yetki ilkesi). */
+const SCAN_COLUMNS =
+  'vehicle_id, source_command_id, status, measured_at, completed_at, partial, ' +
+  'completeness, permanent_supported, dtcs, failure_reason';
 
 /**
  * Olay kimliğini OPAK özete çevirir.
@@ -125,13 +135,27 @@ Deno.serve(async (req: Request) => {
   for (const row of rows ?? []) {
     const vehicleId = row.vehicle_id;
 
-    const [{ data: state }, { data: vehicle }] = await Promise.all([
+    const [{ data: state }, { data: vehicle }, scanRes] = await Promise.all([
       db.from('consumer_notification_state')
         .select('open_incident_key').eq('vehicle_id', vehicleId)
         .maybeSingle().returns<NotifyStateRow>(),
       db.from('vehicles').select('plate, name').eq('id', vehicleId)
         .maybeSingle().returns<VehicleLabelRow>(),
+      /* EN SON tarama — araç kapsamlı. Tablo bu kurulumda YOKSA (080
+         uygulanmadı) sorgu hata döner; bu "arıza yok" DEĞİL, "kaynak yok"tur
+         ve aşağıda `null` olarak geçilir. */
+      db.from('vehicle_diagnostic_scans')
+        .select(SCAN_COLUMNS)
+        .eq('vehicle_id', vehicleId)
+        .order('measured_at', { ascending: false, nullsFirst: false })
+        .limit(1)
+        .maybeSingle().returns<DiagnosticScanRow>(),
     ]);
+
+    /* Kaynak yok / okunamadı → kanıt YOK. Sessiz "sağlıklı" ÜRETİLMEZ. */
+    const latestScan = scanRes.error
+      ? null
+      : rowToDiagnosticScanRecord(scanRes.data);
 
     const outcome = evaluateVehicleNotification({
       now,
@@ -146,11 +170,17 @@ Deno.serve(async (req: Request) => {
         telemetrySource: row.telemetry_source, locationSource: row.location_source,
       },
       telemetryReadable: true,
-      /* DTC/voltaj KALICI bir geçmişe sahip DEĞİL (F5.2B §7). Kalıcı teşhis
-         defteri kurulana dek bu iki kanıt `null` geçilir — "geçmişte arıza
-         vardı" iddiası ÜRETİLMEZ. Sağlık hükmü bunu zaten NO_EVIDENCE veya
-         ölçüm-tabanlı hükme çevirir. */
-      dtc: null,
+      /* ── F5.4 · TEŞHİS KANITI ARTIK BAĞLI (ama GÜNCELLİK KAPISINDAN) ──────
+       * Kalıcı geçmişteki son satır KÖRLEMESİNE güncel teşhis sayılmaz.
+       * `durableScanToCurrentDtcEvidence` kanonik güven penceresini
+       * (`DTC_HEALTH_MAX_AGE_MS`) uygular: pencere aşılmışsa sonuç `STALE`
+       * olur ve F2.2 onu `NO_EVIDENCE` sayar. Yani ESKİ bir arıza kodu her
+       * cron turunda yeniden bildirim ÜRETEMEZ.
+       *
+       * Kaynak yoksa/okunamazsa `null` kalır: "okunamadı" ile "arıza yok"
+       * AYNI ŞEY DEĞİLDİR ve `null` hiçbir hüküm üretmez. */
+      dtc: durableScanToCurrentDtcEvidence(latestScan, now),
+      /* Voltajın kalıcı geçmişi HÂLÂ YOK — uydurulmaz. */
       voltage: null,
       openIncidentKey: state?.open_incident_key ?? null,
     });

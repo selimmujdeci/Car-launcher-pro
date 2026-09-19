@@ -37,6 +37,11 @@ const PURE_CHAIN = [
   'lib/diagnostics/vehicleHealth.ts',
   'lib/notifications/consumerNotificationPolicy.ts',
   'lib/notifications/serverNotificationTrigger.ts',
+  /* F5.4: teşhis geçmişi de sunucuda koşar (consumer-notify-scan onu import
+     eder). `dtcResultReader` Supabase istemcisi taşır ve BU ZİNCİRE GİREMEZ;
+     bu yüzden güven penceresi sabiti saf `dtcResultContract`a taşındı. */
+  'lib/diagnostics/diagnosticHistory.ts',
+  'lib/diagnostics/diagnosticPersistencePlan.ts',
 ];
 
 /** Taşınabilirliği bozan bağımlılıklar. */

@@ -34,6 +34,7 @@ import {
   type DtcCommandRow,
   type DtcCompleteness,
   type DtcOutcome,
+  DTC_HEALTH_MAX_AGE_MS,
 } from './dtcResultContract';
 
 /* ── Kalıcı sözleşme ───────────────────────────────────────────────────── */
@@ -324,4 +325,134 @@ export function latestSuccessfulScan(
   scansNewestFirst: readonly DiagnosticScanRecord[],
 ): DiagnosticScanRecord | null {
   return scansNewestFirst.find((s) => scanSucceeded(s.status)) ?? null;
+}
+
+/* ── Kalıcı kayıt → GÜNCEL kanıt (F5.4) ────────────────────────────────── */
+
+/**
+ * Kalıcı bir taramayı, GÜNCEL sağlık değerlendirmesine girebilecek kanıta
+ * çevirir — ya da çeviremiyorsa bunu açıkça söyler.
+ *
+ * ── NEDEN GEREKLİ ────────────────────────────────────────────────────────
+ * Geçmiş kayıt tablosundaki son satır KÖRLEMESİNE güncel teşhis sayılamaz.
+ * "12 Eylül'de P0300 görüldü" ile "bugün P0300 var" AYNI ŞEY DEĞİLDİR.
+ * Bu fonksiyon o sınırı TEK yerde uygular.
+ *
+ * ── YENİ EŞİK UYDURULMADI ────────────────────────────────────────────────
+ * Güncellik penceresi KANONİKTİR: `DTC_HEALTH_MAX_AGE_MS` (F2.2 okuma
+ * katmanının kendi güven penceresi, 24 saat). Aynı sabit, aynı karşılaştırma;
+ * "history kaydı X dakikadan gençse current" gibi GİZLİ bir ürün kuralı
+ * EKLENMEZ. Pencere aşılırsa sonuç `STALE`dir ve F2.2 onu `NO_EVIDENCE`
+ * sayar — yani eski bir arıza kodu bugünün hükmünü ÜRETEMEZ.
+ *
+ * ── BAŞARISIZ TARAMALAR ──────────────────────────────────────────────────
+ * `UNSUPPORTED`/`OFFLINE`/`TIMEOUT`/`FAILED`/`STALE` aynen taşınır. Hiçbiri
+ * "arıza var" ya da "arıza yok" DEĞİLDİR; F2.2 hepsini `NO_EVIDENCE` sayar.
+ * Bunları `NO_DTC`ye ÇEVİRMEK yasaktır (§14).
+ *
+ * @returns `null` = değerlendirilecek tarama YOK (okunmadı/hiç yok).
+ */
+export function durableScanToCurrentDtcEvidence(
+  scan: DiagnosticScanRecord | null | undefined,
+  now: number,
+  maxAgeMs: number = DTC_HEALTH_MAX_AGE_MS,
+): DtcOutcome | null {
+  if (!scan) return null;
+
+  switch (scan.status) {
+    case 'UNSUPPORTED':
+    case 'OFFLINE':
+    case 'TIMEOUT':
+    case 'FAILED':
+    case 'STALE':
+      return { kind: scan.status, reason: scan.failureReason ?? 'Tarama tamamlanamadı' };
+    default:
+      break;
+  }
+
+  /* Ölçüm anı bilinmiyorsa GÜNCEL sayılamaz — "az önce" VARSAYILMAZ. */
+  const measuredAt = scan.measuredAt ? Date.parse(scan.measuredAt) : NaN;
+  if (!Number.isFinite(measuredAt)) {
+    return { kind: 'STALE', reason: 'Ölçüm anı bilinmiyor' };
+  }
+  /* KANONİK güven penceresi — `classifyDtcCommand` ile AYNI kural. */
+  if (now - measuredAt > maxAgeMs) {
+    return { kind: 'STALE', reason: 'Son teşhis okuması güncelliğini yitirdi' };
+  }
+
+  const common = {
+    partial: scan.partial,
+    ...(scan.measuredAt ? { readAt: scan.measuredAt } : {}),
+    ...(scan.completeness ? { completeness: scan.completeness } : {}),
+  };
+
+  return scan.status === 'RESULT'
+    ? { kind: 'RESULT', dtcs: [...scan.dtcs], ...common }
+    : { kind: 'NO_DTC', ...common };
+}
+
+/* ── DB satırı → kalıcı kayıt (F5.4) ───────────────────────────────────── */
+
+/** `vehicle_diagnostic_scans` satırının okunan alanları. */
+export interface DiagnosticScanRow {
+  readonly vehicle_id?: unknown;
+  readonly source_command_id?: unknown;
+  readonly status?: unknown;
+  readonly measured_at?: unknown;
+  readonly completed_at?: unknown;
+  readonly partial?: unknown;
+  readonly completeness?: unknown;
+  readonly permanent_supported?: unknown;
+  readonly dtcs?: unknown;
+  readonly failure_reason?: unknown;
+}
+
+const SCAN_STATUSES: readonly DiagnosticScanStatus[] =
+  ['RESULT', 'NO_DTC', 'UNSUPPORTED', 'OFFLINE', 'TIMEOUT', 'FAILED', 'STALE'];
+
+const str = (v: unknown): string | null =>
+  typeof v === 'string' && v.length > 0 ? v : null;
+
+/**
+ * Kalıcı satırı kod sözleşmesine çevirir — SAF ve FAIL-CLOSED.
+ *
+ * Tanınmayan `status` ya da eksik kimlik → `null`. Bozuk satırdan kayıt
+ * UYDURULMAZ; okunamayan satır "arıza yok" DEĞİLDİR.
+ *
+ * Kodlar YALNIZ `RESULT` için taşınır: DB kısıtı bunu zaten zorlar, kod
+ * tarafı da aynı invaryantı korur (savunma derinliği).
+ */
+export function rowToDiagnosticScanRecord(
+  row: DiagnosticScanRow | null | undefined,
+): DiagnosticScanRecord | null {
+  if (!row) return null;
+
+  const vehicleId = str(row.vehicle_id);
+  const status = SCAN_STATUSES.find((s) => s === row.status) ?? null;
+  if (!vehicleId || !status) return null;
+
+  const rawDtcs = Array.isArray(row.dtcs) ? row.dtcs : [];
+  const dtcs: DtcCode[] = status === 'RESULT'
+    ? rawDtcs.filter((d): d is DtcCode =>
+        !!d && typeof d === 'object' && typeof (d as DtcCode).code === 'string')
+    : [];
+
+  const completeness = row.completeness && typeof row.completeness === 'object'
+    && !Array.isArray(row.completeness)
+    ? row.completeness as DtcCompleteness
+    : null;
+
+  return {
+    sourceCommandId: str(row.source_command_id) ?? '',
+    vehicleId,
+    status,
+    measuredAt: str(row.measured_at),
+    completedAt: str(row.completed_at),
+    partial: row.partial === true,
+    completeness,
+    permanentSupported: typeof row.permanent_supported === 'boolean'
+      ? row.permanent_supported : null,
+    dtcs,
+    failureReason: str(row.failure_reason),
+  };
 }

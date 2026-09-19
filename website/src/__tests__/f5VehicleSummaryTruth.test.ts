@@ -222,7 +222,12 @@ describe('F5 · paylaşılan rapor: kanıtı olmayan iddia DAİMA reddedilir', (
 
     expect(r.text).toContain('Aracın toplam kilometresi bu özette yer almaz');
     expect(r.text).toContain('Ortalama yakıt tüketimi bu özette yer almaz');
-    expect(r.text).toContain('Geçmiş arıza kodları bu özette yer almaz');
+    /* F5.4: eski cümle ("kalıcı arıza geçmişi tutulmamaktadır") ARTIK YANLIŞ —
+       F5.3 o kaynağı kurdu. Testin AMACI değişmedi: rapor söyleyemediğini
+       açıkça yazar. Bu senaryoda kaynak İSTENMEMİŞTİR (`diagnosticScans`
+       verilmedi) ve rapor bunu "arıza yok" diye SUNMAZ. */
+    expect(r.text).toContain('Arıza tarama geçmişi bu özette yer almaz');
+    expect(r.text).toContain('"araçta arıza yok" anlamına GELMEZ');
   });
 
   it('kullanıcı kaydı ÖLÇÜM gibi sunulmaz', () => {

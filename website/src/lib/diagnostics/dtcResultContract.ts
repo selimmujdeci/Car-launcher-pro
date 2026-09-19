@@ -66,6 +66,22 @@ export interface DtcCommandRow {
  * `FAILED`/`TIMEOUT`/`OFFLINE`/`UNSUPPORTED` hiçbir koşulda "arıza yok"
  * diye sunulamaz; `NO_DTC` yalnız kanıtlı boş okumadır.
  */
+/**
+ * SAĞLIK KARTININ kabul ettiği en eski teşhis ölçümü (F2.2).
+ *
+ * Bu bir FİZİKSEL eşik değil, GÜVEN penceresidir: üç hafta önceki "arıza yok"
+ * okuması bugünün manşeti olamaz. Sınır içindeki ölçüm de yaşıyla birlikte
+ * gösterilir — tazelik gizlenmez.
+ *
+ * ── NEDEN BURADA (F5.4) ──────────────────────────────────────────────────
+ * Önceden `dtcResultReader`da duruyordu; o modül Supabase istemcisini import
+ * eder ve TARAYICIYA bağlıdır. Sunucu tarafı (Deno Edge Function) aynı güven
+ * penceresini kullanmak zorunda — ama okuma katmanını import EDEMEZ.
+ * Sabit SAF sözleşme değeridir; yeri burasıdır. `dtcResultReader` onu buradan
+ * yeniden dışa verir (geriye uyumluluk). İKİNCİ bir pencere TANIMLANMAZ.
+ */
+export const DTC_HEALTH_MAX_AGE_MS = 24 * 60 * 60_000;
+
 export type DtcOutcome =
   | { kind: 'WAITING_FOR_VEHICLE' }
   | { kind: 'READING' }

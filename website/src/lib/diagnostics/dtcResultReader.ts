@@ -19,8 +19,11 @@
  */
 
 import { supabaseBrowser } from '@/lib/supabase';
+export { DTC_HEALTH_MAX_AGE_MS } from './dtcResultContract';
+
 import {
   classifyDtcCommand,
+  DTC_HEALTH_MAX_AGE_MS,
   classifyVoltageCommand,
   type DtcCommandRow,
   type DtcOutcome,
@@ -37,11 +40,9 @@ export const DTC_RESULT_MAX_AGE_MS = 10 * 60_000;
  * kullanıcı uygulamayı açtığında GEÇMİŞ okumayı gösterir; 10 dakika orada
  * her şeyi "bilinmiyor" yapardı.
  *
- * Bu bir FİZİKSEL eşik değildir, GÜVEN penceresidir: üç hafta önceki "arıza
- * yok" okuması bugünün manşeti olamaz. Sınır içindeki ölçüm de yaşıyla
- * birlikte gösterilir — tazelik gizlenmez.
- */
-export const DTC_HEALTH_MAX_AGE_MS = 24 * 60 * 60_000;
+ * TANIM `dtcResultContract`TEDİR (F5.4): sunucu tarafı aynı güven penceresini
+ * kullanır ama bu okuma katmanını (Supabase istemcisi) import EDEMEZ. Burada
+ * yalnız yeniden dışa verilir — İKİNCİ bir pencere yoktur.
 
 /** Okunan kolonlar — fazlası istenmez (en az yetki ilkesi). */
 const COLUMNS =

@@ -273,12 +273,21 @@ describe('F5.3 · geçmiş, güncel sağlık ve bildirim sınırını AŞAMAZ', 
     expect(diag).not.toContain('WARNING');
   });
 
-  it('23. 🔒 sunucu bildirim taraması geçmişi KANIT olarak kullanmaz', () => {
-    /* Bildirim yalnız GÜNCEL/TAZE kanıttan doğar. Geçmiş kayıt her cron
-       turunda yeniden bildirim üretemez (F5.2B incident/dedupe korunur). */
+  it('23. 🔒 bildirim taraması geçmişi YALNIZ güncellik kapısından alır', () => {
+    /* ── SÖZLEŞME GELİŞTİ (F5.4) ───────────────────────────────────────
+     * F5.3'te bu kilit "geçmişe hiç dokunma" diyordu; o dönemde kalıcı
+     * kaynak bildirim yoluna BİLİNÇLİ olarak bağlanmamıştı. F5.4 onu
+     * bağladı — ama HAM olarak değil, kanonik güven penceresinden
+     * (`DTC_HEALTH_MAX_AGE_MS`) geçirerek.
+     *
+     * Korunan gerçek invariant AYNI: ESKİ bir arıza kodu her cron turunda
+     * yeniden bildirim ÜRETEMEZ. Kapı aşılırsa sonuç `STALE` olur ve F2.2
+     * onu `NO_EVIDENCE` sayar. */
     const scan = read('../supabase/functions/consumer-notify-scan/index.ts');
-    expect(scan).not.toContain('diagnosticHistory');
-    expect(scan).not.toContain('vehicle_diagnostic_scans');
+    expect(scan).toContain('durableScanToCurrentDtcEvidence');
+    /* MUTASYON KAPISI: ham satırı doğrudan sağlık girdisine vermek YASAK. */
+    expect(scan).not.toMatch(/dtc:\s*(scanRes|latestScan\s*[,}])/);
+    expect(scan).not.toMatch(/dtc:\s*rowToDiagnosticScanRecord/);
   });
 
   it('24. 🔒 kalıcı kayıt tipi, güncel teşhis girdisiyle AYNI TİP DEĞİLDİR', () => {
