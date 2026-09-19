@@ -161,8 +161,16 @@ export function decideConsumerNotification(
       /* Gövde F2.2'nin KENDİ cümlesidir; burada yeni metin üretilmez. */
       body: health.headline,
       url: '/kumanda',
-      /* Etiket dedupe anahtarından türer → aynı durum tarayıcıda YIĞILMAZ. */
-      tag: `health-${dedupeKey}`,
+      /* ── ETİKET OPAK'TIR (F5.2B gizlilik düzeltmesi) ────────────────────
+       * Eskiden `tag` dedupe anahtarından türetiliyordu; o anahtar HAM DTC
+       * KODLARINI içerir (`...|P0300`). Etiket bildirim YÜKÜNÜN parçasıdır —
+       * push servisinden geçer ve kilit ekranı/OS katmanında durur. Teşhis
+       * iç verisi oraya KOYULMAZ (§10).
+       *
+       * Araç başına tek etiket AYRICA doğru davranıştır: aynı aracın sağlık
+       * bildirimi tarayıcıda YIĞILMAZ, sonuncusu öncekinin yerini alır.
+       * Dedupe kimliği SUNUCUDA kalır (`dedupeKey`), yükte TAŞINMAZ. */
+      tag: `health-${vehicleId}`,
       urgent: critical,
       vehicleId,
     },

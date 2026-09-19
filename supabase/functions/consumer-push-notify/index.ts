@@ -44,6 +44,7 @@ import { authorizePushRequest } from './auth.ts';
 /* ── Types ───────────────────────────────────────────────────── */
 
 type PushEvent =
+  | 'health_alert'
   | 'command_completed'
   | 'command_failed'
   | 'alarm_triggered'
@@ -74,6 +75,25 @@ function buildPayload(event: PushEvent, data: Record<string, unknown>): PushPayl
   const appUrl  = Deno.env.get('APP_URL') ?? '';
 
   switch (event) {
+    /* ── F5.2B · SAĞLIK BİLDİRİMİ ────────────────────────────────────────
+     * Metin BURADA ÜRETİLMEZ: `consumerNotificationPolicy` F2.2 hükmünden
+     * türetip gönderir. Taşıyıcının kendi cümlesini kurması, ekranda başka
+     * bildirimde başka bir gerçek doğururdu. Başlık/gövde yoksa bildirim
+     * UYDURULMAZ — nötr, iddiasız metne düşülür.
+     *
+     * Ham DTC kodu / VIN / ECU adresi BİLİNÇLİ OLARAK TAŞINMAZ: bildirim
+     * kilit ekranında görünür (§10). */
+    case 'health_alert':
+      return {
+        title:  String(data.title ?? 'Aracınız'),
+        body:   String(data.body ?? 'Uygulamayı açıp durumu görebilirsiniz.'),
+        icon:   `${appUrl}/icons/icon-192.svg`,
+        badge:  `${appUrl}/icons/badge-72.svg`,
+        /* Etiket araç başınadır → aynı aracın sağlık bildirimi YIĞILMAZ. */
+        tag:    String(data.tag ?? `health-${String(data.vehicleId ?? '')}`),
+        url:    `${appUrl}/kumanda`,
+        urgent: data.urgent === true,
+      };
     case 'command_completed':
       return {
         title:  `✅ ${String(data.command_label ?? 'Komut')} tamamlandı`,
