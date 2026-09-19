@@ -77,6 +77,14 @@ vi.mock('../platform/canSnapshotService', () => ({
 }));
 vi.mock('../platform/safety/SafetyBrain', () => ({ isFeatureEnabled: vi.fn(() => true), recordFault: vi.fn(), recordFeatureRecovered: vi.fn() }));
 vi.mock('../platform/obdStorage', () => ({
+  /* a8697aed (yakit PID kaliciligi) `obdService`e ARAC KAPSAMLI bitmap
+     okuma/yazmayi ekledi; bu mock yuzeyi guncellenmemisti -> uretim
+     `loadObdSupportedPidBitmapFor is not a function` ile dusuyor ve
+     baglanti 'error' oluyordu. `null` = KAYITLI KANIT YOK (uydurma
+     bitmap DEGIL); kayit fonksiyonu yalniz cagrilmis mi diye izlenir. */
+  loadObdSupportedPidBitmapFor: vi.fn(() => null),
+  saveObdSupportedPidBitmapFor: vi.fn(),
+
   loadObdAddress: vi.fn(() => M.savedAddress),
   saveObdAddress: vi.fn((a: string) => { M.savedAddress = a; }),
   clearObdAddress: vi.fn(() => { M.savedAddress = null; }),

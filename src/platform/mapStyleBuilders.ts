@@ -350,10 +350,18 @@ export const NIGHT_PALETTE: VectorPalette = {
      (zemine karşı 1,24→1,32 ve 1,25→1,36). Ton merdivenine DOKUNULMADI. */
   tertiaryCasing:  '#111620',
   minorCasing:     '#0e131b',
-  /* Gece DEĞİŞMEZ: gövdeyle (`minor` = '#e9edf2') BİREBİR aynı ton + katman
-     tanımında AYNI genişlik ifadesi kullanılır → gece ekranda tek piksel
-     farkı YOK (kasa gövdenin altında tamamen kaybolur, kasıtlı no-op). */
-  serviceCasing:   '#e9edf2',
+  /* Gece DEĞİŞMEZ: gövdeyle (`minor`) BİREBİR aynı ton + katman tanımında AYNI
+     genişlik ifadesi kullanılır → gece ekranda tek piksel farkı YOK (kasa
+     gövdenin altında tamamen kaybolur, kasıtlı no-op).
+
+     ── ÖLÇÜLEN DESENKRONİZASYON (df9f506b, 2026-09-09 21:36) ──────────────
+     O tur `minor`'ı '#e9edf2' → '#5c6575' yaptı ama BU tokeni unuttu. Sonuç:
+     gece servis yolunun altında GÖVDEDEN ÇOK DAHA PARLAK bir kasa kaldı;
+     gövde `line-opacity` ile harmanlandığı için ekranda yıkanmış/parlayan bir
+     servis yolu olarak görünür — tam da "no-op" denilen şeyin tersi.
+     Bu token `minor` ile AYNI KALMAK ZORUNDADIR; kilidi
+     `mapDayLocalRoadReadability` tutar (gece kasa == gövde). */
+  serviceCasing:   '#5c6575',
   /* ── GECE YOLLARI BEYAZ (2026-09-05 akşamı · GERÇEK CİHAZ KARARI) ────────
    * Kullanıcı gece navigasyon ekran görüntüsüyle: *"yolları tam beyaz yap"*.
    * Eski merdiven `#ccd3dc`→`#6f757e` idi ve tali sokaklar koyu gri kalıyordu.

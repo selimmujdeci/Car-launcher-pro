@@ -246,8 +246,17 @@ describe('obdService — Patch 10: tcp transport (fallback yok, adres doğrulama
     const call = vi.mocked(CarLauncher.connectOBD).mock.calls[0]?.[0] as { transport?: string };
     expect(call.transport).toBe('tcp');
 
-    // disconnectOBD (fallback öncesi köprü adımı) da ÇAĞRILMADI — fallback denemesi hiç başlamadı.
-    expect(vi.mocked(CarLauncher.disconnectOBD)).not.toHaveBeenCalled();
+    /* `disconnectOBD` ARTIK fallback göstergesi DEĞİLDİR: 8f18dee0
+       ("clean up exhausted connection attempts") denemeler TÜKENDİĞİNDE,
+       throw'dan ÖNCE native'in bloke RFCOMM task'ına kapanma sinyali
+       gönderir — bu TEMİZLİKTİR, ikinci bir transport denemesi değil.
+       Fallback'in olmadığını kanıtlayan şey yukarıdaki iki ölçümdür: connect
+       TAM BİR KEZ çağrıldı ve transport 'tcp' kaldı. Burada temizliğin
+       fallback'e dönüşmediğini kilitleriz — ardından İKİNCİ connect YOK. */
+    expect(vi.mocked(CarLauncher.disconnectOBD).mock.calls.length,
+      'tükeniş temizliği en fazla bir kez olmalı').toBeLessThanOrEqual(1);
+    expect(vi.mocked(CarLauncher.connectOBD).mock.calls.length,
+      'temizlikten sonra İKİNCİ bağlantı denemesi = gizli fallback').toBe(1);
 
     expect(states[states.length - 1]).toBe('error');
 
