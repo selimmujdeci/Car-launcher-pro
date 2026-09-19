@@ -218,3 +218,47 @@ describe('F5.1 · gözlenmemiş alan ÖLÇÜM DEĞİLDİR', () => {
     expect(ageLabel(f.fuelPercent.ageMs)).toBe('Bilinmiyor');
   });
 });
+
+/* ── F5.1B · SATIR TAZELİĞİ ≠ ALAN TAZELİĞİ ─────────────────────────────
+   `vehicle_telemetry` satırı TEK bir `obd_observed_at` tutar. Bu damga
+   "OBD'den bir gözlem geldi" demektir. Satırdaki bir OBD alanının o anda
+   ölçüldüğünü ancak ÜRETİCİ onu o gözlemle birlikte yazdıysa söyleyebiliriz
+   (F5.1B sözleşmesi: alan yalnız KENDİ ölçümü tazeyse payload'a girer ve
+   `obdObservedAt` gönderilen alanların EN ESKİSİDİR).
+
+   Buradaki kilitler tüketici tarafındaki karşılığı korur: `updated_at`
+   (satır) hiçbir alanın tazeliğini belirlemez, ve gözlem damgası olmayan
+   alan ÖLÇÜM sayılmaz. */
+
+describe('F5.1B · satır damgası alan tazeliği DEĞİLDİR', () => {
+  it('23. 🔒 `updated_at` taze ama OBD gözlemi YOKSA motor alanları ölçüm değildir', () => {
+    const f = build({ updatedAt: iso(1_000), obdObservedAt: null });
+    expect(f.device).toBe('LIVE');            // satır taze
+    expect(f.engine).toBe('NEVER_SEEN');      // ama motor gözlemi yok
+    expect(f.fuelPercent.value).toBeNull();
+    expect(f.rpm.value).toBeNull();
+    expect(f.engineTempC.value).toBeNull();
+  });
+
+  it('24. 🔒 GPS gözlemi taze olsa da OBD alanlarını TAZELEMEZ', () => {
+    const f = build({ gpsObservedAt: iso(1_000), obdObservedAt: null });
+    expect(f.location).toBe('LIVE');
+    expect(f.engine).toBe('NEVER_SEEN');
+    expect(f.fuelPercent.value).toBeNull();
+  });
+
+  it('25. 🔒 OBD gözlemi BAYATSA yakıt "canlı" sunulmaz (değer korunur)', () => {
+    const f = build({ obdObservedAt: iso(FRESHNESS_WINDOWS_MS.ENGINE + 60_000), fuel: 16 });
+    expect(f.fuelPercent.value).toBe(16);
+    expect(f.fuelPercent.state).not.toBe('LIVE');
+    expect(measurementLabel(f.fuelPercent, '%')).toContain('eski veri');
+  });
+
+  it('26. 🔒 alanın yaşı KENDİ gözleminden türer, satırın yaşından DEĞİL', () => {
+    const obdAge = 90_000;
+    const f = build({ updatedAt: iso(1_000), obdObservedAt: iso(obdAge) });
+    /* MUTASYON KAPISI: `fuelAgeMs = now - updatedAt` yazılırsa bu DÜŞER. */
+    expect(f.fuelPercent.ageMs).toBeGreaterThanOrEqual(obdAge - 1_000);
+    expect(f.deviceAgeMs).toBeLessThan(obdAge);
+  });
+});

@@ -27,7 +27,7 @@ import {
 import type { VehicleIdentityObservation } from './telemetry/vehicleIdentityObservation';
 import { getFusedSpeed }              from './speedFusion';
 import { healthMonitor }              from './system/SystemHealthMonitor';
-import { getOBDDataSnapshot, getObdFreshWindowMs } from './obdService';
+import { getOBDDataSnapshot, getObdFreshWindowMs, getObdFieldObservedAt } from './obdService';
 import {
   buildTelemetryFields,
   type TelemetryBuildReport,
@@ -413,6 +413,10 @@ export class TelemetryService {
         engineTempC:   s.engineTemp,
         speedKmh:      s.speed,
         fuelPercent:   s.fuelLevel,
+        /* F5.1B: her alanın KENDİ ölçüm anı. `lastSeenMs` linkin son paketidir;
+           bir alanın ölçüm anı DEĞİLDİR. Bu kanıt olmadan sözleşme kurucusu
+           eski bir yakıtı yeni rpm'in damgasıyla gönderebiliyordu. */
+        fieldObservedAt: getObdFieldObservedAt(),
       };
     } catch {
       return null;

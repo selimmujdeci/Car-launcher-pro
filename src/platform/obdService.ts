@@ -326,6 +326,24 @@ let _lastRealDataMs = 0;
  */
 let _lastSpeedRxMs = 0;
 /**
+ * F5.1B — ALAN BAZLI ÖLÇÜM DAMGALARI (`_lastSpeedRxMs` deseninin genellemesi).
+ *
+ * ÖLÇÜLEN KUSUR (gerçek araç, Renault, 2026-09-18): yakıt 35/35 pakette `-1`
+ * geldi (hiç ölçülmedi) ama `_current.fuelLevel` ESKİ değeri saklıyordu ve
+ * telemetri üreticisi onu HER heartbeat'te `obdObservedAt = lastSeenMs` (yani
+ * "şimdi") damgasıyla gönderiyordu. Sonuç: bir sensörün (rpm) yeni ölçümü,
+ * başka bir sensörün (fuel) eski değerini "yeni ölçülmüş" yapıyordu.
+ *
+ * Damga YALNIZ sanitizer'dan GEÇMİŞ gerçek bir alan geldiğinde tazelenir:
+ * `-1` (bu turda sorulmadı/desteklenmiyor) `patch`e hiç girmez, bu yüzden
+ * buraya ULAŞMAZ → alan "bilinmiyor" kalır. `getOBDDataSnapshot()` sözleşmesi
+ * DEĞİŞMEZ (geriye uyumluluk); tazelik soranlar `getObdFieldObservedAt()`
+ * kapısını kullanır — `getObdSpeedFresh()` ile AYNI disiplin.
+ */
+let _lastRpmRxMs  = 0;
+let _lastTempRxMs = 0;
+let _lastFuelRxMs = 0;
+/**
  * Son HERHANGİ bir native paket (ATRV DAHİL) — LINK HEARTBEAT. "transportConnected"
  * bundan türer. `_lastRealDataMs`'ten AYRI olması şart: ATRV, ECU ölse bile ~5s'de bir
  * gelir → aynı damgada tutulursa donmayı maskeler (saha 2026-07-16 Doblo kökü).
@@ -1723,6 +1741,12 @@ function _clearDataGate(): void {
   // hızını MİRAS ALMAZ (saha kuralı) — damga sıfırlanır, `getObdSpeedFresh()`
   // yeni bir 010D gelene kadar `null` döner.
   _lastSpeedRxMs = 0;
+  /* Aynı oturum sınırı kuralı: yeni oturum ESKİ oturumun devir/sıcaklık/yakıt
+     ölçümünü MİRAS ALMAZ — damgalar sıfırlanır, alanlar yeniden ölçülene kadar
+     "bilinmiyor"dur. */
+  _lastRpmRxMs  = 0;
+  _lastTempRxMs = 0;
+  _lastFuelRxMs = 0;
 }
 
 /**
@@ -1807,6 +1831,11 @@ function _onRealData(patch: Partial<OBDData>): void {
   // tazelenir. NO_DATA / timeout / parse hatası / eksik alan bu satıra ULAŞMAZ
   // (`_sanitizeNative` onları patch'e hiç koymaz) → hız "bilinmiyor" kalır.
   if (patch.speed !== undefined) _lastSpeedRxMs = _rxNow;
+  /* AYNI KURAL diğer çekirdek OBD alanları için (F5.1B): her alan KENDİ ölçüm
+     anını taşır; birinin gelmesi diğerini tazelemez. */
+  if (patch.rpm        !== undefined) _lastRpmRxMs  = _rxNow;
+  if (patch.engineTemp !== undefined) _lastTempRxMs = _rxNow;
+  if (patch.fuelLevel  !== undefined) _lastFuelRxMs = _rxNow;
   if (_hasEcuData(patch)) {
     _lastRealDataMs = _rxNow;
     /* #554: ECU yeniden konuştu → bekleyen suskunluk kaydının kurtarma ucu
@@ -4008,6 +4037,29 @@ export function getObdSpeedFresh(): number | null {
   if (Date.now() - _lastSpeedRxMs > windowMs) return null;   // bayat → bilinmiyor
   const v = _current.speed;
   return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : null;
+}
+
+/**
+ * Çekirdek OBD alanlarının KENDİ ölçüm anları (epoch ms; `0` = bu oturumda HİÇ
+ * ölçülmedi).
+ *
+ * `getOBDDataSnapshot().lastSeenMs` "OBD linkinden EN SON herhangi bir paket
+ * geldi" demektir — bir ALANIN ölçüm anı DEĞİLDİR. İkisini karıştırmak,
+ * rpm'in yeni ölçümünün eski yakıtı "yeni ölçülmüş" göstermesine yol açar
+ * (F5.1B kök nedeni). Tazelik kararı verecek her tüketici bu kapıyı kullanır.
+ *
+ * İKİNCİ OTORİTE DEĞİLDİR: damgalar `_onRealData` içinde, sanitizer'dan geçmiş
+ * patch'in alan varlığından türer — `getObdSpeedFresh()` ile aynı kaynak.
+ */
+export function getObdFieldObservedAt(): {
+  speedMs: number; rpmMs: number; engineTempMs: number; fuelMs: number;
+} {
+  return {
+    speedMs:      _lastSpeedRxMs,
+    rpmMs:        _lastRpmRxMs,
+    engineTempMs: _lastTempRxMs,
+    fuelMs:       _lastFuelRxMs,
+  };
 }
 
 export function onOBDData(fn: (d: OBDData) => void): () => void {
