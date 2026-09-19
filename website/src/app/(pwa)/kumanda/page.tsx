@@ -546,7 +546,14 @@ function KumandaApp() {
     if (activeTab === 'yolculuklar') {
       return (
         <Suspense fallback={lazySpinner}>
-          <TripJournalPanel vehicle={vehicle} />
+          {/* ARAÇ SINIRI (V1): `key` araç kimliğidir. Bu üç panel kendi
+              araç-kapsamlı state'ini (tarama sonucu · yolculuk listesi ·
+              kayıtlar) TUTAR ve araç değişiminde SIFIRLAMIYORDU — A aracında
+              tarama yapıp B'ye geçen kullanıcı, B'nin ekranında A'nın arıza
+              kodlarını görüyordu. `key` değişince React örneği YENİDEN KURAR;
+              eski aracın state'i yapısal olarak TAŞINAMAZ. (Memory/Aracım/
+              Sağlık'ta `requestedFor` koruması zaten var, dokunulmadı.) */}
+          <TripJournalPanel key={vehicle?.id ?? 'no-vehicle'} vehicle={vehicle} />
         </Suspense>
       );
     }
@@ -559,7 +566,7 @@ function KumandaApp() {
         <Suspense fallback={lazySpinner}>
           <div className="flex flex-col gap-4">
             <VehicleHealthCard vehicle={vehicle} />
-            <DiagnosticsPanel vehicle={vehicle} />
+            <DiagnosticsPanel key={vehicle?.id ?? 'no-vehicle'} vehicle={vehicle} />
           </div>
         </Suspense>
       );
@@ -576,7 +583,7 @@ function KumandaApp() {
     if (activeTab === 'kayitlar') {
       return (
         <Suspense fallback={lazySpinner}>
-          <RecordsPanel vehicle={vehicle} />
+          <RecordsPanel key={vehicle?.id ?? 'no-vehicle'} vehicle={vehicle} />
         </Suspense>
       );
     }

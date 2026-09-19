@@ -89,6 +89,26 @@ describe('F3 · navigasyon sadeleşmesi', () => {
     const home = PAGE.slice(PAGE.indexOf('<AracimHome'), PAGE.indexOf('</>', PAGE.indexOf('<AracimHome')));
     expect(home).toContain("key={vehicle?.id ?? 'no-active-vehicle'}");
   });
+
+  it('🔒 ARAÇ SINIRI: araç-kapsamlı paneller de araç kimliğiyle sıfırlanır', () => {
+    /* ── ÖLÇÜLEN KUSUR (V1 kapanış denetimi) ──────────────────────────────
+       Ana ekran `key` ile sıfırlanıyordu ama bu üç panel sıfırlanmıyordu ve
+       ÜÇÜ DE kendi araç-kapsamlı state'ini tutuyor:
+         · DiagnosticsPanel → tarama sonucu (`dtcs`/`readAt`) — araç
+           değişiminde HİÇ sıfırlanmıyordu: A'da tarama yapıp B'ye geçen
+           kullanıcı B'nin Sağlık sekmesinde A'nın arıza kodlarını görüyordu.
+         · TripJournalPanel → liste hata durumunda BİLEREK korunuyor; araç
+           değiştiğinde bu koruma A'nın yolculuklarını B'de bırakıyordu.
+         · RecordsPanel → servis/yakıt kayıtları aynı sınıf.
+       `key` araç kimliği olduğunda React örneği YENİDEN KURAR; sızıntı
+       yapısal olarak İMKÂNSIZ hâle gelir (gelecekte eklenecek state dâhil). */
+    for (const panel of ['TripJournalPanel', 'DiagnosticsPanel', 'RecordsPanel']) {
+      const i = PAGE.indexOf(`<${panel}`);
+      expect(i, `${panel} sayfada yok`).toBeGreaterThan(-1);
+      expect(PAGE.slice(i, i + 160), `${panel} araç kimliğiyle sıfırlanmıyor`)
+        .toContain("key={vehicle?.id ?? 'no-vehicle'}");
+    }
+  });
 });
 
 /* ═══ B · Ana ekran modeli gerçek render ile ═════════════════════════════ */
