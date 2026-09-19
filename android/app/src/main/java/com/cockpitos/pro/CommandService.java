@@ -66,10 +66,21 @@ public class CommandService extends FirebaseMessagingService {
     @Override
     public void onNewToken(String token) {
         super.onNewToken(token);
-        // Token yenileme: fcmService.ts (Capacitor PushNotifications plugin)
-        // kendi listener'ı üzerinden yeni token'ı alıp Supabase'e kaydeder.
-        // Burada sadece logluyoruz — çift kayıt yapmaya gerek yok.
-        Log.d(TAG, "FCM token yenilendi (JS tarafı kaydeder)");
+        // ÖLÇÜLEN GERÇEK (PROD-1A1): merged manifest'te MESSAGING_EVENT'i
+        // dinleyen İKİ servis var (bu servis + Capacitor'ın MessagingService'i)
+        // ve Firebase yalnız BİRİNE dağıtır. Bu servis kazanırsa Capacitor'ın
+        // `registration` listener'ı ÇALIŞMAZ — yani "JS tarafı hemen kaydeder"
+        // GARANTİ DEĞİLDİR.
+        //
+        // Kurtarma AÇILIŞ düzeyindedir: her başlangıçta PushNotifications
+        // .register() güncel token'ı yeniden teslim eder ve
+        // vehicleIdentityService.ensureDevicePushTokenRegistered() onu cihaz
+        // kimliğiyle kaydeder. Yani oturum içi bir rotasyon en geç BİR SONRAKİ
+        // AÇILIŞTA yakalanır; bu pencere bilinçli olarak kabul edilmiştir
+        // (native→JS köprüsü kurmak asgari yamanın dışındadır).
+        //
+        // Token DEĞERİ loglanmaz.
+        Log.d(TAG, "FCM token yenilendi (kayıt: JS tarafı, en geç sonraki açılışta)");
     }
 
     // ── Mesaj alımı ─────────────────────────────────────────────────────────

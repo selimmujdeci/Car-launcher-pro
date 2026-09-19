@@ -2,7 +2,8 @@
  * pushService.ts — FCM Push Token Kaydı ve Push-to-Wake Entegrasyonu (S-2).
  *
  * Akış:
- *   1. App açılınca → izin al → FCM token'ı register_push_token RPC ile Supabase'e kaydet
+ *   1. App açılınca → izin al → FCM token'ı CİHAZ kimliğiyle (api_key) kaydet
+ *      (`register_vehicle_push_token` — PROD-1A1; kullanıcı oturumu GEREKMEZ)
  *   2. Bildirim gelince → data.command_id veya wake sinyali kontrol et
  *   3. CommandListener aktifse → triggerPendingPoll() (anlık DB sorgusu, Realtime gap koruması)
  *      CommandListener yoksa   → startCommandListener() (tam wake, bağlantı + pending poll)
@@ -16,7 +17,7 @@ import { Capacitor }         from '@capacitor/core';
 import { PushNotifications } from '@capacitor/push-notifications';
 import { logInfo }           from './debug';
 import { sensitiveKeyStore } from './sensitiveKeyStore';
-import { getSupabaseClient } from './supabaseClient';
+import { ensureDevicePushTokenRegistered } from './vehicleIdentityService';
 import {
   startCommandListener,
   stopCommandListener,
@@ -37,14 +38,19 @@ let _listenerOwned  = false; // kalıcı CommandListener bu servis tarafından a
 
 /**
  * Push/GApps durumu — teşhis kartı (DeviceDiagnosticCard) okur.
- *   web         : native değil (tarayıcı) — push yok
- *   active      : FCM token alındı, push-to-wake çalışıyor
- *   unavailable : FCM register başarısız → Play Services YOK olabilir; uzak
- *                 komutlar kalıcı WS fallback ile sürüyor (push-to-wake yerine)
- *   denied      : kullanıcı push iznini reddetti
- *   unpaired    : cihaz eşlenmemiş — uzak komut yok, fallback gereksiz
+ *   web          : native değil (tarayıcı) — push yok
+ *   active       : FCM token alındı VE `vehicle_push_tokens`a KAYDEDİLDİ —
+ *                  push-to-wake gerçekten hedeflenebilir durumda
+ *   unregistered : token alındı ama KAYDEDİLEMEDİ (api_key yok / ağ / sunucu
+ *                  reddi) → push-to-wake YOK; uzak komutlar yoklamayla sürer.
+ *                  `unavailable`tan AYRI tutulur: orada Play Services yoktur,
+ *                  burada vardır — ikisini aynı kelimeyle anlatmak yalan olurdu
+ *   unavailable  : FCM register başarısız → Play Services YOK olabilir; uzak
+ *                  komutlar kalıcı WS fallback ile sürüyor (push-to-wake yerine)
+ *   denied       : kullanıcı push iznini reddetti
+ *   unpaired     : cihaz eşlenmemiş — uzak komut yok, fallback gereksiz
  */
-export type PushStatus = 'web' | 'active' | 'unavailable' | 'denied' | 'unpaired';
+export type PushStatus = 'web' | 'active' | 'unregistered' | 'unavailable' | 'denied' | 'unpaired';
 let _status: PushStatus = 'web';
 export function getPushStatus(): PushStatus { return _status; }
 
@@ -77,23 +83,38 @@ async function _ensureCommandListener(): Promise<void> {
 
 // ── FCM Token kaydı ───────────────────────────────────────────────────────────
 
+/**
+ * FCM token'ını ARAÇ CİHAZ kimliğiyle kaydeder (PROD-1A1).
+ *
+ * ── ESKİ KUSUR ────────────────────────────────────────────────────────────
+ * Burada `register_push_token(p_vehicle_id, …)` çağrılıyordu; o RPC
+ * `auth.uid()` ister ve head unit OTURUMSUZ bağlandığı için HER çağrı
+ * `{ok:false,'Yetkisiz.'}` dönüyordu. Çağrı istisna ATMADIĞI için hemen
+ * ardından "FCM token kaydedildi" loglanıyordu — **kanıtsız başarı**.
+ * Production ölçümü bunu doğruluyor: `vehicle_push_tokens` = 0 satır.
+ *
+ * ── YENİ SÖZLEŞME ─────────────────────────────────────────────────────────
+ * Kimlik `api_key`tir (komut RPC'leriyle AYNI kapı) ve başarı yalnız sunucu
+ * kalıcılığı ONAYLADIĞINDA iddia edilir. Kayıt olmadıysa durum `active`
+ * DEĞİL `unregistered`tır: push-to-wake yoktur, uzak komutlar 15 sn'lik
+ * yoklamayla sürer.
+ *
+ * GİZLİLİK: token DEĞERİ ve api_key ne loglanır ne de hata nesnesine girer;
+ * yalnız başarısızlık KATEGORİSİ yazılır.
+ */
 async function _saveFcmToken(token: string): Promise<void> {
-  const vehicleId = await sensitiveKeyStore.get('veh_vehicle_id');
-  if (!vehicleId) return;
+  const result = await ensureDevicePushTokenRegistered(token, Capacitor.getPlatform());
 
-  const supabase = getSupabaseClient();
-  if (!supabase) return;
-
-  try {
-    await supabase.rpc('register_push_token', {
-      p_vehicle_id: vehicleId,
-      p_fcm_token:  token,
-      p_platform:   Capacitor.getPlatform(),
-    });
-    logInfo('[PushService] FCM token kaydedildi');
-  } catch (err) {
-    console.warn('[PushService] Token kayıt hatası:', err);
+  if (result.ok) {
+    _status = 'active';
+    logInfo('[PushService] FCM token kaydedildi (cihaz kimliği doğrulandı)');
+    return;
   }
+
+  /* Kaydedilemedi → push-to-wake YOK. Bu durum SESSİZ BIRAKILMAZ; teşhis
+     kartında da `active` görünmez (sahte "çalışıyor" iddiası olurdu). */
+  _status = 'unregistered';
+  console.warn(`[PushService] FCM token kaydedilemedi (${result.reason}) — push-to-wake yok, yoklama sürüyor`);
 }
 
 // ── Wake Timer yönetimi ───────────────────────────────────────────────────────
@@ -184,7 +205,8 @@ export async function initPushService(): Promise<() => void> {
   const tokenL = await PushNotifications.addListener(
     'registration',
     ({ value }) => {
-      _status = 'active';
+      /* `active` BURADA VERİLMEZ: token'ı almak, onu kaydetmiş olmak değildir.
+         Durumu yalnız `_saveFcmToken` kalıcılık kanıtına göre belirler. */
       void _saveFcmToken(value);
       /* Push ÇALIŞSA BİLE dinleyici kalıcıdır: push yalnız hızlandırıcıdır
          (#647 — token kaydı sessizce düşerse tek taşıyıcı ölürdü). */

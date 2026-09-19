@@ -222,6 +222,7 @@ export function _resetDeviceIdentityStateForTest(): void {
   _weakRandomUsed = false;
   _identity = null;
   _apiKey = null;
+  _persistedPushToken = null;
 }
 
 /* ── Public API ─────────────────────────────────────────────── */
@@ -557,6 +558,111 @@ export async function callVehicleRpc(
   } catch {
     /* Ağ hatası — gizli anahtar İÇEREBİLECEĞİ için hata nesnesi LOGLANMAZ. */
     return null;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * CİHAZ FCM TOKEN KAYDI — PROD-1A1
+ *
+ * ── ÖLÇÜLEN KUSUR ────────────────────────────────────────────────────────
+ * Token kaydı tabandaki `register_push_token(p_vehicle_id, …)`e gidiyordu; o
+ * RPC `auth.uid()` ister. Head unit Supabase'e OTURUMSUZ bağlanır → her çağrı
+ * `{ok:false,'Yetkisiz.'}` döner. HTTP 200 olduğu için istemci bunu başarı
+ * sandı ve production'da `vehicle_push_tokens` **0 satır** kaldı.
+ *
+ * ── DOĞRU KİMLİK ─────────────────────────────────────────────────────────
+ * Araç FCM token'ı KULLANICI oturumunun değil ARAÇ CİHAZININ kanıtıdır.
+ * Bu yüzden kayıt, aracın zaten sahip olduğu `api_key` ile —
+ * `pushVehicleEvent` / `refresh_linking_code` ile AYNI `callVehicleRpc`
+ * taşıyıcısı üzerinden — yapılır. Yeni anahtar deposu, yeni kimlik kavramı YOK.
+ *
+ * ── "HTTP 200" ≠ "KAYDEDİLDİ" ────────────────────────────────────────────
+ * Sonuç üç kaynaktan ayrı ayrı okunur: taşıyıcı hatası (`null`), sunucunun
+ * reddi (`ok !== true`) ve gerçek kalıcılık (`ok === true`). Çağıran yalnız
+ * üçüncüsünde başarı İDDİA EDEBİLİR.
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+/** Cihaz kimliğiyle token kaydının SONUCU — "denendi" değil, "oldu mu". */
+export type DevicePushTokenResult =
+  | { ok: true }
+  | { ok: false; reason: 'NO_BACKEND' | 'NO_API_KEY' | 'RPC_FAILED' | 'REJECTED' };
+
+/** Cihaz kimlikli token kaydı RPC'si (migration 082). */
+const DEVICE_PUSH_TOKEN_RPC = 'register_vehicle_push_token';
+
+/**
+ * Yeniden deneme aralıkları.
+ *
+ * NEDEN VAR: token boot'un çok erken bir anında gelebilir — `api_key` henüz
+ * yazılmamış ya da ağ henüz ayakta değil olabilir. Token bir daha DEĞİŞMEZSE
+ * o cihaz aksi hâlde o açılış boyunca kayıtsız kalırdı.
+ * NEDEN KÜÇÜK: her açılışta `PushNotifications.register()` aynı token'ı
+ * yeniden teslim eder — yani kalıcı kurtarma zaten AÇILIŞ düzeyindedir.
+ * Bu yüzden burada yeni bir zamanlayıcı/kuyruk KURULMAZ.
+ */
+const DEVICE_PUSH_TOKEN_RETRY_MS: readonly number[] = [5_000, 20_000];
+
+/** Bu oturumda kalıcılığı KANITLANMIŞ token — gereksiz tekrar çağrıyı keser. */
+let _persistedPushToken: string | null = null;
+
+/**
+ * TEK deneme: aracın FCM token'ını cihaz kimliğiyle kaydeder.
+ *
+ * Başarısızlık sebebi KATEGORİ olarak döner; token ve api_key DEĞERLERİ
+ * ne döndürülür ne loglanır.
+ */
+export async function registerDevicePushToken(
+  token:    string,
+  platform: string,
+): Promise<DevicePushTokenResult> {
+  if (!RPC_BASE || !SUPABASE_ANON_KEY) return { ok: false, reason: 'NO_BACKEND' };
+
+  /* Anahtar yoksa "kaydedilemedi" denir — sessizce başarı SAYILMAZ. */
+  const apiKey = _apiKey ?? (await sensitiveKeyStore.get(SK_API_KEY));
+  if (!apiKey) return { ok: false, reason: 'NO_API_KEY' };
+
+  const data = await callVehicleRpc(DEVICE_PUSH_TOKEN_RPC, {
+    p_fcm_token: token,
+    p_platform:  platform,
+  });
+
+  /* Taşıyıcı düştü (ağ / 4xx / 5xx). Geçersiz api_key de BURAYA düşer:
+     RPC istisna atar, PostgREST 4xx verir. "Hata atmadı" varsayımı YOK. */
+  if (data === null || typeof data !== 'object') return { ok: false, reason: 'RPC_FAILED' };
+
+  /* Sunucu 200 döndü ama kalıcılığı ONAYLAMADI. */
+  if ((data as { ok?: unknown }).ok !== true) return { ok: false, reason: 'REJECTED' };
+
+  return { ok: true };
+}
+
+/**
+ * Token kaydını KANITLANANA kadar sınırlı sayıda dener.
+ *
+ * · Aynı token bu oturumda zaten kaydedildiyse ağa HİÇ çıkılmaz (pushService
+ *   ve fcmService aynı token'ı ayrı ayrı teslim eder — çift çağrı gereksizdir;
+ *   RPC zaten idempotenttir, bu yalnız israfı keser).
+ * · `REJECTED` KALICI bir karardır (bozuk token/platform) → tekrar denenmez.
+ * · Ağ/anahtar kaynaklı geçici hatalarda kısa aralıklarla tekrar denenir.
+ */
+export async function ensureDevicePushTokenRegistered(
+  token:    string,
+  platform: string,
+  opts?: { retryDelaysMs?: readonly number[] },
+): Promise<DevicePushTokenResult> {
+  if (!token) return { ok: false, reason: 'REJECTED' };
+  if (_persistedPushToken === token) return { ok: true };
+
+  const delays = opts?.retryDelaysMs ?? DEVICE_PUSH_TOKEN_RETRY_MS;
+
+  for (let i = 0; ; i++) {
+    const result = await registerDevicePushToken(token, platform);
+    if (result.ok) {
+      _persistedPushToken = token;
+      return result;
+    }
+    if (result.reason === 'REJECTED' || i >= delays.length) return result;
+    await new Promise<void>((resolve) => setTimeout(resolve, delays[i]));
   }
 }
 

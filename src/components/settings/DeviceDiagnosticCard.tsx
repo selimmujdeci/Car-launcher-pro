@@ -26,12 +26,17 @@ import { useHALStatusStore } from '../../platform/vehicleDataLayer/halStatusStor
 import { getPushStatus } from '../../platform/pushService';
 import { decideLocalModelEligibility } from '../../platform/ai/local/localModelEligibility';
 
+/* Bu sözlük PUSH-TO-WAKE durumunu anlatır; "Play Services" başlığı yanıltıcıydı:
+   `denied`/`unpaired`/`unregistered` Play Services ile ilgili DEĞİLDİR ve
+   `unregistered` (token alındı ama KAYDEDİLEMEDİ) bir Play Services eksikliği
+   olarak gösterilseydi kart YANLIŞ bir neden bildirmiş olurdu. */
 const PUSH_TEXT: Record<string, string> = {
-  web:         '— (web)',
-  active:      'var (FCM aktif)',
-  unavailable: 'YOK (uzak komut WS fallback)',
-  denied:      'izin reddedildi',
-  unpaired:    'eşli değil',
+  web:          '— (web)',
+  active:       'var (token kayıtlı)',
+  unregistered: 'YOK — token kaydedilemedi (uzak komut yoklamayla)',
+  unavailable:  'YOK — Play Services yok (uzak komut WS fallback)',
+  denied:       'izin reddedildi',
+  unpaired:     'eşli değil',
 };
 
 const TIER_COLOR: Record<string, string> = {
@@ -130,7 +135,7 @@ export function DeviceDiagnosticCard() {
     `Ekran       : ${w}×${h} @${dpr}x (${orient})`,
     `Modül worker: ${yn(modWkr)}  ·  SAB: ${yn(c.hasWorkerSAB)}`,
     `Özellikler  : WebGL ${yn(c.supportsWebGL)} · backdrop ${yn(c.supportsBackdropFilter)} · dvh ${yn(c.supportsDvh)} · @layer ${yn(c.supportsCssLayer)}`,
-    `Play Services: ${PUSH_TEXT[getPushStatus()] ?? getPushStatus()}`,
+    `Push-to-Wake: ${PUSH_TEXT[getPushStatus()] ?? getPushStatus()}`,
     `CAN kaynağı : ${activeSource || 'yok'} (${canPhase})`,
     `UA          : ${ua}`,
   ].join('\n');
