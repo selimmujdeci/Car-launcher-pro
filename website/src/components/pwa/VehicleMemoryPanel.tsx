@@ -19,6 +19,8 @@ import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import type { LiveVehicle } from '@/types/realtime';
 import { fetchVehicleTripsResult } from '@/lib/vehicles.service';
 import { loadFuelEntries, loadServiceEntries } from '@/lib/recordsService';
+import { loadDiagnosticScans } from '@/lib/diagnostics/diagnosticScansReader';
+import type { DiagnosticScanRecord } from '@/lib/diagnostics/diagnosticHistory';
 import { SERVICE_DEFS } from '@/components/pwa/RecordsPanel';
 import {
   buildVehicleMemory,
@@ -59,6 +61,13 @@ function VehicleMemoryPanelBase({ vehicle }: { vehicle: LiveVehicle | null }) {
   /* Haftalık özet AYNI okumadan üretilir — ikinci sorgu YOK. */
   const [weekly, setWeekly] = useState<WeeklySummary | null>(null);
   const [loading, setLoading] = useState(false);
+  /**
+   * Teşhis geçmişi — ÜÇ DURUM AYRI TUTULUR (F5.4):
+   *   `undefined` kaynak bu kurulumda YOK · `null` okunamadı · dizi okundu.
+   * Üçü de "arıza yok" DEĞİLDİR ve birbirine ÇEVRİLMEZ.
+   */
+  const [diagnosticScans, setDiagnosticScans] =
+    useState<readonly DiagnosticScanRecord[] | null | undefined>(undefined);
   /* Sağlık TEK kanonik yoldan okunur (`useVehicleHealth`); paylaşılan özet
      kendi hükmünü ÜRETMEZ, F2.2 projeksiyonunu taşır. */
   const { summary: health } = useVehicleHealth(vehicle?.id ?? null, vehicle?.telemetry);
@@ -77,16 +86,22 @@ function VehicleMemoryPanelBase({ vehicle }: { vehicle: LiveVehicle | null }) {
   const vehicleId = vehicle?.id ?? null;
 
   const load = useCallback(async () => {
-    if (!vehicleId) { setMemory(null); setWeekly(null); requestedFor.current = null; return; }
+    if (!vehicleId) {
+      setMemory(null); setWeekly(null); setDiagnosticScans(undefined);
+      requestedFor.current = null; return;
+    }
     requestedFor.current = vehicleId;
     setLoading(true);
 
-    /* Üç kanonik kaynak PARALEL okunur. Her biri kendi hatasını taşır:
-       okunamayan kaynak `null` kalır ve "kayıt yok" SAYILMAZ. */
-    const [tripRes, fuelRes, svcRes] = await Promise.all([
+    /* Dört kanonik kaynak PARALEL okunur. Her biri kendi hatasını taşır:
+       okunamayan kaynak `null` kalır ve "kayıt yok" SAYILMAZ.
+       Teşhis geçmişi AYNI turda okunur: hafıza ve paylaşım özeti aynı
+       veriyi kullanır, ikinci bir sorgu/otorite AÇILMAZ (F5.4A §3). */
+    const [tripRes, fuelRes, svcRes, scans] = await Promise.all([
       fetchVehicleTripsResult(vehicleId, MEMORY_PAGE_SIZE),
       loadFuelEntries(vehicleId),
       loadServiceEntries(vehicleId),
+      loadDiagnosticScans(vehicleId),
     ]);
 
     if (!mounted.current || requestedFor.current !== vehicleId) return;
@@ -95,12 +110,17 @@ function VehicleMemoryPanelBase({ vehicle }: { vehicle: LiveVehicle | null }) {
     const fuel = fuelRes.error ? null : fuelRes.entries;
     const services = svcRes.error ? null : svcRes.entries;
 
+    /* Geç gelen sonuç koruması YUKARIDA yapıldı; buradan sonrası bu araca
+       aittir. A'nın taraması B'nin ekranına/raporuna SIZAMAZ. */
+    setDiagnosticScans(scans);
+
     setMemory(buildVehicleMemory({
       vehicleId,
       trips,
       fuel,
       services,
       serviceLabels: SERVICE_LABELS,
+      diagnosticScans: scans,
     }));
     /* Üç kaynağın da OKUNDUĞU tek yüzey burasıdır; tam özet bu yüzden burada. */
     setWeekly(buildWeeklySummary({ now: Date.now(), trips, fuel, services }));
@@ -146,6 +166,7 @@ function VehicleMemoryPanelBase({ vehicle }: { vehicle: LiveVehicle | null }) {
         memory={memory}
         weekly={weekly}
         health={health}
+        diagnosticScans={diagnosticScans}
       />
 
       {/* Okunamayan kaynak "kayıt yok" DEĞİLDİR — ayrıca söylenir. */}
@@ -191,12 +212,14 @@ function VehicleMemoryPanelBase({ vehicle }: { vehicle: LiveVehicle | null }) {
  * İkisi de yoksa düğme SAHTE BAŞARI göstermez, gerekçeyi söyler.
  */
 function ShareSummaryButton({
-  vehicle, memory, weekly, health,
+  vehicle, memory, weekly, health, diagnosticScans,
 }: {
   vehicle: LiveVehicle;
   memory: VehicleMemory;
   weekly: WeeklySummary | null;
   health: ReturnType<typeof useVehicleHealth>['summary'];
+  /** `undefined` kaynak yok · `null` okunamadı · dizi okundu (F5.4). */
+  diagnosticScans: readonly DiagnosticScanRecord[] | null | undefined;
 }) {
   const [state, setState] = useState<'idle' | 'busy' | 'copied' | 'failed'>('idle');
 
@@ -209,6 +232,10 @@ function ShareSummaryButton({
       health,
       weekly,
       events: memory.events,
+      /* Hafızayla AYNI okumadan gelir — rapor kendi sorgusunu AÇMAZ.
+         Üç durum (yok/okunamadı/boş) aynen taşınır; hiçbiri "arıza yok"
+         diye sunulmaz. */
+      diagnosticScans,
     });
 
     try {
@@ -229,7 +256,7 @@ function ShareSummaryButton({
       const aborted = err instanceof DOMException && err.name === 'AbortError';
       setState(aborted ? 'idle' : 'failed');
     }
-  }, [vehicle, memory, weekly, health]);
+  }, [vehicle, memory, weekly, health, diagnosticScans]);
 
   return (
     <div className="flex flex-col gap-1">
