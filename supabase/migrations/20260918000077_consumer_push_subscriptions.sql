@@ -10,13 +10,28 @@
 --   GET https://vdpcdhrdmsacftrietzq.supabase.co/rest/v1/push_subscriptions
 --     → HTTP 404  {"code":"PGRST205"}            ← TABLO YOK
 --   GET .../rest/v1/vehicle_push_tokens  → HTTP 200 ← VAR
---   GET .../functions/v1/push-notify     → HTTP 405 "Method Not Allowed"
+--   GET .../functions/v1/push-notify     → HTTP 405
 --
---   Son satır KİMLİK TESPİTİDİR: o düz-metin 405, yalnız FCM sürümünün
---   ilk satırındaki method kapısından çıkar
---   (`if (req.method !== 'POST') return new Response('Method Not Allowed', 405)`).
---   Web Push/VAPID sürümünde böyle bir kapı YOKTUR. Yani `push-notify`
---   slug'ında CANLIDA DURAN implementasyon FCM ARAÇ-UYANDIRMA sürümüdür.
+-- ⚠️ DÜZELTME (PROD-1 · 2026-09-19): bu blokta ÖNCEDEN şu hüküm yazıyordu —
+--   "`push-notify` slug'ında canlıda duran implementasyon FCM ARAÇ-UYANDIRMA
+--   sürümüdür." BU YANLIŞTI ve neden yanlış olduğu önemlidir:
+--
+--   O ölçümde `curl -i` çıktısının DURUM SATIRI okunmuştu
+--   (`HTTP/1.1 405 Method Not Allowed`) — bu, HTTP protokolünün STANDART
+--   reason phrase'idir, fonksiyonun GÖVDESİ DEĞİLDİR. Gövde hiç görülmemişti.
+--
+--   Gövde okunduğunda iki bağımsız sinyal ÇIKTI:
+--     · GET gövdesi → `Method not allowed`  (küçük harf; Web Push/VAPID sürümü)
+--       FCM sürümü `Method Not Allowed` (büyük harf) döner.
+--     · OPTIONS     → 200 + 0 bayt          (Web Push sürümü CORS döndürür)
+--       FCM sürümü OPTIONS'a da 405 döner.
+--
+--   GERÇEK: `push-notify` slug'ında canlıda duran implementasyon
+--   WEB PUSH / VAPID (tüketici) sürümüdür. ARAÇ PUSH-TO-WAKE production'a
+--   HİÇ DEPLOY EDİLMEMİŞTİR.
+--
+--   Ders: bir HTTP durum satırı kimlik kanıtı DEĞİLDİR; kimlik ancak
+--   uygulamanın KENDİ ürettiği gövde/başlık ile saptanır.
 --
 -- ── İKİ AYRI GERÇEK, TEK SLUG (kök neden) ───────────────────────────
 --   Depoda `push-notify` adını İKİ implementasyon paylaşıyor:
@@ -62,13 +77,16 @@
 --   2. Slug çakışması ÇÖZÜLDÜ (F5.2):
 --        A (tüketici Web Push) → `supabase/functions/consumer-push-notify`
 --        B (araç uyandırma)    → `website/supabase/functions/push-notify`
---      A taşındı, B YERİNDE BIRAKILDI. Neden bu yön: B production'da CANLI ve
---      Push-to-Wake'i taşıyor; çağrı yerleri (`commandService.ts`,
---      `commandListener.ts`) ve native `CommandService.java` onun slug'ını
---      bekliyor. B'yi yeniden adlandırmak koordineli bir fonksiyon+website
---      deploy'u gerektirir ve ARADA Push-to-Wake penceresini kapatır — bu
---      turda BİLİNÇLİ OLARAK yapılmadı. A ise production'da zaten ölüydü,
---      taşınması sıfır risklidir.
+--      A taşındı, B YERİNDE BIRAKILDI.
+--
+--   ⚠️ DÜZELTME (PROD-1 · 2026-09-19): burada da "B production'da CANLI"
+--      yazıyordu — YANLIŞTI (bkz. üstteki kimlik düzeltmesi). Doğru gerekçe
+--      şudur: `push-notify` slug'ında canlıda duran ESKİ A KOPYASIDIR ve o
+--      kopya çalışamaz (`push_subscriptions` prod'da YOK). B ise HİÇ deploy
+--      edilmemiştir; dolayısıyla araç Push-to-Wake production'da ÇALIŞMIYOR
+--      ve komutlar yalnız 15 sn'lik yoklamayla geliyor.
+--      Dizin ayrımı yine de DOĞRUDUR: iki implementasyon artık ayrı
+--      slug'larda ve deploy sırasında birbirini EZEMEZ.
 --      Artık `supabase functions deploy <slug>` hangi dizinden koşulursa
 --      koşulsun diğerini EZEMEZ. Regresyon kilidi:
 --        src/__tests__/pushArchitectureSeparationF52.test.ts
