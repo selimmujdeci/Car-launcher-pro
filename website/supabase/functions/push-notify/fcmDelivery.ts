@@ -118,9 +118,9 @@ export function isWakeEvent(event: unknown): event is WakeEvent {
  * geçirilmez: eskiden `payload` (ör. `{command_id}`) JSON string olarak
  * taşınıyordu; komut kimliği de dâhil hiçbir komut bilgisi push'ta gitmez.
  * Araç uyandığında komutu DB'den (`fetch_pending_vehicle_commands`) kendisi
- * okur. Native `CommandService.onMessageReceived` `cmd_id`/`cmd_type`/
- * `e2e_payload` anahtarlarını üst düzeyde arar; bu üretici o anahtarları
- * ÜRETEMEZ (allowlist dışı) → dormant fiziksel dal YAPISAL olarak kapalı.
+ * okur. Bu üretici `cmd_id`/`cmd_type`/`e2e_payload` ÜRETEMEZ (allowlist dışı);
+ * MRI F-02'den sonra native tarafta o anahtarları okuyan fiziksel dal da
+ * KALDIRILDI — yani sözleşme iki uçtan birden kapalıdır.
  */
 export const WAKE_DATA_KEYS = ['event', 'vehicle_id', 'ts'] as const;
 
@@ -128,10 +128,10 @@ export const WAKE_DATA_KEYS = ['event', 'vehicle_id', 'ts'] as const;
  * Data-only wake mesajı — PROD-1A'da doğrulanan değişmez korunur.
  *
  * `title`/`body` YOKTUR (kullanıcıya görünen bildirim değildir) ve
- * `cmd_type`/`cmd_id`/`e2e_payload` YOKTUR: bunlar olmadan Android tarafındaki
- * `CommandService.handleEncryptedCommand` dalına YAPISAL olarak girilemez.
- * Yani bu mesaj tanım gereği yalnız bir UYANMA İPUCUDUR; fiziksel komut
- * otoritesi `vehicle_commands` + kanonik `CommandListener`da kalır.
+ * `cmd_type`/`cmd_id`/`e2e_payload` YOKTUR. Bu mesaj tanım gereği yalnız bir
+ * UYANMA İPUCUDUR; fiziksel komut otoritesi `vehicle_commands` + kanonik
+ * `CommandListener`da kalır. (F-02: Android `CommandService` artık yalnız
+ * uyandırır — payload ne taşırsa taşısın native fiziksel icra yolu yoktur.)
  *
  * Sır taşımaz: PIN, JWT, api_key, service-account, access token, kullanıcı
  * PII'si ve ham teşhis verisi buraya GİRMEZ.

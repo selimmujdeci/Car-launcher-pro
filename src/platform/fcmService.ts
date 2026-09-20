@@ -20,7 +20,6 @@ import {
   startCommandListener, stopCommandListener,
   isCommandListenerActive, triggerPendingPoll,
 } from './commandListener';
-import { drainNativeCommandQueue }                   from './nativeCommandBridge';
 
 const WAKE_TIMEOUT_MS = 30_000; // 30s işlem yoksa WS kapat
 
@@ -131,25 +130,13 @@ export async function initFcmService(): Promise<() => void> {
     return () => {};
   }
 
-  // H-4: Startup kuyruk boşaltma — CommandService.java'nın offline çalıştırdığı
-  // MCU komutlarının sonuçlarını Supabase'e bildir.
-  void drainNativeCommandQueue(async (id, status) => {
-    const SUPABASE_URL  = import.meta.env.VITE_SUPABASE_URL      as string | undefined;
-    const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
-    if (!SUPABASE_URL || !SUPABASE_ANON) return;
-    try {
-      await fetch(`${SUPABASE_URL}/rest/v1/vehicle_commands?id=eq.${id}`, {
-        method:  'PATCH',
-        headers: {
-          'Content-Type':  'application/json',
-          'apikey':        SUPABASE_ANON,
-          'Authorization': `Bearer ${SUPABASE_ANON}`,
-          'Prefer':        'return=minimal',
-        },
-        body: JSON.stringify({ status, finished_at: new Date().toISOString() }),
-      });
-    } catch { /* fire-and-forget */ }
-  });
+  /* MRI F-02: startup native kuyruk boşaltma KALDIRILDI. Bu blok
+     CommandService.java'nın native fiziksel yürütücüsünün sonuçlarını anon
+     apikey ile `PATCH /rest/v1/vehicle_commands` yaparak yazıyordu — cihaz
+     kimliği doğrulamayan İKİNCİ bir komut-durumu otoritesi. Yürütücü
+     kaldırıldı (üretici yok) ve durumun tek yazarı kanonik
+     `commandListener` → `update_command_status` RPC'sidir (api_key kimlikli,
+     migration 083 anon UPDATE yetkisini zaten geri alır). */
 
   // Token alındığında Supabase'e kaydet
   const tokenListener = await PushNotifications.addListener(

@@ -6856,44 +6856,14 @@ public class CarLauncherPlugin extends Plugin {
             com.cockpitos.pro.can.McuCommandFactory.alarmOff(), "stopAlarm");
     }
 
-    // ── H-4 Native Command Queue API ─────────────────────────────────────
-
-    /**
-     * CommandService.java'nın WebView yokken biriktirdiği bekleyen komut
-     * ID'lerini döner. JS tarafı açılınca bu ID'lerle Supabase'den komut detayını
-     * çeker ve commandListener üzerinden işler.
-     * returns: { commands: JSON string of QueuedNativeCommand[] }
-     */
-    @PluginMethod
-    public void getQueuedNativeCommands(PluginCall call) {
-        String json = CommandService.getQueuedCommands(getContext());
-        JSObject res = new JSObject();
-        res.put("commands", json);
-        call.resolve(res);
-    }
-
-    /**
-     * CommandService.java'nın offline çalıştırdığı MCU komutlarının
-     * sonuç listesini döner. JS tarafı bu sonuçları Supabase'e PATCH eder.
-     * returns: { results: JSON string of NativeCommandResult[] }
-     */
-    @PluginMethod
-    public void getNativeCommandResults(PluginCall call) {
-        String json = CommandService.getCommandResults(getContext());
-        JSObject res = new JSObject();
-        res.put("results", json);
-        call.resolve(res);
-    }
-
-    /**
-     * Komut kuyruğunu ve sonuç listesini temizler.
-     * JS tarafı drainNativeCommandQueue() tamamladıktan sonra çağırır.
-     */
-    @PluginMethod
-    public void clearNativeCommandQueue(PluginCall call) {
-        CommandService.clearAll(getContext());
-        call.resolve();
-    }
+    // ── H-4 Native Command Queue API — MRI F-02'de KALDIRILDI ────────────
+    //
+    // `getQueuedNativeCommands` / `getNativeCommandResults` /
+    // `clearNativeCommandQueue` köprüleri, CommandService'in native fiziksel
+    // yürütücüsünün SharedPreferences kuyruğunu okuyordu. O yürütücü (ve
+    // dolayısıyla kuyruğun TEK üreticisi) F-02'de kaldırıldı; JS tarafında da
+    // tüketici kalmadı (`nativeCommandBridge.drainNativeCommandQueue`).
+    // Komut durumunun tek yazarı kanonik `update_command_status` RPC'sidir.
 
     // ── Command Service Durum API ─────────────────────────────────────────
 

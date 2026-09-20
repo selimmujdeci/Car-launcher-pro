@@ -4,43 +4,44 @@ import android.app.ActivityManager;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
-import android.content.SharedPreferences;
 import android.os.Build;
 import android.util.Log;
 
-import com.cockpitos.pro.can.CanBusManager;
-import com.cockpitos.pro.can.McuCommandFactory;
 import com.google.firebase.messaging.FirebaseMessagingService;
 import com.google.firebase.messaging.RemoteMessage;
 
-import org.json.JSONArray;
-import org.json.JSONException;
-import org.json.JSONObject;
-
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 /**
- * CommandService — H-4 Native Command Service (FCM arka plan alıcısı)
+ * CommandService — araç WAKE transportu (FCM arka plan alıcısı).
  *
- * Görev: WebView kapalıyken FCM üzerinden gelen komutları yerel olarak işler.
+ * MRI F-02: bu servis ARTIK BİR KOMUT YÜRÜTÜCÜSÜ DEĞİLDİR.
  *
- * Akış:
- *   FCM push gelir (Supabase Edge Fn: push-notify)
+ *   FCM = WAKE SİNYALİ,  FCM != COMMAND EXECUTOR
+ *
+ * Akış (tek dal):
+ *   FCM data mesajı gelir (Supabase Edge Fn: push-notify → fcmDelivery.buildWakeMessage)
+ *     → olay wake ailesinden mi? (new_command | command_pending) değilse YOK SAY
  *     → WebView canlı mı?
- *       Evet → JS tarafı (fcmService.ts → commandListener.ts) devralır; broadcast gönder
- *       Hayır → E2E payload var mı?
- *           Evet: NativeCryptoManager ile çöz → (whitelist) MCU çalıştır
- *           Hayır (plaintext): ASLA doğrudan CAN — kuyruğa al, uygulamayı uyandır
+ *         Evet → broadcast (ForegroundService boost); kanonik JS dinleyicisi zaten açık
+ *         Hayır → wakeApplication() → MainActivity/WebView → fcmService → commandListener
  *
- * Güvenlik:
- *   - MCU komutu: sadece whitelist (McuCommandFactory)
- *   - E2E şifre çözme: ECDH-P256 + HKDF-SHA256 + AES-GCM (NativeCryptoManager)
- *   - Kuyruk TTL: MAX_QUEUE_AGE_MS üzeri girdiler CommandPlugin tarafından atılır
- *   - speed guard: lock/unlock için araç hızı JS tarafında da kontrol edilir
+ * Fiziksel uzak komut otoritesi TEKTİR:
+ *   vehicle_commands (DB) → commandListener (JS) → yetki + hareket güvenliği +
+ *   E2E/replay kontrolü → MCU/CAN.
+ *
+ * Bu servis şunları YAPMAZ (F-02'de kaldırıldı):
+ *   - E2E payload çözme (NativeCryptoManager.decryptCommandPayload)
+ *   - lock/unlock/horn/lights/alarm gibi fiziksel komut icrası
+ *   - ikinci komut kuyruğu / sonuç (status) otoritesi
+ *
+ * FCM `data` içeriği ne taşırsa taşısın (cmd_id, cmd_type, e2e_payload dâhil)
+ * bu servisten fiziksel icra BAŞLATILAMAZ: icra dalı yapısal olarak yoktur.
  */
 public class CommandService extends FirebaseMessagingService {
 
@@ -50,46 +51,54 @@ public class CommandService extends FirebaseMessagingService {
     private static final String EVENT_NEW_CMD     = "new_command";
     private static final String EVENT_CMD_PENDING = "command_pending";
 
-    // MCU komutları — WebView olmadan doğrudan çalışabilir
-    private static final Set<String> MCU_COMMANDS = new HashSet<>(Arrays.asList(
-        "lock", "unlock", "horn", "alarm_on", "alarm_off", "lights_on"
-    ));
+    /**
+     * Kanonik wake üreticisinin (`fcmDelivery.buildWakeMessage`) ASLA yazmadığı,
+     * kaldırılmış native yürütücüye ait eski anahtarlar. Yalnız GÖZLEM içindir:
+     * sınıflandırmaya ve icraya etkisi YOKTUR (otorite değil).
+     */
+    static final Set<String> LEGACY_COMMAND_KEYS = Collections.unmodifiableSet(
+        new HashSet<>(Arrays.asList("cmd_id", "cmd_type", "e2e_payload")));
 
-    // SharedPreferences — CarLauncherPlugin.java tarafından da okunur
-    static final String  PREFS_NAME    = "native_cmd_queue";
-    static final String  KEY_QUEUE     = "queued_commands";
-    static final String  KEY_RESULTS   = "cmd_results";
-    private static final int MAX_QUEUE = 20;
-
-    // ── FCM veri sınıflandırması (SAF — MRI F-08) ──────────────────────────
+    // ── FCM veri sınıflandırması (SAF — MRI F-08 + F-02) ───────────────────
     //
-    // `onMessageReceived` bu karardan başka koşul OKUMAZ; karar Android
-    // bağımlılığı taşımadığı için JVM'de (CommandServiceWakeContractTest)
-    // kanıtlanır. Sunucu wake üreticisi (`push-notify/fcmDelivery.buildWakeMessage`)
-    // yalnız {event, vehicle_id, ts} üretir → sonuç her zaman WAKE_ONLY;
-    // ENCRYPTED_COMMAND dalı yalnız `e2e_payload` üst düzey anahtarıyla girilir
-    // ve o anahtarı üreten hiçbir sunucu yolu YOKTUR (F-02: dormant, bu turda
-    // genişletilmez).
+    // `onMessageReceived` dallanmasını YALNIZ buradan alır ve karar YALNIZ
+    // `event` alanına bakar. Android bağımlılığı taşımadığı için JVM'de
+    // (CommandServiceWakeContractTest) kanıtlanır.
+    //
+    // F-02: eskiden üçüncü bir değer (ENCRYPTED_COMMAND) vardı ve `e2e_payload`
+    // üst düzey anahtarıyla native decrypt + CAN icrasına gidiyordu. O dal
+    // kaldırıldı; artık wake ailesinden her mesaj WAKE_ONLY'dir. Payload
+    // içeriği bir icra yetkisi ÜRETEMEZ.
 
-    /** FCM `data` haritasının yorumu. */
+    /** FCM `data` haritasının yorumu — iki olasılık vardır, üçüncüsü yoktur. */
     enum FcmDataKind {
         /** Wake ailesinden değil → yok sayılır (insan bildirimi vb.). */
         IGNORE,
-        /** Uyan ve kanonik DB dinleyicisine bak — fiziksel komut bilgisi YOK. */
-        WAKE_ONLY,
-        /** Şifreli komut zarfı taşıyor — F-02 dormant fiziksel dal. */
-        ENCRYPTED_COMMAND
+        /** Uyan ve kanonik DB dinleyicisine bak — fiziksel icra YOK. */
+        WAKE_ONLY
     }
 
     /** Saf karar: Android çağrısı yok. */
     static FcmDataKind classifyFcmData(Map<String, String> data) {
         if (data == null) return FcmDataKind.IGNORE;
-        String event      = data.getOrDefault("event",       "");
-        String e2ePayload = data.getOrDefault("e2e_payload", "");
+        String event = data.getOrDefault("event", "");
         if (!EVENT_NEW_CMD.equals(event) && !EVENT_CMD_PENDING.equals(event)) {
             return FcmDataKind.IGNORE;
         }
-        return e2ePayload.isEmpty() ? FcmDataKind.WAKE_ONLY : FcmDataKind.ENCRYPTED_COMMAND;
+        return FcmDataKind.WAKE_ONLY;
+    }
+
+    /**
+     * Saf gözlem yüklemi: mesaj kaldırılmış yürütücünün anahtarlarını taşıyor mu?
+     * Yalnız loglama içindir — dönüş değeri hiçbir dalı açmaz/kapatmaz.
+     */
+    static boolean carriesLegacyCommandKeys(Map<String, String> data) {
+        if (data == null) return false;
+        for (String key : LEGACY_COMMAND_KEYS) {
+            String value = data.get(key);
+            if (value != null && !value.isEmpty()) return true;
+        }
+        return false;
     }
 
     // ── FCM Token yenileme ──────────────────────────────────────────────────
@@ -108,139 +117,44 @@ public class CommandService extends FirebaseMessagingService {
         // vehicleIdentityService.ensureDevicePushTokenRegistered() onu cihaz
         // kimliğiyle kaydeder. Yani oturum içi bir rotasyon en geç BİR SONRAKİ
         // AÇILIŞTA yakalanır; bu pencere bilinçli olarak kabul edilmiştir
-        // (native→JS köprüsü kurmak asgari yamanın dışındadır).
+        // (native-JS köprüsü kurmak asgari yamanın dışındadır).
         //
         // Token DEĞERİ loglanmaz.
         Log.d(TAG, "FCM token yenilendi (kayıt: JS tarafı, en geç sonraki açılışta)");
     }
 
-    // ── Mesaj alımı ─────────────────────────────────────────────────────────
+    // ── Mesaj alımı — TEK DAL: uyandır ──────────────────────────────────────
 
     @Override
     public void onMessageReceived(RemoteMessage message) {
         super.onMessageReceived(message);
         Map<String, String> data = message.getData();
 
-        String event     = data.getOrDefault("event",      "");
-        String cmdType   = data.getOrDefault("cmd_type",   "");
-        String cmdId     = data.getOrDefault("cmd_id",     "");
-        String vehicleId = data.getOrDefault("vehicle_id", "");
-        String e2ePayload = data.getOrDefault("e2e_payload", "");
-
-        Log.d(TAG, "FCM alındı: event=" + event + " type=" + cmdType + " id=" + cmdId);
-
-        FcmDataKind kind = classifyFcmData(data);
-        if (kind == FcmDataKind.IGNORE) {
-            return; // Komut dışı bildirim — yoksay
+        if (classifyFcmData(data) == FcmDataKind.IGNORE) {
+            return; // Wake ailesinden değil — araçta işlenmez
         }
 
-        boolean webViewActive = isWebViewActive();
+        if (carriesLegacyCommandKeys(data)) {
+            /* Kanonik sunucu bu anahtarları üretmez. Geldiyse sözleşme dışıdır:
+               İCRA EDİLMEZ, çözülmez, "tamamlandı" yazılmaz — yalnız kaydedilir.
+               Mesaj yine de zararsız bir wake olarak ele alınır; komut gerçekten
+               varsa kanonik dinleyici onu DB'den kendi yetkisiyle okur. */
+            Log.w(TAG, "Wake mesajı sözleşme dışı komut anahtarı taşıyor — icra YOK");
+        }
 
-        if (webViewActive) {
-            // WebView canlı: JS tarafı devralır. Sadece broadcast gönder.
-            Log.d(TAG, "WebView aktif — JS CommandListener'a bırakıldı");
+        String vehicleId = data.getOrDefault("vehicle_id", "");
+        Log.d(TAG, "Wake alındı: event=" + data.getOrDefault("event", ""));
+
+        if (isWebViewActive()) {
+            // WebView canlı: kanonik JS dinleyicisi devralır. Sadece broadcast gönder.
+            Log.d(TAG, "WebView aktif — kanonik JS CommandListener'a bırakıldı");
             sendCommandBroadcast(vehicleId);
             return;
         }
 
-        // WebView uyku modunda ────────────────────────────────────────────
-
-        if (kind == FcmDataKind.ENCRYPTED_COMMAND) {
-            // E2E şifreli komut — NativeCryptoManager ile çöz (tek güvenli MCU yolu)
-            handleEncryptedCommand(cmdId, e2ePayload, vehicleId);
-        } else {
-            // C8 fix: Plaintext komut (MCU dahil) ASLA doğrudan CAN'e gitmez.
-            // E2E doğrulaması olmadan fiziksel komut icra edilmez — WebView'ı uyandır;
-            // JS CommandListener E2E enforce ederek (decrypt zorunlu) işlesin.
-            if (!cmdId.isEmpty()) queuePendingCommand(cmdId, cmdType, vehicleId);
-            wakeApplication();
-        }
-    }
-
-    // ── E2E Şifreli Komut ─────────────────────────────────────────────────
-
-    private void handleEncryptedCommand(String cmdId, String e2ePayloadJson,
-                                        String vehicleId) {
-        try {
-            NativeCryptoManager.DecryptResult result =
-                NativeCryptoManager.decryptCommandPayload(this, e2ePayloadJson);
-
-            if (result == null) {
-                Log.w(TAG, "E2E deşifreleme başarısız — kuyruğa al + uyandır");
-                queuePendingCommand(cmdId, "", vehicleId);
-                wakeApplication();
-                return;
-            }
-
-            String cmdType = result.type;
-            Log.i(TAG, "E2E deşifrelendi: " + cmdType);
-
-            if (MCU_COMMANDS.contains(cmdType)) {
-                executeMcuCommandNative(cmdType, cmdId);
-            } else {
-                // MCU dışı komut — WebView gerekli
-                queuePendingCommand(cmdId, cmdType, vehicleId);
-                wakeApplication();
-            }
-
-        } catch (Exception ex) {
-            Log.e(TAG, "E2E hata: " + ex.getMessage(), ex);
-            queuePendingCommand(cmdId, "", vehicleId);
-            wakeApplication();
-        }
-    }
-
-    // ── MCU Komut Çalıştırma ─────────────────────────────────────────────
-
-    private void executeMcuCommandNative(String cmdType, String cmdId) {
-        Log.i(TAG, "Native MCU komut: " + cmdType);
-
-        // ForegroundService başlatılmamışsa önce başlat
-        CarLauncherForegroundService svc = CarLauncherForegroundService.getInstance();
-        if (svc == null) {
-            Log.w(TAG, "ForegroundService yok — başlatılıyor");
-            startForegroundServiceCompat();
-            // Servis henüz başlamadı — kuyruğa al, brief wake ile hız kazandır
-            queuePendingCommand(cmdId, cmdType, "");
-            wakeApplicationBrief();
-            return;
-        }
-
-        CanBusManager canBus = CarLauncherForegroundService.getCanBusManager();
-        if (canBus == null) {
-            Log.w(TAG, "CanBusManager null — WebView'a düş");
-            queuePendingCommand(cmdId, cmdType, "");
-            wakeApplication();
-            return;
-        }
-
-        byte[] packet = buildMcuPacket(cmdType);
-        if (packet == null) {
-            Log.w(TAG, "Bilinmeyen MCU tip: " + cmdType);
-            writeCommandResult(cmdId, cmdType, "failed");
-            return;
-        }
-
-        boolean ok = canBus.sendCommand(packet);
-        Log.i(TAG, "MCU " + cmdType + " → " + (ok ? "OK" : "HATA"));
-
-        // Sonucu SharedPreferences'a yaz — JS açılınca Supabase'e bildirecek
-        writeCommandResult(cmdId, cmdType, ok ? "completed" : "failed");
-
-        // Kısa uyandırma: JS tarafı status güncellesin
-        wakeApplicationBrief();
-    }
-
-    private static byte[] buildMcuPacket(String cmdType) {
-        switch (cmdType) {
-            case "lock":      return McuCommandFactory.lockDoors();
-            case "unlock":    return McuCommandFactory.unlockDoors();
-            case "horn":      return McuCommandFactory.honkHorn();
-            case "lights_on": return McuCommandFactory.flashLights();
-            case "alarm_on":  return McuCommandFactory.alarmOn();
-            case "alarm_off": return McuCommandFactory.alarmOff();
-            default:          return null;
-        }
+        // WebView uykuda: uygulamayı uyandır. Komut bilgisini native TAŞIMAZ;
+        // uyanan kanonik dinleyici bekleyenleri DB'den çeker (fetch_pending).
+        wakeApplication();
     }
 
     // ── Uygulama Uyandırma ─────────────────────────────────────────────────
@@ -268,13 +182,6 @@ public class CommandService extends FirebaseMessagingService {
         } else {
             startActivity(intent);
         }
-    }
-
-    /** Kısa uyandırma: sadece ForegroundService 30s boost — activity başlatma yok */
-    private void wakeApplicationBrief() {
-        startForegroundServiceCompat();
-        CarLauncherForegroundService svc = CarLauncherForegroundService.getInstance();
-        if (svc != null) svc.wakeUp();
     }
 
     private void startForegroundServiceCompat() {
@@ -306,75 +213,5 @@ public class CommandService extends FirebaseMessagingService {
             Log.w(TAG, "getRunningTasks erişim engeli: " + e.getMessage());
             return false;
         }
-    }
-
-    // ── SharedPreferences Kuyruk Yönetimi ─────────────────────────────────
-
-    /** Bekleyen komut ID'sini kuyruğa ekler — JS açılınca Supabase'den tam komutu çeker */
-    private void queuePendingCommand(String cmdId, String cmdType, String vehicleId) {
-        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-        try {
-            JSONArray queue = parseJsonArray(prefs.getString(KEY_QUEUE, "[]"));
-
-            // Kapasite aşımında en eski girdiyi at
-            while (queue.length() >= MAX_QUEUE) queue.remove(0);
-
-            JSONObject entry = new JSONObject();
-            entry.put("id",         cmdId);
-            entry.put("type",       cmdType);
-            entry.put("vehicle_id", vehicleId);
-            entry.put("ts",         System.currentTimeMillis());
-            queue.put(entry);
-
-            prefs.edit().putString(KEY_QUEUE, queue.toString()).apply();
-            Log.d(TAG, "Kuyruğa eklendi: " + cmdId);
-        } catch (JSONException e) {
-            Log.e(TAG, "Kuyruk yazma hatası", e);
-        }
-    }
-
-    /** MCU çalıştırma sonucunu yazar — JS Supabase status güncellemesi için okur */
-    private void writeCommandResult(String cmdId, String cmdType, String status) {
-        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-        try {
-            JSONArray results = parseJsonArray(prefs.getString(KEY_RESULTS, "[]"));
-
-            JSONObject entry = new JSONObject();
-            entry.put("id",     cmdId);
-            entry.put("type",   cmdType);
-            entry.put("status", status);
-            entry.put("ts",     System.currentTimeMillis());
-            results.put(entry);
-
-            prefs.edit().putString(KEY_RESULTS, results.toString()).apply();
-        } catch (JSONException e) {
-            Log.e(TAG, "Sonuç yazma hatası", e);
-        }
-    }
-
-    private static JSONArray parseJsonArray(String raw) {
-        try { return new JSONArray(raw != null ? raw : "[]"); }
-        catch (JSONException e) { return new JSONArray(); }
-    }
-
-    // ── Statik Erişim — CarLauncherPlugin çağırır ─────────────────────────
-
-    public static String getQueuedCommands(Context ctx) {
-        return ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                  .getString(KEY_QUEUE, "[]");
-    }
-
-    public static String getCommandResults(Context ctx) {
-        return ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                  .getString(KEY_RESULTS, "[]");
-    }
-
-    public static void clearAll(Context ctx) {
-        ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-           .edit()
-           .remove(KEY_QUEUE)
-           .remove(KEY_RESULTS)
-           .apply();
-        Log.d(TAG, "Kuyruk ve sonuçlar temizlendi");
     }
 }

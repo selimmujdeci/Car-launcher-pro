@@ -203,10 +203,11 @@
             </intent-filter>
         </service>
 
-        <!-- ── H-4 Native Command Service: FCM arka plan komut alıcısı ─
-             WebView kapalıyken FCM push alır, MCU komutlarını doğrudan
-             CanBusManager üzerinden çalıştırır. E2E şifre çözme için
-             NativeCryptoManager (ECDH-P256 + HKDF-SHA256 + AES-GCM).
+        <!-- ── Araç WAKE transportu: FCM arka plan alıcısı ─────────────
+             MRI F-02: bu servis KOMUT YÜRÜTÜCÜSÜ DEĞİLDİR. Data-only wake
+             mesajını alır ve yalnız uygulamayı/kanonik JS CommandListener'ı
+             uyandırır. Fiziksel icra otoritesi: vehicle_commands →
+             commandListener → MCU/CAN.
         ──────────────────────────────────────────────────────────────── -->
         <service
             android:name=".CommandService"

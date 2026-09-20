@@ -19,8 +19,10 @@ import java.util.List;
  * Transport başarısız olursa 5s sonra sıfırdan tekrar dener.
  * Disconnect anında onTransportLost callback'i çağrılır — mapper reset için kullanılır.
  *
- * YAZMA: Yalnız sendCommand(byte[]) ile yapılır (MCU komut yolu — CommandService →
- * executeMcuCommandNative). Ham byte[] kabul eder; komut whitelist'i bu sınıfta DEĞİL,
+ * YAZMA: Yalnız sendCommand(byte[]) ile yapılır (MCU komut yolu — kanonik
+ * commandListener → CarLauncherPlugin.resolveMcuCommand; MRI F-02'den sonra
+ * CommandService/FCM'in fiziksel yazma yolu YOKTUR). Ham byte[] kabul eder;
+ * komut whitelist'i bu sınıfta DEĞİL,
  * McuCommandFactory'de uygulanır (bkz. C5 — bu sınıf frame içeriğini doğrulamaz).
  *
  * MRI F-01 (2026-09-19): "bağlanan transport" ≠ "yazılabilir transport". Bir transport

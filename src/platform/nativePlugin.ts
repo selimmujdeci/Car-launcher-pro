@@ -1882,13 +1882,10 @@ export interface CarLauncherPlugin {
   triggerAlarm(): Promise<NativeVehicleCommandResult>;
   stopAlarm():    Promise<NativeVehicleCommandResult>;
 
-  // H-4 Native Command Service — CommandService.java kuyruk okuma
-  /** CommandService.java'nın WebView yokken biriktirdiği komut kuyruğunu okur (JSON) */
-  getQueuedNativeCommands?(): Promise<{ commands: string }>;
-  /** MCU sonuç listesini okur — startup'ta Supabase status sync için */
-  getNativeCommandResults?(): Promise<{ results: string }>;
-  /** Hem komut kuyruğunu hem sonuç listesini temizler */
-  clearNativeCommandQueue?(): Promise<void>;
+  /* H-4 native komut kuyruğu köprüleri (getQueuedNativeCommands /
+     getNativeCommandResults / clearNativeCommandQueue) MRI F-02'de kaldırıldı:
+     kuyruğun tek üreticisi olan native fiziksel yürütücü kaldırıldı. Komut
+     durumunun tek yazarı kanonik `update_command_status` RPC'sidir. */
 
   /**
    * OBD El Sıkışması — bağlantı ısınma sonrası çağrılır (W5-OBD-PR1).
