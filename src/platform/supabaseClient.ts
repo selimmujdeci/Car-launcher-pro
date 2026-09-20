@@ -20,7 +20,17 @@ export function getSupabaseClient(): SupabaseClient | null {
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return null;
   if (!_instance) {
     _instance = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-      auth: { persistSession: false, autoRefreshToken: false },
+      /**
+       * WAVE 16 · `detectSessionInUrl` AÇIKÇA KAPALI.
+       *
+       * Belirtilmediğinde SDK varsayılanı `true`dur: client yaratılırken
+       * `window.location.href` ayrıştırılır ve `#access_token=...` varsa
+       * oturum kurulur. Bu client hiçbir zaman bir auth callback'i
+       * karşılamaz (kurtarmanın tek sahibi RoleStore.handleRecoveryUrl'dir),
+       * bu yüzden varsayılan yalnız sessiz bir ikinci otorite üretirdi.
+       * Kilit: `src/__tests__/urlSessionAuthorityW16.test.ts`
+       */
+      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
       global: {
         headers: {
           // Capacitor runs on https://localhost — tell Supabase to allow it

@@ -41,6 +41,11 @@ const sdk = vi.hoisted(() => ({
   signOutCalls:    0,
   /** Sıradaki çağrının döneceği hata (null = başarı). */
   nextError:       null as null | { message: string },
+  /**
+   * W-16: oturum kurulduktan SONRA `getUser()` ile okunan kimlik. Kapı artık
+   * bu kimliği denemeyi başlatan hesaba bağlar; taklit de bunu yansıtmalı.
+   */
+  sessionEmail:    'admin@test.local' as string | null,
 }));
 
 vi.mock('@supabase/supabase-js', () => ({
@@ -55,7 +60,9 @@ vi.mock('@supabase/supabase-js', () => ({
         return { error: sdk.nextError };
       }),
       signOut: vi.fn(async () => { sdk.signOutCalls++; return { error: null }; }),
-      getUser: vi.fn(async () => ({ data: { user: null }, error: { message: 'no session' } })),
+      getUser: vi.fn(async () => (sdk.sessionEmail
+        ? { data: { user: { email: sdk.sessionEmail } }, error: null }
+        : { data: { user: null }, error: { message: 'no session' } })),
       onAuthStateChange: vi.fn(() => ({ data: { subscription: { unsubscribe: () => {} } } })),
       resetPasswordForEmail: vi.fn(async () => ({ error: sdk.nextError })),
       signInWithPassword:    vi.fn(async () => ({ error: sdk.nextError })),
@@ -101,6 +108,7 @@ beforeEach(() => {
   sdk.verifyOtpCalls  = [];
   sdk.signOutCalls    = 0;
   sdk.nextError       = null;
+  sdk.sessionEmail    = 'admin@test.local';
   try { localStorage.clear(); sessionStorage.clear(); } catch { /* jsdom */ }
 });
 
@@ -252,5 +260,61 @@ describe('N-4 · meşru kurtarma akışı çalışmaya devam eder', () => {
 
     expect(sdk.setSessionCalls).toHaveLength(1);
     expect(sdk.setSessionCalls[0]).toEqual({ access_token: 'A_OK', refresh_token: 'R_OK' });
+  });
+});
+
+// ── W-16/RISK B · KİMLİK BAĞI ──────────────────────────────────────────────
+//
+// Wave 15 kapısı "bu cihazda AÇIK bir deneme var mı" sorusunu yanıtlıyordu —
+// yani ZAMAN penceresine dayalıydı. Aynı 30 dakikalık pencerede gelen BAŞKA
+// bir hesabın GEÇERLİ callback'i de kabul edilirdi. Wave 16 bağı kimliğe
+// taşır: oturum kurulduktan sonra hesap doğrulanır, uyuşmazsa DERHAL kapanır.
+//
+// DÜRÜSTLÜK: bu kriptografik bir challenge/response DEĞİLDİR (Supabase
+// kurtarma akışı cihaza özel bir nonce döndürmez). Sabitlemeyi ÖNLEMEZ,
+// KALICI OLMASINI önler.
+
+describe("W-16/RISK B · aynı pencerede gelen YABANCI kimlik kabul edilmez", () => {
+  it("başka hesabın geçerli callback'i oturumu sabitleyemez", async () => {
+    const s = await store();
+    await s.getState().resetPassword("admin@test.local");
+
+    /* Callback geçerli — ama saldırganın KENDİ hesabının oturumunu kurar. */
+    sdk.sessionEmail = "attacker@evil.example";
+    await s.getState().handleRecoveryUrl(otpUrl());
+
+    expect(sdk.verifyOtpCalls.length, "ölçüm kör — callback hiç işlenmemiş").toBe(1);
+    expect(
+      s.getState().adminAuthState,
+      "yabancı hesabın oturumu kurtarma durumu olarak kabul edildi — cihaz o hesaba sabitlendi",
+    ).not.toBe("recovery");
+    expect(
+      sdk.signOutCalls,
+      "kimlik uyuşmazlığında oturum KAPATILMADI — sabitleme kalıcı olur",
+    ).toBe(1);
+  });
+
+  it("kimlik okunamazsa fail-closed davranır", async () => {
+    const s = await store();
+    await s.getState().resetPassword("admin@test.local");
+
+    sdk.sessionEmail = null;            // getUser: oturum/kimlik yok
+    await s.getState().handleRecoveryUrl(otpUrl());
+
+    expect(s.getState().adminAuthState, "kimlik doğrulanamadan kurtarma açıldı")
+      .not.toBe("recovery");
+    expect(sdk.signOutCalls, "doğrulanamayan oturum kapatılmadı").toBe(1);
+  });
+
+  it("aynı hesap — büyük/küçük harf ve boşluk farkı meşru akışı BOZMAZ", async () => {
+    const s = await store();
+    await s.getState().resetPassword("  Admin@Test.Local  ");
+
+    sdk.sessionEmail = "admin@test.local";
+    await s.getState().handleRecoveryUrl(otpUrl("LEGIT_HASH"));
+
+    expect(s.getState().adminAuthState, "meşru sahip reddedildi — kapı ürünü kırıyor")
+      .toBe("recovery");
+    expect(sdk.signOutCalls, "meşru oturum kapatıldı").toBe(0);
   });
 });
