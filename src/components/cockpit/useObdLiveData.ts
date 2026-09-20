@@ -23,11 +23,17 @@
  * yalnız kanonik alanlar o modele BAĞLANIR.
  */
 
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useOBDState, getFuelCalibrationState } from '../../platform/obdService';
 import { useDTCState } from '../../platform/dtcService';
+/* Genişletilmiş PID kanalı: KANONİK okuma yüzeyi. `watchPid` yeni bir poll
+   döngüsü KURMAZ — native `AdaptivePidScheduler`a ilgi bildirir ve unmount'ta
+   listeyi küçültür (`ObdLiveTestPanel` ile AYNI sözleşme). */
+import { watchPid, getPidValue, getPidStatus } from '../../platform/obd/extendedPidService';
+import { WATCHED_EXTENDED_PIDS } from './obdPidCatalog';
 import {
   deriveLinkState, deriveDtcState, readField, readMeasured, coverage, deriveFuelProvenance,
+  fromExtendedStatus,
   type LinkState, type DtcState, type Reading, type ReadCoverage, type FuelProvenance,
 } from './obdLiveModel';
 
@@ -75,6 +81,13 @@ export interface ObdLiveState {
   readonly dtcCount: number;
   readonly dtcReading: boolean;
 
+  /* ── Hesaplanan değerler (ECU PID'i DEĞİL — ekran bunu açıkça söyler) ─ */
+  readonly fuelRemainingL: Reading;
+  readonly estimatedRangeKm: Reading;
+
+  /** Genişletilmiş PID okumaları — anahtar 2 haneli PID ('04', '10'…). */
+  readonly extended: Readonly<Record<string, Reading>>;
+
   /** Kaç ölçüm gerçekten sayı gösterebiliyor (veri kalitesi). */
   readonly coverage: ReadCoverage;
 }
@@ -83,7 +96,23 @@ export function useObdLiveData(): ObdLiveState {
   const obd = useOBDState();
   const dtc = useDTCState();
 
+  /* Genişletilmiş PID'ler round-robin okunur (turda en fazla 1 PID), bu
+     yüzden geri çağırım sıklığı düşüktür; sayaç bumplamak yeterli, ayrı bir
+     zamanlayıcı ya da önbellek katmanı gerekmez. */
+  const [extTick, setExtTick] = useState(0);
+  useEffect(() => {
+    const bump = (): void => { setExtTick((t) => (t + 1) % 1_000_000); };
+    const stops = WATCHED_EXTENDED_PIDS.map((pid) => watchPid(pid, bump));
+    return () => { for (const stop of stops) stop(); };
+  }, []);
+
   return useMemo<ObdLiveState>(() => {
+    /* `extTick` yalnız YENİDEN HESAPLAMA tetikleyicisidir: genişletilmiş
+       değerler servisin kendi önbelleğinden okunur, bu yüzden bağımlılık
+       listesinde durur ama gövdede kullanılmaz. Açıkça tüketiliyor ki
+       niyet görünür olsun. */
+    void extTick;
+
     const link = deriveLinkState({
       transportConnected: obd.transportConnected,
       dataFresh:          obd.dataFresh,
@@ -116,6 +145,23 @@ export function useObdLiveData(): ObdLiveState {
     try { fuelScale = getFuelCalibrationState().scale; } catch { fuelScale = 1; }
     const fuelProvenance = deriveFuelProvenance({ reading: fuelLevel, scale: fuelScale });
 
+    /* Genişletilmiş kanal: değer + durum AYNI otoriteden okunur. */
+    const extended: Record<string, Reading> = {};
+    for (const pid of WATCHED_EXTENDED_PIDS) {
+      let status: ReturnType<typeof getPidStatus> = 'probing';
+      let value: number | undefined;
+      try {
+        status = getPidStatus(pid);
+        value = getPidValue(pid)?.value;
+      } catch { /* okunamazsa fail-closed: aşağıda `probing` → henüz okunmadı */ }
+      extended[pid] = fromExtendedStatus(status, value, link);
+    }
+
+    /* Hesaplanan yakıt metrikleri: ECU PID'i DEĞİL, depo yapılandırmasından
+       türetilir (`obdMetrics.computeFuelMetrics`). Ekran bunu etiketler. */
+    const fuelRemainingL   = readField(obd.fuelRemainingL, link);
+    const estimatedRangeKm = readField(obd.estimatedRangeKm, link);
+
     /* DTC: `lastReadAt` bu oturumda GERÇEKTEN bir okuma yapıldığının
        kanıtıdır. `codes.length === 0` tek başına "arıza yok" DEMEZ. */
     const dtcState = deriveDtcState({
@@ -139,17 +185,19 @@ export function useObdLiveData(): ObdLiveState {
       isElectrified,
       batteryLevel, batteryTemp, motorPower,
 
+      fuelRemainingL, estimatedRangeKm,
+      extended,
+
       dtc:        dtcState,
       dtcCount:   dtc.codes.length,
       dtcReading: dtc.isReading,
 
       /* Kapsam YALNIZ OBD ölçümlerini sayar — gövde/CAN verisi bu sayfanın
          kimliğine ait değildir ve kaliteyi şişirmez. */
-      coverage: coverage(isElectrified
-        ? [rpm, speed, throttle, fuelLevel, batteryVoltage, engineTemp, intakeTemp,
-           boostPressure, egt, batteryLevel, batteryTemp, motorPower]
-        : [rpm, speed, throttle, fuelLevel, batteryVoltage, engineTemp, intakeTemp,
-           boostPressure, egt]),
+      coverage: coverage([
+        rpm, speed, throttle, fuelLevel, batteryVoltage, engineTemp, intakeTemp, boostPressure,
+        ...Object.values(extended),
+      ]),
     };
-  }, [obd, dtc]);
+  }, [obd, dtc, extTick]);
 }

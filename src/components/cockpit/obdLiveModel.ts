@@ -27,8 +27,14 @@ export type ReadingState =
   | 'stale'
   /** Araç bu PID'i desteklemiyor (`-1`). */
   | 'unsupported'
-  /** Henüz hiç okunmadı (`undefined`, ya da link hiç veri getirmedi). */
+  /** Henüz hiç okunmadı (`undefined`, keşif sürüyor, ya da link veri getirmedi). */
   | 'unread'
+  /**
+   * Destek bitmask'i PID'i destekli gösteriyor ama ECU DEĞER VERMİYOR.
+   * "Araçta yok"tan farklıdır ve kullanıcıya ayrı söylenir
+   * (`extendedPidService.getPidStatus` → `no_data`).
+   */
+  | 'no_data'
   /** OBD bağlı değil — ölçüm GÖSTERİLMEZ. */
   | 'offline';
 
@@ -138,6 +144,25 @@ export function deriveDtcState(i: DtcInput): DtcState {
   return i.count > 0 ? 'faults' : 'clean';
 }
 
+/**
+ * Genişletilmiş PID kanalının durumunu sayfanın diline çevirir.
+ *
+ * `extendedPidService` beş durumu ZATEN ayırıyor; burada yalnız eşleme
+ * yapılır — yeni bir tazelik/kapasite otoritesi KURULMAZ.
+ */
+export function fromExtendedStatus(
+  status: 'live' | 'stale' | 'no_data' | 'unsupported' | 'probing',
+  value: number | undefined,
+  link: LinkState,
+): Reading {
+  if (link === 'offline') return { state: 'offline', value: null };
+  if (status === 'unsupported') return { state: 'unsupported', value: null };
+  if (status === 'no_data')     return { state: 'no_data', value: null };
+  if (status === 'probing')     return { state: 'unread', value: null };
+  if (value === undefined || !Number.isFinite(value)) return { state: 'unread', value: null };
+  return { state: status === 'live' ? 'live' : 'stale', value };
+}
+
 /** Ölçüm gerçekten bir sayı gösterebiliyor mu? */
 export function hasNumber(r: Reading): boolean {
   return r.value !== null && (r.state === 'live' || r.state === 'stale');
@@ -175,7 +200,9 @@ export function coverage(readings: readonly Reading[]): ReadCoverage {
   for (const r of readings) {
     if (r.state === 'live') live++;
     else if (r.state === 'stale') stale++;
-    else if (r.state === 'unsupported') unsupported++;
+    /* "araçta yok" ile "ECU vermiyor" kalite özetinde birlikte sayılır;
+       ayrım kartın kendi etiketinde görünür. */
+    else if (r.state === 'unsupported' || r.state === 'no_data') unsupported++;
     else if (r.state === 'unread') unread++;
   }
   return { readable: live + stale, total: readings.length, live, stale, unsupported, unread };
