@@ -26,7 +26,21 @@
  * SAF: I/O YOK · DOM YOK · timer YOK · React YOK · global durum YOK.
  */
 
-export type CockpitPage = 'home' | 'cockpit';
+export type CockpitPage = 'home' | 'cockpit' | 'obd';
+
+/**
+ * SAYFA ŞERİDİ — soldan sağa komşuluk.
+ *
+ *   OBD  ⇄  KOKPİT  ⇄  HOME
+ *
+ * Sıra keyfi DEĞİLDİR: mevcut ürün davranışı "kokpitte SOLA kaydır → HOME"
+ * biçiminde kilitlidir; OBD bu yüzden kokpitin DİĞER yanına, yani SAĞA
+ * kaydırma yönüne konur. Böylece:
+ *   · HOME'dan kokpite geçiş         → HER İKİ yönde (değişmedi)
+ *   · kokpitten SOLA                 → HOME        (değişmedi)
+ *   · kokpitten SAĞA                 → OBD         (bu turun tek yeni davranışı)
+ */
+export const PAGE_STRIP: readonly CockpitPage[] = Object.freeze(['obd', 'cockpit', 'home']);
 
 /* ══════════════════════════════════════════════════════════════════════════
  * Eşikler
@@ -117,6 +131,26 @@ export function classifyPageDrag(i: PageDragInput): PageDragVerdict {
   return 'engaged';
 }
 
+/**
+ * Bu jestin hedef sayfası.
+ *
+ * ── TEK KOMŞU KURALI KORUNUR ──────────────────────────────────────────────
+ * Şeridin UCUNDAKİ bir sayfanın tek komşusu vardır; orada "yanlış yön" diye
+ * bir şey YOKTUR (iki tur yanlış tahminin dersi — bkz. {@link classifyPageDrag})
+ * ve her iki yatay yön de o tek komşuya gider. Yalnız ORTADAKİ sayfanın iki
+ * komşusu olduğu için orada yön ANLAM KAZANIR: parmak sola → şeritte ileri
+ * (HOME yönü), parmak sağa → geri (OBD yönü).
+ */
+export function neighborFor(page: CockpitPage, dx: number): CockpitPage {
+  const i = PAGE_STRIP.indexOf(page);
+  if (i < 0) return page;
+  const forward = dx < 0;                      // parmak sola → şeritte ileri
+  const j = forward ? i + 1 : i - 1;
+  if (j >= 0 && j < PAGE_STRIP.length) return PAGE_STRIP[j]!;
+  // Uçtayız: tek komşuya git (yön dayatılmaz).
+  return PAGE_STRIP[i === 0 ? 1 : i - 1]!;
+}
+
 /** Kokpitin ekrana gireceği kenar. */
 export type CockpitEntrySide = 'right' | 'left';
 
@@ -156,7 +190,7 @@ export function commitDistancePx(viewportWidth: number, isDriving: boolean): num
 }
 
 export function resolvePageSwipe(i: PageSwipeCommitInput): PageSwipeCommitResult {
-  const other: CockpitPage = i.page === 'home' ? 'cockpit' : 'home';
+  const other = neighborFor(i.page, i.dx);
   const verdict = classifyPageDrag({ page: i.page, dx: i.dx, dy: 0 });
   const need = commitDistancePx(i.viewportWidth, i.isDriving);
   const travelled = Math.abs(i.dx);

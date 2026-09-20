@@ -48,9 +48,10 @@ import { useStore } from '../../store/useStore';
 import { useSystemStore } from '../../store/useSystemStore';
 import { DigitalCockpitPage } from './DigitalCockpitPage';
 import {
-  canBeginPageSwipe, classifyPageDrag, resolvePageSwipe, entrySideForDrag,
+  canBeginPageSwipe, classifyPageDrag, resolvePageSwipe, entrySideForDrag, neighborFor,
   type CockpitPage, type CockpitEntrySide,
 } from './cockpitSwipeModel';
+import { ObdLivePage } from './ObdLivePage';
 
 /** Sayfa oturma animasyonu — akıcı ama ağır değil (OEM hissi). */
 const SETTLE_MS = 260;
@@ -256,9 +257,9 @@ export function CockpitPager() {
     };
   }, [page, blocked, mounted, endDrag]);
 
-  /* ── Donanım geri tuşu: kokpit açıkken önce HOME'a dön ───────────────── */
+  /* ── Donanım geri tuşu: kokpit/OBD açıkken önce HOME'a dön ──────────── */
   useEffect(() => {
-    if (page !== 'cockpit') return;
+    if (page === 'home') return;
     const handler = (e: Event) => {
       e.stopImmediatePropagation();  // MainLayout'un "çıkmak için tekrar bas"ına gitmesin
       setPage('home');
@@ -272,17 +273,21 @@ export function CockpitPager() {
   /* Kapalıyken jestin geldiği KENARDA bekler (sağ: +100% · sol: -100%);
      açıkken 0. Sürükleme anlık kaymayı ekler ve kırpma o kenara göre yapılır —
      böylece parmak hangi yöne giderse sayfa o yönde akar. */
+  const open = page !== 'home';
   const closedPct = entrySide === 'right' ? 100 : -100;
-  const restPct = page === 'cockpit' ? 0 : closedPct;
+  const restPct = open ? 0 : closedPct;
   const dragging = dragDx !== null;
   const vw = typeof window !== 'undefined' ? (window.innerWidth || 1) : 1;
-  const dragPct = dragging ? (dragDx / vw) * 100 : 0;
+  /* İki AÇIK sayfa arasında (kokpit ⇄ OBD) katman YERİNDE kalır: o jest
+     içeriği değiştirir, katmanı ekrandan çıkarmaz. Katman yalnız HOME'a
+     giderken ya da HOME'dan gelirken kayar — açılma/kapanma hissi aynen korunur. */
+  const dragTarget = dragging ? neighborFor(page, dragDx) : null;
+  const layerMoves = !open || dragTarget === 'home';
+  const dragPct = dragging && layerMoves ? (dragDx / vw) * 100 : 0;
   const raw = restPct + dragPct;
   const translatePct = entrySide === 'right'
     ? Math.max(0, Math.min(100, raw))
     : Math.max(-100, Math.min(0, raw));
-  const open = page === 'cockpit';
-
   return (
     <div
       data-caros-cockpit="layer"
@@ -299,7 +304,9 @@ export function CockpitPager() {
         overscrollBehavior: 'contain',
       }}
     >
-      <DigitalCockpitPage />
+      {page === 'obd'
+        ? <ObdLivePage onHome={() => setPage('home')} />
+        : <DigitalCockpitPage />}
     </div>
   );
 }
