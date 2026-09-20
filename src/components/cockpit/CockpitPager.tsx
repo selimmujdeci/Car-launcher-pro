@@ -52,6 +52,7 @@ import {
   type CockpitPage, type CockpitEntrySide,
 } from './cockpitSwipeModel';
 import { ObdLivePage } from './ObdLivePage';
+import { TripComputerPage } from './TripComputerPage';
 
 /** Sayfa oturma animasyonu — akıcı ama ağır değil (OEM hissi). */
 const SETTLE_MS = 260;
@@ -304,9 +305,9 @@ export function CockpitPager() {
         overscrollBehavior: 'contain',
       }}
     >
-      {page === 'obd'
-        ? <ObdLivePage onHome={() => setPage('home')} />
-        : <DigitalCockpitPage />}
+      {page === 'obd'  ? <ObdLivePage onHome={() => setPage('home')} />
+        : page === 'trip' ? <TripComputerPage onHome={() => setPage('home')} />
+          : <DigitalCockpitPage />}
     </div>
   );
 }

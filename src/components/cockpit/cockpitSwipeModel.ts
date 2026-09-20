@@ -26,21 +26,25 @@
  * SAF: I/O YOK · DOM YOK · timer YOK · React YOK · global durum YOK.
  */
 
-export type CockpitPage = 'home' | 'cockpit' | 'obd';
+export type CockpitPage = 'home' | 'cockpit' | 'obd' | 'trip';
 
 /**
  * SAYFA ŞERİDİ — soldan sağa komşuluk.
  *
- *   OBD  ⇄  KOKPİT  ⇄  HOME
+ *   YOLCULUK  ⇄  OBD  ⇄  KOKPİT  ⇄  HOME
  *
  * Sıra keyfi DEĞİLDİR: mevcut ürün davranışı "kokpitte SOLA kaydır → HOME"
  * biçiminde kilitlidir; OBD bu yüzden kokpitin DİĞER yanına, yani SAĞA
- * kaydırma yönüne konur. Böylece:
- *   · HOME'dan kokpite geçiş         → HER İKİ yönde (değişmedi)
- *   · kokpitten SOLA                 → HOME        (değişmedi)
- *   · kokpitten SAĞA                 → OBD         (bu turun tek yeni davranışı)
+ * kaydırma yönüne kondu. Yolculuk bilgisayarı da aynı mantıkla şeridin
+ * UCUNA, OBD'nin ötesine eklenir — böylece kilitli davranışların HİÇBİRİ
+ * değişmez:
+ *   · HOME'dan kokpite geçiş → HER İKİ yönde   (değişmedi)
+ *   · kokpitten SOLA         → HOME            (değişmedi)
+ *   · kokpitten SAĞA         → OBD             (değişmedi)
+ *   · OBD'den SOLA           → KOKPİT          (değişmedi)
+ *   · OBD'den SAĞA           → YOLCULUK        (bu turun tek yeni davranışı)
  */
-export const PAGE_STRIP: readonly CockpitPage[] = Object.freeze(['obd', 'cockpit', 'home']);
+export const PAGE_STRIP: readonly CockpitPage[] = Object.freeze(['trip', 'obd', 'cockpit', 'home']);
 
 /* ══════════════════════════════════════════════════════════════════════════
  * Eşikler
