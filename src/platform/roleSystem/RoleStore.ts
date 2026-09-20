@@ -48,24 +48,83 @@ const RECOVERY_HOST   = 'auth';
 const RECOVERY_PATH   = '/recovery';
 
 /**
- * WAVE 16 · `idHash`: denemeyi başlatan hesabın SHA-256 özeti.
+ * WAVE 17 · Callback'i cihaza bağlayan tek kullanımlık nonce.
  *
- * Wave 15'te deneme kaydı yalnız "bu cihazda AÇIK bir kurtarma var mı"
- * sorusunu yanıtlıyordu — yani ZAMAN penceresine dayalıydı. Aynı pencerede
- * gelen BAŞKA bir hesabın geçerli callback'i de kabul edilirdi.
- * `idHash`, callback sonucu kurulan oturumun KİMLİĞİNİ denemeyi başlatan
- * kimliğe bağlar. E-posta düz metin SAKLANMAZ, HİÇBİR YERDE LOGLANMAZ.
+ * `redirectTo` içine konur, Supabase yönlendirmesiyle geri döner ve saklanan
+ * özetle karşılaştırılır. Saldırgan bu değeri BİLEMEZ.
  */
-interface RecoveryAttempt { id: string; createdAt: number; idHash: string }
+const RECOVERY_NONCE_PARAM = 'state';
+/** 16 bayt = 128 bit entropi. */
+const RECOVERY_NONCE_BYTES = 16;
 
-/** Kimlik özeti. Hesaplanamazsa boş string → bağ kurulamaz (aşağıya bkz.). */
-async function hashIdentity(email: string): Promise<string> {
-  const subtle = globalThis.crypto?.subtle;
-  if (!subtle) return '';
+/**
+ * Deneme kaydı.
+ *
+ * `nonceHash` (W-17): callback'in BU denemeye ait olduğunun kanıtı.
+ * `idHash`    (W-16): oturum kurulduktan sonra kimlik doğrulaması.
+ *
+ * Ham nonce KALICI OLARAK SAKLANMAZ — yalnız özeti tutulur. E-posta düz metin
+ * saklanmaz. Hiçbiri HİÇBİR YERDE LOGLANMAZ.
+ */
+interface RecoveryAttempt {
+  id:        string;
+  createdAt: number;
+  idHash:    string;
+  nonceHash: string;
+}
+
+/**
+ * WAVE 17 · GÜVENLİK KRİTİK KRİPTO YETENEĞİ — FİİLEN SINANIR.
+ *
+ * Yalnız `typeof` bakmak YETMEZ: Supabase SDK'sının kendi yedekleri sessizce
+ * güvensizdir ve tam olarak bu koşullarda devreye girer —
+ *   · `generatePKCEVerifier()`  → `crypto` yoksa **Math.random** ile verifier
+ *   · `generatePKCEChallenge()` → `crypto.subtle` yoksa challenge = verifier
+ *     ve yöntem **plain** olur; yani sır ağda AÇIK gider.
+ * Bu yüzden yetenek yoksa kurtarma başlatılmaz ve callback doğrulanmaz.
+ * "Biraz daha az güvenli ama devam et" YOKTUR (fail-closed).
+ */
+async function recoveryCryptoAvailable(): Promise<boolean> {
+  const c = globalThis.crypto;
+  if (!c || typeof c.getRandomValues !== 'function') return false;
+  if (!c.subtle || typeof c.subtle.digest !== 'function') return false;
+  if (typeof TextEncoder === 'undefined') return false;
   try {
-    const buf = await subtle.digest('SHA-256', new TextEncoder().encode(email.trim().toLowerCase()));
+    c.getRandomValues(new Uint8Array(1));
+    await c.subtle.digest('SHA-256', new Uint8Array(1));
+    return true;
+  } catch { return false; }
+}
+
+/** Kriptografik rastgele nonce. `Math.random` KULLANILMAZ. */
+function generateRecoveryNonce(): string {
+  const bytes = new Uint8Array(RECOVERY_NONCE_BYTES);
+  globalThis.crypto.getRandomValues(bytes);
+  return Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/** SHA-256 → hex. Hesaplanamazsa `null` (çağıran fail-closed davranır). */
+async function sha256Hex(value: string): Promise<string | null> {
+  try {
+    const buf = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
     return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, '0')).join('');
-  } catch { return ''; }
+  } catch { return null; }
+}
+
+/** Kimlik özeti (normalize edilmiş e-posta). */
+async function hashIdentity(email: string): Promise<string | null> {
+  return sha256Hex(email.trim().toLowerCase());
+}
+
+/**
+ * Uzunluk-sabit karşılaştırma. Değerler zaten özet olduğu için sızıntı riski
+ * düşüktür; yine de erken çıkış yapmayız. Ayrı bir kripto katmanı yazılmaz.
+ */
+function constantTimeEquals(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
 }
 
 function readRecoveryAttempt(): RecoveryAttempt | null {
@@ -79,16 +138,24 @@ function readRecoveryAttempt(): RecoveryAttempt | null {
   } catch { return null; }
 }
 
-/** Kurtarma BU CİHAZDAN, BU HESAP için başlatıldı — callback beklentisi açılır. */
-async function beginRecoveryAttempt(email: string): Promise<void> {
-  const idHash = await hashIdentity(email);
+/**
+ * Kurtarma BU CİHAZDAN, BU HESAP için, BU NONCE ile başlatıldı.
+ *
+ * Kayıt kurulamazsa `false` döner — çağıran kurtarmayı başlatmaz. Sessizce
+ * "kayıtsız devam" YOKTUR, çünkü o durumda callback kapısı zaten her şeyi
+ * reddederdi ve kullanıcı sebebini bilemezdi.
+ */
+async function beginRecoveryAttempt(email: string, nonce: string): Promise<boolean> {
+  const [idHash, nonceHash] = await Promise.all([hashIdentity(email), sha256Hex(nonce)]);
+  if (!idHash || !nonceHash) return false;            // FAIL-CLOSED
   try {
-    const id = (globalThis.crypto?.randomUUID?.() ?? String(Date.now()));
+    const id = (globalThis.crypto?.randomUUID?.() ?? generateRecoveryNonce());
     localStorage.setItem(
       RECOVERY_ATTEMPT_KEY,
-      JSON.stringify({ id, createdAt: Date.now(), idHash } satisfies RecoveryAttempt),
+      JSON.stringify({ id, createdAt: Date.now(), idHash, nonceHash } satisfies RecoveryAttempt),
     );
-  } catch { /* depo yoksa: aşağıdaki kapı fail-closed davranır */ }
+    return true;
+  } catch { return false; }                            // depo yok → FAIL-CLOSED
 }
 
 function clearRecoveryAttempt(): void {
@@ -111,25 +178,24 @@ function consumeRecoveryAttempt(): RecoveryAttempt | null {
  * WAVE 16 · KİMLİK BAĞI — callback sonucu kurulan oturum, denemeyi başlatan
  * hesaba mı ait?
  *
- * DÜRÜSTLÜK: bu bir KRİPTOGRAFİK challenge/response DEĞİLDİR. Supabase
- * kurtarma akışı cihaza özel bir nonce'u geri döndürmez (`redirectTo` sabit
- * bir izin listesi girdisidir), bu yüzden callback'in kendisi imzalanamaz.
- * Burada yapılan, oturum KURULDUKTAN SONRA kimliği doğrulayıp uyuşmazsa
- * oturumu DERHAL kapatmaktır — yani sabitleme KALICI OLAMAZ.
+ * W-17: artık kapının TEK bağı değildir — nonce zaten callback'i bu denemeye,
+ * PKCE ise kodu bu cihaza bağlar. Bu kontrol onların ÜSTÜNE gelen derinlik
+ * savunmasıdır ve tek kusuru geç olmasıdır: kimlik ancak oturum kurulduktan
+ * sonra okunabilir, uyuşmazsa oturum DERHAL kapatılır.
  *
- * Özet hesaplanamamışsa (`crypto.subtle` yok) bağ kurulamaz; davranış Wave
- * 15 seviyesine (köken + TTL + tek kullanım) DÜŞER, daha zayıfına değil.
+ * W-17: özet hesaplanamazsa artık Wave 15 seviyesine DÜŞMEZ — REDDEDER.
  */
 async function verifyRecoveryIdentity(
   client: { auth: { getUser: () => Promise<{ data: { user: { email?: string | null } | null } | null; error: unknown }> } },
   expectedHash: string,
 ): Promise<boolean> {
-  if (!expectedHash) return true;              // bağ kurulamadı → Wave 15 davranışı
+  if (!expectedHash) return false;             // bağ kurulamamış kayıt → FAIL-CLOSED
   try {
     const { data, error } = await client.auth.getUser();
     const email = data?.user?.email ?? '';
     if (error || !email) return false;         // kimlik okunamadı → FAIL-CLOSED
-    return (await hashIdentity(email)) === expectedHash;
+    const actual = await hashIdentity(email);
+    return actual !== null && constantTimeEquals(actual, expectedHash);
   } catch { return false; }
 }
 
@@ -174,6 +240,22 @@ export function getAdminClient() {
          * Kilit: `src/__tests__/urlSessionAuthorityW16.test.ts`
          */
         detectSessionInUrl: false,
+        /**
+         * WAVE 17 · PKCE — kurtarma kodunu BU CİHAZA kriptografik olarak bağlar.
+         *
+         * `implicit` (SDK varsayılanı) akışta kurtarma bağlantısı doğrudan
+         * oturum malzemesi taşır: onu ELE GEÇİREN HERKES kullanabilir.
+         * `pkce` akışta `resetPasswordForEmail`, cihazda bir `code_verifier`
+         * saklar ve sunucuya yalnız S256 özetini gönderir; callback ise yalnız
+         * kısa ömürlü bir `code` taşır. `exchangeCodeForSession` kodu o
+         * verifier ile takas eder → başka bir cihazın ürettiği kod SUNUCUDA
+         * reddedilir. Verifier hem başarı hem hata yolunda silinir, yani
+         * tek-kullanım SDK seviyesinde de zorlanır.
+         *
+         * NOT: `detectSessionInUrl` KAPALI kalır (W-16). Kod takası yalnız
+         * `handleRecoveryUrl` tarafından, açıkça yapılır.
+         */
+        flowType: 'pkce',
       },
       global: { headers: { 'X-Client-Info': 'capacitor-android-admin' } },
     });
@@ -353,10 +435,22 @@ export const useRoleStore = create<RoleStore>()(
 
         set({ authError: null });
 
+        /* W-17 · KRİPTO ÖN KOŞULU. Yetenek yoksa SDK sessizce Math.random
+           verifier + `plain` challenge'a düşer; o hâlde kurtarma başlatmak
+           GÜVENLİK AÇIĞI ÜRETİR. Fail-closed. */
+        if (!(await recoveryCryptoAvailable())) {
+          set({ authError: 'RECOVERY_CRYPTO_UNAVAILABLE: bu cihazda güvenli kurtarma başlatılamıyor' });
+          return false;
+        }
+
+        /* W-17 · Callback'i bu denemeye bağlayan tek kullanımlık nonce. */
+        const nonce = generateRecoveryNonce();
+
         // carospro:// scheme → native app deep link handler'ı yakalar (App.tsx)
-        // Supabase Redirect URL allowlist'ine eklenmeli: carospro://auth/recovery
+        // Supabase Redirect URL allowlist'i bu biçimi kabul etmelidir:
+        //   carospro://auth/recovery?state=<128-bit hex>
         const { error } = await client.auth.resetPasswordForEmail(email, {
-          redirectTo: 'carospro://auth/recovery',
+          redirectTo: `carospro://auth/recovery?${RECOVERY_NONCE_PARAM}=${nonce}`,
         });
 
         if (error) {
@@ -372,9 +466,12 @@ export const useRoleStore = create<RoleStore>()(
         }
 
         /* N-4: kurtarma BU CİHAZDAN başlatıldı → callback beklentisi açılır.
-           Yalnız bu damga varken gelen callback oturum değiştirebilir.
-           W-16: damga ayrıca HANGİ HESAP için açıldığını taşır (kimlik bağı). */
-        await beginRecoveryAttempt(email);
+           W-16: damga HANGİ HESAP için açıldığını taşır (kimlik bağı).
+           W-17: damga ayrıca HANGİ NONCE beklendiğini taşır. */
+        if (!(await beginRecoveryAttempt(email, nonce))) {
+          set({ authError: 'RECOVERY_ATTEMPT_UNSTORABLE: kurtarma beklentisi kaydedilemedi' });
+          return false;
+        }
         return true;
       },
 
@@ -392,44 +489,59 @@ export const useRoleStore = create<RoleStore>()(
           const u = parseRecoveryCallback(url);
           if (!u) return;                       // FAIL-CLOSED: beklenmeyen köken
 
-          /* 2) YÜK: hangi biçim geldi? Önce doğrula, SONRA denemeyi tüket —
-                böylece geçersiz bir yük meşru denemeyi harcamaz. */
-          const tokenHash = u.searchParams.get('token_hash');
-          const queryType = u.searchParams.get('type');
-          const isOtp     = !!tokenHash && queryType === 'recovery';
+          /* 2) YÜK (W-17): yalnız PKCE biçimi kabul edilir —
+                `?state=<nonce>&code=<auth_code>`.
+                Nonce'suz eski biçimler (`#access_token=...`, çıplak
+                `token_hash`) callback'i cihaza BAĞLAMAZ; ele geçiren herkes
+                kullanabilir. Geliştirme aşamasındayız, uyumluluk için
+                güvensiz yol AÇIK BIRAKILMAZ. */
+          const nonce   = u.searchParams.get(RECOVERY_NONCE_PARAM);
+          const authCode = u.searchParams.get('code');
+          if (!nonce || !authCode) return;      // FAIL-CLOSED: bağlanmamış yük
 
-          const hashParams   = new URLSearchParams(u.hash.startsWith('#') ? u.hash.slice(1) : u.hash);
-          const accessToken  = hashParams.get('access_token');
-          const refreshToken = hashParams.get('refresh_token');
-          const isLegacy     = hashParams.get('type') === 'recovery' && !!accessToken && !!refreshToken;
+          /* 3) KRİPTO: nonce doğrulanamıyorsa kabul de edilemez. */
+          if (!(await recoveryCryptoAvailable())) {
+            set({ authError: 'RECOVERY_CRYPTO_UNAVAILABLE: callback doğrulanamıyor' });
+            return;
+          }
 
-          if (!isOtp && !isLegacy) return;      // FAIL-CLOSED: eksik/bozuk yük
-
-          /* 3) BAĞLAMA + TEK KULLANIM: bu callback, BU CİHAZIN başlattığı
-                kurtarmaya ait mi? Deneme oturum değiştiren çağrıdan ÖNCE
-                tüketilir → davetsiz, bayat ve tekrar oynatılan callback geçemez. */
-          const attempt = consumeRecoveryAttempt();
+          /* 4) BEKLENTİ: aktif ve süresi geçmemiş bir deneme var mı?
+                Burada HENÜZ TÜKETMİYORUZ — yanlış nonce ile gelen bir
+                saldırgan, kurbanın meşru denemesini yok edip kolay bir DoS
+                yaratabilmemeli (bkz. adım 6). */
+          const attempt = readRecoveryAttempt();
           if (!attempt) {
             set({ authError: 'RECOVERY_UNSOLICITED: bu cihazda açık bir şifre sıfırlama isteği yok' });
             return;
           }
 
-          const { error } = isOtp
-            ? await client.auth.verifyOtp({ token_hash: tokenHash!, type: 'recovery' })
-            : await client.auth.setSession({
-                access_token:  accessToken!,
-                refresh_token: refreshToken!,
-              });
+          /* 5) NONCE BAĞI: callback TAM OLARAK bu denemeye mi ait?
+                Eşleşmezse Supabase sınırına HİÇ DOKUNULMAZ. */
+          const nonceHash = await sha256Hex(nonce);
+          if (!nonceHash || !constantTimeEquals(nonceHash, attempt.nonceHash)) {
+            set({ authError: 'RECOVERY_NONCE_MISMATCH: bu bağlantı bu cihazın başlattığı kurtarmaya ait değil' });
+            return;                             // deneme KORUNUR → DoS yok
+          }
 
+          /* 6) TEK KULLANIM: nonce doğrulandıktan SONRA, kod takasından ÖNCE
+                tüket. `consumeRecoveryAttempt` içinde `await` yoktur, yani
+                olay döngüsü açısından atomiktir: eşzamanlı iki doğru callback
+                yarışırsa yalnız biri kaydı alır, diğeri `null` görür. */
+          if (!consumeRecoveryAttempt()) {
+            set({ authError: 'RECOVERY_REPLAYED: bu kurtarma bağlantısı zaten kullanıldı' });
+            return;
+          }
+
+          /* 7) KOD TAKASI: SDK, saklanan `code_verifier` ile takas eder.
+                Başka bir cihazın ürettiği kod SUNUCUDA reddedilir. */
+          const { error } = await client.auth.exchangeCodeForSession(authCode);
           if (error) {
             set({ authError: `SESSION_ERROR: ${error.message}` });
             return;
           }
 
-          /* 4) KİMLİK BAĞI (W-16): kurulan oturum, denemeyi başlatan hesaba
-                ait değilse DERHAL kapatılır. Aynı TTL penceresinde gelen
-                BAŞKA bir hesabın geçerli callback'i artık cihazı o hesaba
-                sabitleyemez. */
+          /* 8) KİMLİK BAĞI (W-16): kurulan oturum, denemeyi başlatan hesaba
+                ait değilse DERHAL kapatılır — derinlik savunması. */
           if (!(await verifyRecoveryIdentity(client, attempt.idHash))) {
             await client.auth.signOut().catch(() => undefined);
             set({ authError: 'RECOVERY_IDENTITY_MISMATCH: bu bağlantı bu cihazın başlattığı hesaba ait değil' });

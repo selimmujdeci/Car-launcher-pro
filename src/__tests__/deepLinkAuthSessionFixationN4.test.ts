@@ -48,6 +48,9 @@ const sdk = vi.hoisted(() => ({
   sessionEmail:    'admin@test.local' as string | null,
   /** SDK'nın kayıtlı auth-state dinleyicileri (gerçek SDK gibi tetiklenir). */
   authListeners:   [] as Array<(event: string) => void>,
+  /** W-17: uretimin gonderdigi `redirectTo` (nonce buradan okunur). */
+  resetCalls:      [] as Array<{ email: string; redirectTo?: string }>,
+  exchangeCalls:   [] as string[],
 }));
 
 vi.mock('@supabase/supabase-js', () => ({
@@ -59,9 +62,6 @@ vi.mock('@supabase/supabase-js', () => ({
       }),
       verifyOtp: vi.fn(async (o: { token_hash: string; type: string }) => {
         sdk.verifyOtpCalls.push(o);
-        /* GERÇEK SDK DAVRANIŞI: recovery doğrulaması başarılıysa
-           `PASSWORD_RECOVERY` abonelere DUYURULUR (GoTrueClient.js:1601). */
-        if (!sdk.nextError) for (const cb of sdk.authListeners) cb('PASSWORD_RECOVERY');
         return { error: sdk.nextError };
       }),
       signOut: vi.fn(async () => { sdk.signOutCalls++; return { error: null }; }),
@@ -72,7 +72,15 @@ vi.mock('@supabase/supabase-js', () => ({
         sdk.authListeners.push(cb);
         return { data: { subscription: { unsubscribe: () => {} } } };
       }),
-      resetPasswordForEmail: vi.fn(async () => ({ error: sdk.nextError })),
+      resetPasswordForEmail: vi.fn(async (email: string, options?: { redirectTo?: string }) => {
+        sdk.resetCalls.push({ email, redirectTo: options?.redirectTo });
+        return { error: sdk.nextError };
+      }),
+      exchangeCodeForSession: vi.fn(async (authCode: string) => {
+        sdk.exchangeCalls.push(authCode);
+        if (!sdk.nextError) for (const cb of sdk.authListeners) cb('PASSWORD_RECOVERY');
+        return { data: { session: {}, user: {} }, error: sdk.nextError };
+      }),
       signInWithPassword:    vi.fn(async () => ({ error: sdk.nextError })),
       updateUser:            vi.fn(async () => ({ error: null })),
     },
@@ -100,6 +108,22 @@ const legacyUrl = (a = ATTACKER_ACCESS, r = ATTACKER_REFRESH): string =>
 const otpUrl = (h = ATTACKER_HASH): string =>
   `carospro://auth/recovery?token_hash=${h}&type=recovery`;
 
+/** W-17 · uretimin urettigi nonce ile kanonik PKCE callback'i. */
+const AUTH_CODE = 'N4_AUTH_CODE_SENTINEL';
+const pkceUrl = (nonce: string, code = AUTH_CODE): string =>
+  `carospro://auth/recovery?state=${nonce}&code=${code}`;
+
+/** Bu cihazdan mesru kurtarma baslatir ve beklenen nonce'u dondurur. */
+async function startRecovery(s: { getState: () => { resetPassword: (e: string) => Promise<boolean> } },
+                             email = 'admin@test.local'): Promise<string> {
+  const ok = await s.getState().resetPassword(email);
+  expect(ok, 'kurtarma baslatilamadi — olcum kor olurdu').toBe(true);
+  const redirect = sdk.resetCalls.at(-1)?.redirectTo ?? '';
+  const nonce = new URL(redirect).searchParams.get('state');
+  expect(nonce, 'redirectTo nonce tasimiyor').toBeTruthy();
+  return nonce!;
+}
+
 async function store() {
   const mod = await import('../platform/roleSystem/RoleStore');
   return mod.useRoleStore;
@@ -118,6 +142,8 @@ beforeEach(() => {
   sdk.nextError       = null;
   sdk.sessionEmail    = 'admin@test.local';
   sdk.authListeners   = [];
+  sdk.resetCalls      = [];
+  sdk.exchangeCalls   = [];
   try { localStorage.clear(); sessionStorage.clear(); } catch { /* jsdom */ }
 });
 
@@ -175,14 +201,14 @@ describe('N-4/R3 · yalnız beklenen şema/host/path kabul edilir', () => {
 describe('N-4/R4 · callback TEK KULLANIMLIKTIR', () => {
   it('aynı callback ikinci kez oturum değiştiremez', async () => {
     const s = await store();
-    await s.getState().resetPassword('admin@test.local');
+    const nonce = await startRecovery(s);
 
-    await s.getState().handleRecoveryUrl(otpUrl());
-    expect(sdk.verifyOtpCalls.length, 'meşru callback kabul edilmedi — kapı fazla sıkı').toBe(1);
+    await s.getState().handleRecoveryUrl(pkceUrl(nonce));
+    expect(sdk.exchangeCalls.length, 'meşru callback kabul edilmedi — kapı fazla sıkı').toBe(1);
 
-    await s.getState().handleRecoveryUrl(otpUrl());
+    await s.getState().handleRecoveryUrl(pkceUrl(nonce));
     expect(
-      sdk.verifyOtpCalls.length,
+      sdk.exchangeCalls.length,
       'tekrar oynatılan callback yeniden oturum kurdu — one-shot tüketim yok',
     ).toBe(1);
   });
@@ -193,10 +219,10 @@ describe('N-4/R4 · callback TEK KULLANIMLIKTIR', () => {
 describe('N-4/R5 · logout sonrası bayat callback oturumu DİRİLTEMEZ', () => {
   it('signOutAdmin sonrası gelen eski callback reddedilir', async () => {
     const s = await store();
-    await s.getState().resetPassword('admin@test.local');
+    const nonce = await startRecovery(s);
     await s.getState().signOutAdmin();
 
-    await s.getState().handleRecoveryUrl(otpUrl());
+    await s.getState().handleRecoveryUrl(pkceUrl(nonce));
 
     expect(
       sessionChanged(),
@@ -250,25 +276,28 @@ describe('N-4/R8 · mevcut oturum davetsiz callback ile değiştirilemez', () =>
 describe('N-4 · meşru kurtarma akışı çalışmaya devam eder', () => {
   it('yerel deneme → doğru callback → oturum kurulur', async () => {
     const s = await store();
-    const ok = await s.getState().resetPassword('admin@test.local');
-    expect(ok, 'kurtarma başlatılamadı').toBe(true);
+    const nonce = await startRecovery(s);
 
-    await s.getState().handleRecoveryUrl(otpUrl('LEGIT_HASH'));
+    await s.getState().handleRecoveryUrl(pkceUrl(nonce, 'LEGIT_CODE'));
 
-    expect(sdk.verifyOtpCalls, 'meşru callback reddedildi — kapı ürünü kırıyor')
-      .toHaveLength(1);
-    expect(sdk.verifyOtpCalls[0]!.token_hash).toBe('LEGIT_HASH');
+    expect(sdk.exchangeCalls, 'meşru callback reddedildi — kapı ürünü kırıyor')
+      .toEqual(['LEGIT_CODE']);
     expect(s.getState().adminAuthState).toBe('recovery');
   });
 
-  it('legacy fragment formatı da yerel deneme ile çalışır', async () => {
+  /* W-17 · SÖZLEŞME DEĞİŞTİ. Bu halka eskiden legacy fragment biçiminin
+     ÇALIŞTIĞINI doğruluyordu. Artık o biçim callback'i cihaza BAĞLAMADIĞI
+     için (ele geçiren herkes kullanabilir) REDDEDİLİR. Geliştirme
+     aşamasındayız; güvensiz yol uyumluluk için açık bırakılmaz. */
+  it('W-17: nonce taşımayan legacy fragment artık REDDEDİLİR', async () => {
     const s = await store();
-    await s.getState().resetPassword('admin@test.local');
+    await startRecovery(s);
 
     await s.getState().handleRecoveryUrl(legacyUrl('A_OK', 'R_OK'));
 
-    expect(sdk.setSessionCalls).toHaveLength(1);
-    expect(sdk.setSessionCalls[0]).toEqual({ access_token: 'A_OK', refresh_token: 'R_OK' });
+    expect(sdk.setSessionCalls, 'bağlanmamış legacy callback hâlâ oturum kuruyor')
+      .toEqual([]);
+    expect(s.getState().adminAuthState).not.toBe('recovery');
   });
 });
 
@@ -286,13 +315,14 @@ describe('N-4 · meşru kurtarma akışı çalışmaya devam eder', () => {
 describe("W-16/RISK B · aynı pencerede gelen YABANCI kimlik kabul edilmez", () => {
   it("başka hesabın geçerli callback'i oturumu sabitleyemez", async () => {
     const s = await store();
-    await s.getState().resetPassword("admin@test.local");
+    const nonce = await startRecovery(s);
 
-    /* Callback geçerli — ama saldırganın KENDİ hesabının oturumunu kurar. */
+    /* Callback nonce'u DOĞRU (ör. kurbanın bağlantısı ele geçirildi) ama
+       kurulan oturum BAŞKA hesaba ait. Kimlik bağı son savunma hattıdır. */
     sdk.sessionEmail = "attacker@evil.example";
-    await s.getState().handleRecoveryUrl(otpUrl());
+    await s.getState().handleRecoveryUrl(pkceUrl(nonce));
 
-    expect(sdk.verifyOtpCalls.length, "ölçüm kör — callback hiç işlenmemiş").toBe(1);
+    expect(sdk.exchangeCalls.length, "ölçüm kör — callback hiç işlenmemiş").toBe(1);
     expect(
       s.getState().adminAuthState,
       "yabancı hesabın oturumu kurtarma durumu olarak kabul edildi — cihaz o hesaba sabitlendi",
@@ -305,10 +335,10 @@ describe("W-16/RISK B · aynı pencerede gelen YABANCI kimlik kabul edilmez", ()
 
   it("kimlik okunamazsa fail-closed davranır", async () => {
     const s = await store();
-    await s.getState().resetPassword("admin@test.local");
+    const nonce = await startRecovery(s);
 
     sdk.sessionEmail = null;            // getUser: oturum/kimlik yok
-    await s.getState().handleRecoveryUrl(otpUrl());
+    await s.getState().handleRecoveryUrl(pkceUrl(nonce));
 
     expect(s.getState().adminAuthState, "kimlik doğrulanamadan kurtarma açıldı")
       .not.toBe("recovery");
@@ -317,10 +347,10 @@ describe("W-16/RISK B · aynı pencerede gelen YABANCI kimlik kabul edilmez", ()
 
   it("aynı hesap — büyük/küçük harf ve boşluk farkı meşru akışı BOZMAZ", async () => {
     const s = await store();
-    await s.getState().resetPassword("  Admin@Test.Local  ");
+    const nonce = await startRecovery(s, "  Admin@Test.Local  ");
 
     sdk.sessionEmail = "admin@test.local";
-    await s.getState().handleRecoveryUrl(otpUrl("LEGIT_HASH"));
+    await s.getState().handleRecoveryUrl(pkceUrl(nonce));
 
     expect(s.getState().adminAuthState, "meşru sahip reddedildi — kapı ürünü kırıyor")
       .toBe("recovery");
@@ -339,10 +369,10 @@ describe("W-16/RISK B · aynı pencerede gelen YABANCI kimlik kabul edilmez", ()
 describe("W-16/RISK C · reddedilen kurtarma gecikmeli olarak geri gelemez", () => {
   it("kimlik uyuşmazlığından sonra SDK olayı 'recovery' durumunu diriltemez", async () => {
     const s = await store();
-    await s.getState().resetPassword("admin@test.local");
+    const nonce = await startRecovery(s);
 
     sdk.sessionEmail = "attacker@evil.example";
-    await s.getState().handleRecoveryUrl(otpUrl());
+    await s.getState().handleRecoveryUrl(pkceUrl(nonce));
 
     expect(s.getState().adminAuthState, "kapı reddetmemiş — ölçüm kör").not.toBe("recovery");
 
