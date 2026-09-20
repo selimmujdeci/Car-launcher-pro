@@ -15,6 +15,7 @@ import { startConnectivityManager } from '../canBus/VehicleConnectivityManager';
 import { recordEvent, recordDiagLine } from '../canBus/EventRecorder';
 import { isNative }            from '../bridge';
 import { CarLauncher }         from '../nativePlugin';
+import type { PluginListenerHandle } from '@capacitor/core';
 import {
   startCanSignalValidator,
   registerCandidate,
@@ -310,12 +311,36 @@ export function startVehicleDataLayer(opts?: { onWorkerCrash?: () => void }): ()
 
   // ── MCU Sniffer — 12s gecikmeyle başlat (startup CPU rahatlatma) ────────
   let _mcuSniffStarted = false;
+
+  /* ── P5-1 · canDiag DİNLEYİCİSİNİN SAHİBİ BU LIFECYCLE'DIR ──────────────
+     ÖNCEKİ DAVRANIŞ: `addListener` promise'i `.catch(() => {})` ile atılıyor,
+     dönen `PluginListenerHandle` HİÇ saklanmıyordu. Dispose bu dinleyiciyi
+     kaldırmadığı için VehicleDataLayer her yeniden başlatıldığında
+     (`SystemBoot._handleWorkerCrash` → eski cleanup → yeni start) bir
+     dinleyici daha birikiyordu: START × N → LISTENER × N. Sonuç yalnız
+     bellek değil, aynı tanı satırının N kez işlenmesiydi (`recordDiagLine`
+     ve validator beslemesi).
+
+     Handle artık bu kapanışa aittir ve yalnız KENDİ kaydı kaldırılır —
+     `removeAllListeners` KULLANILMAZ, çünkü o aynı kanaldaki başka
+     tüketicilerin (ör. CanDiagPanel) dinleyicilerini de silerdi. */
+  let _canDiagHandle: PluginListenerHandle | null = null;
+  let _canDiagCancelled = false;
+
   if (isNative) {
     // canDiag listener hemen kur — ama sniffer'ı 12s sonra başlat
     CarLauncher.addListener('canDiag', (ev: { msg: string }) => {
       recordDiagLine(ev.msg, 'MCU');
       _feedValidatorFromDiag(ev.msg);
-    }).catch(() => {});
+    })
+      .then((h) => {
+        /* YARIŞ: `addListener` bir promise'tir; kayıt native tarafta hemen
+           olsa da handle ÇAĞIRANA sonra ulaşır. Dispose bu arada çalıştıysa
+           handle geldiği anda kaldırılır — aksi hâlde dinleyici sızardı. */
+        if (_canDiagCancelled) { void h.remove().catch(() => {}); return; }
+        _canDiagHandle = h;
+      })
+      .catch(() => {});
 
     setTimeout(() => {
       if (!_mcuSniffStarted) {
@@ -361,7 +386,16 @@ export function startVehicleDataLayer(opts?: { onWorkerCrash?: () => void }): ()
     unsubGpsValidation();
     stopConnectivity();
     stopValidator();
-    if (isNative) CarLauncher.stopMcuSniff?.().catch(() => {});
+    if (isNative) {
+      /* P5-1: bu lifecycle'ın KENDİ canDiag kaydını kaldır. Bayrak, handle
+         henüz gelmediyse (yukarıdaki yarış) geldiğinde kaldırılmasını sağlar. */
+      _canDiagCancelled = true;
+      if (_canDiagHandle) {
+        void _canDiagHandle.remove().catch(() => {});
+        _canDiagHandle = null;
+      }
+      CarLauncher.stopMcuSniff?.().catch(() => {});
+    }
 
     _activeResolver = null;
     stopRemoteCommands();
