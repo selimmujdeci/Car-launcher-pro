@@ -178,15 +178,25 @@ export function getAdminClient() {
       global: { headers: { 'X-Client-Info': 'capacitor-android-admin' } },
     });
 
-    // Web browser'da reset linki açıldığında PASSWORD_RECOVERY event'i yakala
-    // Store henüz oluşturulmamış olabilir → setTimeout ile defer et
-    _adminClient.auth.onAuthStateChange((event) => {
-      if (event === 'PASSWORD_RECOVERY') {
-        setTimeout(() => {
-          useRoleStore.setState({ adminAuthState: 'recovery', authError: null });
-        }, 0);
-      }
-    });
+    /**
+     * WAVE 16 · `adminAuthState`'in İKİNCİ YAZARI KALDIRILDI.
+     *
+     * Burada bir `onAuthStateChange` dinleyicisi vardı ve `PASSWORD_RECOVERY`
+     * olayında `adminAuthState: 'recovery'` yazıyordu. İki kusuru vardı:
+     *
+     * 1) VARLIK NEDENİ ORTADAN KALKTI. Olayın kapıdan bağımsız tetiklendiği
+     *    tek yer `_initialize()` içindeki URL algılamasıydı
+     *    (GoTrueClient.js:410) — yukarıda kapatıldı. Kalan tetikleyiciler
+     *    (`verifyOtp` / `exchangeCodeForSession`) zaten `handleRecoveryUrl`
+     *    tarafından sürülür ve durumu o fonksiyon kendisi yazar.
+     *
+     * 2) GECİKMELİ YAZAR, KAPIYI EZİYORDU. `setTimeout(..., 0)` nedeniyle
+     *    kapının KİMLİK REDDİNDEN SONRA çalışıp reddedilen `'recovery'`
+     *    durumunu geri koyabiliyordu.
+     *
+     * §6 TEK OTORİTE: kurtarma durumunun tek yazarı `handleRecoveryUrl`'dir.
+     * Kilit: `deepLinkAuthSessionFixationN4.test.ts` · W-16/RISK C
+     */
   }
   return _adminClient;
 }

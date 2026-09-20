@@ -46,6 +46,8 @@ const sdk = vi.hoisted(() => ({
    * bu kimliği denemeyi başlatan hesaba bağlar; taklit de bunu yansıtmalı.
    */
   sessionEmail:    'admin@test.local' as string | null,
+  /** SDK'nın kayıtlı auth-state dinleyicileri (gerçek SDK gibi tetiklenir). */
+  authListeners:   [] as Array<(event: string) => void>,
 }));
 
 vi.mock('@supabase/supabase-js', () => ({
@@ -57,13 +59,19 @@ vi.mock('@supabase/supabase-js', () => ({
       }),
       verifyOtp: vi.fn(async (o: { token_hash: string; type: string }) => {
         sdk.verifyOtpCalls.push(o);
+        /* GERÇEK SDK DAVRANIŞI: recovery doğrulaması başarılıysa
+           `PASSWORD_RECOVERY` abonelere DUYURULUR (GoTrueClient.js:1601). */
+        if (!sdk.nextError) for (const cb of sdk.authListeners) cb('PASSWORD_RECOVERY');
         return { error: sdk.nextError };
       }),
       signOut: vi.fn(async () => { sdk.signOutCalls++; return { error: null }; }),
       getUser: vi.fn(async () => (sdk.sessionEmail
         ? { data: { user: { email: sdk.sessionEmail } }, error: null }
         : { data: { user: null }, error: { message: 'no session' } })),
-      onAuthStateChange: vi.fn(() => ({ data: { subscription: { unsubscribe: () => {} } } })),
+      onAuthStateChange: vi.fn((cb: (event: string) => void) => {
+        sdk.authListeners.push(cb);
+        return { data: { subscription: { unsubscribe: () => {} } } };
+      }),
       resetPasswordForEmail: vi.fn(async () => ({ error: sdk.nextError })),
       signInWithPassword:    vi.fn(async () => ({ error: sdk.nextError })),
       updateUser:            vi.fn(async () => ({ error: null })),
@@ -109,6 +117,7 @@ beforeEach(() => {
   sdk.signOutCalls    = 0;
   sdk.nextError       = null;
   sdk.sessionEmail    = 'admin@test.local';
+  sdk.authListeners   = [];
   try { localStorage.clear(); sessionStorage.clear(); } catch { /* jsdom */ }
 });
 
@@ -316,5 +325,34 @@ describe("W-16/RISK B · aynı pencerede gelen YABANCI kimlik kabul edilmez", ()
     expect(s.getState().adminAuthState, "meşru sahip reddedildi — kapı ürünü kırıyor")
       .toBe("recovery");
     expect(sdk.signOutCalls, "meşru oturum kapatıldı").toBe(0);
+  });
+});
+
+// ── W-16/RISK C · adminAuthState'in TEK YAZARI ─────────────────────────────
+//
+// `getAdminClient()` ayrıca bir `onAuthStateChange` dinleyicisi kuruyordu ve
+// `PASSWORD_RECOVERY` olayında `adminAuthState: 'recovery'` yazıyordu —
+// `setTimeout(..., 0)` ile, yani GECİKMELİ. Bu, kapının kimlik reddinden
+// SONRA çalışıp reddedilen durumu GERİ KOYABİLİR. Durumun tek yazarı
+// `handleRecoveryUrl` olmalıdır (§6 TEK OTORİTE).
+
+describe("W-16/RISK C · reddedilen kurtarma gecikmeli olarak geri gelemez", () => {
+  it("kimlik uyuşmazlığından sonra SDK olayı 'recovery' durumunu diriltemez", async () => {
+    const s = await store();
+    await s.getState().resetPassword("admin@test.local");
+
+    sdk.sessionEmail = "attacker@evil.example";
+    await s.getState().handleRecoveryUrl(otpUrl());
+
+    expect(s.getState().adminAuthState, "kapı reddetmemiş — ölçüm kör").not.toBe("recovery");
+
+    /* Gecikmeli yazarın penceresi. */
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(
+      s.getState().adminAuthState,
+      "SDK olay dinleyicisi, kapı reddettikten SONRA kurtarma durumunu geri koydu — " +
+      "adminAuthState'in ikinci yazarı var",
+    ).not.toBe("recovery");
   });
 });
