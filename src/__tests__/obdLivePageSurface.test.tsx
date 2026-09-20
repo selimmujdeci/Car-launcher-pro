@@ -94,9 +94,11 @@ function makeState(over: Partial<ObdLiveState> = {}): ObdLiveState {
     throttle: live(12), fuelLevel: live(62), batteryVoltage: live(14.2),
     engineTemp: live(82), intakeTemp: live(34),
     boostPressure: unsupported, egt: unsupported,
-    doorsAllClosed: true, tpmsAvailable: false,
+    fuelProvenance: 'ecu',
+    isElectrified: false,
+    batteryLevel: unsupported, batteryTemp: unsupported, motorPower: unsupported,
     dtc: 'unscanned', dtcCount: 0, dtcReading: false,
-    coverage: { readable: 7, total: 9 },
+    coverage: { readable: 7, total: 9, live: 7, stale: 0, unsupported: 2, unread: 0 },
     ...over,
   };
 }
@@ -200,8 +202,8 @@ describe('T7 · desteklenmeyen PID 0 DEĞİLDİR', () => {
     expect(valueOf('boostPressure'), 'desteklenmeyen PID 0 g/s gibi gösterildi').not.toBe('0');
     expect(valueOf('boostPressure')).toBe('—');
     expect(tileState('boostPressure')).toBe('unsupported');
-    /* Kart etiketi tr-TR büyük harfe çevrilir: i -> İ */
-    expect(allText()).toContain('DESTEKLENMİYOR');
+    /* LEVEL 3 satırında etiket cümle düzeninde yazılır. */
+    expect(allText()).toContain('Desteklenmiyor');
   });
 });
 
@@ -257,7 +259,8 @@ describe('T8 · OBD bağlı değilken sahte gösterge YOK', () => {
       link: 'offline', rpm: offlineR, speed: offlineR, engineTemp: offlineR,
       throttle: offlineR, fuelLevel: offlineR, batteryVoltage: offlineR,
       intakeTemp: offlineR, boostPressure: offlineR, egt: offlineR,
-      doorsAllClosed: null, dtc: 'offline', coverage: { readable: 0, total: 9 },
+      dtc: 'offline',
+      coverage: { readable: 0, total: 9, live: 0, stale: 0, unsupported: 0, unread: 9 },
     }));
 
     expect(container.querySelector('[data-obd-empty]'), 'boş durum çizilmedi').not.toBeNull();
@@ -289,7 +292,7 @@ describe('T10-T12 · gün/gece teması', () => {
     renderScreen(makeState(), 'day');
     const rootEl = container.querySelector('.obdlive') as HTMLElement;
     expect(rootEl.getAttribute('data-obd-theme')).toBe('day');
-    expect(rootEl.style.background).toBe('rgb(237, 239, 242)');
+    expect(rootEl.style.background).toBe('rgb(231, 234, 238)');
   });
 
   it('tema değişimi GEOMETRİYİ ve ölçümleri bozmaz', () => {
@@ -349,7 +352,7 @@ describe('ANA SAYFA butonu', () => {
     const btn = container.querySelector('[data-obd-home]') as HTMLButtonElement;
     expect(btn, 'ANA SAYFA butonu yok').not.toBeNull();
     expect(btn.tagName, 'div üzerine onClick konmuş — klavye erişilemez').toBe('BUTTON');
-    expect(btn.textContent).toContain('ANA SAYFA');
+    expect(btn.textContent).toContain('Ana Sayfa');
   });
 
   it('basınca sahibine dönüşü devreder (sayfa kendi gezinmesini yapmaz)', () => {
@@ -358,5 +361,92 @@ describe('ANA SAYFA butonu', () => {
     const btn = container.querySelector('[data-obd-home]') as HTMLButtonElement;
     act(() => { btn.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
     expect(onHome, 'ANA SAYFA butonu dönüşü tetiklemedi').toHaveBeenCalledTimes(1);
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * T8 — YAKIT SEVİYESİ PROVENANCE (§6)
+ * ════════════════════════════════════════════════════════════════════════ */
+
+describe('T8 · yakıt seviyesinin kaynağı doğru etiketlenir', () => {
+  it('model: kalibrasyon ölçeği 1 ise ham ECU, değilse kalibreli', async () => {
+    const { deriveFuelProvenance } = await import('../components/cockpit/obdLiveModel');
+    expect(deriveFuelProvenance({ reading: live(62), scale: 1 })).toBe('ecu');
+    expect(deriveFuelProvenance({ reading: live(62), scale: 1.18 })).toBe('ecu-calibrated');
+    /* Ölçüm yoksa kaynak İDDİASI da olmaz. */
+    expect(deriveFuelProvenance({ reading: unknown, scale: 1 })).toBe('none');
+    expect(deriveFuelProvenance({ reading: offlineR, scale: 1.18 })).toBe('none');
+  });
+
+  it('ekran: ham okuma "ECU · PID 2F" olarak etiketlenir', () => {
+    renderScreen(makeState({ fuelLevel: live(62), fuelProvenance: 'ecu' }));
+    expect(valueOf('fuelLevel')).toBe('62');
+    expect(container.querySelector('[data-obd-note="fuelLevel"]')?.textContent)
+      .toBe('ECU · PID 2F');
+  });
+
+  it('ekran: kalibreli değer HAM ECU okuması gibi SUNULMAZ', () => {
+    renderScreen(makeState({ fuelLevel: live(62), fuelProvenance: 'ecu-calibrated' }));
+    const note = container.querySelector('[data-obd-note="fuelLevel"]')?.textContent ?? '';
+    expect(note, 'kalibreli değer ham ECU gibi gösterildi').toContain('KALİBRELİ');
+  });
+
+  it('ölçüm yokken kaynak iddiası yazılmaz', () => {
+    renderScreen(makeState({ fuelLevel: unknown, fuelProvenance: 'none' }));
+    expect(valueOf('fuelLevel')).toBe('—');
+    expect(container.querySelector('[data-obd-note="fuelLevel"]')?.textContent)
+      .not.toContain('ECU');
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * T16 — SAYFA OBD ODAKLI (§4)
+ * ════════════════════════════════════════════════════════════════════════ */
+
+describe('T16 · gövde/CAN verisi OBD ana grid inde değildir', () => {
+  it('"Kapılar" ve "Lastik Basıncı" kartları kaldırıldı', () => {
+    renderScreen(makeState());
+    expect(container.querySelector('[data-obd-tile="doors"]'), '"Kapılar" hâlâ ana gridde').toBeNull();
+    expect(container.querySelector('[data-obd-tile="tpms"]'), '"Lastik Basıncı" hâlâ ana gridde').toBeNull();
+    expect(allText()).not.toContain('Tümü kapalı');
+  });
+
+  it('LEVEL 2 tam olarak dört motor/sürüş ölçümü taşır', () => {
+    renderScreen(makeState());
+    for (const id of ['engineTemp', 'batteryVoltage', 'throttle', 'fuelLevel']) {
+      expect(container.querySelector(`[data-obd-tile="${id}"]`), `${id} LEVEL 2 de yok`).not.toBeNull();
+    }
+  });
+
+  it('EV alanları yalnız araç elektrikliyse gösterilir (capability-aware)', () => {
+    renderScreen(makeState({ isElectrified: false }));
+    expect(container.querySelector('[data-obd-tile="batteryLevel"]'), 'ICE aracta SoC gösterildi').toBeNull();
+
+    renderScreen(makeState({
+      isElectrified: true, batteryLevel: live(78), batteryTemp: live(24), motorPower: live(12),
+    }));
+    expect(valueOf('batteryLevel')).toBe('78');
+    expect(valueOf('motorPower')).toBe('12');
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * VERİ KALİTESİ — sahte skor yok (§9)
+ * ════════════════════════════════════════════════════════════════════════ */
+
+describe('veri kalitesi durum bazında okunur', () => {
+  it('model: döküm gerçek durumları sayar', async () => {
+    const { coverage } = await import('../components/cockpit/obdLiveModel');
+    const c = coverage([live(1), live(2), stale(3), unsupported, unknown]);
+    expect(c).toEqual({ readable: 3, total: 5, live: 2, stale: 1, unsupported: 1, unread: 1 });
+  });
+
+  it('ekran: "7 canlı · 2 desteklenmiyor" biçiminde sunulur', () => {
+    renderScreen(makeState({
+      coverage: { readable: 7, total: 9, live: 7, stale: 0, unsupported: 2, unread: 0 },
+    }));
+    const txt = container.querySelector('[data-obd-value="coverage"]')?.textContent ?? '';
+    expect(txt).toContain('7 canlı');
+    expect(txt).toContain('2 desteklenmiyor');
   });
 });

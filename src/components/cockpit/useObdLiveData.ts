@@ -24,11 +24,11 @@
  */
 
 import { useMemo } from 'react';
-import { useOBDState } from '../../platform/obdService';
+import { useOBDState, getFuelCalibrationState } from '../../platform/obdService';
 import { useDTCState } from '../../platform/dtcService';
 import {
-  deriveLinkState, deriveDtcState, readField, readMeasured, coverage,
-  type LinkState, type DtcState, type Reading, type ReadCoverage,
+  deriveLinkState, deriveDtcState, readField, readMeasured, coverage, deriveFuelProvenance,
+  type LinkState, type DtcState, type Reading, type ReadCoverage, type FuelProvenance,
 } from './obdLiveModel';
 
 export interface ObdLiveState {
@@ -58,10 +58,17 @@ export interface ObdLiveState {
   readonly boostPressure: Reading;
   readonly egt: Reading;
 
-  /* ── Gövde (CAN kaynaklı — OBD PID değil) ──────────────────────────── */
-  /** `undefined` = CAN bu aracı desteklemiyor / hiç veri gelmedi. */
-  readonly doorsAllClosed: boolean | null;
-  readonly tpmsAvailable: boolean;
+  /**
+   * Yakıt okumasının KAYNAĞI. `OBDData.fuelLevel` ham 2F değil, kalibrasyon
+   * uygulanmış GÖSTERİM değeridir — ekran bunu ham ECU gibi sunmaz.
+   */
+  readonly fuelProvenance: FuelProvenance;
+
+  /* ── EV / Hibrit (yalnız araç bu tipteyse anlamlı) ─────────────────── */
+  readonly isElectrified: boolean;
+  readonly batteryLevel: Reading;
+  readonly batteryTemp: Reading;
+  readonly motorPower: Reading;
 
   /* ── Arıza kodları ─────────────────────────────────────────────────── */
   readonly dtc: DtcState;
@@ -97,10 +104,17 @@ export function useObdLiveData(): ObdLiveState {
     const boostPressure  = readField(obd.boostPressure, link);
     const egt            = readField(obd.egt, link);
 
-    const doors = obd.doors;
-    const doorsAllClosed = doors === undefined || link === 'offline'
-      ? null
-      : !(doors.fl || doors.fr || doors.rl || doors.rr || doors.trunk);
+    /* EV/hibrit alanları kanonik tipte VARDIR; ICE'de `-1` gelir ve
+       zaten `unsupported` olur. Kapasiteye göre gösterilir. */
+    const batteryLevel = readField(obd.batteryLevel, link);
+    const batteryTemp  = readField(obd.batteryTemp, link);
+    const motorPower   = readField(obd.motorPower, link);
+    const isElectrified = obd.vehicleType === 'ev' || obd.vehicleType === 'hybrid';
+
+    /* Yakıt kaynağı: kalibrasyon ölçeği 1 değilse değer HAM DEĞİLDİR. */
+    let fuelScale = 1;
+    try { fuelScale = getFuelCalibrationState().scale; } catch { fuelScale = 1; }
+    const fuelProvenance = deriveFuelProvenance({ reading: fuelLevel, scale: fuelScale });
 
     /* DTC: `lastReadAt` bu oturumda GERÇEKTEN bir okuma yapıldığının
        kanıtıdır. `codes.length === 0` tek başına "arıza yok" DEMEZ. */
@@ -121,17 +135,21 @@ export function useObdLiveData(): ObdLiveState {
       throttle, fuelLevel, batteryVoltage,
       engineTemp, intakeTemp, boostPressure, egt,
 
-      doorsAllClosed,
-      tpmsAvailable: obd.tpms !== undefined && link !== 'offline',
+      fuelProvenance,
+      isElectrified,
+      batteryLevel, batteryTemp, motorPower,
 
       dtc:        dtcState,
       dtcCount:   dtc.codes.length,
       dtcReading: dtc.isReading,
 
-      coverage: coverage([
-        rpm, speed, throttle, fuelLevel, batteryVoltage,
-        engineTemp, intakeTemp, boostPressure, egt,
-      ]),
+      /* Kapsam YALNIZ OBD ölçümlerini sayar — gövde/CAN verisi bu sayfanın
+         kimliğine ait değildir ve kaliteyi şişirmez. */
+      coverage: coverage(isElectrified
+        ? [rpm, speed, throttle, fuelLevel, batteryVoltage, engineTemp, intakeTemp,
+           boostPressure, egt, batteryLevel, batteryTemp, motorPower]
+        : [rpm, speed, throttle, fuelLevel, batteryVoltage, engineTemp, intakeTemp,
+           boostPressure, egt]),
     };
   }, [obd, dtc]);
 }

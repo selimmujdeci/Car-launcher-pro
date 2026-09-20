@@ -153,14 +153,56 @@ export function fillRatio(r: Reading, min: number, max: number): number | null {
   return Math.max(0, Math.min(1, t));
 }
 
-/** Sayfanın "kaç PID okunabildi" özeti — kullanıcıya veri kalitesini söyler. */
+/**
+ * Sayfanın veri kalitesi özeti.
+ *
+ * "7/9" tek başına ne anlama geldiğini söylemez: eksik 2 ölçüm araçta HİÇ
+ * YOK mu, yoksa henüz OKUNMADI mı? Kullanıcı için bu fark önemlidir, bu
+ * yüzden döküm durum bazında verilir. SAHTE KALİTE SKORU ÜRETİLMEZ —
+ * yalnız gerçek durumlar sayılır.
+ */
 export interface ReadCoverage {
   readonly readable: number;
   readonly total: number;
+  readonly live: number;
+  readonly stale: number;
+  readonly unsupported: number;
+  readonly unread: number;
 }
 
 export function coverage(readings: readonly Reading[]): ReadCoverage {
-  let readable = 0;
-  for (const r of readings) if (hasNumber(r)) readable++;
-  return { readable, total: readings.length };
+  let live = 0, stale = 0, unsupported = 0, unread = 0;
+  for (const r of readings) {
+    if (r.state === 'live') live++;
+    else if (r.state === 'stale') stale++;
+    else if (r.state === 'unsupported') unsupported++;
+    else if (r.state === 'unread') unread++;
+  }
+  return { readable: live + stale, total: readings.length, live, stale, unsupported, unread };
+}
+
+/**
+ * YAKIT SEVİYESİNİN KAYNAĞI.
+ *
+ * `OBDData.fuelLevel` ham PID 0x2F DEĞİLDİR: kullanıcı kalibrasyonu varsa
+ * ham okuma bir ölçekle çarpılarak GÖSTERİM değerine çevrilir
+ * (`obdService`: "`_current.fuelLevel` GÖSTERİM değeridir, ham değil").
+ * Ekran bunu ham ECU okuması gibi sunmamalıdır.
+ */
+export type FuelProvenance =
+  /** Ham 2F aynen gösteriliyor (ölçek = 1). */
+  | 'ecu'
+  /** Ham 2F kullanıcı kalibrasyonuyla ölçeklenmiş. */
+  | 'ecu-calibrated'
+  /** Ölçüm yok — kaynak iddiası da yok. */
+  | 'none';
+
+export function deriveFuelProvenance(i: {
+  readonly reading: Reading;
+  /** `getFuelCalibrationState().scale` — 1 = kalibrasyonsuz. */
+  readonly scale: number;
+}): FuelProvenance {
+  if (!hasNumber(i.reading)) return 'none';
+  if (!Number.isFinite(i.scale) || i.scale === 1) return 'ecu';
+  return 'ecu-calibrated';
 }
