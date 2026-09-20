@@ -162,7 +162,19 @@ import {
   noteProviderAuthFailure, noteGatewayFailureKind, noteGeminiAuthFailure,
   clearAuthFailure, resolveProviderFailureAnswer, RATE_LIMIT_REPLY,
   _resetProviderHealthForTest,
+  /* GEMINI LIVE (2026-09-21): arıza sınıfı · anahtar reddi · geçiş kütüğü. */
+  classifyLiveFailure, noteLiveFailure, isGeminiKeyRejected, recordProviderSwitch,
+  type ProviderSwitchReason,
 } from './companionProviderHealth';
+/* GEMINI LIVE — birincil online konuşma yolu. Oturum/protokol sahibi ayrı modül;
+   burada yalnız ZİNCİR KARARI ve sonucun mevcut beyin sözleşmesine eşlenmesi. */
+import {
+  GeminiLiveSession, type LiveTurnSinks, type LiveToolCall, type WebSocketFactory,
+} from '../ai/live/geminiLiveSession';
+import {
+  buildLiveFunctionDeclarations, liveToolCallToBrainJson, LIVE_TOOL_INSTRUCTION_LINES,
+} from '../ai/live/liveToolSchema';
+import { isGeminiLiveEnabled } from '../ai/live/geminiLiveFlag';
 /* MAVI-F13/3 · deterministik offline sınıflama + hazır cevap (yaprak · SAF). */
 import {
   classifySmalltalk, offlineCategoryReply, _resetOfflineRepliesForTest,
@@ -176,7 +188,7 @@ import { aiPostJson } from '../ai/nativeHttp';
 
 /* ── Tipler ─────────────────────────────────────────────────── */
 
-export type CompanionChatRoute = 'companion_gemini' | 'companion_groq' | 'companion_haiku' | 'companion_gateway' | 'companion_offline' | 'companion_rate_limited' | 'companion_key_invalid' | 'companion_net_down' | 'companion_safety' | 'companion_reask' | 'companion_no_credit';
+export type CompanionChatRoute = 'companion_live' | 'companion_gemini' | 'companion_groq' | 'companion_haiku' | 'companion_gateway' | 'companion_offline' | 'companion_rate_limited' | 'companion_key_invalid' | 'companion_net_down' | 'companion_safety' | 'companion_reask' | 'companion_no_credit';
 
 export interface CompanionChatResult {
   response: string;
@@ -235,6 +247,22 @@ export interface CompanionChatOpts {
    * diye eklenir → beyin STT belirsizliğini bağlamla çözer. Ekstra çağrı/gecikme YOK.
    */
   alternatives?: string[];
+  /**
+   * GEMINI LIVE portları — voice katmanı verir (`maviLiveAudioStream`). VERİLMEZSE
+   * Live adayı HİÇ KURULMAZ (metin/test çağıranları REST'e gider). Sağlayıcı
+   * KONUŞMAZ: ses/transkript/tool parçaları bu sink'lere akar; ses otoritesi
+   * çağıranın. `spokeAudio`/`sawToolCall` fallback yasağının kanıtıdır.
+   */
+  live?: CompanionLivePorts;
+}
+
+export interface CompanionLivePorts {
+  readonly sinks: LiveTurnSinks;
+  complete(): void;
+  abort(): void;
+  readonly spokeAudio: boolean;
+  readonly transcript: string;
+  readonly sawToolCall: boolean;
 }
 
 /* ── n-best: STT belirsizliğini prompt'a ipucu olarak ekle ─────
@@ -312,6 +340,7 @@ export { RATE_LIMIT_COOLDOWN_MS, getProviderQuotaSnapshot } from './companionPro
 
 /** @internal — testler arası izolasyon. */
 export function _resetCompanionChatForTest(): void {
+  _resetGeminiLiveForTest();
   _history = [];
   /* MAVI-F13/3: offline yedek ve sağlayıcı sağlık defteri ARTIK kendi
      sahiplerinde — kökten tek tek sıfırlamak yerine tek kapı çağrılır. */
@@ -714,6 +743,206 @@ export async function warmupGemini(apiKey: string): Promise<void> {
  *  · `assistant` → Yol Arkadaşı kapalı: aynı Mavi, aynı yetenekler; sakin ve
  *    işlevsel ton, kendiliğinden sohbet uzatmaz.
  */
+/* ══════════════════════════════════════════════════════════════════════════
+ * GEMINI LIVE — OTURUM SAHİPLİĞİ (tek örnek, anahtar + yapılandırma başına)
+ *
+ * Nihai fallback kararı (2026-09-21):
+ *   DETERMINISTIC/LOCAL → GEMINI LIVE → NORMAL GEMINI (REST) → OPENROUTER →
+ *   CLAUDE → LOCAL/OFFLINE
+ *
+ *  · Live, sohbet cevabını SES olarak verir (`responseModalities: AUDIO`);
+ *    komut kararı function call ile gelir ve AYNI `parseBrainJson` doğrulamasından
+ *    geçer → `fromSemanticResult` → capability → dispatch → `maviActionAuthority`.
+ *    Sağlayıcı araç donanımına dokunamaz.
+ *  · "Live yok" ≠ "Gemini yok": kota/model/servis arızasında AYNI anahtarla REST
+ *    zinciri çalışır. Anahtar reddi görüldüyse REST de atlanır (`isGeminiKeyRejected`).
+ *  · TUR SAHİPLİĞİ: Live çıktı ÜRETTİYSE (ses · tool) başka sağlayıcıya DÜŞÜLMEZ
+ *    (duplicate cevap/eylem yasağı). Çıktı yoksa fallback serbesttir.
+ *  · Geçici kopma: setup sonrası kopma önce resumption handle ile BİR KEZ
+ *    yeniden denenir; yine başarısızsa REST.
+ *  · Oturum kalıcıdır (tur başına bağlantı açılmaz); mikrofon açılınca
+ *    `warmupGeminiLive` bağlantıyı önden kurar (kullanıcı konuşurken el sıkışma biter).
+ * ════════════════════════════════════════════════════════════════════════ */
+let _liveSession: GeminiLiveSession | null = null;
+let _liveSessionKey = '';   // apiKey + parmak izi — değişirse oturum yeniden kurulur
+let _liveWsFactory: WebSocketFactory | undefined;
+
+/** @internal — testler: sahte WebSocket fabrikası. */
+export function _setGeminiLiveWsFactoryForTest(factory: WebSocketFactory | undefined): void {
+  _liveWsFactory = factory;
+  _resetGeminiLiveForTest();
+}
+
+/** @internal */
+export function _resetGeminiLiveForTest(): void {
+  try { _liveSession?.close('reset'); } catch { /* yok */ }
+  _liveSession = null;
+  _liveSessionKey = '';
+}
+
+/** Live oturumunun tanı görünümü (anahtar YOK). */
+export function getGeminiLiveDiagnostics(): {
+  state: string; setupCompleted: boolean; hasResumeHandle: boolean; goAwayPending: boolean; lastCloseReason: string;
+} {
+  const sess = _liveSession;
+  return {
+    state: sess?.state ?? 'idle',
+    setupCompleted: sess?.setupCompleted ?? false,
+    hasResumeHandle: !!sess?.resumeHandle,
+    goAwayPending: sess?.goAwayPending ?? false,
+    lastCloseReason: sess?.lastCloseReason ?? '',
+  };
+}
+
+/**
+ * Live oturum sistem talimatı — REST sohbet personasının AYNISI + tool disiplini.
+ * Araç bağlamı oturum başında DEĞİL her turda kullanıcı mesajının başında
+ * `[ARAÇ]` satırıyla verilir (oturum uzun ömürlü, bağlam canlı).
+ */
+function buildLiveSystemPrompt(id: CompanionIdentity, isDriving: boolean): string {
+  const persona = buildCompanionSystemPrompt(
+    id, isDriving,
+    'her kullanıcı mesajının başındaki [ARAÇ] satırında canlı olarak verilir; o satır yoksa araç verisi YOK demektir',
+    '',
+  );
+  const brevity = isDriving
+    ? 'Sürücü ŞU AN ARAÇ KULLANIYOR: en fazla 2 kısa cümle.'
+    : 'Sıradan soruda 2-4 akıcı cümle; detay istenirse yarıda bırakmadan anlat.';
+  return [persona, ...LIVE_TOOL_INSTRUCTION_LINES, brevity].join(' ');
+}
+
+function _getOrCreateLiveSession(apiKey: string, id: CompanionIdentity, isDriving: boolean): GeminiLiveSession {
+  /* Oturum anahtarı KARARLI alanlardan kurulur (kimlik · kip · anahtar izi).
+     Sistem talimatının içindeki konu ipucu / hafıza izdüşümü tur başına
+     değişebilir; onlar için oturum YENİLENMEZ (aksi hâlde her turda yeniden
+     bağlanılırdı) — sonraki doğal yeniden bağlanmada (goAway · kopma) tazelenir. */
+  const key = [
+    apiKey.length, apiKey.slice(-4), isDriving ? 'D' : 'P',
+    id.assistantName, id.personality, id.enabled ? 'c' : 'a', String(id.driverStyle ?? ''),
+  ].join(':');
+  if (_liveSession && _liveSessionKey === key) return _liveSession;
+  try { _liveSession?.close('config_changed'); } catch { /* yok */ }
+  const sess = new GeminiLiveSession({
+    apiKey,
+    systemInstruction: buildLiveSystemPrompt(id, isDriving),
+    functionDeclarations: buildLiveFunctionDeclarations(),
+    temperature: 0.7,
+    maxOutputTokens: answerTokens('chat', isDriving),
+  }, _liveWsFactory);
+  _liveSession = sess;
+  _liveSessionKey = key;
+  return sess;
+}
+
+/** Mikrofon açılınca çağrılır: WSS el sıkışması kullanıcı konuşurken biter. Best-effort. */
+export function warmupGeminiLive(apiKey: string, isDriving = false): void {
+  if (!apiKey || !apiKey.trim()) return;
+  if (!isGeminiLiveEnabled()) return;
+  if (isProviderCoolingDown('live') || isGeminiKeyRejected(apiKey)) return;
+  try {
+    const settings = useStore.getState().settings;
+    const id = resolveIdentityWithDriverStyle(settings);
+    const sess = _getOrCreateLiveSession(apiKey, id, isDriving);
+    void sess.connect().catch(() => { /* asıl turda sınıflandırılır */ });
+  } catch { /* ısıtma best-effort */ }
+}
+
+/** Uçuştaki Live turunu iptal eder (yeni dinleme/supersede). Oturum açık kalır. */
+export function cancelGeminiLiveTurn(): void {
+  try { _liveSession?.cancelTurn(); } catch { /* yok */ }
+}
+
+type LiveBrainAttempt =
+  | { readonly result: BrainRaw; readonly fallbackAllowed: false }
+  | { readonly result: null; readonly fallbackAllowed: boolean; readonly reason: ProviderSwitchReason };
+
+const LIVE_TOTAL_TIMEOUT_MS = 30_000;
+
+/**
+ * Live turu: metin gönderir, sonucu mevcut beyin sözleşmesine eşler.
+ *  · tool `mavi_action`/`mavi_web_search` → `parseBrainJson` (AYNI doğrulama)
+ *  · ses/transkript → `chat` (ses ZATEN çalındı; `maviSpeech` slotu bunu bilir)
+ *  · arıza → sınıf + `fallbackAllowed` (çıktı üretildiyse false)
+ */
+async function askCompanionBrainLive(
+  text: string,
+  apiKey: string,
+  id: CompanionIdentity,
+  isDriving: boolean,
+  ports: CompanionLivePorts,
+  timeoutMs: number | undefined,
+): Promise<LiveBrainAttempt> {
+  const sess = _getOrCreateLiveSession(apiKey, id, isDriving);
+  const vehicle = buildInterpretedVehicleContext();
+  const userText = vehicle ? `[ARAÇ] ${vehicle}\n${text}` : text;
+  const firstOutputTimeoutMs = Math.max(1_500, timeoutMs ?? GEMINI_TIMEOUT_MS);
+
+  const toolCalls: LiveToolCall[] = [];
+  const sinks: LiveTurnSinks = {
+    ...ports.sinks,
+    onToolCall: (call) => {
+      toolCalls.push(call);
+      try { ports.sinks.onToolCall?.(call); } catch { /* fail-soft */ }
+      // Sonuç bildirimi SESSİZ: model bunun üstüne konuşmaz (onayı dispatch söyler).
+      sess.sendToolResponse(call, { status: 'dispatched' }, 'SILENT');
+    },
+  };
+
+  const send = () => sess.sendTurn(userText, sinks, { firstOutputTimeoutMs, totalTimeoutMs: LIVE_TOTAL_TIMEOUT_MS });
+  let outcome = await send();
+
+  // Setup SONRASI kopma ve HİÇ çıktı yoksa → resumption ile BİR KEZ daha (geçici WSS kopması ≠ kota).
+  if (outcome.status === 'failed' && outcome.setupCompleted && !outcome.producedOutput) {
+    const kind = classifyLiveFailure(outcome.reason, true);
+    if (kind === 'LIVE_DISCONNECTED') {
+      console.warn('GEMINI_LIVE_RECONNECT: tur ortası kopma → resumption ile yeniden deneniyor');
+      outcome = await send();
+    }
+  }
+
+  if (outcome.status === 'superseded') {
+    ports.abort();
+    return { result: null, fallbackAllowed: false, reason: 'LIVE_NO_OUTPUT' };
+  }
+
+  const mapToolCalls = (): BrainRaw | null => {
+    for (const call of toolCalls) {
+      const json = liveToolCallToBrainJson(call);
+      if (!json) continue;
+      const parsed = parseBrainJson(json, isDriving);
+      if (parsed) return parsed;
+    }
+    return null;
+  };
+
+  if (outcome.status === 'complete') {
+    recordAiNetSuccess();
+    ports.complete();
+    const action = mapToolCalls();
+    if (action) return { result: action, fallbackAllowed: false };
+    const transcript = (outcome.transcript || ports.transcript).replace(/\s+/g, ' ').trim();
+    if (ports.spokeAudio || transcript) {
+      return { result: { kind: 'chat', response: transcript, route: 'companion_live' }, fallbackAllowed: false };
+    }
+    // Tur tamamlandı ama ne ses ne transkript ne geçerli tool → REST karar versin.
+    return { result: null, fallbackAllowed: true, reason: 'LIVE_NO_OUTPUT' };
+  }
+
+  // failed
+  const kind = classifyLiveFailure(outcome.reason, outcome.setupCompleted);
+  noteLiveFailure(kind, apiKey);
+  if (outcome.producedOutput) {
+    // ÇIKTI ÜRETİLDİ → başka sağlayıcıya DÜŞÜLMEZ (duplicate yasağı). Elde olanla bitir.
+    ports.complete();
+    const action = mapToolCalls();
+    if (action) return { result: action, fallbackAllowed: false };
+    const transcript = (outcome.transcript || ports.transcript).replace(/\s+/g, ' ').trim();
+    return { result: { kind: 'chat', response: transcript, route: 'companion_live' }, fallbackAllowed: false };
+  }
+  ports.abort();
+  return { result: null, fallbackAllowed: true, reason: kind };
+}
+
 export type MaviPresenceMode = 'companion' | 'assistant';
 
 /**
@@ -1878,7 +2107,41 @@ async function groundGeminiViaTavily(
  * gittiğini bilmez, anahtarını kendi çözer); diğerleri doğrudan sağlayıcı
  * çağrılarıdır ve kendi kota pencerelerini kullanır.
  */
-type BrainCandidate = { provider: 'gemini' | 'groq' | 'haiku' | 'gateway'; apiKey: string };
+type BrainCandidate = { provider: 'live' | 'gemini' | 'groq' | 'haiku' | 'gateway'; apiKey: string };
+
+/** Geçiş kütüğü için zincirdeki sıradaki adayın adı (yoksa 'offline'). */
+function _nextProviderName(chain: ReadonlyArray<BrainCandidate>, cand: BrainCandidate): string {
+  const i = chain.indexOf(cand);
+  const next = i >= 0 ? chain[i + 1] : undefined;
+  return next ? next.provider : 'offline';
+}
+
+/**
+ * Live `mavi_web_search` kararı → REST yolundaki AYNI üç adım (yerel hava →
+ * Gemini grounding → Tavily). REST bloğu DEĞİŞTİRİLMEDİ; burada yalnız aynı
+ * yardımcılar çağrılır. Bulunamazsa `null` (çağıran sıradaki adaya geçer).
+ */
+async function _resolveWebViaGemini(
+  query: string, trimmed: string, apiKey: string, id: CompanionIdentity, isDriving: boolean, opts: CompanionChatOpts,
+): Promise<CompanionBrainResult | null> {
+  const say = (response: string): CompanionBrainResult => {
+    pushHistory('user', trimmed);
+    pushHistory('model', response);
+    return { kind: 'chat', response, route: 'companion_gemini' };
+  };
+  const localWeather = await tryLocalWeatherAnswer(query, trimmed);
+  if (localWeather) return say(localWeather);
+  if (!isGroundingCoolingDown()) {
+    const grounded = await askGroundedGemini(query, apiKey, id, isDriving);
+    if (grounded) return say(grounded);
+  }
+  const hasTavily = !!opts.tavilyKey && opts.tavilyKey.trim().length > 8;
+  if (hasTavily) {
+    const tav = await groundGeminiViaTavily(query, trimmed, apiKey, id, isDriving, opts.tavilyKey as string);
+    if (tav) return say(tav);
+  }
+  return null;
+}
 
 async function runCompanionBrain(
   raw: string,
@@ -1907,8 +2170,30 @@ async function runCompanionBrain(
   // olarak durur (rollback tek şalter). Kapalıyken `chain` birebir eski dizidir
   // → tek satır davranış değişmez. Gateway anahtarını kendi çözer (BYOK), bu
   // yüzden apiKey alanı boştur ve anahtarsız kullanıcıda da zincire girebilir.
-  const chain: ReadonlyArray<BrainCandidate> =
-    isAiGatewayEnabled() ? [{ provider: 'gateway', apiKey: '' }, ...baseChain] : baseChain;
+  /* NİHAİ SIRA (2026-09-21): LIVE → GEMINI REST → OPENROUTER (gateway) → CLAUDE → offline.
+     Gateway adayı artık Gemini REST'in ARKASINDA durur (eskiden zincirin başındaydı;
+     bayrak varsayılan KAPALI olduğu için üretim dizisi değişmedi). Groq mevcut BYOK
+     adayı olarak yerinde kalır (kaldırma bu görevin kapsamı dışı). */
+  const geminiKey = baseChain.find((c) => c.provider === 'gemini')?.apiKey ?? '';
+  const liveCandidate: BrainCandidate | null =
+    opts.live && geminiKey && isGeminiLiveEnabled() ? { provider: 'live', apiKey: geminiKey } : null;
+  const gatewayCandidate: BrainCandidate | null =
+    isAiGatewayEnabled() ? { provider: 'gateway', apiKey: '' } : null;
+  const chain: ReadonlyArray<BrainCandidate> = (() => {
+    const out: BrainCandidate[] = [];
+    if (liveCandidate) out.push(liveCandidate);
+    const geminiIdx = baseChain.findIndex((c) => c.provider === 'gemini');
+    if (geminiIdx < 0) {
+      if (gatewayCandidate) out.push(gatewayCandidate);
+      out.push(...baseChain);
+      return out;
+    }
+    out.push(...baseChain.slice(0, geminiIdx + 1));
+    if (gatewayCandidate) out.push(gatewayCandidate);
+    out.push(...baseChain.slice(geminiIdx + 1));
+    return out;
+  })();
+  if (opts.live && geminiKey && !isGeminiLiveEnabled()) recordProviderSwitch('live', 'gemini', 'LIVE_DISABLED');
 
   // Safety Kernel PRE-GATE: allowOnline=false ise online zincir HİÇ denenmez;
   // offline fallback doğal olarak devreye girer (provider sırası korunur).
@@ -1985,11 +2270,47 @@ async function runCompanionBrain(
          TÜM adaylar için aynı; gateway penceresi YALNIZ `auth`/`insufficient_credit`
          görüldüğünde kurulur (429/timeout davranışı DEĞİŞMEZ). */
       if (isProviderCoolingDown(cand.provider)) {
+        if (cand.provider === 'live') recordProviderSwitch('live', 'gemini', 'LIVE_COOLDOWN');
         skippedByCooldown = true; continue;
+      }
+      /* Anahtar reddi (LIVE gördü, anahtar parmak izi eşleşiyor): aynı bozuk
+         anahtarla Gemini'yi tekrar deneme — zincir OpenRouter/Claude'a geçer. */
+      if ((cand.provider === 'live' || cand.provider === 'gemini') && isGeminiKeyRejected(cand.apiKey)) {
+        skippedByCooldown = true;
+        recordProviderSwitch(cand.provider, _nextProviderName(chain, cand), 'GEMINI_KEY_REJECTED');
+        continue;
       }
       aiAttempted = true;
 
       try {
+        if (cand.provider === 'live') {
+          const live = await askCompanionBrainLive(
+            brainInput, cand.apiKey, id, isDriving, opts.live as CompanionLivePorts, opts.timeoutMs);
+          sawHttpResponse = sawHttpResponse || live.result !== null;
+          if (live.result) {
+            if (live.result.kind === 'web') {
+              const webAnswer = await _resolveWebViaGemini(live.result.query, trimmed, cand.apiKey, id, isDriving, opts);
+              if (webAnswer) return webAnswer;
+              continue;   // güncel veri alınamadı → sıradaki aday (REST/Groq/Haiku + arama)
+            }
+            const modelText = live.result.kind === 'chat' ? live.result.response : live.result.semantic.feedback;
+            pushHistory('user', trimmed);
+            if (modelText.trim()) pushHistory('model', modelText);   // transkriptsiz ses turu boş kayıt yazmaz
+            return live.result;
+          }
+          if (!live.fallbackAllowed) {
+            // Çıktı üretildi/supersede → başka sağlayıcı bu turu DEVRALAMAZ.
+            return null;
+          }
+          recordProviderSwitch('live', _nextProviderName(chain, cand), live.reason);
+          if (live.reason === 'LIVE_UNAVAILABLE' || live.reason === 'LIVE_DISCONNECTED') {
+            // Ağ kanıtı YOK (el sıkışma/kopma) — REST'in sonucu kesiciye söz söyler.
+          } else {
+            sawHttpResponse = true;   // sunucu cevap verdi (kota/model/anahtar) → ağ CANLI
+          }
+          continue;
+        }
+
         if (cand.provider === 'gateway') {
           // Sağlayıcı-bağımsız hat: gateway kendi tekrar/timeout/devre-kesici
           // politikasını içeride uygular. Başarısızsa zincirdeki eski adaylar
@@ -2186,7 +2507,7 @@ async function runCompanionBrain(
  *   doğrulanır (offline/rate/key/safety metni zaten yereldir → dokunulmaz). */
 
 const ONLINE_ROUTES: ReadonlySet<CompanionChatRoute> = new Set<CompanionChatRoute>([
-  'companion_gemini', 'companion_groq', 'companion_haiku', 'companion_gateway',
+  'companion_live', 'companion_gemini', 'companion_groq', 'companion_haiku', 'companion_gateway',
 ]);
 
 /** Online CHAT cevabını POST-GATE'ten geçirir; değişirse yeni sonuç döner. */
@@ -2233,7 +2554,18 @@ export async function tryCompanionBrain(
   }
   if (safetyReply) return { kind: 'chat', response: safetyReply, route: 'companion_safety' };
 
-  const result = await runCompanionBrain(raw, opts, allowOnline);
+  /* GEMINI LIVE ön-kapısı: Live'ın sesi post-gate'ten ÖNCE çalar. Post-gate'in
+     metni DEĞİŞTİREBİLECEĞİ bağlamda (sürüşe uygun olmayan teşhis → sahte
+     güvence yasağı) Live bu turda KULLANILMAZ; REST+TTS yolu post-gate'li kalır. */
+  let effectiveOpts = opts;
+  if (opts.live && ctx.diagnosticDriveSafe === false) {
+    recordProviderSwitch('live', 'gemini', 'LIVE_NOT_ELIGIBLE');
+    const { live: _omit, ...rest } = opts;
+    void _omit;
+    effectiveOpts = rest;
+  }
+
+  const result = await runCompanionBrain(raw, effectiveOpts, allowOnline);
   const gated = _postGateBrain(result, ctx, isDriving);
   _noteSessionAction(gated);
   return gated;

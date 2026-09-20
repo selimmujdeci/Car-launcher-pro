@@ -49,13 +49,14 @@ export function monotonicNow(): number {
 export const RATE_LIMIT_COOLDOWN_MS = 60_000;
 
 /** Kota penceresi tutulan sağlayıcılar (gateway kendi devre kesicisini kullanır). */
-export type QuotaProvider = 'gemini' | 'groq' | 'haiku' | 'gateway';
+export type QuotaProvider = 'live' | 'gemini' | 'groq' | 'haiku' | 'gateway';
 
 /* ⚠️ SAĞLAYICI-BAZLI (SAHA 2026-07-04, "ilk istek online sonrakiler offline"):
  * eskiden TEK paylaşılan pencereydi — Groq/Haiku 429'u da bunu kuruyordu ve
  * GEMINI 60sn kilitleniyordu (çapraz kirlenme). Artık her sağlayıcının kendi
  * penceresi var; birinin kotası diğerini asla susturmaz. */
 const _cooldownUntil: Record<QuotaProvider, number> = {
+  live:    0,   // Gemini Live (WSS) kotası/erişilemezliği — REST'ten AYRI pencere
   gemini:  0,   // düzenli generateContent (beyin/sohbet) kotası
   groq:    0,
   haiku:   0,
@@ -221,6 +222,146 @@ export async function noteGeminiAuthFailure(resp: Response): Promise<void> {
   } catch { /* gövde okunamadı — sınıflandırma yapılmaz */ }
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+ * GEMINI ANAHTAR REDDİ — LIVE ve REST AYNI ANAHTARI PAYLAŞIR
+ *
+ * Nihai fallback kararı (2026-09-21): Live'ın KOTA/erişilemezlik arızası
+ * "Gemini kullanılamıyor" DEĞİLDİR → REST denenir. Ama anahtarın KENDİSİ
+ * reddedildiyse (invalid/revoked/unauthorized) aynı bozuk anahtarla REST'i
+ * yeniden denemek saf gecikmedir → zincir OpenRouter/Claude'a geçer.
+ *
+ * Yeni otorite DEĞİL: mevcut soğuma defterine bounded bir pencere yazılır
+ * (gateway'in 402 penceresiyle aynı sınıf). Kullanıcı anahtarı yenilerse
+ * pencere dolunca kendiliğinden geri döner; kalıcı depoya YAZILMAZ.
+ * ════════════════════════════════════════════════════════════════════════ */
+let _geminiKeyRejectedUntil = 0;
+let _geminiKeyRejectedFp = '';
+
+/** Anahtarın kendisini değil yalnız PARMAK İZİNİ tutar (uzunluk + son 4). */
+function _keyFp(apiKey: string): string {
+  const k = typeof apiKey === 'string' ? apiKey : '';
+  return `${k.length}:${k.slice(-4)}`;
+}
+
+/**
+ * Anahtar reddi görüldü → Live ve REST bounded süre ATLANIR. Yalnız LIVE'ın
+ * açık kimlik-reddi kanıtıyla çağrılır; REST'in kendi `API_KEY_INVALID`
+ * davranışı (her turda dener, düzelince anında toparlar — SAHA 2026-07-05)
+ * DEĞİŞMEDİ. Pencere ANAHTARA bağlıdır: kullanıcı anahtarı değiştirirse
+ * yeni anahtar hiç beklemeden denenir.
+ */
+export function noteGeminiKeyRejected(apiKey: string, cooldownMs: number = NO_CREDIT_COOLDOWN_MS): void {
+  _geminiKeyRejectedUntil = monotonicNow() + cooldownMs;
+  _geminiKeyRejectedFp    = _keyFp(apiKey);
+  _authFailureAtMs     = monotonicNow();
+  _authFailureProvider = 'gemini';
+}
+
+/** Bu Gemini anahtarı şu an reddedilmiş sayılıyor mu (Live + REST atlanır)? */
+export function isGeminiKeyRejected(apiKey: string): boolean {
+  return monotonicNow() < _geminiKeyRejectedUntil && _keyFp(apiKey) === _geminiKeyRejectedFp;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * LIVE ARIZA SINIFLANDIRMASI — "Live yok" ≠ "Gemini yok"
+ *
+ * WebSocket API tarayıcıda HTTP el sıkışma durumunu AÇMAZ; elimizde yalnız
+ * kapanış kodu + sebep metni (varsa) ve sunucunun `setupComplete` öncesi
+ * kapatıp kapatmadığı vardır. Sınıflandırma bu yüzden METNE ve AŞAMAYA dayanır
+ * ve belirsizlikte FAIL-SOFT sınıf seçer (`LIVE_UNAVAILABLE` → REST denenir);
+ * anahtar reddi YALNIZ açık kanıtla ilan edilir (yanlış pozitif = REST'in
+ * gereksiz 10 dk susması).
+ * ════════════════════════════════════════════════════════════════════════ */
+export type LiveFailureKind =
+  /** Kota/hız sınırı (RESOURCE_EXHAUSTED · 429 · quota) → Live soğur, REST denenir. */
+  | 'LIVE_QUOTA'
+  /** Anahtar reddi (API_KEY_INVALID · UNAUTHENTICATED · PERMISSION_DENIED) → Gemini komple atlanır. */
+  | 'LIVE_AUTH'
+  /** Model bulunamadı/desteklenmiyor (NOT_FOUND · unsupported model) → Live uzun soğur, REST denenir. */
+  | 'LIVE_MODEL_UNAVAILABLE'
+  /** Servis/ağ erişilemez (setup tamamlanmadan kapandı · 1006 · timeout) → Live kısa soğur, REST denenir. */
+  | 'LIVE_UNAVAILABLE'
+  /** Tur ortasında kopma (setup sonrası) → önce resume/retry, sonra REST. */
+  | 'LIVE_DISCONNECTED';
+
+const LIVE_AUTH_RE  = /api[ _-]?key|UNAUTHENTICATED|PERMISSION_DENIED|unauthori[sz]ed|\b40[13]\b/i;
+const LIVE_QUOTA_RE = /RESOURCE_EXHAUSTED|quota|rate[ _-]?limit|too many requests|\b429\b/i;
+const LIVE_MODEL_RE = /NOT_FOUND|not found|unsupported|not supported|no longer available|\b404\b/i;
+
+/**
+ * Kapanış sebebi/hata metni + aşama → sınıf. Metin boşsa aşamaya göre karar:
+ * setup öncesi → `LIVE_UNAVAILABLE`, setup sonrası → `LIVE_DISCONNECTED`.
+ */
+export function classifyLiveFailure(reasonText: string, setupCompleted: boolean): LiveFailureKind {
+  const t = typeof reasonText === 'string' ? reasonText : '';
+  // KOTA ÖNCE: kota mesajı "API key" kelimesini de içerebilir; anahtar reddi
+  // yanlış pozitifte REST'i 10 dk susturur (fail-soft sınıf önce).
+  if (LIVE_QUOTA_RE.test(t)) return 'LIVE_QUOTA';
+  if (LIVE_AUTH_RE.test(t))  return 'LIVE_AUTH';
+  if (LIVE_MODEL_RE.test(t)) return 'LIVE_MODEL_UNAVAILABLE';
+  return setupCompleted ? 'LIVE_DISCONNECTED' : 'LIVE_UNAVAILABLE';
+}
+
+/** Live soğuma pencereleri — sınıfa göre (kısa: geçici · uzun: kalıcıya yakın). */
+export const LIVE_UNAVAILABLE_COOLDOWN_MS = 30_000;
+export const LIVE_MODEL_COOLDOWN_MS       = NO_CREDIT_COOLDOWN_MS;
+
+/** Sınıfı deftere işler: kotayı Live penceresine, anahtar reddini Gemini geneline. */
+export function noteLiveFailure(kind: LiveFailureKind, apiKey: string, retryAfterMs?: number): void {
+  switch (kind) {
+    case 'LIVE_QUOTA':
+      noteProviderRateLimited('live', retryAfterMs ?? RATE_LIMIT_COOLDOWN_MS);
+      return;
+    case 'LIVE_AUTH':
+      noteGeminiKeyRejected(apiKey);
+      noteProviderRateLimited('live', NO_CREDIT_COOLDOWN_MS);
+      return;
+    case 'LIVE_MODEL_UNAVAILABLE':
+      noteProviderRateLimited('live', LIVE_MODEL_COOLDOWN_MS);
+      return;
+    case 'LIVE_UNAVAILABLE':
+    case 'LIVE_DISCONNECTED':
+      noteProviderRateLimited('live', LIVE_UNAVAILABLE_COOLDOWN_MS);
+      return;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * SAĞLAYICI GEÇİŞ KÜTÜĞÜ — "neden bu sağlayıcı?" sorusu sahada cevaplanır
+ *
+ * Bounded halka (20 kayıt), PII yok: yalnız sağlayıcı adı + bounded sebep.
+ * Kök (`companionChatProvider`) yazar; LAB/tanı okur. Otorite değil, gözlem.
+ * ════════════════════════════════════════════════════════════════════════ */
+export type ProviderSwitchReason =
+  | LiveFailureKind
+  | 'LIVE_DISABLED' | 'LIVE_NOT_ELIGIBLE' | 'LIVE_COOLDOWN' | 'LIVE_NO_OUTPUT'
+  | 'GEMINI_QUOTA' | 'GEMINI_KEY_REJECTED' | 'GEMINI_UNAVAILABLE' | 'GEMINI_COOLDOWN'
+  | 'OPENROUTER_UNAVAILABLE' | 'OPENROUTER_QUOTA' | 'OPENROUTER_NO_CREDIT' | 'OPENROUTER_COOLDOWN'
+  | 'GROQ_UNAVAILABLE' | 'GROQ_COOLDOWN'
+  | 'CLAUDE_UNAVAILABLE' | 'CLAUDE_COOLDOWN'
+  | 'ALL_ONLINE_PROVIDERS_UNAVAILABLE';
+
+export interface ProviderSwitchRecord {
+  readonly from: string;
+  readonly to: string;
+  readonly reason: ProviderSwitchReason;
+  readonly atMs: number;
+}
+
+const SWITCH_LOG_MAX = 20;
+const _switchLog: ProviderSwitchRecord[] = [];
+
+export function recordProviderSwitch(from: string, to: string, reason: ProviderSwitchReason): void {
+  _switchLog.push({ from, to, reason, atMs: monotonicNow() });
+  if (_switchLog.length > SWITCH_LOG_MAX) _switchLog.splice(0, _switchLog.length - SWITCH_LOG_MAX);
+  try { console.warn(`MAVI_PROVIDER_SWITCH: ${from} → ${to} reason=${reason}`); } catch { /* yok */ }
+}
+
+/** Salt-okunur kopya (yeniden en yeni). */
+export function getProviderSwitchLog(): readonly ProviderSwitchRecord[] {
+  return _switchLog.slice().reverse();
+}
+
 /** Sağlayıcı 200 döndü → anahtar geçerli, kimlik işareti temizlenir. */
 export function clearAuthFailure(): void {
   _authFailureAtMs     = 0;
@@ -284,6 +425,10 @@ export function getProviderQuotaSnapshot(): {
 
 /** @internal — testler arası izolasyon (üretim yolunda çağrılmaz). */
 export function _resetProviderHealthForTest(): void {
+  _cooldownUntil.live   = 0;
+  _geminiKeyRejectedUntil = 0;
+  _geminiKeyRejectedFp = '';
+  _switchLog.length = 0;
   _cooldownUntil.gemini = 0;
   _cooldownUntil.groq   = 0;
   _cooldownUntil.haiku  = 0;

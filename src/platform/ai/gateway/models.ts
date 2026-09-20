@@ -117,6 +117,36 @@ export const GEMINI_MODEL_CHAIN: readonly AiModelId[] = [
  * (companionChatProvider). Liste tutmak yerine kendi kendini onaran davranış.
  */
 
+/* ══════════════════════════════════════════════════════════════════════════
+ * GEMINI LIVE — birincil ONLINE konuşma yolu (2026-09-21 ürün kararı).
+ *
+ * Resmi doküman (ai.google.dev/gemini-api/docs/live-guide, 2026-09):
+ *   · model kimlikleri: `gemini-3.8-live` (native audio), legacy
+ *     `gemini-3.1-flash-live-preview`
+ *   · taşıma: WSS `BidiGenerateContent`; çıktı YALNIZ AUDIO (metin yalnız
+ *     `outputAudioTranscription` ile) → sohbet cevabının sesi Live'dan gelir,
+ *     mevcut TTS zinciri o turda KONUŞMAZ (duplicate TTS yasağı).
+ *   · Türkçe (`tr`) destek listesinde.
+ *
+ * Bu bir MODEL ZİNCİRİ DEĞİLDİR: Live tek modeldir. Live'ın kullanılamaması
+ * "Gemini kullanılamıyor" demek DEĞİLDİR — aynı BYOK anahtarla yukarıdaki
+ * REST zinciri (`GEMINI_MODEL_CHAIN`) ilk yedektir (sınıflandırma:
+ * `companionProviderHealth.classifyLiveFailure`).
+ * ════════════════════════════════════════════════════════════════════════ */
+export const GEMINI_LIVE_MODEL: AiModelId = 'gemini-3.8-live';
+
+/**
+ * Live WSS uç noktası. Anahtar sorgu parametresiyle taşınır (BYOK anahtar
+ * zaten cihazda; REST yolu da aynı anahtarı başlıkta gönderir — yeni bir
+ * anahtar otoritesi YOK). Üretim sertleşmesi (ephemeral token) ayrı iştir ve
+ * bir backend gerektirir; burada iddia edilmez.
+ */
+export function geminiLiveEndpoint(apiKey: string): string {
+  return 'wss://generativelanguage.googleapis.com/ws/'
+    + 'google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent'
+    + `?key=${encodeURIComponent(apiKey)}`;
+}
+
 /** Gemini sağlayıcısının varsayılan metin modeli (zincirin ilki). */
 export const DEFAULT_GEMINI_MODEL: AiModelId = GEMINI_MODEL_CHAIN[0] as AiModelId;
 

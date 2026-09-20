@@ -168,6 +168,11 @@ import {
   isMaviStreamingResponseEnabled, type ResponseStreamHandle,
 } from './voice/maviResponseStream';
 import { tickSpeechStream } from './voice/maviSpeechStream';
+/* GEMINI LIVE (2026-09-21) · birincil online konuşma yolu. Bu handle Live'ın
+   ses/transkript/tool parçalarını tur mührüne ve TEK seslendirme otoritesine
+   bağlar. Sağlayıcı zinciri (Live → REST → OpenRouter → Claude → offline)
+   `companionChatProvider`dadır; burada yalnız port verilir ve kesme yapılır. */
+import { beginLiveAudioStream, cancelActiveLiveAudioStream } from './voice/maviLiveAudioStream';
 /* MAVI-F5 · CAPABILITY FABRIC — kontrollü giriş kapısı.
    Beynin eylem önerisi kanonik yürütücüye teslim edilmeden ÖNCE katalogdan
    çözülür ve TİPLİ doğrulamadan geçer. Kapı VARSAYILAN GÖLGE kiptedir: karar
@@ -1620,7 +1625,12 @@ async function _warmupBrain(): Promise<void> {
     if (!hasNet || chain.length === 0) return;
     const gem = chain.find((c) => c.provider === 'gemini');
     if (!gem) return; // yalnız Gemini soğuk-başlangıç yaşıyor; Groq/Haiku ısıtma gerekmez
-    const { warmupGemini } = await import('./companion/companionChatProvider');
+    const { warmupGemini, warmupGeminiLive } = await import('./companion/companionChatProvider');
+    /* Live birincil yol: WSS el sıkışması kullanıcı konuşurken tamamlansın.
+       REST ısıtması KORUNUR (ilk yedeğin soğuk başlangıcı da örtülür). */
+    let _driving = false;
+    try { _driving = currentMaviVehicleContext().isDriving === true; } catch { _driving = false; }
+    warmupGeminiLive(gem.apiKey, _driving);
     await warmupGemini(gem.apiKey);
   } catch { /* ısıtma best-effort — komut akışını asla etkilemez */ }
 }
@@ -2235,8 +2245,14 @@ export async function processTextCommand(
       onClosed: _disarmStreamWatchdog,
     });
     if (_stream) _armStreamWatchdog();
+    /* GEMINI LIVE portu: iş yükü akışa izin veriyorsa (F8 kapısıyla AYNI) Live
+       adayı kurulur. Sağlayıcı konuşmaz; ses bu handle üzerinden `maviSpeech` →
+       `ttsService`e gider. Tool çağrısı → `parseBrainJson` → aşağıdaki AYNI
+       aksiyon köprüsü/capability/dispatch/authority zinciri (yeni yol YOK). */
+    const _live = _wlAllowsStream ? beginLiveAudioStream({ turn }) : null;
     const brain = await tryCompanionBrain(trimmed, {
       ...(_stream ? { onToken: _stream.onToken } : {}),
+      ...(_live ? { live: _live } : {}),
       isDriving: ctx?.isDriving,
       // MAVI-M2: hız BİLİNMİYORSA (`null`) beyne SIFIR gönderilmez — alan hiç
       // taşınmaz (sahte "0 km/h" bağlamı = sahte "araç duruyor" iddiası).
@@ -2257,6 +2273,9 @@ export async function processTextCommand(
      * için iptal edilecek bir yarış da kalmadı (yara bandı değil, kaynak çözüm).
      * MAVI-F0: sağlayıcı turu bitti (başarı · null · timeout — hepsi süre ödedi). */
     markMaviLatency('brain_complete');
+    /* GEMINI LIVE: sağlayıcı sonuç ÜRETMEDİYSE (fallback/supersede) handle kapanır;
+       ürettiyse `complete()` zaten çağrıldı (idempotent). */
+    if (_live && !brain) _live.abort();
     /* MAVI-F4: sağlayıcı bitti → tamponda kalan güvenli metin konuşulur ve
      * konuşma oturumu kapanır. Akış YAPISAL çıktı gördüyse (action/web) hiç
      * konuşmamıştır ve `answer` slotunu BIRAKMIŞTIR → aşağıdaki kanonik yol
@@ -2558,6 +2577,9 @@ export function startListening(opts?: StartListeningOpts): void {
   // konuşan bir şey yoksa zararsız no-op. TTS-end bildirimi tetiklemez (takip/idle
   // mantığını yanlışlıkla ilerletmez).
   ttsCancel();
+  /* GEMINI LIVE: uçuştaki Live ses akışı da kesilir (ttsCancel PCM'i susturur;
+     handle da kapanır ki geç gelen parçalar yeni dinlemeye sızmasın). */
+  cancelActiveLiveAudioStream();
   // Yeni etkileşim bekleyen takipsiz-idle'ı geçersiz kılar (eski cevabın TTS
   // bitişi bu turu idle'a düşürmesin).
   clearConvIdle();

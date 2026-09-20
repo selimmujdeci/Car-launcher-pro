@@ -27,6 +27,9 @@ const C = vi.hoisted(() => ({
   orchestratedReply: null as unknown,
   geminiCalls:  0,
   geminiReply:  null as string | null,
+  /* NİHAİ SIRA (2026-09-21): gateway (OpenRouter) adayı Gemini REST'in ARKASINDA.
+     Gateway'in çağrılması için REST'in düşmesi gerekir → 503 ile simüle edilir. */
+  geminiStatus: 200 as number,
 }));
 
 vi.mock('../platform/ai/gateway/aiGatewayFlag', () => ({
@@ -87,6 +90,7 @@ describe('companionChatProvider — gateway adayı (flag arkasında)', () => {
     C.orchestratedReply = null;
     C.geminiCalls  = 0;
     C.geminiReply  = null;
+    C.geminiStatus = 200;
     const mod = await import('../platform/companion/companionChatProvider');
     mod._resetCompanionChatForTest();
     vi.restoreAllMocks();
@@ -95,9 +99,10 @@ describe('companionChatProvider — gateway adayı (flag arkasında)', () => {
       C.geminiCalls++;
       const text = C.geminiReply ?? JSON.stringify({ type: 'chat', say: 'gemini cevabı' });
       return {
-        ok: true, status: 200,
+        ok: C.geminiStatus === 200, status: C.geminiStatus,
         json: async () => ({ candidates: [{ content: { parts: [{ text }] } }] }),
         text: async () => text,
+        clone() { return this; },
       } as unknown as Response;
     }));
   });
@@ -113,7 +118,7 @@ describe('companionChatProvider — gateway adayı (flag arkasında)', () => {
     if (r?.kind === 'chat') expect(r.route).toBe('companion_gemini');
   });
 
-  it('BAYRAK AÇIK → gateway ÖNCE denenir ve cevabı companion_gateway rotasıyla döner', async () => {
+  it('BAYRAK AÇIK + Gemini REST çalışıyor → gateway HİÇ çağrılmaz (REST önce — nihai sıra)', async () => {
     C.flagEnabled  = true;
     C.gatewayReply = { ok: true, text: JSON.stringify({ type: 'chat', say: 'gateway cevabı' }) };
 
@@ -122,8 +127,23 @@ describe('companionChatProvider — gateway adayı (flag arkasında)', () => {
       provider: 'gemini', apiKey: 'k', hasNet: true, isDriving: false,
     });
 
+    expect(C.gatewayCalls).toHaveLength(0);
+    expect(C.geminiCalls).toBeGreaterThan(0);
+    if (r?.kind === 'chat') expect(r.route).toBe('companion_gemini');
+  });
+
+  it('BAYRAK AÇIK → Gemini REST düşerse gateway denenir ve companion_gateway rotasıyla döner', async () => {
+    C.flagEnabled  = true;
+    C.geminiStatus = 503;
+    C.gatewayReply = { ok: true, text: JSON.stringify({ type: 'chat', say: 'gateway cevabı' }) };
+
+    const { tryCompanionBrain } = await import('../platform/companion/companionChatProvider');
+    const r = await tryCompanionBrain('merhaba', {
+      provider: 'gemini', apiKey: 'k', hasNet: true, isDriving: false,
+    });
+
     expect(C.gatewayCalls).toHaveLength(1);
-    expect(C.geminiCalls).toBe(0);            // gateway kazandı → eski yol hiç denenmedi
+    expect(C.geminiCalls).toBeGreaterThan(0);  // REST önce denendi, düştü
     expect(r?.kind).toBe('chat');
     if (r?.kind === 'chat') {
       expect(r.response).toBe('gateway cevabı');
@@ -131,8 +151,9 @@ describe('companionChatProvider — gateway adayı (flag arkasında)', () => {
     }
   });
 
-  it('gateway düşerse ESKİ ZİNCİR yedek olarak devam eder (rollback güvencesi)', async () => {
+  it('gateway düşerse zincir THROW etmeden devam eder (rollback güvencesi: bayrak eski davranışı bozmaz)', async () => {
     C.flagEnabled  = true;
+    C.geminiStatus = 503;
     C.gatewayReply = { ok: false, netFailure: false, errorKind: 'server' };
 
     const { tryCompanionBrain } = await import('../platform/companion/companionChatProvider');
@@ -141,8 +162,9 @@ describe('companionChatProvider — gateway adayı (flag arkasında)', () => {
     });
 
     expect(C.gatewayCalls).toHaveLength(1);
-    expect(C.geminiCalls).toBeGreaterThan(0); // Gemini yedeği çalıştı
-    if (r?.kind === 'chat') expect(r.route).toBe('companion_gemini');
+    expect(C.geminiCalls).toBeGreaterThan(0);
+    expect(r?.kind).toBe('chat');
+    if (r?.kind === 'chat') expect(r.route).not.toBe('companion_gateway');
   });
 
   it('anahtar YOKKEN bile gateway zincire girer (BYOK kendi içinde)', async () => {
@@ -158,6 +180,7 @@ describe('companionChatProvider — gateway adayı (flag arkasında)', () => {
 
   it('köprüye SAĞLAYICI DETAYI geçmez — yalnız prompt/geçmiş/metin', async () => {
     C.flagEnabled  = true;
+    C.geminiStatus = 503;
     C.gatewayReply = { ok: true, text: JSON.stringify({ type: 'chat', say: 'ok' }) };
 
     const { tryCompanionBrain } = await import('../platform/companion/companionChatProvider');
@@ -223,6 +246,7 @@ describe('companionChatProvider — gateway adayı (flag arkasında)', () => {
     C.flagEnabled = true;
     C.orchestratorEnabled = true;
     C.orchestratedReply = { ok: true, text: JSON.stringify({ type: 'chat', say: 'ok' }) };
+    C.geminiStatus = 503;
 
     const { tryCompanionBrain } = await import('../platform/companion/companionChatProvider');
     await tryCompanionBrain('merhaba', { provider: 'gemini', apiKey: 'gizli-anahtar', hasNet: true });
@@ -232,17 +256,19 @@ describe('companionChatProvider — gateway adayı (flag arkasında)', () => {
     expect(JSON.stringify(call)).not.toContain('gizli-anahtar');
   });
 
-  it('orkestratör düşerse ESKİ ZİNCİR yedek olarak devam eder', async () => {
+  it('orkestratör düşerse zincir THROW etmeden devam eder', async () => {
     C.flagEnabled = true;
     C.orchestratorEnabled = true;
+    C.geminiStatus = 503;
     C.orchestratedReply = { ok: false, netFailure: false, errorKind: 'unknown' };
 
     const { tryCompanionBrain } = await import('../platform/companion/companionChatProvider');
     const r = await tryCompanionBrain('merhaba', { provider: 'gemini', apiKey: 'k', hasNet: true });
 
     expect(C.orchestratedCalls).toHaveLength(1);
-    expect(C.geminiCalls).toBeGreaterThan(0);     // Gemini yedeği çalıştı
-    if (r?.kind === 'chat') expect(r.route).toBe('companion_gemini');
+    expect(C.geminiCalls).toBeGreaterThan(0);     // REST önce denendi
+    expect(r?.kind).toBe('chat');
+    if (r?.kind === 'chat') expect(r.route).not.toBe('companion_gateway');
   });
 
   it('sohbet geçmişi gateway turunda da birikir (conversation korunur)', async () => {
