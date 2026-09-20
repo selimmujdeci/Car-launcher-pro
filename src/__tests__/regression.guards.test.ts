@@ -7504,18 +7504,27 @@ describe('#555 · blackbox örnekleyicisi birikmez', () => {
  * Sonuç: `window.onerror` ve `unhandledrejection` hiç yakalanmıyor, olay halka
  * tamponu hiç dolmuyordu → sahada çöken APK'dan geriye tanı verisi kalmıyordu.
  * Bedeli: post-mortem imkânsız. Bu kilit bağlantının sessizce kopmasını engeller. */
-describe('E-34 · panik yakalayıcı SystemBoot\'a bağlı kalır', () => {
-  it('🔒 SystemBoot initPanicHandler\'ı IMPORT eder', () => {
+/* ── KANIT SEVİYESİ (MRI F-10, 2026-09-20) ─────────────────────────────────
+ * DİKKAT: bu küme KAYNAK-YAPISAL'dır. `SystemBoot.ts` metnini okur; boot'u
+ * ÇALIŞTIRMAZ. Yani "panic handler üretimde gerçekten kuruluyor" İDDİA
+ * EDİLEMEZ — kanıtlanan şey, çağrının kaynakta doğru sırada DURMASIDIR.
+ * Gerçek kanıt için `systemBoot.boot()` davranışsal koşumu gerekir (F-10
+ * backlog: SystemBoot wave-1 lifecycle davranış testi). Test adları bu
+ * kanıt seviyesini yansıtacak şekilde düzeltildi — "çağrılır" yerine
+ * "kaynakta ... durur".
+ * ───────────────────────────────────────────────────────────────────────── */
+describe('E-34 · panik yakalayıcı SystemBoot KAYNAĞINDA bağlı kalır (yapısal nöbet)', () => {
+  it('🔒 KAYNAK: SystemBoot initPanicHandler\'ı IMPORT eder', () => {
     expect(systemBootSrc, 'panic handler importu düşmüş — hook\'lar hiç kurulmaz')
       .toMatch(/import \{ initPanicHandler \}\s+from '\.\/SystemPanicHandler'/);
   });
 
-  it('🔒 Wave 1\'de ÇAĞRILIR ve cleanup kaydedilir', () => {
+  it('🔒 KAYNAK: Wave 1 gövdesinde çağrı + cleanup kaydı DURUYOR', () => {
     expect(systemBootSrc, 'initPanicHandler çağrısı düşmüş — E-34 geri geldi')
       .toMatch(/this\._reg\(initPanicHandler\(\)\)/);
   });
 
-  it('🔒 çağrı Wave 1\'in EN BAŞINDA kalır (boot hataları da yakalansın)', () => {
+  it('🔒 KAYNAK: çağrı Wave 1\'in EN BAŞINDA kalır (boot hataları da yakalansın)', () => {
     const w1 = systemBootSrc.indexOf('_wave1(): Promise<void>');
     const panic = systemBootSrc.indexOf('initPanicHandler()', w1);
     const bus = systemBootSrc.indexOf('startPlatformCoreEventBusWiring()', w1);
@@ -7524,7 +7533,7 @@ describe('E-34 · panik yakalayıcı SystemBoot\'a bağlı kalır', () => {
       .toBeLessThan(bus);
   });
 
-  it('🔒 fail-soft: panic kurulumu boot\'u DÜŞÜRMEZ', () => {
+  it('🔒 KAYNAK: fail-soft sarmalayıcı duruyor (panic kurulumu boot\'u düşürmesin)', () => {
     expect(systemBootSrc, 'try/catch kaldırılmış — panic handler hatası tüm boot\'u düşürür')
       .toMatch(/this\._reg\(initPanicHandler\(\)\);[\s\S]{0,120}?catch \(e\) \{[\s\S]{0,120}?SystemBoot:panicHandler/);
   });
@@ -8111,44 +8120,49 @@ describe('#647 Uzak komut yolu — cihaz kimligi (api_key) kilidi', () => {
    * YAZABILIYORDU. Tek gecerli kapi, `api_key_hash` dogrulayan SECURITY DEFINER
    * RPC'leridir (069 okuma, 070 yazma). Bu kilitler tabloya donusu engeller. */
 
-  it('YAPISAL: bekleyen komutlar RPC ile okunur, tablo DOGRUDAN sorgulanmaz', () => {
-    expect(commandListenerSrc, 'fetch_pending_vehicle_commands cagrisi kaldirilmis — arac kendi komutunu 0 satir gorur')
-      .toMatch(/callVehicleRpc\(\s*'fetch_pending_vehicle_commands'/);
+  /* ── KANIT SEVİYESİ (MRI F-10, 2026-09-20) ───────────────────────────────
+   * Bu kümenin DAVRANIŞ iddiaları — "RPC ile okunur", "durum RPC ile yazılır",
+   * "yoklama asıl taşıyıcıdır", "kalıcı dinleyici boşta-kapatmayla ölmez" —
+   * artık GERÇEK `CommandListener` çalıştırılarak kanıtlanıyor:
+   *     src/__tests__/remoteCommandAuthorityBehaviorF10.test.ts
+   *
+   * Buradaki kırılgan YAPISAL regex'ler (startPolling gövdesi, stopCommandListener
+   * imzası, `let _permanent`) kaldırıldı: bir yeniden düzenleme onları düşürürdü
+   * (yanlış kırmızı) ya da metin dururken davranış bozulabilirdi (yanlış yeşil).
+   *
+   * GERİDE KALAN yalnız YASAK SEMBOL nöbetidir: ucuz, kırılgan olmayan ve
+   * davranış testinin göremeyeceği bir şeyi koruyan ikincil savunma — yanlış
+   * yolun kaynağa GERİ EKLENMESİ. Birincil kanıt davranış testidir.
+   * ─────────────────────────────────────────────────────────────────────── */
+
+  it('YASAK SEMBOL: komut tablosuna DOGRUDAN erisim kaynaga geri eklenmemis', () => {
+    /* Davranis kanitli: remoteCommandAuthorityBehaviorF10 ①. Bu nobet, yolun
+       kaynakta yeniden belirmesini (ornegin yeni bir yardimci icinde) yakalar. */
     expect(commandListenerSrc, 'vehicle_commands tablosu DOGRUDAN sorgulaniyor — anon ayricaligi YOK, sessizce bos doner')
       .not.toMatch(/\.from\(\s*'vehicle_commands'\s*\)/);
-  });
-
-  it('YAPISAL: komut durumu api_key RPC ile yazilir (REST PATCH ve error_reason YOK)', () => {
-    expect(commandListenerSrc, 'updateRemoteCommandStatus baglantisi kopmus — durum yazma yolu tabloya geri donmus olabilir')
-      .toMatch(/updateRemoteCommandStatus\(/);
     expect(commandListenerSrc, 'REST PATCH ile vehicle_commands guncelleniyor — anon ayricaligi YOK, istek RLS-e bile varmaz')
       .not.toMatch(/rest\/v1\/vehicle_commands/);
+  });
+
+  it('YASAK SEMBOL: `error_reason` bir DB guncelleme alani gibi kullanilmiyor', () => {
     /* `error_reason` push bildirim GOVDESINDE mesrudur (kolon degil). Yasak
-       olan, onu bir DB GUNCELLEME alani gibi kullanmaktir. */
+       olan, onu bir DB GUNCELLEME alani gibi kullanmaktir — semada BOYLE BIR
+       KOLON YOK (42703). Davranis testi bunu goremez: sahte RPC her alani kabul
+       eder, gercek sema reddeder. Bu yuzden kaynak nobeti burada DOGRU aractir. */
     expect(commandListenerSrc, 'error_reason DB guncelleme alani gibi yaziliyor — semada BOYLE BIR KOLON YOK (42703)')
       .not.toMatch(/updates\.error_reason|p_error_reason/);
     expect(commandListenerSrc, 'VehicleCommand arayuzu error_reason tasiyor — semadaki gercek ad error_message')
       .not.toMatch(/error_reason\?:/);
   });
 
-  it('YAPISAL: Realtime tek tasiyici DEGIL — periyodik yoklama var', () => {
-    /* Realtime `postgres_changes` olaylari da RLS'e tabidir -> anon istemci
-       komut INSERT'unu HIC gormez. Yoklama "yedek" degil ASIL yoldur. */
+  it('YAPISAL: periyodik yoklama sabiti kaynakta duruyor (asil tasiyici)', () => {
+    /* Yoklamanin GERCEKTEN kuruldugu, tur tur komut cektigi ve sokulusde
+       temizlendigi davranissal olarak kilitli:
+       remoteCommandAuthorityBehaviorF10.test.ts ③b (sahte zamanla ileri sarim).
+       Burada yalnizca sabitin varligi nobet tutulur — periyodun kendisi
+       urun karari oldugu icin sessizce kaldirilmamali. */
     expect(commandListenerSrc, 'PENDING_POLL_MS kaldirilmis — anon istemcide Realtime olay uretmez, komut hic ulasmaz')
       .toMatch(/const PENDING_POLL_MS/);
-    expect(commandListenerSrc, 'poll timer kurulmuyor — startPolling/setInterval kaldirilmis')
-      .toMatch(/startPolling\(\): void \{[\s\S]{0,400}setInterval\(/);
-    expect(commandListenerSrc, 'poll timer disconnect() icinde temizlenmiyor — zero-leak ihlali')
-      .toMatch(/disconnect\(\): void \{[\s\S]{0,300}clearInterval\(this\.pollTimer\)/);
-  });
-
-  it('YAPISAL: kalici dinleyici bosta-kapatmayla oldurulemez (tek sahiplik)', () => {
-    expect(commandListenerSrc, '_permanent sahiplik bayragi kaldirilmis — fcmService bosta sayaci pushService dinleyicisini kapatir')
-      .toMatch(/let _permanent = false/);
-    expect(commandListenerSrc, 'stopCommandListener force kapisi kaldirilmis — kalici dinleyici sessizce olur')
-      .toMatch(/export function stopCommandListener\(force = false\)[\s\S]{0,200}if \(_permanent && !force\) return;/);
-    expect(fcmServiceSrc, 'fcmService canli dinleyiciyi yeniden kuruyor — baglanti ve dedup kumesi sifirlanir')
-      .toMatch(/if \(isCommandListenerActive\(\)\)\s*\{[\s\S]{0,200}triggerPendingPoll\(\);/);
   });
 });
 
