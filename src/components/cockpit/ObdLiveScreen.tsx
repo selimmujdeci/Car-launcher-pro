@@ -468,7 +468,8 @@ const CSS = `
   gap:clamp(10px,1.4vh,18px);padding:clamp(14px,2.2vh,26px) clamp(16px,2vw,32px);
   font-family:'Saira','Segoe UI',system-ui,sans-serif;overflow:hidden;
   font-variant-numeric:tabular-nums;}
-.obdlive-top{flex:0 0 auto;display:flex;align-items:center;gap:clamp(10px,1.4vw,24px);min-height:44px;}
+.obdlive-top{position:relative;flex:0 0 auto;display:flex;align-items:center;
+  gap:clamp(10px,1.4vw,24px);min-height:44px;}
 .obdlive-brand{display:flex;align-items:center;gap:clamp(8px,0.9vw,14px);min-width:0;}
 .obdlive-wordmark{font-size:clamp(17px,1.5vw,25px);font-weight:700;letter-spacing:3.5px;}
 .obdlive-title{margin:0;font-size:clamp(11px,1vw,16px);font-weight:500;letter-spacing:1.6px;
@@ -482,9 +483,13 @@ const CSS = `
   white-space:nowrap;}
 .obdlive-chip i{width:9px;height:9px;border-radius:5px;display:block;}
 .obdlive-chip span{font-size:clamp(11px,0.85vw,14px);font-weight:600;letter-spacing:1.3px;}
-.obdlive-clock{text-align:right;}
-.obdlive-clock-time{font-size:clamp(18px,1.6vw,27px);font-weight:600;line-height:1;}
-.obdlive-clock-date{font-size:clamp(10px,0.75vw,12px);margin-top:3px;white-space:nowrap;}
+/* Saat üst çubuğun GERÇEK ortasındadır: mutlak konum, iki yandaki öbeklerin
+   genişliğinden bağımsız. Sürüşte göz merkeze gittiği için en okunur yer burası. */
+.obdlive-clock{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  text-align:center;white-space:nowrap;pointer-events:none;}
+.obdlive-clock-time{font-size:clamp(24px,2.3vw,40px);font-weight:600;line-height:1;
+  letter-spacing:0.5px;}
+.obdlive-clock-date{font-size:clamp(11px,0.85vw,15px);margin-top:4px;white-space:nowrap;}
 
 .obdlive-panel{box-sizing:border-box;border-radius:18px;min-width:0;}
 .obdlive-cap{font-size:clamp(10px,0.72vw,12px);font-weight:600;letter-spacing:2px;}
@@ -562,6 +567,9 @@ const CSS = `
 @media (max-width:1100px){
   .obdlive-tiles{grid-template-columns:repeat(3,minmax(0,1fr));}
   .obdlive-conn,.obdlive-load{flex-basis:230px;}
+  /* Ortada yer kalmaz → saat sağ kenara döner (çakışma yok). */
+  .obdlive-clock{position:static;transform:none;text-align:right;}
+  .obdlive-clock-time{font-size:clamp(18px,1.7vw,24px);}
 }
 @media (max-width:820px){
   .obdlive-hero{flex-wrap:wrap;}
