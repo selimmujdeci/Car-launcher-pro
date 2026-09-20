@@ -88,9 +88,6 @@ const RECONNECT_DELAY   = 3_000;   // ms — bağlantı kopunca bekleme
  * girmez. Push-to-Wake (FCM) çalıştığında bu yol yalnız güvence kaplamasıdır.
  */
 const PENDING_POLL_MS   = 15_000;
-const PUSH_EDGE_FN_URL  = (import.meta.env.VITE_SUPABASE_URL as string | undefined)
-  ? `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/push-notify`
-  : null;
 
 // ── Tipler ────────────────────────────────────────────────────────────────────
 
@@ -736,21 +733,36 @@ async function incrementRetry(commandId: string, errorReason: string): Promise<v
   });
 }
 
-// ── Push bildirim — Edge Function tetikle ────────────────────────────────────
+// ── İnsana bildirim (tüketici push) — ARAÇTAN GÖNDERİLMEZ ───────────────────
+//
+// MRI F-08: burası eskiden `functions/v1/push-notify`e (ARAÇ UYANDIRMA slug'ı,
+// FCM) `command_completed` / `command_failed` / `speed_alert` atıyordu — yani
+// insana bildirim olayını araç-wake otoritesine, üstelik Authorization'sız
+// (her zaman 401). Doğru otorite `consumer-push-notify` (Web Push,
+// `push_subscriptions`) service_role ister; araç (anon + api_key) onu
+// ÇAĞIRAMAZ ve çağırmamalıdır: tüketici bildiriminin üreticisi SUNUCUDUR
+// (`consumer-notify-scan`). Komut sonucu / hız uyarısı için sunucu üreticisi
+// HENÜZ BAĞLI DEĞİL → CODE READY / NOT WIRED. Sahte bir ağ çağrısı yerine
+// olay yalnız yerel kanıt olarak sayılır; komut akışı hiçbir koşulda
+// bundan etkilenmez (push ≠ komut gerçeği).
 
-async function triggerPushNotify(
+let _consumerNotifyDropped = 0;
+let _consumerNotifyWarned  = false;
+
+/** Test/teşhis: sunucu üreticisi bağlanana dek düşen tüketici olayı sayısı. */
+export function getConsumerNotifyDroppedCount(): number { return _consumerNotifyDropped; }
+
+function triggerPushNotify(
   event:     string,
   vehicleId: string,
-  payload:   Record<string, unknown>,
-): Promise<void> {
-  if (!PUSH_EDGE_FN_URL) return;
-  try {
-    await fetch(PUSH_EDGE_FN_URL, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ event, vehicleId, payload }),
-    });
-  } catch { /* fire-and-forget — bildirim hatası ana akışı etkilemez */ }
+  _payload:  Record<string, unknown>,
+): void {
+  _consumerNotifyDropped++;
+  if (!_consumerNotifyWarned) {
+    _consumerNotifyWarned = true;
+    /* Sır/PII yok: yalnız olay adı ve araç kimliği. */
+    console.warn(`[CommandListener] CONSUMER_PUSH_REQUESTED ${event}@${vehicleId} → NOT_WIRED (araç tüketici push otoritesi değildir; sunucu üreticisi bekleniyor)`);
+  }
 }
 
 /**

@@ -17,6 +17,7 @@ import {
   networkFailureOutcome,
   shouldDeleteToken,
   type FcmOutcome,
+  type WakeEvent,
 } from './fcmDelivery.ts';
 
 export interface DispatchDeps {
@@ -51,9 +52,8 @@ export interface DispatchSummary {
  */
 export async function dispatchWake(
   tokens:    readonly string[],
-  event:     string,
+  event:     WakeEvent,
   vehicleId: string,
-  payload:   Record<string, unknown>,
   deps:      DispatchDeps,
 ): Promise<DispatchSummary> {
   const nowMs = deps.now();
@@ -67,7 +67,7 @@ export async function dispatchWake(
           'Content-Type':  'application/json',
           'Authorization': `Bearer ${deps.accessToken}`,
         },
-        body: JSON.stringify(buildWakeMessage(fcmToken, event, vehicleId, payload, nowMs)),
+        body: JSON.stringify(buildWakeMessage(fcmToken, event, vehicleId, nowMs)),
       });
       let parsed: unknown = null;
       try { parsed = await res.json(); } catch { /* gövdesiz yanıt olabilir */ }

@@ -61,6 +61,37 @@ public class CommandService extends FirebaseMessagingService {
     static final String  KEY_RESULTS   = "cmd_results";
     private static final int MAX_QUEUE = 20;
 
+    // ── FCM veri sınıflandırması (SAF — MRI F-08) ──────────────────────────
+    //
+    // `onMessageReceived` bu karardan başka koşul OKUMAZ; karar Android
+    // bağımlılığı taşımadığı için JVM'de (CommandServiceWakeContractTest)
+    // kanıtlanır. Sunucu wake üreticisi (`push-notify/fcmDelivery.buildWakeMessage`)
+    // yalnız {event, vehicle_id, ts} üretir → sonuç her zaman WAKE_ONLY;
+    // ENCRYPTED_COMMAND dalı yalnız `e2e_payload` üst düzey anahtarıyla girilir
+    // ve o anahtarı üreten hiçbir sunucu yolu YOKTUR (F-02: dormant, bu turda
+    // genişletilmez).
+
+    /** FCM `data` haritasının yorumu. */
+    enum FcmDataKind {
+        /** Wake ailesinden değil → yok sayılır (insan bildirimi vb.). */
+        IGNORE,
+        /** Uyan ve kanonik DB dinleyicisine bak — fiziksel komut bilgisi YOK. */
+        WAKE_ONLY,
+        /** Şifreli komut zarfı taşıyor — F-02 dormant fiziksel dal. */
+        ENCRYPTED_COMMAND
+    }
+
+    /** Saf karar: Android çağrısı yok. */
+    static FcmDataKind classifyFcmData(Map<String, String> data) {
+        if (data == null) return FcmDataKind.IGNORE;
+        String event      = data.getOrDefault("event",       "");
+        String e2ePayload = data.getOrDefault("e2e_payload", "");
+        if (!EVENT_NEW_CMD.equals(event) && !EVENT_CMD_PENDING.equals(event)) {
+            return FcmDataKind.IGNORE;
+        }
+        return e2ePayload.isEmpty() ? FcmDataKind.WAKE_ONLY : FcmDataKind.ENCRYPTED_COMMAND;
+    }
+
     // ── FCM Token yenileme ──────────────────────────────────────────────────
 
     @Override
@@ -98,7 +129,8 @@ public class CommandService extends FirebaseMessagingService {
 
         Log.d(TAG, "FCM alındı: event=" + event + " type=" + cmdType + " id=" + cmdId);
 
-        if (!EVENT_NEW_CMD.equals(event) && !EVENT_CMD_PENDING.equals(event)) {
+        FcmDataKind kind = classifyFcmData(data);
+        if (kind == FcmDataKind.IGNORE) {
             return; // Komut dışı bildirim — yoksay
         }
 
@@ -113,7 +145,7 @@ public class CommandService extends FirebaseMessagingService {
 
         // WebView uyku modunda ────────────────────────────────────────────
 
-        if (!e2ePayload.isEmpty()) {
+        if (kind == FcmDataKind.ENCRYPTED_COMMAND) {
             // E2E şifreli komut — NativeCryptoManager ile çöz (tek güvenli MCU yolu)
             handleEncryptedCommand(cmdId, e2ePayload, vehicleId);
         } else {

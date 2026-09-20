@@ -99,7 +99,30 @@ export function shouldDeleteToken(outcome: FcmOutcome): boolean {
   return outcome.kind === 'PERMANENT_INVALID_TOKEN';
 }
 
-/* ── Wake mesajı ─────────────────────────────────────────────────────────── */
+/* ── Wake sözleşmesi (MRI F-08) ──────────────────────────────────────────── */
+
+/**
+ * Bu fonksiyonun kabul ettiği TEK olay ailesi: "uyan ve kanonik DB
+ * dinleyicisine bak". İnsan bildirimi olayları (vehicle_offline,
+ * command_completed, health_alert …) BURADAN GEÇMEZ — onlar
+ * `consumer-push-notify`nin işidir. Bir slug = bir semantik otorite.
+ */
+export const WAKE_EVENTS = ['new_command', 'command_pending'] as const;
+export type WakeEvent = typeof WAKE_EVENTS[number];
+export function isWakeEvent(event: unknown): event is WakeEvent {
+  return typeof event === 'string' && (WAKE_EVENTS as readonly string[]).includes(event);
+}
+
+/**
+ * Wake `data` sözleşmesi — TAM liste. Çağıranın gövdesinden hiçbir alan
+ * geçirilmez: eskiden `payload` (ör. `{command_id}`) JSON string olarak
+ * taşınıyordu; komut kimliği de dâhil hiçbir komut bilgisi push'ta gitmez.
+ * Araç uyandığında komutu DB'den (`fetch_pending_vehicle_commands`) kendisi
+ * okur. Native `CommandService.onMessageReceived` `cmd_id`/`cmd_type`/
+ * `e2e_payload` anahtarlarını üst düzeyde arar; bu üretici o anahtarları
+ * ÜRETEMEZ (allowlist dışı) → dormant fiziksel dal YAPISAL olarak kapalı.
+ */
+export const WAKE_DATA_KEYS = ['event', 'vehicle_id', 'ts'] as const;
 
 /**
  * Data-only wake mesajı — PROD-1A'da doğrulanan değişmez korunur.
@@ -115,20 +138,23 @@ export function shouldDeleteToken(outcome: FcmOutcome): boolean {
  */
 export function buildWakeMessage(
   token:     string,
-  event:     string,
+  event:     WakeEvent,
   vehicleId: string,
-  payload:   Record<string, unknown>,
   nowMs:     number,
 ): { message: Record<string, unknown> } {
+  if (!isWakeEvent(event)) {
+    /* Tip dışından (JSON gövdesi) gelen değer için de fail-closed. */
+    throw new Error('NOT_A_WAKE_EVENT');
+  }
+  const data: Record<typeof WAKE_DATA_KEYS[number], string> = {
+    event,
+    vehicle_id: vehicleId,
+    ts:         String(nowMs),
+  };
   return {
     message: {
       token,
-      data: {
-        event,
-        vehicle_id: vehicleId,
-        payload:    JSON.stringify(payload ?? {}),
-        ts:         String(nowMs),
-      },
+      data,
       android: {
         priority:       'high',      // Doze'u atla
         direct_boot_ok: true,

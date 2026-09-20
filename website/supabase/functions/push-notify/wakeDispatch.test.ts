@@ -49,14 +49,14 @@ function harness(
 
 Deno.test('1. hepsi kabul → accepted = token sayısı, silme YOK', async () => {
   const h = harness(() => ok());
-  const s = await dispatchWake(['a', 'b', 'c'], 'new_command', 'veh-1', {}, h.deps);
+  const s = await dispatchWake(['a', 'b', 'c'], 'new_command', 'veh-1', h.deps);
   assertEquals(s, { accepted: 3, failed: 0, cleaned: 0, cleanupFailed: 0 });
   assertEquals(h.deleted, []);
 });
 
 Deno.test('2. 🔒 FCM hatası accepted ARTIRMAZ', async () => {
   const h = harness(() => transient(503));
-  const s = await dispatchWake(['a', 'b'], 'new_command', 'veh-1', {}, h.deps);
+  const s = await dispatchWake(['a', 'b'], 'new_command', 'veh-1', h.deps);
   assertEquals(s.accepted, 0);
   assertEquals(s.failed, 2);
 });
@@ -65,7 +65,7 @@ Deno.test('2. 🔒 FCM hatası accepted ARTIRMAZ', async () => {
 
 Deno.test('3. 🔒 UNREGISTERED → YALNIZ o token silinir', async () => {
   const h = harness((t) => (t === 'olu' ? gone() : ok()));
-  const s = await dispatchWake(['canli-1', 'olu', 'canli-2'], 'new_command', 'veh-1', {}, h.deps);
+  const s = await dispatchWake(['canli-1', 'olu', 'canli-2'], 'new_command', 'veh-1', h.deps);
 
   assertEquals(h.deleted, ['olu'], 'yalnız ölü token silinmeli');
   assertEquals(s.cleaned, 1);
@@ -76,7 +76,7 @@ Deno.test('3. 🔒 UNREGISTERED → YALNIZ o token silinir', async () => {
 Deno.test('4. 🔒 GEÇİCİ hatalarda HİÇBİR token silinmez', async () => {
   for (const status of [401, 403, 429, 500, 503]) {
     const h = harness(() => transient(status));
-    const s = await dispatchWake(['a', 'b'], 'new_command', 'veh-1', {}, h.deps);
+    const s = await dispatchWake(['a', 'b'], 'new_command', 'veh-1', h.deps);
     assertEquals(h.deleted, [], `status ${status} token sildirdi`);
     assertEquals(s.cleaned, 0);
   }
@@ -84,7 +84,7 @@ Deno.test('4. 🔒 GEÇİCİ hatalarda HİÇBİR token silinmez', async () => {
 
 Deno.test('5. 🔒 ağ hatası token SİLDİRMEZ ve kardeşi durdurmaz', async () => {
   const h = harness((t) => { if (t === 'kopuk') throw new Error('ECONNRESET ya29.GIZLI'); return ok(); });
-  const s = await dispatchWake(['kopuk', 'saglam'], 'new_command', 'veh-1', {}, h.deps);
+  const s = await dispatchWake(['kopuk', 'saglam'], 'new_command', 'veh-1', h.deps);
   assertEquals(h.deleted, []);
   assertEquals(s.accepted, 1);
   assertEquals(s.failed, 1);
@@ -93,7 +93,7 @@ Deno.test('5. 🔒 ağ hatası token SİLDİRMEZ ve kardeşi durdurmaz', async (
 Deno.test('6. 🔒 400 INVALID_ARGUMENT token SİLDİRMEZ', async () => {
   const h = harness(() => jsonRes(400, { error: { code: 400, status: 'INVALID_ARGUMENT',
     details: [{ '@type': 'type.googleapis.com/google.firebase.fcm.v1.FcmError', errorCode: 'INVALID_ARGUMENT' }] } }));
-  const s = await dispatchWake(['a'], 'new_command', 'veh-1', {}, h.deps);
+  const s = await dispatchWake(['a'], 'new_command', 'veh-1', h.deps);
   assertEquals(h.deleted, []);
   assertEquals(s.failed, 1);
 });
@@ -103,7 +103,7 @@ Deno.test('6. 🔒 400 INVALID_ARGUMENT token SİLDİRMEZ', async () => {
 Deno.test('7. 🔒 temizlik başarısızlığı GİZLENMEZ ve kardeşi durdurmaz', async () => {
   const h = harness((t) => (t === 'olu' ? gone() : ok()),
     () => Promise.resolve({ ok: false }));
-  const s = await dispatchWake(['olu', 'canli'], 'new_command', 'veh-1', {}, h.deps);
+  const s = await dispatchWake(['olu', 'canli'], 'new_command', 'veh-1', h.deps);
 
   assertEquals(s.cleanupFailed, 1);
   assertEquals(s.cleaned, 0, 'silinemeyen token "temizlendi" SAYILMAZ');
@@ -114,7 +114,7 @@ Deno.test('7. 🔒 temizlik başarısızlığı GİZLENMEZ ve kardeşi durdurmaz
 Deno.test('8. temizlik ISTISNA atarsa da tur çökmez', async () => {
   const h = harness((t) => (t === 'olu' ? gone() : ok()),
     () => Promise.reject(new Error('db down')));
-  const s = await dispatchWake(['olu', 'canli'], 'new_command', 'veh-1', {}, h.deps);
+  const s = await dispatchWake(['olu', 'canli'], 'new_command', 'veh-1', h.deps);
   assertEquals(s.cleanupFailed, 1);
   assertEquals(s.accepted, 1);
 });
@@ -123,7 +123,7 @@ Deno.test('8. temizlik ISTISNA atarsa da tur çökmez', async () => {
 
 Deno.test('9. 🔒 her token kendi isteğini alır (tek mesaj çok cihaz DEĞİL)', async () => {
   const h = harness(() => ok());
-  await dispatchWake(['a', 'b', 'c'], 'new_command', 'veh-1', {}, h.deps);
+  await dispatchWake(['a', 'b', 'c'], 'new_command', 'veh-1', h.deps);
   assertEquals(h.sentTo.sort(), ['a', 'b', 'c']);
 });
 
@@ -139,14 +139,14 @@ Deno.test('10. 🔒 Authorization access token ile kurulur (legacy server key DE
     }) as unknown as typeof fetch,
     deleteToken: () => Promise.resolve({ ok: true }),
   };
-  await dispatchWake(['a'], 'new_command', 'veh-1', {}, deps);
+  await dispatchWake(['a'], 'new_command', 'veh-1', deps);
   assertEquals(authHeader, 'Bearer ya29.ACCESS');
 });
 
 Deno.test('11. 🔒 uyarı metni cihaz token\'ı veya access token TAŞIMAZ', async () => {
   const h = harness((t) => (t === 'CIHAZ-TOKEN-GIZLI' ? gone() : ok()),
     () => Promise.resolve({ ok: false }));
-  await dispatchWake(['CIHAZ-TOKEN-GIZLI'], 'new_command', 'veh-1', {}, h.deps);
+  await dispatchWake(['CIHAZ-TOKEN-GIZLI'], 'new_command', 'veh-1', h.deps);
   const all = h.warnings.join(' ');
   assertEquals(all.includes('CIHAZ-TOKEN-GIZLI'), false);
   assertEquals(all.includes('ya29.GIZLI-ACCESS-TOKEN'), false);
@@ -155,7 +155,7 @@ Deno.test('11. 🔒 uyarı metni cihaz token\'ı veya access token TAŞIMAZ', as
 
 Deno.test('12. token listesi BOŞ → güvenli no-op', async () => {
   const h = harness(() => ok());
-  const s = await dispatchWake([], 'new_command', 'veh-1', {}, h.deps);
+  const s = await dispatchWake([], 'new_command', 'veh-1', h.deps);
   assertEquals(s, { accepted: 0, failed: 0, cleaned: 0, cleanupFailed: 0 });
   assertEquals(h.sentTo, []);
 });

@@ -39,7 +39,7 @@
 import { serve }        from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import webpush          from 'npm:web-push@3.6.7';
-import { authorizePushRequest } from './auth.ts';
+import { authorizePushRequest, isConsumerEvent } from './auth.ts';
 
 /* ── Types ───────────────────────────────────────────────────── */
 
@@ -57,6 +57,8 @@ interface RequestBody {
   vehicleId: string;
   payload:   Record<string, unknown>;
 }
+
+
 
 interface PushPayload {
   title:    string;
@@ -214,6 +216,14 @@ serve(async (req: Request): Promise<Response> => {
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
       );
     }
+    if (!isConsumerEvent(event)) {
+      /* Araç wake olayı ya da bilinmeyen olay → bu otoritenin işi DEĞİL. */
+      console.warn(`[consumer-push-notify] CONSUMER_PUSH_FAILED NOT_A_CONSUMER_EVENT event=${String(event)}`);
+      return new Response(
+        JSON.stringify({ error: 'NOT_A_CONSUMER_EVENT', event: String(event) }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      );
+    }
 
     // ── 2. VAPID config ───────────────────────────────────────
     const vapidPublic  = Deno.env.get('VAPID_PUBLIC_KEY');
@@ -342,7 +352,10 @@ serve(async (req: Request): Promise<Response> => {
       console.log(`[consumer-push-notify] ${expired.length} süresi dolmuş subscription temizlendi`);
     }
 
-    console.log(`[consumer-push-notify] ${event} → ${sent}/${subs.length} gönderildi`);
+    /* Gözlemlenebilirlik (F-08): CONSUMER_PUSH_* etiketi — araç wake'inden
+       ayrı sayılır. "gönderildi" = push sağlayıcısı KABUL ETTİ; teslim/okundu
+       DEĞİL. Endpoint/anahtar loglanmaz. */
+    console.log(`[consumer-push-notify] ${sent > 0 ? 'CONSUMER_PUSH_ACCEPTED' : 'CONSUMER_PUSH_FAILED'} ${event} → ${sent}/${subs.length} kabul edildi`);
 
     return new Response(
       JSON.stringify({ sent, total: subs.length, expired: expired.length }),

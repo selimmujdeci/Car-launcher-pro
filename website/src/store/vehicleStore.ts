@@ -281,10 +281,14 @@ export const useVehicleStore = create<VehicleStoreState>((set, get) => ({
   },
 
   startWatchdog: () => {
-    const PUSH_URL = process.env.NEXT_PUBLIC_SUPABASE_URL
-      ? `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/push-notify`
-      : null;
-
+    /* MRI F-08: buradaki `push-notify` çağrısı KALDIRILDI. O slug ARAÇ
+       UYANDIRMA otoritesidir (FCM); "araç çevrimdışı" bir İNSAN bildirimidir
+       (`consumer-push-notify`, Web Push). Üstelik çağrı Authorization
+       taşımıyordu (her zaman 401) ve tüketici fonksiyonu tarayıcıdan
+       ÇAĞRILAMAZ (service_role). Tarayıcı "kendime bildirim gönder"
+       diyemez; üretici sunucudur (`consumer-notify-scan`). vehicle_offline
+       için sunucu üreticisi HENÜZ BAĞLI DEĞİL — CODE READY / NOT WIRED;
+       burada sahte-çalışan bir çağrı bırakmak yerine dürüstçe yok. */
     const interval = setInterval(() => {
       const now = Date.now();
       set((state) => {
@@ -307,19 +311,6 @@ export const useVehicleStore = create<VehicleStoreState>((set, get) => ({
                 : v.telemetry,
             };
             changed = true;
-
-            // Araç offline geçince push bildirim tetikle (fire-and-forget)
-            if (PUSH_URL) {
-              fetch(PUSH_URL, {
-                method:  'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body:    JSON.stringify({
-                  event:     'vehicle_offline',
-                  vehicleId: id,
-                  payload:   { plate: v.plate, vehicle_name: v.name },
-                }),
-              }).catch(() => { /* best-effort */ });
-            }
           }
         }
 

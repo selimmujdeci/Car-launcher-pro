@@ -108,29 +108,49 @@ export interface StatusEvent {
   updatedAt: Date;
 }
 
-// ── Push-to-Wake: aracı uyandır ──────────────────────────────────────────────
+// ── Push-to-Wake: aracı uyandır (VEHICLE WAKE otoritesi) ─────────────────────
+//
+// MRI F-08: `push-notify` slug'ı = ARAÇ UYANDIRMA (FCM data-only,
+// `vehicle_push_tokens`). İnsana bildirim (`consumer-push-notify`, Web Push,
+// `push_subscriptions`) BAŞKA bir otoritedir ve tarayıcıdan ÇAĞRILMAZ
+// (service_role gerektirir; üreticisi sunucudur). Bu dosyadaki tek push
+// çağrısı budur ve yalnız wake olayı gönderir.
+//
+// Sözleşme: `{ event: 'new_command', vehicleId }` — komut kimliği, tipi,
+// zarfı, PIN, api_key TAŞINMAZ. Araç uyanınca komutu DB'den kendisi çeker
+// (`fetch_pending_vehicle_commands`); push yalnız hızlandırıcıdır.
+//
+// Başarısızlık semantiği: push düşerse komut `pending` KALIR (DB gerçeği),
+// yoklama/realtime devralır. Push hatası ≠ komut hatası; `sendCommand`
+// sonucu bundan etkilenmez.
 
-const PUSH_FN_URL = process.env.NEXT_PUBLIC_SUPABASE_URL
-  ? `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/push-notify`
-  : null;
+/** Wake ucu — çağrı anında çözülür (ortam testte de kilitlenebilsin). */
+export function vehicleWakeFnUrl(): string | null {
+  const base = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  return base ? `${base}/functions/v1/push-notify` : null;
+}
 
-async function triggerPushWake(vehicleId: string, commandId: string): Promise<void> {
-  if (!PUSH_FN_URL || !supabaseBrowser) return;
+export type VehicleWakeEvent = 'new_command';
+
+/** Wake gövdesi — TAM liste; `payload` alanı bilinçli olarak YOK. */
+export function buildVehicleWakeBody(vehicleId: string): { event: VehicleWakeEvent; vehicleId: string } {
+  return { event: 'new_command', vehicleId };
+}
+
+async function triggerPushWake(vehicleId: string): Promise<void> {
+  const url = vehicleWakeFnUrl();
+  if (!url || !supabaseBrowser) return;
   try {
     const session = (await supabaseBrowser.auth.getSession()).data.session;
-    await fetch(PUSH_FN_URL, {
+    await fetch(url, {
       method:  'POST',
       headers: {
         'Content-Type':  'application/json',
         'Authorization': `Bearer ${session?.access_token ?? ''}`,
       },
-      body: JSON.stringify({
-        event:     'new_command',
-        vehicleId,
-        payload:   { command_id: commandId },
-      }),
+      body: JSON.stringify(buildVehicleWakeBody(vehicleId)),
     });
-  } catch { /* fire-and-forget */ }
+  } catch { /* best-effort wake — komut gerçeği DB'de, yoklama sürer */ }
 }
 
 // ── Araç çevrimiçi mi? (son telemetri OFFLINE_TIMEOUT_MS içinde) ─────────────
@@ -262,8 +282,8 @@ export async function sendCommand(
 
   if (error) return { ok: false, error: error.message };
 
-  // Push-to-Wake: aracı sessizce uyandır (fire-and-forget)
-  void triggerPushWake(vehicleId, data.id);
+  // Push-to-Wake: aracı sessizce uyandır (best-effort; komut kimliği gitmez)
+  void triggerPushWake(vehicleId);
 
   return { ok: true, commandId: data.id, queued: !online };
 }

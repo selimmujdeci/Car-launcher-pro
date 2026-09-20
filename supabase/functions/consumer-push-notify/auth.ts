@@ -19,3 +19,20 @@ export function authorizePushRequest(
   const token = authHeader.slice(7).trim();
   return token.length > 0 && token === serviceRoleKey;
 }
+
+/* ── MRI F-08 · BİR SLUG = BİR SEMANTİK ─────────────────────────────────────
+ * Bu fonksiyon YALNIZ insana görünür bildirim olaylarını kabul eder. Araç
+ * uyandırma olayları (`new_command`, `command_pending`) buraya gelirse çağıran
+ * yanlış otoriteye konuşuyordur: 400 ile geri çevrilir; hiçbir tarayıcı
+ * aboneliğine "uyan" mesajı GİTMEZ. Karar burada, saf ve Node'da test edilir.
+ */
+export const CONSUMER_EVENTS = [
+  'health_alert', 'command_completed', 'command_failed', 'alarm_triggered',
+  'geofence_breach', 'vehicle_offline', 'speed_alert',
+] as const;
+export type ConsumerEvent = typeof CONSUMER_EVENTS[number];
+/** Araç wake olayları — bu fonksiyonun REDDETTİĞİ küme (bilgi amaçlı, tek yerde). */
+export const VEHICLE_WAKE_EVENTS = ['new_command', 'command_pending'] as const;
+export function isConsumerEvent(event: unknown): event is ConsumerEvent {
+  return typeof event === 'string' && (CONSUMER_EVENTS as readonly string[]).includes(event);
+}
