@@ -177,7 +177,7 @@ describe('§3 · TEK YAYIN OTORİTESİ (yapısal kilit)', () => {
   it('19. 🔒 SystemBoot koordinatörü KAPATMA zincirine kaydeder (zero-leak)', () => {
     const boot = read('src/platform/system/SystemBoot.ts');
     expect(boot).toMatch(/stopVehicleIdentityCoordinator/);
-    expect(boot).toMatch(/this\._reg\(\(\) => stopVehicleIdentityCoordinator\(\)\)/);
+    expect(boot).toMatch(/this\._reg\(gen, \(\) => stopVehicleIdentityCoordinator\(\)\)/);
   });
 
   it('20. 🔒 async yayın yolu üst düzey muhafazalı (yakalanmayan red YOK)', () => {

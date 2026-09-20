@@ -310,7 +310,7 @@ describe('fleetReadback › kablo ve yan etki', () => {
       /jobId: 'FleetReadback'[\s\S]{0,160}run: \(\) => startFleetReadback\(\)/);
     /* Cleanup sahipliği SystemBoot'ta KALIR — ikinci yaşam döngüsü otoritesi yok. */
     expect(boot).toMatch(
-      /bootDeferral\.begin\([\s\S]{0,160}this\._regNamed\(jobId, cleanup\)/);
+      /bootDeferral\.begin\([\s\S]{0,160}this\._regNamed\(bootGen, jobId, cleanup\)/);
   });
 
   it('köprü TIMER kurmaz (trip kenarı dışında ağa çıkmaz)', () => {

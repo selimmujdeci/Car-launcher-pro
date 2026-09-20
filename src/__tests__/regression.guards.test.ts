@@ -4960,8 +4960,8 @@ describe('Tam ekranı kapatmak navigasyonu SONLANDIRMAZ', () => {
 
   it('🔒 Navigation ilerleme motoru yalnız SystemBoot named lifecycle kaydındadır', () => {
     const boot = read('src/platform/system/SystemBoot.ts');
-    expect(boot).toContain("this._regNamed('NavigationSessionRuntime', startNavigationSessionRuntime());");
-    expect(boot).not.toContain('this._reg(startNavigationSessionRuntime());');
+    expect(boot).toContain("this._regNamed(gen, 'NavigationSessionRuntime', startNavigationSessionRuntime());");
+    expect(boot).not.toContain('this._reg(gen, startNavigationSessionRuntime());');
     // Görünümler motoru başlatmaz/durdurmaz.
     for (const src of [fullMapViewSrc, miniMapSrc]) {
       expect(src).not.toContain('startNavigationSessionRuntime');
@@ -7521,7 +7521,7 @@ describe('E-34 · panik yakalayıcı SystemBoot KAYNAĞINDA bağlı kalır (yap�
 
   it('🔒 KAYNAK: Wave 1 gövdesinde çağrı + cleanup kaydı DURUYOR', () => {
     expect(systemBootSrc, 'initPanicHandler çağrısı düşmüş — E-34 geri geldi')
-      .toMatch(/this\._reg\(initPanicHandler\(\)\)/);
+      .toMatch(/this\._reg\(gen, initPanicHandler\(\)\)/);
   });
 
   it('🔒 KAYNAK: çağrı Wave 1\'in EN BAŞINDA kalır (boot hataları da yakalansın)', () => {
@@ -7535,7 +7535,7 @@ describe('E-34 · panik yakalayıcı SystemBoot KAYNAĞINDA bağlı kalır (yap�
 
   it('🔒 KAYNAK: fail-soft sarmalayıcı duruyor (panic kurulumu boot\'u düşürmesin)', () => {
     expect(systemBootSrc, 'try/catch kaldırılmış — panic handler hatası tüm boot\'u düşürür')
-      .toMatch(/this\._reg\(initPanicHandler\(\)\);[\s\S]{0,120}?catch \(e\) \{[\s\S]{0,120}?SystemBoot:panicHandler/);
+      .toMatch(/this\._reg\(gen, initPanicHandler\(\)\);[\s\S]{0,120}?catch \(e\) \{[\s\S]{0,120}?SystemBoot:panicHandler/);
   });
 });
 
@@ -8366,8 +8366,8 @@ describe('REGRESYON: arka plan güç politikası', () => {
     /* LIFO kapanış: kapı ONDAN ÖNCE sökülür → kapanırken kısma bırakılmaz. */
     expect(systemBootSrc, 'BackgroundPowerGate boot zincirinden çıkarılmış — politika hiç çalışmaz')
       .toMatch(/startBackgroundPowerGate\(\)/);
-    const wakeIdx = systemBootSrc.indexOf('this._reg(startWakeWordService())');
-    const gateIdx = systemBootSrc.indexOf('this._reg(startBackgroundPowerGate())');
+    const wakeIdx = systemBootSrc.indexOf('this._reg(gen, startWakeWordService())');
+    const gateIdx = systemBootSrc.indexOf('this._reg(gen, startBackgroundPowerGate())');
     expect(wakeIdx, 'WakeWordService kaydı bulunamadı').toBeGreaterThan(-1);
     expect(gateIdx, 'BackgroundPowerGate kaydı bulunamadı').toBeGreaterThan(-1);
     expect(gateIdx, 'kapı wake servisinden ÖNCE kaydedilmiş — LIFO kapanışta wake ölüyken kısma bırakılır')
@@ -13180,7 +13180,7 @@ describe('🔒 KİLİT · P0-VDK-B7 — sessiz adres eleme merdiveni', () => {
     const boot = read('src/platform/system/SystemBoot.ts');
     for (const name of ['music-intelligence', 'music-loudness', 'music-transition']) {
       expect(boot, `${name} cleanup kaydı yok (zero-leak ihlali)`)
-        .toContain(`_regNamed('${name}'`);
+        .toContain(`_regNamed(gen, '${name}'`);
     }
   });
 
@@ -13410,7 +13410,7 @@ describe('🔒 BOOT-RESILIENCE-1 · beklenmeyen restart tespiti thermalWatchdog 
   it('SystemBoot Wave 1 kararı çağırır ve tek-seferlik downgrade dışında bir şey YAPMAZ', () => {
     const boot = read('src/platform/system/SystemBoot.ts');
     expect(boot, 'evaluateBootResilience Wave 1\'de çağrılmıyor').toContain('evaluateBootResilience(Date.now())');
-    expect(boot, 'heartbeat başlatıcı LIFO cleanup\'a kaydedilmemiş').toContain("this._regNamed('BootResilienceGuard', startBootHeartbeat())");
+    expect(boot, 'heartbeat başlatıcı LIFO cleanup\'a kaydedilmemiş').toContain("this._regNamed(gen, 'BootResilienceGuard', startBootHeartbeat())");
     /* Paylaşılan tavan (setPowerCeiling) İCAT EDİLMEDİ — mevcut çok-çağıranlı
        setMode kullanılıyor, thermal ile aynı slotu ele geçirmiyor. */
     expect(boot, 'boot-resilience yeni bir paylaşılan tavan kurmuş — thermal ile çakışabilir')

@@ -388,10 +388,10 @@ describe('W4C — kapsam sınırı', () => {
   });
 
   it('SystemBoot: bridge HAL wiring\'den SONRA, SystemOrchestrator\'dan ÖNCE (_reg ile)', () => {
-    const iBus = SYSTEMBOOT_SRC.indexOf('this._reg(startPlatformCoreEventBusWiring())');
-    const iHal = SYSTEMBOOT_SRC.indexOf('this._reg(startPlatformCoreVehicleHalWiring(');
-    const iBridge = SYSTEMBOOT_SRC.indexOf('this._reg(startPlatformCoreVehicleHalBridgeWiring())');
-    const iOrch = SYSTEMBOOT_SRC.indexOf('this._reg(startSystemOrchestrator())');
+    const iBus = SYSTEMBOOT_SRC.indexOf('this._reg(gen, startPlatformCoreEventBusWiring())');
+    const iHal = SYSTEMBOOT_SRC.indexOf('this._reg(gen, startPlatformCoreVehicleHalWiring(');
+    const iBridge = SYSTEMBOOT_SRC.indexOf('this._reg(gen, startPlatformCoreVehicleHalBridgeWiring())');
+    const iOrch = SYSTEMBOOT_SRC.indexOf('this._reg(gen, startSystemOrchestrator())');
     expect(iBus).toBeGreaterThan(0);
     expect(iHal).toBeGreaterThan(iBus);       // Event Bus (Wave 1) EN ÖNCE
     expect(iBridge).toBeGreaterThan(iHal);    // bridge, HAL wiring'den SONRA

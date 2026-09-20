@@ -371,7 +371,7 @@ describe('W5-1 — SystemBoot sırası korunur', () => {
   });
 
   it('36) `_reg` cleanup modeliyle kaydedilir (LIFO)', () => {
-    expect(SYSTEMBOOT_SRC).toMatch(/this\._reg\(startPlatformCoreDeepScanWiring\(/);
+    expect(SYSTEMBOOT_SRC).toMatch(/this\._reg\(gen, startPlatformCoreDeepScanWiring\(/);
   });
 
   it('37) mevcut Wave sırası (1→2→3→4) DEĞİŞMEDİ', () => {
@@ -386,9 +386,9 @@ describe('W5-1 — SystemBoot sırası korunur', () => {
   });
 
   it('38) HAL/Capability/Event Bus wiring kayıtları HÂLÂ mevcut (değişmedi)', () => {
-    expect(SYSTEMBOOT_SRC).toMatch(/this\._reg\(startPlatformCoreVehicleHalWiring\(/);
-    expect(SYSTEMBOOT_SRC).toMatch(/this\._reg\(startPlatformCoreCapabilityWiring\(/);
-    expect(SYSTEMBOOT_SRC).toMatch(/this\._reg\(startPlatformCoreCapabilityBridgeWiring\(/);
+    expect(SYSTEMBOOT_SRC).toMatch(/this\._reg\(gen, startPlatformCoreVehicleHalWiring\(/);
+    expect(SYSTEMBOOT_SRC).toMatch(/this\._reg\(gen, startPlatformCoreCapabilityWiring\(/);
+    expect(SYSTEMBOOT_SRC).toMatch(/this\._reg\(gen, startPlatformCoreCapabilityBridgeWiring\(/);
     expect(SYSTEMBOOT_SRC).toMatch(/startPlatformCoreEventBusWiring/);
   });
 });

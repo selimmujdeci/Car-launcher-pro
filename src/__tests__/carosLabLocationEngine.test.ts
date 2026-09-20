@@ -164,7 +164,7 @@ describe('"Mevcut davranışı bozma" — yapısal kilit', () => {
   it('15. 🔒 SystemBoot motoru cleanup zincirine kaydeder (zero-leak)', () => {
     const boot = read('src/platform/system/SystemBoot.ts');
     expect(boot).toMatch(/startLocationEngine/);
-    expect(boot).toMatch(/this\._reg\(startLocationEngine\(\)\)/);
+    expect(boot).toMatch(/this\._reg\(gen, startLocationEngine\(\)\)/);
   });
 
   it('16. 🔒 harici sağlayıcı KAYITSIZ ise "hazır" GÖRÜNMEZ', () => {

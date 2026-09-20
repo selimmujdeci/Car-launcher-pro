@@ -68,8 +68,8 @@ describe('ARCH-02/F1 canonical state envelope', () => {
     expect(vdl).toContain('updateVehicleState(patch)');
     expect(navigation).toContain('const useNavigationStore = create<NavigationStore>');
     expect(mediaRuntime).toContain('_unsubscribe = native.subscribe');
-    expect(boot).toContain("this._regNamed('NavigationSessionRuntime', startNavigationSessionRuntime());");
-    expect(boot).toContain("this._regNamed('media-authority', stopMediaAuthority)");
+    expect(boot).toContain("this._regNamed(gen, 'NavigationSessionRuntime', startNavigationSessionRuntime());");
+    expect(boot).toContain("this._regNamed(gen, 'media-authority', stopMediaAuthority)");
     expect(companion).toContain('expectedGeneration !== this._session.generation');
     expect(mavi).toContain("'stale_generation'");
   });

@@ -164,7 +164,7 @@ describe('"Yeni trip sistemi yazma" — yapısal kilit', () => {
     expect(boot).toMatch(
       /jobId: 'TripUpload'[\s\S]{0,160}run: \(\) => startTripUpload\(\)/);
     expect(boot).toMatch(
-      /bootDeferral\.begin\([\s\S]{0,160}this\._regNamed\(jobId, cleanup\)/);
+      /bootDeferral\.begin\([\s\S]{0,160}this\._regNamed\(bootGen, jobId, cleanup\)/);
   });
 });
 

@@ -312,9 +312,9 @@ describe('PR-W3 — SystemBoot entegrasyonu', () => {
        kayıt noktası `_cleanups.push(...)` değil `schedule({ jobId: ... })`.
        Korunan invaryant AYNI: bus kablolaması Wave 1'de, diğer Wave 1
        servislerinin kayıt noktasından ÖNCE gelir (LIFO → en son dispose). */
-    const iBus = SYSTEMBOOT_SRC.indexOf('this._reg(startPlatformCoreEventBusWiring())');
+    const iBus = SYSTEMBOOT_SRC.indexOf('this._reg(gen, startPlatformCoreEventBusWiring())');
     const iUi = SYSTEMBOOT_SRC.indexOf("jobId: 'UiActivityRecorder'");
-    const iVdl = SYSTEMBOOT_SRC.indexOf("this._regNamed('VehicleDataLayer', startVehicleDataLayer(");
+    const iVdl = SYSTEMBOOT_SRC.indexOf("this._regNamed(gen, 'VehicleDataLayer', startVehicleDataLayer(");
     expect(iBus).toBeGreaterThan(0);
     expect(iUi, 'UiActivityRecorder kayıt noktası kayboldu — kilit körleşti')
       .toBeGreaterThan(0);
@@ -323,7 +323,7 @@ describe('PR-W3 — SystemBoot entegrasyonu', () => {
   });
 
   it('bus `_reg` ile kaydedilir — `_regNamed` DEĞİL (restartService adayı olmamalı)', () => {
-    expect(SYSTEMBOOT_SRC).toMatch(/this\._reg\(startPlatformCoreEventBusWiring\(\)\)/);
+    expect(SYSTEMBOOT_SRC).toMatch(/this\._reg\(gen, startPlatformCoreEventBusWiring\(\)\)/);
     expect(SYSTEMBOOT_SRC).not.toMatch(/_regNamed\([^)]*EventBus/i);
   });
 

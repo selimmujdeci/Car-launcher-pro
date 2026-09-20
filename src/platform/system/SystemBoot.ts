@@ -216,30 +216,76 @@ class SystemBoot {
     return this._bootAbort?.signal.aborted ?? false;
   }
 
+  /* ── NESİL SAHİPLİĞİ (MRI F-09) ────────────────────────────────────────────
+   *
+   * ÖLÇÜLEN KUSUR: dalgalar `await` sınırı içerir ve await'ten SONRA cleanup
+   * kaydeder. Bu sınırda `stop()` + yeni `start()` olursa, ESKİ neslin geç
+   * devamı YENİ neslin dünyasına düşerdi. Bayatlık tek yüklemle ölçülüyordu:
+   *
+   *     get _aborted() { return this._bootAbort?.signal.aborted ?? false; }
+   *
+   * `stop()` sonunda `_bootAbort = null`, `start()` başında TAZE controller
+   * atandığı için bu yüklem iki pencerede de `false` okunuyordu:
+   *   · stop SONRASI (henüz yeni start yok)  → null  → false
+   *   · yeni start SONRASI                   → taze  → false
+   * Yani abort sinyali "şu anki koşu iptal mi" der; "BEN hangi nesle aidim"
+   * DEMEZ. Sonuç: eski neslin cleanup handle'ı yeni neslin listesine girer,
+   * eski neslin servisi yeni nesil boyunca CANLI kalır (çift dinleyici/timer)
+   * ve sahiplik karışır.
+   *
+   * ÇÖZÜM: kayıt kapıları nesil kimliği İSTER. Nesil otoritesi YENİ DEĞİLDİR —
+   * üretimde zaten boot nesli olarak kullanılan `_diagStarts` sayacıdır
+   * (bkz. `bootDeferral.begin(this._diagStarts, …)`). İkinci bir epoch/registry
+   * KURULMADI.
+   *
+   * AYRIM (handoff §12): bayat nesil KENDİ kaynağını durdurabilir, ama yeni
+   * neslin sahipliğine hiçbir şey EKLEYEMEZ.
+   * ───────────────────────────────────────────────────────────────────────── */
+
+  /** Bu cleanup'ı teslim eden nesil hâlâ geçerli mi? */
+  private _isStaleGeneration(gen: number): boolean {
+    return gen !== this._diagStarts || !this._started || this._aborted;
+  }
+
   /**
-   * Cleanup kaydı — ama boot iptal edildiyse servisi kaydetmeden anında durdur.
-   * Async adımdan SONRA dönen cleanup için: stop() çoktan geçtiyse zombi kalmaz.
+   * Bayat teslim. Kayıt HER İKİ durumda da yapılmaz; fark, kaynağın burada
+   * durdurulup durdurulmayacağıdır ve bu fark KASITLIDIR:
+   *
+   * · ARDIL NESİL YOK (`!_started`, ör. stop sonrası sessizlik): bu kaynağı
+   *   kimse sahiplenmeyecek → burada durdurulur, yoksa zombi kalır. (Eski
+   *   `_regOrAbort`'un "zombi servis önleme" amacı BURADA korunuyor.)
+   *
+   * · ARDIL NESİL ÇALIŞIYOR (`_started`, gen ≠ güncel): DURDURULMAZ. Kayıtların
+   *   çoğu modül düzeyinde global `stopX` fonksiyonudur (`stopMediaAuthority`
+   *   gibi) — yani o an YENİ neslin başlattığı aynı tekil servisi durdururlar.
+   *   Bayat bir teslimi çalıştırmak, eski neslin yeni neslin kaynağını
+   *   öldürmesi olurdu: engellemeye çalıştığımız ihlalin ta kendisi.
+   *   Yeni nesil dalgaları zaten aynı servisleri kendi kimliğiyle başlatır ve
+   *   kendi cleanup'ını kaydeder; sahiplik oradadır.
    */
-  private _regOrAbort(fn: Cleanup | void | undefined): void {
-    if (this._aborted) {
-      if (typeof fn === 'function') {
-        try { fn(); } catch (e) { logError('SystemBoot:abortCleanup', e); }
-      }
+  private _disposeStale(gen: number, fn: Cleanup | void | undefined): void {
+    if (typeof fn !== 'function') return;
+    const successorRunning = this._started && gen !== this._diagStarts;
+    if (successorRunning) {
+      _log(`Bayat teslim DÜŞÜRÜLDÜ (gen ${gen} ≠ ${this._diagStarts}) — kaynağın sahibi güncel nesil`);
       return;
     }
-    this._reg(fn);
+    try { fn(); } catch (e) { logError('SystemBoot:staleCleanup', e); }
+    _log(`Bayat teslim (gen ${gen}) — ardıl nesil yok, kaynak burada durduruldu`);
   }
 
   // ── Cleanup kaydı ─────────────────────────────────────────────────────────
 
-  /** Cleanup thunk'ı LIFO stack'ine ekle. */
-  private _reg(fn: Cleanup | void | undefined): void {
+  /** Cleanup thunk'ı — YALNIZ kendi nesli güncelse LIFO stack'ine girer. */
+  private _reg(gen: number, fn: Cleanup | void | undefined): void {
+    if (this._isStaleGeneration(gen)) { this._disposeStale(gen, fn); return; }
     if (typeof fn === 'function') this._cleanups.push(fn);
   }
 
-  /** İsimli servis cleanup'ı — LIFO stack + named map'e ekle. */
-  private _regNamed(name: string, fn: Cleanup | void | undefined): void {
+  /** İsimli servis cleanup'ı — YALNIZ kendi nesli güncelse kaydedilir. */
+  private _regNamed(gen: number, name: string, fn: Cleanup | void | undefined): void {
     if (typeof fn !== 'function') return;
+    if (this._isStaleGeneration(gen)) { this._disposeStale(gen, fn); return; }
     this._cleanups.push(fn);
     this._namedCleanups.set(name, fn);
   }
@@ -457,8 +503,12 @@ class SystemBoot {
        otoritesi kurulmadı, mevcut boot sayacı kullanıldı. Ertelenen işin
        döndürdüğü cleanup, AYNI LIFO yığınına adıyla teslim edilir; sahiplik
        SystemBoot'ta kalır. */
-    bootDeferral.begin(this._diagStarts, (jobId, cleanup) => {
-      this._regNamed(jobId, cleanup);
+    /* F-09: erteleme turunun nesli, bu boot'un nesliyle AYNIDIR ve callback o
+       kimlikle teslim eder. Tetikleyici geç düşer de bu arada stop()+start()
+       olduysa teslim bayattır → yeni neslin sahipliğine girmez. */
+    const bootGen = this._diagStarts;
+    bootDeferral.begin(bootGen, (jobId, cleanup) => {
+      this._regNamed(bootGen, jobId, cleanup);
     });
 
     try {
@@ -551,6 +601,10 @@ class SystemBoot {
   // ── Wave 1: Core ──────────────────────────────────────────────────────────
 
   private async _wave1(): Promise<void> {
+    /* F-09: bu dalganın nesli. Aşağıdaki her kayıt bu kimlikle teslim
+       edilir; `await` sınırında stop()+start() olduysa teslim bayattır ve
+       yeni neslin sahipliğine GİRMEZ (kaynağı burada durdurulur). */
+    const gen = this._diagStarts;
     _log('Starting Wave 1 (Core)...');
 
     // Panik yakalayıcı — HER ŞEYDEN ÖNCE. Boot'un geri kalanında (ve tüm oturum
@@ -562,7 +616,7 @@ class SystemBoot {
     // shutdown'da EN SON dispose olur → kapanış hataları da yakalanır.
     _log('  › initPanicHandler()');
     try {
-      this._reg(initPanicHandler());
+      this._reg(gen, initPanicHandler());
     } catch (e) {
       logError('SystemBoot:panicHandler', e);   // fail-soft: boot panic yüzünden DURMAZ
     }
@@ -577,7 +631,7 @@ class SystemBoot {
     _log('  › ConnectivityAuthority');
     try {
       const { startConnectivityAuthority } = await import('../connectivity/connectivityAuthority');
-      this._regNamed('ConnectivityAuthority', startConnectivityAuthority());
+      this._regNamed(gen, 'ConnectivityAuthority', startConnectivityAuthority());
     } catch (e) {
       logError('SystemBoot:connectivityAuthority', e);   // fail-soft → UNKNOWN
     }
@@ -588,7 +642,7 @@ class SystemBoot {
     // kapanırken bus hâlâ ayaktadır. Bu PR'da bus'a publisher/consumer BAĞLANMAZ (W4 ayrı PR).
     _log('  › Platform Event Bus (ownership)');
     try {
-      this._reg(startPlatformCoreEventBusWiring());
+      this._reg(gen, startPlatformCoreEventBusWiring());
     } catch (e) {
       logError('SystemBoot:eventBusWiring', e);   // wiring zaten fail-soft; bu yalnız sözleşme ihlali için
     }
@@ -655,7 +709,7 @@ class SystemBoot {
     _log('  › Media playback authority');
     try {
       await measureBootService('startMediaAuthority', 1, true, () => startMediaAuthority());
-      this._regNamed('media-authority', stopMediaAuthority);
+      this._regNamed(gen, 'media-authority', stopMediaAuthority);
       /* ARCH-06/F1: otorite KURULDU. Bu "çalma kullanılabilir" DEMEK DEĞİLDİR —
          native oturum kanıtı ayrı bir taştır (MEDIA_AUTHORITY_AVAILABLE) ve
          onu yalnız sahibi (media authority runtime) damgalayabilir. */
@@ -684,7 +738,7 @@ class SystemBoot {
        değiştikçe SINIRLI yerel tercih kanıtı yazar. Düşerse müzik etkilenmez. */
     try {
       startMusicIntelligence();
-      this._regNamed('music-intelligence', stopMusicIntelligence);
+      this._regNamed(gen, 'music-intelligence', stopMusicIntelligence);
     } catch (e) {
       logError('SystemBoot:musicIntelligence', e);
     }
@@ -694,7 +748,7 @@ class SystemBoot {
        normalizasyon olmaz ama müzik ETKİLENMEZ (fail-soft). */
     try {
       startLoudnessNormalization();
-      this._regNamed('music-loudness', stopLoudnessNormalization);
+      this._regNamed(gen, 'music-loudness', stopLoudnessNormalization);
     } catch (e) {
       logError('SystemBoot:musicLoudness', e);
     }
@@ -704,7 +758,7 @@ class SystemBoot {
        politikası uygulanmaz ama müzik ETKİLENMEZ (fail-soft). */
     try {
       startTransitionPolicy();
-      this._regNamed('music-transition', stopTransitionPolicy);
+      this._regNamed(gen, 'music-transition', stopTransitionPolicy);
     } catch (e) {
       logError('SystemBoot:musicTransition', e);
     }
@@ -753,11 +807,11 @@ class SystemBoot {
     _log('  › startOfflineAutoCache');
     const { startOfflineAutoCache, stopOfflineAutoCache } = await import('../offlineAutoCache');
     startOfflineAutoCache();
-    this._regNamed('OfflineAutoCache', stopOfflineAutoCache);
+    this._regNamed(gen, 'OfflineAutoCache', stopOfflineAutoCache);
 
     // NativeGuardBridge: heartbeat (1s) + odo persist (5s) + mode sync
     _log('  › NativeGuardBridge');
-    this._reg(startNativeGuardBridge());
+    this._reg(gen, startNativeGuardBridge());
 
     // Crash recovery: native odo > Zustand odo → worker'a gönder
     await this._crashRecovery();
@@ -766,12 +820,12 @@ class SystemBoot {
     // Boot resilience heartbeat — düşük frekanslı "hâlâ hayattayım" damgası
     // (yalnız BİR sonraki soğuk açılışın crash tespiti için).
     _log('  › BootResilienceGuard heartbeat');
-    this._regNamed('BootResilienceGuard', startBootHeartbeat());
+    this._regNamed(gen, 'BootResilienceGuard', startBootHeartbeat());
 
     // MemoryWatchdog: native LMK baskı event'lerini yakala
     _log('  › MemoryWatchdog');
     startMemoryWatchdog();
-    this._reg(stopMemoryWatchdog);
+    this._reg(gen, stopMemoryWatchdog);
 
     // SystemHealthMonitor: tüm servislerden önce başlat
     _log('  › SystemHealthMonitor');
@@ -783,6 +837,10 @@ class SystemBoot {
   // ── Wave 2: Data Backbone ─────────────────────────────────────────────────
 
   private async _wave2(): Promise<void> {
+    /* F-09: bu dalganın nesli. Aşağıdaki her kayıt bu kimlikle teslim
+       edilir; `await` sınırında stop()+start() olduysa teslim bayattır ve
+       yeni neslin sahipliğine GİRMEZ (kaynağı burada durdurulur). */
+    const gen = this._diagStarts;
     _log('Starting Wave 2 (Data Backbone)...');
 
     // MAVI-STT-CONTEXT-GRAMMAR: offline Vosk gramerinin bağlam sağlayıcılarını bağla.
@@ -797,7 +855,7 @@ class SystemBoot {
 
     // VehicleDataLayer: OBD / GPS / CAN worker (SAB zero-copy)
     _log('  › VehicleDataLayer');
-    this._regNamed('VehicleDataLayer', startVehicleDataLayer({
+    this._regNamed(gen, 'VehicleDataLayer', startVehicleDataLayer({
       onWorkerCrash: () => this._handleWorkerCrash('VehicleCompute', 'VehicleDataLayer'),
     }));
 
@@ -825,7 +883,7 @@ class SystemBoot {
     // sağlıklı olunca 2200-22FF'i tarar, yanıt veren DID + ham değerleri persist eder.
     // Sağlık bozulursa abort → çekirdek poll'u (RPM) boğmaz. Fail-soft; salt-okuma.
     _log('  › Auto DID discovery watcher');
-    this._reg(startAutoDidWatcher());
+    this._reg(gen, startAutoDidWatcher());
 
     /* P0-VDK-F5H — ERKEN ARAÇ KİMLİĞİ. Tam araç taramasını BEKLEMEDEN, bağlantı
      * kısa süre kesintisiz sağlıklı olunca en çok ÜÇ salt-okunur kimlik DID'i
@@ -834,7 +892,7 @@ class SystemBoot {
      * bölümü DOĞRU araca ERKEN hydrate olur. Ölçüm düşerse normal OBD akışı
      * ETKİLENMEZ (kullanılabilirlik kapısı DEĞİLDİR). Fail-soft; salt-okuma. */
     _log('  › Early vehicle identity watcher');
-    this._reg(startEarlyIdentityWatcher());
+    this._reg(gen, startEarlyIdentityWatcher());
 
     // Platform Core: Vehicle HAL runtime wiring (PR-W2) — store→provider→adapter→HAL AYNA modu.
     // Additive; Wave sırası bozulmaz. VehicleDataLayer'dan SONRA kaydedilir → LIFO shutdown'da
@@ -843,7 +901,7 @@ class SystemBoot {
     // (dışarı exception) için — çift-log YOK. HAL beslenir ama okuyan yok (tüketici migrasyonu W7).
     _log('  › Vehicle HAL wiring (Platform Core)');
     try {
-      this._reg(startPlatformCoreVehicleHalWiring({ store: useVehicleStore }));
+      this._reg(gen, startPlatformCoreVehicleHalWiring({ store: useVehicleStore }));
     } catch (e) {
       logError('SystemBoot:vehicleHalWiring', e);
     }
@@ -854,7 +912,7 @@ class SystemBoot {
     // (fail-soft). Bu PR'da bus'a ABONE YOK (consumer migration ayrı PR); throttle/coalescing W4D.
     _log('  › Vehicle HAL → Event Bus bridge (Platform Core)');
     try {
-      this._reg(startPlatformCoreVehicleHalBridgeWiring());
+      this._reg(gen, startPlatformCoreVehicleHalBridgeWiring());
     } catch (e) {
       logError('SystemBoot:vehicleHalBridgeWiring', e);   // wiring zaten fail-soft; sözleşme ihlali koruması
     }
@@ -866,7 +924,7 @@ class SystemBoot {
     // beslenir ama okuyan yok (tüketici migrasyonu ayrı PR); yalnız yan-etkisiz browser-API kanıtı.
     _log('  › Capability Registry wiring (Platform Core)');
     try {
-      this._reg(startPlatformCoreCapabilityWiring());
+      this._reg(gen, startPlatformCoreCapabilityWiring());
     } catch (e) {
       logError('SystemBoot:capabilityWiring', e);
     }
@@ -878,7 +936,7 @@ class SystemBoot {
     // bus'a ABONE YOK (consumer migration ayrı PR); capability değişimleri NADİR → hot-path yok.
     _log('  › Capability → Event Bus bridge (Platform Core)');
     try {
-      this._reg(startPlatformCoreCapabilityBridgeWiring());
+      this._reg(gen, startPlatformCoreCapabilityBridgeWiring());
     } catch (e) {
       logError('SystemBoot:capabilityBridgeWiring', e);   // wiring zaten fail-soft; sözleşme ihlali koruması
     }
@@ -891,14 +949,14 @@ class SystemBoot {
     // önce dispose olur; paylaşılan singleton'lar (başka tüketicileri olabilir) DISPOSE EDİLMEZ.
     _log('  › Deep Scan runtime ownership (Platform Core)');
     try {
-      this._reg(startPlatformCoreDeepScanWiring());
+      this._reg(gen, startPlatformCoreDeepScanWiring());
     } catch (e) {
       logError('SystemBoot:deepScanWiring', e);   // wiring zaten fail-soft; sözleşme ihlali koruması
     }
 
     // SystemOrchestrator: VDL event'lerini UI sinyallerine dönüştürür
     _log('  › SystemOrchestrator');
-    this._reg(startSystemOrchestrator());
+    this._reg(gen, startSystemOrchestrator());
 
     /* ARCH-06/F1 · VEHICLE_CORE_INITIALIZED — ALT YAPI ayakta.
        ⚠️ Bu taş "araç verisi var" DEMEZ: VDL ve adaptörler kurulmuş olabilir
@@ -912,6 +970,10 @@ class SystemBoot {
   // ── Wave 3: Sensors & Intelligence ───────────────────────────────────────
 
   private async _wave3(): Promise<void> {
+    /* F-09: bu dalganın nesli. Aşağıdaki her kayıt bu kimlikle teslim
+       edilir; `await` sınırında stop()+start() olduysa teslim bayattır ve
+       yeni neslin sahipliğine GİRMEZ (kaynağı burada durdurulur). */
+    const gen = this._diagStarts;
     _log('Starting Wave 3 (Sensors & Intelligence)...');
 
     /* ARCH-06/F2 · DEFERABLE → AFTER_VEHICLE_CORE.
@@ -927,13 +989,13 @@ class SystemBoot {
     /* Cihazda kanıt üretimi (#490 · ADR-286 Adım 3/1). Kendi timer'ı YOKTUR —
        OBD olayına biner. HÜKÜM ÜRETMEZ; motoru bağlamak ikinci parçadır. */
     _log('  › BatteryEvidenceSource');
-    this._regNamed('BatteryEvidenceSource', startBatteryEvidenceSource());
+    this._regNamed(gen, 'BatteryEvidenceSource', startBatteryEvidenceSource());
 
     /* Motorun İLK üretim bağlantısı (#490 · ADR-286 Adım 3/2). Kanıt üretimi
        olayına biner — OBD hot-path'ine DEĞİL (#283 kesişim kuralı). Sıra
        önemli: kanıt kaynağı ÖNCE kurulmalı ki abonelik yakalansın. */
     _log('  › BatteryVerdictService');
-    this._regNamed('BatteryVerdictService', startBatteryVerdictService());
+    this._regNamed(gen, 'BatteryVerdictService', startBatteryVerdictService());
 
     /* ARCH-06/F2 · DEFERABLE → AFTER_VEHICLE_CORE.
        BAĞIMLILIK DENETİMİ: Wave 3'te tüketicisi yok; yakıt önerisi mevcut
@@ -945,15 +1007,15 @@ class SystemBoot {
     });
 
     _log('  › BlackBox');
-    this._reg(startBlackBox());
+    this._reg(gen, startBlackBox());
 
     // BatteryProtection: 12V voltaj izleme + power ceiling
     _log('  › BatteryProtection');
-    this._reg(startBatteryProtection());
+    this._reg(gen, startBatteryProtection());
 
     // VehicleIntelligenceService: SPE sensör plausibility + güven skoru
     _log('  › VehicleIntelligenceService');
-    this._reg(startVehicleIntelligenceService());
+    this._reg(gen, startVehicleIntelligenceService());
 
     /* GuardianRuntime (GUARDIAN-AI-G16): Guardian çekirdeğinin TICK SAHİBİ.
        Kendi timer'ı YOKTUR — §L.0 tik-wheel'ine `scheduleTask` ile biner
@@ -963,7 +1025,7 @@ class SystemBoot {
        (VehicleCompute.worker → SystemOrchestrator) DEĞİŞMEDİ, ikinci eylem
        otoritesi doğmaz. Fail-soft + zero-leak (cleanup _reg'le). */
     _log('  › GuardianRuntime');
-    this._regNamed('GuardianRuntime', startGuardianRuntime());
+    this._regNamed(gen, 'GuardianRuntime', startGuardianRuntime());
 
     /* SpeedAlertRuntime (2026-08-14): "Arabam Cebimde" hız uyarısının araç ucu.
        Kendi timer'ı YOKTUR — mevcut veri akışlarına biner: BİRİNCİL füzyon hız
@@ -979,7 +1041,7 @@ class SystemBoot {
        Fail-soft + zero-leak (cleanup _reg'le). */
     _log('  › SpeedAlertRuntime');
     setSpeedAlertPushChannel(notifyVehicleEvent);
-    this._reg(startSpeedAlertRuntime({
+    this._reg(gen, startSpeedAlertRuntime({
       onSpeed:       updateCurrentSpeed,
       onDriverAlert: dispatchSpeedLimitExceeded,
     }));
@@ -987,7 +1049,7 @@ class SystemBoot {
     // AutomaticVehicleFingerprint (PR-26): araç bağlanınca VID+Discovery'den otomatik
     // fingerprint üret. Fail-soft + kimlik-imza guard (hot-path'e girmez); cleanup _reg'le.
     _log('  › AutomaticVehicleFingerprint');
-    this._reg(startAutomaticVehicleFingerprint());
+    this._reg(gen, startAutomaticVehicleFingerprint());
 
     // VehicleClassRuntime (VEHICLE_AWARE_SPEED_LIMIT P0): aracın YASAL sınıfını
     // (M1/N1 · otomobil/kamyonet/panelvan) çözer — uygulanabilir hız sınırı
@@ -1008,7 +1070,7 @@ class SystemBoot {
     // başlatmaz) ve çok kaynaklı hakem kararını üretir. Fix akışı gpsService'in
     // kendi hızında devam eder; buradaki timer YALNIZ kaynak seçimi içindir.
     _log('  › LocationEngine');
-    this._reg(startLocationEngine());
+    this._reg(gen, startLocationEngine());
 
     // Navigasyon Oturum Runtime (SESSION CONTINUITY P0): rota ilerlemesinin
     // GÖRÜNÜMDEN BAĞIMSIZ tek tick sahibi. Eskiden bu tick FullMapView'ın kendi
@@ -1017,7 +1079,7 @@ class SystemBoot {
     // (kadans GPS fix'inin kendi kadansı). LocationEngine'den SONRA kaydedilir →
     // LIFO shutdown'da ondan ÖNCE kapanır. Fail-soft + zero-leak (cleanup _reg'le).
     _log('  › NavigationSessionRuntime');
-    this._regNamed('NavigationSessionRuntime', startNavigationSessionRuntime());
+    this._regNamed(gen, 'NavigationSessionRuntime', startNavigationSessionRuntime());
 
     // Trip yukleme kablolamasi (P1): tripLogService'i GOZLER (degistirmez) ve
     // YALNIZ kapanan trip icin tek kanonik ozet yukler. Canli olcum GONDERILMEZ.
@@ -1048,28 +1110,28 @@ class SystemBoot {
     // kritikliğinde kaydedilir: aşırı ısınma uyarısı düşük-uçta yavaşlatılmaz.
     // Fail-soft + zero-leak (cleanup _reg'le).
     _log('  › PredictionRuntime');
-    this._reg(startPredictionRuntime());
+    this._reg(gen, startPredictionRuntime());
 
     // Fleet Vehicle Identity koordinatörü (P1): üretici YUKARIDAKİ abonelik olduğu
     // için burada BAŞLATILACAK bir şey yok — yalnız kapatma kaydı gerekir, çünkü
     // koordinatör backoff'lu retry timer'ı tutabilir (zero-leak).
-    this._reg(() => stopVehicleIdentityCoordinator());
+    this._reg(gen, () => stopVehicleIdentityCoordinator());
 
     // AutoLearningEngine (PR-27): discovery gözlemlerini fingerprint'e bağlayıp öğren
     // (PID/DID seenCount/confidence) + staged VIN merge. Additive + fail-soft; cleanup _reg'le.
     _log('  › AutoLearningEngine');
-    this._reg(startAutoLearningEngine());
+    this._reg(gen, startAutoLearningEngine());
 
     // VehicleKnowledgeBase (PR-28): öğrenilen bilgiyi araç bazlı yerel bilgi tabanına
     // (istatistik + kalıcı) organize et. SALT-OKUNUR projeksiyon; additive + fail-soft.
     _log('  › VehicleKnowledgeBase');
-    this._reg(startVehicleKnowledgeBase());
+    this._reg(gen, startVehicleKnowledgeBase());
 
     // VehicleLearningEvidenceBridge (P2-6): VKB güncellenince computeEvidence() → Evidence
     // Store'a idempotent yazar (debounce'lu cold-path). VKB'DEN SONRA başlar (ona bağlı).
     // 3Hz hot-path'e girmez; fail-soft + zero-leak (cleanup _reg'le).
     _log('  › VehicleLearningEvidenceBridge');
-    this._reg(startVehicleLearningEvidenceBridge());
+    this._reg(gen, startVehicleLearningEvidenceBridge());
 
     // GeofenceService: async (Supabase zona sorgusu)
     _log('  › GeofenceService (async)');
@@ -1078,7 +1140,7 @@ class SystemBoot {
       return stopGeofenceService; // fallback cleanup
     });
     // Async sırasında stop() geldiyse servisi kaydetme, anında durdur (zombi önle)
-    this._regOrAbort(geofenceCleanup ?? stopGeofenceService);
+    this._reg(gen, geofenceCleanup ?? stopGeofenceService);
     if (this._aborted) return;
 
     // RadarEngine: Türkiye statik radar veritabanı
@@ -1118,6 +1180,10 @@ class SystemBoot {
   // ── Wave 4: UI Services ───────────────────────────────────────────────────
 
   private async _wave4(): Promise<void> {
+    /* F-09: bu dalganın nesli. Aşağıdaki her kayıt bu kimlikle teslim
+       edilir; `await` sınırında stop()+start() olduysa teslim bayattır ve
+       yeni neslin sahipliğine GİRMEZ (kaynağı burada durdurulur). */
+    const gen = this._diagStarts;
     _log('Starting Wave 4 (UI Services)...');
 
     // On-demand OPTIONAL worker'lar için lifecycle placeholder'ları
@@ -1125,11 +1191,11 @@ class SystemBoot {
     runtimeManager.registerWorker('NavigationCompute', null, 'OPTIONAL');
 
     _log('  › TheaterService');
-    this._reg(startTheaterService());
+    this._reg(gen, startTheaterService());
 
     _log('  › SmartCardEngine');
     startSmartCardEngine();
-    this._reg(stopSmartCardEngine);
+    this._reg(gen, stopSmartCardEngine);
 
     /* ARCH-06/F2 · IDLE_ONLY. FCM TOKEN KAYDI ağ işidir ve boot'u BEKLETİR.
        ⚠️ GELEN BİLDİRİM KAYBOLMAZ: bu çağrı token'ı KAYDEDER, gelen mesajı
@@ -1150,14 +1216,14 @@ class SystemBoot {
 
     // VoiceService: modül-düzeyi singleton — cleanup'ı LIFO + namedCleanups'a kaydet
     _log('  › VoiceService (named cleanup)');
-    this._regNamed('VoiceService', stopVoiceService);
+    this._regNamed(gen, 'VoiceService', stopVoiceService);
 
     // CompanionEngine: proaktif motor + uyku önleyici (Faz 4 — 60s PromptScheduler).
     // Gate zinciri PROTECTION+ modlarda kendini susturur; LIMP_HOME'da ekstra
     // kayda gerek yok. companionEnabled kapalıysa tick no-op (ayar runtime izlenir).
     _log('  › CompanionEngine');
     startCompanionEngine();
-    this._regNamed('CompanionEngine', stopCompanionEngine);
+    this._regNamed(gen, 'CompanionEngine', stopCompanionEngine);
 
     // WakeWordService: ayar-tabanlı pasif wake (companion "Mavi"/legacy "hey car").
     // Modül-düzeyi store aboneliği — React mount'una bağlı değil (eskiden yalnız
@@ -1165,7 +1231,7 @@ class SystemBoot {
     // Native'de gerçek dinleme Vosk modeli hazır olana dek ERTELENİR (aşağıdaki
     // notifyVoskModelReady) — erken start "model yok" ile sağır kalıyordu.
     _log('  › WakeWordService');
-    this._reg(startWakeWordService());
+    this._reg(gen, startWakeWordService());
 
     // BackgroundPowerGate: arka plan + pil ile çalışırken GPS'i kısar, pasif
     // mikrofonu susturur (ölçüm 2026-08-20: 612 mAh/h, 16 saatte 169 dk deep
@@ -1173,13 +1239,13 @@ class SystemBoot {
     // sökülür, yani kapı kapanırken wake hâlâ ayaktadır ve kısma bırakılmaz.
     // Head unit etkilenmez: harici güç varken kapı kısma kararı üretmez.
     _log('  › BackgroundPowerGate');
-    this._reg(startBackgroundPowerGate());
+    this._reg(gen, startBackgroundPowerGate());
 
     // IncomingLocationBridge: WhatsApp/Telegram gibi uygulamalardan paylaşılan
     // konum (geo: / harita bağlantısı) aracın KENDİ navigasyonunda açılır.
     // Kurulmazsa ürün davranışı eskisi gibi kalır (fail-soft).
     _log('  › IncomingLocationBridge');
-    this._reg(startIncomingLocationBridge());
+    this._reg(gen, startIncomingLocationBridge());
 
     // PHONE LINK F6.2 — ürün açılışı. F6.1'e kadar Phone Link YALNIZ LAB
     // ekranındaki "Server'ı Başlat" düğmesiyle çalışıyordu; artık kanonik
@@ -1193,7 +1259,7 @@ class SystemBoot {
     // kısmi mock kullanan testlere) taşırdı. Yükleme yalnız boot ANINDA olur.
     _log('  › PhoneLink ProductBoot');
     const { startPhoneLinkProductBoot } = await import('../phoneLink/phoneLinkProductBoot');
-    this._regNamed('PhoneLinkProductBoot', startPhoneLinkProductBoot());
+    this._regNamed(gen, 'PhoneLinkProductBoot', startPhoneLinkProductBoot());
 
     // Mavi Çekirdeği Faz-2 wiring (SHADOW/coexistence). WakeWordService + VoiceService'ten SONRA
     // kaydedilir → LIFO shutdown'da bunlardan ÖNCE dispose olur (köprü kapanırken voiceService
@@ -1202,7 +1268,7 @@ class SystemBoot {
     // Wiring fonksiyonu idempotent + fail-soft; savunmacı catch yalnız sözleşme ihlali için.
     _log('  › Mavi Voice Bridge (Faz-2 shadow wiring)');
     try {
-      this._reg(startMaviVoiceWiring());
+      this._reg(gen, startMaviVoiceWiring());
     } catch (e) {
       logError('SystemBoot:maviVoiceWiring', e);
     }
@@ -1229,7 +1295,7 @@ class SystemBoot {
     // Uzak log hattı: crashLogger sink kaydı + önceki oturum crash drain'i
     // (Remote Log v1 / Commit 2)
     _log('  › RemoteLogService');
-    this._reg(startRemoteLogService());
+    this._reg(gen, startRemoteLogService());
 
     // AI Core runtime (Faz-2): edge-tetikli, BOUNDED AI Usta çalıştırması. Event Bus (Wave 1) +
     // HAL bridge (Wave 2) kurulduktan SONRA kaydedilir → getAppEventBus() + vehicleHal hazır;
@@ -1239,7 +1305,7 @@ class SystemBoot {
     // OTORİTE YOK (yalnız edge-tetikli HAL okuma). Savunmacı catch yalnız sözleşme ihlali için.
     _log('  › AI Core runtime wiring (Faz-2)');
     try {
-      this._reg(startPlatformCoreAiRuntimeWiring());
+      this._reg(gen, startPlatformCoreAiRuntimeWiring());
     } catch (e) {
       logError('SystemBoot:aiRuntimeWiring', e);
     }
@@ -1258,7 +1324,7 @@ class SystemBoot {
          kırıyordu (ÖLÇÜLDÜ: SystemBoot değişikliği geri alınınca geçiyorlar).
          Sonda zaten yalnız ölçüm anında çalışır — zinciri o ana ertelemek
          hem doğru hem de boot grafiğini hafifletir. */
-      this._reg(startProviderReadiness(
+      this._reg(gen, startProviderReadiness(
         async () => {
           const m = await import('../ai/gateway/openRouterKeyService');
           return { configured: (await m.getOpenRouterKeyInfo()).configured };
@@ -1317,7 +1383,7 @@ class SystemBoot {
 
     // ChaosReceiver: yalnızca DEV ortamında — BroadcastChannel üzerinden komut dinler
     if (import.meta.env.DEV) {
-      this._reg(this._startChaosReceiver());
+      this._reg(gen, this._startChaosReceiver());
     }
 
     _log('Wave 4 ready ✓');

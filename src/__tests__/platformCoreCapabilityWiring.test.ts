@@ -327,7 +327,7 @@ describe('PR-W3 — SystemBoot startup sırası korunur', () => {
   });
 
   it('31) wiring `_reg` cleanup modeliyle kaydedilir (LIFO shutdown)', () => {
-    expect(SYSTEMBOOT_SRC).toMatch(/this\._reg\(startPlatformCoreCapabilityWiring\(/);
+    expect(SYSTEMBOOT_SRC).toMatch(/this\._reg\(gen, startPlatformCoreCapabilityWiring\(/);
   });
 
   it('32) mevcut Wave sırası (1→2→3→4) DEĞİŞMEDİ', () => {

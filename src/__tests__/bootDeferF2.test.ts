@@ -260,7 +260,9 @@ describe('ARCH-06/F2/D · ertelenmeyecek servisler', () => {
 
   it('D3 — 🔒 BOOT_CRITICAL servisler hâlâ BLOKLAYICI', () => {
     expect(BOOT).toContain("await measureBootService('initSafeStorageAsync', 1, true");
-    expect(BOOT).toContain('this._reg(initPanicHandler())');
+    /* F-09: kayıt kapıları artık nesil kimliği ister (`_reg(gen, …)`) —
+       korunan değişmez AYNI: panic handler Wave 1'de LIFO cleanup'a kayıtlı. */
+    expect(BOOT).toContain('this._reg(gen, initPanicHandler())');
     expect(BOOT).toContain('runtimeManager.start()');
     expect(BOOT).toContain('startMemoryWatchdog()');
     expect(BOOT).toContain('healthMonitor.start()');
@@ -268,7 +270,7 @@ describe('ARCH-06/F2/D · ertelenmeyecek servisler', () => {
 
   it('D4 — 🔒 media authority hâlâ AWAIT ediliyor (Mavi/UI’dan bağımsız)', () => {
     expect(BOOT).toContain("await measureBootService('startMediaAuthority', 1, true, () => startMediaAuthority())");
-    expect(BOOT).toContain("this._regNamed('media-authority', stopMediaAuthority)");
+    expect(BOOT).toContain("this._regNamed(gen, 'media-authority', stopMediaAuthority)");
   });
 
   it('D5 — 🔒 VEHICLE_CORE servisleri Wave 3’te KALDI', () => {
@@ -391,7 +393,10 @@ describe('ARCH-06/F2/F · boot otoritesi korunuyor', () => {
   });
 
   it('F5 — SystemBoot erteleme turunu AÇAR ve nesli mevcut sayaçtan alır', () => {
-    expect(BOOT).toContain('bootDeferral.begin(this._diagStarts');
-    expect(BOOT).toContain('this._regNamed(jobId, cleanup)');
+    expect(BOOT).toContain('bootDeferral.begin(bootGen');
+    /* F-09: ertelenen işin teslimi de nesil kimliği taşır — tetikleyici geç
+       düşse bile bayat teslim yeni neslin sahipliğine giremez. */
+    expect(BOOT).toContain('const bootGen = this._diagStarts;');
+    expect(BOOT).toContain('this._regNamed(bootGen, jobId, cleanup)');
   });
 });

@@ -228,7 +228,7 @@ describe('predictionRuntime › bütçe ve kablo', () => {
   it('SystemBoot koşucuyu başlatır ve temizliğini kaydeder', () => {
     const boot = read('src/platform/system/SystemBoot.ts');
     expect(boot).toContain("import { startPredictionRuntime } from '../obd/predictionRuntime'");
-    expect(boot).toMatch(/this\._reg\(startPredictionRuntime\(\)\)/);
+    expect(boot).toMatch(/this\._reg\(gen, startPredictionRuntime\(\)\)/);
   });
 
   it('koşucu MOTORU değiştirmez — yalnız çağırır', () => {
