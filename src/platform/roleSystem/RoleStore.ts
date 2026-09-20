@@ -10,6 +10,90 @@ import {
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../supabaseClient';
 import { refreshGatewayAccess } from '../ai/gateway/aiGatewayAccessRuntime';
 
+/* ══════════════════════════════════════════════════════════════════════════
+ * YEREL KURTARMA DENEMESİ (MRI N-4) — DEEP-LINK CALLBACK BAĞLAMA
+ *
+ * ÖLÇÜLEN KUSUR: `carospro://auth/*` şeması manifest'te `autoVerify="false"` +
+ * BROWSABLE'dır; yani bu intent'i HERHANGİ bir uygulama ya da sürücünün
+ * ziyaret ettiği HERHANGİ bir web sayfası tetikleyebilir. `handleRecoveryUrl`
+ * ise gelen callback'i BU CİHAZIN başlattığı bir kurtarmaya bağlamadan
+ * doğrudan `setSession`/`verifyOtp`'a taşıyordu → saldırganın ürettiği bir
+ * callback head-unit'in yönetici oturumunu saldırganın hesabına SABİTLEYEBİLİRDİ
+ * (session fixation / forced login), hatta DOĞRULANMIŞ bir oturumu ezebiliyordu.
+ *
+ * KURULAN GÜVEN ZİNCİRİ:
+ *   LOCAL LOGIN INTENT (resetPassword)
+ *   → LOCALLY BOUND ATTEMPT (aşağıdaki kayıt)
+ *   → EXPECTED CALLBACK (katı şema/host/path doğrulaması)
+ *   → ONE-SHOT CONSUMPTION
+ *   → CANONICAL SESSION AUTHORITY (Supabase)
+ * Davetsiz / bayat / tekrar oynatılan callback: FAIL CLOSED.
+ *
+ * NEDEN KALICI: kurtarma bağlantısı e-postadan açıldığında Android uygulamayı
+ * SOĞUK BAŞLATABİLİR. Deneme yalnız bellekte tutulsaydı meşru akış kırılırdı.
+ * Kayıt SIR TAŞIMAZ — yalnız "bu cihaz kurtarma başlattı" damgası ve son
+ * kullanma zamanıdır; token/verifier/e-posta SAKLANMAZ, LOGLANMAZ.
+ *
+ * KAPSAM: yalnız yönetici (super_admin) kurtarma akışı. Uzak kritik komut
+ * PIN'i (migration 083) ve yerel valet PIN'i (Wave 12B) AYRI domainlerdir.
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+const RECOVERY_ATTEMPT_KEY    = 'caros_admin_recovery_attempt_v1';
+/** Kurtarma bağlantısının makul kullanım penceresi. */
+const RECOVERY_ATTEMPT_TTL_MS = 30 * 60_000;
+
+/** Beklenen callback kökeni — tam eşleşme (string `includes` ile KARAR VERİLMEZ). */
+const RECOVERY_SCHEME = 'carospro:';
+const RECOVERY_HOST   = 'auth';
+const RECOVERY_PATH   = '/recovery';
+
+interface RecoveryAttempt { id: string; createdAt: number }
+
+function readRecoveryAttempt(): RecoveryAttempt | null {
+  try {
+    const raw = localStorage.getItem(RECOVERY_ATTEMPT_KEY);
+    if (!raw) return null;
+    const a = JSON.parse(raw) as RecoveryAttempt;
+    if (typeof a?.createdAt !== 'number') return null;
+    if (Date.now() - a.createdAt > RECOVERY_ATTEMPT_TTL_MS) return null;  // süresi doldu
+    return a;
+  } catch { return null; }
+}
+
+/** Kurtarma BU CİHAZDAN başlatıldı — callback beklentisi açılır. */
+function beginRecoveryAttempt(): void {
+  try {
+    const id = (globalThis.crypto?.randomUUID?.() ?? String(Date.now()));
+    localStorage.setItem(RECOVERY_ATTEMPT_KEY, JSON.stringify({ id, createdAt: Date.now() }));
+  } catch { /* depo yoksa: aşağıdaki kapı fail-closed davranır */ }
+}
+
+function clearRecoveryAttempt(): void {
+  try { localStorage.removeItem(RECOVERY_ATTEMPT_KEY); } catch { /* noop */ }
+}
+
+/**
+ * TEK KULLANIMLIK tüketim: aktif ve süresi geçmemiş bir deneme varsa onu
+ * SİLER ve `true` döner. Oturum değiştiren çağrıdan ÖNCE yapılır ki uçuş
+ * hâlindeki bir tekrar oynatma da ikinci kez geçemesin.
+ */
+function consumeRecoveryAttempt(): boolean {
+  const a = readRecoveryAttempt();
+  clearRecoveryAttempt();          // süresi dolmuş kayıt da temizlenir
+  return a !== null;
+}
+
+/** Beklenen köken mi? Tam şema/host/path eşleşmesi; aksi hâlde `null`. */
+function parseRecoveryCallback(url: string): URL | null {
+  try {
+    const u = new URL(url);
+    if (u.protocol !== RECOVERY_SCHEME) return null;
+    if (u.host     !== RECOVERY_HOST)   return null;
+    if (u.pathname !== RECOVERY_PATH)   return null;
+    return u;
+  } catch { return null; }
+}
+
 // ── Admin Supabase Client (ayrı instance, persistSession: true) ───────────────
 
 let _adminClient: ReturnType<typeof createClient> | null = null;
@@ -209,6 +293,10 @@ export const useRoleStore = create<RoleStore>()(
           }
           return false;
         }
+
+        /* N-4: kurtarma BU CİHAZDAN başlatıldı → callback beklentisi açılır.
+           Yalnız bu damga varken gelen callback oturum değiştirebilir. */
+        beginRecoveryAttempt();
         return true;
       },
 
@@ -220,16 +308,36 @@ export const useRoleStore = create<RoleStore>()(
         if (!client) return;
 
         try {
-          // Query string kısmını çıkar (? sonrası, # öncesi)
-          const queryPart = url.includes('?') ? url.split('?')[1]!.split('#')[0]! : '';
-          const queryParams = new URLSearchParams(queryPart);
-          const tokenHash = queryParams.get('token_hash');
-          const queryType = queryParams.get('type');
+          /* 1) KÖKEN: yalnız tam `carospro://auth/recovery`. Şema/host/path
+                URL ayrıştırıcısıyla TAM eşleştirilir — `includes('auth')` gibi
+                gevşek bir kontrol saldırganın kökenini kabul ederdi. */
+          const u = parseRecoveryCallback(url);
+          if (!u) return;                       // FAIL-CLOSED: beklenmeyen köken
 
-          // Yeni format: token_hash + type → verifyOtp
-          if (tokenHash && queryType === 'recovery') {
+          /* 2) YÜK: hangi biçim geldi? Önce doğrula, SONRA denemeyi tüket —
+                böylece geçersiz bir yük meşru denemeyi harcamaz. */
+          const tokenHash = u.searchParams.get('token_hash');
+          const queryType = u.searchParams.get('type');
+          const isOtp     = !!tokenHash && queryType === 'recovery';
+
+          const hashParams   = new URLSearchParams(u.hash.startsWith('#') ? u.hash.slice(1) : u.hash);
+          const accessToken  = hashParams.get('access_token');
+          const refreshToken = hashParams.get('refresh_token');
+          const isLegacy     = hashParams.get('type') === 'recovery' && !!accessToken && !!refreshToken;
+
+          if (!isOtp && !isLegacy) return;      // FAIL-CLOSED: eksik/bozuk yük
+
+          /* 3) BAĞLAMA + TEK KULLANIM: bu callback, BU CİHAZIN başlattığı
+                kurtarmaya ait mi? Deneme oturum değiştiren çağrıdan ÖNCE
+                tüketilir → davetsiz, bayat ve tekrar oynatılan callback geçemez. */
+          if (!consumeRecoveryAttempt()) {
+            set({ authError: 'RECOVERY_UNSOLICITED: bu cihazda açık bir şifre sıfırlama isteği yok' });
+            return;
+          }
+
+          if (isOtp) {
             const { error } = await client.auth.verifyOtp({
-              token_hash: tokenHash,
+              token_hash: tokenHash!,
               type: 'recovery',
             });
             if (!error) {
@@ -240,26 +348,18 @@ export const useRoleStore = create<RoleStore>()(
             return;
           }
 
-          // Eski format: hash fragment → access_token + refresh_token → setSession
-          const hashPart = url.includes('#') ? url.split('#')[1]! : '';
-          const hashParams   = new URLSearchParams(hashPart);
-          const accessToken  = hashParams.get('access_token');
-          const refreshToken = hashParams.get('refresh_token');
-          const hashType     = hashParams.get('type');
-
-          if (hashType === 'recovery' && accessToken && refreshToken) {
-            const { error } = await client.auth.setSession({
-              access_token:  accessToken,
-              refresh_token: refreshToken,
-            });
-            if (!error) {
-              set({ adminAuthState: 'recovery', authError: null });
-            } else {
-              set({ authError: `SESSION_ERROR: ${error.message}` });
-            }
+          const { error } = await client.auth.setSession({
+            access_token:  accessToken!,
+            refresh_token: refreshToken!,
+          });
+          if (!error) {
+            set({ adminAuthState: 'recovery', authError: null });
+          } else {
+            set({ authError: `SESSION_ERROR: ${error.message}` });
           }
         } catch {
-          // Deep link parse hatası — sessizce yoksay
+          /* Deep link ayrıştırma hatası — oturum DEĞİŞMEZ (fail-closed).
+             URL veya parametreler LOGLANMAZ: token/hash taşıyabilirler. */
         }
       },
 
@@ -294,6 +394,9 @@ export const useRoleStore = create<RoleStore>()(
       signOutAdmin: async () => {
         const client = getAdminClient();
         if (client) await client.auth.signOut();
+        /* N-4: çıkış açık kurtarma beklentisini de İPTAL eder — aksi hâlde
+           çıkıştan sonra gelen bayat bir callback oturumu diriltebilirdi. */
+        clearRecoveryAttempt();
         set({
           role:           'driver',
           syncStatus:     'idle',
@@ -302,7 +405,10 @@ export const useRoleStore = create<RoleStore>()(
         });
       },
 
-      resetRole: () => set({ role: 'driver', syncStatus: 'idle', adminAuthState: 'idle', authError: null }),
+      resetRole: () => {
+        clearRecoveryAttempt();   // N-4: rol sıfırlama da beklentiyi kapatır
+        set({ role: 'driver', syncStatus: 'idle', adminAuthState: 'idle', authError: null });
+      },
     }),
     { name: 'car-launcher-role' },
   ),
