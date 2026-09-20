@@ -7199,6 +7199,209 @@ public class CarLauncherPlugin extends Plugin {
         }
     }
 
+    /* ══════════════════════════════════════════════════════════════════════
+     * LOCAL PIN OTORİTESİ (Wave 12B) — VALET/GEOFENCE KORUMASI
+     *
+     * NE KORUR: aktif valet/geofence korumasının ARAÇ BAŞINDAKİ yetkisiz kişi
+     * tarafından kapatılmasını/değiştirilmesini. Aracı kullanmayı ENGELLEMEZ.
+     * Uzak komut PIN'i (verify_and_send_critical_command / migration 083)
+     * AYRI DOMAINDİR ve buradan etkilenmez.
+     *
+     * NEDEN `setPinHash(hash)` DEĞİL: eski sözleşmede hash'i JS üretiyordu →
+     * güven sınırı yanlış yerdeydi (JS istediği doğrulayıcıyı yazabilirdi) ve
+     * 4 haneli PIN için düz SHA-256 çevrimdışı kırılır. Burada JS yalnız ham
+     * kullanıcı girdisini taşır; TÜRETME ve KARŞILAŞTIRMA native'dedir.
+     * Doğrulayıcı JS'e HİÇBİR ZAMAN dönmez. Ham PIN saklanmaz, loglanmaz.
+     *
+     * DEPOLAMA: mevcut `getSecurePrefs()` (Android Keystore destekli
+     * EncryptedSharedPreferences). İKİNCİ bir secure-storage sistemi KURULMADI.
+     *
+     * TÜRETME: PBKDF2WithHmacSHA256 (JDK standardı) + rastgele 16B salt.
+     * Kendi kripto algoritmamız YOKTUR.
+     *
+     * KİLİT: sayaç ve bitiş damgası kalıcıdır → uygulama/süreç yeniden başlatma
+     * kilidi SIFIRLAMAZ. Saat ileri alınarak duvar-saati kilidi atlatılabilir;
+     * bu yüzden `elapsedRealtime` damgası da tutulur (yeniden başlatmada sıfırlanır
+     * ama sayaç kalıcı olduğu için bir sonraki hatalı deneme anında yeniden kilitler).
+     * ══════════════════════════════════════════════════════════════════════ */
+
+    private static final String PIN_VERIFIER      = "local_pin_verifier_v1";
+    private static final String PIN_ATTEMPTS      = "local_pin_attempts_v1";
+    private static final String PIN_UNTIL_WALL    = "local_pin_until_wall_v1";
+    private static final String PIN_UNTIL_ELAPSED = "local_pin_until_elapsed_v1";
+    private static final int    PIN_MAX_ATTEMPTS  = 5;
+    private static final long   PIN_LOCKOUT_MS    = 30_000L;
+    private static final int    PIN_KDF_ITERATIONS = 120_000;
+
+    private static boolean pinFormatOk(String pin) {
+        return pin != null && pin.matches("\\d{4,6}");
+    }
+
+    /** PBKDF2-SHA256 → base64. Ham PIN burada kalır, hiçbir yere yazılmaz. */
+    private static String derivePinVerifier(String pin, byte[] salt) throws Exception {
+        javax.crypto.spec.PBEKeySpec spec = new javax.crypto.spec.PBEKeySpec(
+            pin.toCharArray(), salt, PIN_KDF_ITERATIONS, 256);
+        try {
+            byte[] bits = javax.crypto.SecretKeyFactory
+                .getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).getEncoded();
+            return android.util.Base64.encodeToString(bits, android.util.Base64.NO_WRAP);
+        } finally {
+            spec.clearPassword();
+        }
+    }
+
+    /** Sabit zamanlı karşılaştırma — erken çıkış YOK. */
+    private static boolean pinConstantTimeEquals(String a, String b) {
+        if (a == null || b == null || a.length() != b.length()) return false;
+        int diff = 0;
+        for (int i = 0; i < a.length(); i++) diff |= a.charAt(i) ^ b.charAt(i);
+        return diff == 0;
+    }
+
+    /** Kalan kilit süresi (saniye); 0 → kilitli değil. */
+    private int pinLockRemainingSec(SharedPreferences p) {
+        if (p.getInt(PIN_ATTEMPTS, 0) < PIN_MAX_ATTEMPTS) return 0;
+        long nowWall    = System.currentTimeMillis();
+        long nowElapsed = android.os.SystemClock.elapsedRealtime();
+        long remWall    = p.getLong(PIN_UNTIL_WALL, 0L)    - nowWall;
+        long remElapsed = p.getLong(PIN_UNTIL_ELAPSED, 0L) - nowElapsed;
+        long rem = Math.max(remWall, remElapsed);   // biri bile kilitliyse KİLİTLİ
+        if (rem <= 0) return 0;
+        if (rem > PIN_LOCKOUT_MS) rem = PIN_LOCKOUT_MS;  // saat geri alınmış → tavanla
+        return (int) Math.ceil(rem / 1000.0);
+    }
+
+    private void pinRegisterFailure(SharedPreferences p) {
+        int attempts = p.getInt(PIN_ATTEMPTS, 0) + 1;
+        SharedPreferences.Editor e = p.edit().putInt(PIN_ATTEMPTS, attempts);
+        if (attempts >= PIN_MAX_ATTEMPTS) {
+            e.putLong(PIN_UNTIL_WALL,    System.currentTimeMillis() + PIN_LOCKOUT_MS)
+             .putLong(PIN_UNTIL_ELAPSED, android.os.SystemClock.elapsedRealtime() + PIN_LOCKOUT_MS);
+        }
+        e.apply();
+    }
+
+    private void pinResetAttempts(SharedPreferences p) {
+        p.edit().putInt(PIN_ATTEMPTS, 0)
+                .putLong(PIN_UNTIL_WALL, 0L)
+                .putLong(PIN_UNTIL_ELAPSED, 0L).apply();
+    }
+
+    private static JSObject pinResult(String status) {
+        JSObject o = new JSObject();
+        o.put("status", status);
+        return o;
+    }
+
+    /** Doğrulayıcı kurulu mu + kilit durumu. Doğrulayıcı DEĞERİ dönmez. */
+    @PluginMethod
+    public void localPinStatus(PluginCall call) {
+        try {
+            SharedPreferences p = getSecurePrefs();
+            int rem = pinLockRemainingSec(p);
+            JSObject o = new JSObject();
+            o.put("configured",     p.getString(PIN_VERIFIER, null) != null);
+            o.put("locked",         rem > 0);
+            o.put("remainingSec",   rem);
+            o.put("failedAttempts", p.getInt(PIN_ATTEMPTS, 0));
+            call.resolve(o);
+        } catch (Exception e) {
+            call.reject("localPinStatus hatası");   // FAIL-CLOSED: çağıran DENY eder
+        }
+    }
+
+    /** İLK kurulum. PIN zaten varsa ALREADY_SET — değişiklik changeLocalPin ile. */
+    @PluginMethod
+    public void setLocalPin(PluginCall call) {
+        String pin = call.getString("pin", "");
+        if (!pinFormatOk(pin)) { call.resolve(pinResult("INVALID")); return; }
+        try {
+            SharedPreferences p = getSecurePrefs();
+            if (p.getString(PIN_VERIFIER, null) != null) {
+                call.resolve(pinResult("ALREADY_SET")); return;
+            }
+            byte[] salt = new byte[16];
+            new java.security.SecureRandom().nextBytes(salt);
+            String stored = android.util.Base64.encodeToString(salt, android.util.Base64.NO_WRAP)
+                          + ":" + derivePinVerifier(pin, salt);
+            p.edit().putString(PIN_VERIFIER, stored).apply();
+            pinResetAttempts(p);
+            call.resolve(pinResult("OK"));
+        } catch (Exception e) {
+            call.reject("setLocalPin hatası");
+        }
+    }
+
+    /** Ortak doğrulama — sonuç durumu döner, sayaç/kilit burada işlenir. */
+    private String pinVerifyInternal(SharedPreferences p, String pin) throws Exception {
+        String stored = p.getString(PIN_VERIFIER, null);
+        if (stored == null) return "NOT_SET";
+        if (pinLockRemainingSec(p) > 0) return "LOCKED";
+        if (!pinFormatOk(pin)) { pinRegisterFailure(p); return "WRONG"; }
+
+        int sep = stored.indexOf(':');
+        if (sep <= 0) return "NOT_SET";   // bozuk kayıt → kurulu sayılmaz (fail-closed)
+        byte[] salt = android.util.Base64.decode(stored.substring(0, sep), android.util.Base64.NO_WRAP);
+        String candidate = derivePinVerifier(pin, salt);
+
+        if (pinConstantTimeEquals(candidate, stored.substring(sep + 1))) {
+            pinResetAttempts(p);
+            return "OK";
+        }
+        pinRegisterFailure(p);
+        return pinLockRemainingSec(p) > 0 ? "LOCKED" : "WRONG";
+    }
+
+    @PluginMethod
+    public void verifyLocalPin(PluginCall call) {
+        try {
+            SharedPreferences p = getSecurePrefs();
+            String status = pinVerifyInternal(p, call.getString("pin", ""));
+            JSObject o = pinResult(status);
+            o.put("remainingSec", pinLockRemainingSec(p));
+            call.resolve(o);
+        } catch (Exception e) {
+            call.reject("verifyLocalPin hatası");
+        }
+    }
+
+    /** PIN değiştirme — MEVCUT PIN kanıtı ZORUNLU (atomik: doğrula + yaz). */
+    @PluginMethod
+    public void changeLocalPin(PluginCall call) {
+        String next = call.getString("next", "");
+        if (!pinFormatOk(next)) { call.resolve(pinResult("INVALID")); return; }
+        try {
+            SharedPreferences p = getSecurePrefs();
+            String verdict = pinVerifyInternal(p, call.getString("current", ""));
+            if (!"OK".equals(verdict)) { call.resolve(pinResult(verdict)); return; }
+
+            byte[] salt = new byte[16];
+            new java.security.SecureRandom().nextBytes(salt);
+            p.edit().putString(PIN_VERIFIER,
+                android.util.Base64.encodeToString(salt, android.util.Base64.NO_WRAP)
+                + ":" + derivePinVerifier(next, salt)).apply();
+            pinResetAttempts(p);
+            call.resolve(pinResult("OK"));
+        } catch (Exception e) {
+            call.reject("changeLocalPin hatası");
+        }
+    }
+
+    /** PIN kaldırma — MEVCUT PIN kanıtı ZORUNLU (kanıtsız kaldırma = bypass). */
+    @PluginMethod
+    public void clearLocalPin(PluginCall call) {
+        try {
+            SharedPreferences p = getSecurePrefs();
+            String verdict = pinVerifyInternal(p, call.getString("current", ""));
+            if (!"OK".equals(verdict)) { call.resolve(pinResult(verdict)); return; }
+            p.edit().remove(PIN_VERIFIER).apply();
+            pinResetAttempts(p);
+            call.resolve(pinResult("OK"));
+        } catch (Exception e) {
+            call.reject("clearLocalPin hatası");
+        }
+    }
+
     // ── Recovery Store (Plain SharedPreferences — Android Auto Backup) ──────
     //
     // EncryptedSharedPreferences silinmeden önce (uygulama kaldırma / Android Keystore

@@ -51,16 +51,18 @@ const CAPACITOR_BASE = new Set([
 /**
  * BUGÜN GERÇEKTEN KIRIK olan sözleşmeler (ölçülmüş borç).
  *
- * · setPinHash / verifyPin / clearPin — `nativePlugin.ts` bunları ZORUNLU
- *   beyan eder ve `pinService.ts` üretimde çağırır, ama Java tarafında
- *   `@PluginMethod` YOKTUR. Sonuç: gerçek head-unit'te PIN hash'i Keystore
- *   destekli EncryptedSharedPreferences'a DEĞİL, web depolamasına yazılır
- *   (`pinService` catch → `_storeHash`). Kaynakta bilinerek not edilmiş
- *   (nativePlugin.ts "Java tarafı yoksa … fallback"), fakat hiçbir kapı
- *   bunu zorlamıyordu — F-10'un tam olarak kapattığı boşluk budur.
- *   Düzeltme bu turun kapsamı DEĞİLDİR (native PIN implementasyonu ayrı iş).
+ * ŞU AN BOŞ. Tek kalemi olan `setPinHash` / `verifyPin` / `clearPin` borcu
+ * Wave 12B'de KAPANDI: o sözleşme (hash'i JS üretip native'e yollamak) güven
+ * sınırını yanlış yere koyduğu için körlemesine implemente EDİLMEDİ; yerine
+ * türetme/karşılaştırma/sayacı native'de tutan `localPinStatus` ·
+ * `setLocalPin` · `verifyLocalPin` · `changeLocalPin` · `clearLocalPin`
+ * sözleşmesi geldi ve Java'da uygulandı.
+ *
+ * Liste bir mazeret değil ÖLÇÜLMÜŞ BORÇTUR: yeni bir kırık eklenirse test
+ * kırmızı olur; buraya bir kalem eklemek ancak gerçekten kırık bir sözleşme
+ * ölçüldüğünde meşrudur.
  */
-const KNOWN_MISSING = new Set(['setPinHash', 'verifyPin', 'clearPin']);
+const KNOWN_MISSING = new Set<string>([]);
 
 // ── Yüzey çıkarımı ───────────────────────────────────────────────────────────
 

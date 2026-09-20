@@ -1712,19 +1712,29 @@ export interface CarLauncherPlugin {
   setNavigationActive(options: { active: boolean }): Promise<void>;
 
   /**
-   * PIN güvenliği — Android Keystore + EncryptedSharedPreferences
+   * LOCAL PIN (valet/geofence koruması) — Android Keystore destekli
+   * EncryptedSharedPreferences + PBKDF2-SHA256. Otorite NATIVE'dedir.
    *
-   * Java implementasyonu (CarLauncherPlugin.java):
-   *   setPinHash   → EncryptedSharedPreferences.putString("pin_hash", hash)
-   *   verifyPin    → hash(attempt).equals(prefs.getString("pin_hash"))
-   *   clearPin     → EncryptedSharedPreferences.remove("pin_hash")
+   * Wave 12B: eski `setPinHash(hash)` sözleşmesi KALDIRILDI — hash'i JS
+   * üretiyordu, yani güven sınırı yanlış yerdeydi (JS istediği doğrulayıcıyı
+   * yazabilirdi) ve 4 haneli PIN için düz SHA-256 çevrimdışı kırılır. Artık JS
+   * yalnız ham kullanıcı girdisini taşır; türetme/karşılaştırma/sayaç
+   * native'dedir ve doğrulayıcı JS'e HİÇ dönmez.
    *
-   * Bu metodlar TypeScript'te tanımlıdır; Java tarafı yoksa
-   * pinService.ts sessionStorage fallback'ine düşer.
+   * `status` deterministik sözleşmedir (string AYRIŞTIRMA ile yetki kurulmaz):
+   *   OK · WRONG · NOT_SET · ALREADY_SET · LOCKED · INVALID
+   * Çağrı reject ederse çağıran FAIL-CLOSED davranır (UNKNOWN != UNLOCKED).
    */
-  setPinHash(options: { hash: string }): Promise<void>;
-  verifyPin(options: { attempt: string }): Promise<{ match: boolean }>;
-  clearPin(): Promise<void>;
+  localPinStatus(): Promise<{
+    configured: boolean; locked: boolean; remainingSec: number; failedAttempts: number;
+  }>;
+  /** İlk kurulum; PIN zaten varsa ALREADY_SET döner. */
+  setLocalPin(options: { pin: string }): Promise<{ status: string }>;
+  verifyLocalPin(options: { pin: string }): Promise<{ status: string; remainingSec?: number }>;
+  /** Mevcut PIN kanıtı ZORUNLU (atomik doğrula+yaz). */
+  changeLocalPin(options: { current: string; next: string }): Promise<{ status: string }>;
+  /** Mevcut PIN kanıtı ZORUNLU — kanıtsız kaldırma bypass'tir. */
+  clearLocalPin(options: { current: string }): Promise<{ status: string }>;
 
   /**
    * Expert Trust mühürü — HMAC-SHA256 anahtarı Android Keystore'da tutulur (ham seed WebView'da yok).

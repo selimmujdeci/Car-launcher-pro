@@ -9,7 +9,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { verifyPin } from './pinService';
+import { verifyPin, verifyPinDetailed, getPinStatus } from './pinService';
 import { sensitiveKeyStore } from './sensitiveKeyStore';
 import { addSystemNotification } from './notificationService';
 import { speakAlert } from './ttsService';
@@ -379,61 +379,152 @@ export function checkGeofence(lat: number, lng: number, speedKmh: number): void 
   }
 }
 
+/* ── KORUMA KAPISI (Wave 12B) ─────────────────────────────────────────────
+ *
+ * ÜRÜN KARARI: local PIN'in TEK görevi, AKTİF valet/geofence korumasının
+ * araç başındaki yetkisiz kişi tarafından kapatılmasını / ayarlarının
+ * değiştirilmesini / sınırının etkisizleştirilmesini engellemektir.
+ *
+ * KAPI SERVİS KATMANINDADIR. UI'yi atlayıp bu fonksiyonları doğrudan çağırmak
+ * korumayı KAPATAMAZ — Wave 12'de ölçülen bypass buydu.
+ *
+ * YÖN ASİMETRİSİ (fail-safe): korumayı GÜÇLENDİRMEK (açmak) PIN istemez;
+ * ZAYIFLATMAK (kapatmak/sınırı değiştirmek) ister. Güvenlik kapısı kullanıcıyı
+ * korumayı açmaktan alıkoymamalıdır.
+ *
+ * `pinUnlocked` bir YETKİ KAYNAĞI DEĞİLDİR (JS'ten yazılabilir bir boolean
+ * otorite olamaz) — yalnız UI görünümüdür. Yetki her çağrıda TAZE PIN kanıtı
+ * ile alınır.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+export type ProtectionGate =
+  | 'ALLOWED'
+  | 'DENIED_PIN_REQUIRED'
+  | 'DENIED_WRONG_PIN'
+  | 'DENIED_LOCKED'
+  | 'DENIED_UNAVAILABLE';
+
+/**
+ * Korunan (zayıflatıcı) bir mutasyon için yetki ister.
+ * Koruma kapalıysa sürtünme yok. Açıksa: doğrulayıcı bilinmiyor/yoksa DENY
+ * (UNKNOWN != UNLOCKED), PIN verilmediyse DENY, yanlış/kilitli ise DENY.
+ */
+export async function authorizeProtectedChange(pin?: string): Promise<ProtectionGate> {
+  if (!_state.pinLockEnabled) return 'ALLOWED';
+
+  const status = await getPinStatus();
+  /* Native otorite konuşamıyorsa ya da kilit açıkken doğrulayıcı yoksa:
+     "bilinmiyor" ASLA "izinli" değildir. */
+  if (!status.known || !status.configured) return 'DENIED_UNAVAILABLE';
+  if (status.locked) return 'DENIED_LOCKED';
+  if (pin === undefined || pin === '') return 'DENIED_PIN_REQUIRED';
+
+  const res = await verifyPinDetailed(pin);
+  switch (res.status) {
+    case 'OK':           return 'ALLOWED';
+    case 'LOCKED':       return 'DENIED_LOCKED';
+    case 'UNAVAILABLE':  return 'DENIED_UNAVAILABLE';
+    default:             return 'DENIED_WRONG_PIN';
+  }
+}
+
 /* ── Public API ──────────────────────────────────────────── */
 
-export function addGeofenceZone(zone: GeofenceZone): void {
+/** Kapıdan GEÇMEYEN iç yazıcılar — yalnız bu modül kullanır. */
+function _addZone(zone: GeofenceZone): void {
   const zones = [..._state.zones, zone];
   const zoneStatus = { ..._state.zoneStatus, [zone.id]: { isOutside: false, currentDistKm: 0 } };
   push({ zones, zoneStatus });
 }
 
-export function removeGeofenceZone(id: string): void {
-  const zones = _state.zones.filter(z => z.id !== id);
-  const zoneStatus = { ..._state.zoneStatus };
-  delete zoneStatus[id];
-  push({ zones, zoneStatus });
-}
-
-export function updateGeofenceZone(id: string, partial: Partial<GeofenceZone>): void {
+function _updateZone(id: string, partial: Partial<GeofenceZone>): void {
   const zones = _state.zones.map(z => z.id === id ? { ...z, ...partial } : z);
   push({ zones });
 }
 
-export function setGeofenceEnabled(enabled: boolean): void {
+export function addGeofenceZone(zone: GeofenceZone): void {
+  /* Bölge EKLEMEK korumayı güçlendirir → PIN istemez. */
+  _addZone(zone);
+}
+
+export async function removeGeofenceZone(id: string, pin?: string): Promise<ProtectionGate> {
+  const gate = await authorizeProtectedChange(pin);
+  if (gate !== 'ALLOWED') return gate;
+  const zones = _state.zones.filter(z => z.id !== id);
+  const zoneStatus = { ..._state.zoneStatus };
+  delete zoneStatus[id];
+  push({ zones, zoneStatus });
+  return gate;
+}
+
+export async function updateGeofenceZone(
+  id: string, partial: Partial<GeofenceZone>, pin?: string,
+): Promise<ProtectionGate> {
+  const gate = await authorizeProtectedChange(pin);
+  if (gate !== 'ALLOWED') return gate;
+  _updateZone(id, partial);
+  return gate;
+}
+
+export async function setGeofenceEnabled(enabled: boolean, pin?: string): Promise<ProtectionGate> {
+  /* Açmak = güçlendirmek → serbest. Kapatmak = korumayı kaldırmak → kanıt. */
+  if (enabled) { push({ enabled, lastAlert: null }); return 'ALLOWED'; }
+  const gate = await authorizeProtectedChange(pin);
+  if (gate !== 'ALLOWED') return gate;
   push({ enabled, lastAlert: null });
+  return gate;
 }
 
-export function setGeofenceCenter(center: { lat: number; lng: number } | null): void {
-  if (!center) return;
-  
+export async function setGeofenceCenter(
+  center: { lat: number; lng: number } | null, pin?: string,
+): Promise<ProtectionGate> {
+  if (!center) return 'ALLOWED';
+
   const existing = _state.zones.find(z => z.id === 'default');
-  if (existing) {
-    updateGeofenceZone('default', { center });
-  } else {
-    addGeofenceZone({
-      id: 'default',
-      name: 'Park Bölgesi',
-      type: 'circle',
-      center,
-      radiusKm: 5
-    });
+  if (!existing) {
+    /* İLK kurulum: henüz korunacak bir sınır yok → serbest. */
+    _addZone({ id: 'default', name: 'Park Bölgesi', type: 'circle', center, radiusKm: 5 });
+    return 'ALLOWED';
   }
+  /* Mevcut sınırı TAŞIMAK = sınırı etkisizleştirebilir → kanıt. */
+  const gate = await authorizeProtectedChange(pin);
+  if (gate !== 'ALLOWED') return gate;
+  _updateZone('default', { center });
+  return gate;
 }
 
-export function setGeofenceRadius(radiusKm: number): void {
-  updateGeofenceZone('default', { radiusKm });
+export async function setGeofenceRadius(radiusKm: number, pin?: string): Promise<ProtectionGate> {
+  const gate = await authorizeProtectedChange(pin);
+  if (gate !== 'ALLOWED') return gate;
+  _updateZone('default', { radiusKm });
+  return gate;
 }
 
-export function setValeMode(active: boolean): void {
-  push({ valeModeActive: active, valeAlert: null });
+export async function setValeMode(active: boolean, pin?: string): Promise<ProtectionGate> {
+  if (active) { push({ valeModeActive: true, valeAlert: null }); return 'ALLOWED'; }
+  const gate = await authorizeProtectedChange(pin);
+  if (gate !== 'ALLOWED') return gate;
+  push({ valeModeActive: false, valeAlert: null });
+  return gate;
 }
 
-export function setValeSpeedLimit(limit: number): void {
+export async function setValeSpeedLimit(limit: number, pin?: string): Promise<ProtectionGate> {
+  const gate = await authorizeProtectedChange(pin);
+  if (gate !== 'ALLOWED') return gate;
   push({ valeSpeedLimit: limit });
+  return gate;
 }
 
-export function setPinLock(enabled: boolean): void {
-  push({ pinLockEnabled: enabled, pinUnlocked: !enabled });
+/**
+ * PIN kilidini aç/kapat.
+ * AÇMAK serbesttir. KAPATMAK korumayı kaldırmaktır → mevcut PIN kanıtı ister.
+ */
+export async function setPinLock(enabled: boolean, pin?: string): Promise<ProtectionGate> {
+  if (enabled) { push({ pinLockEnabled: true, pinUnlocked: false }); return 'ALLOWED'; }
+  const gate = await authorizeProtectedChange(pin);
+  if (gate !== 'ALLOWED') return gate;
+  push({ pinLockEnabled: false, pinUnlocked: true });
+  return gate;
 }
 
 export async function unlockPin(attempt: string): Promise<boolean> {
@@ -459,6 +550,20 @@ export function dismissGeofenceAlert(): void {
 }
 
 export function getGeofenceState(): GeofenceState { return _state; }
+
+/**
+ * Test sıfırlama (repo konvansiyonu: `_reset*ForTest`).
+ *
+ * NEDEN GEREKLİ: koruma kapısı fail-closed'dır — kilit AÇIKken doğrulayıcı
+ * yoksa kapatma DENY edilir. Bu üründe DOĞRU davranıştır (gerçek cihazda
+ * uygulama verisi temizlenince geofence durumu da aynı depodan silinir, yani
+ * kalıcı kilitlenme oluşmaz), ama testlerin deterministik başlangıç noktası
+ * için doğrudan sıfırlama gerekir. ÜRETİMDE ÇAĞRILMAZ.
+ */
+export function _resetGeofenceStateForTest(): void {
+  _state = { ...INITIAL, zones: [], zoneStatus: {} };
+  _listeners.forEach((l) => l(_state));
+}
 
 /* ── React hook ──────────────────────────────────────────── */
 

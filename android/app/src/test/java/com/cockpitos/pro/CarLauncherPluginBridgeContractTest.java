@@ -55,7 +55,12 @@ public class CarLauncherPluginBridgeContractTest {
         "secureStoreSet", "secureStoreGet",
         "getStableDeviceId",
         "connectOBD", "readPidOnce",
-        "getCommandServiceStatus"
+        "getCommandServiceStatus",
+        /* Wave 12B — local PIN otoritesi (valet/geofence koruması).
+           Eksilirse pinService FAIL-CLOSED davranır ve koruma kapatılamaz
+           hâle gelir; sessiz bir "PIN yok" durumuna DÜŞMEZ. */
+        "localPinStatus", "setLocalPin", "verifyLocalPin",
+        "changeLocalPin", "clearLocalPin"
     );
 
     private static List<Method> annotatedBridgeMethods() {
