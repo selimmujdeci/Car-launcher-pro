@@ -726,10 +726,11 @@ async function updateCommandStatus(
 // ── Retry increment (RPC üzerinden — atomik) ─────────────────────────────────
 
 async function incrementRetry(commandId: string, errorReason: string): Promise<void> {
-  const supabase = await getSupabase();
-  if (!supabase) return;
-  // increment_command_retry RPC: retry_count artırır, max 3'te failed'a çeker
-  await supabase.rpc('increment_command_retry', {
+  /* MRI F-06 (083): kimliksiz `increment_command_retry(uuid,text)` istemciye
+     KAPATILDI — herkes herhangi bir komutu `failed`a çekebiliyordu. Yeni imza
+     api_key kimliği ister ve yalnız KENDİ aracının komutunu ilerletir;
+     `update_command_status` ile aynı tek kapı (`callVehicleRpc` → p_api_key). */
+  await callVehicleRpc('increment_command_retry', {
     p_command_id: commandId,
     p_error:      errorReason,
   });

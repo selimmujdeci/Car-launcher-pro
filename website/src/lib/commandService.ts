@@ -26,14 +26,13 @@ export function isCriticalCommand(type: CommandType): boolean {
   return CRITICAL_COMMANDS.includes(type);
 }
 
-// ── SHA-256 hash (PIN plaintext asla sunucuya gitmez) ─────────────────────────
-export async function hashPin(pin: string): Promise<string> {
-  const data   = new TextEncoder().encode(pin);
-  const digest = await crypto.subtle.digest('SHA-256', data);
-  return Array.from(new Uint8Array(digest))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-}
+/* ── PIN: SUNUCU DOĞRULAR (MRI N-2/N-3, migration 083) ───────────────────────
+   Eski model: istemci SHA-256(PIN) üretip `p_pin_hash` gönderiyor, sunucu hash'i
+   hash'le karşılaştırıyordu (pass-the-hash) — üstelik PIN yalnız localStorage'da
+   olduğu için sunucuda hiç kayıtlı değildi ve `critical_auth_verified: true`
+   istemci iddiası trigger'ı geçiyordu. Artık ham PIN TLS içinde
+   `verify_and_send_critical_command(p_pin)`e gider; sunucu bcrypt doğrular,
+   komutu AYNI transaction'da yaratır. İstemci hiçbir güvenlik kararı yazmaz. */
 
 // ── Tipler ────────────────────────────────────────────────────────────────────
 
@@ -95,8 +94,12 @@ export const COMMAND_TTL_MINUTES = COMMAND_TTL_MS / 60_000;
 
 export interface SendCommandOptions {
   requireCriticalAuth?: boolean;
-  /** SHA-256 hex hash of the PIN — required for critical commands if vehicle has a PIN set. */
-  pinHash?: string;
+  /**
+   * Ham PIN (4–8 rakam). Kritik komutlarda ZORUNLU: sunucu doğrular
+   * (`verify_and_send_critical_command`). Sunucuda PIN kayıtlı değilse bu
+   * PIN `set_vehicle_pin` ile kaydedilir ve komut yeniden gönderilir.
+   */
+  pin?: string;
 }
 
 export interface StatusEvent {
@@ -234,35 +237,25 @@ export async function sendCommand(
   const nonce = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const ttl   = new Date(Date.now() + COMMAND_TTL_MS).toISOString();
 
-  // Kritik komut: PIN hash ile verify_and_send_critical_command RPC
-  if (isCriticalCommand(type) && options.pinHash) {
-    const { data: rpcData, error: rpcErr } = await supabaseBrowser.rpc(
-      'verify_and_send_critical_command',
-      {
-        p_vehicle_id: vehicleId,
-        p_type:       type,
-        p_payload:    finalPayload,
-        p_pin_hash:   options.pinHash,
-        p_nonce:      nonce,
-        p_ttl:        ttl,
-      },
-    );
-    if (rpcErr) return { ok: false, error: rpcErr.message };
-    const res = rpcData as { ok: boolean; command_id?: string; error?: string };
-    if (!res.ok) return { ok: false, error: res.error ?? 'PIN doğrulaması başarısız.' };
-    return { ok: true, commandId: res.command_id, queued: !online };
+  // Kritik komut: TEK KAPI = sunucu tarafı PIN doğrulaması (083). Doğrudan
+  // INSERT kritik komut için yapısal olarak reddedilir (trigger, sunucu kanıtı).
+  if (isCriticalCommand(type)) {
+    if (!options.pin) return { ok: false, error: 'Kritik komut için PIN gerekli.' };
+    const res = await sendCriticalViaServer(vehicleId, type, finalPayload, options.pin, nonce, ttl);
+    if (!res.ok) return res;
+    return { ok: true, commandId: res.commandId, queued: !online };
   }
 
   const { data, error } = await supabaseBrowser
     .from('vehicle_commands')
     .insert({
-      vehicle_id:             vehicleId,
-      created_by:             (await supabaseBrowser.auth.getUser()).data.user?.id,
+      vehicle_id: vehicleId,
+      created_by: (await supabaseBrowser.auth.getUser()).data.user?.id,
       type,
-      payload:                finalPayload,
+      payload:    finalPayload,
       nonce,
       ttl,
-      critical_auth_verified: options.requireCriticalAuth === true,
+      /* `critical_auth_verified` GÖNDERİLMEZ: sunucu yazar (istemci iddiası değil). */
     })
     .select('id')
     .single();
@@ -273,6 +266,78 @@ export async function sendCommand(
   void triggerPushWake(vehicleId, data.id);
 
   return { ok: true, commandId: data.id, queued: !online };
+}
+
+// ── Kritik komut: sunucu PIN kapısı ──────────────────────────────────────────
+
+interface CriticalRpcResult { ok: boolean; command_id?: string; error?: string }
+
+const CRITICAL_ERROR_TEXT: Record<string, string> = {
+  pin_not_set:     'Araç için PIN kayıtlı değil.',
+  pin_locked:      'Çok fazla yanlış PIN — 15 dakika sonra tekrar deneyin.',
+  pin_mismatch:    'Mevcut PIN yanlış.',
+  unauthenticated: 'Oturum gerekli.',
+};
+
+function criticalErrorText(code: string | undefined): string {
+  if (!code) return 'PIN doğrulaması başarısız.';
+  return CRITICAL_ERROR_TEXT[code] ?? code;
+}
+
+/**
+ * Sunucuda PIN doğrula + komutu yarat (tek transaction). Sunucu `pin_not_set`
+ * derse — araçta HİÇ PIN kayıtlı değil (eski PWA PIN'i yalnız telefonda
+ * tutuyordu) — girilen PIN `set_vehicle_pin` ile kaydedilir ve komut BİR KEZ
+ * yeniden denenir. Sahip olmayan eşleşmiş kullanıcı mevcut PIN'i bilmeden
+ * PIN değiştiremez; bu istemcide çözülmez, sunucu reddeder.
+ */
+async function sendCriticalViaServer(
+  vehicleId: string,
+  type:      CommandType,
+  payload:   Record<string, unknown>,
+  pin:       string,
+  nonce:     string,
+  ttl:       string,
+): Promise<{ ok: true; commandId?: string } | { ok: false; error: string }> {
+  if (!supabaseBrowser) return { ok: false, error: 'Supabase yapılandırması eksik.' };
+  const call = async (): Promise<CriticalRpcResult | { rpcError: string }> => {
+    const { data, error } = await supabaseBrowser!.rpc('verify_and_send_critical_command', {
+      p_vehicle_id: vehicleId,
+      p_type:       type,
+      p_payload:    payload,
+      p_pin:        pin,
+      p_nonce:      nonce,
+      p_ttl:        ttl,
+    });
+    if (error) return { rpcError: error.message };
+    return data as CriticalRpcResult;
+  };
+
+  let res = await call();
+  if ('rpcError' in res) return { ok: false, error: res.rpcError };
+
+  if (!res.ok && res.error === 'pin_not_set') {
+    const { data: setData, error: setErr } = await supabaseBrowser.rpc('set_vehicle_pin', {
+      p_vehicle_id: vehicleId,
+      p_pin:        pin,
+    });
+    if (setErr) return { ok: false, error: setErr.message };
+    const setRes = setData as { ok: boolean; error?: string };
+    if (!setRes.ok) return { ok: false, error: criticalErrorText(setRes.error) };
+    markCriticalPinEnrolled();
+    res = await call();
+    if ('rpcError' in res) return { ok: false, error: res.rpcError };
+  }
+
+  if (!res.ok) return { ok: false, error: criticalErrorText(res.error) };
+  markCriticalPinEnrolled();
+  return { ok: true, commandId: res.command_id };
+}
+
+/** Yalnız UX ipucu ("PIN belirleyin" vs "PIN girin") — güvenlik otoritesi DEĞİL. */
+export const CRITICAL_PIN_ENROLLED_KEY = 'caros_critical_pin_enrolled';
+function markCriticalPinEnrolled(): void {
+  try { localStorage.setItem(CRITICAL_PIN_ENROLLED_KEY, '1'); } catch { /* quota */ }
 }
 
 // ── Komut durumunu dinle (Realtime) ───────────────────────────────────────────

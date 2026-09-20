@@ -47,6 +47,23 @@ const DESCRIPTORS: readonly AccountScopedStorageDescriptor[] = [
     description: 'Legacy client-side critical-command PIN hash authority.',
   },
   {
+    id: 'critical-pin-enrolled-hint',
+    backend: 'LOCAL_STORAGE',
+    scope: 'ACCOUNT',
+    sensitivity: 'OPERATIONAL',
+    cleanupPolicies: [
+      'PURGE_ON_LOGOUT',
+      'PURGE_ON_ACCOUNT_SWITCH',
+      'PURGE_ON_SECURITY_RESET',
+    ],
+    physicalKey: 'caros_critical_pin_enrolled',
+    namespaceVersion: 1,
+    ownerRequirements: { accountId: true, vehicleId: false },
+    verifyStrategy: 'KEY_ABSENT',
+    valueFormat: 'OPAQUE',
+    description: 'Yalnız UX ipucu (PIN belirle/gir metni); secret veya otorite değil — PIN sunucuda (083).',
+  },
+  {
     id: 'paired-vehicle-authority',
     backend: 'LOCAL_STORAGE',
     scope: 'ACCOUNT_VEHICLE',

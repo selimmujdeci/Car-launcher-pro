@@ -36,10 +36,11 @@ DECLARE
   k2 text := gen_random_uuid()::text;
 BEGIN
   INSERT INTO public.companies (name) VALUES ('E2E_TEST_CO') RETURNING id INTO c;
+  /* 084: anahtar at-rest sha256 saklanır; cihaz ham k1/k2 gönderir. */
   INSERT INTO public.vehicles (company_id, name, api_key_hash)
-  VALUES (c, 'E2E_ARAC_1', k1) RETURNING id INTO v1;
+  VALUES (c, 'E2E_ARAC_1', encode(sha256(convert_to(k1,'UTF8')),'hex')) RETURNING id INTO v1;
   INSERT INTO public.vehicles (company_id, name, api_key_hash)
-  VALUES (c, 'E2E_ARAC_2', k2) RETURNING id INTO v2;
+  VALUES (c, 'E2E_ARAC_2', encode(sha256(convert_to(k2,'UTF8')),'hex')) RETURNING id INTO v2;
 
   INSERT INTO ek VALUES
     ('v1', v1::text), ('v2', v2::text), ('k1', k1), ('k2', k2),

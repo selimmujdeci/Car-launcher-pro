@@ -144,13 +144,13 @@ export function useCommandTracker(vehicleId: string | null) {
     if (!vehicleId) return;
     if (BUSY.includes(phases[type] ?? 'idle')) return;
 
-    // Critical auth gate — PIN hash al
-    let pinHash: string | undefined;
+    // Critical auth gate — PIN'i sor; doğrulama SUNUCUDA (083)
+    let pin: string | undefined;
     if (CRITICAL_CMDS.includes(type)) {
-      const hash = await verifyCriticalCommand();
-      if (!hash) return;
+      const entered = await verifyCriticalCommand();
+      if (!entered) return;
       if (!isCleanupGenerationCurrent(cleanupGeneration)) return;
-      pinHash = hash;
+      pin = entered;
     }
 
     const startMs = Date.now();
@@ -209,7 +209,7 @@ export function useCommandTracker(vehicleId: string | null) {
           }
         }
       },
-      { requireCriticalAuth: CRITICAL_CMDS.includes(type), pinHash },
+      { requireCriticalAuth: CRITICAL_CMDS.includes(type), pin },
     );
 
     if (!isCleanupGenerationCurrent(cleanupGeneration)) {

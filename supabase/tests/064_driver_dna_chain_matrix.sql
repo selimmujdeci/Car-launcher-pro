@@ -69,8 +69,9 @@ BEGIN
      OLAMAZ (owner_id ve company_id birlikte dolu olamaz). Driver DNA bir FILO
      kavramidir; arac SIRKETE ait kurulur. */
   api := 'dna_test_api_' || replace(gen_random_uuid()::text, '-', '');
-  INSERT INTO public.vehicles (company_id, name, api_key)
-  VALUES (c, 'DNA_TEST_VEHICLE', api)
+  /* 084: anahtar at-rest sha256 saklanır; cihaz ham api gönderir. */
+  INSERT INTO public.vehicles (company_id, name, api_key_hash)
+  VALUES (c, 'DNA_TEST_VEHICLE', encode(sha256(convert_to(api,'UTF8')),'hex'))
   RETURNING id INTO v;
 
   INSERT INTO dna_ids VALUES ('company', c), ('admin', admin_uid), ('vehicle', v);

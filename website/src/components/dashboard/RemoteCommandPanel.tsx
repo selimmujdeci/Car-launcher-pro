@@ -34,12 +34,15 @@ async function sendCommand(
   payload: Record<string, unknown> = {},
 ): Promise<CommandResult> {
   const isCritical = type === 'unlock';
+  let pin: string | undefined;
   if (isCritical) {
-    const verified = await verifyCriticalCommand();
-    if (!verified) return { ok: false, msg: 'Kritik komut için PIN doğrulaması başarısız.' };
+    /* PIN sunucuda doğrulanır (083); burada yalnız sorulur ve iletilir. */
+    const entered = await verifyCriticalCommand();
+    if (!entered) return { ok: false, msg: 'Kritik komut için PIN gerekli.' };
+    pin = entered;
   }
 
-  const result = await enqueueCommand(vehicleId, type, payload, { requireCriticalAuth: isCritical });
+  const result = await enqueueCommand(vehicleId, type, payload, { requireCriticalAuth: isCritical, pin });
   if (!result.ok) return { ok: false, msg: result.error ?? 'Komut gönderilemedi.' };
   return {
     ok: true,
