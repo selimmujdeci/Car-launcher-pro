@@ -22,6 +22,12 @@ import {
   onTripState, TRIP_DISCARD_MIN_DURATION_MIN, TRIP_DISCARD_MIN_DISTANCE_KM,
   type TripState,
 } from '../tripLogService';
+/* NAVİGASYON NİYETİ — İNCE KAPI (çalışma zamanı bağımlılığı YOK).
+   Bu servis navigasyona hiçbir şey YAZMAZ, abone OLMAZ, oturum AÇMAZ ve
+   navigasyonu IMPORT ETMEZ; yalnız "hedef var mı / varış mührü" sorularını
+   okuma anında sorar. Niyetin sahibi navigasyon otoritesidir; kapı yalnız
+   NİYET taşır — mesafe, ETA, rota ve hedef BURADAN GEÇMEZ. */
+import { readNavIntent } from './navIntentPort';
 import { _registerTripSessionReader } from './tripSessionAccess';
 import {
   emptyTripSession, advanceTripSession, projectTripSession,
@@ -66,12 +72,15 @@ function _toSegment(s: TripState): TripSessionSegment | null {
 
 function _onState(s: TripState): void {
   try {
+    const intent = readNavIntent();
     _session = advanceTripSession(_session, {
       monoMs:  _mono(),
       wallMs:  Date.now(),
       segment: _toSegment(s),
       lat:     s.current ? s.current.lastGPSLat : null,
       lon:     s.current ? s.current.lastGPSLng : null,
+      routeActive: intent.routeActive,
+      arrivalSeq:  intent.arrivalSeq,
     });
   } catch { /* oturum katmanı yolculuk akışını ASLA bozmaz */ }
 }

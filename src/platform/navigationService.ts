@@ -184,6 +184,41 @@ export const ARRIVAL_THRESHOLD_M = 20;
 
 // 5 s ARRIVED → IDLE timer
 let _arrivedTimer: ReturnType<typeof setTimeout> | null = null;
+
+/* ── VARIŞ MÜHRÜ (gözlemlenebilir iz — YENİ OTORİTE DEĞİL) ────────────────
+ *
+ * NEDEN VAR: `ARRIVED` yalnız 5 saniye yaşar, sonra `stopNavigation()` her
+ * izi siler. Varışı 5 sn'den seyrek örnekleyen bir okuyucu (seyahat oturumu
+ * `tripLogService` yayınıyla ~5 sn'de bir uyanır) hedefe VARILDIĞINI hiç
+ * göremez ve "iptal edildi" ile "varıldı" ayırt edilemezdi.
+ *
+ * Mühür varış KARARINI ÜRETMEZ — kararı `transitionToArrived` verir, burası
+ * yalnız o kararın KALICI izini tutar. `seq` monotonik artar: okuyucu kendi
+ * açılışındaki değeri saklayıp "benden sonra varış oldu mu" sorusunu saat
+ * karşılaştırmadan cevaplar. İptal (`stopNavigation`) mührü SİLMEZ; çünkü
+ * silinen mühür "varış olmadı" anlamına gelir ve bu bir uydurmadır. */
+export interface NavArrivalMark {
+  /** Monotonik artan varış sırası — 0 = hiç varış gözlenmedi. */
+  readonly seq: number;
+  /** Varışın gerçekleştiği navigasyon oturumu (`getNavSessionId`). */
+  readonly navSessionId: number;
+  /** Varılan hedefin kimliği; bilinmiyorsa `null` (UYDURULMAZ). */
+  readonly destinationId: string | null;
+}
+
+let _arrivalMark: NavArrivalMark = Object.freeze({
+  seq: 0, navSessionId: -1, destinationId: null,
+});
+
+/** Son varış mührü — salt okuma projeksiyonu. `seq === 0` → hiç varış yok. */
+export function getNavArrivalMark(): NavArrivalMark {
+  return _arrivalMark;
+}
+
+/** @internal testler için — mührü sıfırlar. */
+export function _resetNavArrivalMarkForTest(): void {
+  _arrivalMark = Object.freeze({ seq: 0, navSessionId: -1, destinationId: null });
+}
 let _unregisterReroutingCb: (() => void) | null = null;
 
 /** Hedefe varış — ARRIVED durumuna geç ve 5 s sonra IDLE'a dön. */
@@ -194,6 +229,12 @@ function transitionToArrived(): void {
   if (!_navigationStarted) return;
 
   clearRerouteContext(); // artık sapma tespiti yapma
+  /* Varış MÜHÜRLENİR: `ARRIVED` 5 sn sonra silinir, bu iz KALIR (bkz. mühür). */
+  _arrivalMark = Object.freeze({
+    seq: _arrivalMark.seq + 1,
+    navSessionId: _sessionId,
+    destinationId: useNavigationStore.getState().destination?.id ?? null,
+  });
   useNavigationStore.getState()._setStatus(NavStatus.ARRIVED);
 
   if (_arrivedTimer) clearTimeout(_arrivedTimer);

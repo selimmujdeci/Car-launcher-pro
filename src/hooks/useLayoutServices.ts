@@ -11,6 +11,8 @@ import {
 import { startTripLog, stopTripLog } from '../platform/tripLogService';
 import { startTripMeter, stopTripMeter } from '../platform/trip/tripMeterService';
 import { startTripSession, stopTripSession } from '../platform/trip/tripSessionService';
+import { registerNavIntentReader } from '../platform/trip/navIntentPort';
+import { getNavigationState, getNavArrivalMark } from '../platform/navigationService';
 import { startLocationContext, stopLocationContext } from '../platform/location/locationContextService';
 import {
   startTunnelNightRuntime, stopTunnelNightRuntime,
@@ -361,6 +363,15 @@ export function useLayoutServices({
     });
     startTripLog();
     startTripMeter();
+    /* NAVİGASYON NİYETİ KÖPRÜSÜ — burası KOMPOZİSYON KÖKÜdür: navigasyonu da
+       yolculuğu da yalnız bu katman birlikte bilir. Oturum katmanı
+       navigasyonu import ETMEZ (ikinci mesafe/ETA sahibi doğmasın), yalnız
+       ince kapıdan NİYETİ okur: hedef var mı ve varış mührü ilerledi mi.
+       Kayıt oturumdan ÖNCE yapılır ki ilk örnek bile niyeti görsün. */
+    registerNavIntentReader(() => ({
+      routeActive: getNavigationState().isNavigating === true,
+      arrivalSeq:  getNavArrivalMark().seq,
+    }));
     /* Oturum katmanı tripLog'un YAYININA abone olur → tripLog'dan SONRA
        başlar, ondan ÖNCE durur (abonelik sahipsiz kalmasın). */
     startTripSession();
@@ -380,6 +391,8 @@ export function useLayoutServices({
       stopTunnelNightRuntime();
       stopLocationContext();
       stopTripSession();
+      /* Kapıyı da sök: durdurulmuş oturum bayat niyet okumasın. */
+      registerNavIntentReader(null);
       stopTripLog();
       stopTripMeter();
       stopNotificationService();
