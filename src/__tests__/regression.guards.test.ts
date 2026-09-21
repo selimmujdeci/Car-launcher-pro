@@ -2088,18 +2088,17 @@ describe('ENGINE_OVERHEAT zinciri kilidi (motor aşırı ısınma histerezisi)',
   });
 
   // Saha 2026-07-07: app arka plan/uykudan dönünce birikmiş GPS tek tick'te işlenip
-  // hız spike'ı (≥DRIVE_ON_KMH) üretiyordu → sahte DRIVING_STARTED/STOPPED → park
-  // halde sahte "Yolculuk Tamamlandı" banner. Cihazda tekrar-üretildi (HOME→dönüş).
-  // Resume-guard: foreground dönüşünden RESUME_TRIP_GRACE_MS içinde biten trip'te
-  // banner bastırılır. Bu kilit fix'in sessizce geri alınmasını engeller.
-  it('YAPISAL: SystemOrchestrator resume-guard sahte yolculuk banner\'ını bastırır', () => {
-    expect(systemOrchestratorSrc, "visibilitychange dinleyicisi kaldırılmış — resume anı izlenmiyor")
-      .toMatch(/addEventListener\(\s*'visibilitychange'\s*,\s*_onOrchVisibility\s*\)/);
-    expect(systemOrchestratorSrc, "RESUME_TRIP_GRACE_MS guard kaldırılmış — resume artefaktı trip banner'ı yine açılır")
-      .toMatch(/Date\.now\(\)\s*-\s*_lastResumeAt\s*<\s*RESUME_TRIP_GRACE_MS/);
-    // Zero-leak: dinleyici teardown'da sökülmeli
-    expect(systemOrchestratorSrc, "visibilitychange dinleyicisi cleanup'ta sökülmüyor — zero-leak ihlali")
-      .toMatch(/removeEventListener\(\s*'visibilitychange'\s*,\s*_onOrchVisibility\s*\)/);
+  // hız spike'ı üretiyordu → sahte DRIVING_STARTED/STOPPED → park halde sahte
+  // "Yolculuk Tamamlandı" banner. Eski çözüm resume-guard idi (visibilitychange +
+  // RESUME_TRIP_GRACE_MS). 2026-09-21: tetikleyicinin kendisi değişti — kart artık
+  // depolama segmenti mührüne DEĞİL, seyahat oturumunun kanonik hükmüne bağlı
+  // (JOURNEY + DESTINATION_REACHED). Resume artefaktı / GPS gürültüsü navigasyon
+  // varış mührü ÜRETEMEZ; bu kilit yeni kuralın geri alınmasını engeller.
+  it('YAPISAL: SystemOrchestrator "yolculuk tamamlandı" kartını yalnız kanonik oturum hükmüyle açar', () => {
+    expect(systemOrchestratorSrc, "kanonik seçici kaldırılmış — kart segment mührüne geri dönebilir")
+      .toContain('selectJourneyCompletionCard(readTripSessionOrNull())');
+    expect(systemOrchestratorSrc, "depolama segmenti kapanışı yeniden tetikleyici olmuş")
+      .not.toMatch(/history\[0\]|lastCompletedTripId|_pendingTripSummary/);
   });
 });
 
