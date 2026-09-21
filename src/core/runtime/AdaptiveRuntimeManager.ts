@@ -704,7 +704,52 @@ class AdaptiveRuntimeManager {
     // enableShadows=false (BASIC_JS/POWER_SAVE/SAFE_MODE) → html.rt-no-shadow →
     // index.css tüm box-shadow'ları sıfırlar (Mali-400 kompozit katman tasarrufu).
     root.classList.toggle('rt-no-shadow', !config.enableShadows);
+    /* AYNI GEREKÇE BLUR İÇİN DE GEÇERLİ (2026-09-06 saha ölçümü, kütük #1294):
+     * `--rt-blur` çarpanı YALNIZ `calc(var(--rt-blur,1) * Npx)` yazan yerleri
+     * kapatır. Gerçek cihazda ölçüldü: `--rt-blur:0` iken ekranda hâlâ **50**
+     * element sabit `backdrop-filter: blur(8px|32px)` ile duruyordu (Tailwind
+     * `backdrop-blur-*` sınıfları çarpanı KULLANMAZ) — yani termal kısıtlama
+     * "blur kapalı" derken GPU'nun en pahalı işi açık kalıyordu. Sınıf anahtarı
+     * `rt-no-shadow` ile birebir aynı desendir; kapsamı tektir ve kaçak bırakmaz. */
+    root.classList.toggle('rt-no-blur', !config.enableBlur);
+    this._applyBlurKillStyle(!config.enableBlur);
     if (root.getAttribute('data-runtime') !== mode) root.setAttribute('data-runtime', mode);
+  }
+
+  /**
+   * Blur kapatma kuralını ÇALIŞMA ZAMANINDA enjekte eder.
+   *
+   * NEDEN CSS DOSYASI YETMİYOR (2026-09-06, gerçek cihazda ölçüldü — kütük #1295):
+   * `backdrop-filter: none !important` bildirimi **build minifier'ı tarafından
+   * siliniyor**. Kanıt: kurulu APK'nın yüklü stil sayfalarında `html.rt-no-blur *`
+   * kuralı `{ }` (BOŞ GÖVDE) olarak duruyordu; `base.css`'te yıllardır yazılı olan
+   * `html[data-runtime="SAFE_MODE"] * { backdrop-filter: none !important }` kuralı
+   * ise çıktıda HİÇ YOKTU (tek bildirimi silinince kural tamamen boşalıp atılmış).
+   * Yani projedeki mevcut düşük-runtime blur koruması da fiilen ÖLÜYDÜ —
+   * "kör guard = düşen guard"ın CSS karşılığı.
+   *
+   * Aynı kural CDP ile çalışma zamanında enjekte edildiğinde ÇALIŞIYOR (ölçüldü:
+   * RenderThread %80 → %54.8, mali %26 → %19.3). Bu yüzden kural derleme
+   * hattından GEÇMEDEN doğrudan `<style>` olarak yazılır — minifier'a takılmaz.
+   *
+   * Zero-Leak: tek bir `<style>` düğümü yeniden kullanılır; kısıt kalkınca
+   * içerik boşaltılır (düğüm DOM'da kalır, sürekli ekle/çıkar reflow'u olmaz).
+   */
+  private _blurKillEl: HTMLStyleElement | null = null;
+
+  private _applyBlurKillStyle(disableBlur: boolean): void {
+    if (typeof document === 'undefined') return;
+    const wanted = disableBlur
+      ? 'html.rt-no-blur *{backdrop-filter:none !important;-webkit-backdrop-filter:none !important}'
+      : '';
+    if (this._blurKillEl === null) {
+      if (wanted === '') return;                 // kısıt yok → düğüm hiç yaratılmaz
+      const el = document.createElement('style');
+      el.setAttribute('data-rt-blur-kill', '1');
+      document.head.appendChild(el);
+      this._blurKillEl = el;
+    }
+    if (this._blurKillEl.textContent !== wanted) this._blurKillEl.textContent = wanted;
   }
 
   /* ══════════════════════════════════════════════════════════════
@@ -1295,6 +1340,9 @@ class AdaptiveRuntimeManager {
     this._cancelUpgrade();
     this._cancelThermalRecovery();
     this._stopZombieDetection();
+    // Zero-Leak: runtime'da enjekte edilen blur-kill <style> düğümünü kaldır.
+    this._blurKillEl?.remove();
+    this._blurKillEl = null;
     // §L.0 Scheduler: wheel timer'ı durdur + görev kaydını temizle (Zero-Leak).
     this._stopWheel();
     this._tasks.clear();

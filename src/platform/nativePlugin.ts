@@ -664,6 +664,16 @@ export interface NativeThermalResult {
   readonly readableCount: number;
   /** `readableCount > 0` — hiçbir bölge okunamadıysa false. */
   readonly available: boolean;
+  /**
+   * `PowerManager.getCurrentThermalStatus()` — ÜRETİCİ KALİBRELİ termal hüküm
+   * (0=NONE · 1=LIGHT · 2=MODERATE · 3=SEVERE · 4=CRITICAL · 5=EMERGENCY · 6=SHUTDOWN).
+   *
+   * Ham die sıcaklığından FARKLIDIR: üretici cilt sıcaklığını da hesaba katarak
+   * kalibre eder, bu yüzden eşik tahminine gerek bırakmaz. HAL ölü olan cihazlarda
+   * (bazı head unit'ler) alan HİÇ GELMEZ → `undefined` = UNAVAILABLE, sahte
+   * "serin" hükmü üretilmez.
+   */
+  readonly thermalStatus?: number;
 }
 
 export interface NativeDeviceProfile {

@@ -467,6 +467,36 @@ public class CarLauncherPlugin extends Plugin {
         ret.put("zones", zones);
         ret.put("readableCount", found);
         ret.put("available", found > 0);
+
+        /* ÜRETİCİ KALİBRELİ TERMAL DURUM (2026-09-06, gerçek cihaz kanıtı).
+         *
+         * Yukarıdaki not K24 head unit içindir: ORADA HAL ölü, bu yüzden sysfs
+         * kullanılır ve o karar KORUNUR. Ama HAL'in ÇALIŞTIĞI cihazlarda
+         * (Redmi 23090RA98I ölçümü: `dumpsys thermalservice` → `HAL Ready: true`,
+         * `Thermal Status: 3`) bu API sysfs'ten DAHA İYİdir: ham die sıcaklığı
+         * değil, üreticinin CİLT sıcaklığını da hesaba katarak kalibre ettiği
+         * hükümdür — eşik tahminine gerek bırakmaz.
+         *
+         * Sahada ölçülen kusur: cihaz SEVERE(3) durumdayken uygulamanın hiçbir
+         * kaynağı bunu görmüyordu (batarya 40 °C < 45 °C eşiği; die 63 °C <
+         * 100 °C eşiği) → kısıtlama HİÇ devreye girmiyor, blur/shadow açık
+         * kalıp ısınmayı besliyordu.
+         *
+         * ZERO-TRUST: değer alınamazsa ya da geçersizse (HAL ölü → Integer.MIN_VALUE
+         * gibi) alan JSON'a KONMAZ → JS tarafı UNAVAILABLE sayar, sahte "serin"
+         * hükmü ÜRETİLMEZ. Yalnız OKUR; hiçbir throttling uygulamaz. */
+        if (android.os.Build.VERSION.SDK_INT >= 29) {
+            try {
+                android.os.PowerManager pm =
+                    (android.os.PowerManager) getContext().getSystemService(Context.POWER_SERVICE);
+                if (pm != null) {
+                    int st = pm.getCurrentThermalStatus();
+                    // Geçerli aralık: NONE(0) … SHUTDOWN(6). Dışındaki her şey = HAL ölü/bilinmiyor.
+                    if (st >= 0 && st <= 6) ret.put("thermalStatus", st);
+                }
+            } catch (Throwable ignored) { /* fail-soft: alan konmaz */ }
+        }
+
         call.resolve(ret);
     }
 
