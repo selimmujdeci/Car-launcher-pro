@@ -198,6 +198,15 @@ public final class OBDManager {
      */
     private volatile BluetoothSocket pendingSocket = null;
 
+    /**
+     * P0-OBD-CONNECT-RACE: {@code connect()}'in TEK connect-attempt otoritesi —
+     * bkz. {@link ConnectGenerationGuard} sınıf yorumu (kök neden). JS zaman
+     * aşımına uğrayıp vazgeçtiğinde bloke olan bu tur STALE olur; stale bir tur
+     * ne callback ateşleyebilir ne paylaşılan durumu (obdSocket/elm/pollLoop)
+     * değiştirebilir — fail-closed.
+     */
+    private final ConnectGenerationGuard connectGen = new ConnectGenerationGuard();
+
     // TCP (WiFi ELM327) bağlantısı — Classic BT alanlarından AYRI tutulur.
     // disconnect() her ikisini de kapatır (idempotent).
     private volatile Socket tcpSocket = null;
@@ -337,6 +346,10 @@ public final class OBDManager {
      */
     public void connect(final String address, final String pin, final String protocol,
                         final Set<String> pidSet, final ConnectCallback cb) {
+        // P0-OBD-CONNECT-RACE: yeni nesil EN BAŞTA rezerve edilir — uçuştaki ÖNCEKİ
+        // deneme (varsa) bu satırdan itibaren STALE'dir (bkz. ConnectGenerationGuard).
+        final int myGen = connectGen.begin();
+
         // submit'ten ÖNCE set edilir; initELM327/pollLoop güncel değeri görür.
         obdProtocol = present(protocol) ? protocol : null;
         obdPidSet   = pidSet;
@@ -416,6 +429,16 @@ public final class OBDManager {
                     }
                 }
 
+                // P0-OBD-CONNECT-RACE · KONTROL NOKTASI A: soket bağlandı ama bu ANDA
+                // BAŞKA bir connect() çağrılmış olabilir (JS zaman aşımına uğrayıp
+                // vazgeçti, yeni deneme başladı). Stale ise paylaşılan hiçbir alana
+                // (obdSocket/elm) DOKUNMADAN kendi soketimizi kapatıp fail-closed çıkarız —
+                // aksi halde bu ESKİ deneme YENİ denemenin durumunu ÜZERİNE YAZARDI.
+                if (!connectGen.isCurrent(myGen)) {
+                    try { socket.close(); } catch (Exception ignored) {}
+                    return;
+                }
+
                 obdSocket = socket;
                 pendingSocket = null; // Patch 2: bağlantı başarılı — sahiplik obdSocket'e geçti
                 obdInput  = socket.getInputStream();
@@ -427,6 +450,16 @@ public final class OBDManager {
 
                 initELM327();
 
+                // P0-OBD-CONNECT-RACE · KONTROL NOKTASI B: initELM327() de BLOKE olan bir
+                // AT komutu dizisidir — bu süre boyunca da bir YENİ connect() gelmiş olabilir.
+                // Stale ise "bağlandı" callback'i ASLA ateşlenmez ve pollLoop() BAŞLAMAZ;
+                // artık kimsenin sahiplenmediği bu bağlantıyı KENDİMİZ temizleriz (yeni
+                // deneme henüz obdExecutor kuyruğunda bekliyor, çakışma YOK — tek thread).
+                if (!connectGen.isCurrent(myGen)) {
+                    disconnect();
+                    return;
+                }
+
                 obdRunning = true;
                 connectedAtMs = System.currentTimeMillis();   // #518 zaman ekseni
                 cb.onConnected(detectedProtocol);
@@ -434,6 +467,11 @@ public final class OBDManager {
                 pollLoop();
 
             } catch (Exception e) {
+                // P0-OBD-CONNECT-RACE · KONTROL NOKTASI C: bu deneme zaten STALE'se
+                // (bir sonraki connect() ÇOKTAN başladıysa), hatası da GEÇ ve YANLIŞ-
+                // ATFEDİLMİŞ bir kanıttır (LAB'da "CONNECT_TIMEOUT" ile "nativeFailureClass"
+                // farklı anlardan karışıyordu) — callback ATEŞLENMEZ, sessizce çıkılır.
+                if (!connectGen.isCurrent(myGen)) return;
                 disconnect();
                 // Patch 3: yapılandırılmış hata kodu — JS mesaj string'i parse ETMEDEN
                 // PROTOCOL_CYCLE ilerletme kararını verebilsin.
