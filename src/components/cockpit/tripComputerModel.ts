@@ -121,11 +121,12 @@ export interface ActiveTripView {
   readonly speedCount: number;
   readonly gpsDistanceKm: number;
   readonly obdDistanceKm: number;
-  readonly harshBrakeEvents: number;
-  readonly harshAccelEvents: number;
   /**
-   * Canlı akümülatör. `evaluateFuelMeasurement` TAM kaydı ister (gerekçe
-   * ayrımı için örnek sayaçlarını da okur), bu yüzden tip daraltılmaz.
+   * Canlı akumulator. `evaluateFuelMeasurement` TAM kaydi ister (gerekce
+   * ayrimi icin ornek sayaclarini da okur), bu yuzden tip daraltilmaz.
+   *
+   * SERT MANEVRA SAYAÇLARI DA BURADADIR: `ActiveTrip.harshBrakeEvents`
+   * ARTIK OKUNMAZ (bkz. `harshBrakeCount` satiri).
    */
   readonly metrics: TripMetricsAccumulator;
   readonly price: {
@@ -191,8 +192,16 @@ export function fromActiveTrip(a: ActiveTripView, fuel: TripFuelConfig): TripCom
     stopCount:       metric(m.stopCount, 'MEASURED'),
     maxRpm:          metric(m.maxRpm, 'MEASURED'),
     maxEngineTempC:  metric(m.maxEngineTempC, 'MEASURED'),
-    harshBrakeCount: metric(a.harshBrakeEvents, 'MEASURED'),
-    harshAccelCount: metric(a.harshAccelEvents, 'MEASURED'),
+    /* ── SERT MANEVRA: TEK KANONIK SAYIM ─────────────────────────────
+       Sayim otoritesi `tripMetricsAccumulator`dir — KAPANIŞTA TripRecord'a
+       muhurlenen (`tripLogService` `_endTrip`) sayac ile AYNI state. Eskiden
+       burada `ActiveTrip.harshBrakeEvents` okunuyordu; o sayac YALNIZ GPS
+       yolundan besleniyor, debounce ve kaynak-sureklilik kapilarini
+       uygulamiyordu. Sonuc: ayni yolculuk sururken 3, kapaninca 2 gorunebilir
+       ve salt-OBD yolculukta canli ekran 0'da kalirdi. Ayni gercegin iki
+       sayisi OLMAZ — canli goruntu de kayit da bu satirdan okur. */
+    harshBrakeCount: metric(m.harshBrakeCount, 'MEASURED'),
+    harshAccelCount: metric(m.harshAccelCount, 'MEASURED'),
   });
 
   return Object.freeze({

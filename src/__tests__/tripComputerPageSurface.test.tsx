@@ -78,8 +78,10 @@ function activeTrip(over: Partial<ActiveTripView> = {}): ActiveTripView {
     maxSpeedKmh: 118,
     speedSum: 7400, speedCount: 100,
     gpsDistanceKm: 120, obdDistanceKm: 6.4,
-    harshBrakeEvents: 1, harshAccelEvents: 2,
     metrics: {
+      /* SERT MANEVRA: canlı ekran da mühürlenen kayıt da AYNI kanonik
+         akümülatör sayacını okur (GPS-only ikinci sayaç KALDIRILDI). */
+      harshBrakeCount: 1, harshAccelCount: 2,
       movingMs: 88 * 60_000, idleMs: 14 * 60_000, unknownMs: 0,
       stopCount: 3, maxRpm: 3200, maxEngineTempC: 92,
       fuelAtStartPct: 70, fuelAtEndPct: 54,

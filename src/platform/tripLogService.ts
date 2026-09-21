@@ -153,12 +153,13 @@ interface ActiveTrip {
   lastPerfMs:  number;   // monotonic — for OBD fallback distance calc
   lastSpeed:   number;   // for harsh-event detection
   harshEvents: number;
-  /* Driver DNA (canlı, RAM): sert manevra sayacı YÖNE göre ayrıştırılır.
-     `harshEvents` TOPLAM olarak korunur (drivingScore/TripRecord sözleşmesi
-     DEĞİŞMEZ); aşağıdaki iki alan yalnız aktif yolculukta yaşar ve KALICI
-     TripRecord'a YAZILMAZ — geçmiş kayıt biçimi bozulmasın. */
-  harshBrakeEvents: number;   // hız ani DÜŞTÜ  (sert fren)
-  harshAccelEvents: number;   // hız ani ARTTI  (ani hızlanma)
+  /* YÖNE GÖRE AYRIŞTIRMA BURADA DEĞİL: sert fren / ani hızlanma sayımının
+     TEK kanonik sahibi `metrics` (= `tripMetricsAccumulator`) alanıdır.
+     Burada ayrı `harshBrakeEvents`/`harshAccelEvents` tutulurdu; o sayaçlar
+     yalnız GPS yolundan besleniyor, debounce ve kaynak-süreklilik kapılarını
+     uygulamıyordu — canlı ekranla mühürlenen kayıt farklı sayı gösteriyordu.
+     `harshEvents` TOPLAM sayacı drivingScore/TripRecord sözleşmesi için
+     OLDUĞU GİBİ korunur. */
   // GPS primary distance tracking
   lastGPSLat:  number | null;
   lastGPSLng:  number | null;
@@ -487,8 +488,6 @@ function _startTrip(speedKmh: number, fuelLevel: number, evidence: MotionEvidenc
     lastPerfMs:  perfNow,
     lastSpeed:   speedKmh,
     harshEvents: 0,
-    harshBrakeEvents: 0,
-    harshAccelEvents: 0,
     lastGPSLat:  null,
     lastGPSLng:  null,
     lastGPSTs:   null,
@@ -845,8 +844,10 @@ function _onGPS(loc: GPSLocation | null): void {
     const speedDelta = speedKmh - _active.lastSpeed;
     if (Math.abs(speedDelta) > 15) {
       _active.harshEvents += 1;
-      if (speedDelta < 0) _active.harshBrakeEvents += 1;
-      else                _active.harshAccelEvents += 1;
+      /* YÖNLÜ SAYIM BURADA YAPILMAZ: fren/gaz ayrımının tek sahibi
+         `applySample` (yukarıda `_active.metrics`e verilir) — kayıt da
+         canlı ekran da O sayacı okur. İkinci bir sayaç, ikinci bir gerçek
+         demekti. */
       /* Defterde olay ZAMANI ve ŞİDDETİ durur; KONUM durmaz (§ olay
          koordinat taşımaz — rota izi ayrı ve yalnız yereldir). */
       recordJournalEvent(

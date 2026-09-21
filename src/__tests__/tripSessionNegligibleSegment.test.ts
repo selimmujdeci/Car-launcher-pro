@@ -50,8 +50,6 @@ function activeSegment(over: {
     lastPerfMs: over.startPerfMs,
     lastSpeed: 8,
     harshEvents: 0,
-    harshBrakeEvents: 0,
-    harshAccelEvents: 0,
     lastGPSLat: 36.9,
     lastGPSLng: 34.6,
     lastGPSTs: over.startPerfMs,

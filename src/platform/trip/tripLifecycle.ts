@@ -150,9 +150,9 @@ export interface LegacyTripRecord {
  * kayıtlar için `undefined` kalır ve alan `UNAVAILABLE` olur.
  */
 export interface TripConversionContext {
-  /** Sert fren sayısı — `ActiveTrip.harshBrakeEvents` (kalıcı DEĞİL). */
+  /** Sert fren sayısı — kanonik sayaç (`tripMetricsAccumulator`). */
   readonly harshBrakeCount?: number;
-  /** Ani hızlanma sayısı — `ActiveTrip.harshAccelEvents` (kalıcı DEĞİL). */
+  /** Ani hızlanma sayısı — kanonik sayaç (`tripMetricsAccumulator`). */
   readonly harshAccelCount?: number;
   /** Hız örneği sayısı — `ActiveTrip.speedCount` (kalıcı DEĞİL). */
   readonly speedSampleCount?: number;

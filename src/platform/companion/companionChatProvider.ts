@@ -624,7 +624,10 @@ export {
 
 /**
  * Aktif yolculuğun sert-manevra sayaçlarından sürüş stilini SENKRON okur.
- * Kaynak: `tripLogService` `harshBrakeEvents` / `harshAccelEvents` (canlı, RAM).
+ * Kaynak: aktif yolculuğun KANONİK sert-manevra sayacı
+ * (`ActiveTrip.metrics` = `tripMetricsAccumulator`, canlı RAM) — kapanışta
+ * `TripRecord`a mühürlenen sayacın TA KENDİSİ. Eski GPS-only
+ * `harshBrakeEvents` alanı okunmaz: Driver DNA ile kayıt aynı sayıyı görmeli.
  * Aktif yolculuk yoksa / servis okunamazsa → `undefined` (stil BİLİNMİYOR;
  * "sakin" VARSAYILMAZ — kanıtsız olumlu hüküm de uydurmadır).
  */
@@ -632,7 +635,7 @@ function readDriverStyle(): DriverStyle | undefined {
   try {
     const trip = getTripSnapshot().current;
     if (!trip) return undefined;
-    return classifyDriverStyle(trip.harshBrakeEvents, trip.harshAccelEvents) ?? undefined;
+    return classifyDriverStyle(trip.metrics.harshBrakeCount, trip.metrics.harshAccelCount) ?? undefined;
   } catch {
     return undefined;
   }
