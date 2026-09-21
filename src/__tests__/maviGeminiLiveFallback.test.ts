@@ -572,9 +572,9 @@ describe('GeminiLiveSession — tur sahipliği ve protokol', () => {
     expect((created[1].sent[0].setup as { sessionResumption: { handle: string } }).sessionResumption.handle).toBe('H-9');
   });
 
-  it('function declarations: intent enum katalogdan, iki araç', () => {
+  it('function declarations: intent enum katalogdan, üç araç (action · web · unresolved)', () => {
     const decls = buildLiveFunctionDeclarations() as { name: string; parameters: { properties: { intent?: { enum: string[] } } } }[];
-    expect(decls.map((d) => d.name)).toEqual([LIVE_TOOL_ACTION, 'mavi_web_search']);
+    expect(decls.map((d) => d.name)).toEqual([LIVE_TOOL_ACTION, 'mavi_web_search', 'mavi_unresolved']);
     expect(decls[0].parameters.properties.intent!.enum).toContain('OPEN_NAVIGATION');
   });
 });

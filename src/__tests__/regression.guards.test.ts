@@ -48,6 +48,7 @@ import ttsServiceSrc from '../platform/ttsService.ts?raw';
 
 /* MAVI-F5 · Capability Fabric — kontrollü giriş kapısı; ikinci yürütücü/otorite YOK. */
 import { brainIntentAllowlist } from '../platform/capability/fabric/carosCapabilityCatalog';
+import { brainExampleLines, brainDecisionLines } from '../platform/companion/companionBrainKnowledge';
 import capabilityFabricSrc from '../platform/capability/fabric/capabilityFabric.ts?raw';
 import capabilityContractSrc from '../platform/capability/fabric/capabilityContract.ts?raw';
 import capabilityResolverSrc from '../platform/capability/fabric/capabilityResolver.ts?raw';
@@ -1272,8 +1273,13 @@ describe('Sesli asistan — hava/trafik dürüstlüğü + hibrit beyin zinciri k
        → no-op). MAVI-F13/4: alan çıkarımı `companionBrainParser`de. */
     const brainParserSrc = read('src/platform/companion/companionBrainParser.ts');
     expect(brainParserSrc).toMatch(/settingKey:\s+typeof obj\.settingKey/);
-    // SAHTE ONAY YASAĞI prompt'ta olmalı — bir daha sessizce kaldırılmasın
-    expect(brain).toMatch(/SAHTE ONAY YASAK/);
+    // SAHTE ONAY YASAĞI prompt'ta olmalı — bir daha sessizce kaldırılmasın.
+    // 2026-09-21: prompt bilgisi REST+Live için TEK KAYNAK `companionBrainKnowledge`de;
+    // sağlayıcı onu her iki yüzey için tüketir.
+    const knowledge = read('src/platform/companion/companionBrainKnowledge.ts');
+    expect(knowledge).toMatch(/SAHTE ONAY YASAK/);
+    expect(brain).toMatch(/buildBrainCapabilityKnowledge\('rest_json'/);
+    expect(brain).toMatch(/buildBrainCapabilityKnowledge\('live_tool'/);
     // Köprü SET_SETTING alanlarını payload'a yazmalı (executeAIResult → applyVoiceSetting)
     const engine = read('src/platform/intentEngine.ts');
     expect(engine).toMatch(/intentType === 'SET_SETTING'/);
@@ -10904,15 +10910,21 @@ describe('🔒 KİLİT · MAVI-F2 yapay ara söz yasağı (I11)', () => {
   });
 
   it('🔒 LLM prompt\'undaki `feedback` örnekleri filler ÖĞRETMİYOR', () => {
-    const fbs = [...companionChatProviderSrc.matchAll(/"feedback":"([^"]+)"/g)].map((m) => m[1]);
+    /* 2026-09-21: örnekler REST+Live TEK KAYNAĞI `companionBrainKnowledge`den
+       GERÇEK render ile okunur (kaynak regex'i yerine üretilen prompt satırları). */
+    const rendered = brainExampleLines('rest_json', true).join('\n');
+    const fbs = [...rendered.matchAll(/"feedback":"([^"]+)"/g)].map((m) => m[1]);
     expect(fbs.length, 'prompt örneği bulunamadı — kilit körleşti').toBeGreaterThan(5);
     for (const fb of fbs) {
       expect(fb, `prompt örneği filler öğretiyor: ${fb}`)
         .not.toMatch(/^(Bakıyorum|Bakayım|Düşünüyorum|Kontrol ediyorum|Bir saniye)\.*$/i);
     }
-    // Gecikme örtme yasağı prompt'ta AÇIKÇA durur; sahte onay yasağını EZMEZ.
-    expect(companionChatProviderSrc).toContain('GECİKME ÖRTME YASAK');
-    expect(companionChatProviderSrc).toContain('SAHTE ONAY YASAK');
+    // Gecikme örtme yasağı prompt'ta AÇIKÇA durur; sahte onay yasağını EZMEZ (her iki yüzey).
+    for (const surface of ['rest_json', 'live_tool'] as const) {
+      const decision = brainDecisionLines(surface, [...brainIntentAllowlist()]).join('\n');
+      expect(decision).toContain('GECİKME ÖRTME YASAK');
+      expect(decision).toContain('SAHTE ONAY YASAK');
+    }
   });
 
   it('🔒 ACK politikası SAF kalır ve kalıplar ÇAPALI', () => {

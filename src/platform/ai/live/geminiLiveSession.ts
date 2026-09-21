@@ -98,6 +98,14 @@ export interface LiveTurnOptions {
   readonly firstOutputTimeoutMs: number;
   /** Tur toplam tavanı (uzun cevap emniyeti). */
   readonly totalTimeoutMs?: number;
+  /**
+   * Bu oturumun sunucu bağlamında HENÜZ olmayan önceki turlar (REST/yerel yolda
+   * cevaplanmış ya da yeni bağlamda kaybolmuş). `clientContent.turns` dizisinde
+   * kullanıcı turunun ÖNÜNE eklenir — sistem talimatı yeniden gönderilmez
+   * (Live gecikme avantajı korunur). FONKSİYON: bağlantı kurulduktan SONRA
+   * çağrılır (sunucu bağlamı nesli o anda kesindir). Boş dönerse davranış eski.
+   */
+  readonly priorTurns?: () => readonly { readonly role: 'user' | 'model'; readonly text: string }[];
 }
 
 export type LiveTurnOutcome =
@@ -207,6 +215,13 @@ export class GeminiLiveSession {
   private _setupCompleted = false;
   private _resumeHandle: string | null = null;
   private _goAwayPending = false;
+  /**
+   * SUNUCU BAĞLAMI NESLİ: resumption handle OLMADAN açılan her soket yeni (boş)
+   * bir sunucu bağlamıdır → sayaç artar. Çağıran (`companionChatProvider`) bunu
+   * "hangi geçmiş turlar bu bağlamda var" sorusu için okur; handle ile devam
+   * eden bağlantıda sayaç DEĞİŞMEZ (bağlam korunmuştur).
+   */
+  private _contextEpoch = 0;
   private _fingerprint = '';
   private _connectPromise: Promise<void> | null = null;
   private _turnGen = 0;
@@ -226,6 +241,7 @@ export class GeminiLiveSession {
   get state(): LiveSessionState { return this._state; }
   get setupCompleted(): boolean { return this._setupCompleted; }
   get resumeHandle(): string | null { return this._resumeHandle; }
+  get contextEpoch(): number { return this._contextEpoch; }
   get lastCloseReason(): string { return this._lastCloseReason; }
   get lastCloseCode(): number | null { return this._lastCloseCode; }
   get fingerprint(): string { return this._fingerprint; }
@@ -256,6 +272,7 @@ export class GeminiLiveSession {
       this._goAwayPending = false;
       this._lastCloseReason = '';
       this._lastCloseCode = null;
+      if (!this._resumeHandle) this._contextEpoch++;   // taze sunucu bağlamı
 
       let ws: WebSocketLike;
       try {
@@ -391,8 +408,13 @@ export class GeminiLiveSession {
       }, opts.totalTimeoutMs ?? DEFAULT_TOTAL_TIMEOUT_MS);
 
       try {
+        let priorList: readonly { role: 'user' | 'model'; text: string }[] = [];
+        try { priorList = opts.priorTurns ? opts.priorTurns() : []; } catch { priorList = []; }
+        const prior = priorList
+          .filter((t) => typeof t.text === 'string' && t.text.trim())
+          .map((t) => ({ role: t.role, parts: [{ text: t.text }] }));
         ws.send(JSON.stringify({
-          clientContent: { turns: [{ role: 'user', parts: [{ text }] }], turnComplete: true },
+          clientContent: { turns: [...prior, { role: 'user', parts: [{ text }] }], turnComplete: true },
         }));
       } catch (e) {
         this._finishPending(pending, {

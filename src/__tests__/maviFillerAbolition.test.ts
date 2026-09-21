@@ -35,6 +35,7 @@ vi.mock('../platform/ttsService', () => ({
 }));
 
 import { isGenericFiller } from '../platform/assistant/maviAckPolicy';
+import { brainExampleLines, brainDecisionLines } from '../platform/companion/companionBrainKnowledge';
 import {
   speakMaviAnswer, getMaviSpeechDiagnostics, _resetMaviSpeechForTest,
 } from '../platform/assistant/maviSpeech';
@@ -194,14 +195,24 @@ describe('MAVI-F2 · D · prompt temizliği', () => {
   const PROVIDER = read('platform', 'companion', 'companionChatProvider.ts');
 
   it('13. prompt ÖRNEKLERİNDE hiçbir `feedback` alanı filler DEĞİLDİR', () => {
-    const fbs = [...PROVIDER.matchAll(/"feedback":"([^"]+)"/g)].map((m) => m[1]);
-    expect(fbs.length, 'prompt örneği bulunamadı — kilit körleşti').toBeGreaterThan(5);
-    for (const fb of fbs) expect(isGenericFiller(fb), `prompt örneği: ${fb}`).toBe(false);
+    /* 2026-09-21: örnekler REST+Live TEK KAYNAĞI `companionBrainKnowledge`den
+       GERÇEK render ile okunur; her iki yüzey de aynı örnek listesini taşır. */
+    for (const surface of ['rest_json', 'live_tool'] as const) {
+      const rendered = brainExampleLines(surface, true).join('\n');
+      const fbs = [...rendered.matchAll(/"feedback":"([^"]+)"/g)].map((m) => m[1]);
+      expect(fbs.length, 'prompt örneği bulunamadı — kilit körleşti').toBeGreaterThan(5);
+      for (const fb of fbs) expect(isGenericFiller(fb), `prompt örneği (${surface}): ${fb}`).toBe(false);
+    }
   });
 
   it('14. prompt gecikme örtmeyi AÇIKÇA yasaklar ve sahte onay yasağını EZMEZ', () => {
-    expect(PROVIDER).toContain('GECİKME ÖRTME YASAK');
-    expect(PROVIDER).toContain('SAHTE ONAY YASAK');   // ACK ≠ BAŞARI — ikisi birlikte durur
+    for (const surface of ['rest_json', 'live_tool'] as const) {
+      const decision = brainDecisionLines(surface, ['SET_SETTING']).join('\n');
+      expect(decision).toContain('GECİKME ÖRTME YASAK');
+      expect(decision).toContain('SAHTE ONAY YASAK');   // ACK ≠ BAŞARI — ikisi birlikte durur
+    }
+    expect(PROVIDER).toContain("buildBrainCapabilityKnowledge('rest_json'");
+    expect(PROVIDER).toContain("buildBrainCapabilityKnowledge('live_tool'");
   });
 
   it('15. semantik AI prompt\'unun örnekleri de filler taşımaz', () => {

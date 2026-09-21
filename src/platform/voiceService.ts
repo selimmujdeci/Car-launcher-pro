@@ -94,6 +94,9 @@ import { fromSemanticResult, commandTypeToIntentType } from './intentEngine';
    AYNI desen); tip-only import derlemede SİLİNİR, üretim paketine girmez. */
 import type { MusicIntent } from './media/intent/musicIntent';
 import { isInformationalCommand, answerInformational } from './voiceInfoService';
+/* LIVE TUR ÇÖZÜM KANITI: kanonik ekran kaydı — "klimayı aç" gibi parser'ın tanımadığı
+   panel isteklerinde "bu bir EYLEM isteği" kanıtı (yeni otorite/parser DEĞİL, salt okuma). */
+import { resolveScreenEntry } from './screenCatalog';
 import { weatherQueryNamesCity } from './weatherService';
 import { showToast } from './errorBus';
 import { VOICE_TUNING } from './voiceTuning';
@@ -1669,6 +1672,20 @@ async function _maybeRepairMusicQuery(cmd: ParsedCommand): Promise<void> {
  * eski adlarıyla yeniden dışa verilir (tüketici: `voiceNbest` testleri). */
 export { dedupeAlts as _dedupeAlts, bestLocalParse as _bestLocalParse } from './voice/voiceCommandPolicy';
 
+/**
+ * Live turu için "bu bir EYLEM isteği" kanıtı (bkz. `liveTurnResolution`).
+ * `'action'`: yerel parser bilgi-sorgusu OLMAYAN bir komut buldu (≥0.5) YA DA
+ * metin kanonik bir iç ekran adı taşıyor (`resolveScreenEntry`). Aksi → `'unknown'`.
+ * Salt okuma: hiçbir şey yürütmez, fast-path açmaz, yetki üretmez.
+ */
+function _liveRequestEvidence(text: string, cmd: ParsedCommand | null): 'action' | 'unknown' {
+  try {
+    if (cmd && cmd.confidence >= 0.5 && !isInformationalCommand(cmd.type)) return 'action';
+    if (resolveScreenEntry(text) !== null) return 'action';
+  } catch { /* kanıt okunamadı → bilinmiyor (fail-soft) */ }
+  return 'unknown';
+}
+
 export async function processTextCommand(
   text: string,
   ctxIn?: VehicleContext,
@@ -2253,6 +2270,11 @@ export async function processTextCommand(
     const brain = await tryCompanionBrain(trimmed, {
       ...(_stream ? { onToken: _stream.onToken } : {}),
       ...(_live ? { live: _live } : {}),
+      /* REGRESSION FIX (2026-09-21): Live'ın araçsız SESLİ cevabı bir EYLEM
+         isteğinde çözüm sayılmaz. Kanıt MEVCUT yerel otoritelerden: parser
+         (bilgi sorgusu dışı komut ≥0.5) ya da kanonik ekran kaydı eşleşmesi.
+         Metin tahmini yok; yeni parser/fast-path yok. */
+      liveRequestEvidence: _live ? _liveRequestEvidence(trimmed, result.command) : undefined,
       isDriving: ctx?.isDriving,
       // MAVI-M2: hız BİLİNMİYORSA (`null`) beyne SIFIR gönderilmez — alan hiç
       // taşınmaz (sahte "0 km/h" bağlamı = sahte "araç duruyor" iddiası).

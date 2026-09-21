@@ -17,6 +17,14 @@ import type { LiveToolCall } from './geminiLiveSession';
 
 export const LIVE_TOOL_ACTION = 'mavi_action';
 export const LIVE_TOOL_WEB    = 'mavi_web_search';
+/**
+ * "Eylem istendi ama eşleyemedim" beyanı — modelin KONUŞMADAN çıkış yolu.
+ * Regression fix (2026-09-21): eskiden model bunu sesle ("yapamıyorum") söylüyor,
+ * ses çalındığı için tur "çözüldü" sayılıyor ve REST/yerel kurtarma hiç
+ * denenmiyordu. Bu araç bir EYLEM ÜRETMEZ; yalnız turun çözülmediğini
+ * yaşam döngüsüne bildirir (`liveTurnResolution` → UNRESOLVED → fallback).
+ */
+export const LIVE_TOOL_UNRESOLVED = 'mavi_unresolved';
 
 const ACTION_FIELDS: Readonly<Record<string, { type: string; description: string }>> = Object.freeze({
   query:         { type: 'STRING', description: 'Arama/müzik sorgusu (DÜZELTİLMİŞ sanatçı/şarkı/mekân adı).' },
@@ -56,7 +64,7 @@ export function buildLiveFunctionDeclarations(): readonly unknown[] {
       description:
         'Kullanıcı bir ARAÇ/UYGULAMA KOMUTU istediğinde çağır (navigasyon, müzik, telefon, ayar, ekran, hafıza, sensör). '
         + 'Birden fazla AYRI iş varsa `actions` dizisini kullan (en fazla 5). Bu aracı çağırdığın turda KONUŞMA; '
-        + 'onayı sistem verir. Listede karşılığı olmayan eylem için bu aracı ÇAĞIRMA, dürüstçe yapamadığını söyle.',
+        + 'onayı sistem verir. Listede karşılığı olmayan ya da emin olmadığın eylem için bu aracı ÇAĞIRMA; `mavi_unresolved` çağır.',
       parameters: {
         type: 'OBJECT',
         properties: {
@@ -78,6 +86,17 @@ export function buildLiveFunctionDeclarations(): readonly unknown[] {
         type: 'OBJECT',
         properties: { query: { type: 'STRING', description: 'Aranacak güncel bilgi (Türkçe, net).' } },
         required: ['query'],
+      },
+    },
+    {
+      name: LIVE_TOOL_UNRESOLVED,
+      description:
+        'Kullanıcı bir ARAÇ/UYGULAMA EYLEMİ istedi ama `mavi_action` intent listesinde GERÇEK karşılığı yok ya da hangi intent '
+        + 'olduğundan emin değilsin → bu aracı çağır ve KONUŞMA. Sistem isteği başka yolla dener ya da dürüstçe cevap verir. '
+        + 'Sohbet/bilgi sorusu için ÇAĞIRMA (onlara doğrudan konuşarak cevap ver).',
+      parameters: {
+        type: 'OBJECT',
+        properties: { note: { type: 'STRING', description: 'Kısa sebep (opsiyonel).' } },
       },
     },
   ]);
@@ -102,7 +121,7 @@ export function liveToolCallToBrainJson(call: LiveToolCall): string | null {
 
 /** Live oturumu için REST beyin prompt'una eklenen tool-disiplini satırları. */
 export const LIVE_TOOL_INSTRUCTION_LINES: readonly string[] = Object.freeze([
-  'KARAR MEKANİZMAN ARAÇLARDIR: bir ARAÇ KOMUTU istendiğinde `mavi_action` aracını çağır; GÜNCEL bilgi gerektiğinde `mavi_web_search` aracını çağır. Aracı çağırdığın turda SESLİ CEVAP VERME — onayı ve sonucu sistem seslendirir.',
+  'KARAR MEKANİZMAN ARAÇLARDIR: bir ARAÇ KOMUTU istendiğinde `mavi_action` aracını çağır; GÜNCEL bilgi gerektiğinde `mavi_web_search` aracını çağır; eylem istendi ama eşleyemiyorsan `mavi_unresolved` aracını çağır. Aracı çağırdığın turda SESLİ CEVAP VERME — onayı ve sonucu sistem seslendirir.',
   'SOHBET ise (bilgi, tavsiye, fıkra, duygu, genel konuşma) araç çağırmadan doğrudan KONUŞ. Kısa ve doğal; liste/madde/emoji yok.',
-  'ÇOK ÖNEMLİ — SAHTE ONAY YASAK: aracın karşılığı olmayan bir eylemi "yaptım/açıyorum" diye ONAYLAMA; dürüstçe yapamadığını söyle.',
+  'ARAÇ GERÇEĞİ: konuşmak yapmak DEĞİLDİR. Bir eylemi "yaptım/açıyorum/hallettim" diye SESLE onaylama; eylem yalnız `mavi_action` çağrısıyla olur. Yapamıyorsan bunu sesle söyleme, `mavi_unresolved` çağır.',
 ]);
