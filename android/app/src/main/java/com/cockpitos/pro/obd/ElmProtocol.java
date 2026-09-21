@@ -534,7 +534,27 @@ public final class ElmProtocol {
      * Çağıran TEK kuyruk görevi içinde olmalıdır (mevcut sözleşme).
      */
     public DtcClassResult readDtcClassFromEcu(String tx, String rx, String mode) throws Exception {
-        return withEcuHeader(tx, rx, () -> readDtcClass(mode));
+        return readDtcClassFromEcu(tx, rx, mode, null);
+    }
+
+    /**
+     * P0-OBD-DTC-INIT/2 — {@code initFirst} TAŞIYAN overload (STANDART MODLAR).
+     *
+     * ── NEDEN GEREKLİ ─────────────────────────────────────────────────────────
+     * Adresleme matrisi (TS `kwpAddressingProbe.ts` + bu sınıftaki matris satır
+     * probu) bir ECU'nun fiziksel adrese YALNIZ K-line yeniden başlatıldıktan
+     * sonra cevap verdiğini ÖLÇEBİLİYOR. O ölçüm bugüne kadar YALNIZ üretici servislerine (0x18/0x13)
+     * taşınıyordu; oysa sahada okunamayan şey KULLANICININ GÖRDÜĞÜ standart
+     * hafızaydı (Mode 03/07/0A → "Kayıtlı/Bekleyen/Kalıcı: okunamadı"). Standart
+     * modlar matris KOŞMADAN ÖNCE, init'siz ve kanıtlanmamış hedefle gönderilip
+     * bir daha DENENMİYORDU. Bu overload o tek eksik taşımayı yapar.
+     *
+     * Çözümleyici KOPYALANMADI: {@link #readDtcClass(String)} AYNEN kullanılır.
+     * {@code null} init ⇒ davranış ESKİSİYLE BİREBİR AYNI.
+     */
+    public DtcClassResult readDtcClassFromEcu(String tx, String rx, String mode, String initFirst)
+            throws Exception {
+        return withEcuHeader(tx, rx, initFirst, () -> readDtcClass(mode));
     }
 
     /* ── OBD-OS-F3-3: KWP2000 ReadDTCByStatus (servis 0x18) ─────────────────── */
@@ -1382,6 +1402,29 @@ public final class ElmProtocol {
      * olur, araya başka bir komut giremez (tüm dallar için geçerli).
      */
     public <T> T withEcuHeader(String tx, String rx, java.util.concurrent.Callable<T> action) throws Exception {
+        return withEcuHeader(tx, rx, null, action);
+    }
+
+    /**
+     * P0-OBD-DTC-INIT — {@code initFirst} TAŞIYAN overload.
+     *
+     * ── NEDEN VAR (ölçülen kusur) ─────────────────────────────────────────────
+     * {@link #probeKwpAddressingRow} bir ECU için K-line yeniden-başlatmanın
+     * (ATFI/ATSI) fiziksel isteğe cevap almak için ZORUNLU olduğunu ÖLÇEBİLİYORDU
+     * ({@code KwpAddressingVerdict.requiredInit}, bkz. TS `kwpAddressingProbe.ts`)
+     * ama bu kanıt yalnız LAB ekranına gidiyordu: gerçek DTC isteği
+     * ({@code readAdvancedKwpDtc}/{@code readAdvancedKwp13Dtc}/{@code readAdvancedUdsDtc})
+     * her zaman init'siz `withEcuHeader(tx, rx, action)` çağırıyordu — yani matrisin
+     * kanıtladığı ön koşul, onu gerektiren asıl istekte HİÇ TEKRARLANMIYORDU.
+     * Saha (ECU 7A / KWP): adres + oturum probu init'siz sustu, matris init'li
+     * cevap verdi, ama 0x18/0x19 yine init'siz gittiği için AYNI NEDENLE sustu.
+     *
+     * `initFirst` yalnız KWP (6 haneli tx) dalında anlamlıdır; CAN/29-bit dallarda
+     * yok sayılır (K-line'a özgü bir kavramdır, uydurma bir CAN davranışı EKLENMEZ).
+     * `null` ise davranış ESKİSİYLE BİREBİR AYNIDIR (init YOK) — geri uyum korunur.
+     */
+    public <T> T withEcuHeader(String tx, String rx, String initFirst,
+                                java.util.concurrent.Callable<T> action) throws Exception {
         if (tx == null || tx.isEmpty()) {
             // Varsayılan adresleme: header set/restore YOK → restore riski de yok.
             return action.call();
@@ -1390,7 +1433,7 @@ public final class ElmProtocol {
             return withEcuHeader29Bit(tx, rx, action);
         }
         if (tx.length() == 6) {
-            return withEcuHeaderKwp(tx, action);
+            return withEcuHeaderKwp(tx, initFirst, action);
         }
         return withEcuHeader11Bit(tx, rx, action);
     }
@@ -1410,6 +1453,17 @@ public final class ElmProtocol {
      * başarısızlık {@link HeaderRestoreException} ile raporlanır (sessiz yanlış veri yasak).
      */
     private <T> T withEcuHeaderKwp(String tx, java.util.concurrent.Callable<T> action) throws Exception {
+        return withEcuHeaderKwp(tx, null, action);
+    }
+
+    /**
+     * P0-OBD-DTC-INIT — {@code initFirst} niyetiyle: ATSH sonrası, action'dan ÖNCE,
+     * matrisin ({@link #probeKwpAddressingRow}) ÖLÇTÜĞÜ K-line yeniden-başlatmayı
+     * ({@code initKLineForRow}) TEKRARLAR. Başlatma düşerse istek HİÇ GÖNDERİLMEZ
+     * (fail-closed) — yarım hatta veri istemek gürültü üretir, ölçüm değil.
+     */
+    private <T> T withEcuHeaderKwp(String tx, String initFirst,
+                                    java.util.concurrent.Callable<T> action) throws Exception {
         T result = null;
         Exception primary = null;
         final String protocolDigit = queryActiveProtocolDigit();
@@ -1417,6 +1471,12 @@ public final class ElmProtocol {
             String sh = channel.send("ATSH" + tx, 500);
             if (!okish(sh)) {
                 throw new IOException("KWP header ayarlanamadı (tx=" + tx + "): ATSH 'OK' dönmedi (" + summarize(sh) + ")");
+            }
+            if (initFirst != null) {
+                InitResult init = initKLineForRow(initFirst);
+                if (!init.ok) {
+                    throw new IOException("KWP K-line yeniden başlatma başarısız (tx=" + tx + "): " + init.raw);
+                }
             }
             result = action.call();
         } catch (Exception e) {

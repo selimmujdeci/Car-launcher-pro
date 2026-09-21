@@ -882,11 +882,17 @@ public final class BleObdManager {
     }
 
     public ElmProtocol.UdsEvidence readAdvancedUdsDtc(String tx, String rx, String sub, String payload) throws Exception {
+        return readAdvancedUdsDtc(tx, rx, sub, payload, null);
+    }
+
+    /** P0-OBD-DTC-INIT: {@code init} TAŞIYAN overload — bkz. {@code OBDManager} eşdeğeri. */
+    public ElmProtocol.UdsEvidence readAdvancedUdsDtc(
+            String tx, String rx, String sub, String payload, String init) throws Exception {
         final ElmProtocol p = elm;
         if (!obdRunning || p == null) throw new IOException("OBD bağlantısı yok");
         try {
             return cmdQueue.submit(ElmCommandQueue.Priority.USER, null,
-                () -> p.withEcuHeader(tx, rx, () -> p.readUdsDtcInformationDetailed(sub, payload))).get();
+                () -> p.withEcuHeader(tx, rx, init, () -> p.readUdsDtcInformationDetailed(sub, payload))).get();
         } catch (java.util.concurrent.ExecutionException ee) {
             Throwable cause = ee.getCause(); if (cause instanceof Exception) throw (Exception) cause; throw ee;
         }
@@ -928,22 +934,32 @@ public final class BleObdManager {
 
     /** P0-OBD-DIAG-02 — ISO 14230-3 servis 0x13; 0x18 ile AYNI hedef kapisina tabi. */
     public ElmProtocol.UdsEvidence readAdvancedKwp13Dtc(String tx, String rx) throws Exception {
+        return readAdvancedKwp13Dtc(tx, rx, null);
+    }
+
+    /** P0-OBD-DTC-INIT: {@code init} TAŞIYAN overload — bkz. {@code OBDManager} eşdeğeri. */
+    public ElmProtocol.UdsEvidence readAdvancedKwp13Dtc(String tx, String rx, String init) throws Exception {
         final ElmProtocol p = elm;
         if (!obdRunning || p == null) throw new IOException("OBD bağlantısı yok");
         try {
             return cmdQueue.submit(ElmCommandQueue.Priority.USER, null,
-                () -> p.withEcuHeader(tx, rx, p::readKwpDtcs13Detailed)).get();
+                () -> p.withEcuHeader(tx, rx, init, p::readKwpDtcs13Detailed)).get();
         } catch (java.util.concurrent.ExecutionException ee) {
             Throwable cause = ee.getCause(); if (cause instanceof Exception) throw (Exception) cause; throw ee;
         }
     }
 
     public ElmProtocol.UdsEvidence readAdvancedKwpDtc(String tx, String rx) throws Exception {
+        return readAdvancedKwpDtc(tx, rx, null);
+    }
+
+    /** P0-OBD-DTC-INIT: {@code init} TAŞIYAN overload — bkz. {@code OBDManager} eşdeğeri. */
+    public ElmProtocol.UdsEvidence readAdvancedKwpDtc(String tx, String rx, String init) throws Exception {
         final ElmProtocol p = elm;
         if (!obdRunning || p == null) throw new IOException("OBD bağlantısı yok");
         try {
             return cmdQueue.submit(ElmCommandQueue.Priority.USER, null,
-                () -> p.withEcuHeader(tx, rx, p::readKwpDtcsDetailed)).get();
+                () -> p.withEcuHeader(tx, rx, init, p::readKwpDtcsDetailed)).get();
         } catch (java.util.concurrent.ExecutionException ee) {
             Throwable cause = ee.getCause(); if (cause instanceof Exception) throw (Exception) cause; throw ee;
         }
@@ -998,11 +1014,17 @@ public final class BleObdManager {
      * set/restore); farki, "43 00" ile "NO DATA" ve "7F" ayrimini KAYBETMEMESI.
      */
     public ElmProtocol.DtcClassResult readDtcClassFromEcu(String tx, String rx, String mode) throws Exception {
+        return readDtcClassFromEcu(tx, rx, mode, null);
+    }
+
+    /** P0-OBD-DTC-INIT/2: {@code init} TASIYAN overload — bkz. {@code ElmProtocol} esdegeri. */
+    public ElmProtocol.DtcClassResult readDtcClassFromEcu(String tx, String rx, String mode, String init)
+            throws Exception {
         final ElmProtocol p = elm;
         if (!obdRunning || p == null) throw new IOException("OBD baglantisi yok");
         try {
             return cmdQueue.submit(ElmCommandQueue.Priority.USER, null,
-                () -> p.readDtcClassFromEcu(tx, rx, mode)).get();
+                () -> p.readDtcClassFromEcu(tx, rx, mode, init)).get();
         } catch (java.util.concurrent.ExecutionException ee) {
             Throwable cause = ee.getCause();
             if (cause instanceof Exception) throw (Exception) cause;

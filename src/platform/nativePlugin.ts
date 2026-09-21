@@ -1973,7 +1973,16 @@ export interface CarLauncherPlugin {
    *
    * Opsiyonel (`?`): eski plugin sürümlerinde yok → çağıran guard'lar (graceful degrade).
    */
-  readDtcFromEcu?(options: { tx: string; rx: string; mode: '03' | '07' | '0A' }): Promise<{
+  readDtcFromEcu?(options: {
+    tx: string; rx: string; mode: '03' | '07' | '0A';
+    /**
+     * P0-OBD-DTC-INIT/2 — adresleme matrisinin BU ECU için ÖLÇTÜĞÜ K-line
+     * yeniden başlatma zorunluluğu (`KwpAddressingVerdict.requiredInit`).
+     * YALNIZ kanıtlanmış hedefle yapılan TEK SEFERLİK yeniden okumada gönderilir;
+     * ilk turda ALAN HİÇ YAZILMAZ → davranış eskisiyle birebir aynı kalır.
+     */
+    initFirst?: 'FAST' | 'SLOW';
+  }): Promise<{
     codes: string[];
     supported: boolean;
     /**
@@ -2122,6 +2131,14 @@ export interface CarLauncherPlugin {
      * Tuning atomiktir — okuma düşse bile restore ÇALIŞIR.
      */
     isoTpTuning?: boolean;
+    /**
+     * P0-OBD-DTC-INIT — adresleme matrisinin (`kwpAddressingProbe`) BU ECU için
+     * ÖLÇTÜĞÜ K-line yeniden-başlatma zorunluluğu (`requiredInit`). Yalnız KWP
+     * (6 haneli tx) dalında anlamlıdır; native ATSH sonrası, isteği göndermeden
+     * ÖNCE ATFI/ATSI'yi TEKRARLAR. Ölçülmediyse ALAN HİÇ GÖNDERİLMEZ (uydurma
+     * başlatma komutu YOK) — davranış eskisiyle birebir aynı kalır.
+     */
+    initFirst?: 'FAST' | 'SLOW';
   }): Promise<{
     raw: string; kind: string;
     outcome: 'ok' | 'negative_nrc' | 'no_response' | 'timeout' | 'malformed' | 'transport_error' | 'not_addressable';

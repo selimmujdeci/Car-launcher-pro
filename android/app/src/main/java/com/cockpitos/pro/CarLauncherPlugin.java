@@ -2952,6 +2952,13 @@ public class CarLauncherPlugin extends Plugin {
         final String payload = call.getString("payload", "");
         final String tx = call.getString("tx"); final String rx = call.getString("rx");
         final boolean targetVerified = call.getBoolean("targetVerified", false);
+        /* P0-OBD-DTC-INIT: adresleme matrisinin BU ECU için ÖLÇTÜĞÜ K-line
+           yeniden-başlatma zorunluluğu (bkz. ElmProtocol#withEcuHeader kök neden
+           yorumu). Beyaz liste: yalnız "FAST"/"SLOW" kabul edilir, başka her şey
+           init YOK sayılır (uydurma bir başlatma komutu ÜRETİLMEZ). */
+        final String initFirstArg = call.getString("initFirst");
+        final String initFirst = ("FAST".equals(initFirstArg) || "SLOW".equals(initFirstArg))
+            ? initFirstArg : null;
         // P0-OBD-DIAG-02: "13" (ISO 14230-3 eski nesil readDTC) kabul edilir.
         if (!present(tx) || !present(rx)
             || !("19".equals(service) || "18".equals(service) || "13".equals(service))) {
@@ -2984,16 +2991,16 @@ public class CarLauncherPlugin extends Plugin {
                     ev = tuned.uds; tuning = tuned.tuning;
                 } else if ("13".equals(service)) {
                     ev = bleObdManager != null && bleObdManager.isConnected()
-                        ? bleObdManager.readAdvancedKwp13Dtc(tx, rx)
-                        : obdManager.readAdvancedKwp13Dtc(tx, rx);
+                        ? bleObdManager.readAdvancedKwp13Dtc(tx, rx, initFirst)
+                        : obdManager.readAdvancedKwp13Dtc(tx, rx, initFirst);
                 } else if ("18".equals(service)) {
                     ev = bleObdManager != null && bleObdManager.isConnected()
-                        ? bleObdManager.readAdvancedKwpDtc(tx, rx)
-                        : obdManager.readAdvancedKwpDtc(tx, rx);
+                        ? bleObdManager.readAdvancedKwpDtc(tx, rx, initFirst)
+                        : obdManager.readAdvancedKwpDtc(tx, rx, initFirst);
                 } else {
                     ev = bleObdManager != null && bleObdManager.isConnected()
-                        ? bleObdManager.readAdvancedUdsDtc(tx, rx, sub, payload)
-                        : obdManager.readAdvancedUdsDtc(tx, rx, sub, payload);
+                        ? bleObdManager.readAdvancedUdsDtc(tx, rx, sub, payload, initFirst)
+                        : obdManager.readAdvancedUdsDtc(tx, rx, sub, payload, initFirst);
                 }
                 ret.put("raw", ev.data == null ? "" : ev.data);
                 ret.put("kind", ev.kind); if (ev.nrc != null) ret.put("nrc", ev.nrc);
@@ -3205,8 +3212,14 @@ public class CarLauncherPlugin extends Plugin {
     /** P0-OBD-FINAL-01: ECU-basina DTC + HAM yanit + olculen sonuc (aktif transport). */
     private com.cockpitos.pro.obd.ElmProtocol.DtcClassResult readDtcClassFromEcuActive(
             String tx, String rx, String mode) throws Exception {
-        if (bleObdManager != null && bleObdManager.isConnected()) return bleObdManager.readDtcClassFromEcu(tx, rx, mode);
-        if (obdManager    != null && obdManager.isConnected())    return obdManager.readDtcClassFromEcu(tx, rx, mode);
+        return readDtcClassFromEcuActive(tx, rx, mode, null);
+    }
+
+    /** P0-OBD-DTC-INIT/2: matrisin ÖLÇTÜĞÜ K-line yeniden başlatmayı standart moda da taşır. */
+    private com.cockpitos.pro.obd.ElmProtocol.DtcClassResult readDtcClassFromEcuActive(
+            String tx, String rx, String mode, String init) throws Exception {
+        if (bleObdManager != null && bleObdManager.isConnected()) return bleObdManager.readDtcClassFromEcu(tx, rx, mode, init);
+        if (obdManager    != null && obdManager.isConnected())    return obdManager.readDtcClassFromEcu(tx, rx, mode, init);
         throw new java.io.IOException("OBD okuyucu bağlı değil");
     }
 
@@ -3229,6 +3242,10 @@ public class CarLauncherPlugin extends Plugin {
         final String tx   = call.getString("tx");
         final String rx   = call.getString("rx");
         final String mode = call.getString("mode", "03");
+        /* P0-OBD-DTC-INIT/2: beyaz liste — yalnız "FAST"/"SLOW"; başka her şey
+           init YOK sayılır (uydurma başlatma komutu hatta ÇIKMAZ). */
+        final String initArg = call.getString("initFirst");
+        final String initFirst = ("FAST".equals(initArg) || "SLOW".equals(initArg)) ? initArg : null;
         if (!present(tx) || !present(rx)) {
             call.reject("OBD_BAD_ARGS", "tx ve rx zorunlu");
             return;
@@ -3236,7 +3253,7 @@ public class CarLauncherPlugin extends Plugin {
         new Thread(() -> {
             try {
                 com.cockpitos.pro.obd.ElmProtocol.DtcClassResult r =
-                        readDtcClassFromEcuActive(tx, rx, mode);
+                        readDtcClassFromEcuActive(tx, rx, mode, initFirst);
                 JSObject ret = new JSObject();
                 org.json.JSONArray arr = new org.json.JSONArray();
                 for (String c : r.codes) arr.put(c);
