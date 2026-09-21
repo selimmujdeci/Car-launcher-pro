@@ -75,6 +75,9 @@ const WIRED_SOURCES = [
   // PR-2a — kapsam genişletmesi (bu ekranlarda önce SIFIR düzenlenebilir nokta vardı)
   'src/components/climate/ClimateScreen.tsx',
   'src/components/phone/PhoneScreen.tsx',
+  // Telefon Merkezi Faz 1 — rehber gövdesi PhoneScreen'den ayrı dosyaya taşındı;
+  // `phone.search` / `phone.contact-row` / `phone.number-picker` artık burada.
+  'src/components/phone/PhoneContactsTab.tsx',
   'src/components/apps/AppGrid.tsx',
   // PR-2b
   'src/components/media/MediaScreen.tsx',
