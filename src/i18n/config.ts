@@ -72,6 +72,13 @@ const resources = {
         "nearby_rest_area_starting": "En yakın dinlenme tesisi için rota başlatılıyor.",
         "nearby_rest_area_none": "Yakınında bilinen bir dinlenme tesisi bulunamadı.",
         "nearby_rest_area_error": "Dinlenme tesisi araması şu anda tamamlanamadı. Lütfen tekrar dene."
+      },
+      "phoneLink": {
+        "connectionPriority": {
+          "title": "CarOS Bağlantı Önceliği",
+          "description": "Etkinleştirildiğinde, CarOS Phone Link kullanılırken diğer telefon bağlantı sistemlerinin CarOS ile çakışmasını önler. Phone Link kapatıldığında diğer bağlantılar normal şekilde kullanılabilir.",
+          "notice": "Bluetooth, Wi-Fi veya mobil bağlantılarınızı izniniz olmadan açmaz."
+        }
       }
     }
   },
@@ -144,6 +151,13 @@ const resources = {
         "nearby_rest_area_starting": "Starting navigation to the nearest rest area.",
         "nearby_rest_area_none": "No known rest area was found nearby.",
         "nearby_rest_area_error": "The rest area search could not be completed right now. Please try again."
+      },
+      "phoneLink": {
+        "connectionPriority": {
+          "title": "CarOS Connection Priority",
+          "description": "When enabled, CarOS prevents other phone connection systems from conflicting with CarOS while Phone Link is in use. When Phone Link is turned off, other connections can be used normally.",
+          "notice": "It does not turn on your Bluetooth, Wi-Fi or mobile connections without your permission."
+        }
       }
     }
   }

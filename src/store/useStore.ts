@@ -197,6 +197,18 @@ export interface AppSettings {
   /** Alt dock bar otomatik gizlensin mi — ekrana dokununca geri gelir */
   dockAutoHide: boolean;
   smartContextEnabled: boolean;
+  /**
+   * PHONE LINK F6 — "CarOS Bağlantı Önceliği" (isteğe bağlı kullanıcı tercihi).
+   *
+   * Etkinken, Phone Link ACTIVE olduğu sürece CarOS'un GERÇEKTEN kontrol
+   * edebildiği telefon-entegrasyon kaynaklarında (ses/medya) CarOS sahip olur.
+   *
+   * ⚠️ Bu ayar CarOS'a kullanıcı kararını AŞMA yetkisi VERMEZ: Bluetooth,
+   * Wi-Fi veya mobil bağlantıyı açmaz (bkz. `phoneLinkConnectivityIntent.ts`).
+   *
+   * Varsayılan KAPALI — ilk kurulumda hiçbir sistem habersiz susturulmaz.
+   */
+  carosConnectionPriorityEnabled: boolean;
   pinnedCards: PinnedCard[];
   dayNightMode: 'day' | 'night';
   editMode: boolean;
@@ -379,6 +391,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   customLocations: [],
   dockAutoHide: false,           // varsayılan: dock her zaman görünür
   smartContextEnabled: true,     // Smart Engine varsayılan açık
+  /* F6: KAPALI — kullanıcı açıkça istemeden rakip sistem susturulmaz. */
+  carosConnectionPriorityEnabled: false,
   pinnedCards: [],
   dayNightMode: 'day',
   editMode: false,
