@@ -241,7 +241,92 @@ export function setRemoteCommandContext(ctx: CommandContext): void {
 
 // ── Core dispatcher ───────────────────────────────────────────────────────
 
+/**
+ * F0.2 · KANONİK UZAK KOMUT YÜRÜTME OTORİTESİ = `commandListener`.
+ *
+ * ── ÖLÇÜLEN KUSUR (2026-09-17) ───────────────────────────────────────────
+ * Bu servis ile `commandListener` AYNI `vehicle_commands` satırını birbirinden
+ * habersiz işliyordu (bu servis `remote-commands:<vid>` kanalı, o `vehicle-cmds:<vid>`
+ * kanalı + 15 sn yoklama). Dedup her ikisinde de KENDİ RAM'indeydi, ortak bir DB
+ * claim/lease YOKTU. Sonuç, sahada iki farklı yanlış üretiyordu:
+ *   (a) Aynı fiziksel komut İKİ KEZ yürütülebiliyordu.
+ *   (b) Aynı satıra çelişen durum yazılıyordu: Arabam Cebimde INSERT'i yalnız
+ *       `type` kolonunu yazar (`website/src/lib/commandService.ts`), `intent`
+ *       YAZMAZ; bu servis ise satırı `intent` üzerinden okuyup
+ *       `fromAIResponse` null dönünce "Unknown intent" ile `failed` yazarken
+ *       `commandListener` aynı komutu `type` üzerinden YÜRÜTÜP `completed`
+ *       yazıyordu. Kullanıcı kapı kilitlendiği hâlde "Hata" görebiliyordu.
+ *
+ * ── NEDEN `commandListener` KANONİK ──────────────────────────────────────
+ *   1. Fiziksel komutlarda E2E'yi ZORUNLU kılan tek tüketici odur
+ *      (`commandListener.ts` MCU_COMMANDS / E2E_REQUIRED_COMMANDS) ve bu küme
+ *      native `CommandService.java` ile birebir aynıdır.
+ *   2. Üretimdeki yazıcı `type` kolonunu yazar — `commandListener` o kolonu okur.
+ *   3. Taşıması güvenilirdir: 15 sn yoklama ASIL yoldur, realtime yalnız
+ *      hızlandırıcıdır; bu servis yoklama YAPMAZ.
+ *   4. Hareket kapısı (`movingGateVerdict`) ve kanallar arası nonce replay
+ *      koruması ondadır.
+ *   5. Eşleşmiş her native cihazda açılması GARANTİDİR
+ *      (`pushService.ts` → `_ensureCommandListener`, push durumundan bağımsız).
+ *
+ * ── BU SERVİSİN YENİ ROLÜ ────────────────────────────────────────────────
+ * Fiziksel yürütme yetkisi YOK. Kalan sorumluluklar: çevrimdışı retry kuyruğu
+ * defteri, bağlantı gözlemi, TTL sabitleri ve UI'nin beslediği `CommandContext`.
+ * ÜÇÜNCÜ bir executor KURULMADI; mevcut olan tek otoriteye devredildi.
+ */
+let _delegatedCount = 0;
+
+/** Devredilen (yürütülmeyen) komut sayısı — LAB/teşhis gözlemi. */
+export function getDelegatedCommandCount(): number { return _delegatedCount; }
+
+/**
+ * TEK OTORİTE KAPISI (F0.2).
+ *
+ * Bu servisteki ÜÇ çağıranın (realtime · `_fetchMissedCommands` ·
+ * `_drainRetryQueue`) ortak darboğazı budur; kapı burada olduğu için hangi
+ * yoldan gelinirse gelinsin fiziksel yürütme İMKÂNSIZDIR.
+ *
+ * DURUM DA YAZILMAZ: `received`/`expired` yazmak bile kanonik otoriteyle aynı
+ * satır üzerinde yarış üretirdi. Satırın yaşam döngüsünün TEK sahibi
+ * `commandListener`dır.
+ */
 async function _processCommand(
+  row: Record<string, unknown>,
+  fromQueue = false,
+): Promise<void> {
+  _delegatedCount += 1;
+
+  const commandId = row['id'] as string | undefined;
+  if (!commandId) return;
+  if (_isDuplicate(commandId)) return;
+
+  /* ── KALAN TEK SORUMLULUK: ÇEVRİMDIŞI KRİTİK KOMUT DEFTERİ ────────────
+     Yürütme yoktur; DURUM YAZILMAZ. Yalnız "araç çevrimdışıyken gelen
+     kritik komut" yerel deftere alınır ki bağlantı dönünce kanonik otorite
+     (`commandListener`) yoklamasında kaybolmuş sayılmasın. Bu yerel bir
+     kayıttır — DB satırına DOKUNMAZ, dolayısıyla yarış üretmez. */
+  if (!allowsConnectivity('BACKGROUND_SYNC') && !fromQueue) {
+    /* Kritiklik KANONİK AYRIM `type` ÜZERİNDEN okunur (F0.2). `intent` de
+       kabul edilir çünkü bu YALNIZ yerel defter kararıdır: iki alanın
+       ayrışması burada yürütme semantiği üretmez, yalnız daha geniş bir
+       küme deftere girer (fail-safe yön). */
+    const rowType    = row['type']   as string | undefined;
+    const intentType = row['intent'] as string | undefined;
+    if (CRITICAL_TYPES.has(rowType ?? '') || CRITICAL_TYPES.has(intentType ?? '')) {
+      _enqueueRetry(row);
+    }
+  }
+}
+
+/**
+ * ⚠️ DEVRE DIŞI — ESKİ YÜRÜTÜCÜ GÖVDESİ (F0.2'de çağrısı KESİLDİ).
+ *
+ * Silinmedi: bu turun kapsamı ölü kod temizliği DEĞİLDİR ve silme, TTL/retry/
+ * E2E/ACK ayrıntılarının kaybolma riskini taşır. Hiçbir yerden ÇAĞRILMAZ;
+ * yürütme kanonik otoritededir. Bu gövdeyi yeniden bağlamak, ikinci fiziksel
+ * yürütücüyü geri getirir ve `remoteCommandSingleAuthority` guard testi düşer.
+ */
+async function _legacyExecuteCommandDisabled(
   row: Record<string, unknown>,
   fromQueue = false,
 ): Promise<void> {
@@ -429,6 +514,11 @@ async function _processCommand(
   }
 }
 
+/* Yalnız `noUnusedLocals` içindir: fonksiyon DEĞERİ okunur, ÇAĞRILMAZ.
+   `void f;` bir ifade deyimidir; `void f();` olsaydı yürütücü geri gelirdi.
+   Guard testi tam olarak bu ayrımı kilitler. */
+void _legacyExecuteCommandDisabled;
+
 // ── Module state ──────────────────────────────────────────────────────────
 
 let _active:  boolean         = false;
@@ -508,6 +598,11 @@ export async function startRemoteCommands(): Promise<void> {
     setTimeout(() => { void _drainRetryQueue(); }, 500);
   }
 
+  /* ── F0.2 · BU ABONELİK ARTIK YALNIZ TESLİMAT/DEFTER YOLUDUR ────────────
+     Kanal KORUNDU ama tükettiği `_processCommand` artık YÜRÜTMEZ: yalnız
+     çevrimdışı kritik komutu retry defterine yazar. Görev sözleşmesi bunu
+     açıkça serbest bırakır — "realtime/polling/FCM taşıma olabilir, ama
+     bağımsız fiziksel executor olamaz". */
   _channel = supabase
     .channel(`remote-commands:${identity.vehicleId}`)
     .on(
@@ -527,9 +622,8 @@ export async function startRemoteCommands(): Promise<void> {
     .subscribe((status) => {
       if (status === 'SUBSCRIBED') {
         if (import.meta.env.DEV) {
-          logInfo('[RemoteCommand] Subscribed — TTL:', DEFAULT_TTL_MS / 1000, 's');
+          logInfo('[RemoteCommand] Defter aboneliği — yürütme commandListener\'da. TTL:', DEFAULT_TTL_MS / 1000, 's');
         }
-        // Bağlantı yeniden kuruldu — offline dönemde gelen komutları işle
         void _fetchMissedCommands();
       }
     });

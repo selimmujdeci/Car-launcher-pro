@@ -1,22 +1,23 @@
 /**
- * soak.remoteCommand.test.ts — T4 Commit 6: remoteCommand ACK-timeout + queue eviction.
+ * soak.remoteCommand.test.ts — T4 Commit 6: remoteCommand defter/queue eviction soak'ı.
  *
- * Amaç: 8 saatlik SANAL çalışmada GERÇEK remoteCommandService'in ACK timeout,
- * pending-ack temizliği, dedup, retry-queue eviction ve stop cleanup davranışını
- * doğrulamak. Gerçek bekleme YOK; T4 soakHarness sanal saati.
+ * F0.2 GÜNCELLEMESİ (2026-09-17): `remoteCommandService` artık fiziksel yürütücü
+ * DEĞİLDİR — kanonik yürütme otoritesi `commandListener`dır (bkz. remoteCommandService.ts
+ * içindeki `_processCommand` yorumu ve `remoteCommandSingleAuthority.test.ts`).
+ * `_awaitHardwareAck` yalnız devre dışı bırakılmış `_legacyExecuteCommandDisabled`
+ * gövdesinden çağrılır ve o gövde hiçbir production yolundan tetiklenmez; bu yüzden
+ * `_pendingAcks` production'da hep boştur ve `acknowledgeCommand`/`timeoutCommandAck`
+ * artık yalnızca güvenli no-op'tur (gerçek native ACK producer da yok — grep ile
+ * doğrulandı). Bu dosyadaki testler artık YENİ sözleşmeyi ölçer:
+ *   - `_processCommand` hiçbir ACK timer kurmaz, hiçbir status yazmaz (taşıma/defter).
+ *   - Soak değeri (100+ komut, dedup, stop lifecycle, offline queue eviction) korunur.
+ * Gözlemlenebilir yüzeyler:
+ *   - leakHarness timer spy (artık her zaman 0 — ACK timer retired)
+ *   - safeStorage (cmd-retry-queue-v1 persist) → offline kritik komut defteri
+ *   - getDelegatedCommandCount() → devredilen (taşınan) komut sayısı
  *
- * Erişim: ACK mekanizması (_awaitHardwareAck / _pendingAcks) PRIVATE'tır ve yalnız
- * _processCommand'ın critical-komut (lock/unlock + E2E) yolundan populate edilir.
- * _processCommand da yalnız Realtime INSERT handler'ından çağrılır. Bu yüzden
- * supabase channel mock'u handler'ı yakalar; emit() ile GERÇEK _processCommand
- * sürülür → ACK timer/pending GERÇEK kodda oluşur. Gözlemlenebilir yüzeyler:
- *   - updateRemoteCommandStatus mock çağrıları (received/executing/failed/completed)
- *   - leakHarness timer spy (ack timer sayısı)
- *   - safeStorage (cmd-retry-queue-v1 persist) → retry queue uzunluğu
- * acknowledgeCommand / timeoutCommandAck mevcut public API olarak kullanılır.
- *
- * Kurallar (CLAUDE.md): production/native hot-path'e DOKUNULMAZ; remote command
- * davranışı değişmez; yeni production hook yok; yalnız src/__tests__ altında.
+ * Kurallar (CLAUDE.md): production/native hot-path'e DOKUNULMAZ; yeni production hook
+ * yok; yalnız src/__tests__ altında.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
@@ -61,8 +62,13 @@ import {
   setRemoteCommandContext,
   acknowledgeCommand,
   timeoutCommandAck,
+  getDelegatedCommandCount,
 } from '../platform/remoteCommandService';
 import { updateRemoteCommandStatus } from '../platform/vehicleIdentityService';
+/* CONNECTIVITY F7-B: `remoteCommandService` artik tarayicinin `online` olayini
+   DINLEMEZ — kanonik `ConnectivityAuthority`ye abone olur. Sizinti kilidi ayni
+   sekilde gecerlidir; yalnizca SAYILAN abonelik degisti. */
+import { getConnectivityTelemetry } from '../platform/connectivity/connectivityAuthority';
 import type { CommandContext } from '../platform/commandExecutor';
 import {
   startVirtualClock,
@@ -109,8 +115,8 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-describe('T4 — remoteCommand ACK timeout', () => {
-  it('ACK beklerken 10s timeout tetiklenir, pending temizlenir, timer birikmez', async () => {
+describe('T4 — remoteCommand ACK-wait retired (fiziksel yürütme commandListener\'da)', () => {
+  it('online kritik komut teslim edilir; ACK-wait timer ASLA kurulmaz (INVARIANT 1/7)', async () => {
     const clock  = startVirtualClock(SOAK_EPOCH);
     const probes = installSoakProbes();
     await startRemoteCommands();
@@ -118,142 +124,145 @@ describe('T4 — remoteCommand ACK timeout', () => {
 
     const before = probes.timers.activeTimeouts();
     emit('cmd1', 'unlock');
-    await clock.advance(1); // zinciri ilerlet → _awaitHardwareAck pending + 10s timer
+    await clock.advance(1); // _processCommand ilerler → yalnız defter/dedup, ACK yok
     const afterEmit = probes.timers.activeTimeouts();
 
-    await clock.advance(SECONDS(10) + 100); // 10s ACK timeout
-    await clock.advance(1);                  // failed continuation
-    const afterTimeout = probes.timers.activeTimeouts();
+    await clock.advance(SECONDS(10) + 100); // eski 10s ACK penceresi geçse de
+    await clock.advance(1);
+    const afterWindow = probes.timers.activeTimeouts();
     const statuses = statusesFor('cmd1');
 
     probes.restore();
     clock.restore();
 
-    expect(afterEmit).toBe(before + 1);   // tek ACK timer kuruldu
-    expect(afterTimeout).toBe(before);    // timeout sonrası pending/timer temizlendi
-    expect(statuses).toContain('failed'); // ACK timeout → failed
+    expect(afterEmit).toBe(before);   // ACK timer hiç kurulmadı — mekanizma retired
+    expect(afterWindow).toBe(before); // pencere geçse de timer birikmedi
+    expect(statuses).toHaveLength(0); // remoteCommandService status YAZMAZ (tek sahip commandListener)
   });
 
-  it('100+ komut pending ACK: her timeout tekil, sonrasında map boşalır', async () => {
+  it('100+ komut ardışık teslim edilir: hepsi devredilir (taşıma), hiçbiri timer/pending üretmez', async () => {
     const clock  = startVirtualClock(SOAK_EPOCH);
     const probes = installSoakProbes();
     await startRemoteCommands();
     setRemoteCommandContext({} as CommandContext);
 
     const before = probes.timers.activeTimeouts();
+    const beforeDelegated = getDelegatedCommandCount();
     const N = 120;
     for (let i = 0; i < N; i++) emit(`m${i}`, 'unlock');
-    await clock.advance(1); // tüm zincirleri ilerlet → N pending ack timer
+    await clock.advance(1); // tüm zincirleri ilerlet
     const afterEmit = probes.timers.activeTimeouts();
 
-    await clock.advance(SECONDS(10) + 100); // tüm ACK'lar timeout
+    await clock.advance(SECONDS(10) + 100); // eski ACK penceresi geçse de
     await clock.advance(1);
-    const afterTimeout = probes.timers.activeTimeouts();
+    const afterWindow = probes.timers.activeTimeouts();
 
     probes.restore();
     clock.restore();
 
-    expect(afterEmit).toBe(before + N);  // her komut tek ack timer
-    expect(afterTimeout).toBe(before);   // hepsi timeout → pending map boş
+    expect(getDelegatedCommandCount() - beforeDelegated).toBe(N); // 120 komut devredildi (LAB gözlemi)
+    expect(afterEmit).toBe(before);    // 120 komutta bile ACK timer kurulmadı
+    expect(afterWindow).toBe(before);  // leak yok — sabit kalır
   });
 });
 
-describe('T4 — remoteCommand ACK success', () => {
-  it('acknowledgeCommand zamanında gelirse timeout çalışmaz, pending temizlenir', async () => {
+describe('T4 — remoteCommand ACK API dead-but-safe', () => {
+  it('gerçekten teslim edilmiş bir id için bile acknowledgeCommand/timeoutCommandAck no-op kalır; sahte completed/failed ÜRETİLMEZ', async () => {
     const clock  = startVirtualClock(SOAK_EPOCH);
     const probes = installSoakProbes();
     await startRemoteCommands();
     setRemoteCommandContext({} as CommandContext);
 
-    const before = probes.timers.activeTimeouts();
     emit('ack1', 'unlock');
     await clock.advance(1);
-    const afterEmit = probes.timers.activeTimeouts();
+    const before = probes.timers.activeTimeouts();
 
-    acknowledgeCommand('ack1'); // zamanında ACK → resolve(true), timer clear
-    await clock.advance(1);
-    const afterAck = probes.timers.activeTimeouts();
-
-    await clock.advance(SECONDS(20)); // timeout penceresini geç
+    // _pendingAcks hiçbir zaman doldurulmadı (live path _awaitHardwareAck çağırmaz) →
+    // bu iki çağrı da no-op olmalı; ne timer değişir ne sahte status üretilir.
+    expect(() => acknowledgeCommand('ack1')).not.toThrow();
+    expect(() => timeoutCommandAck('ack1')).not.toThrow();
+    const after = probes.timers.activeTimeouts();
     const statuses = statusesFor('ack1');
 
     probes.restore();
     clock.restore();
 
-    expect(afterEmit).toBe(before + 1);
-    expect(afterAck).toBe(before);            // ACK → timer temizlendi
-    expect(statuses).toContain('completed');  // timeout değil → completed
-    expect(statuses).not.toContain('failed'); // timeout çalışmadı
+    expect(after).toBe(before);                    // no-op — pending hiç yoktu
+    expect(statuses).not.toContain('completed');    // sahte VERIFIED/completed üretilmedi (INVARIANT 5/6)
+    expect(statuses).not.toContain('failed');
   });
 });
 
 describe('T4 — remoteCommand duplicate / dedup safety', () => {
-  it('aynı commandId tekrar gelince çift ACK timer üretmez (dedup)', async () => {
-    const clock  = startVirtualClock(SOAK_EPOCH);
-    const probes = installSoakProbes();
+  it('aynı commandId offlineyken tekrar gelince yerel deftere İKİ KEZ girmez (dedup canlı yolda)', async () => {
+    const clock = startVirtualClock(SOAK_EPOCH);
+    setOnline(false);
     await startRemoteCommands();
     setRemoteCommandContext({} as CommandContext);
 
-    const before = probes.timers.activeTimeouts();
     emit('dupX', 'unlock');
-    await clock.advance(1);
-    const afterFirst = probes.timers.activeTimeouts();
-
-    emit('dupX', 'unlock'); // aynı id → dedup → suppress
-    await clock.advance(1);
-    const afterSecond = probes.timers.activeTimeouts();
-
-    timeoutCommandAck('dupX'); // temizle
+    await clock.advance(1); // offline + kritik → _enqueueRetry
+    emit('dupX', 'unlock'); // aynı id → _isDuplicate → suppress, ikinci kayıt YOK
     await clock.advance(1);
 
-    probes.restore();
+    const raw = store.get(QUEUE_KEY);
+    const q = raw ? (JSON.parse(raw) as Array<{ row: { id: string } }>) : [];
+    const dupCount = q.filter((e) => e.row.id === 'dupX').length;
+
     clock.restore();
+    setOnline(true);
 
-    expect(afterFirst).toBe(before + 1);  // ilk → 1 timer
-    expect(afterSecond).toBe(afterFirst); // ikinci → çift timer YOK (dedup)
+    expect(dupCount).toBe(1); // dedup → tek kayıt (çift kayıt yok)
   });
 });
 
 describe('T4 — remoteCommand stop cleanup', () => {
-  it('stop → online listener kaldırılır; bekleyen ACK timer kalıcı sızmaz', async () => {
+  it('stop → bağlantı aboneliği sökülür; offline kuyruğu kalıcıdır, ACK timer hiç yok', async () => {
     const clock  = startVirtualClock(SOAK_EPOCH);
     const probes = installSoakProbes();
+    const subsBefore = getConnectivityTelemetry().subscriberCount;
+    setOnline(false);
     await startRemoteCommands();
     setRemoteCommandContext({} as CommandContext);
 
-    const onlineAfterStart = probes.windowListeners.active('online');
-    emit('stop1', 'unlock');
+    const onlineAfterStart = getConnectivityTelemetry().subscriberCount - subsBefore;
+    /* Tarayici `online` olayi ARTIK dinlenmiyor — ikinci gozlemci yok (§29). */
+    expect(probes.windowListeners.active('online')).toBe(0);
+    emit('stop1', 'unlock'); // offline + kritik → yerel deftere yazılır
     await clock.advance(1);
     const timersBeforeStop = probes.timers.activeTimeouts();
+    const beforeStopHasEntry = (JSON.parse(store.get(QUEUE_KEY) ?? '[]') as Array<{ row: { id: string } }>)
+      .some((e) => e.row.id === 'stop1');
 
     stopRemoteCommands();
-    const onlineAfterStop  = probes.windowListeners.active('online');
+    const onlineAfterStop  = getConnectivityTelemetry().subscriberCount - subsBefore;
     const timersAfterStop  = probes.timers.activeTimeouts();
-
-    // stop pending ACK timer'ı iptal ETMEZ (gerçek davranış) — ama 10s'de kendi
-    // kendine temizlenir → kalıcı sızıntı yok.
-    await clock.advance(SECONDS(10) + 100);
-    await clock.advance(1);
-    const timersAfterSelfClear = probes.timers.activeTimeouts();
+    const afterStopHasEntry = (JSON.parse(store.get(QUEUE_KEY) ?? '[]') as Array<{ row: { id: string } }>)
+      .some((e) => e.row.id === 'stop1');
 
     probes.restore();
     clock.restore();
+    setOnline(true);
 
-    expect(onlineAfterStart).toBe(1);
-    expect(onlineAfterStop).toBe(0);                    // online listener kaldırıldı
-    expect(timersBeforeStop).toBeGreaterThanOrEqual(1); // bekleyen ack timer vardı
-    expect(timersAfterStop).toBe(timersBeforeStop);     // stop iptal etmedi (by-design)
-    expect(timersAfterSelfClear).toBe(0);               // self-clear → kalıcı sızıntı yok
+    expect(onlineAfterStart).toBe(1);        // tam 1 kanonik abonelik
+    expect(onlineAfterStop).toBe(0);         // abonelik söküldü (sızıntı yok)
+    expect(timersBeforeStop).toBe(0);        // ACK-wait timer artık hiç kurulmuyor
+    expect(timersAfterStop).toBe(0);         // stop sonrası da timer yok
+    expect(beforeStopHasEntry).toBe(true);   // offline kritik komut deftere yazıldı
+    expect(afterStopHasEntry).toBe(true);    // stop kuyruğu SİLMEZ — kalıcı (by-design, kod yorumu)
   });
 
   it('stop idempotent, listener kalıntısı bırakmaz', async () => {
     const probes = installSoakProbes();
+    const subsBefore = getConnectivityTelemetry().subscriberCount;
     await startRemoteCommands();
     stopRemoteCommands();
     stopRemoteCommands();
     const online = probes.windowListeners.active('online');
+    const subs   = getConnectivityTelemetry().subscriberCount - subsBefore;
     probes.restore();
     expect(online).toBe(0);
+    expect(subs).toBe(0);   // çift stop kanonik aboneliği de sızdırmaz
   });
 });
 
