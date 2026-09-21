@@ -804,7 +804,14 @@ public final class ElmProtocol {
             "19",  // UDS readDTCInformation
             "1A",  // KWP readEcuIdentification
             "21",  // KWP readDataByLocalIdentifier
-            "22"   // readDataByIdentifier
+            "22",  // readDataByIdentifier
+            /* P0-OBD-DTC-INIT/3 — ISO 14230-2 §5.2 StartCommunication.
+               SALT BAGLANTI KURMA: hafizaya YAZMAZ, DTC SILMEZ, rutin
+               CALISTIRMAZ, security access DEGILDIR — beyaz listedeki "10"
+               (startDiagnosticSession) ile AYNI guvenlik sinifindadir.
+               Destructive liste (04·11·14·27·28·2E·2F·31·34-37·3B·85)
+               DEGISMEDI; bu satir o listeye DOKUNMAZ. */
+            "81"   // KWP StartCommunication
         )));
 
     /**
@@ -905,6 +912,7 @@ public final class ElmProtocol {
     }
 
     private InitResult initKLineForRow(String init) {
+        if ("SC81".equals(init)) return startCommunicationInit();
         String cmd = "SLOW".equals(init) ? "ATSI" : "ATFI";
         String r;
         try {
@@ -922,6 +930,36 @@ public final class ElmProtocol {
         }
         boolean ok = c.contains("OK") || c.contains("BUSINIT");
         return new InitResult(ok, shown);
+    }
+
+    /**
+     * P0-OBD-DTC-INIT/3 — PROTOKOL SEVIYESI baglanti kurma (ISO 14230-2 §5.2).
+     *
+     * ── NEDEN AYRI BIR YOL ────────────────────────────────────────────────────
+     * {@code ATFI}/{@code ATSI} ADAPTOR seviyesinde baslatmadir ve sahada
+     * (2026-08-26 · ECU 7A) IKISI DE {@code INIT_FAILED} dondu: adaptor hatti
+     * yeniden kurmayi REDDETTI. Bu metot ayni niyeti hattin KENDI servisiyle
+     * dener: fiziksel hedefe {@code 81} gonderilir, pozitif yanit {@code C1}dir.
+     * Adaptorun init yetenegine BAGLI DEGILDIR — ELM yalniz bayti tasir.
+     *
+     * Header CAGIRAN tarafindan ZATEN kurulmustur (ATSH); burada DEGISTIRILMEZ.
+     * SALT BAGLANTI KURMA: yazma · silme · security access YOKTUR.
+     *
+     * POZITIF KANIT SARTI: {@code C1} HAM YANITTA gorulmelidir. Sessizlik, ELM
+     * metin durumu ve ayrik negatif ({@code 7F 81 ..}) "baglanti kuruldu"
+     * DEMEK DEGILDIR (fail-closed).
+     */
+    private InitResult startCommunicationInit() {
+        String raw;
+        try {
+            raw = sendChecked("81", 2000);
+        } catch (Exception e) {
+            String m = e.getMessage();
+            return new InitResult(false, "81 istisna: " + (m == null ? e.getClass().getSimpleName() : m));
+        }
+        String compact = raw == null ? "" : raw.replaceAll("\\s+", "").toUpperCase(Locale.ROOT);
+        String shown = "81 -> " + (raw == null ? "YANIT YOK" : raw.trim());
+        return new InitResult(compact.contains("C1") && !compact.contains("7F81"), shown);
     }
 
     private AddressingEvidence sendAddressingRow(String req) {

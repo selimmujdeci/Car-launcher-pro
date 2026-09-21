@@ -1981,7 +1981,7 @@ export interface CarLauncherPlugin {
      * YALNIZ kanıtlanmış hedefle yapılan TEK SEFERLİK yeniden okumada gönderilir;
      * ilk turda ALAN HİÇ YAZILMAZ → davranış eskisiyle birebir aynı kalır.
      */
-    initFirst?: 'FAST' | 'SLOW';
+    initFirst?: 'FAST' | 'SLOW' | 'SC81';
   }): Promise<{
     codes: string[];
     supported: boolean;
@@ -2095,7 +2095,7 @@ export interface CarLauncherPlugin {
      * Başlatma çalışan oturumu anlık böler; çağıran bunu yalnız hat canlılığı
      * ÖLÇÜLDÜKTEN sonra ister.
      */
-    init?: 'FAST' | 'SLOW';
+    init?: 'FAST' | 'SLOW' | 'SC81';
   }): Promise<{
     /** GERÇEKTEN gönderilen istek; gönderilmediyse ''. */
     request: string;
@@ -2138,7 +2138,7 @@ export interface CarLauncherPlugin {
      * ÖNCE ATFI/ATSI'yi TEKRARLAR. Ölçülmediyse ALAN HİÇ GÖNDERİLMEZ (uydurma
      * başlatma komutu YOK) — davranış eskisiyle birebir aynı kalır.
      */
-    initFirst?: 'FAST' | 'SLOW';
+    initFirst?: 'FAST' | 'SLOW' | 'SC81';
   }): Promise<{
     raw: string; kind: string;
     outcome: 'ok' | 'negative_nrc' | 'no_response' | 'timeout' | 'malformed' | 'transport_error' | 'not_addressable';

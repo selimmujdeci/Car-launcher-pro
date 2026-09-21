@@ -150,7 +150,7 @@ import {
   KWP_ADDRESSING_VARIANTS, KWP_ADDRESSING_MAX_VARIANTS,
   classifyKwpAddressingResponse, ecuSourceFromRxHeader, getKwpAddressingProbes,
   recordKwpAddressingProbe, resolveVariantHeader, summarizeKwpAddressing,
-  type KwpAddressingVerdict,
+  type KwpAddressingVerdict, type KwpInitKind,
 } from './kwpAddressingProbe';
 import type { DtcReadOutcome } from './dtcScanEvidence';
 
@@ -813,7 +813,7 @@ export async function scanAllEcus(
        gönderiliyordu ve matrisin kanıtladığı ön koşulla AYNI nedenle susuyordu.
        Bu ölçüm burada TAŞINIR ve aşağıda `readKwpForEcu`/`_readKwp13ForEcu`ya
        iletilir. */
-    let provenInitFirst: 'FAST' | 'SLOW' | null = null;
+    let provenInitFirst: KwpInitKind | null = null;
     if (addressability !== 'PROVEN' && isSlowSerialProtocol(activeProtocol)) {
       addressingVerdict = await _probeKwpAddressing(ecu, sessionEpoch, activeProtocol);
       attempts.push({
@@ -1546,7 +1546,7 @@ function _outcomeFromNative(nativeOutcome: string | null, supported: boolean): D
 async function _retryStandardModesOnProvenTarget(
   ecu: DiscoveredEcu, result: EcuScanResult, sessionEpoch: number,
   protocol: string | null, txn: DiagnosticTransaction,
-  initFirst: 'FAST' | 'SLOW' | null,
+  initFirst: KwpInitKind | null,
   attempts: EcuServiceAttempt[], allCodes: EcuDtc[],
 ): Promise<number> {
   const fromEcuFn = vdkDtcFromEcuFn();
@@ -2736,7 +2736,7 @@ async function readKwpForEcu(
    * başlatma zorunluluğu (`KwpAddressingVerdict.requiredInit`). `null` = matris
    * ya koşmadı ya da init GEREKMEDİ — davranış ESKİSİYLE BİREBİR AYNI kalır.
    */
-  initFirst: 'FAST' | 'SLOW' | null = null,
+  initFirst: KwpInitKind | null = null,
 ): Promise<EcuDtc[]> {
   /* KWP adresi CAN header aritmetiğinden TÜRETİLEMEZ. Açık target/session kanıtı yoksa gönderme. */
   if (!isKwpDtcAddressable(ecu, protocol)) {
@@ -2829,7 +2829,7 @@ async function _readKwp13ForEcu(
   ecu: DiscoveredEcu, result: EcuScanResult, sessionEpoch: number, protocol: string | null,
   txn: DiagnosticTransaction,
   /** P0-OBD-DTC-INIT — bkz. `readKwpForEcu` yorumu. */
-  initFirst: 'FAST' | 'SLOW' | null = null,
+  initFirst: KwpInitKind | null = null,
 ): Promise<EcuDtc[]> {
   const kwp13Fn = vdkAdvancedDtcsFn();
   if (!kwp13Fn) { result.kwp13 = null; return []; }

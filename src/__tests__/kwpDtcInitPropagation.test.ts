@@ -47,7 +47,7 @@ describe('kwpDtcInitPropagation › TS: matris kanıtı okumaya TAŞINIR', () =>
     const start = scan.indexOf('async function readKwpForEcu(');
     expect(start).toBeGreaterThan(-1);
     const fn = scan.slice(start, start + 2400);
-    expect(fn).toMatch(/initFirst: 'FAST' \| 'SLOW' \| null = null/);
+    expect(fn).toMatch(/initFirst: KwpInitKind \| null = null/);
     expect(fn).toMatch(/\.\.\.\(initFirst !== null \? \{ initFirst \} : \{\}\)/);
     /* 0x18 açıkça reddedilince 0x13'e düşen dal initFirst'ü KAYBETMEZ. */
     expect(fn).toMatch(/_readKwp13ForEcu\(ecu, result, sessionEpoch, protocol, txn, initFirst\)/);
@@ -57,7 +57,7 @@ describe('kwpDtcInitPropagation › TS: matris kanıtı okumaya TAŞINIR', () =>
     const start = scan.indexOf('async function _readKwp13ForEcu(');
     expect(start).toBeGreaterThan(-1);
     const fn = scan.slice(start, start + 900);
-    expect(fn).toMatch(/initFirst: 'FAST' \| 'SLOW' \| null = null/);
+    expect(fn).toMatch(/initFirst: KwpInitKind \| null = null/);
     expect(fn).toMatch(/\.\.\.\(initFirst !== null \? \{ initFirst \} : \{\}\)/);
   });
 
@@ -120,19 +120,79 @@ describe('kwpDtcInitPropagation › STANDART modlar kanıtlanmış hedefle YENİ
   });
 });
 
+describe('kwpDtcInitPropagation › SC81: protokol seviyesi StartCommunication ÖLÇÜLÜR', () => {
+  it('matriste 0x81 satırı VAR ve fiziksel olarak işaretli', async () => {
+    const { KWP_ADDRESSING_VARIANTS } = await import('../platform/obd/kwpAddressingProbe');
+    const sc = KWP_ADDRESSING_VARIANTS.find((v) => v.id === 'PHY_STARTCOMM_81');
+    expect(sc, 'StartCommunication ölçüm satırı yok').toBeDefined();
+    expect(sc!.request).toBe('81');
+    expect(sc!.physical).toBe(true);
+    /* Kendisi bir ÖLÇÜMDÜR — başka bir başlatmaya İHTİYAÇ DUYMAZ. */
+    expect(sc!.initFirst).toBeUndefined();
+  });
+
+  it('pozitif yanıt öneki ISO 14230-2 ile aynı: 0x81 + 0x40 = C1', async () => {
+    const { positiveSidOf } = await import('../platform/obd/kwpAddressingProbe');
+    expect(positiveSidOf('81')).toBe('C1');
+  });
+
+  it('SC81 ile bağlantı kurup Mode 03 soran satır VAR', async () => {
+    const { KWP_ADDRESSING_VARIANTS } = await import('../platform/obd/kwpAddressingProbe');
+    const row = KWP_ADDRESSING_VARIANTS.find((v) => v.id === 'PHY_SC81_03');
+    expect(row, 'SC81 + Mode 03 satırı yok').toBeDefined();
+    expect(row!.initFirst).toBe('SC81');
+    expect(row!.request).toBe('03');
+  });
+
+  it('SC81 satırları ADAPTÖR başlatma (ATFI/ATSI) satırlarından ÖNCE gelir', () => {
+    /* ATFI/ATSI hattı GERÇEKTEN böler ve sahada zaten reddedildi; ucuz ve
+       kesintisiz olan protokol seviyesi önce denenmelidir. */
+    return import('../platform/obd/kwpAddressingProbe').then(({ KWP_ADDRESSING_VARIANTS }) => {
+      const idx = (id: string) => KWP_ADDRESSING_VARIANTS.findIndex((v) => v.id === id);
+      expect(idx('PHY_STARTCOMM_81')).toBeLessThan(idx('PHY_FASTINIT_03'));
+      expect(idx('PHY_SC81_03')).toBeLessThan(idx('PHY_FASTINIT_03'));
+    });
+  });
+
+  it('matris tavanı yeni satırları KAPSAR (satırlar sessizce kırpılmaz)', async () => {
+    const { KWP_ADDRESSING_VARIANTS, KWP_ADDRESSING_MAX_VARIANTS } =
+      await import('../platform/obd/kwpAddressingProbe');
+    expect(KWP_ADDRESSING_VARIANTS.length).toBeLessThanOrEqual(KWP_ADDRESSING_MAX_VARIANTS);
+  });
+
+  it('NATIVE: 0x81 salt-okunur beyaz listede, destructive liste DEĞİŞMEDİ', () => {
+    const elm = read('android/app/src/main/java/com/cockpitos/pro/obd/ElmProtocol.java');
+    const block = elm.slice(elm.indexOf('KWP_PROBE_ALLOWED_SIDS'),
+      elm.indexOf('probeKwpAddressingRow'));
+    expect(block, '0x81 beyaz listeye alınmamış').toContain('"81"');
+    for (const bad of ['"04"', '"11"', '"14"', '"27"', '"28"', '"2E"', '"2F"', '"31"', '"85"']) {
+      expect(block, `beyaz listeye destructive servis girmiş: ${bad}`).not.toContain(bad);
+    }
+  });
+
+  it('NATIVE: SC81 ayrı bir yolda ve POZİTİF KANIT (C1) şartına bağlı', () => {
+    const elm = read('android/app/src/main/java/com/cockpitos/pro/obd/ElmProtocol.java');
+    expect(elm).toMatch(/if \("SC81"\.equals\(init\)\) return startCommunicationInit\(\);/);
+    const fn = elm.slice(elm.indexOf('private InitResult startCommunicationInit()'));
+    expect(fn.slice(0, 900)).toContain('sendChecked("81", 2000)');
+    /* Sessizlik ve ayrık negatif "bağlantı kuruldu" SAYILMAZ. */
+    expect(fn.slice(0, 900)).toContain('compact.contains("C1") && !compact.contains("7F81")');
+  });
+});
+
 describe('kwpDtcInitPropagation › native köprü tip sözleşmesi', () => {
   it('nativePlugin.ts readAdvancedDtcs artık initFirst alanı taşır', () => {
     const ts = read('src/platform/nativePlugin.ts');
     const start = ts.indexOf('readAdvancedDtcs?(options: {');
     expect(start).toBeGreaterThan(-1);
-    expect(ts.slice(start, start + 1600)).toMatch(/initFirst\?: 'FAST' \| 'SLOW'/);
+    expect(ts.slice(start, start + 1600)).toMatch(/initFirst\?: 'FAST' \| 'SLOW' \| 'SC81'/);
   });
 
   it('nativePlugin.ts readDtcFromEcu (STANDART modlar) da initFirst taşır', () => {
     const ts = read('src/platform/nativePlugin.ts');
     const start = ts.indexOf('readDtcFromEcu?(options: {');
     expect(start).toBeGreaterThan(-1);
-    expect(ts.slice(start, start + 900)).toMatch(/initFirst\?: 'FAST' \| 'SLOW'/);
+    expect(ts.slice(start, start + 900)).toMatch(/initFirst\?: 'FAST' \| 'SLOW' \| 'SC81'/);
   });
 });
 
@@ -162,7 +222,9 @@ describe('kwpDtcInitPropagation › Java: STANDART mod zinciri de init taşır',
     const start = plugin.indexOf('public void readDtcFromEcu(PluginCall call) {');
     expect(start).toBeGreaterThan(-1);
     const fn = plugin.slice(start, start + 1600);
-    expect(fn).toMatch(/"FAST"\.equals\(initArg\) \|\| "SLOW"\.equals\(initArg\)\) \? initArg : null/);
+    expect(fn).toMatch(/"FAST"\.equals\(initArg\) \|\| "SLOW"\.equals\(initArg\)/);
+    expect(fn, 'SC81 (protokol seviyesi StartCommunication) beyaz listede yok')
+      .toMatch(/"SC81"\.equals\(initArg\)\) \? initArg : null/);
     expect(fn).toMatch(/readDtcClassFromEcuActive\(tx, rx, mode, initFirst\)/);
   });
 });
@@ -218,11 +280,11 @@ describe('kwpDtcInitPropagation › Java: CarLauncherPlugin initFirst\'i beyaz l
   const start = plugin.indexOf('public void readAdvancedDtcs(PluginCall call) {');
   const fn = plugin.slice(start, start + 4200);
 
-  it('yalnız "FAST"/"SLOW" kabul edilir — başka her şey null olur (uydurma komut YOK)', () => {
+  it('yalnız "FAST"/"SLOW"/"SC81" kabul edilir — başka her şey null olur (uydurma komut YOK)', () => {
     expect(start).toBeGreaterThan(-1);
-    expect(fn).toMatch(
-      /"FAST"\.equals\(initFirstArg\) \|\| "SLOW"\.equals\(initFirstArg\)\)\s*\n\s*\? initFirstArg : null/,
-    );
+    expect(fn).toMatch(/"FAST"\.equals\(initFirstArg\) \|\| "SLOW"\.equals\(initFirstArg\)/);
+    expect(fn, 'SC81 (protokol seviyesi StartCommunication) beyaz listede yok')
+      .toMatch(/"SC81"\.equals\(initFirstArg\)\) \? initFirstArg : null/);
   });
 
   it('18/13/19 dallarının ÜÇÜ de initFirst\'i ilgili Manager metoduna geçirir', () => {

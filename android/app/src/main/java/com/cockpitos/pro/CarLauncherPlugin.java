@@ -2957,8 +2957,8 @@ public class CarLauncherPlugin extends Plugin {
            yorumu). Beyaz liste: yalnız "FAST"/"SLOW" kabul edilir, başka her şey
            init YOK sayılır (uydurma bir başlatma komutu ÜRETİLMEZ). */
         final String initFirstArg = call.getString("initFirst");
-        final String initFirst = ("FAST".equals(initFirstArg) || "SLOW".equals(initFirstArg))
-            ? initFirstArg : null;
+        final String initFirst = ("FAST".equals(initFirstArg) || "SLOW".equals(initFirstArg)
+            || "SC81".equals(initFirstArg)) ? initFirstArg : null;
         // P0-OBD-DIAG-02: "13" (ISO 14230-3 eski nesil readDTC) kabul edilir.
         if (!present(tx) || !present(rx)
             || !("19".equals(service) || "18".equals(service) || "13".equals(service))) {
@@ -3245,7 +3245,8 @@ public class CarLauncherPlugin extends Plugin {
         /* P0-OBD-DTC-INIT/2: beyaz liste — yalnız "FAST"/"SLOW"; başka her şey
            init YOK sayılır (uydurma başlatma komutu hatta ÇIKMAZ). */
         final String initArg = call.getString("initFirst");
-        final String initFirst = ("FAST".equals(initArg) || "SLOW".equals(initArg)) ? initArg : null;
+        final String initFirst = ("FAST".equals(initArg) || "SLOW".equals(initArg)
+            || "SC81".equals(initArg)) ? initArg : null;
         if (!present(tx) || !present(rx)) {
             call.reject("OBD_BAD_ARGS", "tx ve rx zorunlu");
             return;
