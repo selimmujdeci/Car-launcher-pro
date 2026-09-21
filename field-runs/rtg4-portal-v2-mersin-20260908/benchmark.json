@@ -1,0 +1,1940 @@
+{
+  "source": {
+    "file": "../pbf-streaming-rtg3-20260908/raw/mersin-province.osm.pbf",
+    "bytes": 9899746,
+    "sha256": "3548f3e82ceee708898c4dad4d0fef5110cf5a40b3beae81cd38fd1c5c99079a",
+    "provider": "Geofabrik/OpenStreetMap",
+    "coverage": "Mersin province relation 223131"
+  },
+  "preflight": {
+    "ok": true,
+    "checks": [
+      {
+        "check": "node-runtime",
+        "required": ">=22.13.0",
+        "measured": "22.22.1",
+        "result": "PASS",
+        "detail": "node:sqlite (DatabaseSync) bayraksiz kullanilabilir olmali"
+      },
+      {
+        "check": "node-sqlite-capability",
+        "required": "DatabaseSync + prepare + iterate + WAL journal",
+        "measured": "USABLE",
+        "result": "PASS",
+        "detail": "DatabaseSync + prepare + iterate"
+      },
+      {
+        "check": "osmium-tool",
+        "required": ">=1.14.0",
+        "measured": "1.19.0",
+        "result": "PASS",
+        "detail": null
+      },
+      {
+        "check": "source-pbf",
+        "required": "okunabilir OSM PBF",
+        "measured": "9899746 B",
+        "result": "PASS",
+        "detail": "BlobHeader 13 bayt"
+      },
+      {
+        "check": "temp-writable",
+        "required": "yazilabilir dizin",
+        "measured": "/mnt/c/Users/selim/Desktop/caros pro/field-runs/pbf-streaming-rtg3-20260908/tmp",
+        "result": "PASS",
+        "detail": null
+      },
+      {
+        "check": "output-writable",
+        "required": "yazilabilir dizin",
+        "measured": "/mnt/c/Users/selim/Desktop/caros pro/field-runs/rtg4-portal-v2-mersin-20260908/regions",
+        "result": "PASS",
+        "detail": null
+      },
+      {
+        "check": "free-disk",
+        "required": ">=247493650 B",
+        "measured": "36432531456 B",
+        "result": "PASS",
+        "detail": null
+      },
+      {
+        "check": "memory-budget",
+        "required": ">=256 MiB",
+        "measured": "512 MiB",
+        "result": "PASS",
+        "detail": null
+      },
+      {
+        "check": "v8-heap-limit",
+        "required": "<=358 MiB",
+        "measured": "358 MiB",
+        "result": "PASS",
+        "detail": null
+      }
+    ],
+    "toolchain": {
+      "node": {
+        "min": "22.13.0",
+        "reason": "node:sqlite (DatabaseSync) bayraksiz kullanilabilir olmali",
+        "verified": [
+          "22.22.1",
+          "24.15.0"
+        ]
+      },
+      "osmium": {
+        "min": "1.14.0",
+        "reason": "osmium tags-filter -R + cat -t node OPL akisi",
+        "verified": [
+          "1.19.0"
+        ]
+      },
+      "sqlite": {
+        "backend": "node:sqlite (Node ile gelen gomulu SQLite)",
+        "requires": [
+          "DatabaseSync",
+          "prepare",
+          "iterate",
+          "WAL journal"
+        ]
+      },
+      "minMemoryBudgetMiB": 256
+    }
+  },
+  "parser": "osmium-tool + node:sqlite",
+  "strategy": "SQLite-indexed two-pass PBF stream; sequential deterministic 0.5 degree RTG4 partitions + region-local SCC + directed Portal v2 audit",
+  "memoryBudgetMiB": 512,
+  "selectedWays": 48646,
+  "deniedWays": 9730,
+  "requiredCoordinates": 578513,
+  "restrictionRelations": 147,
+  "restrictionStats": {
+    "observed": 147,
+    "valid": 124,
+    "supported": 112,
+    "supportedViaNode": 110,
+    "supportedViaWay": 2,
+    "unsupported": 4,
+    "malformed": 23,
+    "unresolved": 8,
+    "conditional": 0,
+    "vehicleSpecific": 4,
+    "viaWay": 3,
+    "unsupportedType": 0
+  },
+  "regions": [
+    {
+      "regionId": "tr-33-65-72",
+      "bbox": [
+        32.5,
+        36,
+        33,
+        36.5
+      ],
+      "graphFile": "regions/tr-33-65-72.rtg4",
+      "sha256": "eb8fa38e0381cb2904eb59b13106d212aac109316e358fe81c7abd1150c65638",
+      "byteSize": 1614756,
+      "nodeCount": 36168,
+      "edgeCount": 36995,
+      "neighbors": [
+        "tr-33-66-72"
+      ],
+      "sourceHash": "3548f3e82ceee708898c4dad4d0fef5110cf5a40b3beae81cd38fd1c5c99079a",
+      "components": {
+        "schemaVersion": 1,
+        "file": "regions/tr-33-65-72.components.json",
+        "sha256": "a255588a36a99909d003e7bc4adcc85b63c73d0458792fc92783cb33e8323aab",
+        "byteSize": 45882,
+        "indexFile": "regions/tr-33-65-72.component-index.bin",
+        "indexSha256": "4da55e2e598a3f23dfc5047996e2ff4318dddd990d73c00d8c092fe229d31e8c",
+        "indexByteSize": 144672,
+        "indexEncoding": "UINT32_LE_LOCAL_NODE_COMPONENT_INDEX",
+        "count": 312,
+        "directedLinkCount": 305,
+        "portalComponentIds": [
+          "tr-33-65-72:202884233",
+          "tr-33-65-72:3407259497",
+          "tr-33-65-72:410101582"
+        ]
+      },
+      "classCount": {
+        "trunk": 1433,
+        "tertiary": 9008,
+        "primary": 676,
+        "secondary": 1822,
+        "unclassified": 16337,
+        "residential": 7029,
+        "service": 667,
+        "living_street": 23
+      },
+      "restrictions": {
+        "source": 147,
+        "valid": 8,
+        "supported": 7,
+        "supportedViaWay": 1,
+        "unsupported": 0,
+        "malformed": 0,
+        "unresolved": 1,
+        "conditional": 0,
+        "vehicleSpecific": 0,
+        "viaWayObserved": 2,
+        "viaWayCapacity": 0,
+        "unsupportedType": 0,
+        "records": 8,
+        "viaWayChains": 1
+      },
+      "structure": {
+        "bridge": 40,
+        "tunnel": 6,
+        "layer": 49
+      },
+      "destinationOnly": 0,
+      "oneway": 2008
+    },
+    {
+      "regionId": "tr-33-65-73",
+      "bbox": [
+        32.5,
+        36.5,
+        33,
+        37
+      ],
+      "graphFile": "regions/tr-33-65-73.rtg4",
+      "sha256": "e9053474a0b492f122bf9c0daaef550688b1838afc865741d213a77fa7e9ea96",
+      "byteSize": 3772,
+      "nodeCount": 86,
+      "edgeCount": 85,
+      "neighbors": [],
+      "sourceHash": "3548f3e82ceee708898c4dad4d0fef5110cf5a40b3beae81cd38fd1c5c99079a",
+      "components": {
+        "schemaVersion": 1,
+        "file": "regions/tr-33-65-73.components.json",
+        "sha256": "58d8b6f94c3e3d389ac5e2a723cf5294149cf542569b3d42f0ef56f212ed50ab",
+        "byteSize": 136,
+        "indexFile": "regions/tr-33-65-73.component-index.bin",
+        "indexSha256": "7c7f15ed27de2f3a51d1da31356b27ea1be15370faa3caab96606e5390ebbd0e",
+        "indexByteSize": 344,
+        "indexEncoding": "UINT32_LE_LOCAL_NODE_COMPONENT_INDEX",
+        "count": 1,
+        "directedLinkCount": 0,
+        "portalComponentIds": []
+      },
+      "classCount": {
+        "secondary": 85
+      },
+      "restrictions": {
+        "source": 147,
+        "valid": 0,
+        "supported": 0,
+        "supportedViaWay": 0,
+        "unsupported": 0,
+        "malformed": 0,
+        "unresolved": 0,
+        "conditional": 0,
+        "vehicleSpecific": 0,
+        "viaWayObserved": 0,
+        "viaWayCapacity": 0,
+        "unsupportedType": 0,
+        "records": 0,
+        "viaWayChains": 0
+      },
+      "structure": {
+        "bridge": 0,
+        "tunnel": 0,
+        "layer": 0
+      },
+      "destinationOnly": 0,
+      "oneway": 0
+    },
+    {
+      "regionId": "tr-33-66-72",
+      "bbox": [
+        33,
+        36,
+        33.5,
+        36.5
+      ],
+      "graphFile": "regions/tr-33-66-72.rtg4",
+      "sha256": "571e154b2dacfcf88ff2b9e6e7de9b84186191a910440c06e398792220387226",
+      "byteSize": 1406968,
+      "nodeCount": 31588,
+      "edgeCount": 32198,
+      "neighbors": [
+        "tr-33-65-72",
+        "tr-33-66-73",
+        "tr-33-67-72"
+      ],
+      "sourceHash": "3548f3e82ceee708898c4dad4d0fef5110cf5a40b3beae81cd38fd1c5c99079a",
+      "components": {
+        "schemaVersion": 1,
+        "file": "regions/tr-33-66-72.components.json",
+        "sha256": "1b5fd10a4637655c1f55c4d774c1a44dd6851a8bb54da435efd4616a3fd54b93",
+        "byteSize": 39703,
+        "indexFile": "regions/tr-33-66-72.component-index.bin",
+        "indexSha256": "1ff63b1b21b7bc5436f9d34eddb5b86011cf8fa4024c0a2124f32aeef9c3238c",
+        "indexByteSize": 126352,
+        "indexEncoding": "UINT32_LE_LOCAL_NODE_COMPONENT_INDEX",
+        "count": 266,
+        "directedLinkCount": 263,
+        "portalComponentIds": [
+          "tr-33-66-72:1433764311",
+          "tr-33-66-72:1433764514",
+          "tr-33-66-72:305135627",
+          "tr-33-66-72:3407259498",
+          "tr-33-66-72:410101075",
+          "tr-33-66-72:410101582",
+          "tr-33-66-72:5482474077"
+        ]
+      },
+      "classCount": {
+        "secondary": 2369,
+        "trunk": 1427,
+        "tertiary": 12560,
+        "unclassified": 6785,
+        "residential": 7733,
+        "service": 777,
+        "primary": 142,
+        "living_street": 405
+      },
+      "restrictions": {
+        "source": 147,
+        "valid": 0,
+        "supported": 0,
+        "supportedViaWay": 0,
+        "unsupported": 0,
+        "malformed": 0,
+        "unresolved": 0,
+        "conditional": 0,
+        "vehicleSpecific": 0,
+        "viaWayObserved": 0,
+        "viaWayCapacity": 0,
+        "unsupportedType": 0,
+        "records": 0,
+        "viaWayChains": 0
+      },
+      "structure": {
+        "bridge": 50,
+        "tunnel": 24,
+        "layer": 63
+      },
+      "destinationOnly": 0,
+      "oneway": 1526
+    },
+    {
+      "regionId": "tr-33-66-73",
+      "bbox": [
+        33,
+        36.5,
+        33.5,
+        37
+      ],
+      "graphFile": "regions/tr-33-66-73.rtg4",
+      "sha256": "b746d96ce4e2bb4abf60fade7c4c974d6a4d9d419c5ede3b5bdc77196de9a09a",
+      "byteSize": 1250772,
+      "nodeCount": 27753,
+      "edgeCount": 28811,
+      "neighbors": [
+        "tr-33-66-72",
+        "tr-33-67-73"
+      ],
+      "sourceHash": "3548f3e82ceee708898c4dad4d0fef5110cf5a40b3beae81cd38fd1c5c99079a",
+      "components": {
+        "schemaVersion": 1,
+        "file": "regions/tr-33-66-73.components.json",
+        "sha256": "61ba9bd4d354e361ef8183b470781df945f0a64c27a5c31b7167e39eaf602d9a",
+        "byteSize": 62047,
+        "indexFile": "regions/tr-33-66-73.component-index.bin",
+        "indexSha256": "4d901d6638d81e60329a8f26987338ec5a02f4642f20c86ae9a76ad53db3bc1d",
+        "indexByteSize": 111012,
+        "indexEncoding": "UINT32_LE_LOCAL_NODE_COMPONENT_INDEX",
+        "count": 417,
+        "directedLinkCount": 408,
+        "portalComponentIds": [
+          "tr-33-66-73:1168441789",
+          "tr-33-66-73:1168442056",
+          "tr-33-66-73:158687663"
+        ]
+      },
+      "classCount": {
+        "trunk": 1653,
+        "primary": 720,
+        "tertiary": 11224,
+        "residential": 8000,
+        "unclassified": 4918,
+        "service": 879,
+        "secondary": 238,
+        "living_street": 1179
+      },
+      "restrictions": {
+        "source": 147,
+        "valid": 0,
+        "supported": 0,
+        "supportedViaWay": 0,
+        "unsupported": 0,
+        "malformed": 0,
+        "unresolved": 0,
+        "conditional": 0,
+        "vehicleSpecific": 0,
+        "viaWayObserved": 0,
+        "viaWayCapacity": 0,
+        "unsupportedType": 0,
+        "records": 0,
+        "viaWayChains": 0
+      },
+      "structure": {
+        "bridge": 29,
+        "tunnel": 0,
+        "layer": 29
+      },
+      "destinationOnly": 0,
+      "oneway": 1759
+    },
+    {
+      "regionId": "tr-33-67-72",
+      "bbox": [
+        33.5,
+        36,
+        34,
+        36.5
+      ],
+      "graphFile": "regions/tr-33-67-72.rtg4",
+      "sha256": "21f5a2dcf78106e08ecb7f55904b173a737842b5d8a3f49b61f4d46d5766377b",
+      "byteSize": 2001136,
+      "nodeCount": 43984,
+      "edgeCount": 46334,
+      "neighbors": [
+        "tr-33-66-72",
+        "tr-33-67-73",
+        "tr-33-68-72"
+      ],
+      "sourceHash": "3548f3e82ceee708898c4dad4d0fef5110cf5a40b3beae81cd38fd1c5c99079a",
+      "components": {
+        "schemaVersion": 1,
+        "file": "regions/tr-33-67-72.components.json",
+        "sha256": "ff33ac1d784da47da82c969b5456891e2625a9ec7cb66e408def2600691dcb35",
+        "byteSize": 52841,
+        "indexFile": "regions/tr-33-67-72.component-index.bin",
+        "indexSha256": "c9b447cf591bae1f1407f9a66d10043ef1d027fddbbf26aaa23999067d623ba1",
+        "indexByteSize": 175936,
+        "indexEncoding": "UINT32_LE_LOCAL_NODE_COMPONENT_INDEX",
+        "count": 363,
+        "directedLinkCount": 346,
+        "portalComponentIds": [
+          "tr-33-67-72:1141175341",
+          "tr-33-67-72:1141175657",
+          "tr-33-67-72:1141175971",
+          "tr-33-67-72:1166439854",
+          "tr-33-67-72:12254685494",
+          "tr-33-67-72:12471962339",
+          "tr-33-67-72:12471962340",
+          "tr-33-67-72:158685308",
+          "tr-33-67-72:158687654",
+          "tr-33-67-72:158687656",
+          "tr-33-67-72:158687657",
+          "tr-33-67-72:1777737817",
+          "tr-33-67-72:2603362934",
+          "tr-33-67-72:2880097325",
+          "tr-33-67-72:3800656875",
+          "tr-33-67-72:410101075",
+          "tr-33-67-72:5482474077",
+          "tr-33-67-72:6609197181",
+          "tr-33-67-72:6609232885",
+          "tr-33-67-72:6644703352",
+          "tr-33-67-72:670167889"
+        ]
+      },
+      "classCount": {
+        "trunk": 2500,
+        "secondary": 1650,
+        "tertiary": 15501,
+        "primary": 850,
+        "unclassified": 10127,
+        "residential": 13207,
+        "service": 1990,
+        "living_street": 509
+      },
+      "restrictions": {
+        "source": 147,
+        "valid": 1,
+        "supported": 1,
+        "supportedViaWay": 0,
+        "unsupported": 0,
+        "malformed": 0,
+        "unresolved": 0,
+        "conditional": 0,
+        "vehicleSpecific": 0,
+        "viaWayObserved": 0,
+        "viaWayCapacity": 0,
+        "unsupportedType": 0,
+        "records": 1,
+        "viaWayChains": 0
+      },
+      "structure": {
+        "bridge": 152,
+        "tunnel": 86,
+        "layer": 238
+      },
+      "destinationOnly": 0,
+      "oneway": 3694
+    },
+    {
+      "regionId": "tr-33-67-73",
+      "bbox": [
+        33.5,
+        36.5,
+        34,
+        37
+      ],
+      "graphFile": "regions/tr-33-67-73.rtg4",
+      "sha256": "80f9ef955bafbaf390853063ef9548b1fcb4b51ee2fcbff54a5d4de23023d01b",
+      "byteSize": 3537872,
+      "nodeCount": 80129,
+      "edgeCount": 80564,
+      "neighbors": [
+        "tr-33-66-73",
+        "tr-33-67-72",
+        "tr-33-67-74",
+        "tr-33-68-73"
+      ],
+      "sourceHash": "3548f3e82ceee708898c4dad4d0fef5110cf5a40b3beae81cd38fd1c5c99079a",
+      "components": {
+        "schemaVersion": 1,
+        "file": "regions/tr-33-67-73.components.json",
+        "sha256": "ceff3684117c0c20447c41075b9b617c2316f012a45c5e01e286dfe1314385bb",
+        "byteSize": 4973,
+        "indexFile": "regions/tr-33-67-73.component-index.bin",
+        "indexSha256": "b94f3c3e061e35b9eef8779f2b9d719004c74c18aaa735085a2166684a1060fe",
+        "indexByteSize": 320516,
+        "indexEncoding": "UINT32_LE_LOCAL_NODE_COMPONENT_INDEX",
+        "count": 42,
+        "directedLinkCount": 29,
+        "portalComponentIds": [
+          "tr-33-67-73:11233152400",
+          "tr-33-67-73:11233152590",
+          "tr-33-67-73:11233188663",
+          "tr-33-67-73:13506439582",
+          "tr-33-67-73:1559870389",
+          "tr-33-67-73:1559872926",
+          "tr-33-67-73:158687656",
+          "tr-33-67-73:158687657",
+          "tr-33-67-73:158687659",
+          "tr-33-67-73:1777737876",
+          "tr-33-67-73:3773767697",
+          "tr-33-67-73:6478051298",
+          "tr-33-67-73:915682975"
+        ]
+      },
+      "classCount": {
+        "trunk": 64,
+        "secondary": 6416,
+        "unclassified": 17306,
+        "tertiary": 11930,
+        "residential": 14736,
+        "living_street": 605,
+        "service": 29368,
+        "primary": 139
+      },
+      "restrictions": {
+        "source": 147,
+        "valid": 0,
+        "supported": 0,
+        "supportedViaWay": 0,
+        "unsupported": 0,
+        "malformed": 0,
+        "unresolved": 0,
+        "conditional": 0,
+        "vehicleSpecific": 0,
+        "viaWayObserved": 0,
+        "viaWayCapacity": 0,
+        "unsupportedType": 0,
+        "records": 0,
+        "viaWayChains": 0
+      },
+      "structure": {
+        "bridge": 23,
+        "tunnel": 0,
+        "layer": 23
+      },
+      "destinationOnly": 0,
+      "oneway": 70
+    },
+    {
+      "regionId": "tr-33-67-74",
+      "bbox": [
+        33.5,
+        37,
+        34,
+        37.5
+      ],
+      "graphFile": "regions/tr-33-67-74.rtg4",
+      "sha256": "2812b53f580268d574c7bfd24a71432291cae218333718b37083e1601871ce87",
+      "byteSize": 155320,
+      "nodeCount": 3529,
+      "edgeCount": 3530,
+      "neighbors": [
+        "tr-33-67-73",
+        "tr-33-68-74"
+      ],
+      "sourceHash": "3548f3e82ceee708898c4dad4d0fef5110cf5a40b3beae81cd38fd1c5c99079a",
+      "components": {
+        "schemaVersion": 1,
+        "file": "regions/tr-33-67-74.components.json",
+        "sha256": "4c4cde2a82db49cee7fce2cbc3bda491d9d3d7329f3bdf93ef0d93111f60add8",
+        "byteSize": 252,
+        "indexFile": "regions/tr-33-67-74.component-index.bin",
+        "indexSha256": "0b56b1a31ef2ec01f3be2e6d714d6e859f4e031791fa92ff59203c6037b9bc74",
+        "indexByteSize": 14116,
+        "indexEncoding": "UINT32_LE_LOCAL_NODE_COMPONENT_INDEX",
+        "count": 4,
+        "directedLinkCount": 0,
+        "portalComponentIds": [
+          "tr-33-67-74:13300246550",
+          "tr-33-67-74:13383109363",
+          "tr-33-67-74:4047419389",
+          "tr-33-67-74:891920958"
+        ]
+      },
+      "classCount": {
+        "secondary": 1028,
+        "tertiary": 77,
+        "residential": 1688,
+        "service": 737
+      },
+      "restrictions": {
+        "source": 147,
+        "valid": 0,
+        "supported": 0,
+        "supportedViaWay": 0,
+        "unsupported": 0,
+        "malformed": 0,
+        "unresolved": 0,
+        "conditional": 0,
+        "vehicleSpecific": 0,
+        "viaWayObserved": 0,
+        "viaWayCapacity": 0,
+        "unsupportedType": 0,
+        "records": 0,
+        "viaWayChains": 0
+      },
+      "structure": {
+        "bridge": 1,
+        "tunnel": 0,
+        "layer": 1
+      },
+      "destinationOnly": 0,
+      "oneway": 0
+    },
+    {
+      "regionId": "tr-33-68-72",
+      "bbox": [
+        34,
+        36,
+        34.5,
+        36.5
+      ],
+      "graphFile": "regions/tr-33-68-72.rtg4",
+      "sha256": "02e9375eec8a644179ca5ae1ff17ca57d62ed526093393dd9d3560ca733fd1d4",
+      "byteSize": 554224,
+      "nodeCount": 12154,
+      "edgeCount": 12836,
+      "neighbors": [
+        "tr-33-67-72",
+        "tr-33-68-73"
+      ],
+      "sourceHash": "3548f3e82ceee708898c4dad4d0fef5110cf5a40b3beae81cd38fd1c5c99079a",
+      "components": {
+        "schemaVersion": 1,
+        "file": "regions/tr-33-68-72.components.json",
+        "sha256": "9402a06c08671845cf7cb04fae34f3a3143b5f31a12c9bbdef79771872dd4a77",
+        "byteSize": 37785,
+        "indexFile": "regions/tr-33-68-72.component-index.bin",
+        "indexSha256": "b20f6ed79bef010d1a097e909be0cb0ab47436e0bbe42e3dac107db5f38c699e",
+        "indexByteSize": 48616,
+        "indexEncoding": "UINT32_LE_LOCAL_NODE_COMPONENT_INDEX",
+        "count": 253,
+        "directedLinkCount": 249,
+        "portalComponentIds": [
+          "tr-33-68-72:11178427257",
+          "tr-33-68-72:1141175341",
+          "tr-33-68-72:1141175657",
+          "tr-33-68-72:1141175971",
+          "tr-33-68-72:12973913283",
+          "tr-33-68-72:1934847029",
+          "tr-33-68-72:2825705984",
+          "tr-33-68-72:5699036455",
+          "tr-33-68-72:5699036456",
+          "tr-33-68-72:670167889",
+          "tr-33-68-72:670167892",
+          "tr-33-68-72:670168174",
+          "tr-33-68-72:670168178"
+        ]
+      },
+      "classCount": {
+        "unclassified": 2555,
+        "residential": 4666,
+        "living_street": 1042,
+        "tertiary": 2566,
+        "trunk": 893,
+        "secondary": 132,
+        "service": 982
+      },
+      "restrictions": {
+        "source": 147,
+        "valid": 11,
+        "supported": 11,
+        "supportedViaWay": 0,
+        "unsupported": 0,
+        "malformed": 0,
+        "unresolved": 0,
+        "conditional": 0,
+        "vehicleSpecific": 0,
+        "viaWayObserved": 0,
+        "viaWayCapacity": 0,
+        "unsupportedType": 0,
+        "records": 14,
+        "viaWayChains": 0
+      },
+      "structure": {
+        "bridge": 41,
+        "tunnel": 1,
+        "layer": 42
+      },
+      "destinationOnly": 0,
+      "oneway": 1022
+    },
+    {
+      "regionId": "tr-33-68-73",
+      "bbox": [
+        34,
+        36.5,
+        34.5,
+        37
+      ],
+      "graphFile": "regions/tr-33-68-73.rtg4",
+      "sha256": "a6613a5a9ed4425916bfd912b04dc18f968a6141c5b65dfb2066f17cc2e09b06",
+      "byteSize": 5665396,
+      "nodeCount": 126765,
+      "edgeCount": 129897,
+      "neighbors": [
+        "tr-33-67-73",
+        "tr-33-68-72",
+        "tr-33-68-74",
+        "tr-33-69-73"
+      ],
+      "sourceHash": "3548f3e82ceee708898c4dad4d0fef5110cf5a40b3beae81cd38fd1c5c99079a",
+      "components": {
+        "schemaVersion": 1,
+        "file": "regions/tr-33-68-73.components.json",
+        "sha256": "4f80dad1189e424cd3034488aea9556ac329ee960f676500b8383af4b4ce26d7",
+        "byteSize": 84763,
+        "indexFile": "regions/tr-33-68-73.component-index.bin",
+        "indexSha256": "977d6779009799fec233c0487a82bab14a6dfd50695492eaae28a54cd141c150",
+        "indexByteSize": 507060,
+        "indexEncoding": "UINT32_LE_LOCAL_NODE_COMPONENT_INDEX",
+        "count": 589,
+        "directedLinkCount": 546,
+        "portalComponentIds": [
+          "tr-33-68-73:10698136636",
+          "tr-33-68-73:11160893687",
+          "tr-33-68-73:111998299",
+          "tr-33-68-73:12005966204",
+          "tr-33-68-73:1289259191",
+          "tr-33-68-73:13202717026",
+          "tr-33-68-73:14119835539",
+          "tr-33-68-73:14119835543",
+          "tr-33-68-73:173079928",
+          "tr-33-68-73:1884939290",
+          "tr-33-68-73:1884939738",
+          "tr-33-68-73:1911031767",
+          "tr-33-68-73:1952418903",
+          "tr-33-68-73:1952418921",
+          "tr-33-68-73:2215674612",
+          "tr-33-68-73:2215682747",
+          "tr-33-68-73:3345670488",
+          "tr-33-68-73:3707799208",
+          "tr-33-68-73:3805529741",
+          "tr-33-68-73:6240215821",
+          "tr-33-68-73:6240215822",
+          "tr-33-68-73:8982900148",
+          "tr-33-68-73:9831607641",
+          "tr-33-68-73:9867708902",
+          "tr-33-68-73:9867708910",
+          "tr-33-68-73:9881972900"
+        ]
+      },
+      "classCount": {
+        "trunk": 1430,
+        "tertiary": 26134,
+        "unclassified": 29835,
+        "secondary": 2729,
+        "motorway": 443,
+        "residential": 65613,
+        "service": 3024,
+        "primary": 394,
+        "living_street": 295
+      },
+      "restrictions": {
+        "source": 147,
+        "valid": 5,
+        "supported": 1,
+        "supportedViaWay": 0,
+        "unsupported": 4,
+        "malformed": 0,
+        "unresolved": 0,
+        "conditional": 0,
+        "vehicleSpecific": 4,
+        "viaWayObserved": 0,
+        "viaWayCapacity": 0,
+        "unsupportedType": 0,
+        "records": 1,
+        "viaWayChains": 0
+      },
+      "structure": {
+        "bridge": 115,
+        "tunnel": 19,
+        "layer": 243
+      },
+      "destinationOnly": 0,
+      "oneway": 3055
+    },
+    {
+      "regionId": "tr-33-68-74",
+      "bbox": [
+        34,
+        37,
+        34.5,
+        37.5
+      ],
+      "graphFile": "regions/tr-33-68-74.rtg4",
+      "sha256": "2a4e0eb4044feb95227887e28cda95e55140dba5b6610c74e47930eaa4a030bb",
+      "byteSize": 524824,
+      "nodeCount": 11790,
+      "edgeCount": 12006,
+      "neighbors": [
+        "tr-33-67-74",
+        "tr-33-68-73",
+        "tr-33-69-74"
+      ],
+      "sourceHash": "3548f3e82ceee708898c4dad4d0fef5110cf5a40b3beae81cd38fd1c5c99079a",
+      "components": {
+        "schemaVersion": 1,
+        "file": "regions/tr-33-68-74.components.json",
+        "sha256": "d5dcc3477c2714b21f81f0634bea255db8ab71af26ab18e60ddfd4e3f1d9c302",
+        "byteSize": 448,
+        "indexFile": "regions/tr-33-68-74.component-index.bin",
+        "indexSha256": "e87f49bd704e31ea5f9d450f211c92cb98b73c2af532502ee7aca80e70a0d4e4",
+        "indexByteSize": 47160,
+        "indexEncoding": "UINT32_LE_LOCAL_NODE_COMPONENT_INDEX",
+        "count": 9,
+        "directedLinkCount": 0,
+        "portalComponentIds": [
+          "tr-33-68-74:10723057822",
+          "tr-33-68-74:10723057920",
+          "tr-33-68-74:10723057930",
+          "tr-33-68-74:2534359155",
+          "tr-33-68-74:702222119",
+          "tr-33-68-74:891921286"
+        ]
+      },
+      "classCount": {
+        "unclassified": 6741,
+        "tertiary": 1122,
+        "secondary": 719,
+        "residential": 3097,
+        "living_street": 279,
+        "service": 48
+      },
+      "restrictions": {
+        "source": 147,
+        "valid": 0,
+        "supported": 0,
+        "supportedViaWay": 0,
+        "unsupported": 0,
+        "malformed": 0,
+        "unresolved": 0,
+        "conditional": 0,
+        "vehicleSpecific": 0,
+        "viaWayObserved": 0,
+        "viaWayCapacity": 0,
+        "unsupportedType": 0,
+        "records": 0,
+        "viaWayChains": 0
+      },
+      "structure": {
+        "bridge": 6,
+        "tunnel": 0,
+        "layer": 6
+      },
+      "destinationOnly": 0,
+      "oneway": 0
+    },
+    {
+      "regionId": "tr-33-69-73",
+      "bbox": [
+        34.5,
+        36.5,
+        35,
+        37
+      ],
+      "graphFile": "regions/tr-33-69-73.rtg4",
+      "sha256": "092d3efaefd99d4716a7e43660860d9da20ebb2ad5ba6b0eb25ddd6764370c51",
+      "byteSize": 6587472,
+      "nodeCount": 139098,
+      "edgeCount": 155702,
+      "neighbors": [
+        "tr-33-68-73",
+        "tr-33-69-74",
+        "tr-33-70-73"
+      ],
+      "sourceHash": "3548f3e82ceee708898c4dad4d0fef5110cf5a40b3beae81cd38fd1c5c99079a",
+      "components": {
+        "schemaVersion": 1,
+        "file": "regions/tr-33-69-73.components.json",
+        "sha256": "6840da848b013ca8b95747492a2e323808507ab244c839b865380481cd4ebe82",
+        "byteSize": 123496,
+        "indexFile": "regions/tr-33-69-73.component-index.bin",
+        "indexSha256": "cd87992f7321775d9e50c1d2902856f531563eca20dabb4980e80bf5ad7c5bb7",
+        "indexByteSize": 556392,
+        "indexEncoding": "UINT32_LE_LOCAL_NODE_COMPONENT_INDEX",
+        "count": 836,
+        "directedLinkCount": 810,
+        "portalComponentIds": [
+          "tr-33-69-73:10989079381",
+          "tr-33-69-73:11050937231",
+          "tr-33-69-73:111966897",
+          "tr-33-69-73:111998143",
+          "tr-33-69-73:111998299",
+          "tr-33-69-73:1283774873",
+          "tr-33-69-73:1283774890",
+          "tr-33-69-73:1283901316",
+          "tr-33-69-73:1283901392",
+          "tr-33-69-73:1283901747",
+          "tr-33-69-73:1288103889",
+          "tr-33-69-73:1288103989",
+          "tr-33-69-73:1288103993",
+          "tr-33-69-73:1288112658",
+          "tr-33-69-73:1288112691",
+          "tr-33-69-73:1289259191",
+          "tr-33-69-73:1297494797",
+          "tr-33-69-73:13985359149",
+          "tr-33-69-73:14027545695",
+          "tr-33-69-73:14119835543",
+          "tr-33-69-73:1952418903",
+          "tr-33-69-73:1952418921",
+          "tr-33-69-73:2215674612",
+          "tr-33-69-73:2270201042",
+          "tr-33-69-73:2270201044",
+          "tr-33-69-73:3609541912",
+          "tr-33-69-73:3609541918",
+          "tr-33-69-73:3707803029",
+          "tr-33-69-73:3733495016",
+          "tr-33-69-73:5374950278",
+          "tr-33-69-73:599902666",
+          "tr-33-69-73:6240215821",
+          "tr-33-69-73:6240215822",
+          "tr-33-69-73:8459030426",
+          "tr-33-69-73:8459030427",
+          "tr-33-69-73:8459030442",
+          "tr-33-69-73:8459030443",
+          "tr-33-69-73:9501781287",
+          "tr-33-69-73:9816472227",
+          "tr-33-69-73:9820168627",
+          "tr-33-69-73:9845920400",
+          "tr-33-69-73:9861152548",
+          "tr-33-69-73:9861159695"
+        ]
+      },
+      "classCount": {
+        "motorway": 2579,
+        "secondary": 7106,
+        "residential": 80244,
+        "trunk": 1829,
+        "tertiary": 22957,
+        "primary": 3520,
+        "unclassified": 31277,
+        "service": 5471,
+        "living_street": 719
+      },
+      "restrictions": {
+        "source": 147,
+        "valid": 94,
+        "supported": 92,
+        "supportedViaWay": 1,
+        "unsupported": 0,
+        "malformed": 2,
+        "unresolved": 2,
+        "conditional": 0,
+        "vehicleSpecific": 0,
+        "viaWayObserved": 1,
+        "viaWayCapacity": 0,
+        "unsupportedType": 0,
+        "records": 93,
+        "viaWayChains": 1
+      },
+      "structure": {
+        "bridge": 511,
+        "tunnel": 105,
+        "layer": 643
+      },
+      "destinationOnly": 0,
+      "oneway": 22659
+    },
+    {
+      "regionId": "tr-33-69-74",
+      "bbox": [
+        34.5,
+        37,
+        35,
+        37.5
+      ],
+      "graphFile": "regions/tr-33-69-74.rtg4",
+      "sha256": "79e08eddea128a3d77632769312790bf603f47084137ac690888ac7dc967644d",
+      "byteSize": 3210136,
+      "nodeCount": 71794,
+      "edgeCount": 73622,
+      "neighbors": [
+        "tr-33-68-74",
+        "tr-33-69-73",
+        "tr-33-70-74"
+      ],
+      "sourceHash": "3548f3e82ceee708898c4dad4d0fef5110cf5a40b3beae81cd38fd1c5c99079a",
+      "components": {
+        "schemaVersion": 1,
+        "file": "regions/tr-33-69-74.components.json",
+        "sha256": "b684ce696f2a3469f5709133568ae6cf407c65db630d4915966c5ea5fe8d6beb",
+        "byteSize": 324715,
+        "indexFile": "regions/tr-33-69-74.component-index.bin",
+        "indexSha256": "b9cfa6de0b426277f4cb5d35dbeddd1148af1b566ec2e806fdd390dbd19bfbd0",
+        "indexByteSize": 287176,
+        "indexEncoding": "UINT32_LE_LOCAL_NODE_COMPONENT_INDEX",
+        "count": 2156,
+        "directedLinkCount": 2152,
+        "portalComponentIds": [
+          "tr-33-69-74:10886718511",
+          "tr-33-69-74:11050932516",
+          "tr-33-69-74:11050937231",
+          "tr-33-69-74:111998124",
+          "tr-33-69-74:111998143",
+          "tr-33-69-74:11775298781",
+          "tr-33-69-74:12509358668",
+          "tr-33-69-74:12509358669",
+          "tr-33-69-74:1283901316",
+          "tr-33-69-74:1283901392",
+          "tr-33-69-74:1283901747",
+          "tr-33-69-74:1283995658",
+          "tr-33-69-74:1288103889",
+          "tr-33-69-74:1288103989",
+          "tr-33-69-74:1288103993",
+          "tr-33-69-74:1288112658",
+          "tr-33-69-74:1288112691",
+          "tr-33-69-74:1290659652",
+          "tr-33-69-74:1297494731",
+          "tr-33-69-74:1297494789",
+          "tr-33-69-74:1297494797",
+          "tr-33-69-74:14027545695",
+          "tr-33-69-74:305173368",
+          "tr-33-69-74:3708196074",
+          "tr-33-69-74:599902666",
+          "tr-33-69-74:9501781287",
+          "tr-33-69-74:9835578467",
+          "tr-33-69-74:9835656547",
+          "tr-33-69-74:9845920310",
+          "tr-33-69-74:9845983542",
+          "tr-33-69-74:9853016843"
+        ]
+      },
+      "classCount": {
+        "tertiary": 12472,
+        "motorway": 2374,
+        "unclassified": 22631,
+        "secondary": 1732,
+        "residential": 31675,
+        "service": 1133,
+        "primary": 788,
+        "trunk": 83,
+        "living_street": 733,
+        "road": 1
+      },
+      "restrictions": {
+        "source": 147,
+        "valid": 0,
+        "supported": 0,
+        "supportedViaWay": 0,
+        "unsupported": 0,
+        "malformed": 0,
+        "unresolved": 0,
+        "conditional": 0,
+        "vehicleSpecific": 0,
+        "viaWayObserved": 0,
+        "viaWayCapacity": 0,
+        "unsupportedType": 0,
+        "records": 0,
+        "viaWayChains": 0
+      },
+      "structure": {
+        "bridge": 89,
+        "tunnel": 15,
+        "layer": 104
+      },
+      "destinationOnly": 0,
+      "oneway": 2947
+    },
+    {
+      "regionId": "tr-33-70-73",
+      "bbox": [
+        35,
+        36.5,
+        35.5,
+        37
+      ],
+      "graphFile": "regions/tr-33-70-73.rtg4",
+      "sha256": "caf814ec8b74c1b14764866e9c5c108fb2eb13d0aa5ba23a565d3a9696aeea4e",
+      "byteSize": 472280,
+      "nodeCount": 10389,
+      "edgeCount": 10930,
+      "neighbors": [
+        "tr-33-69-73",
+        "tr-33-70-74"
+      ],
+      "sourceHash": "3548f3e82ceee708898c4dad4d0fef5110cf5a40b3beae81cd38fd1c5c99079a",
+      "components": {
+        "schemaVersion": 1,
+        "file": "regions/tr-33-70-73.components.json",
+        "sha256": "e090bd63e6576dafb7bbe405d243076d3bad3e697da3a31ebf4e0072fe95dd6f",
+        "byteSize": 29680,
+        "indexFile": "regions/tr-33-70-73.component-index.bin",
+        "indexSha256": "c746d3aa5f4286f8225a319cc1068cb7b290792ac90071c0c47cb01a4109747e",
+        "indexByteSize": 41556,
+        "indexEncoding": "UINT32_LE_LOCAL_NODE_COMPONENT_INDEX",
+        "count": 197,
+        "directedLinkCount": 195,
+        "portalComponentIds": [
+          "tr-33-70-73:11050937230",
+          "tr-33-70-73:11050937280",
+          "tr-33-70-73:1283774873",
+          "tr-33-70-73:1283774890",
+          "tr-33-70-73:173114321",
+          "tr-33-70-73:3609541912",
+          "tr-33-70-73:3609541918",
+          "tr-33-70-73:8459030426",
+          "tr-33-70-73:8459030427",
+          "tr-33-70-73:8459030442",
+          "tr-33-70-73:8459030443",
+          "tr-33-70-73:9111130136"
+        ]
+      },
+      "classCount": {
+        "tertiary": 1359,
+        "residential": 3971,
+        "trunk": 232,
+        "secondary": 96,
+        "unclassified": 4412,
+        "service": 339,
+        "living_street": 143,
+        "primary": 378
+      },
+      "restrictions": {
+        "source": 147,
+        "valid": 0,
+        "supported": 0,
+        "supportedViaWay": 0,
+        "unsupported": 0,
+        "malformed": 0,
+        "unresolved": 0,
+        "conditional": 0,
+        "vehicleSpecific": 0,
+        "viaWayObserved": 0,
+        "viaWayCapacity": 0,
+        "unsupportedType": 0,
+        "records": 0,
+        "viaWayChains": 0
+      },
+      "structure": {
+        "bridge": 69,
+        "tunnel": 4,
+        "layer": 93
+      },
+      "destinationOnly": 0,
+      "oneway": 1197
+    },
+    {
+      "regionId": "tr-33-70-74",
+      "bbox": [
+        35,
+        37,
+        35.5,
+        37.5
+      ],
+      "graphFile": "regions/tr-33-70-74.rtg4",
+      "sha256": "fa81e99523058fa184a4d563a21541910eb67c277af14ccc07b171582499436f",
+      "byteSize": 248868,
+      "nodeCount": 5594,
+      "edgeCount": 5691,
+      "neighbors": [
+        "tr-33-69-74",
+        "tr-33-70-73"
+      ],
+      "sourceHash": "3548f3e82ceee708898c4dad4d0fef5110cf5a40b3beae81cd38fd1c5c99079a",
+      "components": {
+        "schemaVersion": 1,
+        "file": "regions/tr-33-70-74.components.json",
+        "sha256": "6d90988339e1f0c44278308dd1503107908d3a808f1e83bfd5cd9fc01efe4902",
+        "byteSize": 49538,
+        "indexFile": "regions/tr-33-70-74.component-index.bin",
+        "indexSha256": "eb57822a15294f970a7c20592cc0609217486f7b89316d03e77f442502072c15",
+        "indexByteSize": 22376,
+        "indexEncoding": "UINT32_LE_LOCAL_NODE_COMPONENT_INDEX",
+        "count": 328,
+        "directedLinkCount": 327,
+        "portalComponentIds": [
+          "tr-33-70-74:1014376901",
+          "tr-33-70-74:111998124",
+          "tr-33-70-74:11775298781",
+          "tr-33-70-74:1283995658",
+          "tr-33-70-74:1290659652",
+          "tr-33-70-74:2217183360",
+          "tr-33-70-74:9266891784",
+          "tr-33-70-74:9845983542"
+        ]
+      },
+      "classCount": {
+        "motorway": 245,
+        "tertiary": 1123,
+        "residential": 2534,
+        "unclassified": 1691,
+        "service": 98
+      },
+      "restrictions": {
+        "source": 147,
+        "valid": 0,
+        "supported": 0,
+        "supportedViaWay": 0,
+        "unsupported": 0,
+        "malformed": 0,
+        "unresolved": 0,
+        "conditional": 0,
+        "vehicleSpecific": 0,
+        "viaWayObserved": 0,
+        "viaWayCapacity": 0,
+        "unsupportedType": 0,
+        "records": 0,
+        "viaWayChains": 0
+      },
+      "structure": {
+        "bridge": 24,
+        "tunnel": 0,
+        "layer": 24
+      },
+      "destinationOnly": 0,
+      "oneway": 335
+    }
+  ],
+  "totalNodes": 600821,
+  "totalEdges": 629201,
+  "totalBytes": 27233796,
+  "componentMetadataBytes": 856259,
+  "totalComponents": 5773,
+  "totalDirectedComponentLinks": 5630,
+  "portalRecords": 908,
+  "portalAudit": {
+    "total": 26,
+    "ROUTABLE": 17,
+    "NON_ROUTABLE": 9,
+    "INVALID": 0,
+    "AMBIGUOUS": 0
+  },
+  "tempBytes": 106983424,
+  "peakTempBytes": 106983424,
+  "buildMs": 9674.434015,
+  "peakNodeRssBytes": 279625728,
+  "peakChildRssBytes": 0,
+  "peakProcessTreeRssBytes": 279625728,
+  "telemetry": [
+    {
+      "stage": "reuse-existing-index",
+      "atMs": 138.63602899999998,
+      "nodeRss": 70426624,
+      "childRss": 0,
+      "processTreeRss": 70426624,
+      "tempDisk": 106983424
+    },
+    {
+      "stage": "region:tr-33-65-72",
+      "atMs": 684.500991,
+      "nodeRss": 130682880,
+      "childRss": 0,
+      "processTreeRss": 130682880,
+      "tempDisk": 106983424
+    },
+    {
+      "stage": "region:tr-33-65-73",
+      "atMs": 696.0816679999999,
+      "nodeRss": 130945024,
+      "childRss": 0,
+      "processTreeRss": 130945024,
+      "tempDisk": 106983424
+    },
+    {
+      "stage": "region:tr-33-66-72",
+      "atMs": 1078.449303,
+      "nodeRss": 147660800,
+      "childRss": 0,
+      "processTreeRss": 147660800,
+      "tempDisk": 106983424
+    },
+    {
+      "stage": "region:tr-33-66-73",
+      "atMs": 1447.0731190000001,
+      "nodeRss": 181243904,
+      "childRss": 0,
+      "processTreeRss": 181243904,
+      "tempDisk": 106983424
+    },
+    {
+      "stage": "region:tr-33-67-72",
+      "atMs": 1983.244241,
+      "nodeRss": 182284288,
+      "childRss": 0,
+      "processTreeRss": 182284288,
+      "tempDisk": 106983424
+    },
+    {
+      "stage": "region:tr-33-67-73",
+      "atMs": 2769.5454769999997,
+      "nodeRss": 204976128,
+      "childRss": 0,
+      "processTreeRss": 204976128,
+      "tempDisk": 106983424
+    },
+    {
+      "stage": "region:tr-33-67-74",
+      "atMs": 2804.8241479999997,
+      "nodeRss": 204976128,
+      "childRss": 0,
+      "processTreeRss": 204976128,
+      "tempDisk": 106983424
+    },
+    {
+      "stage": "region:tr-33-68-72",
+      "atMs": 2956.877819,
+      "nodeRss": 206573568,
+      "childRss": 0,
+      "processTreeRss": 206573568,
+      "tempDisk": 106983424
+    },
+    {
+      "stage": "region:tr-33-68-73",
+      "atMs": 4349.910521,
+      "nodeRss": 233213952,
+      "childRss": 0,
+      "processTreeRss": 233213952,
+      "tempDisk": 106983424
+    },
+    {
+      "stage": "region:tr-33-68-74",
+      "atMs": 4459.709634,
+      "nodeRss": 234000384,
+      "childRss": 0,
+      "processTreeRss": 234000384,
+      "tempDisk": 106983424
+    },
+    {
+      "stage": "region:tr-33-69-73",
+      "atMs": 6272.289438,
+      "nodeRss": 249176064,
+      "childRss": 0,
+      "processTreeRss": 249176064,
+      "tempDisk": 106983424
+    },
+    {
+      "stage": "region:tr-33-69-74",
+      "atMs": 6940.238652999999,
+      "nodeRss": 279625728,
+      "childRss": 0,
+      "processTreeRss": 279625728,
+      "tempDisk": 106983424
+    },
+    {
+      "stage": "region:tr-33-70-73",
+      "atMs": 7045.038487,
+      "nodeRss": 272375808,
+      "childRss": 0,
+      "processTreeRss": 272375808,
+      "tempDisk": 106983424
+    },
+    {
+      "stage": "region:tr-33-70-74",
+      "atMs": 7092.8973479999995,
+      "nodeRss": 272637952,
+      "childRss": 0,
+      "processTreeRss": 272637952,
+      "tempDisk": 106983424
+    },
+    {
+      "stage": "complete",
+      "atMs": 9671.827345000002,
+      "nodeRss": 274997248,
+      "childRss": 0,
+      "processTreeRss": 274997248,
+      "tempDisk": 106983424
+    }
+  ],
+  "restrictionEvidence": [
+    {
+      "relationId": 10048729,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-65-72",
+      "fromWay": 114439024,
+      "toWay": 114439024,
+      "viaNodeId": 1296383068,
+      "fromEdge": 7828,
+      "toEdge": 7828
+    },
+    {
+      "relationId": 10048730,
+      "restrictionType": "no_left_turn",
+      "regionId": "tr-33-65-72",
+      "fromWay": 725692200,
+      "toWay": 725685172,
+      "viaNodeId": 1296383068,
+      "fromEdge": 29984,
+      "toEdge": 29831
+    },
+    {
+      "relationId": 10048731,
+      "restrictionType": "no_left_turn",
+      "regionId": "tr-33-65-72",
+      "fromWay": 725686369,
+      "toWay": 725686625,
+      "viaNodeId": 1296383068,
+      "fromEdge": 29838,
+      "toEdge": 29839
+    },
+    {
+      "relationId": 10048732,
+      "restrictionType": "no_right_turn",
+      "regionId": "tr-33-65-72",
+      "fromWay": 725686369,
+      "toWay": 725685172,
+      "viaNodeId": 1296383068,
+      "fromEdge": 29838,
+      "toEdge": 29831
+    },
+    {
+      "relationId": 10048811,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-65-72",
+      "fromWay": 333600708,
+      "toWay": 333600708,
+      "viaNodeId": 3407259719,
+      "fromEdge": 16821,
+      "toEdge": 16821
+    },
+    {
+      "relationId": 10048812,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-65-72",
+      "fromWay": 725695222,
+      "toWay": 725695222,
+      "viaNodeId": 5481143515,
+      "fromEdge": 29985,
+      "toEdge": 29985
+    },
+    {
+      "relationId": 16507579,
+      "restrictionType": "no_left_turn",
+      "regionId": "tr-33-67-72",
+      "fromWay": 568916792,
+      "toWay": 707306423,
+      "viaNodeId": 5472584381,
+      "fromEdge": 20725,
+      "toEdge": 29485
+    },
+    {
+      "relationId": 14632220,
+      "restrictionType": "no_left_turn",
+      "regionId": "tr-33-68-72",
+      "fromWay": 1098434437,
+      "toWay": 602441962,
+      "viaNodeId": 5722283232,
+      "fromEdge": 6976,
+      "toEdge": 4716
+    },
+    {
+      "relationId": 14632221,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-68-72",
+      "fromWay": 1098434438,
+      "toWay": 1098434438,
+      "viaNodeId": 5722283233,
+      "fromEdge": 6977,
+      "toEdge": 6977
+    },
+    {
+      "relationId": 14632222,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-68-72",
+      "fromWay": 1098434443,
+      "toWay": 1098434443,
+      "viaNodeId": 10057548156,
+      "fromEdge": 6994,
+      "toEdge": 6994
+    },
+    {
+      "relationId": 14632223,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-68-72",
+      "fromWay": 1098434445,
+      "toWay": 1098434445,
+      "viaNodeId": 10057548158,
+      "fromEdge": 6998,
+      "toEdge": 6998
+    },
+    {
+      "relationId": 14632224,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-68-72",
+      "fromWay": 1098434447,
+      "toWay": 1098434447,
+      "viaNodeId": 10057548161,
+      "fromEdge": 7005,
+      "toEdge": 7005
+    },
+    {
+      "relationId": 14632225,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-68-72",
+      "fromWay": 1098434449,
+      "toWay": 1098434449,
+      "viaNodeId": 2825705172,
+      "fromEdge": 7009,
+      "toEdge": 7009
+    },
+    {
+      "relationId": 14632231,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-68-72",
+      "fromWay": 1098436236,
+      "toWay": 1098436236,
+      "viaNodeId": 10057563140,
+      "fromEdge": 7156,
+      "toEdge": 7156
+    },
+    {
+      "relationId": 14632232,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-68-72",
+      "fromWay": 557214319,
+      "toWay": 557214319,
+      "viaNodeId": 5374254516,
+      "fromEdge": 4132,
+      "toEdge": 4132
+    },
+    {
+      "relationId": 14632233,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-68-72",
+      "fromWay": 557214320,
+      "toWay": 557214320,
+      "viaNodeId": 5374254520,
+      "fromEdge": 4137,
+      "toEdge": 4137
+    },
+    {
+      "relationId": 14632902,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-68-72",
+      "fromWay": 556997996,
+      "toWay": 556997996,
+      "viaNodeId": 8016251667,
+      "fromEdge": 3683,
+      "toEdge": 3683
+    },
+    {
+      "relationId": 14632902,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-68-72",
+      "fromWay": 556997996,
+      "toWay": 556997996,
+      "viaNodeId": 8016251667,
+      "fromEdge": 3683,
+      "toEdge": 3684
+    },
+    {
+      "relationId": 14632902,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-68-72",
+      "fromWay": 556997996,
+      "toWay": 556997996,
+      "viaNodeId": 8016251667,
+      "fromEdge": 3684,
+      "toEdge": 3683
+    },
+    {
+      "relationId": 14632902,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-68-72",
+      "fromWay": 556997996,
+      "toWay": 556997996,
+      "viaNodeId": 8016251667,
+      "fromEdge": 3684,
+      "toEdge": 3684
+    },
+    {
+      "relationId": 14632903,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-68-72",
+      "fromWay": 1098483982,
+      "toWay": 1098483982,
+      "viaNodeId": 10058013373,
+      "fromEdge": 7413,
+      "toEdge": 7413
+    },
+    {
+      "relationId": 14632313,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-68-73",
+      "fromWay": 1098454868,
+      "toWay": 1098454868,
+      "viaNodeId": 10057752169,
+      "fromEdge": 67317,
+      "toEdge": 67317
+    },
+    {
+      "relationId": 5224130,
+      "restrictionType": "no_left_turn",
+      "regionId": "tr-33-69-73",
+      "fromWay": 113747441,
+      "toWay": 206230946,
+      "viaNodeId": 2162348393,
+      "fromEdge": 7180,
+      "toEdge": 21080
+    },
+    {
+      "relationId": 5308727,
+      "restrictionType": "only_straight_on",
+      "regionId": "tr-33-69-73",
+      "fromWay": 355493434,
+      "toWay": 355493424,
+      "viaNodeId": 3610934556,
+      "fromEdge": 63626,
+      "toEdge": 63604
+    },
+    {
+      "relationId": 5308728,
+      "restrictionType": "only_straight_on",
+      "regionId": "tr-33-69-73",
+      "fromWay": 355493427,
+      "toWay": 355493435,
+      "viaNodeId": 3610934552,
+      "fromEdge": 63608,
+      "toEdge": 63627
+    },
+    {
+      "relationId": 5311496,
+      "restrictionType": "only_straight_on",
+      "regionId": "tr-33-69-73",
+      "fromWay": 113723352,
+      "toWay": 355750032,
+      "viaNodeId": 1289222955,
+      "fromEdge": 5942,
+      "toEdge": 63784
+    },
+    {
+      "relationId": 5311497,
+      "restrictionType": "only_straight_on",
+      "regionId": "tr-33-69-73",
+      "fromWay": 114471418,
+      "toWay": 355750033,
+      "viaNodeId": 1289222948,
+      "fromEdge": 10040,
+      "toEdge": 63785
+    },
+    {
+      "relationId": 5311498,
+      "restrictionType": "only_straight_on",
+      "regionId": "tr-33-69-73",
+      "fromWay": 355750028,
+      "toWay": 355750011,
+      "viaNodeId": 1289222955,
+      "fromEdge": 63743,
+      "toEdge": 63682
+    },
+    {
+      "relationId": 5311499,
+      "restrictionType": "only_straight_on",
+      "regionId": "tr-33-69-73",
+      "fromWay": 113723340,
+      "toWay": 355750046,
+      "viaNodeId": 1289222948,
+      "fromEdge": 5831,
+      "toEdge": 63872
+    },
+    {
+      "relationId": 5311704,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-69-73",
+      "fromWay": 355759780,
+      "toWay": 355759785,
+      "viaNodeId": 2161161938,
+      "fromEdge": 64043,
+      "toEdge": 64054
+    },
+    {
+      "relationId": 5311705,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-69-73",
+      "fromWay": 355759757,
+      "toWay": 216605292,
+      "viaNodeId": 1885053261,
+      "fromEdge": 63985,
+      "toEdge": 48672
+    },
+    {
+      "relationId": 9482788,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-69-73",
+      "fromWay": 652418349,
+      "toWay": 653565306,
+      "viaNodeId": 1282473236,
+      "fromEdge": 84826,
+      "toEdge": 84899
+    },
+    {
+      "relationId": 9483013,
+      "restrictionType": "no_left_turn",
+      "regionId": "tr-33-69-73",
+      "fromWay": 683610025,
+      "toWay": 120271887,
+      "viaNodeId": 1348973083,
+      "fromEdge": 87111,
+      "toEdge": 11634
+    },
+    {
+      "relationId": 10437318,
+      "restrictionType": "no_right_turn",
+      "regionId": "tr-33-69-73",
+      "fromWay": 407755454,
+      "toWay": 211568121,
+      "viaNodeId": 2215600506,
+      "fromEdge": 81751,
+      "toEdge": 22507
+    },
+    {
+      "relationId": 10437319,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-69-73",
+      "fromWay": 211568121,
+      "toWay": 211568121,
+      "viaNodeId": 2215600506,
+      "fromEdge": 22507,
+      "toEdge": 22507
+    },
+    {
+      "relationId": 10437320,
+      "restrictionType": "no_right_turn",
+      "regionId": "tr-33-69-73",
+      "fromWay": 211568121,
+      "toWay": 756923343,
+      "viaNodeId": 2215600506,
+      "fromEdge": 22507,
+      "toEdge": 89725
+    },
+    {
+      "relationId": 13056455,
+      "restrictionType": "no_left_turn",
+      "regionId": "tr-33-69-73",
+      "fromWay": 970454330,
+      "toWay": 970454328,
+      "viaNodeId": 1296496480,
+      "fromEdge": 91621,
+      "toEdge": 91620
+    },
+    {
+      "relationId": 13056457,
+      "restrictionType": "no_right_turn",
+      "regionId": "tr-33-69-73",
+      "fromWay": 970455441,
+      "toWay": 110517838,
+      "viaNodeId": 6969837222,
+      "fromEdge": 91682,
+      "toEdge": 1450
+    },
+    {
+      "relationId": 13056485,
+      "restrictionType": "no_right_turn",
+      "regionId": "tr-33-69-73",
+      "fromWay": 122530032,
+      "toWay": 970455439,
+      "viaNodeId": 1261906688,
+      "fromEdge": 12069,
+      "toEdge": 91622
+    },
+    {
+      "relationId": 15906332,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-69-73",
+      "fromWay": 1176267833,
+      "toWay": 1176267833,
+      "viaNodeId": 1287639893,
+      "fromEdge": 135997,
+      "toEdge": 135997
+    },
+    {
+      "relationId": 17574398,
+      "restrictionType": "only_straight_on",
+      "regionId": "tr-33-69-73",
+      "fromWay": 1249178747,
+      "toWay": 1280952495,
+      "viaNodeId": 11889671272,
+      "fromEdge": 148950,
+      "toEdge": 149634
+    },
+    {
+      "relationId": 17574399,
+      "restrictionType": "only_left_turn",
+      "regionId": "tr-33-69-73",
+      "fromWay": 1280952503,
+      "toWay": 1280952496,
+      "viaNodeId": 11610987134,
+      "fromEdge": 149642,
+      "toEdge": 149635
+    },
+    {
+      "relationId": 17574400,
+      "restrictionType": "only_straight_on",
+      "regionId": "tr-33-69-73",
+      "fromWay": 1249178744,
+      "toWay": 1280952501,
+      "viaNodeId": 11889671273,
+      "fromEdge": 148942,
+      "toEdge": 149640
+    },
+    {
+      "relationId": 17574401,
+      "restrictionType": "only_left_turn",
+      "regionId": "tr-33-69-73",
+      "fromWay": 1280952504,
+      "toWay": 1280952502,
+      "viaNodeId": 11610987122,
+      "fromEdge": 149643,
+      "toEdge": 149641
+    },
+    {
+      "relationId": 17574402,
+      "restrictionType": "only_straight_on",
+      "regionId": "tr-33-69-73",
+      "fromWay": 1280952502,
+      "toWay": 1280952455,
+      "viaNodeId": 9820866399,
+      "fromEdge": 149641,
+      "toEdge": 149414
+    },
+    {
+      "relationId": 17574403,
+      "restrictionType": "only_straight_on",
+      "regionId": "tr-33-69-73",
+      "fromWay": 1280952497,
+      "toWay": 1280952496,
+      "viaNodeId": 11610987134,
+      "fromEdge": 149636,
+      "toEdge": 149635
+    },
+    {
+      "relationId": 17574404,
+      "restrictionType": "only_straight_on",
+      "regionId": "tr-33-69-73",
+      "fromWay": 1280952457,
+      "toWay": 1280952497,
+      "viaNodeId": 9820866395,
+      "fromEdge": 149418,
+      "toEdge": 149636
+    },
+    {
+      "relationId": 17574405,
+      "restrictionType": "only_straight_on",
+      "regionId": "tr-33-69-73",
+      "fromWay": 1280952496,
+      "toWay": 1280952491,
+      "viaNodeId": 9820866397,
+      "fromEdge": 149635,
+      "toEdge": 149627
+    },
+    {
+      "relationId": 17574406,
+      "restrictionType": "only_straight_on",
+      "regionId": "tr-33-69-73",
+      "fromWay": 1280952495,
+      "toWay": 1280952503,
+      "viaNodeId": 11889671274,
+      "fromEdge": 149634,
+      "toEdge": 149642
+    },
+    {
+      "relationId": 17574407,
+      "restrictionType": "no_right_turn",
+      "regionId": "tr-33-69-73",
+      "fromWay": 1280952501,
+      "toWay": 1280952503,
+      "viaNodeId": 11889671274,
+      "fromEdge": 149640,
+      "toEdge": 149642
+    }
+  ],
+  "viaWayEvidence": [
+    {
+      "relationId": 10048813,
+      "regionId": "tr-33-65-72",
+      "restrictionType": "no_u_turn",
+      "viaWays": [
+        725695223
+      ],
+      "outcome": "SUPPORTED_VIA_WAY",
+      "chainIds": [
+        1
+      ],
+      "chainLinks": 2,
+      "viaEdgeCount": 1,
+      "fromEdges": [
+        30196
+      ],
+      "toEdges": [
+        29997
+      ],
+      "entryNodeId": 5481143515,
+      "exitNodeId": 3407259719
+    },
+    {
+      "relationId": 10048814,
+      "regionId": "tr-33-65-72",
+      "restrictionType": "no_u_turn",
+      "viaWays": [
+        725695223
+      ],
+      "outcome": "UNRESOLVED_TOPOLOGY",
+      "detail": "via yol 725695223 uçtan bağlanmıyor veya tek yön ters"
+    },
+    {
+      "relationId": 17574418,
+      "regionId": "tr-33-69-73",
+      "restrictionType": "only_straight_on",
+      "viaWays": [
+        1280952494
+      ],
+      "outcome": "SUPPORTED_VIA_WAY",
+      "chainIds": [
+        1
+      ],
+      "chainLinks": 2,
+      "viaEdgeCount": 1,
+      "fromEdges": [
+        149638
+      ],
+      "toEdges": [
+        149415
+      ],
+      "entryNodeId": 11889671272,
+      "exitNodeId": 3973868582
+    }
+  ]
+}

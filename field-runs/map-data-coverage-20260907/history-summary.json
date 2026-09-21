@@ -1,0 +1,74 @@
+[
+  {
+    "id": 1555045507,
+    "versions": [
+      {
+        "version": 1,
+        "timestamp": "2026-09-04T08:38:35Z",
+        "tags": {
+          "addr:neighbourhood": "Ergenekon Mahallesi",
+          "addr:street": "Kocatepe Caddesi",
+          "building": "apartments",
+          "building:flats": "22",
+          "building:levels": "11",
+          "height": "35",
+          "name": "A blok"
+        }
+      }
+    ]
+  },
+  {
+    "id": 1555045508,
+    "versions": [
+      {
+        "version": 1,
+        "timestamp": "2026-09-04T08:38:35Z",
+        "tags": {
+          "addr:neighbourhood": "Ergenekon Mahallesi",
+          "addr:street": "Kocatepe Caddesi",
+          "building": "apartments",
+          "building:flats": "22",
+          "building:levels": "11",
+          "height": "35",
+          "layer": "1",
+          "name": "B blok"
+        }
+      }
+    ]
+  },
+  {
+    "id": 1555049311,
+    "versions": [
+      {
+        "version": 1,
+        "timestamp": "2026-09-04T08:57:17Z",
+        "tags": {
+          "amenity": "place_of_worship",
+          "building": "yes",
+          "name": "Kolukırıkoğlu Camii",
+          "religion": "muslim"
+        }
+      }
+    ]
+  },
+  {
+    "id": 216746881,
+    "versions": [
+      {
+        "version": 1,
+        "timestamp": "2013-04-10T11:12:31Z",
+        "tags": {
+          "highway": "residential"
+        }
+      },
+      {
+        "version": 2,
+        "timestamp": "2026-09-04T08:41:39Z",
+        "tags": {
+          "highway": "residential",
+          "name": "Kocatepe Caddesi"
+        }
+      }
+    ]
+  }
+]

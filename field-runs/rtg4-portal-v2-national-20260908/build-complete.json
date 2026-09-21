@@ -1,0 +1,9 @@
+{
+  "completedAt": "2026-09-08T11:35:14.271Z",
+  "sourceSha256": "c841556847bd31ed511ca3f61b5086644664488f48b23d7ce2a4b7d6c36dd80f",
+  "regions": 402,
+  "totalBytes": 994298356,
+  "manifest": "turkey-graph-manifest.json",
+  "memoryBudgetMiB": 512,
+  "peakProcessTreeRssBytes": 478081024
+}

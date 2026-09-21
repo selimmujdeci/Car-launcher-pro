@@ -1,0 +1,13 @@
+{
+  "endpoint": "https://overpass.private.coffee/api/interpreter",
+  "method": "POST",
+  "at": "2026-09-06T22:43:29.162Z",
+  "headers": {
+    "connection": "keep-alive",
+    "content-type": "application/json",
+    "date": "Sun, 06 Sep 2026 22:43:28 GMT",
+    "pc-overpass-worker": "overpass2",
+    "server": "nginx/1.26.3",
+    "transfer-encoding": "chunked"
+  }
+}

@@ -1,0 +1,1594 @@
+{
+  "source": {
+    "file": "../pbf-streaming-rtg3-20260908/raw/mersin-province.osm.pbf",
+    "bytes": 9899746,
+    "sha256": "3548f3e82ceee708898c4dad4d0fef5110cf5a40b3beae81cd38fd1c5c99079a",
+    "provider": "Geofabrik/OpenStreetMap",
+    "coverage": "OpenStreetMap Mersin province stable identity shadow"
+  },
+  "preflight": {
+    "ok": true,
+    "checks": [
+      {
+        "check": "node-runtime",
+        "required": ">=22.13.0",
+        "measured": "22.22.1",
+        "result": "PASS",
+        "detail": "node:sqlite (DatabaseSync) bayraksiz kullanilabilir olmali"
+      },
+      {
+        "check": "node-sqlite-capability",
+        "required": "DatabaseSync + prepare + iterate + WAL journal",
+        "measured": "USABLE",
+        "result": "PASS",
+        "detail": "DatabaseSync + prepare + iterate"
+      },
+      {
+        "check": "osmium-tool",
+        "required": ">=1.14.0",
+        "measured": "1.19.0",
+        "result": "PASS",
+        "detail": null
+      },
+      {
+        "check": "source-pbf",
+        "required": "okunabilir OSM PBF",
+        "measured": "9899746 B",
+        "result": "PASS",
+        "detail": "BlobHeader 13 bayt"
+      },
+      {
+        "check": "temp-writable",
+        "required": "yazilabilir dizin",
+        "measured": "/tmp/caros-rtg4-mersin",
+        "result": "PASS",
+        "detail": null
+      },
+      {
+        "check": "output-writable",
+        "required": "yazilabilir dizin",
+        "measured": "/mnt/c/Users/selim/Desktop/caros pro/field-runs/rtg4-stable-identity-mersin-20260908/regions",
+        "result": "PASS",
+        "detail": null
+      },
+      {
+        "check": "free-disk",
+        "required": ">=247493650 B",
+        "measured": "4097892352 B",
+        "result": "PASS",
+        "detail": null
+      },
+      {
+        "check": "memory-budget",
+        "required": ">=256 MiB",
+        "measured": "512 MiB",
+        "result": "PASS",
+        "detail": null
+      },
+      {
+        "check": "v8-heap-limit",
+        "required": "<=358 MiB",
+        "measured": "358 MiB",
+        "result": "PASS",
+        "detail": null
+      }
+    ],
+    "toolchain": {
+      "node": {
+        "min": "22.13.0",
+        "reason": "node:sqlite (DatabaseSync) bayraksiz kullanilabilir olmali",
+        "verified": [
+          "22.22.1",
+          "24.15.0"
+        ]
+      },
+      "osmium": {
+        "min": "1.14.0",
+        "reason": "osmium tags-filter -R + cat -t node OPL akisi",
+        "verified": [
+          "1.19.0"
+        ]
+      },
+      "sqlite": {
+        "backend": "node:sqlite (Node ile gelen gomulu SQLite)",
+        "requires": [
+          "DatabaseSync",
+          "prepare",
+          "iterate",
+          "WAL journal"
+        ]
+      },
+      "minMemoryBudgetMiB": 256
+    }
+  },
+  "parser": "osmium-tool + node:sqlite",
+  "strategy": "SQLite-indexed two-pass PBF stream; sequential deterministic 0.5 degree RTG3 partitions",
+  "memoryBudgetMiB": 512,
+  "selectedWays": 48646,
+  "deniedWays": 9730,
+  "requiredCoordinates": 578513,
+  "restrictionRelations": 147,
+  "restrictionStats": {
+    "observed": 147,
+    "valid": 124,
+    "supported": 112,
+    "supportedViaNode": 110,
+    "supportedViaWay": 2,
+    "unsupported": 4,
+    "malformed": 23,
+    "unresolved": 8,
+    "conditional": 0,
+    "vehicleSpecific": 4,
+    "viaWay": 3,
+    "unsupportedType": 0
+  },
+  "regions": [
+    {
+      "regionId": "tr-33-65-72",
+      "bbox": [
+        32.5,
+        36,
+        33,
+        36.5
+      ],
+      "graphFile": "regions/tr-33-65-72.rtg4",
+      "sha256": "eb8fa38e0381cb2904eb59b13106d212aac109316e358fe81c7abd1150c65638",
+      "byteSize": 1614756,
+      "nodeCount": 36168,
+      "edgeCount": 36995,
+      "neighbors": [
+        "tr-33-66-72"
+      ],
+      "sourceHash": "3548f3e82ceee708898c4dad4d0fef5110cf5a40b3beae81cd38fd1c5c99079a",
+      "classCount": {
+        "trunk": 1433,
+        "tertiary": 9008,
+        "primary": 676,
+        "secondary": 1822,
+        "unclassified": 16337,
+        "residential": 7029,
+        "service": 667,
+        "living_street": 23
+      },
+      "restrictions": {
+        "source": 147,
+        "valid": 8,
+        "supported": 7,
+        "supportedViaWay": 1,
+        "unsupported": 0,
+        "malformed": 0,
+        "unresolved": 1,
+        "conditional": 0,
+        "vehicleSpecific": 0,
+        "viaWayObserved": 2,
+        "viaWayCapacity": 0,
+        "unsupportedType": 0,
+        "records": 8,
+        "viaWayChains": 1
+      },
+      "structure": {
+        "bridge": 40,
+        "tunnel": 6,
+        "layer": 49
+      },
+      "destinationOnly": 0,
+      "oneway": 2008
+    },
+    {
+      "regionId": "tr-33-65-73",
+      "bbox": [
+        32.5,
+        36.5,
+        33,
+        37
+      ],
+      "graphFile": "regions/tr-33-65-73.rtg4",
+      "sha256": "e9053474a0b492f122bf9c0daaef550688b1838afc865741d213a77fa7e9ea96",
+      "byteSize": 3772,
+      "nodeCount": 86,
+      "edgeCount": 85,
+      "neighbors": [],
+      "sourceHash": "3548f3e82ceee708898c4dad4d0fef5110cf5a40b3beae81cd38fd1c5c99079a",
+      "classCount": {
+        "secondary": 85
+      },
+      "restrictions": {
+        "source": 147,
+        "valid": 0,
+        "supported": 0,
+        "supportedViaWay": 0,
+        "unsupported": 0,
+        "malformed": 0,
+        "unresolved": 0,
+        "conditional": 0,
+        "vehicleSpecific": 0,
+        "viaWayObserved": 0,
+        "viaWayCapacity": 0,
+        "unsupportedType": 0,
+        "records": 0,
+        "viaWayChains": 0
+      },
+      "structure": {
+        "bridge": 0,
+        "tunnel": 0,
+        "layer": 0
+      },
+      "destinationOnly": 0,
+      "oneway": 0
+    },
+    {
+      "regionId": "tr-33-66-72",
+      "bbox": [
+        33,
+        36,
+        33.5,
+        36.5
+      ],
+      "graphFile": "regions/tr-33-66-72.rtg4",
+      "sha256": "571e154b2dacfcf88ff2b9e6e7de9b84186191a910440c06e398792220387226",
+      "byteSize": 1406968,
+      "nodeCount": 31588,
+      "edgeCount": 32198,
+      "neighbors": [
+        "tr-33-65-72",
+        "tr-33-66-73",
+        "tr-33-67-72",
+        "tr-33-67-73"
+      ],
+      "sourceHash": "3548f3e82ceee708898c4dad4d0fef5110cf5a40b3beae81cd38fd1c5c99079a",
+      "classCount": {
+        "secondary": 2369,
+        "trunk": 1427,
+        "tertiary": 12560,
+        "unclassified": 6785,
+        "residential": 7733,
+        "service": 777,
+        "primary": 142,
+        "living_street": 405
+      },
+      "restrictions": {
+        "source": 147,
+        "valid": 0,
+        "supported": 0,
+        "supportedViaWay": 0,
+        "unsupported": 0,
+        "malformed": 0,
+        "unresolved": 0,
+        "conditional": 0,
+        "vehicleSpecific": 0,
+        "viaWayObserved": 0,
+        "viaWayCapacity": 0,
+        "unsupportedType": 0,
+        "records": 0,
+        "viaWayChains": 0
+      },
+      "structure": {
+        "bridge": 50,
+        "tunnel": 24,
+        "layer": 63
+      },
+      "destinationOnly": 0,
+      "oneway": 1526
+    },
+    {
+      "regionId": "tr-33-66-73",
+      "bbox": [
+        33,
+        36.5,
+        33.5,
+        37
+      ],
+      "graphFile": "regions/tr-33-66-73.rtg4",
+      "sha256": "b746d96ce4e2bb4abf60fade7c4c974d6a4d9d419c5ede3b5bdc77196de9a09a",
+      "byteSize": 1250772,
+      "nodeCount": 27753,
+      "edgeCount": 28811,
+      "neighbors": [
+        "tr-33-66-72",
+        "tr-33-67-72",
+        "tr-33-67-73"
+      ],
+      "sourceHash": "3548f3e82ceee708898c4dad4d0fef5110cf5a40b3beae81cd38fd1c5c99079a",
+      "classCount": {
+        "trunk": 1653,
+        "primary": 720,
+        "tertiary": 11224,
+        "residential": 8000,
+        "unclassified": 4918,
+        "service": 879,
+        "secondary": 238,
+        "living_street": 1179
+      },
+      "restrictions": {
+        "source": 147,
+        "valid": 0,
+        "supported": 0,
+        "supportedViaWay": 0,
+        "unsupported": 0,
+        "malformed": 0,
+        "unresolved": 0,
+        "conditional": 0,
+        "vehicleSpecific": 0,
+        "viaWayObserved": 0,
+        "viaWayCapacity": 0,
+        "unsupportedType": 0,
+        "records": 0,
+        "viaWayChains": 0
+      },
+      "structure": {
+        "bridge": 29,
+        "tunnel": 0,
+        "layer": 29
+      },
+      "destinationOnly": 0,
+      "oneway": 1759
+    },
+    {
+      "regionId": "tr-33-67-72",
+      "bbox": [
+        33.5,
+        36,
+        34,
+        36.5
+      ],
+      "graphFile": "regions/tr-33-67-72.rtg4",
+      "sha256": "21f5a2dcf78106e08ecb7f55904b173a737842b5d8a3f49b61f4d46d5766377b",
+      "byteSize": 2001136,
+      "nodeCount": 43984,
+      "edgeCount": 46334,
+      "neighbors": [
+        "tr-33-66-72",
+        "tr-33-66-73",
+        "tr-33-67-73",
+        "tr-33-68-72",
+        "tr-33-68-73"
+      ],
+      "sourceHash": "3548f3e82ceee708898c4dad4d0fef5110cf5a40b3beae81cd38fd1c5c99079a",
+      "classCount": {
+        "trunk": 2500,
+        "secondary": 1650,
+        "tertiary": 15501,
+        "primary": 850,
+        "unclassified": 10127,
+        "residential": 13207,
+        "service": 1990,
+        "living_street": 509
+      },
+      "restrictions": {
+        "source": 147,
+        "valid": 1,
+        "supported": 1,
+        "supportedViaWay": 0,
+        "unsupported": 0,
+        "malformed": 0,
+        "unresolved": 0,
+        "conditional": 0,
+        "vehicleSpecific": 0,
+        "viaWayObserved": 0,
+        "viaWayCapacity": 0,
+        "unsupportedType": 0,
+        "records": 1,
+        "viaWayChains": 0
+      },
+      "structure": {
+        "bridge": 152,
+        "tunnel": 86,
+        "layer": 238
+      },
+      "destinationOnly": 0,
+      "oneway": 3694
+    },
+    {
+      "regionId": "tr-33-67-73",
+      "bbox": [
+        33.5,
+        36.5,
+        34,
+        37
+      ],
+      "graphFile": "regions/tr-33-67-73.rtg4",
+      "sha256": "80f9ef955bafbaf390853063ef9548b1fcb4b51ee2fcbff54a5d4de23023d01b",
+      "byteSize": 3537872,
+      "nodeCount": 80129,
+      "edgeCount": 80564,
+      "neighbors": [
+        "tr-33-66-72",
+        "tr-33-66-73",
+        "tr-33-67-72",
+        "tr-33-67-74",
+        "tr-33-68-72",
+        "tr-33-68-73"
+      ],
+      "sourceHash": "3548f3e82ceee708898c4dad4d0fef5110cf5a40b3beae81cd38fd1c5c99079a",
+      "classCount": {
+        "trunk": 64,
+        "secondary": 6416,
+        "unclassified": 17306,
+        "tertiary": 11930,
+        "residential": 14736,
+        "living_street": 605,
+        "service": 29368,
+        "primary": 139
+      },
+      "restrictions": {
+        "source": 147,
+        "valid": 0,
+        "supported": 0,
+        "supportedViaWay": 0,
+        "unsupported": 0,
+        "malformed": 0,
+        "unresolved": 0,
+        "conditional": 0,
+        "vehicleSpecific": 0,
+        "viaWayObserved": 0,
+        "viaWayCapacity": 0,
+        "unsupportedType": 0,
+        "records": 0,
+        "viaWayChains": 0
+      },
+      "structure": {
+        "bridge": 23,
+        "tunnel": 0,
+        "layer": 23
+      },
+      "destinationOnly": 0,
+      "oneway": 70
+    },
+    {
+      "regionId": "tr-33-67-74",
+      "bbox": [
+        33.5,
+        37,
+        34,
+        37.5
+      ],
+      "graphFile": "regions/tr-33-67-74.rtg4",
+      "sha256": "2812b53f580268d574c7bfd24a71432291cae218333718b37083e1601871ce87",
+      "byteSize": 155320,
+      "nodeCount": 3529,
+      "edgeCount": 3530,
+      "neighbors": [
+        "tr-33-67-73",
+        "tr-33-68-73",
+        "tr-33-68-74"
+      ],
+      "sourceHash": "3548f3e82ceee708898c4dad4d0fef5110cf5a40b3beae81cd38fd1c5c99079a",
+      "classCount": {
+        "secondary": 1028,
+        "tertiary": 77,
+        "residential": 1688,
+        "service": 737
+      },
+      "restrictions": {
+        "source": 147,
+        "valid": 0,
+        "supported": 0,
+        "supportedViaWay": 0,
+        "unsupported": 0,
+        "malformed": 0,
+        "unresolved": 0,
+        "conditional": 0,
+        "vehicleSpecific": 0,
+        "viaWayObserved": 0,
+        "viaWayCapacity": 0,
+        "unsupportedType": 0,
+        "records": 0,
+        "viaWayChains": 0
+      },
+      "structure": {
+        "bridge": 1,
+        "tunnel": 0,
+        "layer": 1
+      },
+      "destinationOnly": 0,
+      "oneway": 0
+    },
+    {
+      "regionId": "tr-33-68-72",
+      "bbox": [
+        34,
+        36,
+        34.5,
+        36.5
+      ],
+      "graphFile": "regions/tr-33-68-72.rtg4",
+      "sha256": "02e9375eec8a644179ca5ae1ff17ca57d62ed526093393dd9d3560ca733fd1d4",
+      "byteSize": 554224,
+      "nodeCount": 12154,
+      "edgeCount": 12836,
+      "neighbors": [
+        "tr-33-67-72",
+        "tr-33-67-73",
+        "tr-33-68-73"
+      ],
+      "sourceHash": "3548f3e82ceee708898c4dad4d0fef5110cf5a40b3beae81cd38fd1c5c99079a",
+      "classCount": {
+        "unclassified": 2555,
+        "residential": 4666,
+        "living_street": 1042,
+        "tertiary": 2566,
+        "trunk": 893,
+        "secondary": 132,
+        "service": 982
+      },
+      "restrictions": {
+        "source": 147,
+        "valid": 11,
+        "supported": 11,
+        "supportedViaWay": 0,
+        "unsupported": 0,
+        "malformed": 0,
+        "unresolved": 0,
+        "conditional": 0,
+        "vehicleSpecific": 0,
+        "viaWayObserved": 0,
+        "viaWayCapacity": 0,
+        "unsupportedType": 0,
+        "records": 14,
+        "viaWayChains": 0
+      },
+      "structure": {
+        "bridge": 41,
+        "tunnel": 1,
+        "layer": 42
+      },
+      "destinationOnly": 0,
+      "oneway": 1022
+    },
+    {
+      "regionId": "tr-33-68-73",
+      "bbox": [
+        34,
+        36.5,
+        34.5,
+        37
+      ],
+      "graphFile": "regions/tr-33-68-73.rtg4",
+      "sha256": "a6613a5a9ed4425916bfd912b04dc18f968a6141c5b65dfb2066f17cc2e09b06",
+      "byteSize": 5665396,
+      "nodeCount": 126765,
+      "edgeCount": 129897,
+      "neighbors": [
+        "tr-33-67-72",
+        "tr-33-67-73",
+        "tr-33-67-74",
+        "tr-33-68-72",
+        "tr-33-68-74",
+        "tr-33-69-73",
+        "tr-33-69-74"
+      ],
+      "sourceHash": "3548f3e82ceee708898c4dad4d0fef5110cf5a40b3beae81cd38fd1c5c99079a",
+      "classCount": {
+        "trunk": 1430,
+        "tertiary": 26134,
+        "unclassified": 29835,
+        "secondary": 2729,
+        "motorway": 443,
+        "residential": 65613,
+        "service": 3024,
+        "primary": 394,
+        "living_street": 295
+      },
+      "restrictions": {
+        "source": 147,
+        "valid": 5,
+        "supported": 1,
+        "supportedViaWay": 0,
+        "unsupported": 4,
+        "malformed": 0,
+        "unresolved": 0,
+        "conditional": 0,
+        "vehicleSpecific": 4,
+        "viaWayObserved": 0,
+        "viaWayCapacity": 0,
+        "unsupportedType": 0,
+        "records": 1,
+        "viaWayChains": 0
+      },
+      "structure": {
+        "bridge": 115,
+        "tunnel": 19,
+        "layer": 243
+      },
+      "destinationOnly": 0,
+      "oneway": 3055
+    },
+    {
+      "regionId": "tr-33-68-74",
+      "bbox": [
+        34,
+        37,
+        34.5,
+        37.5
+      ],
+      "graphFile": "regions/tr-33-68-74.rtg4",
+      "sha256": "2a4e0eb4044feb95227887e28cda95e55140dba5b6610c74e47930eaa4a030bb",
+      "byteSize": 524824,
+      "nodeCount": 11790,
+      "edgeCount": 12006,
+      "neighbors": [
+        "tr-33-67-74",
+        "tr-33-68-73",
+        "tr-33-69-73",
+        "tr-33-69-74"
+      ],
+      "sourceHash": "3548f3e82ceee708898c4dad4d0fef5110cf5a40b3beae81cd38fd1c5c99079a",
+      "classCount": {
+        "unclassified": 6741,
+        "tertiary": 1122,
+        "secondary": 719,
+        "residential": 3097,
+        "living_street": 279,
+        "service": 48
+      },
+      "restrictions": {
+        "source": 147,
+        "valid": 0,
+        "supported": 0,
+        "supportedViaWay": 0,
+        "unsupported": 0,
+        "malformed": 0,
+        "unresolved": 0,
+        "conditional": 0,
+        "vehicleSpecific": 0,
+        "viaWayObserved": 0,
+        "viaWayCapacity": 0,
+        "unsupportedType": 0,
+        "records": 0,
+        "viaWayChains": 0
+      },
+      "structure": {
+        "bridge": 6,
+        "tunnel": 0,
+        "layer": 6
+      },
+      "destinationOnly": 0,
+      "oneway": 0
+    },
+    {
+      "regionId": "tr-33-69-73",
+      "bbox": [
+        34.5,
+        36.5,
+        35,
+        37
+      ],
+      "graphFile": "regions/tr-33-69-73.rtg4",
+      "sha256": "092d3efaefd99d4716a7e43660860d9da20ebb2ad5ba6b0eb25ddd6764370c51",
+      "byteSize": 6587472,
+      "nodeCount": 139098,
+      "edgeCount": 155702,
+      "neighbors": [
+        "tr-33-68-73",
+        "tr-33-68-74",
+        "tr-33-69-74",
+        "tr-33-70-73",
+        "tr-33-70-74"
+      ],
+      "sourceHash": "3548f3e82ceee708898c4dad4d0fef5110cf5a40b3beae81cd38fd1c5c99079a",
+      "classCount": {
+        "motorway": 2579,
+        "secondary": 7106,
+        "residential": 80244,
+        "trunk": 1829,
+        "tertiary": 22957,
+        "primary": 3520,
+        "unclassified": 31277,
+        "service": 5471,
+        "living_street": 719
+      },
+      "restrictions": {
+        "source": 147,
+        "valid": 94,
+        "supported": 92,
+        "supportedViaWay": 1,
+        "unsupported": 0,
+        "malformed": 2,
+        "unresolved": 2,
+        "conditional": 0,
+        "vehicleSpecific": 0,
+        "viaWayObserved": 1,
+        "viaWayCapacity": 0,
+        "unsupportedType": 0,
+        "records": 93,
+        "viaWayChains": 1
+      },
+      "structure": {
+        "bridge": 511,
+        "tunnel": 105,
+        "layer": 643
+      },
+      "destinationOnly": 0,
+      "oneway": 22659
+    },
+    {
+      "regionId": "tr-33-69-74",
+      "bbox": [
+        34.5,
+        37,
+        35,
+        37.5
+      ],
+      "graphFile": "regions/tr-33-69-74.rtg4",
+      "sha256": "79e08eddea128a3d77632769312790bf603f47084137ac690888ac7dc967644d",
+      "byteSize": 3210136,
+      "nodeCount": 71794,
+      "edgeCount": 73622,
+      "neighbors": [
+        "tr-33-68-73",
+        "tr-33-68-74",
+        "tr-33-69-73",
+        "tr-33-70-73",
+        "tr-33-70-74"
+      ],
+      "sourceHash": "3548f3e82ceee708898c4dad4d0fef5110cf5a40b3beae81cd38fd1c5c99079a",
+      "classCount": {
+        "tertiary": 12472,
+        "motorway": 2374,
+        "unclassified": 22631,
+        "secondary": 1732,
+        "residential": 31675,
+        "service": 1133,
+        "primary": 788,
+        "trunk": 83,
+        "living_street": 733,
+        "road": 1
+      },
+      "restrictions": {
+        "source": 147,
+        "valid": 0,
+        "supported": 0,
+        "supportedViaWay": 0,
+        "unsupported": 0,
+        "malformed": 0,
+        "unresolved": 0,
+        "conditional": 0,
+        "vehicleSpecific": 0,
+        "viaWayObserved": 0,
+        "viaWayCapacity": 0,
+        "unsupportedType": 0,
+        "records": 0,
+        "viaWayChains": 0
+      },
+      "structure": {
+        "bridge": 89,
+        "tunnel": 15,
+        "layer": 104
+      },
+      "destinationOnly": 0,
+      "oneway": 2947
+    },
+    {
+      "regionId": "tr-33-70-73",
+      "bbox": [
+        35,
+        36.5,
+        35.5,
+        37
+      ],
+      "graphFile": "regions/tr-33-70-73.rtg4",
+      "sha256": "caf814ec8b74c1b14764866e9c5c108fb2eb13d0aa5ba23a565d3a9696aeea4e",
+      "byteSize": 472280,
+      "nodeCount": 10389,
+      "edgeCount": 10930,
+      "neighbors": [
+        "tr-33-69-73",
+        "tr-33-69-74",
+        "tr-33-70-74"
+      ],
+      "sourceHash": "3548f3e82ceee708898c4dad4d0fef5110cf5a40b3beae81cd38fd1c5c99079a",
+      "classCount": {
+        "tertiary": 1359,
+        "residential": 3971,
+        "trunk": 232,
+        "secondary": 96,
+        "unclassified": 4412,
+        "service": 339,
+        "living_street": 143,
+        "primary": 378
+      },
+      "restrictions": {
+        "source": 147,
+        "valid": 0,
+        "supported": 0,
+        "supportedViaWay": 0,
+        "unsupported": 0,
+        "malformed": 0,
+        "unresolved": 0,
+        "conditional": 0,
+        "vehicleSpecific": 0,
+        "viaWayObserved": 0,
+        "viaWayCapacity": 0,
+        "unsupportedType": 0,
+        "records": 0,
+        "viaWayChains": 0
+      },
+      "structure": {
+        "bridge": 69,
+        "tunnel": 4,
+        "layer": 93
+      },
+      "destinationOnly": 0,
+      "oneway": 1197
+    },
+    {
+      "regionId": "tr-33-70-74",
+      "bbox": [
+        35,
+        37,
+        35.5,
+        37.5
+      ],
+      "graphFile": "regions/tr-33-70-74.rtg4",
+      "sha256": "fa81e99523058fa184a4d563a21541910eb67c277af14ccc07b171582499436f",
+      "byteSize": 248868,
+      "nodeCount": 5594,
+      "edgeCount": 5691,
+      "neighbors": [
+        "tr-33-69-73",
+        "tr-33-69-74",
+        "tr-33-70-73"
+      ],
+      "sourceHash": "3548f3e82ceee708898c4dad4d0fef5110cf5a40b3beae81cd38fd1c5c99079a",
+      "classCount": {
+        "motorway": 245,
+        "tertiary": 1123,
+        "residential": 2534,
+        "unclassified": 1691,
+        "service": 98
+      },
+      "restrictions": {
+        "source": 147,
+        "valid": 0,
+        "supported": 0,
+        "supportedViaWay": 0,
+        "unsupported": 0,
+        "malformed": 0,
+        "unresolved": 0,
+        "conditional": 0,
+        "vehicleSpecific": 0,
+        "viaWayObserved": 0,
+        "viaWayCapacity": 0,
+        "unsupportedType": 0,
+        "records": 0,
+        "viaWayChains": 0
+      },
+      "structure": {
+        "bridge": 24,
+        "tunnel": 0,
+        "layer": 24
+      },
+      "destinationOnly": 0,
+      "oneway": 335
+    }
+  ],
+  "totalNodes": 600821,
+  "totalEdges": 629201,
+  "totalBytes": 27233796,
+  "tempBytes": 107048960,
+  "peakTempBytes": 153846215,
+  "buildMs": 12508.712463,
+  "peakNodeRssBytes": 283344896,
+  "peakChildRssBytes": 40640512,
+  "peakProcessTreeRssBytes": 283344896,
+  "telemetry": [
+    {
+      "stage": "pass1-complete-extract",
+      "atMs": 282.366387,
+      "nodeRss": 71159808,
+      "childRss": 0,
+      "processTreeRss": 71159808,
+      "tempDisk": 13457581
+    },
+    {
+      "stage": "pass1-complete",
+      "atMs": 3379.879037,
+      "nodeRss": 168026112,
+      "childRss": 0,
+      "processTreeRss": 168026112,
+      "tempDisk": 29055901
+    },
+    {
+      "stage": "pass2-complete-extract",
+      "atMs": 3695.097053,
+      "nodeRss": 157519872,
+      "childRss": 0,
+      "processTreeRss": 157519872,
+      "tempDisk": 153846215
+    },
+    {
+      "stage": "pass2-complete",
+      "atMs": 7791.765624,
+      "nodeRss": 173219840,
+      "childRss": 0,
+      "processTreeRss": 173219840,
+      "tempDisk": 153846215
+    },
+    {
+      "stage": "partition-index-complete",
+      "atMs": 8917.921086,
+      "nodeRss": 174374912,
+      "childRss": 0,
+      "processTreeRss": 174374912,
+      "tempDisk": 152055896
+    },
+    {
+      "stage": "region:tr-33-65-72",
+      "atMs": 9090.647476,
+      "nodeRss": 182714368,
+      "childRss": 0,
+      "processTreeRss": 182714368,
+      "tempDisk": 152055896
+    },
+    {
+      "stage": "region:tr-33-65-73",
+      "atMs": 9094.286223000001,
+      "nodeRss": 182714368,
+      "childRss": 0,
+      "processTreeRss": 182714368,
+      "tempDisk": 152055896
+    },
+    {
+      "stage": "region:tr-33-66-72",
+      "atMs": 9245.463739,
+      "nodeRss": 189546496,
+      "childRss": 0,
+      "processTreeRss": 189546496,
+      "tempDisk": 152055896
+    },
+    {
+      "stage": "region:tr-33-66-73",
+      "atMs": 9372.947519,
+      "nodeRss": 190742528,
+      "childRss": 0,
+      "processTreeRss": 190742528,
+      "tempDisk": 152055896
+    },
+    {
+      "stage": "region:tr-33-67-72",
+      "atMs": 9586.207099,
+      "nodeRss": 193863680,
+      "childRss": 0,
+      "processTreeRss": 193863680,
+      "tempDisk": 152055896
+    },
+    {
+      "stage": "region:tr-33-67-73",
+      "atMs": 9945.74505,
+      "nodeRss": 208777216,
+      "childRss": 0,
+      "processTreeRss": 208777216,
+      "tempDisk": 152055896
+    },
+    {
+      "stage": "region:tr-33-67-74",
+      "atMs": 9962.458568,
+      "nodeRss": 208777216,
+      "childRss": 0,
+      "processTreeRss": 208777216,
+      "tempDisk": 152055896
+    },
+    {
+      "stage": "region:tr-33-68-72",
+      "atMs": 10022.657512,
+      "nodeRss": 209825792,
+      "childRss": 0,
+      "processTreeRss": 209825792,
+      "tempDisk": 152055896
+    },
+    {
+      "stage": "region:tr-33-68-73",
+      "atMs": 10673.188752,
+      "nodeRss": 238284800,
+      "childRss": 0,
+      "processTreeRss": 238284800,
+      "tempDisk": 152055896
+    },
+    {
+      "stage": "region:tr-33-68-74",
+      "atMs": 10730.295037,
+      "nodeRss": 239857664,
+      "childRss": 0,
+      "processTreeRss": 239857664,
+      "tempDisk": 152055896
+    },
+    {
+      "stage": "region:tr-33-69-73",
+      "atMs": 11725.592931,
+      "nodeRss": 250466304,
+      "childRss": 0,
+      "processTreeRss": 250466304,
+      "tempDisk": 152055896
+    },
+    {
+      "stage": "region:tr-33-69-74",
+      "atMs": 12113.690659,
+      "nodeRss": 270499840,
+      "childRss": 0,
+      "processTreeRss": 270499840,
+      "tempDisk": 152055896
+    },
+    {
+      "stage": "region:tr-33-70-73",
+      "atMs": 12178.011058,
+      "nodeRss": 283344896,
+      "childRss": 0,
+      "processTreeRss": 283344896,
+      "tempDisk": 152055896
+    },
+    {
+      "stage": "region:tr-33-70-74",
+      "atMs": 12215.06205,
+      "nodeRss": 272601088,
+      "childRss": 0,
+      "processTreeRss": 272601088,
+      "tempDisk": 152055896
+    },
+    {
+      "stage": "complete",
+      "atMs": 12505.11493,
+      "nodeRss": 273649664,
+      "childRss": 0,
+      "processTreeRss": 273649664,
+      "tempDisk": 107048960
+    }
+  ],
+  "restrictionEvidence": [
+    {
+      "relationId": 10048729,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-65-72",
+      "fromWay": 114439024,
+      "toWay": 114439024,
+      "viaNodeId": 1296383068,
+      "fromEdge": 7828,
+      "toEdge": 7828
+    },
+    {
+      "relationId": 10048730,
+      "restrictionType": "no_left_turn",
+      "regionId": "tr-33-65-72",
+      "fromWay": 725692200,
+      "toWay": 725685172,
+      "viaNodeId": 1296383068,
+      "fromEdge": 29984,
+      "toEdge": 29831
+    },
+    {
+      "relationId": 10048731,
+      "restrictionType": "no_left_turn",
+      "regionId": "tr-33-65-72",
+      "fromWay": 725686369,
+      "toWay": 725686625,
+      "viaNodeId": 1296383068,
+      "fromEdge": 29838,
+      "toEdge": 29839
+    },
+    {
+      "relationId": 10048732,
+      "restrictionType": "no_right_turn",
+      "regionId": "tr-33-65-72",
+      "fromWay": 725686369,
+      "toWay": 725685172,
+      "viaNodeId": 1296383068,
+      "fromEdge": 29838,
+      "toEdge": 29831
+    },
+    {
+      "relationId": 10048811,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-65-72",
+      "fromWay": 333600708,
+      "toWay": 333600708,
+      "viaNodeId": 3407259719,
+      "fromEdge": 16821,
+      "toEdge": 16821
+    },
+    {
+      "relationId": 10048812,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-65-72",
+      "fromWay": 725695222,
+      "toWay": 725695222,
+      "viaNodeId": 5481143515,
+      "fromEdge": 29985,
+      "toEdge": 29985
+    },
+    {
+      "relationId": 16507579,
+      "restrictionType": "no_left_turn",
+      "regionId": "tr-33-67-72",
+      "fromWay": 568916792,
+      "toWay": 707306423,
+      "viaNodeId": 5472584381,
+      "fromEdge": 20725,
+      "toEdge": 29485
+    },
+    {
+      "relationId": 14632220,
+      "restrictionType": "no_left_turn",
+      "regionId": "tr-33-68-72",
+      "fromWay": 1098434437,
+      "toWay": 602441962,
+      "viaNodeId": 5722283232,
+      "fromEdge": 6976,
+      "toEdge": 4716
+    },
+    {
+      "relationId": 14632221,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-68-72",
+      "fromWay": 1098434438,
+      "toWay": 1098434438,
+      "viaNodeId": 5722283233,
+      "fromEdge": 6977,
+      "toEdge": 6977
+    },
+    {
+      "relationId": 14632222,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-68-72",
+      "fromWay": 1098434443,
+      "toWay": 1098434443,
+      "viaNodeId": 10057548156,
+      "fromEdge": 6994,
+      "toEdge": 6994
+    },
+    {
+      "relationId": 14632223,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-68-72",
+      "fromWay": 1098434445,
+      "toWay": 1098434445,
+      "viaNodeId": 10057548158,
+      "fromEdge": 6998,
+      "toEdge": 6998
+    },
+    {
+      "relationId": 14632224,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-68-72",
+      "fromWay": 1098434447,
+      "toWay": 1098434447,
+      "viaNodeId": 10057548161,
+      "fromEdge": 7005,
+      "toEdge": 7005
+    },
+    {
+      "relationId": 14632225,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-68-72",
+      "fromWay": 1098434449,
+      "toWay": 1098434449,
+      "viaNodeId": 2825705172,
+      "fromEdge": 7009,
+      "toEdge": 7009
+    },
+    {
+      "relationId": 14632231,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-68-72",
+      "fromWay": 1098436236,
+      "toWay": 1098436236,
+      "viaNodeId": 10057563140,
+      "fromEdge": 7156,
+      "toEdge": 7156
+    },
+    {
+      "relationId": 14632232,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-68-72",
+      "fromWay": 557214319,
+      "toWay": 557214319,
+      "viaNodeId": 5374254516,
+      "fromEdge": 4132,
+      "toEdge": 4132
+    },
+    {
+      "relationId": 14632233,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-68-72",
+      "fromWay": 557214320,
+      "toWay": 557214320,
+      "viaNodeId": 5374254520,
+      "fromEdge": 4137,
+      "toEdge": 4137
+    },
+    {
+      "relationId": 14632902,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-68-72",
+      "fromWay": 556997996,
+      "toWay": 556997996,
+      "viaNodeId": 8016251667,
+      "fromEdge": 3683,
+      "toEdge": 3683
+    },
+    {
+      "relationId": 14632902,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-68-72",
+      "fromWay": 556997996,
+      "toWay": 556997996,
+      "viaNodeId": 8016251667,
+      "fromEdge": 3683,
+      "toEdge": 3684
+    },
+    {
+      "relationId": 14632902,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-68-72",
+      "fromWay": 556997996,
+      "toWay": 556997996,
+      "viaNodeId": 8016251667,
+      "fromEdge": 3684,
+      "toEdge": 3683
+    },
+    {
+      "relationId": 14632902,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-68-72",
+      "fromWay": 556997996,
+      "toWay": 556997996,
+      "viaNodeId": 8016251667,
+      "fromEdge": 3684,
+      "toEdge": 3684
+    },
+    {
+      "relationId": 14632903,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-68-72",
+      "fromWay": 1098483982,
+      "toWay": 1098483982,
+      "viaNodeId": 10058013373,
+      "fromEdge": 7413,
+      "toEdge": 7413
+    },
+    {
+      "relationId": 14632313,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-68-73",
+      "fromWay": 1098454868,
+      "toWay": 1098454868,
+      "viaNodeId": 10057752169,
+      "fromEdge": 67317,
+      "toEdge": 67317
+    },
+    {
+      "relationId": 5224130,
+      "restrictionType": "no_left_turn",
+      "regionId": "tr-33-69-73",
+      "fromWay": 113747441,
+      "toWay": 206230946,
+      "viaNodeId": 2162348393,
+      "fromEdge": 7180,
+      "toEdge": 21080
+    },
+    {
+      "relationId": 5308727,
+      "restrictionType": "only_straight_on",
+      "regionId": "tr-33-69-73",
+      "fromWay": 355493434,
+      "toWay": 355493424,
+      "viaNodeId": 3610934556,
+      "fromEdge": 63626,
+      "toEdge": 63604
+    },
+    {
+      "relationId": 5308728,
+      "restrictionType": "only_straight_on",
+      "regionId": "tr-33-69-73",
+      "fromWay": 355493427,
+      "toWay": 355493435,
+      "viaNodeId": 3610934552,
+      "fromEdge": 63608,
+      "toEdge": 63627
+    },
+    {
+      "relationId": 5311496,
+      "restrictionType": "only_straight_on",
+      "regionId": "tr-33-69-73",
+      "fromWay": 113723352,
+      "toWay": 355750032,
+      "viaNodeId": 1289222955,
+      "fromEdge": 5942,
+      "toEdge": 63784
+    },
+    {
+      "relationId": 5311497,
+      "restrictionType": "only_straight_on",
+      "regionId": "tr-33-69-73",
+      "fromWay": 114471418,
+      "toWay": 355750033,
+      "viaNodeId": 1289222948,
+      "fromEdge": 10040,
+      "toEdge": 63785
+    },
+    {
+      "relationId": 5311498,
+      "restrictionType": "only_straight_on",
+      "regionId": "tr-33-69-73",
+      "fromWay": 355750028,
+      "toWay": 355750011,
+      "viaNodeId": 1289222955,
+      "fromEdge": 63743,
+      "toEdge": 63682
+    },
+    {
+      "relationId": 5311499,
+      "restrictionType": "only_straight_on",
+      "regionId": "tr-33-69-73",
+      "fromWay": 113723340,
+      "toWay": 355750046,
+      "viaNodeId": 1289222948,
+      "fromEdge": 5831,
+      "toEdge": 63872
+    },
+    {
+      "relationId": 5311704,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-69-73",
+      "fromWay": 355759780,
+      "toWay": 355759785,
+      "viaNodeId": 2161161938,
+      "fromEdge": 64043,
+      "toEdge": 64054
+    },
+    {
+      "relationId": 5311705,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-69-73",
+      "fromWay": 355759757,
+      "toWay": 216605292,
+      "viaNodeId": 1885053261,
+      "fromEdge": 63985,
+      "toEdge": 48672
+    },
+    {
+      "relationId": 9482788,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-69-73",
+      "fromWay": 652418349,
+      "toWay": 653565306,
+      "viaNodeId": 1282473236,
+      "fromEdge": 84826,
+      "toEdge": 84899
+    },
+    {
+      "relationId": 9483013,
+      "restrictionType": "no_left_turn",
+      "regionId": "tr-33-69-73",
+      "fromWay": 683610025,
+      "toWay": 120271887,
+      "viaNodeId": 1348973083,
+      "fromEdge": 87111,
+      "toEdge": 11634
+    },
+    {
+      "relationId": 10437318,
+      "restrictionType": "no_right_turn",
+      "regionId": "tr-33-69-73",
+      "fromWay": 407755454,
+      "toWay": 211568121,
+      "viaNodeId": 2215600506,
+      "fromEdge": 81751,
+      "toEdge": 22507
+    },
+    {
+      "relationId": 10437319,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-69-73",
+      "fromWay": 211568121,
+      "toWay": 211568121,
+      "viaNodeId": 2215600506,
+      "fromEdge": 22507,
+      "toEdge": 22507
+    },
+    {
+      "relationId": 10437320,
+      "restrictionType": "no_right_turn",
+      "regionId": "tr-33-69-73",
+      "fromWay": 211568121,
+      "toWay": 756923343,
+      "viaNodeId": 2215600506,
+      "fromEdge": 22507,
+      "toEdge": 89725
+    },
+    {
+      "relationId": 13056455,
+      "restrictionType": "no_left_turn",
+      "regionId": "tr-33-69-73",
+      "fromWay": 970454330,
+      "toWay": 970454328,
+      "viaNodeId": 1296496480,
+      "fromEdge": 91621,
+      "toEdge": 91620
+    },
+    {
+      "relationId": 13056457,
+      "restrictionType": "no_right_turn",
+      "regionId": "tr-33-69-73",
+      "fromWay": 970455441,
+      "toWay": 110517838,
+      "viaNodeId": 6969837222,
+      "fromEdge": 91682,
+      "toEdge": 1450
+    },
+    {
+      "relationId": 13056485,
+      "restrictionType": "no_right_turn",
+      "regionId": "tr-33-69-73",
+      "fromWay": 122530032,
+      "toWay": 970455439,
+      "viaNodeId": 1261906688,
+      "fromEdge": 12069,
+      "toEdge": 91622
+    },
+    {
+      "relationId": 15906332,
+      "restrictionType": "no_u_turn",
+      "regionId": "tr-33-69-73",
+      "fromWay": 1176267833,
+      "toWay": 1176267833,
+      "viaNodeId": 1287639893,
+      "fromEdge": 135997,
+      "toEdge": 135997
+    },
+    {
+      "relationId": 17574398,
+      "restrictionType": "only_straight_on",
+      "regionId": "tr-33-69-73",
+      "fromWay": 1249178747,
+      "toWay": 1280952495,
+      "viaNodeId": 11889671272,
+      "fromEdge": 148950,
+      "toEdge": 149634
+    },
+    {
+      "relationId": 17574399,
+      "restrictionType": "only_left_turn",
+      "regionId": "tr-33-69-73",
+      "fromWay": 1280952503,
+      "toWay": 1280952496,
+      "viaNodeId": 11610987134,
+      "fromEdge": 149642,
+      "toEdge": 149635
+    },
+    {
+      "relationId": 17574400,
+      "restrictionType": "only_straight_on",
+      "regionId": "tr-33-69-73",
+      "fromWay": 1249178744,
+      "toWay": 1280952501,
+      "viaNodeId": 11889671273,
+      "fromEdge": 148942,
+      "toEdge": 149640
+    },
+    {
+      "relationId": 17574401,
+      "restrictionType": "only_left_turn",
+      "regionId": "tr-33-69-73",
+      "fromWay": 1280952504,
+      "toWay": 1280952502,
+      "viaNodeId": 11610987122,
+      "fromEdge": 149643,
+      "toEdge": 149641
+    },
+    {
+      "relationId": 17574402,
+      "restrictionType": "only_straight_on",
+      "regionId": "tr-33-69-73",
+      "fromWay": 1280952502,
+      "toWay": 1280952455,
+      "viaNodeId": 9820866399,
+      "fromEdge": 149641,
+      "toEdge": 149414
+    },
+    {
+      "relationId": 17574403,
+      "restrictionType": "only_straight_on",
+      "regionId": "tr-33-69-73",
+      "fromWay": 1280952497,
+      "toWay": 1280952496,
+      "viaNodeId": 11610987134,
+      "fromEdge": 149636,
+      "toEdge": 149635
+    },
+    {
+      "relationId": 17574404,
+      "restrictionType": "only_straight_on",
+      "regionId": "tr-33-69-73",
+      "fromWay": 1280952457,
+      "toWay": 1280952497,
+      "viaNodeId": 9820866395,
+      "fromEdge": 149418,
+      "toEdge": 149636
+    },
+    {
+      "relationId": 17574405,
+      "restrictionType": "only_straight_on",
+      "regionId": "tr-33-69-73",
+      "fromWay": 1280952496,
+      "toWay": 1280952491,
+      "viaNodeId": 9820866397,
+      "fromEdge": 149635,
+      "toEdge": 149627
+    },
+    {
+      "relationId": 17574406,
+      "restrictionType": "only_straight_on",
+      "regionId": "tr-33-69-73",
+      "fromWay": 1280952495,
+      "toWay": 1280952503,
+      "viaNodeId": 11889671274,
+      "fromEdge": 149634,
+      "toEdge": 149642
+    },
+    {
+      "relationId": 17574407,
+      "restrictionType": "no_right_turn",
+      "regionId": "tr-33-69-73",
+      "fromWay": 1280952501,
+      "toWay": 1280952503,
+      "viaNodeId": 11889671274,
+      "fromEdge": 149640,
+      "toEdge": 149642
+    }
+  ],
+  "viaWayEvidence": [
+    {
+      "relationId": 10048813,
+      "regionId": "tr-33-65-72",
+      "restrictionType": "no_u_turn",
+      "viaWays": [
+        725695223
+      ],
+      "outcome": "SUPPORTED_VIA_WAY",
+      "chainIds": [
+        1
+      ],
+      "chainLinks": 2,
+      "viaEdgeCount": 1,
+      "fromEdges": [
+        30196
+      ],
+      "toEdges": [
+        29997
+      ],
+      "entryNodeId": 5481143515,
+      "exitNodeId": 3407259719
+    },
+    {
+      "relationId": 10048814,
+      "regionId": "tr-33-65-72",
+      "restrictionType": "no_u_turn",
+      "viaWays": [
+        725695223
+      ],
+      "outcome": "UNRESOLVED_TOPOLOGY",
+      "detail": "via yol 725695223 uçtan bağlanmıyor veya tek yön ters"
+    },
+    {
+      "relationId": 17574418,
+      "regionId": "tr-33-69-73",
+      "restrictionType": "only_straight_on",
+      "viaWays": [
+        1280952494
+      ],
+      "outcome": "SUPPORTED_VIA_WAY",
+      "chainIds": [
+        1
+      ],
+      "chainLinks": 2,
+      "viaEdgeCount": 1,
+      "fromEdges": [
+        149638
+      ],
+      "toEdges": [
+        149415
+      ],
+      "entryNodeId": 11889671272,
+      "exitNodeId": 3973868582
+    }
+  ]
+}

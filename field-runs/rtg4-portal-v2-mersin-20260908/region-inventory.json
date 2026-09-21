@@ -1,0 +1,342 @@
+{
+  "regions": [
+    {
+      "regionId": "tr-33-65-72",
+      "bbox": [
+        32.5,
+        36,
+        33,
+        36.5
+      ],
+      "nodeCount": 36168,
+      "edgeCount": 36995,
+      "byteSize": 1614756,
+      "sha256": "eb8fa38e0381cb2904eb59b13106d212aac109316e358fe81c7abd1150c65638",
+      "neighbors": 1
+    },
+    {
+      "regionId": "tr-33-65-73",
+      "bbox": [
+        32.5,
+        36.5,
+        33,
+        37
+      ],
+      "nodeCount": 86,
+      "edgeCount": 85,
+      "byteSize": 3772,
+      "sha256": "e9053474a0b492f122bf9c0daaef550688b1838afc865741d213a77fa7e9ea96",
+      "neighbors": 0
+    },
+    {
+      "regionId": "tr-33-66-72",
+      "bbox": [
+        33,
+        36,
+        33.5,
+        36.5
+      ],
+      "nodeCount": 31588,
+      "edgeCount": 32198,
+      "byteSize": 1406968,
+      "sha256": "571e154b2dacfcf88ff2b9e6e7de9b84186191a910440c06e398792220387226",
+      "neighbors": 3
+    },
+    {
+      "regionId": "tr-33-66-73",
+      "bbox": [
+        33,
+        36.5,
+        33.5,
+        37
+      ],
+      "nodeCount": 27753,
+      "edgeCount": 28811,
+      "byteSize": 1250772,
+      "sha256": "b746d96ce4e2bb4abf60fade7c4c974d6a4d9d419c5ede3b5bdc77196de9a09a",
+      "neighbors": 2
+    },
+    {
+      "regionId": "tr-33-67-72",
+      "bbox": [
+        33.5,
+        36,
+        34,
+        36.5
+      ],
+      "nodeCount": 43984,
+      "edgeCount": 46334,
+      "byteSize": 2001136,
+      "sha256": "21f5a2dcf78106e08ecb7f55904b173a737842b5d8a3f49b61f4d46d5766377b",
+      "neighbors": 3
+    },
+    {
+      "regionId": "tr-33-67-73",
+      "bbox": [
+        33.5,
+        36.5,
+        34,
+        37
+      ],
+      "nodeCount": 80129,
+      "edgeCount": 80564,
+      "byteSize": 3537872,
+      "sha256": "80f9ef955bafbaf390853063ef9548b1fcb4b51ee2fcbff54a5d4de23023d01b",
+      "neighbors": 4
+    },
+    {
+      "regionId": "tr-33-67-74",
+      "bbox": [
+        33.5,
+        37,
+        34,
+        37.5
+      ],
+      "nodeCount": 3529,
+      "edgeCount": 3530,
+      "byteSize": 155320,
+      "sha256": "2812b53f580268d574c7bfd24a71432291cae218333718b37083e1601871ce87",
+      "neighbors": 2
+    },
+    {
+      "regionId": "tr-33-68-72",
+      "bbox": [
+        34,
+        36,
+        34.5,
+        36.5
+      ],
+      "nodeCount": 12154,
+      "edgeCount": 12836,
+      "byteSize": 554224,
+      "sha256": "02e9375eec8a644179ca5ae1ff17ca57d62ed526093393dd9d3560ca733fd1d4",
+      "neighbors": 2
+    },
+    {
+      "regionId": "tr-33-68-73",
+      "bbox": [
+        34,
+        36.5,
+        34.5,
+        37
+      ],
+      "nodeCount": 126765,
+      "edgeCount": 129897,
+      "byteSize": 5665396,
+      "sha256": "a6613a5a9ed4425916bfd912b04dc18f968a6141c5b65dfb2066f17cc2e09b06",
+      "neighbors": 4
+    },
+    {
+      "regionId": "tr-33-68-74",
+      "bbox": [
+        34,
+        37,
+        34.5,
+        37.5
+      ],
+      "nodeCount": 11790,
+      "edgeCount": 12006,
+      "byteSize": 524824,
+      "sha256": "2a4e0eb4044feb95227887e28cda95e55140dba5b6610c74e47930eaa4a030bb",
+      "neighbors": 3
+    },
+    {
+      "regionId": "tr-33-69-73",
+      "bbox": [
+        34.5,
+        36.5,
+        35,
+        37
+      ],
+      "nodeCount": 139098,
+      "edgeCount": 155702,
+      "byteSize": 6587472,
+      "sha256": "092d3efaefd99d4716a7e43660860d9da20ebb2ad5ba6b0eb25ddd6764370c51",
+      "neighbors": 3
+    },
+    {
+      "regionId": "tr-33-69-74",
+      "bbox": [
+        34.5,
+        37,
+        35,
+        37.5
+      ],
+      "nodeCount": 71794,
+      "edgeCount": 73622,
+      "byteSize": 3210136,
+      "sha256": "79e08eddea128a3d77632769312790bf603f47084137ac690888ac7dc967644d",
+      "neighbors": 3
+    },
+    {
+      "regionId": "tr-33-70-73",
+      "bbox": [
+        35,
+        36.5,
+        35.5,
+        37
+      ],
+      "nodeCount": 10389,
+      "edgeCount": 10930,
+      "byteSize": 472280,
+      "sha256": "caf814ec8b74c1b14764866e9c5c108fb2eb13d0aa5ba23a565d3a9696aeea4e",
+      "neighbors": 2
+    },
+    {
+      "regionId": "tr-33-70-74",
+      "bbox": [
+        35,
+        37,
+        35.5,
+        37.5
+      ],
+      "nodeCount": 5594,
+      "edgeCount": 5691,
+      "byteSize": 248868,
+      "sha256": "fa81e99523058fa184a4d563a21541910eb67c277af14ccc07b171582499436f",
+      "neighbors": 2
+    }
+  ],
+  "topologies": [
+    {
+      "regionId": "tr-33-65-72",
+      "components": 8,
+      "largestPct": 99.44149524441495,
+      "selfLoops": 0,
+      "zeroLength": 0,
+      "duplicates": 0,
+      "invalidRefs": 0,
+      "deadEnds": 385
+    },
+    {
+      "regionId": "tr-33-65-73",
+      "components": 1,
+      "largestPct": 100,
+      "selfLoops": 0,
+      "zeroLength": 0,
+      "duplicates": 0,
+      "invalidRefs": 0,
+      "deadEnds": 2
+    },
+    {
+      "regionId": "tr-33-66-72",
+      "components": 3,
+      "largestPct": 99.05343801443586,
+      "selfLoops": 0,
+      "zeroLength": 0,
+      "duplicates": 0,
+      "invalidRefs": 0,
+      "deadEnds": 465
+    },
+    {
+      "regionId": "tr-33-66-73",
+      "components": 9,
+      "largestPct": 90.23889309263863,
+      "selfLoops": 0,
+      "zeroLength": 0,
+      "duplicates": 0,
+      "invalidRefs": 0,
+      "deadEnds": 488
+    },
+    {
+      "regionId": "tr-33-67-72",
+      "components": 19,
+      "largestPct": 98.19934521644234,
+      "selfLoops": 0,
+      "zeroLength": 0,
+      "duplicates": 0,
+      "invalidRefs": 0,
+      "deadEnds": 993
+    },
+    {
+      "regionId": "tr-33-67-73",
+      "components": 13,
+      "largestPct": 95.86791299030314,
+      "selfLoops": 0,
+      "zeroLength": 0,
+      "duplicates": 0,
+      "invalidRefs": 0,
+      "deadEnds": 544
+    },
+    {
+      "regionId": "tr-33-67-74",
+      "components": 4,
+      "largestPct": 35.760838764522525,
+      "selfLoops": 0,
+      "zeroLength": 0,
+      "duplicates": 0,
+      "invalidRefs": 0,
+      "deadEnds": 14
+    },
+    {
+      "regionId": "tr-33-68-72",
+      "components": 4,
+      "largestPct": 99.47342438703308,
+      "selfLoops": 0,
+      "zeroLength": 0,
+      "duplicates": 0,
+      "invalidRefs": 0,
+      "deadEnds": 435
+    },
+    {
+      "regionId": "tr-33-68-73",
+      "components": 48,
+      "largestPct": 98.42069971995424,
+      "selfLoops": 0,
+      "zeroLength": 0,
+      "duplicates": 0,
+      "invalidRefs": 0,
+      "deadEnds": 4166
+    },
+    {
+      "regionId": "tr-33-68-74",
+      "components": 9,
+      "largestPct": 95.5640373197625,
+      "selfLoops": 0,
+      "zeroLength": 0,
+      "duplicates": 0,
+      "invalidRefs": 0,
+      "deadEnds": 295
+    },
+    {
+      "regionId": "tr-33-69-73",
+      "components": 52,
+      "largestPct": 99.37382277243383,
+      "selfLoops": 0,
+      "zeroLength": 0,
+      "duplicates": 0,
+      "invalidRefs": 0,
+      "deadEnds": 4375
+    },
+    {
+      "regionId": "tr-33-69-74",
+      "components": 34,
+      "largestPct": 96.17795358943644,
+      "selfLoops": 0,
+      "zeroLength": 0,
+      "duplicates": 0,
+      "invalidRefs": 0,
+      "deadEnds": 1917
+    },
+    {
+      "regionId": "tr-33-70-73",
+      "components": 6,
+      "largestPct": 99.0278178843007,
+      "selfLoops": 0,
+      "zeroLength": 0,
+      "duplicates": 0,
+      "invalidRefs": 0,
+      "deadEnds": 314
+    },
+    {
+      "regionId": "tr-33-70-74",
+      "components": 8,
+      "largestPct": 82.1773328566321,
+      "selfLoops": 0,
+      "zeroLength": 0,
+      "duplicates": 0,
+      "invalidRefs": 0,
+      "deadEnds": 150
+    }
+  ]
+}

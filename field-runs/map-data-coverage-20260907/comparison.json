@@ -1,0 +1,5848 @@
+{
+  "method": "OSM map API yollarını node koordinatlarından kurar; kaynak bina içinde doğrulanmış örnek nokta production polygon içinde mi ölçer. Concave polygon için bbox ortası içeride değilse iç nokta taranır. Bu tam polygon özdeşliği değildir. Yol adı eşleşmesi geometri özdeşliği kanıtı değildir.",
+  "upstream": {
+    "provenance": {
+      "url": "https://api.openstreetmap.org/api/0.6/map.json?bbox=34.8486328125,36.91476428895592,34.87060546875,36.93233006150314",
+      "at": "2026-09-06T22:43:59.386Z",
+      "headers": {
+        "accept-ranges": "bytes",
+        "alt-svc": "h3=\":443\";ma=86400,h3-29=\":443\";ma=86400,h3-27=\":443\";ma=86400",
+        "cache-control": "private, max-age=0, must-revalidate",
+        "connection": "keep-alive",
+        "content-disposition": "attachment; filename=\"map.osm\"",
+        "content-encoding": "br",
+        "content-type": "application/json; charset=utf-8",
+        "date": "Sun, 06 Sep 2026 22:43:59 GMT",
+        "server": "Apache",
+        "strict-transport-security": "max-age=31536000; includeSubDomains; preload",
+        "transfer-encoding": "chunked",
+        "vary": "Accept-Encoding",
+        "via": "1.1 varnish",
+        "x-cache": "MISS",
+        "x-cache-hits": "0",
+        "x-served-by": "cache-fco2270023-FCO",
+        "x-timer": "S1788734639.710273,VS0,VE655"
+      }
+    },
+    "elements": 6683,
+    "buildings": 340,
+    "buildingRelations": 0,
+    "buildingPoints": 1,
+    "roads": 564,
+    "namedRoads": 138,
+    "unnamedRoads": 426,
+    "roadClasses": {
+      "tertiary": 55,
+      "secondary": 12,
+      "motorway_link": 5,
+      "residential": 433,
+      "unclassified": 1,
+      "secondary_link": 1,
+      "footway": 17,
+      "service": 34,
+      "tertiary_link": 4,
+      "track": 2
+    },
+    "unnamedRoadClasses": {
+      "tertiary": 26,
+      "motorway_link": 2,
+      "secondary": 2,
+      "residential": 337,
+      "unclassified": 1,
+      "secondary_link": 1,
+      "footway": 17,
+      "service": 34,
+      "tertiary_link": 4,
+      "track": 2
+    },
+    "addresses": [
+      {
+        "type": "node",
+        "id": 4393160590,
+        "tags": {
+          "addr:housenumber": "22/D",
+          "amenity": "pharmacy",
+          "healthcare": "pharmacy",
+          "name": "Önder Günler Eczanesi",
+          "phone": "+90 324 626 33 01"
+        }
+      },
+      {
+        "type": "way",
+        "id": 440715795,
+        "tags": {
+          "addr:city": "Tarsus/Mersin",
+          "addr:housenumber": "15",
+          "addr:street": "Şamil Basayev Caddesi",
+          "amenity": "school",
+          "name": "Tarsus Borsa İstanbul Mesleki ve Teknik Anadolu Lisesi",
+          "operator": "Millî Eğitim Bakanlığı",
+          "operator:en": "Ministry of National Education",
+          "operator:short": "MEB",
+          "operator:tr": "Millî Eğitim Bakanlığı",
+          "operator:type": "government",
+          "operator:wikidata": "Q1359675",
+          "phone": "+90 324 627 4892",
+          "website": "https://tarsusborsaistanbulmtal.meb.k12.tr/"
+        }
+      },
+      {
+        "type": "way",
+        "id": 442622219,
+        "tags": {
+          "addr:city": "Tarsus/Mersin",
+          "addr:housenumber": "26",
+          "addr:street": "0432. Sokak",
+          "amenity": "school",
+          "name": "Kerime Özkul İlkokulu",
+          "operator": "Millî Eğitim Bakanlığı",
+          "operator:en": "Ministry of National Education",
+          "operator:short": "MEB",
+          "operator:tr": "Millî Eğitim Bakanlığı",
+          "operator:type": "government",
+          "operator:wikidata": "Q1359675",
+          "phone": "+90 324 625 51 96"
+        }
+      }
+    ],
+    "interpolation": 0,
+    "buildingAddressAttributes": 11,
+    "places": [
+      {
+        "id": 4386664140,
+        "tags": {
+          "name": "Ergenekon",
+          "place": "suburb"
+        }
+      },
+      {
+        "id": 4386664210,
+        "tags": {
+          "name": "Altaylılar",
+          "place": "suburb"
+        }
+      },
+      {
+        "id": 4386685211,
+        "tags": {
+          "name": "Bağlar",
+          "place": "suburb"
+        }
+      }
+    ],
+    "overpassBase": {
+      "timestamp_osm_base": "2026-05-06T03:25:00Z",
+      "copyright": "The data included in this document is from www.openstreetmap.org. The data is made available under ODbL."
+    }
+  },
+  "buildings": {
+    "coreCentroids": 334,
+    "coreMatched": 331,
+    "unmatched": [
+      {
+        "id": 1555045507,
+        "timestamp": "2026-09-04T08:38:35Z",
+        "tags": {
+          "addr:neighbourhood": "Ergenekon Mahallesi",
+          "addr:street": "Kocatepe Caddesi",
+          "building": "apartments",
+          "building:flats": "22",
+          "building:levels": "11",
+          "height": "35",
+          "name": "A blok"
+        },
+        "point": [
+          34.863741250000004,
+          36.9308348
+        ],
+        "tileIds": []
+      },
+      {
+        "id": 1555045508,
+        "timestamp": "2026-09-04T08:38:35Z",
+        "tags": {
+          "addr:neighbourhood": "Ergenekon Mahallesi",
+          "addr:street": "Kocatepe Caddesi",
+          "building": "apartments",
+          "building:flats": "22",
+          "building:levels": "11",
+          "height": "35",
+          "layer": "1",
+          "name": "B blok"
+        },
+        "point": [
+          34.8634658,
+          36.931005400000004
+        ],
+        "tileIds": []
+      },
+      {
+        "id": 1555049311,
+        "timestamp": "2026-09-04T08:57:17Z",
+        "tags": {
+          "amenity": "place_of_worship",
+          "building": "yes",
+          "name": "Kolukırıkoğlu Camii",
+          "religion": "muslim"
+        },
+        "point": [
+          34.8606031,
+          36.9320128
+        ],
+        "tileIds": []
+      }
+    ],
+    "allMatches": [
+      {
+        "id": 303787396,
+        "timestamp": "2026-01-12T08:33:49Z",
+        "tags": {
+          "addr:city": "Mersin",
+          "addr:district": "Tarsus",
+          "addr:neighbourhood": "Bağlar",
+          "amenity": "place_of_worship",
+          "building": "mosque",
+          "name": "Bağlar Mahallesi Camii",
+          "religion": "muslim"
+        },
+        "point": [
+          34.8695525,
+          36.92233945
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 303787397,
+        "timestamp": "2021-11-01T10:01:48Z",
+        "tags": {
+          "amenity": "place_of_worship",
+          "building": "mosque",
+          "name": "Gaziler Mahallesi Merkez Cami",
+          "religion": "muslim"
+        },
+        "point": [
+          34.863810799999996,
+          36.92553695
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 367195074,
+        "timestamp": "2021-11-20T06:56:27Z",
+        "tags": {
+          "building": "roof",
+          "building:levels": "3"
+        },
+        "point": [
+          34.8683888,
+          36.9194253
+        ],
+        "tileIds": [
+          3671950740
+        ]
+      },
+      {
+        "id": 376077391,
+        "timestamp": "2015-10-20T13:07:29Z",
+        "tags": {
+          "amenity": "cafe",
+          "building": "yes"
+        },
+        "point": [
+          34.86517415,
+          36.9301849
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 376077392,
+        "timestamp": "2015-10-20T13:07:29Z",
+        "tags": {
+          "amenity": "toilets",
+          "building": "yes"
+        },
+        "point": [
+          34.865294950000006,
+          36.93018275
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 376077395,
+        "timestamp": "2016-09-09T12:09:21Z",
+        "tags": {
+          "building": "yes",
+          "building:levels": "5"
+        },
+        "point": [
+          34.86307415,
+          36.93213865
+        ],
+        "tileIds": [
+          3760773950
+        ]
+      },
+      {
+        "id": 376077396,
+        "timestamp": "2015-10-20T13:07:29Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.862821600000004,
+          36.9320314
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 376438004,
+        "timestamp": "2015-10-22T19:31:55Z",
+        "tags": {
+          "building": "school"
+        },
+        "point": [
+          34.870528,
+          36.92630845
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 376438006,
+        "timestamp": "2015-10-22T19:31:55Z",
+        "tags": {
+          "building": "school"
+        },
+        "point": [
+          34.8693492,
+          36.92821525
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 433809622,
+        "timestamp": "2016-07-27T10:05:04Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86947705,
+          36.9302066
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 433809623,
+        "timestamp": "2016-07-27T10:05:04Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8701558,
+          36.9304317
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 433809629,
+        "timestamp": "2024-02-01T06:30:30Z",
+        "tags": {
+          "addr:city": "Tarsus/Mersin",
+          "addr:street": "Gazipaşa Bulvarı",
+          "building": "roof",
+          "layer": "1"
+        },
+        "point": [
+          34.85744905,
+          36.9279818
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 439972437,
+        "timestamp": "2016-09-05T08:55:23Z",
+        "tags": {
+          "building": "yes",
+          "building:levels": "2"
+        },
+        "point": [
+          34.86911325,
+          36.9298371
+        ],
+        "tileIds": [
+          4399724372
+        ]
+      },
+      {
+        "id": 439976742,
+        "timestamp": "2016-08-31T06:43:25Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86814125,
+          36.9305231
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 439976743,
+        "timestamp": "2016-08-31T06:43:25Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.868436700000004,
+          36.9301963
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 439976744,
+        "timestamp": "2022-03-03T05:54:05Z",
+        "tags": {
+          "building": "roof",
+          "layer": "1"
+        },
+        "point": [
+          34.86851945,
+          36.92953815
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 439976745,
+        "timestamp": "2019-06-25T21:54:13Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8683136,
+          36.92949095
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 439976746,
+        "timestamp": "2016-08-31T06:43:25Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8678472,
+          36.929484099999996
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 439976747,
+        "timestamp": "2016-08-31T06:43:25Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8687499,
+          36.929247000000004
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 439976748,
+        "timestamp": "2016-08-31T06:43:25Z",
+        "tags": {
+          "building": "school",
+          "name": "Musa Bengi"
+        },
+        "point": [
+          34.8697014,
+          36.92856675
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 439976749,
+        "timestamp": "2016-08-31T06:43:25Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.87007975,
+          36.92819035
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 439976750,
+        "timestamp": "2016-08-31T06:43:25Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8699603,
+          36.9283249
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 439976751,
+        "timestamp": "2016-08-31T06:43:25Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8696707,
+          36.92798605
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 439976752,
+        "timestamp": "2019-06-25T21:53:56Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8695075,
+          36.927651999999995
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 439976754,
+        "timestamp": "2016-08-31T06:43:25Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8707134,
+          36.927649349999996
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440149378,
+        "timestamp": "2016-09-09T11:34:09Z",
+        "tags": {
+          "building": "yes",
+          "leisure": "sports_centre"
+        },
+        "point": [
+          34.8654236,
+          36.92983275
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440151326,
+        "timestamp": "2016-09-05T06:56:32Z",
+        "tags": {
+          "building": "yes",
+          "building:levels": "13"
+        },
+        "point": [
+          34.870293700000005,
+          36.918740799999995
+        ],
+        "tileIds": [
+          4401513260
+        ]
+      },
+      {
+        "id": 440174624,
+        "timestamp": "2016-09-01T10:19:19Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86894235,
+          36.91942015
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440174625,
+        "timestamp": "2016-09-15T17:14:10Z",
+        "tags": {
+          "building": "school"
+        },
+        "point": [
+          34.8702037,
+          36.922522099999995
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440174626,
+        "timestamp": "2016-09-01T10:19:19Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.860629599999996,
+          36.927171799999996
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440174627,
+        "timestamp": "2016-09-01T10:19:19Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86059385,
+          36.92741465
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440174628,
+        "timestamp": "2016-09-01T10:19:19Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.85957065,
+          36.927099049999995
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440174629,
+        "timestamp": "2016-09-01T10:19:19Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.859274799999994,
+          36.92724005
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440174630,
+        "timestamp": "2016-09-01T10:19:19Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.859588599999995,
+          36.9276354
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440174631,
+        "timestamp": "2016-09-01T10:19:19Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.85933795,
+          36.92772945
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440174632,
+        "timestamp": "2016-09-10T11:33:50Z",
+        "tags": {
+          "building": "school"
+        },
+        "point": [
+          34.85799835,
+          36.932532699999996
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440202960,
+        "timestamp": "2016-09-01T13:47:43Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.84953845,
+          36.9282369
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440706270,
+        "timestamp": "2016-09-05T06:56:29Z",
+        "tags": {
+          "building": "yes",
+          "building:levels": "13"
+        },
+        "point": [
+          34.870592599999995,
+          36.918158899999995
+        ],
+        "tileIds": [
+          4401513260
+        ]
+      },
+      {
+        "id": 440715782,
+        "timestamp": "2016-09-05T08:35:33Z",
+        "tags": {
+          "building": "yes",
+          "building:levels": "14"
+        },
+        "point": [
+          34.86205735,
+          36.9258521
+        ],
+        "tileIds": [
+          4407157820
+        ]
+      },
+      {
+        "id": 440715783,
+        "timestamp": "2016-09-05T08:35:33Z",
+        "tags": {
+          "building": "yes",
+          "building:levels": "14"
+        },
+        "point": [
+          34.86242625,
+          36.92555865
+        ],
+        "tileIds": [
+          4407157820
+        ]
+      },
+      {
+        "id": 440715784,
+        "timestamp": "2016-09-05T08:35:33Z",
+        "tags": {
+          "building": "yes",
+          "building:levels": "14"
+        },
+        "point": [
+          34.8624449,
+          36.92513025
+        ],
+        "tileIds": [
+          4407157820
+        ]
+      },
+      {
+        "id": 440715786,
+        "timestamp": "2016-09-05T08:35:33Z",
+        "tags": {
+          "addr:city": "Tarsus/Mersin",
+          "amenity": "restaurant",
+          "building": "yes",
+          "name": "Platin Cafe & Restaurant"
+        },
+        "point": [
+          34.8621968,
+          36.924807799999996
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440715787,
+        "timestamp": "2016-09-05T08:35:33Z",
+        "tags": {
+          "addr:city": "Tarsus/Mersin",
+          "amenity": "marketplace",
+          "building": "yes",
+          "name": "Bağlar Mahallesi Pazar Yeri"
+        },
+        "point": [
+          34.863272949999995,
+          36.92392745
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440715790,
+        "timestamp": "2016-09-05T08:35:33Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.857723,
+          36.92437545
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440715791,
+        "timestamp": "2016-09-05T08:35:33Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.857373949999996,
+          36.924137099999996
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440715793,
+        "timestamp": "2016-09-05T08:35:33Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8564308,
+          36.9242682
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440715794,
+        "timestamp": "2016-09-05T08:35:33Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.85663115,
+          36.9243292
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440715797,
+        "timestamp": "2016-09-05T08:35:33Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86549755,
+          36.9194533
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440715798,
+        "timestamp": "2016-09-05T08:35:33Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.865496050000004,
+          36.919285450000004
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440715799,
+        "timestamp": "2016-09-05T08:35:33Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86573435,
+          36.91936535
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440715801,
+        "timestamp": "2016-09-05T08:35:34Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8578374,
+          36.92489515
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440715802,
+        "timestamp": "2016-09-05T08:35:34Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.858064299999995,
+          36.92455215
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440715803,
+        "timestamp": "2016-09-05T08:35:34Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8582876,
+          36.924673350000006
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440715804,
+        "timestamp": "2016-09-05T08:35:34Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.85851665,
+          36.92479175
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440715805,
+        "timestamp": "2016-09-05T08:35:34Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.858746999999994,
+          36.92492365
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440715806,
+        "timestamp": "2016-09-05T08:35:34Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.85914235,
+          36.925249699999995
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440715807,
+        "timestamp": "2016-09-05T08:35:34Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.85928265,
+          36.9254152
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440715809,
+        "timestamp": "2016-09-05T08:35:34Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8596319,
+          36.926849250000004
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440715810,
+        "timestamp": "2016-09-05T08:35:34Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8595392,
+          36.92667325
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440715811,
+        "timestamp": "2016-09-05T08:35:34Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.85933,
+          36.92635945000001
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440715812,
+        "timestamp": "2016-09-09T11:34:09Z",
+        "tags": {
+          "building": "yes",
+          "building:levels": "11"
+        },
+        "point": [
+          34.86190860000001,
+          36.93089005
+        ],
+        "tileIds": [
+          4407158120
+        ]
+      },
+      {
+        "id": 440715813,
+        "timestamp": "2016-09-09T11:34:09Z",
+        "tags": {
+          "building": "yes",
+          "building:levels": "11"
+        },
+        "point": [
+          34.862314999999995,
+          36.9310337
+        ],
+        "tileIds": [
+          4407158120
+        ]
+      },
+      {
+        "id": 440715814,
+        "timestamp": "2016-09-05T08:35:34Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8633929,
+          36.93121705
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440715815,
+        "timestamp": "2016-09-05T08:35:34Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.863624,
+          36.931311199999996
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440716997,
+        "timestamp": "2016-09-05T08:42:26Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.858305400000006,
+          36.9287662
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440716998,
+        "timestamp": "2016-09-05T08:42:26Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8586674,
+          36.9287943
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440716999,
+        "timestamp": "2016-09-05T08:42:26Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.859202350000004,
+          36.928531500000005
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440717000,
+        "timestamp": "2016-09-05T08:42:26Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.859469399999995,
+          36.928657099999995
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440717001,
+        "timestamp": "2016-09-05T08:42:27Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.859106499999996,
+          36.9288062
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440717002,
+        "timestamp": "2016-09-05T08:42:27Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.85908715,
+          36.929060199999995
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440717003,
+        "timestamp": "2016-09-05T08:42:27Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.859001250000006,
+          36.929271
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440717004,
+        "timestamp": "2016-09-05T08:42:27Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8599273,
+          36.9298996
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440717005,
+        "timestamp": "2026-09-04T08:57:17Z",
+        "tags": {
+          "building": "school",
+          "name": "Şehit Yurdakul Alcan Ortaokulu"
+        },
+        "point": [
+          34.86055435,
+          36.93016955
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440717006,
+        "timestamp": "2016-09-05T08:42:27Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.862082400000006,
+          36.930505800000006
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440717007,
+        "timestamp": "2016-09-05T08:42:27Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8625403,
+          36.9306837
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440717008,
+        "timestamp": "2016-09-05T08:42:27Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86818265,
+          36.928975449999996
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440717011,
+        "timestamp": "2016-09-05T08:42:27Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86891175,
+          36.930650549999996
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440717012,
+        "timestamp": "2016-09-05T08:42:27Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86925805,
+          36.9308819
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440717013,
+        "timestamp": "2016-09-05T08:42:27Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86960945,
+          36.9311113
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440717014,
+        "timestamp": "2016-09-05T08:42:27Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8699978,
+          36.93089065
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440736006,
+        "timestamp": "2016-09-05T11:03:40Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86531395,
+          36.9228882
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440736007,
+        "timestamp": "2016-09-05T11:03:41Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86503755,
+          36.9231871
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440736008,
+        "timestamp": "2016-09-05T11:03:41Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.864904949999996,
+          36.923345100000006
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440736009,
+        "timestamp": "2016-09-05T11:03:41Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86347245,
+          36.92452445
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440736010,
+        "timestamp": "2016-09-05T11:03:41Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.863710499999996,
+          36.9246239
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440736011,
+        "timestamp": "2016-09-05T11:03:41Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86383995,
+          36.924123050000006
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440736012,
+        "timestamp": "2016-09-05T11:03:41Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.864972449999996,
+          36.92400955
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440736013,
+        "timestamp": "2016-09-05T11:03:41Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8648372,
+          36.92417385
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440736014,
+        "timestamp": "2016-09-05T11:03:41Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86521185,
+          36.92149875
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440736015,
+        "timestamp": "2016-09-05T11:03:41Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8648699,
+          36.921219
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440736017,
+        "timestamp": "2016-09-05T11:03:41Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8638971,
+          36.916674799999996
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440736018,
+        "timestamp": "2016-09-05T11:03:41Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8641522,
+          36.9169127
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440736019,
+        "timestamp": "2016-09-05T11:03:41Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8640302,
+          36.917044700000005
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440736020,
+        "timestamp": "2016-09-05T11:03:41Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86391485,
+          36.917173399999996
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440736021,
+        "timestamp": "2016-09-05T11:03:41Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8634803,
+          36.916568600000005
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440736022,
+        "timestamp": "2016-09-05T11:03:41Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86358385,
+          36.91645045
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440736023,
+        "timestamp": "2016-09-05T11:03:41Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86369755,
+          36.9163207
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440893831,
+        "timestamp": "2016-09-06T05:51:08Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.85727305,
+          36.9238959
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440893832,
+        "timestamp": "2016-09-06T05:51:08Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.85729165,
+          36.92369225
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440893833,
+        "timestamp": "2016-09-06T05:51:08Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.85733655,
+          36.9234938
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440893834,
+        "timestamp": "2016-09-06T05:51:08Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.85736265,
+          36.92330305
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440893835,
+        "timestamp": "2016-09-06T05:51:08Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.857408,
+          36.92311235
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440902355,
+        "timestamp": "2016-09-06T07:14:15Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86005605,
+          36.9184595
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440902356,
+        "timestamp": "2016-09-06T07:14:15Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.859927799999994,
+          36.91878785
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440902357,
+        "timestamp": "2016-09-06T07:14:15Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8601824,
+          36.918827300000004
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440988563,
+        "timestamp": "2016-09-06T18:26:12Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86752425,
+          36.930549150000004
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440988564,
+        "timestamp": "2016-09-06T18:26:12Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.866909199999995,
+          36.9310688
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440988565,
+        "timestamp": "2016-09-06T18:26:13Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.867130849999995,
+          36.9312073
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440988566,
+        "timestamp": "2016-09-06T18:26:13Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8666109,
+          36.93090925
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440988567,
+        "timestamp": "2016-09-06T18:26:13Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86635545,
+          36.930757150000005
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440988568,
+        "timestamp": "2016-09-06T18:26:13Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8660764,
+          36.930617749999996
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440988569,
+        "timestamp": "2016-09-06T18:26:13Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8657989,
+          36.93045625
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440988570,
+        "timestamp": "2016-09-06T18:26:13Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86360325,
+          36.929764399999996
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440988571,
+        "timestamp": "2016-09-06T18:26:13Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86389595,
+          36.929813949999996
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440988572,
+        "timestamp": "2016-09-06T18:26:13Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8641224,
+          36.9299344
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440988573,
+        "timestamp": "2016-09-06T18:26:13Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.864442749999995,
+          36.92993705000001
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440988574,
+        "timestamp": "2016-09-06T18:26:13Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86435285,
+          36.930100350000004
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440988575,
+        "timestamp": "2016-09-06T18:26:13Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.864678549999994,
+          36.9300873
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440988576,
+        "timestamp": "2016-09-06T18:26:13Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8634305,
+          36.9301377
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440988577,
+        "timestamp": "2016-09-06T18:26:13Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.863664,
+          36.930260149999995
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440988578,
+        "timestamp": "2016-09-06T18:26:13Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86393425,
+          36.9303415
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440988579,
+        "timestamp": "2016-09-06T18:26:13Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8624878,
+          36.929356999999996
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440988580,
+        "timestamp": "2016-09-06T18:26:13Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86272255,
+          36.9294321
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440988581,
+        "timestamp": "2016-09-06T18:26:13Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86294785,
+          36.9295162
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440988582,
+        "timestamp": "2016-09-06T18:26:13Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8631758,
+          36.92960195
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440988583,
+        "timestamp": "2016-09-06T18:26:13Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86296315,
+          36.92998435
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440988584,
+        "timestamp": "2016-09-06T18:26:13Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86272115,
+          36.9299268
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440988585,
+        "timestamp": "2016-09-06T18:26:13Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8627302,
+          36.93043285
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440988586,
+        "timestamp": "2016-09-06T18:26:13Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.862461,
+          36.93030415
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440988587,
+        "timestamp": "2016-09-06T18:26:13Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8621955,
+          36.9302141
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440988588,
+        "timestamp": "2016-09-06T18:26:13Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86239765,
+          36.93143225
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440988589,
+        "timestamp": "2016-09-06T18:26:13Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86273545,
+          36.93141085
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440988590,
+        "timestamp": "2016-09-06T18:26:14Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86262215,
+          36.931624400000004
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440988591,
+        "timestamp": "2016-09-06T18:26:14Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86306465,
+          36.93154185
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440988592,
+        "timestamp": "2016-09-06T18:26:14Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86330745,
+          36.9316541
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440988593,
+        "timestamp": "2016-09-09T11:34:09Z",
+        "tags": {
+          "building": "yes",
+          "building:levels": "12"
+        },
+        "point": [
+          34.86190155,
+          36.93211025
+        ],
+        "tileIds": [
+          4409885930
+        ]
+      },
+      {
+        "id": 440988594,
+        "timestamp": "2016-09-09T11:34:09Z",
+        "tags": {
+          "building": "yes",
+          "building:levels": "12"
+        },
+        "point": [
+          34.861673090000004,
+          36.931603035
+        ],
+        "tileIds": [
+          4409885930
+        ]
+      },
+      {
+        "id": 440988595,
+        "timestamp": "2016-09-06T18:26:14Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.858286050000004,
+          36.93089835
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440988596,
+        "timestamp": "2016-09-06T18:26:14Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8575539,
+          36.930665950000005
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440988597,
+        "timestamp": "2016-09-06T18:26:14Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.85767105,
+          36.93092835
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440988598,
+        "timestamp": "2016-09-06T18:26:14Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.85781515,
+          36.9311766
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440988599,
+        "timestamp": "2016-09-06T18:26:14Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.85793645,
+          36.93139225
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440988600,
+        "timestamp": "2016-09-06T18:26:14Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.85798655,
+          36.9315891
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440988601,
+        "timestamp": "2016-09-06T18:26:14Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.85824315,
+          36.93160075
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440988602,
+        "timestamp": "2016-09-06T18:26:14Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8583668,
+          36.93131425
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440988603,
+        "timestamp": "2016-09-06T18:26:14Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.858237,
+          36.93114985
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440988604,
+        "timestamp": "2016-09-06T18:26:14Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.858417700000004,
+          36.93111655
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440988605,
+        "timestamp": "2016-09-06T18:26:14Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.858619450000006,
+          36.931760999999995
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440988606,
+        "timestamp": "2016-09-06T18:26:14Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8586722,
+          36.9316149
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440988607,
+        "timestamp": "2016-09-06T18:26:14Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.858787050000004,
+          36.93130065
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440988608,
+        "timestamp": "2016-09-06T18:26:14Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.85916815,
+          36.931314099999994
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440988609,
+        "timestamp": "2016-09-06T18:26:14Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.85909495,
+          36.9314836
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440988610,
+        "timestamp": "2016-09-06T18:26:14Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.85902135,
+          36.93171665
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440988611,
+        "timestamp": "2016-09-06T18:26:14Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8589384,
+          36.93186505
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440988612,
+        "timestamp": "2016-09-06T18:26:14Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.85949765,
+          36.93138005
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440988613,
+        "timestamp": "2016-09-06T18:26:15Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8594191,
+          36.93155995
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440988614,
+        "timestamp": "2016-09-06T18:26:15Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.85963825,
+          36.93108045
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440988615,
+        "timestamp": "2016-09-06T18:26:15Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.85972105,
+          36.9307939
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440988616,
+        "timestamp": "2016-09-06T18:26:15Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.85978385,
+          36.9306251
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440988617,
+        "timestamp": "2016-09-06T18:26:15Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.85933875,
+          36.9318478
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440988618,
+        "timestamp": "2016-09-06T18:26:15Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8596418,
+          36.9319004
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440988619,
+        "timestamp": "2016-09-09T11:34:09Z",
+        "tags": {
+          "building": "yes",
+          "building:levels": "12"
+        },
+        "point": [
+          34.86129725,
+          36.93124805
+        ],
+        "tileIds": [
+          4409885930
+        ]
+      },
+      {
+        "id": 440988620,
+        "timestamp": "2016-09-06T18:26:15Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8579023,
+          36.9278279
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440988621,
+        "timestamp": "2016-09-06T18:26:15Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8581054,
+          36.927746
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440988622,
+        "timestamp": "2016-09-06T18:26:15Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8583132,
+          36.9276545
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440988623,
+        "timestamp": "2016-09-06T18:26:15Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.85880305,
+          36.9274419
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440988624,
+        "timestamp": "2016-09-06T18:26:15Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8590464,
+          36.92734285
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440988626,
+        "timestamp": "2016-09-06T18:26:15Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8605508,
+          36.92819635
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440988627,
+        "timestamp": "2016-09-06T18:26:15Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8607989,
+          36.92848045
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441442663,
+        "timestamp": "2016-09-08T13:56:45Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86817485,
+          36.9210228
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441442664,
+        "timestamp": "2016-09-08T13:56:45Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.868874500000004,
+          36.9209732
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441442665,
+        "timestamp": "2016-09-08T13:56:45Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.868272700000006,
+          36.9204385
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441442666,
+        "timestamp": "2016-09-08T13:56:45Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.868544299999996,
+          36.920456099999996
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441442667,
+        "timestamp": "2016-09-08T13:56:45Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8684692,
+          36.9206899
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441442668,
+        "timestamp": "2016-09-08T13:56:45Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.867042350000006,
+          36.921785
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441442669,
+        "timestamp": "2016-09-08T13:56:45Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86728365,
+          36.92135245
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441442670,
+        "timestamp": "2016-09-08T13:56:45Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86562145,
+          36.922544900000005
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441442671,
+        "timestamp": "2016-09-08T13:56:45Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86113055,
+          36.926929349999995
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441442672,
+        "timestamp": "2016-09-08T13:56:45Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86149485,
+          36.926769
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441442673,
+        "timestamp": "2016-09-08T13:56:45Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.860394,
+          36.92672965
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441442674,
+        "timestamp": "2016-09-08T13:56:45Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8600594,
+          36.9266534
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441442675,
+        "timestamp": "2016-09-08T13:56:45Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.859787499999996,
+          36.9262759
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441442676,
+        "timestamp": "2016-09-08T13:56:45Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.85969265,
+          36.92607135
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441442677,
+        "timestamp": "2016-09-08T13:56:45Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.85904275,
+          36.92594195
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441442678,
+        "timestamp": "2016-09-08T13:56:45Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8615984,
+          36.928390449999995
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441442679,
+        "timestamp": "2016-09-08T13:56:46Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86201545,
+          36.92862505
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441442680,
+        "timestamp": "2016-09-08T13:56:46Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8612465,
+          36.92820365
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441442681,
+        "timestamp": "2016-09-08T13:56:46Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8610503,
+          36.92859685
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441442682,
+        "timestamp": "2016-09-08T13:56:46Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.861275199999994,
+          36.92870015
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441442683,
+        "timestamp": "2016-09-08T13:56:46Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.861504800000006,
+          36.92882215
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441442684,
+        "timestamp": "2016-09-08T13:56:46Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86173335,
+          36.92893155
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441442685,
+        "timestamp": "2016-09-08T13:56:46Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8617555,
+          36.93003725
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441442686,
+        "timestamp": "2016-09-08T13:56:46Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8615567,
+          36.9302168
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441572997,
+        "timestamp": "2016-09-09T08:19:14Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.85692305,
+          36.92437275
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441572998,
+        "timestamp": "2016-09-09T08:19:15Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.857099250000005,
+          36.9244827
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441572999,
+        "timestamp": "2016-09-09T08:19:15Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8572909,
+          36.92458345
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441573000,
+        "timestamp": "2016-09-09T08:19:15Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.85746375,
+          36.92470095
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441575270,
+        "timestamp": "2016-09-09T08:43:24Z",
+        "tags": {
+          "building": "dormitory",
+          "building:levels": "4",
+          "name": "Mustafa İstemihan Talay Yibo Yurdu"
+        },
+        "point": [
+          34.8600675,
+          36.9249214
+        ],
+        "tileIds": [
+          4415752700
+        ]
+      },
+      {
+        "id": 441575271,
+        "timestamp": "2016-09-09T08:43:24Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8594117,
+          36.9265121
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441589178,
+        "timestamp": "2016-09-09T10:36:58Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8607023,
+          36.92759075
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441589180,
+        "timestamp": "2016-09-09T10:36:58Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86081405,
+          36.92777715
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441589182,
+        "timestamp": "2016-09-09T10:36:58Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.860949500000004,
+          36.92796195
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441589184,
+        "timestamp": "2016-09-09T10:36:58Z",
+        "tags": {
+          "building": "yes",
+          "building:levels": "4"
+        },
+        "point": [
+          34.8577006,
+          36.9287042
+        ],
+        "tileIds": [
+          4415752700
+        ]
+      },
+      {
+        "id": 441589187,
+        "timestamp": "2016-09-09T10:36:58Z",
+        "tags": {
+          "building": "yes",
+          "building:levels": "4"
+        },
+        "point": [
+          34.857516849999996,
+          36.9289185
+        ],
+        "tileIds": [
+          4415752700
+        ]
+      },
+      {
+        "id": 441589189,
+        "timestamp": "2016-09-09T10:36:58Z",
+        "tags": {
+          "building": "yes",
+          "building:levels": "4"
+        },
+        "point": [
+          34.8575354,
+          36.9291438
+        ],
+        "tileIds": [
+          4415752700
+        ]
+      },
+      {
+        "id": 441589192,
+        "timestamp": "2016-09-09T10:36:58Z",
+        "tags": {
+          "building": "yes",
+          "building:levels": "4"
+        },
+        "point": [
+          34.857936699999996,
+          36.92904815
+        ],
+        "tileIds": [
+          4415752700
+        ]
+      },
+      {
+        "id": 441589194,
+        "timestamp": "2016-09-09T10:36:58Z",
+        "tags": {
+          "building": "yes",
+          "building:levels": "4"
+        },
+        "point": [
+          34.8579136,
+          36.92921455
+        ],
+        "tileIds": [
+          4415752700
+        ]
+      },
+      {
+        "id": 441589200,
+        "timestamp": "2016-09-09T10:36:58Z",
+        "tags": {
+          "building": "yes",
+          "building:levels": "4"
+        },
+        "point": [
+          34.8580168,
+          36.9287836
+        ],
+        "tileIds": [
+          4415752700
+        ]
+      },
+      {
+        "id": 441598213,
+        "timestamp": "2016-09-09T11:34:06Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.85819825,
+          36.92954295
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441598214,
+        "timestamp": "2016-09-09T11:34:06Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8581621,
+          36.929797750000006
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441598215,
+        "timestamp": "2016-09-09T11:34:07Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8584371,
+          36.92990655
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441598216,
+        "timestamp": "2016-09-09T11:34:07Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.85848365,
+          36.9295993
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441598217,
+        "timestamp": "2016-09-09T11:34:07Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.85941885,
+          36.92972655
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441598218,
+        "timestamp": "2016-09-09T11:34:07Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.861183600000004,
+          36.93181625
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441598219,
+        "timestamp": "2016-09-09T11:34:07Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.861284999999995,
+          36.93207065
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441598226,
+        "timestamp": "2016-09-09T11:34:07Z",
+        "tags": {
+          "addr:city": "Tarsus/Mersin",
+          "building": "yes",
+          "building:levels": "5",
+          "name": "Beyazıt Apt."
+        },
+        "point": [
+          34.86131905,
+          36.93234725
+        ],
+        "tileIds": [
+          3760773950
+        ]
+      },
+      {
+        "id": 441598232,
+        "timestamp": "2016-09-09T11:34:07Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.867154049999996,
+          36.93223055
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441598233,
+        "timestamp": "2016-09-09T11:34:07Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8680555,
+          36.9319529
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441598234,
+        "timestamp": "2016-09-09T11:34:07Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86798055,
+          36.9310661
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441598235,
+        "timestamp": "2016-09-09T11:34:07Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8680599,
+          36.930715500000005
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441598238,
+        "timestamp": "2016-09-09T11:34:07Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.868643250000005,
+          36.93236665
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441598239,
+        "timestamp": "2016-09-09T11:34:08Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8678599,
+          36.93172755
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441598240,
+        "timestamp": "2016-09-09T11:34:08Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8682266,
+          36.931351899999996
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441598241,
+        "timestamp": "2016-09-09T11:34:08Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8670051,
+          36.9303746
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441598242,
+        "timestamp": "2016-09-09T11:34:08Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8662499,
+          36.9299182
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441598243,
+        "timestamp": "2016-09-09T11:34:08Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86484125,
+          36.929635149999996
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441598244,
+        "timestamp": "2016-09-09T11:34:08Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.865197,
+          36.929732099999995
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441598245,
+        "timestamp": "2016-09-09T11:34:08Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.864557399999995,
+          36.92953455
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441598246,
+        "timestamp": "2016-09-09T11:34:08Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86436155,
+          36.9294704
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441598247,
+        "timestamp": "2016-09-09T11:34:08Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8638842,
+          36.929318949999995
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441598248,
+        "timestamp": "2016-09-09T11:34:08Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.864177,
+          36.92942305
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441598249,
+        "timestamp": "2016-09-09T11:34:08Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8617633,
+          36.930296
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441598250,
+        "timestamp": "2016-09-09T11:34:08Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8616428,
+          36.9305126
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441598251,
+        "timestamp": "2016-09-09T11:34:08Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86141395,
+          36.93042385
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441598252,
+        "timestamp": "2016-09-09T11:34:08Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8615042,
+          36.9307138
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441598253,
+        "timestamp": "2016-09-09T11:34:08Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86229,
+          36.92971825
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441598254,
+        "timestamp": "2016-09-09T11:34:08Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.862522,
+          36.929802
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441599458,
+        "timestamp": "2016-09-09T11:49:56Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.868258,
+          36.9296588
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441599459,
+        "timestamp": "2016-09-09T11:49:56Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8643292,
+          36.9321287
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441762159,
+        "timestamp": "2016-09-10T11:33:44Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86830605,
+          36.9227768
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441762160,
+        "timestamp": "2016-09-10T11:33:44Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86841035,
+          36.92298015
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441762161,
+        "timestamp": "2016-09-10T11:33:44Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86851505,
+          36.92317465
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441762162,
+        "timestamp": "2016-09-10T11:33:44Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.868068949999994,
+          36.92261395
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441762163,
+        "timestamp": "2016-09-10T11:33:44Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86766715,
+          36.9232843
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441762165,
+        "timestamp": "2016-09-10T11:33:45Z",
+        "tags": {
+          "building": "school"
+        },
+        "point": [
+          34.86722775,
+          36.9256719
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441762167,
+        "timestamp": "2016-09-10T11:33:45Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86538,
+          36.92112195
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441762168,
+        "timestamp": "2016-09-10T11:33:45Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8655603,
+          36.921231750000004
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441762169,
+        "timestamp": "2016-09-10T11:33:45Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8641904,
+          36.92315475
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441762176,
+        "timestamp": "2016-09-10T11:33:45Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86106975,
+          36.9321319
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 441762177,
+        "timestamp": "2016-09-10T11:33:45Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86094695,
+          36.93187265
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 442409695,
+        "timestamp": "2016-09-14T10:23:39Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8573148,
+          36.930139049999994
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 442409696,
+        "timestamp": "2016-09-14T10:23:39Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.85737575,
+          36.9298343
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 442409697,
+        "timestamp": "2016-09-14T10:23:39Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.85772335,
+          36.9298871
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 442409698,
+        "timestamp": "2016-09-14T10:23:39Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.85765215,
+          36.9301404
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 442409699,
+        "timestamp": "2016-09-14T10:23:39Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.85741455,
+          36.92954985
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 442409700,
+        "timestamp": "2016-09-14T10:23:39Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8576883,
+          36.9295684
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 442622207,
+        "timestamp": "2016-09-15T17:14:07Z",
+        "tags": {
+          "building": "school"
+        },
+        "point": [
+          34.862739649999995,
+          36.9202736
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 442622208,
+        "timestamp": "2016-09-15T17:14:07Z",
+        "tags": {
+          "building": "school"
+        },
+        "point": [
+          34.86337105,
+          36.920362499999996
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 442622210,
+        "timestamp": "2016-09-15T17:14:07Z",
+        "tags": {
+          "building": "school"
+        },
+        "point": [
+          34.8628972,
+          36.9207964
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 442622211,
+        "timestamp": "2016-09-15T17:14:07Z",
+        "tags": {
+          "building": "school"
+        },
+        "point": [
+          34.8624052,
+          36.92084265
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 442622212,
+        "timestamp": "2016-09-15T17:14:07Z",
+        "tags": {
+          "addr:city": "Tarsus/Mersin",
+          "amenity": "community_centre",
+          "building": "yes",
+          "name": "Bağlar Düğün Salonu"
+        },
+        "point": [
+          34.8622391,
+          36.921486099999996
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 442622217,
+        "timestamp": "2016-09-15T17:14:07Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8641943,
+          36.92478505
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 442627943,
+        "timestamp": "2016-09-15T17:38:15Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.865805550000005,
+          36.918420600000005
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 442742307,
+        "timestamp": "2016-09-16T10:35:08Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8668342,
+          36.928929800000006
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 442742309,
+        "timestamp": "2016-09-16T10:35:08Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.867030299999996,
+          36.9290558
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 442742310,
+        "timestamp": "2016-09-16T10:35:08Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86727380000001,
+          36.92918075
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 442742311,
+        "timestamp": "2016-09-16T10:35:08Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86747015,
+          36.929288299999996
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 447212754,
+        "timestamp": "2016-10-12T12:55:39Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8706849,
+          36.91504895
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 447212755,
+        "timestamp": "2016-10-12T12:55:39Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86384685,
+          36.922684399999994
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 447212756,
+        "timestamp": "2016-10-12T12:55:39Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86460785,
+          36.922477900000004
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 552509396,
+        "timestamp": "2018-01-12T05:24:49Z",
+        "tags": {
+          "addr:city": "Tarsus/Mersin",
+          "addr:neighbourhood": "Ergenekon Mahallesi",
+          "building": "commercial",
+          "building:levels": "3",
+          "name": "May Life Plaza ve Kapalı Alan Salı Pazarı"
+        },
+        "point": [
+          34.86233985,
+          36.932710650000004
+        ],
+        "tileIds": []
+      },
+      {
+        "id": 608323224,
+        "timestamp": "2024-01-31T12:14:35Z",
+        "tags": {
+          "amenity": "place_of_worship",
+          "building": "mosque",
+          "denomination": "sunni",
+          "name": "Buharalı Abdullah Efendi Camii",
+          "religion": "muslim"
+        },
+        "point": [
+          34.85665735,
+          36.923213849999996
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 674116395,
+        "timestamp": "2026-01-09T12:53:06Z",
+        "tags": {
+          "addr:city": "Mersin",
+          "addr:district": "Tarsus",
+          "amenity": "place_of_worship",
+          "building": "mosque",
+          "name": "H. Rikap Toprak Camii",
+          "religion": "muslim"
+        },
+        "point": [
+          34.84956755,
+          36.92736465
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 989882107,
+        "timestamp": "2021-10-05T11:51:48Z",
+        "tags": {
+          "building": "apartments",
+          "name": "Soydan Apt."
+        },
+        "point": [
+          34.84888285,
+          36.928891050000004
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 989882109,
+        "timestamp": "2021-10-05T11:51:48Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.851446300000006,
+          36.92514585
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 989882110,
+        "timestamp": "2021-10-05T11:51:48Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8515599,
+          36.924943600000006
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 989882111,
+        "timestamp": "2021-10-05T11:51:48Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8516523,
+          36.92474165
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 989882112,
+        "timestamp": "2021-10-05T11:51:48Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8512456,
+          36.924822899999995
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 989882113,
+        "timestamp": "2021-10-05T11:51:48Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.85113305,
+          36.92502695
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 989882115,
+        "timestamp": "2021-10-05T11:51:48Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.84911315,
+          36.9247074
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 989882117,
+        "timestamp": "2026-01-09T13:04:24Z",
+        "tags": {
+          "addr:city": "Mersin",
+          "addr:district": "Tarsus",
+          "addr:neighbourhood": "Bağlar",
+          "amenity": "place_of_worship",
+          "building": "mosque",
+          "denomination": "sunni",
+          "name": "Hz. Mevlana Camii",
+          "religion": "muslim"
+        },
+        "point": [
+          34.86365415,
+          36.91777175
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 992419275,
+        "timestamp": "2021-10-13T09:26:27Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.858685949999995,
+          36.91972815
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 992419276,
+        "timestamp": "2021-10-13T09:26:27Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8589902,
+          36.91959215
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 992419277,
+        "timestamp": "2021-10-13T09:26:27Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8590603,
+          36.91936065
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 992419278,
+        "timestamp": "2021-10-13T09:26:27Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8588781,
+          36.919131050000004
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 992419280,
+        "timestamp": "2021-10-13T09:26:27Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86781225,
+          36.92995315
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 992419281,
+        "timestamp": "2021-10-13T09:26:27Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8676081,
+          36.930230949999995
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 1004635551,
+        "timestamp": "2021-11-20T06:56:27Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8679738,
+          36.9200997
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 1036711202,
+        "timestamp": "2022-03-03T05:54:05Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8598714,
+          36.9302806
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 1036711203,
+        "timestamp": "2022-03-03T05:54:05Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.85955385,
+          36.93026225
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 1036711204,
+        "timestamp": "2022-03-03T05:54:05Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.859614,
+          36.93008495
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 1036711205,
+        "timestamp": "2022-03-03T05:54:05Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.858905050000004,
+          36.930032749999995
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 1036711206,
+        "timestamp": "2022-03-03T05:54:05Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.85901235,
+          36.929677850000004
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 1036711207,
+        "timestamp": "2022-03-03T05:54:05Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.85874495,
+          36.929668449999994
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 1036711208,
+        "timestamp": "2022-03-03T05:54:05Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.85927675,
+          36.930132150000006
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 1055295019,
+        "timestamp": "2022-04-27T07:21:36Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.84923645,
+          36.919239950000005
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 1055295020,
+        "timestamp": "2022-04-27T07:21:36Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.849228350000004,
+          36.919638750000004
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 1055295021,
+        "timestamp": "2022-04-27T07:21:36Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8492768,
+          36.920028450000004
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 1055295024,
+        "timestamp": "2022-04-27T07:21:36Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8507249,
+          36.9288511
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 1055295025,
+        "timestamp": "2022-04-27T07:21:36Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8504035,
+          36.9288921
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 1055295026,
+        "timestamp": "2022-04-27T07:21:36Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.850455049999994,
+          36.9290947
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 1055295027,
+        "timestamp": "2022-04-27T07:21:36Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8507676,
+          36.9290607
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 1055295028,
+        "timestamp": "2022-04-27T07:21:36Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8508253,
+          36.9292912
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 1055295029,
+        "timestamp": "2022-04-27T07:21:36Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8505097,
+          36.9293312
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 1055295030,
+        "timestamp": "2022-04-27T07:21:36Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.85054,
+          36.9295641
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 1055295031,
+        "timestamp": "2022-04-27T07:21:36Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.85084875,
+          36.92952525
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 1055371721,
+        "timestamp": "2022-04-27T11:55:28Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8510661,
+          36.9180554
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 1055371722,
+        "timestamp": "2022-04-27T11:55:28Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8504056,
+          36.918247449999996
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 1055371723,
+        "timestamp": "2022-04-27T11:55:28Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.85217145,
+          36.917823
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 1055371724,
+        "timestamp": "2022-04-27T11:55:28Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.85260785,
+          36.91805355
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 1055371725,
+        "timestamp": "2022-04-27T11:55:28Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.85189845,
+          36.91820045
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 1055371726,
+        "timestamp": "2022-04-27T11:55:28Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.852003100000005,
+          36.9186656
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 1055371727,
+        "timestamp": "2022-04-27T11:55:28Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.85264105,
+          36.91741295
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 1055371731,
+        "timestamp": "2022-04-27T11:55:28Z",
+        "tags": {
+          "building": "school"
+        },
+        "point": [
+          34.855239100000006,
+          36.9201217
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 1055487037,
+        "timestamp": "2022-04-27T18:25:52Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8577617,
+          36.9225195
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 1055487038,
+        "timestamp": "2022-04-27T18:25:52Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8583876,
+          36.922097699999995
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 1055487040,
+        "timestamp": "2022-04-27T18:25:52Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86063715,
+          36.923962200000005
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 1112005370,
+        "timestamp": "2022-11-10T11:44:04Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.865337350000004,
+          36.93122085
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 1112005371,
+        "timestamp": "2022-11-10T11:44:04Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86514855,
+          36.930998
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 1112029662,
+        "timestamp": "2022-11-10T13:25:30Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8637037,
+          36.92425215
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 1112029663,
+        "timestamp": "2022-11-10T13:25:30Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8639532,
+          36.924364749999995
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 1112029664,
+        "timestamp": "2022-11-10T13:25:30Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8641063,
+          36.9241841
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 1112029665,
+        "timestamp": "2022-11-10T13:25:30Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8642873,
+          36.9239819
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 1112029666,
+        "timestamp": "2022-11-10T13:25:30Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8645291,
+          36.9237375
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 1112029667,
+        "timestamp": "2022-11-10T13:25:30Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86430595,
+          36.9236094
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 1112029668,
+        "timestamp": "2022-11-10T13:25:30Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8640993,
+          36.9238266
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 1112029669,
+        "timestamp": "2022-11-10T13:25:30Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.863964499999994,
+          36.9239823
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 1245170867,
+        "timestamp": "2024-02-01T06:30:30Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.859943,
+          36.92752095
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 1245170868,
+        "timestamp": "2024-02-01T06:30:30Z",
+        "tags": {
+          "building": "apartments"
+        },
+        "point": [
+          34.85273935,
+          36.92362945
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 1245170869,
+        "timestamp": "2024-02-01T06:30:30Z",
+        "tags": {
+          "building": "apartments"
+        },
+        "point": [
+          34.85263325,
+          36.9238155
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 1245170870,
+        "timestamp": "2024-02-01T06:30:30Z",
+        "tags": {
+          "building": "apartments"
+        },
+        "point": [
+          34.85252585,
+          36.924011500000006
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 1245170871,
+        "timestamp": "2024-02-01T06:30:30Z",
+        "tags": {
+          "building": "apartments"
+        },
+        "point": [
+          34.8524348,
+          36.92420005
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 1245170872,
+        "timestamp": "2024-02-01T06:30:30Z",
+        "tags": {
+          "building": "apartments"
+        },
+        "point": [
+          34.85280605,
+          36.9241198
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 1245170873,
+        "timestamp": "2024-02-01T06:30:30Z",
+        "tags": {
+          "building": "apartments"
+        },
+        "point": [
+          34.852708,
+          36.9243102
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 1245170874,
+        "timestamp": "2024-02-01T06:30:30Z",
+        "tags": {
+          "building": "apartments"
+        },
+        "point": [
+          34.8529018,
+          36.923927500000005
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 1245170875,
+        "timestamp": "2024-02-01T06:30:30Z",
+        "tags": {
+          "building": "apartments"
+        },
+        "point": [
+          34.85300685,
+          36.92374645
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 1245170876,
+        "timestamp": "2024-02-01T06:30:30Z",
+        "tags": {
+          "building": "apartments"
+        },
+        "point": [
+          34.8531376,
+          36.9235467
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 1555045507,
+        "timestamp": "2026-09-04T08:38:35Z",
+        "tags": {
+          "addr:neighbourhood": "Ergenekon Mahallesi",
+          "addr:street": "Kocatepe Caddesi",
+          "building": "apartments",
+          "building:flats": "22",
+          "building:levels": "11",
+          "height": "35",
+          "name": "A blok"
+        },
+        "point": [
+          34.863741250000004,
+          36.9308348
+        ],
+        "tileIds": []
+      },
+      {
+        "id": 1555045508,
+        "timestamp": "2026-09-04T08:38:35Z",
+        "tags": {
+          "addr:neighbourhood": "Ergenekon Mahallesi",
+          "addr:street": "Kocatepe Caddesi",
+          "building": "apartments",
+          "building:flats": "22",
+          "building:levels": "11",
+          "height": "35",
+          "layer": "1",
+          "name": "B blok"
+        },
+        "point": [
+          34.8634658,
+          36.931005400000004
+        ],
+        "tileIds": []
+      },
+      {
+        "id": 1555049311,
+        "timestamp": "2026-09-04T08:57:17Z",
+        "tags": {
+          "amenity": "place_of_worship",
+          "building": "yes",
+          "name": "Kolukırıkoğlu Camii",
+          "religion": "muslim"
+        },
+        "point": [
+          34.8606031,
+          36.9320128
+        ],
+        "tileIds": []
+      }
+    ]
+  },
+  "focal": {
+    "bounds": [
+      34.85985,
+      36.9157,
+      34.86435,
+      36.9193
+    ],
+    "sourceBuildings": [
+      {
+        "id": 440736017,
+        "timestamp": "2016-09-05T11:03:41Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8638971,
+          36.916674799999996
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440736018,
+        "timestamp": "2016-09-05T11:03:41Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8641522,
+          36.9169127
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440736019,
+        "timestamp": "2016-09-05T11:03:41Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8640302,
+          36.917044700000005
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440736020,
+        "timestamp": "2016-09-05T11:03:41Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86391485,
+          36.917173399999996
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440736021,
+        "timestamp": "2016-09-05T11:03:41Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8634803,
+          36.916568600000005
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440736022,
+        "timestamp": "2016-09-05T11:03:41Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86358385,
+          36.91645045
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440736023,
+        "timestamp": "2016-09-05T11:03:41Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86369755,
+          36.9163207
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440902355,
+        "timestamp": "2016-09-06T07:14:15Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.86005605,
+          36.9184595
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440902356,
+        "timestamp": "2016-09-06T07:14:15Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.859927799999994,
+          36.91878785
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 440902357,
+        "timestamp": "2016-09-06T07:14:15Z",
+        "tags": {
+          "building": "yes"
+        },
+        "point": [
+          34.8601824,
+          36.918827300000004
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      },
+      {
+        "id": 989882117,
+        "timestamp": "2026-01-09T13:04:24Z",
+        "tags": {
+          "addr:city": "Mersin",
+          "addr:district": "Tarsus",
+          "addr:neighbourhood": "Bağlar",
+          "amenity": "place_of_worship",
+          "building": "mosque",
+          "denomination": "sunni",
+          "name": "Hz. Mevlana Camii",
+          "religion": "muslim"
+        },
+        "point": [
+          34.86365415,
+          36.91777175
+        ],
+        "tileIds": [
+          3037873960
+        ]
+      }
+    ],
+    "tilePolygons": 11,
+    "roads": [
+      {
+        "id": 216631395,
+        "tags": {
+          "highway": "tertiary",
+          "name": "Mavi Bulvar"
+        }
+      },
+      {
+        "id": 216631397,
+        "tags": {
+          "highway": "tertiary",
+          "name": "Mavi Bulvar"
+        }
+      },
+      {
+        "id": 216631429,
+        "tags": {
+          "highway": "residential",
+          "name": "1965. Sokak"
+        }
+      },
+      {
+        "id": 216631443,
+        "tags": {
+          "highway": "residential",
+          "name": "1975. Sokak"
+        }
+      },
+      {
+        "id": 216631444,
+        "tags": {
+          "highway": "residential",
+          "name": "1968. Sokak"
+        }
+      },
+      {
+        "id": 216750228,
+        "tags": {
+          "highway": "residential",
+          "name": "0451. Sokak"
+        }
+      },
+      {
+        "id": 216750239,
+        "tags": {
+          "highway": "residential"
+        }
+      },
+      {
+        "id": 216750242,
+        "tags": {
+          "highway": "residential"
+        }
+      },
+      {
+        "id": 216760848,
+        "tags": {
+          "highway": "residential"
+        }
+      },
+      {
+        "id": 216760856,
+        "tags": {
+          "highway": "residential"
+        }
+      },
+      {
+        "id": 216760867,
+        "tags": {
+          "highway": "residential"
+        }
+      },
+      {
+        "id": 216760880,
+        "tags": {
+          "highway": "residential"
+        }
+      },
+      {
+        "id": 216760884,
+        "tags": {
+          "highway": "residential"
+        }
+      },
+      {
+        "id": 216760887,
+        "tags": {
+          "highway": "residential"
+        }
+      },
+      {
+        "id": 216760892,
+        "tags": {
+          "highway": "residential"
+        }
+      },
+      {
+        "id": 216760900,
+        "tags": {
+          "highway": "residential"
+        }
+      },
+      {
+        "id": 216760902,
+        "tags": {
+          "highway": "residential"
+        }
+      },
+      {
+        "id": 216760906,
+        "tags": {
+          "highway": "residential"
+        }
+      },
+      {
+        "id": 216760910,
+        "tags": {
+          "highway": "residential"
+        }
+      },
+      {
+        "id": 216760911,
+        "tags": {
+          "highway": "residential"
+        }
+      },
+      {
+        "id": 216760916,
+        "tags": {
+          "highway": "residential"
+        }
+      },
+      {
+        "id": 216760920,
+        "tags": {
+          "highway": "residential"
+        }
+      },
+      {
+        "id": 216760922,
+        "tags": {
+          "highway": "residential"
+        }
+      },
+      {
+        "id": 216760925,
+        "tags": {
+          "highway": "residential"
+        }
+      },
+      {
+        "id": 216760935,
+        "tags": {
+          "highway": "residential",
+          "name": "0469. Sokak"
+        }
+      },
+      {
+        "id": 216760942,
+        "tags": {
+          "highway": "residential"
+        }
+      },
+      {
+        "id": 216760944,
+        "tags": {
+          "highway": "residential"
+        }
+      },
+      {
+        "id": 366826785,
+        "tags": {
+          "highway": "residential"
+        }
+      },
+      {
+        "id": 366826786,
+        "tags": {
+          "highway": "residential"
+        }
+      },
+      {
+        "id": 440736016,
+        "tags": {
+          "highway": "residential",
+          "name": "1971. Sokak"
+        }
+      },
+      {
+        "id": 440902358,
+        "tags": {
+          "highway": "residential"
+        }
+      },
+      {
+        "id": 989882118,
+        "tags": {
+          "highway": "residential"
+        }
+      },
+      {
+        "id": 1055487042,
+        "tags": {
+          "highway": "residential"
+        }
+      },
+      {
+        "id": 1111979497,
+        "tags": {
+          "highway": "residential"
+        }
+      },
+      {
+        "id": 1111979498,
+        "tags": {
+          "highway": "residential"
+        }
+      },
+      {
+        "id": 1111979499,
+        "tags": {
+          "highway": "residential"
+        }
+      },
+      {
+        "id": 1111979500,
+        "tags": {
+          "highway": "residential"
+        }
+      },
+      {
+        "id": 1111979501,
+        "tags": {
+          "highway": "residential"
+        }
+      },
+      {
+        "id": 1111979502,
+        "tags": {
+          "highway": "residential"
+        }
+      },
+      {
+        "id": 1111979511,
+        "tags": {
+          "highway": "residential"
+        }
+      }
+    ],
+    "houseNumbers": []
+  },
+  "names": {
+    "matchedWays": 135,
+    "absentNames": [
+      {
+        "id": 216746881,
+        "timestamp": "2026-09-04T08:41:39Z",
+        "name": "Kocatepe Caddesi",
+        "highway": "residential",
+        "tiles": []
+      },
+      {
+        "id": 216746946,
+        "timestamp": "2026-09-04T08:41:39Z",
+        "name": "Kocatepe Caddesi",
+        "highway": "residential",
+        "tiles": []
+      },
+      {
+        "id": 355750021,
+        "timestamp": "2026-09-04T08:41:39Z",
+        "name": "Kocatepe Caddesi",
+        "highway": "residential",
+        "tiles": []
+      }
+    ],
+    "numberedTileFeatures": 100,
+    "examples": [
+      {
+        "id": 114471408,
+        "timestamp": "2026-01-01T19:35:58Z",
+        "name": "Gazipaşa Bulvarı",
+        "highway": "secondary",
+        "tiles": [
+          {
+            "id": 1144714080,
+            "class": "secondary",
+            "name": "Gazipaşa Bulvarı"
+          }
+        ]
+      },
+      {
+        "id": 114471418,
+        "timestamp": "2016-09-09T10:37:00Z",
+        "name": "Gazipaşa Bulvarı",
+        "highway": "secondary",
+        "tiles": [
+          {
+            "id": 1144714080,
+            "class": "secondary",
+            "name": "Gazipaşa Bulvarı"
+          }
+        ]
+      },
+      {
+        "id": 216760862,
+        "timestamp": "2022-11-10T11:59:53Z",
+        "name": "0443. Sokak",
+        "highway": "residential",
+        "tiles": [
+          {
+            "id": 2167608622,
+            "class": "minor",
+            "name": "0443. Sokak"
+          }
+        ]
+      },
+      {
+        "id": 216760935,
+        "timestamp": "2022-11-10T09:35:09Z",
+        "name": "0469. Sokak",
+        "highway": "residential",
+        "tiles": [
+          {
+            "id": 2167609352,
+            "class": "minor",
+            "name": "0469. Sokak"
+          }
+        ]
+      },
+      {
+        "id": 355750035,
+        "timestamp": "2016-09-05T16:49:33Z",
+        "name": "Gazipaşa Bulvarı",
+        "highway": "secondary",
+        "tiles": [
+          {
+            "id": 1144714080,
+            "class": "secondary",
+            "name": "Gazipaşa Bulvarı"
+          }
+        ]
+      },
+      {
+        "id": 440736005,
+        "timestamp": "2022-11-14T11:39:31Z",
+        "name": "Gazipaşa Bulvarı",
+        "highway": "secondary",
+        "tiles": [
+          {
+            "id": 1144714080,
+            "class": "secondary",
+            "name": "Gazipaşa Bulvarı"
+          }
+        ]
+      },
+      {
+        "id": 1111979543,
+        "timestamp": "2022-11-10T11:06:46Z",
+        "name": "Gazipaşa Bulvarı",
+        "highway": "secondary",
+        "tiles": [
+          {
+            "id": 1144714080,
+            "class": "secondary",
+            "name": "Gazipaşa Bulvarı"
+          }
+        ]
+      },
+      {
+        "id": 1111979544,
+        "timestamp": "2022-11-10T09:35:09Z",
+        "name": "Gazipaşa Bulvarı",
+        "highway": "secondary",
+        "tiles": [
+          {
+            "id": 1144714080,
+            "class": "secondary",
+            "name": "Gazipaşa Bulvarı"
+          }
+        ]
+      },
+      {
+        "id": 1111979545,
+        "timestamp": "2022-11-10T11:06:46Z",
+        "name": "Gazipaşa Bulvarı",
+        "highway": "secondary",
+        "tiles": [
+          {
+            "id": 1144714080,
+            "class": "secondary",
+            "name": "Gazipaşa Bulvarı"
+          }
+        ]
+      },
+      {
+        "id": 1111979546,
+        "timestamp": "2022-11-10T09:35:09Z",
+        "name": "Gazipaşa Bulvarı",
+        "highway": "secondary",
+        "tiles": [
+          {
+            "id": 1144714080,
+            "class": "secondary",
+            "name": "Gazipaşa Bulvarı"
+          }
+        ]
+      }
+    ]
+  },
+  "style": {
+    "day": [
+      {
+        "zoom": 14,
+        "layers": [
+          {
+            "id": "building",
+            "minzoom": 14,
+            "maxzoom": null,
+            "visibility": "visible",
+            "accepted": 11,
+            "zoomEligible": true
+          },
+          {
+            "id": "building-3d",
+            "minzoom": 16,
+            "maxzoom": null,
+            "visibility": "visible",
+            "accepted": 11,
+            "zoomEligible": false
+          },
+          {
+            "id": "road-label",
+            "minzoom": 16,
+            "maxzoom": null,
+            "visibility": "visible",
+            "accepted": 112,
+            "zoomEligible": false
+          },
+          {
+            "id": "road-label-major",
+            "minzoom": 12,
+            "maxzoom": null,
+            "visibility": "visible",
+            "accepted": 3,
+            "zoomEligible": true
+          }
+        ]
+      },
+      {
+        "zoom": 15,
+        "layers": [
+          {
+            "id": "building",
+            "minzoom": 14,
+            "maxzoom": null,
+            "visibility": "visible",
+            "accepted": 11,
+            "zoomEligible": true
+          },
+          {
+            "id": "building-3d",
+            "minzoom": 16,
+            "maxzoom": null,
+            "visibility": "visible",
+            "accepted": 11,
+            "zoomEligible": false
+          },
+          {
+            "id": "road-label",
+            "minzoom": 16,
+            "maxzoom": null,
+            "visibility": "visible",
+            "accepted": 112,
+            "zoomEligible": false
+          },
+          {
+            "id": "road-label-major",
+            "minzoom": 12,
+            "maxzoom": null,
+            "visibility": "visible",
+            "accepted": 3,
+            "zoomEligible": true
+          }
+        ]
+      },
+      {
+        "zoom": 16,
+        "layers": [
+          {
+            "id": "building",
+            "minzoom": 14,
+            "maxzoom": null,
+            "visibility": "visible",
+            "accepted": 11,
+            "zoomEligible": true
+          },
+          {
+            "id": "building-3d",
+            "minzoom": 16,
+            "maxzoom": null,
+            "visibility": "visible",
+            "accepted": 11,
+            "zoomEligible": true
+          },
+          {
+            "id": "road-label",
+            "minzoom": 16,
+            "maxzoom": null,
+            "visibility": "visible",
+            "accepted": 112,
+            "zoomEligible": true
+          },
+          {
+            "id": "road-label-major",
+            "minzoom": 12,
+            "maxzoom": null,
+            "visibility": "visible",
+            "accepted": 3,
+            "zoomEligible": true
+          }
+        ]
+      }
+    ],
+    "night": [
+      {
+        "zoom": 14,
+        "layers": [
+          {
+            "id": "building",
+            "minzoom": 14,
+            "maxzoom": null,
+            "visibility": "visible",
+            "accepted": 11,
+            "zoomEligible": true
+          },
+          {
+            "id": "building-3d",
+            "minzoom": 16,
+            "maxzoom": null,
+            "visibility": "visible",
+            "accepted": 11,
+            "zoomEligible": false
+          },
+          {
+            "id": "road-label",
+            "minzoom": 16,
+            "maxzoom": null,
+            "visibility": "visible",
+            "accepted": 112,
+            "zoomEligible": false
+          },
+          {
+            "id": "road-label-major",
+            "minzoom": 12,
+            "maxzoom": null,
+            "visibility": "visible",
+            "accepted": 3,
+            "zoomEligible": true
+          }
+        ]
+      },
+      {
+        "zoom": 15,
+        "layers": [
+          {
+            "id": "building",
+            "minzoom": 14,
+            "maxzoom": null,
+            "visibility": "visible",
+            "accepted": 11,
+            "zoomEligible": true
+          },
+          {
+            "id": "building-3d",
+            "minzoom": 16,
+            "maxzoom": null,
+            "visibility": "visible",
+            "accepted": 11,
+            "zoomEligible": false
+          },
+          {
+            "id": "road-label",
+            "minzoom": 16,
+            "maxzoom": null,
+            "visibility": "visible",
+            "accepted": 112,
+            "zoomEligible": false
+          },
+          {
+            "id": "road-label-major",
+            "minzoom": 12,
+            "maxzoom": null,
+            "visibility": "visible",
+            "accepted": 3,
+            "zoomEligible": true
+          }
+        ]
+      },
+      {
+        "zoom": 16,
+        "layers": [
+          {
+            "id": "building",
+            "minzoom": 14,
+            "maxzoom": null,
+            "visibility": "visible",
+            "accepted": 11,
+            "zoomEligible": true
+          },
+          {
+            "id": "building-3d",
+            "minzoom": 16,
+            "maxzoom": null,
+            "visibility": "visible",
+            "accepted": 11,
+            "zoomEligible": true
+          },
+          {
+            "id": "road-label",
+            "minzoom": 16,
+            "maxzoom": null,
+            "visibility": "visible",
+            "accepted": 112,
+            "zoomEligible": true
+          },
+          {
+            "id": "road-label-major",
+            "minzoom": 12,
+            "maxzoom": null,
+            "visibility": "visible",
+            "accepted": 3,
+            "zoomEligible": true
+          }
+        ]
+      }
+    ]
+  }
+}

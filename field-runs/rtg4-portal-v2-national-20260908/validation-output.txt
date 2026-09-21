@@ -1,0 +1,523 @@
+{
+  "generatedAt": "2026-09-08T11:36:09.137Z",
+  "runDir": "C:\\Users\\selim\\Desktop\\caros pro\\field-runs\\rtg4-portal-v2-national-20260908",
+  "manifest": {
+    "path": "C:\\Users\\selim\\Desktop\\caros pro\\field-runs\\rtg4-portal-v2-national-20260908\\turkey-graph-manifest.json",
+    "bytes": 26244776,
+    "sha256": "877677000c0d8705111562c077e5dff57941f58fc1ee326068e3cc24dba21404",
+    "datasetId": "osm-tr-c841556847bd",
+    "sourceTimestamp": "2026-09-06T19:53:37Z",
+    "buildTimestamp": "2026-09-08T11:35:13.934Z",
+    "regions": 402,
+    "neighborLinks": 720
+  },
+  "country": {
+    "totalNodes": 21874202,
+    "totalEdges": 23004155,
+    "totalBytes": 994298356,
+    "regions": 402
+  },
+  "regionStats": {
+    "count": 402,
+    "minBytes": 3596,
+    "medianBytes": 1823264,
+    "p95Bytes": 6783248,
+    "maxBytes": 18042136,
+    "largestRegion": {
+      "regionId": "tr-57-82",
+      "bbox": [
+        28.5,
+        41,
+        29,
+        41.5
+      ],
+      "nodeCount": 380517,
+      "edgeCount": 425646,
+      "byteSize": 18042136,
+      "sha256": "931df3af89d926d893e1cb30bebeefb8f8a55d9d3ea927b8d3900272b286ce87",
+      "neighbors": 3
+    },
+    "smallestRegion": {
+      "regionId": "tr-56-84",
+      "bbox": [
+        28,
+        42,
+        28.5,
+        42.5
+      ],
+      "nodeCount": 82,
+      "edgeCount": 81,
+      "byteSize": 3596,
+      "sha256": "d80a3066b4cfb1c714bc6dde812bd230b7f1b9e1f269db9b38a68c8c7ed3f6c3",
+      "neighbors": 2
+    }
+  },
+  "roadClassTotals": {
+    "tertiary": 6285462,
+    "unclassified": 3685568,
+    "residential": 8884972,
+    "service/road": 1409002,
+    "living_street": 377051,
+    "motorway": 131620,
+    "primary": 439558,
+    "trunk": 706915,
+    "secondary": 1084007
+  },
+  "metadataTotals": {
+    "oneway": 2052955,
+    "destinationOnly": 1258,
+    "bridge": 60322,
+    "tunnel": 12726,
+    "layered": 85189,
+    "restrictionRecords": 7848,
+    "viaWayChains": 698
+  },
+  "restrictionStats": {
+    "observed": 8357,
+    "valid": 7669,
+    "supported": 6891,
+    "supportedViaNode": 6193,
+    "supportedViaWay": 698,
+    "unsupported": 33,
+    "malformed": 688,
+    "unresolved": 745,
+    "conditional": 0,
+    "vehicleSpecific": 7,
+    "viaWay": 845,
+    "unsupportedType": 26
+  },
+  "integrity": [
+    {
+      "check": "region-ids-unique",
+      "measured": "402/402",
+      "result": "PASS"
+    },
+    {
+      "check": "graph-format",
+      "measured": "RTG4",
+      "result": "PASS"
+    },
+    {
+      "check": "manifest-schema",
+      "measured": "2",
+      "result": "PASS"
+    },
+    {
+      "check": "source-hash-consistent",
+      "measured": "1 farklı",
+      "result": "PASS"
+    },
+    {
+      "check": "all-region-files-exist",
+      "measured": "402/402",
+      "result": "PASS"
+    },
+    {
+      "check": "byte-sizes-match",
+      "measured": "0 uyumsuz",
+      "result": "PASS"
+    },
+    {
+      "check": "sha256-match",
+      "measured": "0 uyumsuz",
+      "result": "PASS"
+    },
+    {
+      "check": "all-regions-parse",
+      "measured": "0 ayrıştırılamadı",
+      "result": "PASS"
+    },
+    {
+      "check": "all-component-files-exist",
+      "measured": "402/402",
+      "result": "PASS"
+    },
+    {
+      "check": "component-byte-sizes-match",
+      "measured": "0 uyumsuz",
+      "result": "PASS"
+    },
+    {
+      "check": "component-sha256-match",
+      "measured": "0 uyumsuz",
+      "result": "PASS"
+    },
+    {
+      "check": "component-integrity",
+      "measured": "0 geçersiz",
+      "result": "PASS"
+    },
+    {
+      "check": "all-component-index-files-exist",
+      "measured": "402/402",
+      "result": "PASS"
+    },
+    {
+      "check": "component-index-byte-sizes-match",
+      "measured": "0 uyumsuz",
+      "result": "PASS"
+    },
+    {
+      "check": "component-index-sha256-match",
+      "measured": "0 uyumsuz",
+      "result": "PASS"
+    },
+    {
+      "check": "component-index-integrity",
+      "measured": "0 geçersiz",
+      "result": "PASS"
+    },
+    {
+      "check": "portal-incident-edges-exist",
+      "measured": "0 eksik",
+      "result": "PASS"
+    },
+    {
+      "check": "portal-stable-nodes-exist",
+      "measured": "0 eksik",
+      "result": "PASS"
+    },
+    {
+      "check": "neighbor-audit-complete",
+      "measured": "1063/1063",
+      "result": "PASS"
+    },
+    {
+      "check": "no-dangling-neighbor",
+      "measured": "0",
+      "result": "PASS"
+    },
+    {
+      "check": "reciprocal-neighbors",
+      "measured": "0 tek yönlü",
+      "result": "PASS"
+    },
+    {
+      "check": "no-self-neighbor",
+      "measured": "0",
+      "result": "PASS"
+    },
+    {
+      "check": "boundary-portal-identity",
+      "measured": "12/12 çiftte ortak OSM düğümü",
+      "result": "PASS"
+    }
+  ],
+  "integrityPass": true,
+  "topology": {
+    "totals": {
+      "regions": 402,
+      "components": 11564,
+      "selfLoops": 0,
+      "zeroLength": 0,
+      "duplicates": 0,
+      "invalidRefs": 0,
+      "deadEnds": 564054,
+      "minLargestPct": 29.573170731707318
+    },
+    "regionComponents": 2,
+    "largestRegionComponent": 401,
+    "isolatedRegions": [
+      "tr-51-80"
+    ]
+  },
+  "residencyPolicy": {
+    "maxResidentRegions": 3,
+    "maxBytes": 67108864
+  },
+  "routes": [
+    {
+      "from": "Mersin",
+      "to": "Mersin-yerel",
+      "originRegionId": "tr-69-73",
+      "destinationRegionId": "tr-69-73",
+      "trueCorridorRegions": 1,
+      "trueCorridor": [
+        "tr-69-73"
+      ],
+      "residencyMaxRegions": 3,
+      "selectedRegions": [
+        "tr-69-73"
+      ],
+      "residentBytes": 6609612,
+      "loadMs": 475.1,
+      "mergedNodes": 139598,
+      "mergedEdges": 156207,
+      "solveMs": 34.56,
+      "distanceM": 3252,
+      "endpointErrorM": 15.3,
+      "result": "ROUTE_RESULT"
+    },
+    {
+      "from": "Mersin",
+      "to": "Tarsus",
+      "originRegionId": "tr-69-73",
+      "destinationRegionId": "tr-69-73",
+      "trueCorridorRegions": 1,
+      "trueCorridor": [
+        "tr-69-73"
+      ],
+      "residencyMaxRegions": 3,
+      "selectedRegions": [
+        "tr-69-73"
+      ],
+      "residentBytes": 6609612,
+      "loadMs": 438.08,
+      "mergedNodes": 139598,
+      "mergedEdges": 156207,
+      "solveMs": 12.91,
+      "distanceM": 25981,
+      "endpointErrorM": 6.7,
+      "result": "ROUTE_RESULT"
+    },
+    {
+      "from": "Mersin",
+      "to": "Adana",
+      "originRegionId": "tr-69-73",
+      "destinationRegionId": "tr-70-73",
+      "trueCorridorRegions": 2,
+      "trueCorridor": [
+        "tr-69-73",
+        "tr-70-73"
+      ],
+      "residencyMaxRegions": 3,
+      "selectedRegions": [
+        "tr-69-73",
+        "tr-70-73"
+      ],
+      "residentBytes": 9744972,
+      "loadMs": 613.72,
+      "mergedNodes": 203643,
+      "mergedEdges": 229717,
+      "solveMs": 77.35,
+      "distanceM": 66847,
+      "endpointErrorM": 46.3,
+      "result": "ROUTE_RESULT"
+    },
+    {
+      "from": "Mersin",
+      "to": "Ankara",
+      "originRegionId": "tr-69-73",
+      "destinationRegionId": "tr-65-79",
+      "trueCorridorRegions": 11,
+      "trueCorridor": [
+        "tr-69-73",
+        "tr-68-73",
+        "tr-67-73",
+        "tr-66-73",
+        "tr-65-73",
+        "tr-65-74",
+        "tr-65-75",
+        "tr-65-76",
+        "tr-65-77",
+        "tr-65-78",
+        "tr-65-79"
+      ],
+      "residencyMaxRegions": 3,
+      "result": "BLOCKED_RESIDENCY_BUDGET",
+      "detail": "gerçek koridor 11 bölge · residency tavanı 3"
+    },
+    {
+      "from": "Mersin",
+      "to": "İstanbul",
+      "originRegionId": "tr-69-73",
+      "destinationRegionId": "tr-57-82",
+      "trueCorridorRegions": 22,
+      "trueCorridor": null,
+      "residencyMaxRegions": 3,
+      "result": "BLOCKED_RESIDENCY_BUDGET",
+      "detail": "gerçek koridor 22 bölge · residency tavanı 3"
+    },
+    {
+      "from": "Mersin",
+      "to": "Antalya",
+      "originRegionId": "tr-69-73",
+      "destinationRegionId": "tr-61-73",
+      "trueCorridorRegions": 9,
+      "trueCorridor": [
+        "tr-69-73",
+        "tr-68-73",
+        "tr-67-73",
+        "tr-66-73",
+        "tr-65-73",
+        "tr-64-73",
+        "tr-63-73",
+        "tr-62-73",
+        "tr-61-73"
+      ],
+      "residencyMaxRegions": 3,
+      "result": "BLOCKED_RESIDENCY_BUDGET",
+      "detail": "gerçek koridor 9 bölge · residency tavanı 3"
+    },
+    {
+      "from": "İstanbul",
+      "to": "Ankara",
+      "originRegionId": "tr-57-82",
+      "destinationRegionId": "tr-65-79",
+      "trueCorridorRegions": 12,
+      "trueCorridor": [
+        "tr-57-82",
+        "tr-57-81",
+        "tr-57-80",
+        "tr-57-79",
+        "tr-58-79",
+        "tr-59-79",
+        "tr-60-79",
+        "tr-61-79",
+        "tr-62-79",
+        "tr-63-79",
+        "tr-64-79",
+        "tr-65-79"
+      ],
+      "residencyMaxRegions": 3,
+      "result": "BLOCKED_RESIDENCY_BUDGET",
+      "detail": "gerçek koridor 12 bölge · residency tavanı 3"
+    }
+  ],
+  "portalCorridors": [
+    {
+      "from": "Mersin",
+      "to": "Adana",
+      "originComponent": "tr-69-73:111966897",
+      "destinationComponent": "tr-70-73:27626803",
+      "componentContinuity": true,
+      "componentCount": 2,
+      "regionCount": 2,
+      "regions": [
+        "tr-69-73",
+        "tr-70-73"
+      ],
+      "portalTransitions": 1,
+      "result": "PORTAL_COMPONENT_CONTINUITY"
+    },
+    {
+      "from": "Mersin",
+      "to": "Ankara",
+      "originComponent": "tr-69-73:111966897",
+      "destinationComponent": "tr-65-79:27002742",
+      "componentContinuity": true,
+      "componentCount": 11,
+      "regionCount": 11,
+      "regions": [
+        "tr-69-73",
+        "tr-69-74",
+        "tr-68-74",
+        "tr-67-74",
+        "tr-66-74",
+        "tr-65-74",
+        "tr-65-75",
+        "tr-65-76",
+        "tr-65-77",
+        "tr-65-78",
+        "tr-65-79"
+      ],
+      "portalTransitions": 10,
+      "result": "PORTAL_COMPONENT_CONTINUITY"
+    },
+    {
+      "from": "Mersin",
+      "to": "İstanbul",
+      "originComponent": "tr-69-73:111966897",
+      "destinationComponent": "tr-57-82:26435633",
+      "componentContinuity": true,
+      "componentCount": 22,
+      "regionCount": 22,
+      "regions": [
+        "tr-69-73",
+        "tr-69-74",
+        "tr-68-74",
+        "tr-67-74",
+        "tr-66-74",
+        "tr-65-74",
+        "tr-65-75",
+        "tr-65-76",
+        "tr-64-76",
+        "tr-63-76",
+        "tr-63-77",
+        "tr-62-77",
+        "tr-61-77",
+        "tr-60-77",
+        "tr-60-78",
+        "tr-59-78",
+        "tr-59-79",
+        "tr-59-80",
+        "tr-59-81",
+        "tr-59-82",
+        "tr-58-82",
+        "tr-57-82"
+      ],
+      "portalTransitions": 21,
+      "result": "PORTAL_COMPONENT_CONTINUITY"
+    },
+    {
+      "from": "Mersin",
+      "to": "Antalya",
+      "originComponent": "tr-69-73:111966897",
+      "destinationComponent": "tr-61-73:27077923",
+      "componentContinuity": true,
+      "componentCount": 9,
+      "regionCount": 9,
+      "regions": [
+        "tr-69-73",
+        "tr-68-73",
+        "tr-67-73",
+        "tr-66-73",
+        "tr-65-73",
+        "tr-64-73",
+        "tr-63-73",
+        "tr-62-73",
+        "tr-61-73"
+      ],
+      "portalTransitions": 8,
+      "result": "PORTAL_COMPONENT_CONTINUITY"
+    },
+    {
+      "from": "İstanbul",
+      "to": "Ankara",
+      "originComponent": "tr-57-82:26435633",
+      "destinationComponent": "tr-65-79:27002742",
+      "componentContinuity": true,
+      "componentCount": 12,
+      "regionCount": 12,
+      "regions": [
+        "tr-57-82",
+        "tr-58-82",
+        "tr-58-81",
+        "tr-59-81",
+        "tr-59-80",
+        "tr-60-80",
+        "tr-61-80",
+        "tr-62-80",
+        "tr-62-79",
+        "tr-63-79",
+        "tr-64-79",
+        "tr-65-79"
+      ],
+      "portalTransitions": 11,
+      "result": "PORTAL_COMPONENT_CONTINUITY"
+    }
+  ],
+  "build": {
+    "buildMs": 220453,
+    "peakProcessTreeRssBytes": 478081024,
+    "peakNodeRssBytes": 478081024,
+    "peakChildRssBytes": 0,
+    "peakTempBytes": 3871887360,
+    "selectedWays": 1919616,
+    "deniedWays": 741389,
+    "requiredCoordinates": 20913743,
+    "memoryBudgetMiB": 512,
+    "source": {
+      "file": "../pbf-streaming-rtg3-20260908/raw/turkey-260906.osm.pbf",
+      "bytes": 645061454,
+      "sha256": "c841556847bd31ed511ca3f61b5086644664488f48b23d7ce2a4b7d6c36dd80f",
+      "provider": "Geofabrik/OpenStreetMap",
+      "coverage": "OpenStreetMap / Geofabrik Turkey extract turkey-260906.osm.pbf (nationwide)"
+    }
+  },
+  "productionGraph": {
+    "bytes": 7651542,
+    "sha256": "e7713f7575fb587386858db44b2e9ab84278686a06d42d04cd16e8663af691da",
+    "unchanged": true
+  }
+}

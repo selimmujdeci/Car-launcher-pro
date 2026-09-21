@@ -1,0 +1,130 @@
+{
+  "roadEvidence": [
+    {
+      "id": 216760900,
+      "tags": {
+        "highway": "residential"
+      },
+      "sample": [
+        34.8647294,
+        36.9196736
+      ],
+      "tileGeometryNearest": {
+        "id": 2061142270,
+        "class": "minor",
+        "d": 0.005890486907516541
+      },
+      "tileName": []
+    },
+    {
+      "id": 216760925,
+      "tags": {
+        "highway": "residential"
+      },
+      "sample": [
+        34.8619299,
+        36.9179268
+      ],
+      "tileGeometryNearest": {
+        "id": 2061142270,
+        "class": "minor",
+        "d": 0.1041542768961852
+      },
+      "tileName": []
+    },
+    {
+      "id": 216760935,
+      "tags": {
+        "highway": "residential",
+        "name": "0469. Sokak"
+      },
+      "sample": [
+        34.8634086,
+        36.9181955
+      ],
+      "tileGeometryNearest": {
+        "id": 2061142270,
+        "class": "minor",
+        "d": 0.02353970266288524
+      },
+      "tileName": [
+        {
+          "id": 2167609352,
+          "properties": {
+            "name": "0469. Sokak",
+            "name_int": "0469. Sokak",
+            "class": "minor",
+            "name:latin": "0469. Sokak",
+            "name_de": "0469. Sokak",
+            "name_en": "0469. Sokak"
+          }
+        }
+      ]
+    },
+    {
+      "id": 216760862,
+      "tags": {
+        "highway": "residential",
+        "name": "0443. Sokak"
+      },
+      "sample": [
+        34.8648159,
+        36.921019
+      ],
+      "tileGeometryNearest": {
+        "id": 2061142270,
+        "class": "minor",
+        "d": 0.01004483735346674
+      },
+      "tileName": [
+        {
+          "id": 2167608622,
+          "properties": {
+            "name": "0443. Sokak",
+            "name_int": "0443. Sokak",
+            "class": "minor",
+            "name:latin": "0443. Sokak",
+            "name_de": "0443. Sokak",
+            "name_en": "0443. Sokak"
+          }
+        }
+      ]
+    }
+  ],
+  "visualRoofSamples": [
+    {
+      "satellitePixel": [
+        173,
+        90
+      ],
+      "lon": 34.861475229263306,
+      "lat": 36.918384129749924,
+      "nearestOsmBuildingVertexMetres": 111.20074693169771,
+      "osmBuildingBboxCandidates": 0,
+      "productionBuildingBboxCandidates": 0
+    },
+    {
+      "satellitePixel": [
+        159,
+        143
+      ],
+      "lon": 34.86132502555847,
+      "lat": 36.9179295146294,
+      "nearestOsmBuildingVertexMetres": 111.06744392734377,
+      "osmBuildingBboxCandidates": 0,
+      "productionBuildingBboxCandidates": 0
+    },
+    {
+      "satellitePixel": [
+        188,
+        110
+      ],
+      "lon": 34.8616361618042,
+      "lat": 36.91821257719264,
+      "nearestOsmBuildingVertexMetres": 128.25891370903736,
+      "osmBuildingBboxCandidates": 0,
+      "productionBuildingBboxCandidates": 0
+    }
+  ],
+  "roofLimit": "Uydu üzerinde elle seçilmiş görsel çatı örnekleri; otomatik bina sayımı veya footprint üretimi değildir."
+}

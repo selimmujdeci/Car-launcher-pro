@@ -1,0 +1,326 @@
+{
+  "environment": "Headless Chromium, 904x406 DPR1, production base DAY style, pitch0 bearing0; runtime/nav/route/UI yok; cihaz closure değildir",
+  "requests": [
+    "14-9778-6381.pbf",
+    "14-9778-6382.pbf",
+    "14-9779-6381.pbf",
+    "14-9779-6382.pbf",
+    "14-9777-6381.pbf",
+    "14-9777-6382.pbf"
+  ],
+  "errors": [],
+  "results": [
+    {
+      "variant": "base-z14",
+      "zoom": 14,
+      "pitch": 0,
+      "bounds": [
+        [
+          34.84270226440435,
+          36.91053457520216
+        ],
+        [
+          34.881497735596156,
+          36.92446478866874
+        ]
+      ],
+      "building": {
+        "featureCount": 12,
+        "ids": [
+          4401513260,
+          3671950740,
+          3037873960,
+          4403514180,
+          4402922850,
+          3764191670,
+          3764153400,
+          3267058520,
+          53117060,
+          3037874010,
+          3037874020
+        ],
+        "names": []
+      },
+      "local": {
+        "featureCount": 0,
+        "ids": [],
+        "names": []
+      },
+      "major": {
+        "featureCount": 2,
+        "ids": [
+          1144714080,
+          1137180170
+        ],
+        "names": [
+          "Atatürk Bulvarı",
+          "Gazipaşa Bulvarı"
+        ]
+      },
+      "mapErrors": []
+    },
+    {
+      "variant": "base-z15",
+      "zoom": 15,
+      "pitch": 0,
+      "bounds": [
+        [
+          34.85240113220192,
+          36.91401736711512
+        ],
+        [
+          34.87179886779711,
+          36.92098247385434
+        ]
+      ],
+      "building": {
+        "featureCount": 7,
+        "ids": [
+          4401513260,
+          3671950740,
+          3037873960,
+          53117060,
+          3037874010,
+          3037874020
+        ],
+        "names": []
+      },
+      "local": {
+        "featureCount": 0,
+        "ids": [],
+        "names": []
+      },
+      "major": {
+        "featureCount": 1,
+        "ids": [
+          1144714080
+        ],
+        "names": [
+          "Gazipaşa Bulvarı"
+        ]
+      },
+      "mapErrors": []
+    },
+    {
+      "variant": "base-z16",
+      "zoom": 16,
+      "pitch": 0,
+      "bounds": [
+        [
+          34.857250566099935,
+          36.91575870343691
+        ],
+        [
+          34.86694943389753,
+          36.919241256806885
+        ]
+      ],
+      "building": {
+        "featureCount": 1,
+        "ids": [
+          3037873960
+        ],
+        "names": []
+      },
+      "local": {
+        "featureCount": 10,
+        "ids": [
+          2166313950,
+          4426279452,
+          2167609352,
+          2167609242,
+          2167609182,
+          2167502282,
+          2166314442,
+          2166313872,
+          2166313822,
+          2166313692
+        ],
+        "names": [
+          "0451. Sokak",
+          "0469. Sokak",
+          "0474. Sokak",
+          "0476. Sokak",
+          "0478. Sokak",
+          "1957. Sokak",
+          "1958. Sokak",
+          "1961. Sokak",
+          "1968. Sokak",
+          "Mavi Bulvar"
+        ]
+      },
+      "major": {
+        "featureCount": 0,
+        "ids": [],
+        "names": []
+      },
+      "mapErrors": []
+    },
+    {
+      "variant": "overlap-z16",
+      "zoom": 16,
+      "pitch": 0,
+      "bounds": [
+        [
+          34.857250566099935,
+          36.91575870343691
+        ],
+        [
+          34.86694943389753,
+          36.919241256806885
+        ]
+      ],
+      "building": {
+        "featureCount": 1,
+        "ids": [
+          3037873960
+        ],
+        "names": []
+      },
+      "local": {
+        "featureCount": 10,
+        "ids": [
+          2166313950,
+          4426279452,
+          2167609352,
+          2167609242,
+          2167609182,
+          2167502282,
+          2166314442,
+          2166313872,
+          2166313822,
+          2166313692
+        ],
+        "names": [
+          "0451. Sokak",
+          "0469. Sokak",
+          "0474. Sokak",
+          "0476. Sokak",
+          "0478. Sokak",
+          "1957. Sokak",
+          "1958. Sokak",
+          "1961. Sokak",
+          "1968. Sokak",
+          "Mavi Bulvar"
+        ]
+      },
+      "major": {
+        "featureCount": 0,
+        "ids": [],
+        "names": []
+      },
+      "mapErrors": []
+    },
+    {
+      "variant": "spacing-z16",
+      "zoom": 16,
+      "pitch": 0,
+      "bounds": [
+        [
+          34.857250566099935,
+          36.91575870343691
+        ],
+        [
+          34.86694943389753,
+          36.919241256806885
+        ]
+      ],
+      "building": {
+        "featureCount": 1,
+        "ids": [
+          3037873960
+        ],
+        "names": []
+      },
+      "local": {
+        "featureCount": 16,
+        "ids": [
+          2167469720,
+          2166313950,
+          4426279452,
+          4407360162,
+          2167609352,
+          2167609242,
+          2167609182,
+          2167502282,
+          2166314442,
+          2166314432,
+          2166314292,
+          2166314142,
+          2166313872,
+          2166313822,
+          2166313692,
+          2166313652
+        ],
+        "names": [
+          "0451. Sokak",
+          "0469. Sokak",
+          "0474. Sokak",
+          "0476. Sokak",
+          "0478. Sokak",
+          "1951. Sokak",
+          "1957. Sokak",
+          "1958. Sokak",
+          "1961. Sokak",
+          "1964. Sokak",
+          "1965. Sokak",
+          "1968. Sokak",
+          "1971. Sokak",
+          "1975. Sokak",
+          "Mavi Bulvar",
+          "Şamil Basayev Caddesi"
+        ]
+      },
+      "major": {
+        "featureCount": 0,
+        "ids": [],
+        "names": []
+      },
+      "mapErrors": []
+    },
+    {
+      "variant": "base-z16.4",
+      "zoom": 16.4,
+      "pitch": 0,
+      "bounds": [
+        [
+          34.85842481635041,
+          36.916180347623666
+        ],
+        [
+          34.86577518364899,
+          36.91881962954206
+        ]
+      ],
+      "building": {
+        "featureCount": 1,
+        "ids": [
+          3037873960
+        ],
+        "names": []
+      },
+      "local": {
+        "featureCount": 4,
+        "ids": [
+          2167609352,
+          2167502282,
+          2166314442,
+          2166313822
+        ],
+        "names": [
+          "0451. Sokak",
+          "0469. Sokak",
+          "1961. Sokak",
+          "1968. Sokak"
+        ]
+      },
+      "major": {
+        "featureCount": 0,
+        "ids": [],
+        "names": []
+      },
+      "mapErrors": []
+    }
+  ],
+  "pixelEvidence": "UNAVAILABLE: bu host ortamında PNG yakalaması tutarsız/boş; sayılar queryRenderedFeatures yerleşim ölçümüdür, cihaz piksel kanıtı değildir."
+}
