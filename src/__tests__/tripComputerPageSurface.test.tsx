@@ -184,11 +184,73 @@ describe('UNKNOWN sıfır DEĞİLDİR', () => {
     expect(has(tooShort), 'çok kısa mesafede oran üretildi').toBe(false);
   });
 
-  it('ekran: ölçülmeyen alan sayı yerine DURUM gösterir', () => {
-    renderScreen(fromActiveTrip(activeTrip(), { tankL: null }));
-    expect(valueOf('fuelUsed'), 'bilinmeyen yakıt 0 gösterildi').not.toBe('0');
-    expect(valueOf('fuelUsed')).toBe('—');
-    expect(allText()).toContain('ölçüm yok');
+  /* ── YAKIT HÜKMÜ KANONİK SAHİBİNDEN GELİR ───────────────────────────────
+     Bu iki ring, sayfanın kendi yakıt kapısını YENİDEN YAZMADIĞINI kanıtlar:
+     ikisi de yalnız `evaluateFuelMeasurement` / `fuelPercentToLitres`
+     içinde yaşayan kurallardır. Sayfa kapıları kopyalarsa buradan kaçarlar. */
+
+  it('fiziksel olarak makul olmayan tüketim ÖLÇÜM sayılmaz', () => {
+    /* 10 km'de %20 yakıt → %200/100km. Kanonik üst sınır %60/100km. */
+    const s = fromActiveTrip(activeTrip({
+      liveDistanceKm: 10,
+      metrics: { ...activeTrip().metrics, fuelAtStartPct: 80, fuelAtEndPct: 60 },
+    }), { tankL: 50 });
+    expect(has(s.metrics.fuelUsedL), 'makul olmayan tüketim ölçüm gibi sunuldu').toBe(false);
+    expect(s.metrics.fuelUsedL.source).toBe('UNAVAILABLE');
+  });
+
+  it('makul olmayan depo hacmi litre ÜRETMEZ', () => {
+    /* Depo bir ÖLÇÜM değil kullanıcı girdisidir; 20–200 L dışı girdi hatasıdır. */
+    for (const tankL of [5, 400]) {
+      const s = fromActiveTrip(activeTrip(), { tankL });
+      expect(has(s.metrics.fuelUsedL), `${tankL} L depo ile litre üretildi`).toBe(false);
+    }
+    /* Banttaki depo ile ölçüm normal akar — ring sadece sınırı sınıyor. */
+    expect(has(fromActiveTrip(activeTrip(), { tankL: 50 }).metrics.fuelUsedL)).toBe(true);
+  });
+
+  /* ── GELİŞTİRME SUNUM POLİTİKASI ────────────────────────────────────────
+     Alan ekranda KALIR ve 0 gösterir; ama bu 0 SUNUMDA üretilir. Domain
+     `null`/`UNAVAILABLE` kalmalıdır — aşağıdaki iki ring ikisini birlikte
+     kilitler, çünkü tehlike tam olarak bu ikisinin birbirine karışmasıdır. */
+
+  it('ekran: veri akmayan alan ekranda KALIR ve 0 gösterir', () => {
+    const s = fromActiveTrip(activeTrip(), { tankL: null });
+    renderScreen(s);
+    /* SUNUM: alan kaybolmaz, tire değil 0 yazar. */
+    expect(container.querySelector('[data-trip-cell="fuelUsed"]'),
+      'veri yok diye alan ekrandan kaldırıldı').not.toBeNull();
+    expect(valueOf('fuelUsed')).toBe('0,00');
+    expect(valueOf('consumption')).toBe('0,0');
+    expect(valueOf('cost')).toBe('0,00');
+  });
+
+  it('ekrandaki 0 ile GERÇEK 0 domain katmanında BİRLEŞMEZ', () => {
+    const s = fromActiveTrip(activeTrip(), { tankL: null });
+    /* DOMAIN: sayı üretilmemiştir. Sunum politikası buraya SIZMAZ. */
+    expect(s.metrics.fuelUsedL.value, 'model UNAVAILABLE yerine 0 üretti').toBeNull();
+    expect(s.metrics.fuelUsedL.source).toBe('UNAVAILABLE');
+    expect(s.metrics.estimatedCost.value).toBeNull();
+    expect(s.metrics.estimatedCost.source).toBe('UNAVAILABLE');
+
+    /* EKRAN: 0 çizer ama gerçek kaynağı gizlemez — ayrım okunabilir kalır. */
+    renderScreen(s);
+    expect(cellSource('fuelUsed')).toBe('UNAVAILABLE');
+    expect(container.querySelector('[data-trip-src="fuelUsed"]')?.textContent).toBe('veri yok');
+
+    /* Gerçekten ölçülmüş bir alan AYNI ekranda farklı kaynak taşır. */
+    expect(cellSource('maxSpeed')).toBe('MEASURED');
+  });
+
+  it('ekran: veri yoksa 0 yazılır ama oransal çizim DOLDURULMAZ', () => {
+    renderScreen(fromActiveTrip(activeTrip({ speedSum: 0, speedCount: 0 }), { tankL: null }));
+    expect(valueOf('avgSpeed')).toBe('0');
+    expect(heroSource('avgSpeed')).toBe('UNAVAILABLE');
+    /* Sayıya 0 yazmak ile çubuğu doldurmak AYNI iddia değildir. */
+    expect(container.querySelector('[data-trip-card="speed"] .tripc-band-fill'),
+      'ortalama hız ölçülmemişken hız bandı dolduruldu').toBeNull();
+    expect(container.querySelector('[data-trip-card="fuel"] .tripc-band-fill'),
+      'yakıt ölçülmemişken depo bandı dolduruldu').toBeNull();
   });
 });
 
@@ -232,18 +294,36 @@ describe('zaman bileşimi', () => {
     expect(c.totalMin).toBe(107);
   });
 
-  it('ölçüm varsa çubuk çizilir', () => {
+  it('ölçüm varsa bileşim çubuğu dolar', () => {
     renderScreen(fromActiveTrip(activeTrip(), { tankL: 50 }));
-    expect(container.querySelector('[data-trip-bar]'), 'ölçüm varken çubuk yok').not.toBeNull();
+    expect(container.querySelector('[data-trip-bar] .tripc-band-split'),
+      'ölçüm varken bileşim çubuğu boş').not.toBeNull();
   });
 
-  it('ölçüm yoksa SAHTE çubuk çizilmez', () => {
+  it('ölçüm yoksa SAHTE bileşim doldurulmaz', () => {
     const s = fromActiveTrip(activeTrip({
       metrics: { ...activeTrip().metrics, movingMs: -1, idleMs: -1, unknownMs: -1 },
     }), { tankL: 50 });
     renderScreen(s);
-    expect(container.querySelector('[data-trip-bar]'), 'ölçüm yokken sahte çubuk çizildi').toBeNull();
+    /* Alan (yuva) kalır — politika gereği; DOLGU çizilmez — kanıt gereği. */
+    expect(container.querySelector('[data-trip-bar]'), 'bileşim yuvası kaldırıldı').not.toBeNull();
+    expect(container.querySelector('[data-trip-bar] .tripc-band-split'),
+      'ölçüm yokken sahte bileşim çizildi').toBeNull();
+    expect(valueOf('movingMin'), 'ölçülemeyen hareket süresi 0 dk göstermeli').toBe('0 dk');
     expect(allText()).toContain('ölçülmedi');
+  });
+
+  it('bileşim çubuğu KRONOLOJİK sıra iddia etmez', () => {
+    renderScreen(fromActiveTrip(activeTrip(), { tankL: 50 }));
+    /* Sistem kronolojik segment tutmuyor; çubuk yalnız TOPLAM ORAN der. */
+    expect(allText()).toContain('toplam oran');
+  });
+
+  it('SÜREN yolculukta sahte bitiş saati gösterilmez', () => {
+    renderScreen(fromActiveTrip(activeTrip(), { tankL: 50 }));
+    const end = container.querySelector('[data-trip-value="endedAt"]')?.textContent ?? '';
+    expect(end, 'süren yolculukta duvar saati bitiş gibi gösterildi').toBe('sürüyor');
+    expect(end).not.toMatch(/\d{2}:\d{2}/);
   });
 });
 
@@ -395,5 +475,51 @@ describe('süre biçimi', () => {
     expect(formatDuration(42)).toBe('42 dk');
     expect(formatDuration(null)).toBeNull();
     expect(formatDuration(-1)).toBeNull();
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * EKRANDA GÖSTERİLEN YOLCULUK VERİSİ — kapsam kilidi
+ * ════════════════════════════════════════════════════════════════════════ */
+
+describe('sayfa yolculuğa ait TÜM ölçümleri gösterir', () => {
+  it('sürüş olayları ekrandadır (sert fren · ani hızlanma · duruş)', () => {
+    renderScreen(fromActiveTrip(activeTrip(), { tankL: 50 }));
+    expect(valueOf('harshBrake'), 'sert fren sayısı ekranda yok').toBe('1');
+    expect(valueOf('harshAccel'), 'ani hızlanma sayısı ekranda yok').toBe('2');
+    expect(valueOf('stopCount'), 'duruş sayısı ekranda yok').toBe('3');
+  });
+
+  it('OBD/motor telemetrisi bu sayfada GÖSTERİLMEZ', () => {
+    renderScreen(fromActiveTrip(activeTrip(), { tankL: 50 }));
+    /* Maks devir ve motor sıcaklığı ölçülmüş olsa bile OBD sayfasına aittir. */
+    expect(container.querySelector('[data-trip-value="maxRpm"]'),
+      'motor devri yolculuk sayfasına sızdı').toBeNull();
+    expect(container.querySelector('[data-trip-value="maxEngineTemp"]'),
+      'motor sıcaklığı yolculuk sayfasına sızdı').toBeNull();
+    expect(allText()).not.toContain('d/dk');
+  });
+
+  it('halka dilimleri GERÇEK zaman bileşiminden gelir', () => {
+    renderScreen(fromActiveTrip(activeTrip(), { tankL: 50 }));
+    const ring = container.querySelector('.tripc-ring');
+    expect(ring, 'halka çizilmedi').not.toBeNull();
+    /* hareket + duruş = iki dilim (ölçülemeyen 0 olduğu için çizilmez) */
+    const slices = ring!.querySelectorAll('g circle');
+    expect(slices.length, 'dilim sayısı ölçümle uyuşmuyor').toBe(2);
+  });
+
+  it('süre bileşimi ölçülmemişse halka dilimi ÇİZİLMEZ', () => {
+    renderScreen(fromActiveTrip(activeTrip({
+      metrics: { ...activeTrip().metrics, movingMs: -1, idleMs: -1, unknownMs: -1 },
+    }), { tankL: 50 }));
+    const ring = container.querySelector('.tripc-ring');
+    expect(ring!.querySelectorAll('g circle').length, 'ölçüm yokken sahte dilim çizildi').toBe(0);
+  });
+
+  it('depo hacmi varsa yakıt depoya oranla gösterilir', () => {
+    renderScreen(fromActiveTrip(activeTrip(), { tankL: 50 }));
+    expect(allText()).toContain('50 L depo');
+    expect(container.querySelector('[data-trip-card="fuel"] .tripc-band-fill')).not.toBeNull();
   });
 });

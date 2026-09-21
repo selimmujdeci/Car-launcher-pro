@@ -26,8 +26,14 @@
  *
  * ── EN ÖNEMLİ KURAL ───────────────────────────────────────────────────────
  * UNKNOWN ≠ 0 · UNSUPPORTED ≠ 0 · ESTIMATED ≠ MEASURED.
- * Ölçülmemiş hiçbir alan için sayı üretilmez; `Metric.value === null` olur
- * ve ekran sayı yerine DURUM gösterir.
+ * Ölçülmemiş hiçbir alan için BU KATMANDA sayı üretilmez;
+ * `Metric.value === null` ve `Metric.source === 'UNAVAILABLE'` olur.
+ *
+ * Yolculuk bilgisayarı ekranı, geliştirme döneminde veri akmayan alanı
+ * ekranda tutup 0 çizer — fakat bu karar YALNIZ SUNUM KATMANINDADIR
+ * (`TripComputerScreen`). Buraya sızmaz: gerçek bir 0 ile veri yokluğu
+ * domain'de aynı değere indirgenirse hangi toplama zincirinin çalışmadığı
+ * bir daha ayırt edilemez.
  */
 
 import {
@@ -35,6 +41,11 @@ import {
   type Metric, type MetricSource, type TripMetrics,
 } from '../../platform/trip/tripCanonicalModel';
 import { toCanonicalTripSummary } from '../../platform/trip/tripLifecycle';
+/* Yakıt hükmünün TEK sahibi akümülatördür; kapılar burada YENİDEN YAZILMAZ. */
+import {
+  evaluateFuelMeasurement, fuelPercentToLitres,
+  type TripMetricsAccumulator,
+} from '../../platform/trip/tripMetricsAccumulator';
 import type { TripRecord, TripState } from '../../platform/tripLogService';
 
 /** Sayfanın hangi yolculuğu gösterdiği — sekme YOKTUR, durum tek. */
@@ -57,6 +68,11 @@ export interface TripComputerState {
   readonly currency: string | null;
   /** Fiyatın nereden geldiği (LAB/şeffaflık) — bilinmiyorsa `null`. */
   readonly priceSource: string | null;
+  /**
+   * Yapılandırılmış depo hacmi (L) — ÖLÇÜM DEĞİL, araç profili ayarı.
+   * Ekran yakıtı depoya oranla gösterirken bunu kullanır; yoksa oran çizilmez.
+   */
+  readonly tankL: number | null;
 }
 
 export const EMPTY_TRIP_COMPUTER: TripComputerState = Object.freeze({
@@ -66,6 +82,7 @@ export const EMPTY_TRIP_COMPUTER: TripComputerState = Object.freeze({
   endedAtMs: null,
   currency: null,
   priceSource: null,
+  tankL: null,
 });
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -106,18 +123,11 @@ export interface ActiveTripView {
   readonly obdDistanceKm: number;
   readonly harshBrakeEvents: number;
   readonly harshAccelEvents: number;
-  readonly metrics: {
-    readonly movingMs: number;
-    readonly idleMs: number;
-    readonly unknownMs: number;
-    readonly stopCount: number;
-    readonly maxRpm: number | null;
-    readonly maxEngineTempC: number | null;
-    readonly fuelAtStartPct: number | null;
-    readonly fuelAtEndPct: number | null;
-    readonly refuelSuspected: boolean;
-    readonly obdContinuityBroken: boolean;
-  };
+  /**
+   * Canlı akümülatör. `evaluateFuelMeasurement` TAM kaydı ister (gerekçe
+   * ayrımı için örnek sayaçlarını da okur), bu yüzden tip daraltılmaz.
+   */
+  readonly metrics: TripMetricsAccumulator;
   readonly price: {
     readonly unitPrice: number | null;
     readonly currency: string | null;
@@ -147,21 +157,23 @@ export function fromActiveTrip(a: ActiveTripView, fuel: TripFuelConfig): TripCom
 
   const avgFromSamples = a.speedCount > 0 ? a.speedSum / a.speedCount : null;
 
-  /* Yakıt: ÖLÇÜLEN yüzde farkı + YAPILANDIRILMIŞ depo → litre (DERIVED). */
+  /* ── YAKIT: HÜKÜM KANONİK SAHİBİNDEN GELİR ───────────────────────────
+     `evaluateFuelMeasurement` şu kapıları uygular ve hiçbiri burada
+     tekrarlanmaz: başlangıç/bitiş okuması, yakıt alma şüphesi, OBD
+     sürekliliği, NEGATİF fark, mesafesiz makullük sınaması ve
+     %/100km fiziksel üst sınırı. `fuelPercentToLitres` ayrıca depo
+     kapasitesini 20–200 L makullük bandında sınar (kullanıcı girdisi
+     doğrulanmamıştır). Yüzde ÖLÇÜLENDİR; litre DERIVED'dır. */
   let fuelUsedL: Metric = UNAVAILABLE_METRIC;
   let estimatedCost: Metric = UNAVAILABLE_METRIC;
-  const pctUsed = m.fuelAtStartPct !== null && m.fuelAtEndPct !== null
-    ? m.fuelAtStartPct - m.fuelAtEndPct
-    : null;
-  const fuelGatesOpen = pctUsed !== null && pctUsed >= 0
-    && !m.refuelSuspected && !m.obdContinuityBroken
-    && fuel.tankL !== null && fuel.tankL > 0;
-
-  if (fuelGatesOpen) {
-    const liters = (pctUsed! / 100) * fuel.tankL!;
-    fuelUsedL = metric(Math.round(liters * 100) / 100, 'DERIVED');
-    if (a.price.unitPrice !== null && a.price.unitPrice >= 0) {
-      estimatedCost = metric(Math.round(liters * a.price.unitPrice * 100) / 100, 'DERIVED');
+  const verdict = evaluateFuelMeasurement(m, a.liveDistanceKm);
+  if (verdict.measured) {
+    const liters = fuelPercentToLitres(verdict.usedPercent, fuel.tankL);
+    if (liters !== null) {
+      fuelUsedL = metric(liters, 'DERIVED');
+      if (a.price.unitPrice !== null && a.price.unitPrice >= 0) {
+        estimatedCost = metric(Math.round(liters * a.price.unitPrice * 100) / 100, 'DERIVED');
+      }
     }
   }
 
@@ -190,6 +202,7 @@ export function fromActiveTrip(a: ActiveTripView, fuel: TripFuelConfig): TripCom
     endedAtMs: null,
     currency: a.price.currency,
     priceSource: a.price.source === 'UNAVAILABLE' ? null : a.price.source,
+    tankL: fuel.tankL,
   });
 }
 
@@ -208,6 +221,8 @@ export function fromCompletedRecord(r: TripRecord): TripComputerState {
     endedAtMs: Number.isFinite(r.endTime) && r.endTime > 0 ? r.endTime : null,
     currency: r.currency ?? null,
     priceSource: r.priceSource ?? null,
+    /* Tamamlanmış kayıtta depo hacmi saklanmaz — oran çizilmez. */
+    tankL: null,
   });
 }
 
