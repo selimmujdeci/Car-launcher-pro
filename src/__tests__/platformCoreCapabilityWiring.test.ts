@@ -65,6 +65,18 @@ const SRC_DIR = join(process.cwd(), 'src');
 const WIRING_SRC = readFileSync(join(SRC_DIR, 'platform', 'system', 'platformCoreCapabilityWiring.ts'), 'utf8');
 const SYSTEMBOOT_SRC = readFileSync(join(SRC_DIR, 'platform', 'system', 'SystemBoot.ts'), 'utf8');
 
+/**
+ * Blok/satır yorumlarını çıkarır — kaynak-metin guard testleri docblock'un AÇIKLAYICI
+ * örnek kodunu (ör. dosya başlığındaki "probes: { localModel }" akış şeması) yanlış-pozitif
+ * olarak yakalamasın diye yalnız GERÇEK KOD gövdesi taranır.
+ */
+function stripComments(src: string): string {
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '');
+}
+const WIRING_CODE = stripComments(WIRING_SRC);
+
 /** Aktif wiring kaydı testler arası SIZMASIN (tek-instance guard modül düzeyinde). */
 const _open: Array<() => void> = [];
 function start(deps: CapabilityWiringDeps = {}) {
@@ -307,8 +319,20 @@ describe('PR-W3 wiring — kapsam sınırı', () => {
     expect(WIRING_SRC).toMatch(/capabilityRegistry/);
   });
 
-  it('28) probe DI GEÇİLMEZ (en küçük kapsam: yalnız navigator+deviceTier kanıtı)', () => {
-    expect(WIRING_SRC).not.toMatch(/probes\s*:/);
+  it('28) HYBRID-F3 · YALNIZ ai.local_model probe\'u geçilir — başka HİÇBİR probe BAĞLANMAZ', () => {
+    // En küçük kapsam KORUNUR: `probes` bloğu VARDIR ama tek anahtarı `localModel`dir.
+    // Yorumlardan arındırılmış KOD gövdesi taranır (docblock'taki örnek akış şeması hariç).
+    const probesBlockMatch = WIRING_CODE.match(/probes:\s*\{([^}]*)\}/);
+    expect(probesBlockMatch, 'probes bloğu bulunamadı').not.toBeNull();
+    const probesBlock = probesBlockMatch![1];
+    expect(probesBlock).toMatch(/localModel\s*:/);
+    for (const other of [
+      'secureStorage', 'aiProvider', 'offlineCommands', 'offlineConversation',
+      'safetyKernel', 'deepScan', 'vehicleLearning', 'assistantContext', 'ota',
+      'offlineMap', 'offlineRouting', 'pushNotifications', 'cloudCommands',
+    ]) {
+      expect(probesBlock, `yasaklı probe bağlandı: ${other}`).not.toMatch(new RegExp(`\\b${other}\\s*:`));
+    }
   });
 });
 

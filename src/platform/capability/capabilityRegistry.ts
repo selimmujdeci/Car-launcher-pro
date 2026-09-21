@@ -489,7 +489,7 @@ export function resolveCapabilityState(
 
 export class CapabilityRegistry {
   private readonly _now: () => number;
-  private readonly _tierProvider: () => DeviceTier;
+  private _tierProvider: () => DeviceTier;
   private readonly _staleMs: number;
 
   private _caps = new Map<string, CapabilityRecord>();
@@ -516,6 +516,34 @@ export class CapabilityRegistry {
 
   private _tier(): DeviceTier {
     try { return _tier(this._tierProvider()); } catch { return 'low'; }
+  }
+
+  /**
+   * HYBRID-F3 · DeviceTier kaynağını KURULUM SONRASI değiştirir.
+   *
+   * ── NEDEN VAR (kanıtlanmış bug) ────────────────────────────────────────────
+   * `capabilityRegistry` (dosya sonu) modül YÜKLENİRKEN `new CapabilityRegistry()`
+   * — deps'SİZ — oluşturulan bir SINGLETON'dır; constructor'daki `deviceTier` DI
+   * noktası (yukarı bkz.) o ANDA `undefined` kalır ve `_tierProvider` SABİT
+   * `'low'`'a düşer (constructor: `dt ?? 'low'`). Sonuç: `deviceTierMinimum`
+   * kısıtlı HER capability (`ai.local_model` dahil) singleton üzerinde HİÇBİR
+   * ZAMAN gerçek cihaz sınıfını GÖRMEZ — provider `available:true` dese BİLE
+   * `TIER_RANK['low'] < TIER_RANK[def.deviceTierMinimum]` HER ZAMAN doğru çıkar
+   * ve sonuç `restricted`'de KİLİTLİ KALIR. Bu İKİNCİ BİR KARAR MANTIĞI DEĞİLDİR
+   * (yeni otorite kurulmadı) — VAR OLAN TEK DI noktasının kurulum zamanında hiç
+   * BESLENMEMİŞ olmasıdır. Bu metod o boşluğu, WIRING katmanının (`platformCore
+   * CapabilityWiring.ts`) gerçek `getDeviceTier()`'ı bağlayabilmesi için açar.
+   *
+   * ── OTORİTE KORUNUR ─────────────────────────────────────────────────────────
+   * Karar mantığı (`resolveCapabilityState`, `TIER_RANK` karşılaştırması)
+   * DEĞİŞMEZ — yalnız `_tier()`in OKUDUĞU kaynak güncellenir. `deviceCapabilities.
+   * getDeviceTier()` TEK cihaz sınıfı otoritesi olarak KALIR; bu dosya onu
+   * ÇAĞIRMAZ/KOPYALAMAZ, yalnız bir FONKSİYON REFERANSI kabul eder (constructor'daki
+   * `deviceTier?: () => DeviceTier` deseniyle AYNI — "yalnız type-only import"
+   * ilkesi bozulmaz, `deviceCapabilities` value-import EDİLMEZ).
+   */
+  setDeviceTierProvider(provider: () => DeviceTier): void {
+    if (typeof provider === 'function') this._tierProvider = provider;
   }
 
   private _seedDefinition(d: CapabilityDefinition): void {

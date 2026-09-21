@@ -25,6 +25,7 @@ import { getGpuRenderer } from '../../utils/detectWeakGpu';
 import { useHALStatusStore } from '../../platform/vehicleDataLayer/halStatusStore';
 import { getPushStatus } from '../../platform/pushService';
 import { decideLocalModelEligibility } from '../../platform/ai/local/localModelEligibility';
+import { capabilityRegistry } from '../../platform/capability/capabilityRegistry';
 
 /* Bu sözlük PUSH-TO-WAKE durumunu anlatır; "Play Services" başlığı yanıltıcıydı:
    `denied`/`unpaired`/`unregistered` Play Services ile ilgili DEĞİLDİR ve
@@ -116,6 +117,15 @@ export function DeviceDiagnosticCard() {
   // Bu fazda gerçek runtime/model YOK — sabit `false` (HYBRID-F5/F6'da gerçek kanıtla değişir).
   const localModelCapability = localModelCapabilityLabel(localEligibility.status, false, false);
 
+  /* HYBRID-F3 · GERÇEK Capability Registry sonucu — bu kart burada YENİ HÜKÜM
+     ÜRETMEZ, yalnız `platformCoreCapabilityWiring`in beslediği singleton'ı OKUR.
+     Wiring henüz refresh'i tamamlamadıysa (async, fire-and-forget) veya web/demo
+     modundaysa kayıt `unknown`/`null` kalabilir — bu bir hata DEĞİL, dürüst bir
+     "henüz ölçülmedi" durumudur (sahte sonuç ÜRETİLMEZ). Yalnız mount anında BİR
+     KEZ okunur (subscribe YOK — kartı yeniden açmak günceller). */
+  const registryRecord = capabilityRegistry.getCapability('ai.local_model');
+  const registryLabel  = registryRecord ? registryRecord.status.toUpperCase() : 'UNKNOWN (henüz ölçülmedi)';
+
   // Kopyalanabilir / fotoğraflanabilir düz metin — sahaya çıkan tek veri.
   const report = [
     `CarOS Pro v${version}`,
@@ -129,9 +139,12 @@ export function DeviceDiagnosticCard() {
        Native profil yoksa (eski APK/web) alanlar `undefined` → 'bilinmiyor'. */
     `Boş RAM     : ${resEv?.availMemMb ? resEv.availMemMb + 'MB' : 'bilinmiyor'}  ·  Depolama: ${resEv?.usableStorageMb ? Math.round(resEv.usableStorageMb / 1024 * 10) / 10 + 'GB boş' : 'bilinmiyor'}`,
     `ABI         : ${resEv?.supportedAbis?.length ? resEv.supportedAbis.join(', ') : 'bilinmiyor'}`,
-    /* HYBRID-F2 · ai.local_model: DEVICE ELIGIBILITY (F1) ile RUNTIME AVAILABILITY
-       AYRI sorulardır — eligible olmak capability'yi AVAILABLE yapmaz. */
+    /* HYBRID-F2/F3 · ai.local_model: DEVICE ELIGIBILITY (F1) ile RUNTIME AVAILABILITY
+       AYRI sorulardır — eligible olmak capability'yi AVAILABLE yapmaz. `Registry`
+       satırı GERÇEK `capabilityRegistry` sonucudur (F3 wiring) — bu kart onu YALNIZ
+       OKUR, kendi hesapladığı `localModelCapability` ile karşılaştırılabilir tutulur. */
     `ai.local_model: ${localModelCapability} — eligibility ${localEligLabel}${localEligReason} · runtime: absent · model: not_loaded`,
+    `  ↳ Registry (gerçek wiring sonucu): ${registryLabel}`,
     `Ekran       : ${w}×${h} @${dpr}x (${orient})`,
     `Modül worker: ${yn(modWkr)}  ·  SAB: ${yn(c.hasWorkerSAB)}`,
     `Özellikler  : WebGL ${yn(c.supportsWebGL)} · backdrop ${yn(c.supportsBackdropFilter)} · dvh ${yn(c.supportsDvh)} · @layer ${yn(c.supportsCssLayer)}`,

@@ -1,21 +1,33 @@
 /**
- * platformCoreCapabilityWiring — Capability Registry RUNTIME WIRING (PR-W3).
+ * platformCoreCapabilityWiring — Capability Registry RUNTIME WIRING (PR-W3 + HYBRID-F3).
  *
  * AMAÇ: Daha önce foundation olarak hazırlanmış Capability Provider Adapter + runtime
  * provider'ları, ilk kez gerçek `capabilityRegistry` singleton'ına — SALT-OKUNUR AYNA
  * MODUNDA — bağlar. Zincir:
  *
- *   createRuntimeCapabilityProviders({ env: { navigator, deviceTier } })  (gerçek browser-API kanıtı)
- *     → createCapabilityProviderAdapter({ registry, providers })          (kanıt → registry.resolveCapability)
- *     → capabilityRegistry                                                (singleton; kimse tüketmez — migrasyon AYRI PR)
+ *   deviceCapabilities (getDeviceTier/getNativeResourceEvidence)   (kanonik cihaz kanıtı, F0)
+ *     → decideLocalModelEligibility()                              (kanonik eligibility, F1)
+ *     → createRuntimeCapabilityProviders({ env, probes: { localModel } })  (kanıt → provider)
+ *     → createCapabilityProviderAdapter({ registry, providers })   (provider → registry.resolveCapability)
+ *     → capabilityRegistry                                         (singleton, PAYLAŞILAN)
  *
- * EN KÜÇÜK GÜVENLİ AKTİVASYON (bilinçli kapsam): YALNIZ yan-etkisiz, salt-okunur
- * browser-API + `deviceTier` kanıtı bağlanır (device.gps/microphone/bluetooth/wifi/cellular,
- * navigation.gps). PROBE-TABANLI provider'lar (secureStorage / AI BYOK config / modül
- * runtime hazırlığı / offline map-routing) BİLİNÇLİ OLARAK BAĞLANMAZ → ilgili capability'ler
- * Registry'de `unknown` KALIR (dürüst boşluk, zero-trust). Bu, yeni yan etki / yeni modül
- * import'u / native çağrı eklemeden en küçük gerçek-kanıt akışını sağlar; gerçek probe'lar
- * sonraki PR'da eklenir (foundation'ın tasarımı da bu — `runtimeCapabilityProviders` probe DI).
+ * EN KÜÇÜK GÜVENLİ AKTİVASYON (bilinçli kapsam, PR-W3): yan-etkisiz, salt-okunur browser-API +
+ * `deviceTier` kanıtı bağlanır (device.gps/microphone/bluetooth/wifi/cellular, navigation.gps).
+ * PROBE-TABANLI provider'lardan YALNIZ `ai.local_model` (HYBRID-F3) bağlanır — o da hiçbir yeni
+ * ölçüm/native çağrı EKLEMEZ, yalnız ZATEN VAR OLAN F0 (`deviceCapabilities`) + F1
+ * (`localModelEligibility`) kanonik kanıtını `runtimeCapabilityProviders`'a AKTARIR. Diğer
+ * probe-tabanlı provider'lar (secureStorage / AI BYOK config / modül runtime hazırlığı /
+ * offline map-routing) BİLİNÇLİ OLARAK BAĞLANMAZ → ilgili capability'ler Registry'de `unknown`
+ * KALIR (dürüst boşluk, zero-trust); onlar AYRI PR'ların kapsamıdır.
+ *
+ * ── HYBRID-F3 · TIER OTORİTE DÜZELTMESİ (kanıtlanmış bug) ──────────────────────────────────
+ * `capabilityRegistry` singleton'ı `deviceTier` DI'sı OLMADAN oluşturulduğu için `_tierProvider`
+ * SABİT `'low'`a düşüyordu (bkz. `capabilityRegistry.ts` `setDeviceTierProvider` docblock'u) —
+ * `deviceTierMinimum` kısıtlı HER capability (`ai.local_model` dahil) provider `available` dese
+ * BİLE ASLA `available` OLAMIYORDU (hep `restricted`). Bu İKİNCİ bir karar mantığı DEĞİLDİ —
+ * VAR OLAN TEK DI noktasının hiç BESLENMEMİŞ olmasıydı. Bu wiring artık singleton'a GERÇEK
+ * `getDeviceTier()`'ı bağlar (`registry.setDeviceTierProvider(...)`) — Registry'nin karar
+ * kuralları (TIER_RANK karşılaştırması) DEĞİŞMEDİ, yalnız okuduğu kaynak DOĞRU hale geldi.
  *
  * NE YAPMAZ (bilinçli — PR-W3 yalnız Registry kanıt girişini aktive eder):
  *  - Event Bus'a YAYINLAMAZ · Deep Scan'i BAĞLAMAZ · Platform Kernel'e servis KAYDETMEZ ·
@@ -23,6 +35,8 @@
  *    AÇMAZ · Registry KARAR KURALLARINI değiştirmez (yalnız kanıt besler; status'ü Registry çözer).
  *  - Registry/adapter/provider'ı DOĞRUDAN import etse de yapıcılar YAN ETKİSİZDİR — `start...()`
  *    çağrılana dek hiçbir provider okunmaz, Registry beslenmez, navigator'a dokunulmaz.
+ *  - `ai.local_model` probe'u model YÜKLEMEZ, runtime BAŞLATMAZ, inference routing DEĞİŞTİRMEZ —
+ *    `runtimeAvailable`/`modelLoaded` bu fazda SABİT `false` (gerçek runtime/model henüz yok).
  *
  * TEK INSTANCE (duplicate/HMR koruması): modül-düzeyi `_active` kaydı → wiring AKTİFKEN ikinci
  * `start...()` çağrısı YENİ adapter OLUŞTURMAZ (no-op cleanup döner). Bayat kayıt (adapter
@@ -30,6 +44,8 @@
  *
  * SAHİPLİK: adapter bu wiring'e aittir (cleanup'ta dispose edilir). `capabilityRegistry`
  * PAYLAŞILAN modül singleton'ıdır → cleanup Registry'yi DISPOSE ETMEZ (çift-dispose yok).
+ * `setDeviceTierProvider` çağrısı da Registry'yi DISPOSE ETMEZ/sıfırlamaz — yalnız gelecek
+ * `_tier()` okumalarını etkiler (cleanup'ta GERİ ALINMAZ, çünkü singleton PAYLAŞILAN kalır).
  *
  * FAIL-SOFT: başlatma dışarı EXCEPTION KAÇIRMAZ — init hatası bir kez `logError` ile kaydedilir
  * ve güvenli no-op cleanup döner (ham kanıt/anahtar/PII LOGLANMAZ). ZERO-LEAK: cleanup adapter'ı
@@ -45,9 +61,11 @@ import {
   type CapabilityProvider,
   type CapabilityRegistryTarget,
   type NavigatorLike,
+  type LocalModelEvidence,
 } from '../capability';
-import { getDeviceTier } from '../deviceCapabilities';
+import { getDeviceTier, getNativeResourceEvidence } from '../deviceCapabilities';
 import type { DeviceTier } from '../deviceCapabilities';
+import { decideLocalModelEligibility } from '../ai/local/localModelEligibility';
 
 /** Wiring bağımlılıkları — hepsi opsiyonel (test enjeksiyonu); üretimde güvenli varsayılanlar. */
 export interface CapabilityWiringDeps {
@@ -109,17 +127,63 @@ export function startPlatformCoreCapabilityWiring(deps: CapabilityWiringDeps = {
     if (_active) return NOOP_CLEANUP;
 
     const registry: CapabilityRegistryTarget = deps.registry ?? capabilityRegistry;
+    const tierSnapshot: DeviceTier = deps.deviceTier ?? getDeviceTier();
+
+    /* HYBRID-F3 · TIER OTORİTE DÜZELTMESİ: yalnız GERÇEK singleton kullanılıyorsa (test'te
+     * DI edilen izole registry DEĞİL) `_tierProvider`ı GERÇEK `getDeviceTier()`'a bağla.
+     * `deps.deviceTier` sabit verilmişse (test/gelecekteki DI) o SABİT değeri kapsayan bir
+     * fonksiyon verilir — Registry'nin kendi kararı hâlâ TEK kaynaktan (bu wiring'in gördüğü
+     * AYNI tier) beslenir, ikinci bir tier hesaplaması KURULMAZ. Registry'yi dispose ETMEZ,
+     * cleanup'ta GERİ ALINMAZ (singleton PAYLAŞILAN kalır — dosya başlığına bkz.). */
+    if (registry === capabilityRegistry) {
+      capabilityRegistry.setDeviceTierProvider(
+        deps.deviceTier !== undefined ? () => deps.deviceTier as DeviceTier : getDeviceTier,
+      );
+    }
+
+    /**
+     * HYBRID-F3 · `ai.local_model` kanıt köprüsü. YENİ ölçüm/eligibility hesabı YAPMAZ:
+     * F0 (`getNativeResourceEvidence`) + F1 (`decideLocalModelEligibility`) kanonik zincirini
+     * OLDUĞU GİBİ okuyup `LocalModelEvidence`'a çevirir. `runtimeAvailable`/`modelLoaded`
+     * bu fazda SABİT `false`'tur (gerçek runtime/model YOK) — F5/F6'da gerçek kanıtla
+     * değiştirilecek TEK NOKTA burasıdır (provider/Registry sözleşmesi DEĞİŞMEZ).
+     */
+    const localModelProbe = (): LocalModelEvidence | null => {
+      try {
+        const resEv = getNativeResourceEvidence();
+        const eligibility = decideLocalModelEligibility({
+          deviceTier:      tierSnapshot,
+          isLowRamDevice:  resEv?.isLowRamDevice,
+          supportedAbis:   resEv?.supportedAbis,
+          totalRamMb:      resEv?.totalRamMb,
+          availMemMb:      resEv?.availMemMb,
+          usableStorageMb: resEv?.usableStorageMb,
+          cpuCoreCount:    resEv?.cpuCoreCount,
+          sdkInt:          resEv?.sdkInt,
+        });
+        return {
+          eligibilityStatus: eligibility.status,
+          eligibilityReason: eligibility.status !== 'eligible' ? eligibility.reason : undefined,
+          runtimeAvailable:  false,
+          modelLoaded:       false,
+        };
+      } catch {
+        return null;   // fail-soft → capability unknown (adapter zaten ayrıca try/catch sarar)
+      }
+    };
 
     // Provider'lar: test override YOKSA navigator + deviceTier'dan gerçek browser-API
-    // provider'ları üretilir (probe DI GEÇİLMEZ → yalnız yan-etkisiz kanıt; en küçük kapsam).
-    // Fabrika YAN ETKİSİZ: navigator yalnız adapter `read()`'inde okunur.
+    // provider'ları + `ai.local_model` (HYBRID-F3) üretilir. Diğer probe'lar BİLİNÇLİ
+    // OLARAK geçilmez (dosya başlığı — en küçük kapsam korunur). Fabrika YAN ETKİSİZ:
+    // navigator/probe yalnız adapter `read()`'inde okunur.
     const providers: readonly CapabilityProvider[] = deps.providers ?? createRuntimeCapabilityProviders({
       env: {
         navigator: 'navigator' in deps
           ? deps.navigator
           : (typeof navigator !== 'undefined' ? (navigator as unknown as NavigatorLike) : null),
-        deviceTier: deps.deviceTier ?? getDeviceTier(),
+        deviceTier: tierSnapshot,
       },
+      probes: { localModel: localModelProbe },
     });
 
     adapter = createCapabilityProviderAdapter({
