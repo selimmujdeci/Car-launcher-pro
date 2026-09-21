@@ -285,9 +285,9 @@ export function buildNavigationCoreCards(s: NavigationCoreRawSnapshot): readonly
         note: 'Atlanan sayısı = her rotada boşuna beklenmeyen istek adedi.', updatedAt: null },
         `${s.provider.localProbeCount} / ${s.provider.localSkippedCount}`),
       s.onlineHint != null
-        ? observed({ id: 'pv-online', label: 'Çevrimiçi ipucu', source: 'navigator.onLine',
+        ? observed({ id: 'pv-online', label: 'Çevrimiçi ipucu', source: 'ConnectivityAuthority',
             note: '', updatedAt: null }, s.onlineHint ? 'EVET' : 'HAYIR')
-        : unavailable({ id: 'pv-online', label: 'Çevrimiçi ipucu', source: 'navigator.onLine', note: '' }),
+        : unavailable({ id: 'pv-online', label: 'Çevrimiçi ipucu', source: 'ConnectivityAuthority', note: '' }),
       observed({ id: 'pv-source', label: 'Son kullanılan kaynak', source: 'routeProviderReadiness',
         note: '', updatedAt: null }, ROUTE_SOURCE_LABEL[s.provider.lastSource]),
       s.serverUsed

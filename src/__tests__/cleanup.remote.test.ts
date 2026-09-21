@@ -43,17 +43,25 @@ import {
   startRemoteCommands, stopRemoteCommands, acknowledgeCommand,
 } from '../platform/remoteCommandService';
 import { spyEventTarget } from './sim/leakHarness';
+/* CONNECTIVITY F7-B: `remoteCommandService` artik tarayicinin `online` olayini
+   DINLEMEZ — kanonik `ConnectivityAuthority`ye abone olur (ikinci ag gozlemcisi
+   yok). Sizinti kilidi AYNEN gecerlidir; yalnizca SAYILAN abonelik degisti. */
+import { getConnectivityTelemetry } from '../platform/connectivity/connectivityAuthority';
 
 afterEach(() => { stopRemoteCommands(); vi.clearAllMocks(); });
 
 describe('T3 — remoteCommandService cleanup', () => {
-  it('start → window online listener eklenir; stop sonrası kaldırılır', async () => {
+  it('start → kanonik bağlantı aboneliği eklenir; stop sonrası sökülür', async () => {
     const win = spyEventTarget(window);
+    const before = getConnectivityTelemetry().subscriberCount;
     try {
       await startRemoteCommands();
-      expect(win.active('online')).toBe(1);
+      expect(getConnectivityTelemetry().subscriberCount - before).toBe(1);
+      /* Tarayıcı `online` olayı ARTIK dinlenmiyor. */
+      expect(win.active('online')).toBe(0);
 
       stopRemoteCommands();
+      expect(getConnectivityTelemetry().subscriberCount - before).toBe(0);
       expect(win.active('online')).toBe(0);
     } finally {
       win.restore();
@@ -62,11 +70,13 @@ describe('T3 — remoteCommandService cleanup', () => {
 
   it('stop idempotent ve listener kalıntısı bırakmaz', async () => {
     const win = spyEventTarget(window);
+    const before = getConnectivityTelemetry().subscriberCount;
     try {
       await startRemoteCommands();
       stopRemoteCommands();
       stopRemoteCommands();
       expect(win.active('online')).toBe(0);
+      expect(getConnectivityTelemetry().subscriberCount - before).toBe(0);
     } finally {
       win.restore();
     }

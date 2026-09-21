@@ -37,9 +37,21 @@ function codeOnly(src: string): string {
 }
 
 const MIGRATED = [
-  { file: 'src/platform/mapSourceStore.ts', taskId: 'mapSource.ping' },
   { file: 'src/platform/deviceApi.ts', taskId: 'device.statusPoll' },
   { file: 'src/platform/passengerService.ts', taskId: 'passenger.stateSync' },
+];
+
+/**
+ * F2'de ARM'e TAŞINAN, F7-B'de tamamen KALDIRILAN görevler.
+ *
+ * `mapSource.ping` 30 sn'de bir OSM'ye HEAD atıp `isOnline` üretiyordu; yani
+ * ikinci bir bağlantı gerçeğiydi. Kanonik `ConnectivityAuthority` aynı soruyu
+ * olay tabanlı ve probsuz yanıtladığı için görev silindi. Bütçelenen bir
+ * uyanma, silinen bir uyanmadan daha iyi DEĞİLDİR — bu yüzden kilit
+ * "ARM'de mi?" yerine "gerçekten yok mu?" sorusuna geçti.
+ */
+const REMOVED_IN_F7B = [
+  { file: 'src/platform/mapSourceStore.ts', taskId: 'mapSource.ping' },
 ];
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -81,6 +93,23 @@ describe('ARCH-06/F2/A · ARM’e taşınan görevler', () => {
     for (const { file } of MIGRATED) {
       expect(readFileSync(file, 'utf8'), file).toContain('deferIdle: true');
     }
+  });
+
+  it.each(REMOVED_IN_F7B)('A6 — $taskId KALDIRILDI: kaynakta hiçbir zamanlayıcı kaydı yok', ({ file, taskId }) => {
+    const raw  = readFileSync(file, 'utf8');
+    const code = codeOnly(raw);
+    /* Ne ARM kaydı, ne ham timer — görev gerçekten yok. */
+    expect(code, file).not.toMatch(/runtimeManager\.scheduleTask\(/);
+    expect(code, file).not.toMatch(/setInterval\(|setTimeout\(/);
+    expect(raw, file).not.toContain(`id: '${taskId}'`);
+  });
+
+  it.each(REMOVED_IN_F7B)('A7 — $taskId envanterde SİLİNDİ olarak işaretli', ({ taskId }) => {
+    const d = timerDescriptors().find((t) => t.timerId === taskId);
+    expect(d, taskId).toBeDefined();
+    expect(d?.onArmWheel, taskId).toBe(false);
+    expect(d?.decision, taskId).toBe('DELETE_IF_REDUNDANT');
+    expect(d?.rationale, taskId).toMatch(/KALDIRILDI|kaldırıldı/);
   });
 });
 
@@ -186,11 +215,13 @@ describe('ARCH-06/F2/C · envanter tutarlılığı', () => {
   });
 
   it('C7 — ARM wheel sahip sayısı taşımalarla ARTTI', () => {
-    /* F1'de 12 alan wheel'i kullanıyordu; F2 üç görev daha ekledi.
+    /* F1'de 12 alan wheel'i kullanıyordu; F2 üç görev daha ekledi. Bunlardan
+       biri (`mapSource.ping`) F7-B'de tamamen SİLİNDİ — silinen bir görev
+       bütçelenen bir görevden daha iyidir, bu yüzden taban 2'ye indi.
        Bu sayı envanterin BİLDİRİMİDİR — gerçek kayıt A1 ile kanıtlanır. */
     expect(armWheelOwners().length).toBeGreaterThanOrEqual(12);
     const onWheel = timerDescriptors().filter((t) => t.onArmWheel).length;
-    expect(onWheel).toBeGreaterThanOrEqual(3);
+    expect(onWheel).toBeGreaterThanOrEqual(2);
   });
 });
 

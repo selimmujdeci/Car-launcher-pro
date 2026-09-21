@@ -165,7 +165,7 @@ export function deriveMinimalSections(snapshot: HalSnapshotLike): TriageSections
  * HAL snapshot + identity → VehicleContextInput. Yalnız SAYISAL sinyaller bağlama girer
  * (boolean kontak ayrı tutulur); anahtarlar 'vehicle.' önekinden arındırılır. Fingerprint
  * yalnız identity.supported iken taşınır (HAM VIN assembleVehicleContext'te ayrıca reddedilir).
- * @param online navigator.onLine (wiring enjekte eder — bu saf modül tarayıcıya bakmaz).
+ * @param online kanonik bağlantı izni (wiring enjekte eder — bu saf modül tarayıcıya bakmaz).
  */
 export function halSnapshotToContextInput(
   snapshot: HalSnapshotLike,

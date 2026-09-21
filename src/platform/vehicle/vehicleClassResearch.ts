@@ -193,7 +193,7 @@ export const RESEARCH_TIMEOUT_MS = 8_000;
 export interface ResearchDeps {
   readonly fetchFn: typeof fetch;
   readonly nowMs: number;
-  /** `navigator.onLine` — `null` = bilinmiyor (engelleme yapılmaz). */
+  /** Kanonik erişilebilirlik gözlemi — `null` = bilinmiyor (engelleme yapılmaz). */
   readonly online: boolean | null;
   /** Backend proxy tabanı; boş/`null` → `BLOCKED_NO_BACKEND`. */
   readonly backendBase: string | null;

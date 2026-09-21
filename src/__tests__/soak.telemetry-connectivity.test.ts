@@ -38,6 +38,10 @@ vi.mock('../platform/debug', () => ({ logInfo: vi.fn(), logError: vi.fn(), logWa
 import { telemetryService } from '../platform/telemetryService';
 import { pushVehicleEvent } from '../platform/vehicleIdentityService';
 import { connectivityService } from '../platform/connectivityService';
+import { ingestConnectivityEvidence, _resetConnectivityAuthorityForTest }
+  from '../platform/connectivity/connectivityAuthority';
+import { evidenceFromCapacitorNetwork } from '../platform/connectivity/connectivityEvidence';
+
 import type { VehicleState } from '../platform/vehicleDataLayer/types';
 import type { VehicleSignalResolver } from '../platform/vehicleDataLayer/VehicleSignalResolver';
 import {
@@ -199,12 +203,27 @@ describe('T4 — telemetry endurance (PART A)', () => {
    PART B — connectivityService endurance (in-memory IDB shim)
 ═══════════════════════════════════════════════════════════════════════════ */
 
+
+/* ── CONNECTIVITY F7-B ───────────────────────────────────────────────────────
+ * `connectivityService` artik kendi ag gozlemcisini ACMAZ; kanonik
+ * `ConnectivityAuthority`nin tuketicisidir. Bu yuzden testler bagliligi
+ * Capacitor mock'u yerine KANIT yutarak surer. Test NIYETI ayni:
+ * "offline → kuyruk", "reconnect → drain".
+ */
+function setNet(connected: boolean): void {
+  net.connected = connected;
+  ingestConnectivityEvidence(evidenceFromCapacitorNetwork({
+    connected, transport: 'WIFI', observedAt: Date.now(),
+  }));
+}
+
 describe('T4 — connectivity endurance (PART B)', () => {
   let idb: { clear: () => void };
 
   beforeEach(() => {
     idb = installFakeIDB();
-    net.connected = true;
+    _resetConnectivityAuthorityForTest();
+    setNet(true);
     net.cb = null;
     globalThis.fetch = vi.fn(async () => ({ ok: false, status: 500 } as Response));
   });
@@ -216,7 +235,7 @@ describe('T4 — connectivity endurance (PART B)', () => {
   });
 
   it('offline kuyruk kontrollü büyür (enqueue N → queueSize N, dup yok, fetch yok)', async () => {
-    net.connected = false;
+    setNet(false);
     await connectivityService.init(); // offline
 
     for (let i = 0; i < 50; i++) {
@@ -230,7 +249,7 @@ describe('T4 — connectivity endurance (PART B)', () => {
 
   it('online + sürekli 5xx: backoff 30s tavanına oturur, retry storm yok', async () => {
     const clock = startVirtualClock(SOAK_EPOCH);
-    net.connected = true; // online ama server hep 5xx (fetch ok:false)
+    setNet(true); // online ama server hep 5xx (fetch ok:false)
     await connectivityService.init();
     await connectivityService.enqueue('https://x', 'POST', {}, { a: 1 }, 'normal', 'telemetry');
 
@@ -249,7 +268,7 @@ describe('T4 — connectivity endurance (PART B)', () => {
 
   it('online drain: birikmiş kuyruk tekil drain ile boşalır (dup/paralel yok)', async () => {
     const clock = startVirtualClock(SOAK_EPOCH);
-    net.connected = false;
+    setNet(false);
     await connectivityService.init(); // offline
 
     for (let i = 0; i < 20; i++) {
@@ -259,8 +278,7 @@ describe('T4 — connectivity endurance (PART B)', () => {
 
     // Online ol + server 2xx
     (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(async () => ({ ok: true, status: 200 } as Response));
-    net.connected = true;
-    net.cb?.({ connected: true }); // networkStatusChange → drain
+    setNet(true); // kanonik gecis (izinsiz → izinli) → drain
 
     await clock.advance(SECONDS(5)); // drain'in tamamlanması
     const sizeAfter = await connectivityService.queueSize();
@@ -273,7 +291,7 @@ describe('T4 — connectivity endurance (PART B)', () => {
   });
 
   it('IDB bağlantı cache: init() sonrası çoklu enqueue/queueSize TEK bağlantıyı yeniden kullanır', async () => {
-    net.connected = true;
+    setNet(true);
     await connectivityService.init(); // ilk açma burada olur (spy'dan ÖNCE)
 
     const openSpy = vi.spyOn(globalThis.indexedDB, 'open');

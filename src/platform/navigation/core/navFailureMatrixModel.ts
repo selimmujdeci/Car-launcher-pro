@@ -113,7 +113,7 @@ export interface NavFailureMatrixInput {
   readonly gpsDecisionGrade: boolean;
 
   /* ── Ağ ── */
-  /** `navigator.onLine`. Bildirilmediyse `null`. */
+  /** Kanonik erişilebilirlik gözlemi. Bildirilmediyse `null`. */
   readonly online: boolean | null;
 
   /* ── Arama (geo/searchChainModel hükmü) ── */

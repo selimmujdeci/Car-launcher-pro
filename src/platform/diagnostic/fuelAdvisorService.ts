@@ -10,7 +10,8 @@
  *     → store.setFuelSuggestionCard() ile kart enjekte et
  *     → smartCardEngine._compute() kart listesine dahil eder (store üzerinden)
  *
- * Offline Tolerance: navigator.onLine false ise sessizce bekle.
+ * Offline Tolerance: F7 kanonik `ConnectivityAuthority` arka plan senkronuna
+ * izin vermiyorsa sessizce bekle.
  * Zero-Fluff UI: Kart yalnızca gerçek istasyon bulunduğunda çıkar.
  * Dismissed persistence: safeStorage 4h TTL — sürüş boyunca bir daha sorulmaz.
  */
@@ -24,6 +25,7 @@ import { runtimeManager }           from '../../core/runtime/AdaptiveRuntimeMana
 import { RuntimeMode }              from '../../core/runtime/runtimeTypes';
 import { getRouteState, pointToSegmentDist } from '../routingService';
 import { useHazardStore }           from '../../store/useHazardStore';
+import { allowsConnectivity } from '../connectivity/connectivityGate';
 
 // ── Sabitler ─────────────────────────────────────────────────────────────────
 
@@ -254,7 +256,8 @@ async function _onLowFuel(): Promise<void> {
   if (useStore.getState().fuelSuggestionCard !== null) return;
 
   // 4. Offline — sessizce bekle
-  if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+  /* F7 — kullanici beklemiyor: arka plan senkron sinifi. */
+  if (!allowsConnectivity('BACKGROUND_SYNC')) return;
 
   // 5. Mevcut konum — OBD/GPS'ten gelen, doğrulanmış değer
   const vs  = useVehicleStore.getState();

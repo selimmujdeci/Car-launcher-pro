@@ -33,6 +33,7 @@
 
 import { detectCitiesInQuery } from './locationBiasGate';
 import { awaitNominatimSlot } from './nominatimRateLimit';
+import { allowsConnectivity } from '../connectivity/connectivityGate';
 
 const NOMINATIM = 'https://nominatim.openstreetmap.org/search';
 const UA        = 'CarOSPro/1.0 (vehicle navigation)';
@@ -70,7 +71,8 @@ function _valid(lat: number, lng: number): boolean {
  *
  * Sözleşme:
  *  · THROW ETMEZ — ağ · HTTP · JSON · abort → `null`.
- *  · Çevrimdışıyken (`navigator.onLine === false`) ağa HİÇ çıkılmaz → `null`.
+ *  · F7 — kanonik `ConnectivityAuthority` bu işe izin vermiyorsa (offline,
+ *    local-only, captive) ağa HİÇ çıkılmaz → `null`.
  *  · Nominatim ToS bekleyicisinden geçer (TEK otorite — `nominatimRateLimit`).
  *  · Aynı il için ağa BİR KEZ çıkılır (oturum önbelleği).
  */
@@ -84,7 +86,9 @@ export async function resolveCityAnchor(query: string): Promise<CityAnchor | nul
 
   /* YALNIZ açıkça `false` çevrimdışıdır — bayrağı tanımlamayan çalışma
      zamanında katman sessizce kapanmaz (P0-NAV-06'da ölçülen tuzak). */
-  if (typeof navigator !== 'undefined' && navigator.onLine === false) return null;
+  /* F7 — kanonik bagalanti kapisi. Kucuk, tekrar denenebilir bir arama:
+     belirsizlikte DENENIR, captive/local-only/offline'da ATLANIR. */
+  if (!allowsConnectivity('LIGHTWEIGHT_INTERNET')) return null;
 
   await awaitNominatimSlot();
 

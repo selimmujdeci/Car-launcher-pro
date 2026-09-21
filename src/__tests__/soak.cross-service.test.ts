@@ -87,6 +87,10 @@ vi.mock('../platform/debug', () => ({ logInfo: vi.fn(), logError: vi.fn(), logWa
 import { RuntimeMode } from '../core/runtime/runtimeTypes';
 import { telemetryService } from '../platform/telemetryService';
 import { connectivityService } from '../platform/connectivityService';
+import { ingestConnectivityEvidence, _resetConnectivityAuthorityForTest }
+  from '../platform/connectivity/connectivityAuthority';
+import { evidenceFromCapacitorNetwork } from '../platform/connectivity/connectivityEvidence';
+
 import { startRemoteCommands, stopRemoteCommands, setRemoteCommandContext } from '../platform/remoteCommandService';
 import type { CommandContext } from '../platform/commandExecutor';
 import type { VehicleSignalResolver } from '../platform/vehicleDataLayer/VehicleSignalResolver';
@@ -106,6 +110,20 @@ const SOAK_EPOCH = Date.UTC(2030, 0, 1);
 function setOnline(v: boolean): void {
   Object.defineProperty(navigator, 'onLine', { value: v, configurable: true });
 }
+
+/* ── CONNECTIVITY F7-B ───────────────────────────────────────────────────────
+ * `connectivityService` artik kendi ag gozlemcisini ACMAZ; kanonik
+ * `ConnectivityAuthority`nin tuketicisidir. Bu yuzden testler bagliligi
+ * Capacitor mock'u yerine KANIT yutarak surer. Test NIYETI ayni:
+ * "offline → kuyruk", "reconnect → drain".
+ */
+function setNet(connected: boolean): void {
+  net.connected = connected;
+  ingestConnectivityEvidence(evidenceFromCapacitorNetwork({
+    connected, transport: 'WIFI', observedAt: Date.now(),
+  }));
+}
+
 function makeResolver(): { resolver: VehicleSignalResolver } {
   const resolver = { onResolved: () => () => {} } as unknown as VehicleSignalResolver;
   return { resolver };
@@ -152,7 +170,8 @@ beforeEach(() => {
   localStorage.clear();
   resetEmmcWriteCount();
   setOnline(true);
-  net.connected = true; net.cb = null; sb.handler = null;
+  _resetConnectivityAuthorityForTest();
+  setNet(true); net.cb = null; sb.handler = null;
   globalThis.fetch = vi.fn(async () => ({ ok: true, status: 200 } as Response));
   installFakeIDB();
 });
@@ -259,7 +278,7 @@ describe('T4 — cross-service 24h aggregate leak', () => {
 
   it('offline kuyruk bound: connectivity + remoteCommand kontrollü büyür, online\'da drain', async () => {
     const clock = startVirtualClock(SOAK_EPOCH);
-    setOnline(false); net.connected = false;
+    setOnline(false); setNet(false);
     await connectivityService.init();      // offline
     await startRemoteCommands();
     setRemoteCommandContext({} as CommandContext);
@@ -275,9 +294,7 @@ describe('T4 — cross-service 24h aggregate leak', () => {
     const rcLen = rcRaw ? (JSON.parse(rcRaw) as unknown[]).length : 0;
 
     // Online ol → drain
-    setOnline(true); net.connected = true;
-    net.cb?.({ connected: true });                 // connectivity drain
-    window.dispatchEvent(new Event('online'));     // remoteCommand drain
+    setOnline(true); setNet(true);                 // kanonik gecis → her iki drain
     await clock.advance(SECONDS(5));
     const connQAfter = await connectivityService.queueSize();
 

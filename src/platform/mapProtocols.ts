@@ -2,7 +2,6 @@ import maplibregl from 'maplibre-gl';
 import { GLYPH_CACHE_NAME } from './mapSourceTypes';
 import {
   useMapSourceStore,
-  notifyTileSuccess,
 } from './mapSourceStore';
 import {
   readTileFromFilesystem,
@@ -16,7 +15,7 @@ import {
 //
 // Çözüm: 'glyph-cache://' protokolü şu öncelik zinciriyle çalışır:
 //   1. Cache Storage (Service Worker veya önceki online oturum önbelleği)
-//   2. CDN (navigator.onLine ise — başarılı sonuçları cache'e yazar)
+//   2. CDN (kanonik bağlantı kapısı açıksa — başarılı sonuçları cache'e yazar)
 //   3. Boş ArrayBuffer (bu aralıkta glyph yok — harita etiket olmadan render)
 //
 // buildVectorStyle() bu protokolü glyph URL'si olarak kullanır;
@@ -167,8 +166,8 @@ export function registerSmartTileProtocol(): void {
           { signal: abortController.signal },
         );
         if (onlineResp.ok) {
-          // Tile başarıyla alındı — ping askıya alma penceresini yenile
-          notifyTileSuccess();
+          /* F7-B: "ping askıya alma penceresini yenile" bildirimi KALDIRILDI —
+             yenilenecek bir ping görevi artık YOK (bkz. mapSourceStore). */
           onlineHits++;
           updateServingStatus();
           const data = await onlineResp.arrayBuffer();

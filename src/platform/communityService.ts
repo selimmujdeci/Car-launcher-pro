@@ -29,6 +29,7 @@ import type { HazardType }               from '../store/useHazardStore';
 import { runtimeManager }                from '../core/runtime/AdaptiveRuntimeManager';
 import { ceilingFor } from './perf/workloadCeilings';
 import { bumpPerf } from './perf/perfCounters';
+import { allowsConnectivity } from './connectivity/connectivityGate';
 
 /* ── Sabitler ────────────────────────────────────────────────────────────── */
 
@@ -360,7 +361,7 @@ export function isCommunitySyncBlockedBySchema(): boolean {
  * Yerel kuyruğu Supabase'e toplu (batch) olarak yükler.
  *
  * Koşullar:
- *  - navigator.onLine: çevrimdışıysa atla
+ *  - F7 kanonik `ConnectivityAuthority`: arka plan senkronuna izin yoksa atla
  *  - thermalWatchdog: tehlikeli ısıysa atla
  *  - Supabase yapılandırılmamışsa atla (demo/offline mod)
  *  - Eş zamanlı çalışma yok (singleton guard)
@@ -371,7 +372,7 @@ export function isCommunitySyncBlockedBySchema(): boolean {
 export async function syncCommunityBatch(): Promise<void> {
   if (_isSyncRunning)        return;
   if (_cogPaused)            return; // Bilişsel Pause: PROTECTION/CRITICAL modda bekle
-  if (!navigator.onLine)     return;
+  if (!allowsConnectivity('BACKGROUND_SYNC'))     return;
   if (_thermalLevel >= 2)    return; // L2+: sync yasak — CPU/GPU baskısı
   if (!_isThermalSafe())     return;
 
@@ -502,7 +503,7 @@ let _isPullRunning = false;
  */
 export async function fetchNearbyCommunityEvents(): Promise<void> {
   if (_isPullRunning)     return;
-  if (!navigator.onLine)  return;
+  if (!allowsConnectivity('BACKGROUND_SYNC'))  return;
   if (_thermalLevel >= 2) return; // L2+: pull tamamen engel
   // L1: 2× interval (14 dk) — son başarılı pull'dan bu yana yeterli süre geçmeli
   if (_thermalLevel === 1 && Date.now() - _lastPullSyncMs < PULL_INTERVAL_MS * 2) return;

@@ -23,6 +23,7 @@ import { buildPidRegistryIntegrityPromptBlock } from './ai/pidDescriptionGate';
 import { signalWithTimeout } from '../utils/abortCompat';
 import { recordAiNetFailure, recordAiNetSuccess } from './aiHealth';
 import { errorKindFromException } from './ai/aiOfflineReason';
+import { allowsConnectivity } from './connectivity/connectivityGate';
 
 /* ── Types ─────────────────────────────────────────────────── */
 
@@ -390,7 +391,8 @@ export async function askAI(
   ctx?:     VehicleContext,
 ): Promise<AIVoiceResult | null> {
   const key = resolveApiKey(provider, apiKey);
-  if (provider === 'none' || !key || !navigator.onLine) return null;
+  /* F7 — etkilesimli bulut AI ses yolu. */
+  if (provider === 'none' || !key || !allowsConnectivity('CLOUD_INTERACTIVE')) return null;
 
   try {
     let result: AIVoiceResult | null = null;
@@ -416,7 +418,7 @@ export async function testAIConnection(
 ): Promise<{ ok: boolean; message: string }> {
   const key = resolveApiKey(provider, apiKey);
   if (!key) return { ok: false, message: 'API key girilmedi (.env veya ayarlardan)' };
-  if (!navigator.onLine) return { ok: false, message: 'İnternet bağlantısı yok' };
+  if (!allowsConnectivity('CLOUD_INTERACTIVE')) return { ok: false, message: 'İnternet bağlantısı yok' };
 
   try {
     const result = await askAI('merhaba', provider, apiKey);
