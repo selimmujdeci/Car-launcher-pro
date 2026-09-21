@@ -47,6 +47,7 @@ import {
   type TripMetricsAccumulator,
 } from '../../platform/trip/tripMetricsAccumulator';
 import type { TripRecord, TripState } from '../../platform/tripLogService';
+import type { TripSessionProjection } from '../../platform/trip/core/tripSessionModel';
 
 /** Sayfanın hangi yolculuğu gösterdiği — sekme YOKTUR, durum tek. */
 export type TripView =
@@ -216,6 +217,89 @@ export function fromActiveTrip(a: ActiveTripView, fuel: TripFuelConfig): TripCom
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
+ * SEYAHAT OTURUMU — DEPOLAMA SINIRI KULLANICI SINIRI DEĞİLDİR
+ * ════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * Kanonik oturum projeksiyonunu ekranın ölçüm kümesine çevirir.
+ *
+ * ── NEDEN GEREKLİ ────────────────────────────────────────────────────────
+ * `tripLogService` duruş penceresi dolunca segmenti MÜHÜRLER. Dinlenme
+ * tesisinde 60 sn duran bir sürücü için bu, depolamanın işidir — yolculuğun
+ * bittiği anlamına GELMEZ. Ekran yalnız son segmenti gösterirse Tarsus→
+ * Antalya yolculuğunda 300 km yerine 180 km görünür. Bu fonksiyon oturumun
+ * BAŞINDAN İTİBAREN toplam gerçeği verir.
+ *
+ * ── YENİ ÖLÇÜM YOK ───────────────────────────────────────────────────────
+ * Hiçbir değer burada ÜRETİLMEZ: mesafe · süre · hız · duruş · sert manevra
+ * · yakıt sahipleri değişmedi; oturum katmanı segmentlerin kanonik
+ * ölçümlerini topladı, burada yalnız kanonik `Metric` biçimine çevriliyor.
+ * Litreye çevirme depo hacmini bilen TEK yer olan bu katmanda kalır
+ * (`fuelPercentToLitres`, 20–200 L makullük bandını kendi sınar).
+ */
+export function fromSessionProjection(
+  p: TripSessionProjection,
+  fuel: TripFuelConfig,
+): TripComputerState {
+  /* Mesafe kaynağı: GPS payı baskınsa ÖLÇÜM, OBD Euler baskınsa TÜRETME —
+     `toCanonicalTripSummary` ve `fromActiveTrip` ile AYNI hüküm. */
+  const distanceSource: MetricSource =
+    p.gpsDistanceMeters >= p.obdDistanceMeters ? 'MEASURED' : 'DERIVED';
+
+  /* Yakıt: yüzde hükmü oturum katmanında verildi (segmentlerden BİRİ bile
+     ölçülemediyse `null` gelir). Burada yalnız litreye çevrilir. */
+  let fuelUsedL: Metric = UNAVAILABLE_METRIC;
+  let estimatedCost: Metric = UNAVAILABLE_METRIC;
+  const liters = p.fuelUsedPct === null ? null : fuelPercentToLitres(p.fuelUsedPct, fuel.tankL);
+  if (liters !== null) {
+    fuelUsedL = metric(liters, 'DERIVED');
+    if (p.priceUnit !== null && p.priceUnit >= 0) {
+      estimatedCost = metric(Math.round(liters * p.priceUnit * 100) / 100, 'DERIVED');
+    }
+  }
+
+  /* DURUŞ = segment içi rölanti + segmentler arası mola. Kullanıcı için
+     ikisi de "hareket etmedim"dir; ÖLÇÜLEMEYEN süre buraya GİRMEZ. */
+  const stoppedMin = msToMin(p.stoppedMs);
+  /* Duruş SAYISI: segment içi debounce'lu duruşlar + segmentleri ayıran
+     molalar. İkisi ayrı kaynaktır, toplamı kullanıcının gördüğü duruştur. */
+  const stopCount = p.stopCount + p.stopPeriods.length;
+
+  const metrics: TripMetrics = Object.freeze({
+    ...EMPTY_TRIP_METRICS,
+    distanceKm:      metric(Math.round(p.distanceMeters / 10) / 100, distanceSource),
+    /* Süre: yola çıkalı geçen monotonik süre (mola DÂHİL) — oturumun kendisi. */
+    durationMin:     metric(msToMin(p.elapsedMs), 'MEASURED'),
+    averageSpeedKmh: metric(p.averageSpeedKmh, 'DERIVED'),
+    maximumSpeedKmh: metric(p.maximumSpeedKmh, 'MEASURED'),
+    fuelUsedL,
+    estimatedCost,
+    movingTimeMin:   metric(msToMin(p.movingMs), 'MEASURED'),
+    idleTimeMin:     metric(stoppedMin, 'MEASURED'),
+    unknownTimeMin:  metric(msToMin(p.unknownMs), 'MEASURED'),
+    stopCount:       metric(stopCount, 'MEASURED'),
+    maxRpm:          metric(p.maxRpm, 'MEASURED'),
+    maxEngineTempC:  metric(p.maxEngineTempC, 'MEASURED'),
+    /* 9d78b68e: sert manevranın TEK sahibi akümülatördür; oturum yalnız
+       segment sayaçlarını TOPLAR — ikinci dedektör YOK. */
+    harshBrakeCount: metric(p.harshBrakeCount, 'MEASURED'),
+    harshAccelCount: metric(p.harshAccelCount, 'MEASURED'),
+  });
+
+  return Object.freeze({
+    /* Oturum sürüyor: hedefe VARILDIYSA tamamlanmış yolculuk gösterilir.
+       Depolama segmentinin kapanması bu hükmü VERMEZ. */
+    view: (p.journeyCompleted ? 'last' : 'active') as TripView,
+    metrics,
+    startedAtMs: p.startWallMs,
+    endedAtMs: null,
+    currency: p.priceCurrency,
+    priceSource: p.priceSource,
+    tankL: fuel.tankL,
+  });
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
  * Tamamlanmış yolculuk — kanonik dönüştürücüye DEVREDİLİR
  * ════════════════════════════════════════════════════════════════════════ */
 
@@ -246,10 +330,20 @@ export function fromCompletedRecord(r: TripRecord): TripComputerState {
 export function selectTrip(
   state: Pick<TripState, 'active' | 'current' | 'history'>,
   fuel: TripFuelConfig,
+  session?: TripSessionProjection | null,
 ): TripComputerState {
   /* FAIL-CLOSED: kısmen geri yüklenmiş / beklenmedik bir durum nesnesi
      sayfayı DÜŞÜRMEZ; gösterilecek yolculuk yok sayılır. */
   if (!state || typeof state !== 'object') return EMPTY_TRIP_COMPUTER;
+
+  /* ── OTURUM ÖNCELİKLİDİR ──────────────────────────────────────────────
+     Açık bir seyahat oturumu varsa ekran ONU gösterir: tek segment yerine
+     yolculuğun BAŞINDAN İTİBAREN toplamı. Oturum yoksa (kayıt reddedildi,
+     servis başlamadı) eski davranışa düşülür — sahte toplam üretilmez. */
+  if (session && session.sessionId !== null) {
+    return fromSessionProjection(session, fuel);
+  }
+
   if (state.active && state.current) {
     return fromActiveTrip(state.current as unknown as ActiveTripView, fuel);
   }

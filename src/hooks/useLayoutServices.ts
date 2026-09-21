@@ -10,7 +10,9 @@ import {
 } from '../platform/autoBrightnessService';
 import { startTripLog, stopTripLog } from '../platform/tripLogService';
 import { startTripMeter, stopTripMeter } from '../platform/trip/tripMeterService';
-import { startTripSession, stopTripSession } from '../platform/trip/tripSessionService';
+import {
+  startTripSession, stopTripSession, setTripSessionVehicle,
+} from '../platform/trip/tripSessionService';
 import { registerNavIntentReader } from '../platform/trip/navIntentPort';
 import { getNavigationState, getNavArrivalMark } from '../platform/navigationService';
 import { startLocationContext, stopLocationContext } from '../platform/location/locationContextService';
@@ -129,6 +131,10 @@ export function useLayoutServices({
       profile?.avgConsumptionL100 ?? 8.0, // varsayılan: 8 L/100 km
       profile?.obdDeviceAddress,          // Fix 3: bilinen MAC → scan atla
     );
+    /* ARAÇ İZOLASYONU: seyahat oturumunun kalıcı kaydı araca bağlıdır —
+       A aracının açık yolculuğu B seçilince B'ye TAŞINMAZ. İkinci bir araç
+       otoritesi kurulmaz; kimlik buradaki TEK aktif profilden gelir. */
+    setTripSessionVehicle(profile?.id ?? null);
   }, [storeSettings.activeVehicleProfileId, storeSettings.vehicleProfiles]);
 
   // Wake word artık SystemBoot Wave 4'teki startWakeWordService() tarafından

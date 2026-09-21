@@ -286,8 +286,18 @@ describe('🔒 YAPISAL — ikinci ölçüm sahibi doğmadı', () => {
     expect(serviceSrc).not.toMatch(/onGPSLocation|onOBDData/);
   });
 
-  it('Oturum katmanı HİÇBİR ŞEY YAZMAZ (salt okuma)', () => {
-    expect(serviceSrc).not.toMatch(/safeSetRaw|localStorage\.setItem|updateSettings|setState\(/);
+  it('Oturum katmanı BAŞKA OTORİTEYE yazmaz (yalnız kendi kaydını mühürler)', () => {
+    /* Ayarlara, store'a ve ölçüm sahiplerine yazma YASAK — oturum bir
+       projeksiyondur, otorite değildir. */
+    expect(serviceSrc).not.toMatch(/localStorage\.setItem|updateSettings|setState\(/);
+    /* Kalıcılık serbesttir AMA yalnız KENDİ anahtarına: oturumun yeniden
+       başlatmadan sonra devam edebilmesi için kendi durumunu yazar,
+       başkasının verisine dokunmaz. */
+    const writes = serviceSrc.match(/safeSetRaw\(\s*([A-Za-z_$][\w$]*)/g) ?? [];
+    expect(writes.length, 'kalıcılık tek çağrı noktasından geçmeli').toBe(1);
+    for (const w of writes) expect(w).toContain('SESSION_PERSIST_KEY');
+    const removes = serviceSrc.match(/safeRemoveRaw\(\s*([A-Za-z_$][\w$]*)/g) ?? [];
+    for (const r of removes) expect(r).toContain('SESSION_PERSIST_KEY');
   });
 });
 
