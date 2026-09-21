@@ -29,7 +29,7 @@ import {
   setMediaPreferredPackage, pollMediaNow, play,
   playMedia, ensureLocalLoaded,
   resumeLastMedia, previewLastMedia, getLastMedia,
-  ensureYouTubeReady, setYouTubeRegion,
+  ensureYouTubeReady, setYouTubeRegion, isYouTubeVideoAvailable, subscribeYouTubeVideoAvailability,
   /* MUSIC F7.3 · sonraki/önceki KUYRUK-FARKINDA tek girişten geçer: sıra
      backend'in (native timeline) veya üst katmanın (arama sonucu listesi)
      olabilir. Kapıya doğrudan gitmek, YouTube gibi kuyruksuz backend'lerde
@@ -752,6 +752,15 @@ function PlayerView({
      `runLyrics`). Panelin KENDİSİ presentation state'tir, lyrics İÇERİĞİ
      `musicLyricsAuthority`dedir (Cross-Domain §14). */
   const lyricsOpen = useSyncExternalStore(subscribeLyricsPanelVisible, getLyricsPanelVisible, getLyricsPanelVisible);
+  /* SAHA KUSURU 2026-09-05: gömme kısıtlı bir video (rights-holder embed
+     reddi) IFrame'in KENDİ ham "Video kullanılamıyor" kartını gösteriyordu —
+     ses artık doğrudan akıştan çalsa bile (youtubeService ses yedeği) bu
+     çirkin kart ekranda kalıyordu. `videoAvailable` ses yedeği devreye
+     girince false olur ve aşağıdaki efekt kapak moduna düşer — kullanıcı
+     YouTube'un ham hata kartını GÖRMEZ, kapak + ses akmaya devam eder. */
+  const videoAvailable = useSyncExternalStore(
+    subscribeYouTubeVideoAvailability, isYouTubeVideoAvailable, isYouTubeVideoAvailable,
+  );
 
   // YouTube video konumlandırma:
   //  • videoMode KAPALI → host gizli (kapak/ses gösterilir).
@@ -760,9 +769,12 @@ function PlayerView({
   //    kontrolleri VideoFullscreenChrome (body portal, host'tan üst z-index) gelir.
   useEffect(() => {
     if (!isYouTube) return;
-    /* Video görünürlüğü YALNIZ kullanıcının `videoMode` seçimine bağlıdır —
-       hareket/hız bunu REDDEDEMEZ (ürün kararı, 2026-09-03). */
-    if (!videoMode) {
+    /* Video görünürlüğü kullanıcının `videoMode` seçimine bağlıdır — hareket/hız
+       bunu REDDEDEMEZ (ürün kararı, 2026-09-03). `videoAvailable` İSTİSNADIR:
+       o bir kullanıcı tercihi değil, GERÇEK bir kanıttır (gömme reddi/ses
+       yedeği devrede) — video hiçbir koşulda GÖSTERİLEMEZ, gösterilirse
+       YouTube'un ham "Video kullanılamıyor" kartı ekranda kalır. */
+    if (!videoMode || !videoAvailable) {
       // Kapak modu — host gizli (rAF gerekmez). Albüm kapağını React gösterir.
       // Ses-only: harita normal (navigasyon akıcılığı korunur) → komşu kilidi kapalı.
       setYouTubeRegion(null);
@@ -783,7 +795,7 @@ function PlayerView({
       setYouTubeRegion(null);
       setMapHeavyNeighbor(false);
     };
-  }, [isYouTube, videoMode]);
+  }, [isYouTube, videoMode, videoAvailable]);
 
   /* Konum değiştirme YALNIZ kaynak gerçekten destekliyorsa bağlanır. Sürüşte
      dokunma hedefi büyütülür (aşağıdaki dolgu); yanlış dokunma riski azalır. */

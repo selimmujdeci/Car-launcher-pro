@@ -345,7 +345,13 @@ function _playTrack(t: UnifiedTrack): void {
  * içinde uygulanır); verilmezse tek öğeli kuyruk kurulur.
  */
 export function playMedia(t: UnifiedTrack, queue?: UnifiedTrack[]): void {
-  _ytFailedIds.clear(); // yeni kullanıcı seçimi → eski gömme-hatası geçmişini sıfırla
+  if (!_ytRecoveryPlay) {
+    // YENİ KULLANICI SEÇİMİ → gömme-hatası geçmişi ve ardışık red zinciri sıfırlanır.
+    // Kurtarmanın kendi çağrısı bunu YAPMAZ (yoksa vazgeçme kapıları ölür).
+    _ytFailedIds.clear();
+    _ytConsecutiveUnplayable = 0;
+    _ytLastUnplayableAt = 0;
+  }
   _startPositionSave();
   pushTrail('action', 'medya: çal', t.providerId);  // olay izi (PII yok — yalnız kaynak, başlık DEĞİL)
 
@@ -779,15 +785,83 @@ setYouTubeOnEnded(() => next());
 const _ytFailedIds = new Set<string>();
 let _ytRecovering = false;
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   SAHA KUSURU 2026-09-05 · "KUYRUK YANIYOR" — GÖMME REDDİ ZİNCİRİ
+   ═══════════════════════════════════════════════════════════════════════════
+   KULLANICI: *"bir müzik seçince gizli gizli değişiyor, en son bir müzikte
+   sabit kalıyor, o da çalmıyor"* — ekran görüntüsünde kaynak YOUTUBE, parça
+   TARKAN, kuyruk **20/20** (son sıra) ve oynatma DURUYOR.
+
+   ÖLÇÜLEN ZİNCİR: resmî Türkçe klipler çoğu zaman gömmeye izin vermez →
+   IFrame `onError` **101/150** → `_onUnplayable` → `_recoverYouTube` →
+   `entries.length > 1` olduğu için KOŞULSUZ `next()` → yeni parça da gömülemez
+   → yine `next()` … Sonuç: 20 parçalık kuyruk saniyenin altında BAŞTAN SONA
+   yürüyor, kullanıcı yalnız başlığın "gizli gizli değiştiğini" görüyor ve
+   sonda hiçbir şey çalmıyor.
+
+   ÜÇ AYRI KUSUR:
+     1. `_ytFailedIds.size > 6` vazgeçme kapısı, çok-parçalı daldan SONRA
+        geliyordu → kuyrukta HİÇBİR sınır yoktu.
+     2. `playMedia` her çağrıda `_ytFailedIds`i temizliyor; kurtarma da
+        `playMedia` çağırdığı için o kapı zaten hiç tetiklenemiyordu.
+     3. Zincir tamamen SESSİZDİ — ne kullanıcıya ne teşhise bir iz bırakıyordu.
+
+   YENİ SÖZLEŞME: ardışık gömme reddi SAYILIR. Üst sınıra ulaşınca atlama
+   DURUR — kuyruk olduğu yerde bırakılır ve sessiz bir "her şeyi denedim"
+   yürüyüşü yapılmaz. Sayaç bir ZAMAN PENCERESİYLE kendini sıfırlar: gerçek
+   bir parça çalarsa iki reddin arası pencereden uzun olur; yanma ise saniyenin
+   altında olur. Böylece yeni bir zamanlayıcı/otorite kurulmadan ayrım yapılır. */
+
+/** Ardışık gömme reddi üst sınırı — bunun üstünde kuyruk YAKILMAZ. */
+const YT_MAX_CONSECUTIVE_UNPLAYABLE = 3;
+/** Bu süreden uzun aradan sonra gelen red, YENİ bir zincir sayılır (ms). */
+const YT_UNPLAYABLE_WINDOW_MS = 20_000;
+
+let _ytConsecutiveUnplayable = 0;
+let _ytLastUnplayableAt = 0;
+/** Kurtarma kendi `playMedia`sını çağırırken geçmişi TEMİZLEMEMELİ. */
+let _ytRecoveryPlay = false;
+
+/* Sınırlı, salt-okunur teşhis — kullanıcı verisi YOK (yalnız sayaç). */
+const _ytSkipDiag = { skipped: 0, gaveUp: 0, lastReason: '' as string };
+/** CAROS LAB / rapor için salt-okunur özet. Hiçbir şey başlatmaz. */
+export function getYouTubeSkipDiagnostics(): Readonly<{ skipped: number; gaveUp: number; lastReason: string }> {
+  return { ..._ytSkipDiag };
+}
+
 async function _recoverYouTube(failedId: string): Promise<void> {
   if (_ytRecovering) return;
   _ytRecovering = true;
   try {
     if (failedId) _ytFailedIds.add(failedId);
+
+    /* Ardışık red sayacı — zincir mi, tekil kaza mı? Pencereden uzun aradan
+       sonra gelen red YENİ zincir sayılır (arada gerçek bir parça çalmıştır). */
+    const now = Date.now();
+    if (now - _ytLastUnplayableAt > YT_UNPLAYABLE_WINDOW_MS) _ytConsecutiveUnplayable = 0;
+    _ytLastUnplayableAt = now;
+    _ytConsecutiveUnplayable += 1;
+
+    if (_ytConsecutiveUnplayable > YT_MAX_CONSECUTIVE_UNPLAYABLE) {
+      /* KUYRUK YAKMA DUR. Buradan sonra atlamak, kullanıcıya hiçbir şey
+         kazandırmadan kuyruğu sonuna kadar yürütür (saha kusuru). Kuyruk
+         olduğu yerde BIRAKILIR; oynatma durumu zaten `playing:false`tur
+         (`youtubeService._onError`) — sahte bir "çalıyor" iddiası YOK. */
+      _ytSkipDiag.gaveUp += 1;
+      _ytSkipDiag.lastReason = 'embed_blocked_chain';
+      pushTrail('action', 'medya: youtube gömme reddi — atlama durduruldu', 'youtube');
+      return;
+    }
+
     // Çok-parçalı liste: sonraki parçaya geç (kullanıcı zaten sıralı bir kuyruk çalıyor).
-    if (getDesiredQueue().entries.length > 1) { next(); return; }
-    // Sonsuz arama döngüsü koruması — birkaç başarısız denemeden sonra vazgeç (sessiz).
-    if (_ytFailedIds.size > 6) return;
+    if (getDesiredQueue().entries.length > 1) {
+      _ytSkipDiag.skipped += 1;
+      _ytSkipDiag.lastReason = 'embed_blocked_skip';
+      next();
+      return;
+    }
+    // Sonsuz arama döngüsü koruması — birkaç başarısız denemeden sonra vazgeç.
+    if (_ytFailedIds.size > 6) { _ytSkipDiag.gaveUp += 1; _ytSkipDiag.lastReason = 'search_exhausted'; return; }
     // Tek parça (resume): aynı şarkı için gömülebilir başka YouTube sonucu bul.
     const cur = _currentTrack();
     if (!cur) return;
@@ -810,8 +884,13 @@ async function _recoverYouTube(failedId: string): Promise<void> {
     );
     if (alt) {
       /* MUSIC F7.6: kurtarma da KANONİK kuyruğu yeniden kurar — bu katmanda
-         ayrı bir sıra yazılmaz. `playMedia` tek girişten geçer. */
-      playMedia(alt, [alt]);
+         ayrı bir sıra yazılmaz. `playMedia` tek girişten geçer.
+         ⚠️ Bayrak ŞART: `playMedia` yeni KULLANICI seçiminde gömme-hatası
+         geçmişini temizler. Kurtarma da oradan geçtiği için geçmiş her
+         denemede siliniyordu ve `_ytFailedIds.size > 6` kapısı HİÇ
+         tetiklenemiyordu (sonsuz arama riski). */
+      _ytRecoveryPlay = true;
+      try { playMedia(alt, [alt]); } finally { _ytRecoveryPlay = false; }
     }
   } catch { /* ignore — fail-soft */ }
   finally { _ytRecovering = false; }
@@ -828,5 +907,5 @@ export {
 } from '../mediaService';
 export type { MediaSource } from '../mediaService';
 export { isSpotifyConnected, beginSpotifyLogin } from '../spotify/spotifyAuth';
-export { ensureYouTubeReady, setYouTubeRegion, YOUTUBE_PKG } from '../youtubeService';
+export { ensureYouTubeReady, setYouTubeRegion, YOUTUBE_PKG, isYouTubeVideoAvailable, subscribeYouTubeVideoAvailability } from '../youtubeService';
 export type { UnifiedTrack, ProviderId } from './providers';

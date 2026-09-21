@@ -14,6 +14,8 @@
  * çıkarmayı bloklar. Çözüm bulunamazsa fail-soft: parça sessizce atlanır.
  */
 import type { MediaProvider, UnifiedTrack } from './providers';
+import { CapacitorHttp } from '@capacitor/core';
+import { isNative } from '../bridge';
 
 // Aday Piped API instance'ları. Sağlık zamanla değişir; ölü instance'ın canlıyı
 // bloklamaması için PARALEL yarışırlar (aşağıda _tryInstances). Liste 2026-06
@@ -67,6 +69,12 @@ interface PipedAudioStream {
   bitrate?: number;
 }
 
+/** Muxed (video+ses birlikte) akış — audioStreams boşken ses YEDEĞİ olarak kullanılır. */
+interface PipedVideoStream {
+  url?:       string;
+  videoOnly?: boolean;
+}
+
 interface InvidiousVideo {
   type?:    unknown;
   videoId?: string;
@@ -81,6 +89,12 @@ interface InvidiousFormat {
   bitrate?: string | number;
 }
 
+/** Invidious muxed (video+ses) akışı — adaptiveFormats'ta audio/* yokken YEDEK. */
+interface InvidiousFormatStream {
+  type?: unknown;
+  url?:  unknown;
+}
+
 type Pool = 'piped' | 'invidious';
 const _sticky: Record<Pool, string> = { piped: '', invidious: '' };
 
@@ -90,6 +104,54 @@ function _ordered(pool: Pool): string[] {
   const s = _sticky[pool];
   if (!s) return list;
   return [s, ...list.filter((i) => i !== s)];
+}
+
+/**
+ * JSON GET — CORS'u AŞAR (saha kusuru 2026-09-05, gerçek cihazda ÖLÇÜLDÜ).
+ *
+ * KÖK NEDEN: bu dosyanın tüm istekleri düz `fetch()` kullanıyordu. Android
+ * WebView'de sayfa origin'i `https://localhost`tur; Piped/Invidious topluluk
+ * instance'ları (`piped-api.lunar.icu`, `pipedapi.kavin.rocks` …) hiçbiri
+ * `Access-Control-Allow-Origin` başlığı DÖNMÜYOR. Sonuç CDP ile canlı görüldü:
+ * **HER instance, her istek** `blocked by CORS policy` ile ERR_FAILED
+ * düşüyordu — arama BAZEN sonuç veriyordu (bazı yollar farklı davranıyor
+ * olabilir) ama ses akışı çözümü (`resolvePipedStream`) native cihazda
+ * SİSTEMATİK olarak `audio_fallback_no_stream`e düşüyordu.
+ *
+ * DOĞRU YOL: `@capacitor/core`nun native HTTP köprüsü (`CapacitorHttp`).
+ * Bu, native Android/iOS HTTP istemcisiyle YAPILAN GERÇEK bir ağ çağrısıdır —
+ * tarayıcının same-origin/CORS politikasına TABİ DEĞİLDİR (WebView `fetch`
+ * değil, bridge üzerinden native koda gider). `@capacitor/core`da HER ZAMAN
+ * kayıtlıdır; global `CapacitorHttp.enabled` bayrağı yalnız `window.fetch`i
+ * PATCH'lemeyi kontrol eder — burada o bayrağa hiç DOKUNULMADI (uygulamanın
+ * geri kalanındaki `fetch` davranışı BİREBİR aynı kalır, yalnız BU dosyanın
+ * istekleri native köprüden geçer).
+ *
+ * Web'de (tarayıcı önizleme) `isNative` false olduğunda düz `fetch`e
+ * DÜŞÜLÜR — CapacitorHttp'nin web implementasyonu zaten yalnız `fetch`i
+ * sarmalar, bu yüzden davranış değişmez.
+ */
+async function _getJson(url: string, signal: AbortSignal | undefined): Promise<unknown | null> {
+  if (isNative) {
+    // CapacitorHttp AbortSignal ALMAZ — dış iptali kendi race'imizle uygularız.
+    if (signal?.aborted) return null;
+    const req = CapacitorHttp.get({ url });
+    const aborted = new Promise<null>((resolve) => {
+      if (!signal) return;
+      signal.addEventListener('abort', () => resolve(null), { once: true });
+    });
+    try {
+      const res = await Promise.race([req, aborted]);
+      if (res === null) return null;                    // iptal edildi
+      if (res.status < 200 || res.status >= 300) return null;
+      return res.data ?? null;                          // JSON content-type ise ZATEN ayrıştırılmış
+    } catch { return null; }
+  }
+  try {
+    const res = await fetch(url, { signal });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch { return null; }
 }
 
 /** Dış sinyal + instance-başına timeout'u birleştiren AbortSignal.
@@ -163,10 +225,8 @@ export const pipedProvider: MediaProvider = {
     const q = query.trim();
     if (!q) return [];
     const fetchItems = (filter: string) => _tryInstances('piped', async (base, sig) => {
-      const res = await fetch(`${base}/search?q=${encodeURIComponent(q)}&filter=${filter}`, { signal: sig });
-      if (!res.ok) return null;
-      const json = await res.json();
-      const arr  = (json?.items ?? []) as PipedSearchItem[];
+      const json = await _getJson(`${base}/search?q=${encodeURIComponent(q)}&filter=${filter}`, sig);
+      const arr  = ((json as { items?: unknown })?.items ?? []) as PipedSearchItem[];
       return arr.length ? arr : null; // boşsa diğer instance'ı dene
     }, signal);
     // Genel YouTube video araması — normal YouTube'da ne aranıp bulunuyorsa aynısı:
@@ -190,9 +250,8 @@ export const pipedProvider: MediaProvider = {
 
     // ── Invidious fallback — tüm Piped instance'ları düştüyse ──
     const invItems = await _tryInstances('invidious', async (base, sig) => {
-      const res = await fetch(`${base}/api/v1/search?q=${encodeURIComponent(q)}&type=video`, { signal: sig });
-      if (!res.ok) return null;
-      const json = await res.json();
+      const json = await _getJson(`${base}/api/v1/search?q=${encodeURIComponent(q)}&type=video`, sig);
+      if (json === null) return null;
       const arr  = (Array.isArray(json) ? json : [] as InvidiousVideo[]).filter(
         (v: InvidiousVideo): v is InvidiousVideo & { videoId: string } =>
           v?.type === 'video' && typeof v?.videoId === 'string' && Boolean(v.videoId),
@@ -215,34 +274,54 @@ export const pipedProvider: MediaProvider = {
 /**
  * Bir YouTube/Piped video'sunun çalınabilir ses akışı URL'sini çözer.
  * En yüksek bitrate'li audio stream'i seçer. Bulunamazsa (bot-engeli vb.) null.
+ *
+ * MUXED YEDEK (2026-09-05 gerçek cihazda ölçüldü — TARKAN "Bir Oluruz Yolunda",
+ * videoId EBwjmeDoE6A): bazı içerikler için YouTube ayrı audio-only akışı
+ * ÇIKARTMAYA izin vermiyor — `audioStreams: []` gelir (CORS/id hatası DEĞİL,
+ * gerçek cihazdan native köprüyle 200 OK ile doğrulandı) ama `videoStreams`
+ * içinde `videoOnly:false` (ses gömülü, klasik itag 18 mp4) bir akış hâlâ VAR.
+ * `<audio>` elementi video+ses muxed bir mp4'ü de oynatabilir (yalnız ses
+ * izini kullanır) — bu yüzden audioStreams boşsa bu muxed akışa DÜŞÜLÜR.
+ * Aynı kök neden Invidious'ta `formatStreams` (adaptiveFormats'ın muxed
+ * karşılığı) için de geçerli — orada da aynı yedek uygulanır.
  */
 export async function resolvePipedStream(videoId: string): Promise<string | null> {
   if (!videoId) return null;
   const fromPiped = await _tryInstances('piped', async (base, sig) => {
-    const res = await fetch(`${base}/streams/${videoId}`, { signal: sig });
-    if (!res.ok) return null;
-    const json = await res.json();
-    if (json?.error) return null;
-    const audio = (json?.audioStreams ?? []) as PipedAudioStream[];
-    if (!audio.length) return null;
-    const best = audio.slice().sort((a, b) => (b.bitrate ?? 0) - (a.bitrate ?? 0))[0];
-    return best?.url ?? null;
+    const json = await _getJson(`${base}/streams/${videoId}`, sig) as
+      { error?: unknown; audioStreams?: PipedAudioStream[]; videoStreams?: PipedVideoStream[] } | null;
+    if (json === null || json.error) return null;
+    const audio = (json.audioStreams ?? []) as PipedAudioStream[];
+    if (audio.length) {
+      const best = audio.slice().sort((a, b) => (b.bitrate ?? 0) - (a.bitrate ?? 0))[0];
+      if (best?.url) return best.url;
+    }
+    const muxed = ((json.videoStreams ?? []) as PipedVideoStream[]).find(
+      (v): v is PipedVideoStream & { url: string } =>
+        v.videoOnly === false && typeof v.url === 'string' && Boolean(v.url),
+    );
+    return muxed?.url ?? null;
   }, undefined, STREAM_PER_INSTANCE_MS);
   if (fromPiped) return fromPiped;
 
   // ── Invidious fallback — adaptiveFormats içinden en yüksek bitrate'li ses ──
   // Not: Invidious bitrate alanı string döner; Number() ile normalize edilir.
   return _tryInstances('invidious', async (base, sig) => {
-    const res = await fetch(`${base}/api/v1/videos/${videoId}`, { signal: sig });
-    if (!res.ok) return null;
-    const json = await res.json();
-    const fmts = ((json?.adaptiveFormats ?? []) as InvidiousFormat[]).filter(
+    const json = await _getJson(`${base}/api/v1/videos/${videoId}`, sig) as
+      { adaptiveFormats?: InvidiousFormat[]; formatStreams?: InvidiousFormatStream[] } | null;
+    if (json === null) return null;
+    const fmts = ((json.adaptiveFormats ?? []) as InvidiousFormat[]).filter(
       (f): f is InvidiousFormat & { url: string } =>
         typeof f?.type === 'string' && f.type.startsWith('audio/')
         && typeof f?.url === 'string' && Boolean(f.url),
     );
-    if (!fmts.length) return null;
-    const best = fmts.slice().sort((a, b) => (Number(b.bitrate) || 0) - (Number(a.bitrate) || 0))[0];
-    return best?.url ?? null;
+    if (fmts.length) {
+      const best = fmts.slice().sort((a, b) => (Number(b.bitrate) || 0) - (Number(a.bitrate) || 0))[0];
+      if (best?.url) return best.url;
+    }
+    const muxed = ((json.formatStreams ?? []) as InvidiousFormatStream[]).find(
+      (f): f is InvidiousFormatStream & { url: string } => typeof f?.url === 'string' && Boolean(f.url),
+    );
+    return muxed?.url ?? null;
   }, undefined, STREAM_PER_INSTANCE_MS);
 }

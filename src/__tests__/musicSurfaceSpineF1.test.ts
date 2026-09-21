@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import type { MediaState } from '../platform/mediaService';
 import type { NativeAuthoritySnapshot } from '../platform/nativePlugin';
 import { createMusicViewModel } from '../components/media/MusicViewModel';
-import { musicSurfaceVisibilityModel } from '../components/media/musicSurfaceVisibilityModel';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 const media = (overrides: Partial<MediaState> = {}): MediaState => ({
   playing: false, source: 'local', activePackage: 'com.cockpitos.pro', activeAppName: 'Cihaz Müziği',
@@ -54,11 +55,19 @@ describe('F1 MusicViewModel canonical projection', () => {
   });
 });
 
-describe('F1 mini player visibility policy', () => {
-  const active = createMusicViewModel(media(), snapshot());
-  it('allows the map/navigation shell and suppresses drawers plus critical surfaces', () => {
-    expect(musicSurfaceVisibilityModel(active, { drawerOpen: false, nowPlayingOpen: false, criticalSurfaceOpen: false })).toBe(true);
-    expect(musicSurfaceVisibilityModel(active, { drawerOpen: true, nowPlayingOpen: false, criticalSurfaceOpen: false })).toBe(false);
-    expect(musicSurfaceVisibilityModel(active, { drawerOpen: false, nowPlayingOpen: false, criticalSurfaceOpen: true })).toBe(false);
+/* KİLİT YENİDEN HEDEFLENDİ (2026-09-05 ürün kararı): kokpitte ikincil
+   oynatıcı çubuğu kaldırıldı, `musicSurfaceVisibilityModel` de onunla birlikte
+   (tüketicisi kalmayınca ölü koda dönüştüğü için) silindi. F1'in KORUDUĞU şey
+   bir çubuğun görünürlüğü değil, **projeksiyon omurgasıdır**: kabuk kendi
+   müzik gerçeğini uydurmaz, kanonik view model'den okur. Kilit onu ölçer. */
+describe('F1 projeksiyon omurgası — kabuk kendi gerçeğini uydurmaz', () => {
+  it('dinleme bağlamı YALNIZ kanonik view model\'den gelir', () => {
+    const active = createMusicViewModel(media(), snapshot());
+    expect(active.hasListeningContext).toBe(true);
+  });
+
+  it('kokpit kabuğu ikincil oynatıcı yüzeyi ÇİZMEZ (ürün kararı)', () => {
+    const shell = readFileSync(resolve(process.cwd(), 'src/components/layout/MainLayout.tsx'), 'utf8');
+    expect(shell, 'kokpite ikinci oynatıcı çubuğu geri gelmiş').not.toMatch(/<MiniPlayer\b/);
   });
 });
