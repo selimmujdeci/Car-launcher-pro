@@ -137,7 +137,6 @@ import { getWeatherNarrative, refreshWeather, onWeatherState, weatherQueryNamesC
 import { brainIntentAllowlist } from '../capability/fabric/carosCapabilityCatalog';
 /* MAVI-F13/4: filler kapısı (`isGenericFiller`) ARTIK `companionBrainParser`
  * içindedir — kapı PARSE SINIRINDA olmalıydı ve oraya taşındı. */
-import { isAiGatewayEnabled } from '../ai/gateway/aiGatewayFlag';
 import {
   buildSafetyContext, evaluatePreGate, verifyResponse, type SafetyContext,
 } from '../assistant/assistantSafetyKernel';
@@ -164,6 +163,7 @@ import {
   _resetProviderHealthForTest,
   /* GEMINI LIVE (2026-09-21): arıza sınıfı · anahtar reddi · geçiş kütüğü. */
   classifyLiveFailure, noteLiveFailure, isGeminiKeyRejected, recordProviderSwitch,
+  classifyProviderHttpFailure, classifyOpenRouterFailure,
   type ProviderSwitchReason,
 } from './companionProviderHealth';
 /* GEMINI LIVE — birincil online konuşma yolu. Oturum/protokol sahibi ayrı modül;
@@ -226,7 +226,7 @@ export interface CompanionChatOpts {
    * (voiceService._resolveAiKeys kurar). Boşsa/verilmezse `provider`+`apiKey`
    * alanlarıyla eski tek-sağlayıcı davranışına geriye-uyum sağlanır.
    */
-  chain?: ReadonlyArray<{ provider: 'gemini' | 'groq' | 'haiku'; apiKey: string }>;
+  chain?: ReadonlyArray<{ provider: 'gemini' | 'openrouter' | 'haiku'; apiKey: string }>;
   /**
    * MAVI-F4 · TOKEN AKIŞI TÜKETİCİSİ (opsiyonel).
    *
@@ -987,7 +987,7 @@ async function askCompanionBrainLive(
   // Setup SONRASI kopma ve HİÇ çıktı yoksa → resumption ile BİR KEZ daha (geçici WSS kopması ≠ kota).
   if (outcome.status === 'failed' && outcome.setupCompleted && !outcome.producedOutput) {
     const kind = classifyLiveFailure(outcome.reason, true);
-    if (kind === 'LIVE_DISCONNECTED') {
+    if (kind === 'LIVE_CONNECTION_FAILURE') {
       console.warn('GEMINI_LIVE_RECONNECT: tur ortası kopma → resumption ile yeniden deneniyor');
       outcome = await send();
     }
@@ -1036,6 +1036,7 @@ async function askCompanionBrainLive(
       };
     }
     // Ses verilmedi → REST karar verebilir (tur sahipliği bırakılır).
+    sess.cancelTurn();
     ports.abort();
     return { result: null, fallbackAllowed: true, resolution: res.kind, reason: failReason ?? 'LIVE_NO_OUTPUT' };
   };
@@ -1049,6 +1050,7 @@ async function askCompanionBrainLive(
   const kind = classifyLiveFailure(outcome.reason, outcome.setupCompleted);
   noteLiveFailure(kind, apiKey);
   if (outcome.producedOutput) return finish(kind);   // elde olanla karar: ses verildiyse fallback yok
+  sess.cancelTurn();
   ports.abort();
   return { result: null, fallbackAllowed: true, resolution: 'FAILED', reason: kind };
 }
@@ -1220,62 +1222,12 @@ async function askCompanionGemini(
   return trimForSpeech(raw, isDriving);
 }
 
-/* ── Groq sohbet çağrısı (OpenAI-uyumlu) ───────────────────── */
-
-// Groq timeout — Gemini ile aynı; abortCompat ile Chrome <103'te güvenli.
-const GROQ_COMPANION_TIMEOUT_MS = 6000;
-// Groq model adları değişebilir — güncel listeyi console.groq.com'dan doğrula.
-const GROQ_COMPANION_ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions';
-const GROQ_COMPANION_MODEL    = 'llama-3.3-70b-versatile';
-
 /** RAM geçmişini OpenAI messages formatına dönüştürür ('model' → 'assistant'). */
 function historyToOpenAI(): { role: 'user' | 'assistant'; content: string }[] {
   return _history.map((t) => ({
     role:    t.role === 'model' ? 'assistant' : 'user',
     content: t.text,
   }));
-}
-
-async function askCompanionGroq(
-  text: string,
-  apiKey: string,
-  id: CompanionIdentity,
-  isDriving: boolean,
-): Promise<string | null> {
-  const body = {
-    model:       GROQ_COMPANION_MODEL,
-    temperature: 0.7,
-    // 2-3 doğal cümleye alan tanır; üst sınır TTS kırpma katmanıyla sigortalı.
-    max_tokens:  isDriving ? 100 : 160,
-    messages: [
-      { role: 'system' as const, content: buildCompanionSystemPrompt(id, isDriving, buildInterpretedVehicleContext(), text) },
-      ...historyToOpenAI(),
-      { role: 'user' as const, content: text },
-    ],
-  };
-
-  const resp = await fetch(GROQ_COMPANION_ENDPOINT, {
-    method:  'POST',
-    headers: {
-      'Content-Type':  'application/json',
-      'Authorization': `Bearer ${apiKey}`,
-    },
-    body:   JSON.stringify(body),
-    signal: signalWithTimeout(GROQ_COMPANION_TIMEOUT_MS), // Chrome <103 WebView güvenli (abortCompat)
-  });
-
-  if (resp.status === 429) {
-    // Rate limit: KENDİ penceresi — Gemini'yi kilitlemez (çapraz kirlenme yasak).
-    noteProviderRateLimited('groq');
-    return null;
-  }
-  if (!resp.ok) return null;
-
-  const data = await resp.json() as { choices?: { message?: { content?: string } }[] };
-  const raw = (data.choices?.[0]?.message?.content ?? '').trim();
-  if (!raw) return null;
-  // TTS güvenliği: tek satıra indir, tavanı aşarsa cümle sınırında kırp (bağlama duyarlı).
-  return trimForSpeech(raw, isDriving);
 }
 
 /* ── Hava sorusu — beyin öncesi/web-kesişimi kısayolu ─────────
@@ -1324,111 +1276,6 @@ async function tryLocalWeatherAnswer(query: string, rawUserText?: string): Promi
   } catch { return null; }
 }
 
-async function askCompanionBrainGroq(
-  text: string,
-  apiKey: string,
-  id: CompanionIdentity,
-  isDriving: boolean,
-  timeoutMs?: number,
-  tavilyKey?: string,
-  searchKey?: string,
-): Promise<CompanionBrainResult | null> {
-  // Groq tek başına internete bakamaz. Arama motoru olarak Gemini (searchKey) VEYA
-  // Tavily varsa type:"web" kararına izin ver (grounding aşağıda devredilir).
-  // Yoksa eski davranış: type:"web" sohbete çevrilir (canlı bilgi yok).
-  const hasGeminiSearch = !!searchKey && searchKey.trim().length > 8;
-  const hasTavily       = !!tavilyKey && tavilyKey.trim().length > 8;
-  const canGround = hasGeminiSearch || hasTavily;
-  const decisionMs = Math.min(timeoutMs ?? GROQ_COMPANION_TIMEOUT_MS, GROQ_COMPANION_TIMEOUT_MS);
-  const body = {
-    model:           GROQ_COMPANION_MODEL,
-    temperature:     0.4,
-    max_tokens:      isDriving ? 160 : 220,
-    // Groq JSON modu: response_format ile güvenli JSON çıktısı
-    response_format: { type: 'json_object' as const },
-    messages: [
-      // supportsGrounding: Tavily anahtarı varsa true → internet sorularında type:"web" döner
-      { role: 'system' as const, content: buildBrainSystemPrompt(id, isDriving, buildInterpretedVehicleContext(), canGround, text) },
-      ...historyToOpenAI(),
-      { role: 'user' as const, content: text },
-    ],
-  };
-
-  const resp = await fetch(GROQ_COMPANION_ENDPOINT, {
-    method:  'POST',
-    headers: {
-      'Content-Type':  'application/json',
-      'Authorization': `Bearer ${apiKey}`,
-    },
-    body:   JSON.stringify(body),
-    signal: signalWithTimeout(decisionMs), // Chrome <103 WebView güvenli (abortCompat)
-  });
-
-  // 429: KENDİ penceresi — Gemini'yi kilitlemez (çapraz kirlenme yasak).
-  if (resp.status === 429) { noteProviderRateLimited('groq'); return null; }
-  // #698: kimlik reddi/bakiye SESSİZCE yutulmaz — dürüst cevabı besler.
-  if (!resp.ok) { noteProviderAuthFailure('groq', resp.status); return null; }
-
-  const data = await resp.json() as { choices?: { message?: { content?: string } }[] };
-  const raw  = (data.choices?.[0]?.message?.content ?? '').trim();
-  // Groq'tan gelen type:"web" kararı: canlı internet erişimi yok.
-  // Kişiliğe uygun doğal bir sohbet yanıtına dönüştür (No Dead-Ends koruması).
-  const parsed = parseBrainJson(raw, isDriving);
-  if (parsed && parsed.kind === 'web') {
-    // Hava sorgusu mu? → arama harcamadan ÖNCE yerel hava servisi denenir
-    // (Groq'un "canlı bilgilere bakamıyorum" demesi böyle önlenir — hava zaten
-    // cihazda gerçek veri olarak var).
-    const localWeather = await tryLocalWeatherAnswer(parsed.query, text);
-    if (localWeather) return { kind: 'chat', response: localWeather, route: 'companion_groq' };
-    // İNTERNET kararı → ÖNCE Gemini google_search, GROUNDING soğumasındaysa Tavily.
-    // Grounding kendi penceresindeyse (429 verdi) tekrar çağırıp boş yere 429 yemeyiz —
-    // doğrudan Tavily'ye düşeriz (grounding cooldown BEYİN cooldown'ından ayrı).
-    if (hasGeminiSearch && !isGroundingCoolingDown()) {
-      const grounded = await askGroundedGemini(parsed.query, searchKey as string, id, isDriving);
-      if (grounded) return { kind: 'chat', response: grounded, route: 'companion_groq' };
-    }
-    if (hasTavily) {
-      const grounded = await groundGroqWithTavily(parsed.query, text, apiKey, id, isDriving, tavilyKey as string);
-      if (grounded) return { kind: 'chat', response: grounded, route: 'companion_groq' };
-      return { kind: 'chat', response: 'Aradım ama net bir sonuç bulamadım.', route: 'companion_groq' };
-    }
-    if (hasGeminiSearch) {
-      // Gemini araması boş/başarısız döndü (ör. kota) ve Tavily yok → dürüst söyle.
-      return { kind: 'chat', response: 'Aradım ama net bir sonuç bulamadım.', route: 'companion_groq' };
-    }
-    const reply = 'Şu an canlı bilgilere bakamıyorum ama bildiğimce yardımcı olmaya çalışırım.';
-    return { kind: 'chat', response: reply, route: 'companion_groq' };
-  }
-  // parseBrainJson CHAT kararına HER ZAMAN 'companion_gemini' rotası yazar (paylaşılan
-  // parser Gemini birincil çağrıyı varsayar) — Groq'tan geldiğinde burada düzeltilir,
-  // aksi halde Groq'un cevabı tanı/log'larda yanlışlıkla Gemini'ye ait görünür.
-  if (parsed && parsed.kind === 'chat') return { ...parsed, route: 'companion_groq' };
-  return parsed;
-}
-
-/**
- * Groq beyin çağrısını yapıp başarılıysa geçmişe/devre-kesiciye işler.
- * tryCompanionBrain'de üç yerde (birincil Groq, Gemini-sonrası yedek, Gemini
- * soğuma-penceresi yedeği) aynı "çağır → başarılıysa kaydet" deseni tekrar
- * etmesin diye ortak noktaya alındı.
- */
-async function tryGroqBrainAndRecord(
-  text: string,
-  apiKey: string,
-  id: CompanionIdentity,
-  isDriving: boolean,
-  timeoutMs?: number,
-  tavilyKey?: string,
-  searchKey?: string,
-): Promise<CompanionBrainResult | null> {
-  const result = await askCompanionBrainGroq(text, apiKey, id, isDriving, timeoutMs, tavilyKey, searchKey);
-  if (!result) return null;
-  recordAiNetSuccess(); // ağ sağlıklı — devre kesici sayacı sıfırla
-  pushHistory('user', text);
-  pushHistory('model', result.kind === 'chat' ? result.response : result.semantic.feedback);
-  return result;
-}
-
 /* ── AI Gateway beyin çağrısı (sağlayıcı-BAĞIMSIZ) ────────────── *
  * Zincirdeki diğer adaylardan tek farkı: HANGİ MODELE gittiğini BİLMEZ.
  * Gateway hangi sağlayıcıyı (bugün OpenRouter, yarın Gemini Direct/Ollama)
@@ -1462,15 +1309,17 @@ async function askCompanionBrainGateway(
   /* SİSTEMİN arama yeteneği (bu HATTIN değil) — bkz. aşağıdaki prompt notu. */
   canGround = false,
 ): Promise<{ result: BrainRaw | null; netFailure: boolean; errorKind: string }> {
-  const [{ getDefaultAiGateway }, { askGatewayChat }, { isMaviOrchestratorEnabled }] = await Promise.all([
+  const [{ getDefaultAiGateway }, { askGatewayChat }] = await Promise.all([
     import('../ai/gateway/concrete/defaultAiGateway'),
     import('../ai/gateway/gatewayChatBridge'),
-    import('../ai/gateway/aiGatewayFlag'),
   ]);
 
   const decisionMs = Math.min(timeoutMs ?? GATEWAY_BRAIN_TIMEOUT_MS, GATEWAY_BRAIN_TIMEOUT_MS);
   const chatParams = {
     gateway:     getDefaultAiGateway(),
+    // Nihai Mavi zincirinde bu adım YALNIZ OpenRouter'dır. Gateway'in kendi
+    // Gemini fallback'i burada çalışamaz; Gemini REST zaten bir önceki halkadır.
+    providerId:  'openrouter',
     /* ── SAHA 2026-09-11 · MAVİ "İNTERNET ERİŞİMİM YOK" DİYORDU ──────────────
      * Burada `supportsGrounding` SABİT `false` geçiliyordu ve o bayrak modele
      * şunu SÖYLETİYOR: "Senin canlı/güncel internet erişimin YOK ... ASLA
@@ -1493,20 +1342,7 @@ async function askCompanionBrainGateway(
     ...(onToken ? { onToken } : {}),
   };
 
-  /* ALT TERCİH: orchestrator açıkken aynı prompt/geçmiş orkestre edilmiş
-     yürütücüden geçer (sağlayıcı/model zinciri). Kapalıyken davranış BİREBİR
-     mevcut tek-sağlayıcı gateway yolu. Her iki yol da AYNI sonucu döndürür. */
-  const outcome = isMaviOrchestratorEnabled()
-    ? (await (await import('../ai/orchestrator/concrete/maviOrchestratedChat'))
-        .askOrchestratedChat({
-          ...chatParams,
-          classifyText: text,
-          /* MAVI-F13 · TEK İZDÜŞÜM. `buildBrainSystemPrompt` KANONİK araç
-           * bağlamını ve KANONİK F10 hafıza izdüşümünü ZATEN içeriyor →
-           * orkestratör İKİNCİ bir bağlam/hafıza bloğu EKLEMEZ. */
-          systemCarriesCanonicalProjection: true,
-        })).outcome
-    : await askGatewayChat(chatParams);
+  const outcome = await askGatewayChat(chatParams);
 
   // errorKind yukarı taşınır: kesici bütçe timeout'unu gerçek ulaşılamazlıktan
   // ayrı ve yüksek eşikte sayar (aiHealth) — gateway yolu da bu ayrımdan yararlanır.
@@ -1572,65 +1408,8 @@ async function tryGatewayBrainAndRecord(
   return { result: fixed, netFailure: false, errorKind: 'none' };
 }
 
-/**
- * Groq grounding: Tavily ile web'i arar, sonuçları Groq'a verip doğal Türkçe
- * yanıt sentezletir. Hata/boş sonuçta null → çağıran dürüst fallback yapar.
- */
-async function groundGroqWithTavily(
-  searchQuery: string,
-  userText: string,
-  apiKey: string,
-  id: CompanionIdentity,
-  isDriving: boolean,
-  tavilyKey: string,
-): Promise<string | null> {
-  const search = await tavilySearch(searchQuery, tavilyKey);
-  if (!search) return null;
-
-  // Tavily hazır cevabı + kaynak özetleri → Groq sentezi (kişilik + kısa Türkçe + TTS güvenli)
-  const ctxBlock = [
-    search.answer ? `Özet: ${search.answer}` : '',
-    search.context ? `Kaynaklar:\n${search.context}` : '',
-  ].filter(Boolean).join('\n\n');
-
-  const sysPrompt =
-    `Sen ${id.assistantName} adlı araç asistanısın. Aşağıdaki GÜNCEL web arama sonuçlarına ` +
-    `DAYANARAK kullanıcının sorusunu kısa, doğal Türkçe ile yanıtla. ` +
-    `Sadece sonuçlardaki bilgiyi kullan, uydurma. Emin değilsen belirt. ` +
-    `${isDriving ? 'Sürüş halinde: 1-2 cümle, çok kısa.' : 'Sıradan sohbette 2-4 cümle; detay/anlatım istenirse konuyu yarıda bırakmadan kapsamlı anlat.'} ` +
-    `Kaynak numarası/URL okuma.`;
-
-  const body = {
-    model:       GROQ_COMPANION_MODEL,
-    temperature: 0.3,
-    max_tokens:  isDriving ? 120 : 240,
-    messages: [
-      { role: 'system' as const, content: sysPrompt },
-      { role: 'user' as const, content: `Soru: ${userText}\n\n${ctxBlock}` },
-    ],
-  };
-
-  try {
-    const resp = await fetch(GROQ_COMPANION_ENDPOINT, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-      body:    JSON.stringify(body),
-      signal:  signalWithTimeout(GROQ_COMPANION_TIMEOUT_MS),
-    });
-    if (!resp.ok) {
-      // Groq sentezi başarısız → en azından Tavily'nin hazır cevabını seslendir
-      return search.answer || null;
-    }
-    const data = await resp.json() as { choices?: { message?: { content?: string } }[] };
-    const out = (data.choices?.[0]?.message?.content ?? '').replace(/\s+/g, ' ').trim();
-    return out || search.answer || null;
-  } catch {
-    return search.answer || null; // ağ hatası → Tavily özetine düş
-  }
-}
-
 /* ── Haiku (Anthropic) beyin çağrısı ────────────────────────── *
- * Hibrit zincirin son halkası: Gemini → Groq → Haiku. Anthropic Messages API
+ * Hibrit zincirin son halkası: Gemini → OpenRouter → Claude. Anthropic Messages API
  * deseni aiVoiceService.askHaiku ile AYNI (endpoint/model/header'lar) — beyin
  * kararı burada da SADECE düz metin JSON talimatıyla istenir (responseMimeType
  * Anthropic'te yok, buildBrainSystemPrompt zaten "SADECE JSON" der). */
@@ -1647,6 +1426,7 @@ async function askCompanionBrainHaiku(
   timeoutMs?: number,
   tavilyKey?: string,
   searchKey?: string,
+  onFailure?: (reason: ProviderSwitchReason) => void,
 ): Promise<CompanionBrainResult | null> {
   // Haiku da Groq gibi kendi başına canlı internete erişemez. Arama motoru olarak
   // Gemini (searchKey) VEYA Tavily varsa type:"web" üretebilir; grounding aşağıda
@@ -1689,9 +1469,21 @@ async function askCompanionBrainHaiku(
   );
 
   // 429: KENDİ penceresi — Gemini'yi kilitlemez (çapraz kirlenme yasak).
-  if (resp.status === 429) { noteProviderRateLimited('haiku'); return null; }
+  if (resp.status === 429) {
+    let body = '';
+    try { body = JSON.stringify(await resp.json()); } catch { /* status yeterli */ }
+    onFailure?.(classifyProviderHttpFailure('claude', resp.status, body));
+    noteProviderRateLimited('haiku');
+    return null;
+  }
   // #698: kimlik reddi/bakiye SESSİZCE yutulmaz — dürüst cevabı besler.
-  if (!resp.ok) { noteProviderAuthFailure('haiku', resp.status); return null; }
+  if (!resp.ok) {
+    let body = '';
+    try { body = JSON.stringify(await resp.json()); } catch { /* status yeterli */ }
+    onFailure?.(classifyProviderHttpFailure('claude', resp.status, body));
+    noteProviderAuthFailure('haiku', resp.status);
+    return null;
+  }
 
   const data = await resp.json() as { content?: { type?: string; text?: string }[] };
   const raw  = (data.content?.find((c) => c.type === 'text')?.text ?? '').trim();
@@ -1734,8 +1526,10 @@ async function tryHaikuBrainAndRecord(
   timeoutMs?: number,
   tavilyKey?: string,
   searchKey?: string,
+  onFailure?: (reason: ProviderSwitchReason) => void,
 ): Promise<CompanionBrainResult | null> {
-  const result = await askCompanionBrainHaiku(text, apiKey, id, isDriving, timeoutMs, tavilyKey, searchKey);
+  const result = await askCompanionBrainHaiku(text, apiKey, id, isDriving, timeoutMs, tavilyKey, searchKey, onFailure);
+  if (!result) onFailure?.('CLAUDE_UNAVAILABLE');
   if (!result) return null;
   recordAiNetSuccess(); // ağ sağlıklı — devre kesici sayacı sıfırla
   pushHistory('user', text);
@@ -1918,6 +1712,7 @@ async function askCompanionBrain(
   id: CompanionIdentity,
   isDriving: boolean,
   timeoutMs?: number,
+  onFailure?: (reason: ProviderSwitchReason) => void,
 ): Promise<BrainRaw | null> {
   const contents = [
     ..._history.map((t) => ({ role: t.role, parts: [{ text: t.text }] })),
@@ -1994,11 +1789,25 @@ async function askCompanionBrain(
 
   // 429: Google'ın söylediği kadar bekle (retryDelay) — sabit 60sn asistanı
   // gereksiz uzun "offline" bırakıyordu (SAHA 2026-07-04).
-  if (resp.status === 429) { noteProviderRateLimited('gemini', await cooldownFromGemini429(resp)); return null; }
-  if (!resp.ok) { await noteGeminiAuthFailure(resp); return null; }
+  if (resp.status === 429) {
+    let body = '';
+    try { body = await resp.clone().text(); } catch { /* sınıf status ile bulunur */ }
+    onFailure?.(classifyProviderHttpFailure('gemini', resp.status, body));
+    noteProviderRateLimited('gemini', await cooldownFromGemini429(resp));
+    return null;
+  }
+  if (!resp.ok) {
+    let body = '';
+    try { body = await resp.clone().text(); } catch { /* sınıf status ile bulunur */ }
+    onFailure?.(classifyProviderHttpFailure('gemini', resp.status, body));
+    await noteGeminiAuthFailure(resp);
+    return null;
+  }
   clearAuthFailure(); // Gemini 200 döndü — anahtar geçerli, işaret temizlenir
   const data = await resp.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
-  return parseBrainJson((data.candidates?.[0]?.content?.parts?.[0]?.text ?? '').trim(), isDriving);
+  const parsed = parseBrainJson((data.candidates?.[0]?.content?.parts?.[0]?.text ?? '').trim(), isDriving);
+  if (!parsed) onFailure?.('GEMINI_UNAVAILABLE');
+  return parsed;
 }
 
 /* ── GROUNDED yanıt (Google Search) — güncel/internet bilgisi ──
@@ -2116,7 +1925,7 @@ async function groundGeminiViaTavily(
 
 /**
  * Birleşik beyin girişi — voiceService router'ı parser <0.7 her cümlede
- * bunu çağırır. HİBRİT ZİNCİR (SIRA SABİT): Gemini → Groq → Haiku — biri
+ * bunu çağırır. HİBRİT ZİNCİR (SIRA SABİT): Gemini REST → OpenRouter → Claude — biri
  * kota/hata/429 verirse (veya Gemini soğuma penceresindeyse) sıradaki
  * dener. Zincirin tamamı düşerse offline sohbet fallback'i (yalnız chat)
  * döner; o da yoksa null → eski zincir devam eder.
@@ -2126,13 +1935,20 @@ async function groundGeminiViaTavily(
  * gittiğini bilmez, anahtarını kendi çözer); diğerleri doğrudan sağlayıcı
  * çağrılarıdır ve kendi kota pencerelerini kullanır.
  */
-type BrainCandidate = { provider: 'live' | 'gemini' | 'groq' | 'haiku' | 'gateway'; apiKey: string };
+type BrainCandidate = { provider: 'live' | 'gemini_rest' | 'openrouter' | 'claude'; apiKey: string };
 
 /** Geçiş kütüğü için zincirdeki sıradaki adayın adı (yoksa 'offline'). */
 function _nextProviderName(chain: ReadonlyArray<BrainCandidate>, cand: BrainCandidate): string {
   const i = chain.indexOf(cand);
   const next = i >= 0 ? chain[i + 1] : undefined;
   return next ? next.provider : 'offline';
+}
+
+function _healthProvider(cand: BrainCandidate): 'live' | 'gemini' | 'gateway' | 'haiku' {
+  if (cand.provider === 'gemini_rest') return 'gemini';
+  if (cand.provider === 'openrouter') return 'gateway';
+  if (cand.provider === 'claude') return 'haiku';
+  return 'live';
 }
 
 /**
@@ -2177,42 +1993,30 @@ async function runCompanionBrain(
 
   // Geriye uyum: chain verilmezse opts.provider/apiKey ile eski tek-sağlayıcı
   // davranışı üretilir (testler ve tryCompanionChat gibi diğer çağıranlar için).
-  const baseChain: ReadonlyArray<{ provider: 'gemini' | 'groq' | 'haiku'; apiKey: string }> =
+  const baseChain: ReadonlyArray<{ provider: 'gemini' | 'openrouter' | 'haiku'; apiKey: string }> =
     opts.chain && opts.chain.length > 0
       ? opts.chain
-      : (opts.provider === 'gemini' || opts.provider === 'groq' || opts.provider === 'haiku') && opts.apiKey
+      : (opts.provider === 'gemini' || opts.provider === 'haiku') && opts.apiKey
         ? [{ provider: opts.provider, apiKey: opts.apiKey }]
         : [];
 
-  // AI GATEWAY (bayrak — VARSAYILAN KAPALI): açıkken zincirin BAŞINA sağlayıcı-
-  // bağımsız gateway adayı eklenir; mevcut adaylar KALDIRILMAZ, arkada yedek
-  // olarak durur (rollback tek şalter). Kapalıyken `chain` birebir eski dizidir
-  // → tek satır davranış değişmez. Gateway anahtarını kendi çözer (BYOK), bu
-  // yüzden apiKey alanı boştur ve anahtarsız kullanıcıda da zincire girebilir.
-  /* NİHAİ SIRA (2026-09-21): LIVE → GEMINI REST → OPENROUTER (gateway) → CLAUDE → offline.
-     Gateway adayı artık Gemini REST'in ARKASINDA durur (eskiden zincirin başındaydı;
-     bayrak varsayılan KAPALI olduğu için üretim dizisi değişmedi). Groq mevcut BYOK
-     adayı olarak yerinde kalır (kaldırma bu görevin kapsamı dışı). */
+  /* NİHAİ SIRA: LIVE → GEMINI REST → OPENROUTER → CLAUDE → OFFLINE.
+     OpenRouter mevcut AiGateway üzerinden çağrılır ama fallback adayı feature
+     flag'e bağlı DEĞİLDİR. Groq yalnız STT/Whisper capability'sinde kalır;
+     Mavi brain/answer zincirine burada hiçbir yoldan giremez. */
   const geminiKey = baseChain.find((c) => c.provider === 'gemini')?.apiKey ?? '';
+  const claudeKey = baseChain.find((c) => c.provider === 'haiku')?.apiKey ?? '';
   const liveCandidate: BrainCandidate | null =
     opts.live && geminiKey && isGeminiLiveEnabled() ? { provider: 'live', apiKey: geminiKey } : null;
-  const gatewayCandidate: BrainCandidate | null =
-    isAiGatewayEnabled() ? { provider: 'gateway', apiKey: '' } : null;
-  const chain: ReadonlyArray<BrainCandidate> = (() => {
-    const out: BrainCandidate[] = [];
-    if (liveCandidate) out.push(liveCandidate);
-    const geminiIdx = baseChain.findIndex((c) => c.provider === 'gemini');
-    if (geminiIdx < 0) {
-      if (gatewayCandidate) out.push(gatewayCandidate);
-      out.push(...baseChain);
-      return out;
-    }
-    out.push(...baseChain.slice(0, geminiIdx + 1));
-    if (gatewayCandidate) out.push(gatewayCandidate);
-    out.push(...baseChain.slice(geminiIdx + 1));
-    return out;
-  })();
-  if (opts.live && geminiKey && !isGeminiLiveEnabled()) recordProviderSwitch('live', 'gemini', 'LIVE_DISABLED');
+  const chain: ReadonlyArray<BrainCandidate> = [
+    ...(liveCandidate ? [liveCandidate] : []),
+    ...(geminiKey ? [{ provider: 'gemini_rest' as const, apiKey: geminiKey }] : []),
+    // Anahtar gateway'in mevcut güvenli keySource'undan çözülür. baseChain boşsa
+    // online provider yapılandırılmamıştır; gereksiz anahtar-hint davranışı doğmaz.
+    ...(baseChain.length > 0 ? [{ provider: 'openrouter' as const, apiKey: '' }] : []),
+    ...(claudeKey ? [{ provider: 'claude' as const, apiKey: claudeKey }] : []),
+  ];
+  if (opts.live && geminiKey && !isGeminiLiveEnabled()) recordProviderSwitch('live', 'gemini_rest', 'LIVE_DISABLED');
 
   // Safety Kernel PRE-GATE: allowOnline=false ise online zincir HİÇ denenmez;
   // offline fallback doğal olarak devreye girer (provider sırası korunur).
@@ -2288,15 +2092,18 @@ async function runCompanionBrain(
          her turun başında yeniden denenip 0,45 sn gecikme ekliyordu. Kapı artık
          TÜM adaylar için aynı; gateway penceresi YALNIZ `auth`/`insufficient_credit`
          görüldüğünde kurulur (429/timeout davranışı DEĞİŞMEZ). */
-      if (isProviderCoolingDown(cand.provider)) {
-        if (cand.provider === 'live') recordProviderSwitch('live', 'gemini', 'LIVE_COOLDOWN');
+      if (isProviderCoolingDown(_healthProvider(cand))) {
+        const cooldownReason: ProviderSwitchReason = cand.provider === 'live' ? 'LIVE_COOLDOWN'
+          : cand.provider === 'gemini_rest' ? 'GEMINI_COOLDOWN'
+            : cand.provider === 'openrouter' ? 'OPENROUTER_COOLDOWN' : 'CLAUDE_COOLDOWN';
+        recordProviderSwitch(cand.provider, _nextProviderName(chain, cand), cooldownReason);
         skippedByCooldown = true; continue;
       }
       /* Anahtar reddi (LIVE gördü, anahtar parmak izi eşleşiyor): aynı bozuk
          anahtarla Gemini'yi tekrar deneme — zincir OpenRouter/Claude'a geçer. */
-      if ((cand.provider === 'live' || cand.provider === 'gemini') && isGeminiKeyRejected(cand.apiKey)) {
+      if ((cand.provider === 'live' || cand.provider === 'gemini_rest') && isGeminiKeyRejected(cand.apiKey)) {
         skippedByCooldown = true;
-        recordProviderSwitch(cand.provider, _nextProviderName(chain, cand), 'GEMINI_KEY_REJECTED');
+        recordProviderSwitch(cand.provider, _nextProviderName(chain, cand), 'GEMINI_AUTH_REJECTED');
         continue;
       }
       aiAttempted = true;
@@ -2311,7 +2118,10 @@ async function runCompanionBrain(
             if (live.result.kind === 'web') {
               const webAnswer = await _resolveWebViaGemini(live.result.query, trimmed, cand.apiKey, id, isDriving, opts);
               if (webAnswer) return webAnswer;
-              continue;   // güncel veri alınamadı → sıradaki aday (REST/Groq/Haiku + arama)
+              cancelGeminiLiveTurn();
+              opts.live?.abort();
+              recordProviderSwitch('live', _nextProviderName(chain, cand), 'LIVE_UNAVAILABLE');
+              continue;   // güncel veri alınamadı → sıradaki aday (REST/OpenRouter/Claude)
             }
             const modelText = live.result.kind === 'chat' ? live.result.response : live.result.semantic.feedback;
             pushHistory('user', trimmed);
@@ -2338,7 +2148,7 @@ async function runCompanionBrain(
             };
           }
           recordProviderSwitch('live', _nextProviderName(chain, cand), live.reason);
-          if (live.reason === 'LIVE_UNAVAILABLE' || live.reason === 'LIVE_DISCONNECTED') {
+          if (live.reason === 'LIVE_UNAVAILABLE' || live.reason === 'LIVE_CONNECTION_FAILURE') {
             // Ağ kanıtı YOK (el sıkışma/kopma) — REST'in sonucu kesiciye söz söyler.
           } else {
             sawHttpResponse = true;   // sunucu cevap verdi (kota/model/anahtar) → ağ CANLI
@@ -2346,7 +2156,7 @@ async function runCompanionBrain(
           continue;
         }
 
-        if (cand.provider === 'gateway') {
+        if (cand.provider === 'openrouter') {
           // Sağlayıcı-bağımsız hat: gateway kendi tekrar/timeout/devre-kesici
           // politikasını içeride uygular. Başarısızsa zincirdeki eski adaylar
           // (Gemini/Groq/Haiku) aynen denenmeye devam eder.
@@ -2364,7 +2174,8 @@ async function runCompanionBrain(
              kütük #421'de sahada ölçülmüştü) dürüst cevap dalına TAŞINIR.
              Eskiden bu sınıflandırma burada okunmuyordu: kredisi bitmiş bir
              hesapta kullanıcı "kredi yükle" yerine "tekrar söyle" duyuyordu. */
-          noteGatewayFailureKind(gw.errorKind ?? '');
+          noteGatewayFailureKind(gw.errorKind ?? '', 'openrouter');
+          recordProviderSwitch('openrouter', _nextProviderName(chain, cand), classifyOpenRouterFailure(gw.errorKind));
           if (gw.netFailure) { sawNetFailure = true; noteNetFailureKind(gw.errorKind); }
           // Sunucudan yanıt gelmiş her hata sınıfı = ağ CANLI kanıtı (yerel kapı
           // ve sonucu-bilinmeyen sınıflar kanıt SAYILMAZ — bkz. NO_NET_EVIDENCE_KINDS).
@@ -2372,14 +2183,18 @@ async function runCompanionBrain(
           continue;
         }
 
-        if (cand.provider === 'gemini') {
+        if (cand.provider === 'gemini_rest') {
           // Gemini attarsa (timeout/ağ hatası) zincirdeki sıradakini de
           // deneyebilmek için yalnız Gemini çağrısı kendi try/catch'inde izole
           // edilir — dıştaki catch yalnız TÜM zincir tükendiğinde bir kez sayar.
           let result: BrainRaw | null = null;
           let threw = false;
+          let geminiFailure: ProviderSwitchReason = 'GEMINI_UNAVAILABLE';
           try {
-            result = await askCompanionBrain(brainInput, cand.apiKey, id, isDriving, opts.timeoutMs);
+            result = await askCompanionBrain(
+              brainInput, cand.apiKey, id, isDriving, opts.timeoutMs,
+              (reason) => { geminiFailure = reason; },
+            );
           } catch (e) { result = null; threw = true; noteNetFailure(e, 'gemini'); /* GERÇEK ağ hatası (throw) — sıradaki aday denenecek */ }
           // THROW YOKSA sunucudan yanıt alındı (200/429/4xx/parse) → ağ CANLI.
           if (!threw) sawHttpResponse = true;
@@ -2421,9 +2236,10 @@ async function runCompanionBrain(
               // grounding+Tavily boş/başarısız → CANLI VERİ alınamadı, ama BEYİN
               // BAŞARILIYDI (yukarıda recordAiNetSuccess, sayaç=0). Bu bir AĞ
               // hatası DEĞİL, yalnız güncel-bilgi eksiği → devre kesiciyi TETİKLEME.
-              // Sıradaki adayı (Groq/Haiku + searchKey/Tavily) dene; o da yoksa
+              // Sıradaki adayı (OpenRouter/Claude) dene; o da yoksa
               // offline fallback dürüstçe cevap/tekrar-rica verir. Böylece tek
               // başarısız web sorgusu TÜM asistanı 90sn offline'a KİLİTLEMEZ.
+              recordProviderSwitch('gemini_rest', _nextProviderName(chain, cand), 'GEMINI_UNAVAILABLE');
               continue;
             }
             // Sohbet sürekliliği: aksiyon turları da geçmişe girer ("onu da çal" gibi
@@ -2434,23 +2250,34 @@ async function runCompanionBrain(
           }
           // result null ama THROW YOK = HTTP yanıtı alındı (429/4xx/parse) → ağ
           // canlı, kesiciye sayma; sıradaki adaya geç.
+          recordProviderSwitch('gemini_rest', _nextProviderName(chain, cand), threw ? 'GEMINI_UNAVAILABLE' : geminiFailure);
           continue;
         }
 
-        if (cand.provider === 'groq') {
-          const result = await tryGroqBrainAndRecord(brainInput, cand.apiKey, id, isDriving, opts.timeoutMs, opts.tavilyKey, opts.searchKey);
-          sawHttpResponse = true; // throw etmedi → sunucudan yanıt geldi (ağ canlı)
+        // cand.provider === 'claude' — zincirin son online halkası
+        let claudeFailure: ProviderSwitchReason = 'CLAUDE_UNAVAILABLE';
+        try {
+          const result = await tryHaikuBrainAndRecord(
+            brainInput, cand.apiKey, id, isDriving, opts.timeoutMs, opts.tavilyKey, opts.searchKey,
+            (reason) => { if (claudeFailure === 'CLAUDE_UNAVAILABLE') claudeFailure = reason; },
+          );
+          sawHttpResponse = true; // throw etmedi → HTTP/parse sonucu var
           if (result) return result;
-          continue; // null = HTTP-yanıtlı sağlayıcı hatası → ağ canlı, sayma
+        } catch (e) {
+          noteNetFailure(e, 'claude');
+          claudeFailure = 'CLAUDE_UNAVAILABLE';
         }
-
-        // cand.provider === 'haiku' — zincirin son halkası
-        const result = await tryHaikuBrainAndRecord(brainInput, cand.apiKey, id, isDriving, opts.timeoutMs, opts.tavilyKey, opts.searchKey);
-        sawHttpResponse = true; // throw etmedi → sunucudan yanıt geldi (ağ canlı)
-        if (result) return result;
-        // null → HTTP-yanıtlı sağlayıcı hatası; ağ canlı, sayma
-      } catch (e) { noteNetFailure(e, cand.provider); /* bu adayda GERÇEK ağ hatası (throw) — sıradakine geç */ }
+        recordProviderSwitch('claude', 'offline', claudeFailure);
+      } catch (e) {
+        noteNetFailure(e, cand.provider);
+        const reason: ProviderSwitchReason = cand.provider === 'live' ? 'LIVE_UNAVAILABLE'
+          : cand.provider === 'openrouter' ? 'OPENROUTER_UNAVAILABLE'
+            : cand.provider === 'gemini_rest' ? 'GEMINI_UNAVAILABLE' : 'CLAUDE_UNAVAILABLE';
+        recordProviderSwitch(cand.provider, _nextProviderName(chain, cand), reason);
+      }
     }
+
+    if (aiAttempted) recordProviderSwitch('online', 'offline', 'ALL_ONLINE_PROVIDERS_UNAVAILABLE');
 
     // Yalnız GERÇEK ağ hatası (throw/timeout) görüldüyse bir KEZ say — kesici
     // her adayda ayrı ayrı değil, tüm zincir tükendiğinde bir kez tetiklenir.
@@ -2542,7 +2369,7 @@ async function runCompanionBrain(
  *   doğrulanır (offline/rate/key/safety metni zaten yereldir → dokunulmaz). */
 
 const ONLINE_ROUTES: ReadonlySet<CompanionChatRoute> = new Set<CompanionChatRoute>([
-  'companion_live', 'companion_gemini', 'companion_groq', 'companion_haiku', 'companion_gateway',
+  'companion_live', 'companion_gemini', 'companion_haiku', 'companion_gateway',
 ]);
 
 /** Online CHAT cevabını POST-GATE'ten geçirir; değişirse yeni sonuç döner. */
@@ -2594,7 +2421,7 @@ export async function tryCompanionBrain(
      güvence yasağı) Live bu turda KULLANILMAZ; REST+TTS yolu post-gate'li kalır. */
   let effectiveOpts = opts;
   if (opts.live && ctx.diagnosticDriveSafe === false) {
-    recordProviderSwitch('live', 'gemini', 'LIVE_NOT_ELIGIBLE');
+    recordProviderSwitch('live', 'gemini_rest', 'LIVE_NOT_ELIGIBLE');
     const { live: _omit, ...rest } = opts;
     void _omit;
     effectiveOpts = rest;
@@ -2710,7 +2537,7 @@ async function runCompanionChat(
 
   const isDriving = opts.isDriving === true;
 
-  // ── Öncelikli yol: GERÇEK AI sohbeti (Gemini veya Groq) — Safety Kernel
+  // ── Öncelikli eski sohbet ucu: Gemini — ana provider zinciri runCompanionBrain'dir.
   //    PRE-GATE kapattıysa (allowOnline=false) online atlanır, offline'a düşülür.
   const geminiUsable =
     allowOnline &&
@@ -2718,13 +2545,6 @@ async function runCompanionChat(
     !!opts.apiKey &&
     opts.hasNet === true &&
     !isProviderCoolingDown('gemini');
-
-  const groqUsable =
-    allowOnline &&
-    opts.provider === 'groq' &&
-    !!opts.apiKey &&
-    opts.hasNet === true &&
-    !isProviderCoolingDown('groq'); // Groq KENDİ penceresi (Gemini'ninki değil)
 
   if (geminiUsable) {
     try {
@@ -2738,18 +2558,6 @@ async function runCompanionChat(
     } catch (e) {
       // SESSİZ OFFLINE YASAK (SAHA 2026-07-22): sebep kodu + künye kaydedilir.
       recordAiNetFailure({ provider: 'gemini', exceptionType: errorKindFromException(e) });
-    }
-  } else if (groqUsable) {
-    try {
-      const reply = await askCompanionGroq(trimmed, opts.apiKey as string, resolveIdentityWithDriverStyle(settings), isDriving);
-      if (reply) {
-        recordAiNetSuccess(); // ağ sağlıklı — devre kesici sayacı sıfırla
-        pushHistory('user', trimmed);
-        pushHistory('model', reply);
-        return { response: reply, route: 'companion_groq' };
-      }
-    } catch (e) {
-      recordAiNetFailure({ provider: 'groq', exceptionType: errorKindFromException(e) });
     }
   }
 

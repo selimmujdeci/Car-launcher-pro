@@ -44,9 +44,15 @@ export interface LiveAudioStreamHandle {
 export interface BeginLiveAudioStreamOpts {
   readonly turn: MaviTurnToken | null;
   readonly onToolCall?: (call: LiveToolCall) => void;
+  /** Provider turunu da iptal eden lifecycle portu; ses iptali tek başına yetmez. */
+  readonly cancelUpstream?: () => void;
 }
 
-let _active: { turn: MaviTurnToken | null; pcm: PcmPlaybackHandle | null } | null = null;
+let _active: {
+  turn: MaviTurnToken | null;
+  pcm: PcmPlaybackHandle | null;
+  cancelUpstream?: () => void;
+} | null = null;
 
 /* Sayaçlar — tanı yüzeyi (PII yok). */
 let _opened = 0;
@@ -59,12 +65,13 @@ export function cancelActiveLiveAudioStream(): void {
   const a = _active;
   _active = null;
   if (a?.pcm) { try { a.pcm.cancel(); } catch { /* fail-soft */ } }
+  if (a?.cancelUpstream) { try { a.cancelUpstream(); } catch { /* fail-soft */ } }
 }
 
 export function beginLiveAudioStream(opts: BeginLiveAudioStreamOpts): LiveAudioStreamHandle {
   cancelActiveLiveAudioStream();
   const turn = opts.turn;
-  const state = { turn, pcm: null as PcmPlaybackHandle | null };
+  const state = { turn, pcm: null as PcmPlaybackHandle | null, cancelUpstream: opts.cancelUpstream };
   _active = state;
   _opened++;
 
@@ -74,6 +81,15 @@ export function beginLiveAudioStream(opts: BeginLiveAudioStreamOpts): LiveAudioS
   let closed = false;
 
   const stale = (): boolean => {
+    // Lifecycle sahibi bu handle'ı aktiflikten çıkardıysa (yeni voice turn,
+    // barge-in veya fallback), provider'dan sonradan gelen callback artık
+    // sahiplik kazanamaz. Yalnız turn token'ına bakmak yetmez: aynı Mavi turn
+    // içinde Live → REST fallback'i de bu kapıdan geçer.
+    if (_active !== state) {
+      if (!closed) _staleDropped++;
+      abort();
+      return true;
+    }
     if (turn && !isMaviTurnCurrent(turn)) {
       _staleDropped++;
       abort();
@@ -90,6 +106,11 @@ export function beginLiveAudioStream(opts: BeginLiveAudioStreamOpts): LiveAudioS
     if (closed) return;
     closed = true;
     if (state.pcm) { try { state.pcm.cancel(); } catch { /* fail-soft */ } state.pcm = null; }
+    if (state.cancelUpstream) {
+      const cancel = state.cancelUpstream;
+      state.cancelUpstream = undefined;
+      try { cancel(); } catch { /* fail-soft */ }
+    }
     if (_active === state) _active = null;
   };
 
@@ -136,6 +157,7 @@ export function beginLiveAudioStream(opts: BeginLiveAudioStreamOpts): LiveAudioS
     complete: () => {
       if (closed) return;
       closed = true;
+      state.cancelUpstream = undefined;
       if (state.pcm) { try { state.pcm.end(); } catch { /* yok */ } }
       if (_active === state) _active = null;
     },

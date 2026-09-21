@@ -1,13 +1,10 @@
 /**
- * maviAiGatewayWiring.test.ts — Mavi → AI Gateway hattı (flag'li wiring).
+ * maviAiGatewayWiring.test.ts — Mavi → OpenRouter gateway fallback wiring.
  *
  * Kilitlenen davranışlar:
- *  1) BAYRAK KAPALI (VARSAYILAN) → gateway hattı HİÇ dokunmaz: bridge çağrılmaz,
- *     gateway modülü yüklenmez, zincir birebir eski sağlayıcı sırasıdır.
- *  2) BAYRAK AÇIK → gateway zincirin BAŞINDA denenir; başarısızsa eski adaylar
- *     (Gemini/Groq/Haiku) yedek olarak AYNEN çalışmaya devam eder (rollback).
- *  3) Sağlayıcı-bağımsızlık: köprü yalnız `AiGateway` soyutlamasını kullanır;
- *     OpenRouter/HTTP/anahtar detayı geçmez.
+ *  1) Gateway feature flag fallback'i kapatamaz.
+ *  2) Gemini REST önce, OpenRouter gateway sonra çalışır.
+ *  3) Mevcut gateway/key authority korunur; providerId yalnız OpenRouter'a sabitler.
  *  4) Devre kesici semantiği korunur: yalnız network/timeout GERÇEK ağ ölümüdür.
  *  5) Konuşma bütünlüğü: system + geçmiş (rol sırası) + kullanıcı metni aynen taşınır.
  */
@@ -80,7 +77,7 @@ vi.mock('../platform/assistant/assistantSafetyKernel', () => ({
   verifyResponse:     (r: string) => ({ response: r, action: 'pass' }),
 }));
 
-describe('companionChatProvider — gateway adayı (flag arkasında)', () => {
+describe('companionChatProvider — zorunlu OpenRouter gateway fallback', () => {
   beforeEach(async () => {
     C.flagEnabled  = false;
     C.gatewayCalls = [];
@@ -107,7 +104,7 @@ describe('companionChatProvider — gateway adayı (flag arkasında)', () => {
     }));
   });
 
-  it('BAYRAK KAPALI → gateway köprüsü HİÇ çağrılmaz, eski sağlayıcı çalışır', async () => {
+  it('Gemini REST başarılıysa OpenRouter çağrılmaz', async () => {
     const { tryCompanionBrain } = await import('../platform/companion/companionChatProvider');
     const r = await tryCompanionBrain('merhaba', {
       provider: 'gemini', apiKey: 'k', hasNet: true, isDriving: false,
@@ -132,8 +129,8 @@ describe('companionChatProvider — gateway adayı (flag arkasında)', () => {
     if (r?.kind === 'chat') expect(r.route).toBe('companion_gemini');
   });
 
-  it('BAYRAK AÇIK → Gemini REST düşerse gateway denenir ve companion_gateway rotasıyla döner', async () => {
-    C.flagEnabled  = true;
+  it('BAYRAK KAPALIYKEN de Gemini REST düşerse OpenRouter denenir', async () => {
+    C.flagEnabled  = false;
     C.geminiStatus = 503;
     C.gatewayReply = { ok: true, text: JSON.stringify({ type: 'chat', say: 'gateway cevabı' }) };
 
@@ -167,18 +164,20 @@ describe('companionChatProvider — gateway adayı (flag arkasında)', () => {
     if (r?.kind === 'chat') expect(r.route).not.toBe('companion_gateway');
   });
 
-  it('anahtar YOKKEN bile gateway zincire girer (BYOK kendi içinde)', async () => {
+  it('OpenRouter adayı key değerini taşımadan gateway key authority\'sine girer', async () => {
     C.flagEnabled  = true;
     C.gatewayReply = { ok: true, text: JSON.stringify({ type: 'chat', say: 'anahtarsız cevap' }) };
 
     const { tryCompanionBrain } = await import('../platform/companion/companionChatProvider');
-    const r = await tryCompanionBrain('merhaba', { hasNet: true, isDriving: false }); // provider/apiKey YOK
+    const r = await tryCompanionBrain('merhaba', {
+      hasNet: true, isDriving: false, chain: [{ provider: 'openrouter', apiKey: '' }],
+    });
 
     expect(C.gatewayCalls).toHaveLength(1);
     if (r?.kind === 'chat') expect(r.route).toBe('companion_gateway');
   });
 
-  it('köprüye SAĞLAYICI DETAYI geçmez — yalnız prompt/geçmiş/metin', async () => {
+  it('köprü OpenRouter providerId alır ama API key değeri taşımaz', async () => {
     C.flagEnabled  = true;
     C.geminiStatus = 503;
     C.gatewayReply = { ok: true, text: JSON.stringify({ type: 'chat', say: 'ok' }) };
@@ -188,10 +187,11 @@ describe('companionChatProvider — gateway adayı (flag arkasında)', () => {
 
     const call = C.gatewayCalls[0] as Record<string, unknown>;
     expect(Object.keys(call).sort()).toEqual(
-      ['gateway', 'history', 'maxTokens', 'system', 'temperature', 'timeoutMs', 'user'].sort(),
+      ['gateway', 'history', 'maxTokens', 'providerId', 'system', 'temperature', 'timeoutMs', 'user'].sort(),
     );
+    expect(call['providerId']).toBe('openrouter');
     expect(JSON.stringify(call)).not.toContain('gizli-anahtar');
-    expect(JSON.stringify(call)).not.toMatch(/openrouter|api\.anthropic|googleapis/i);
+    expect(JSON.stringify(call)).not.toMatch(/api\.anthropic|googleapis/i);
     expect(typeof call['system']).toBe('string');
     expect(call['user']).toBe('merhaba');
   });
@@ -204,68 +204,72 @@ describe('companionChatProvider — gateway adayı (flag arkasında)', () => {
     };
 
     const { tryCompanionBrain } = await import('../platform/companion/companionChatProvider');
-    const r = await tryCompanionBrain('sezen aksu çal', { hasNet: true });
+    const r = await tryCompanionBrain('sezen aksu çal', {
+      hasNet: true, chain: [{ provider: 'openrouter', apiKey: '' }],
+    });
 
     expect(r?.kind).toBe('action');
     if (r?.kind === 'action') expect(r.semantic.intent).toBe('PLAY_MUSIC_SEARCH');
   });
 
-  /* ── Faz 2: orchestrator ALT TERCİHİ ── */
-
-  it('Gateway AÇIK · Orchestrator KAPALI → mevcut tek-sağlayıcı gateway davranışı', async () => {
+  it('Gateway flag açık/kapalı fark etmeksizin aynı bridge çalışır', async () => {
     C.flagEnabled = true;
     C.orchestratorEnabled = false;
     C.gatewayReply = { ok: true, text: JSON.stringify({ type: 'chat', say: 'gateway cevabı' }) };
 
     const { tryCompanionBrain } = await import('../platform/companion/companionChatProvider');
-    const r = await tryCompanionBrain('merhaba', { hasNet: true });
+    const r = await tryCompanionBrain('merhaba', {
+      hasNet: true, chain: [{ provider: 'openrouter', apiKey: '' }],
+    });
 
     expect(C.gatewayCalls).toHaveLength(1);       // köprü yolu
     expect(C.orchestratedCalls).toHaveLength(0);  // orkestratör HİÇ çağrılmadı
     if (r?.kind === 'chat') expect(r.route).toBe('companion_gateway');
   });
 
-  it('Gateway AÇIK · Orchestrator AÇIK → orkestre edilmiş yürütücü kullanılır', async () => {
+  it('Orchestrator flag OpenRouter fallback authority\'sini değiştirmez', async () => {
     C.flagEnabled = true;
     C.orchestratorEnabled = true;
-    C.orchestratedReply = { ok: true, text: JSON.stringify({ type: 'chat', say: 'orkestre cevabı' }) };
+    C.gatewayReply = { ok: true, text: JSON.stringify({ type: 'chat', say: 'gateway cevabı' }) };
 
     const { tryCompanionBrain } = await import('../platform/companion/companionChatProvider');
-    const r = await tryCompanionBrain('motor sıcaklığı kaç', { hasNet: true });
+    const r = await tryCompanionBrain('motor sıcaklığı kaç', {
+      hasNet: true, chain: [{ provider: 'openrouter', apiKey: '' }],
+    });
 
-    expect(C.orchestratedCalls).toHaveLength(1);
-    expect(C.gatewayCalls).toHaveLength(0);       // köprü yolu ATLANDI
+    expect(C.orchestratedCalls).toHaveLength(0);
+    expect(C.gatewayCalls).toHaveLength(1);
     expect(C.geminiCalls).toBe(0);
     if (r?.kind === 'chat') {
-      expect(r.response).toBe('orkestre cevabı');
-      expect(r.route).toBe('companion_gateway');  // rota DEĞİŞMEDİ (geriye uyum)
+      expect(r.response).toBe('gateway cevabı');
+      expect(r.route).toBe('companion_gateway');
     }
   });
 
-  it('orkestratöre sınıflandırma metni geçer ama SAĞLAYICI/ANAHTAR detayı geçmez', async () => {
+  it('OpenRouter çağrısı anahtar değerini bridge parametrelerine sızdırmaz', async () => {
     C.flagEnabled = true;
     C.orchestratorEnabled = true;
-    C.orchestratedReply = { ok: true, text: JSON.stringify({ type: 'chat', say: 'ok' }) };
+    C.gatewayReply = { ok: true, text: JSON.stringify({ type: 'chat', say: 'ok' }) };
     C.geminiStatus = 503;
 
     const { tryCompanionBrain } = await import('../platform/companion/companionChatProvider');
     await tryCompanionBrain('merhaba', { provider: 'gemini', apiKey: 'gizli-anahtar', hasNet: true });
 
-    const call = C.orchestratedCalls[0] as Record<string, unknown>;
-    expect(call['classifyText']).toBe('merhaba');
+    const call = C.gatewayCalls[0] as Record<string, unknown>;
+    expect(call['user']).toBe('merhaba');
     expect(JSON.stringify(call)).not.toContain('gizli-anahtar');
   });
 
-  it('orkestratör düşerse zincir THROW etmeden devam eder', async () => {
+  it('OpenRouter düşerse zincir THROW etmeden offline/sonraki adaya devam eder', async () => {
     C.flagEnabled = true;
     C.orchestratorEnabled = true;
     C.geminiStatus = 503;
-    C.orchestratedReply = { ok: false, netFailure: false, errorKind: 'unknown' };
+    C.gatewayReply = { ok: false, netFailure: false, errorKind: 'unknown' };
 
     const { tryCompanionBrain } = await import('../platform/companion/companionChatProvider');
     const r = await tryCompanionBrain('merhaba', { provider: 'gemini', apiKey: 'k', hasNet: true });
 
-    expect(C.orchestratedCalls).toHaveLength(1);
+    expect(C.gatewayCalls).toHaveLength(1);
     expect(C.geminiCalls).toBeGreaterThan(0);     // REST önce denendi
     expect(r?.kind).toBe('chat');
     if (r?.kind === 'chat') expect(r.route).not.toBe('companion_gateway');
@@ -276,8 +280,9 @@ describe('companionChatProvider — gateway adayı (flag arkasında)', () => {
     C.gatewayReply = { ok: true, text: JSON.stringify({ type: 'chat', say: 'ilk cevap' }) };
 
     const { tryCompanionBrain } = await import('../platform/companion/companionChatProvider');
-    await tryCompanionBrain('ilk soru', { hasNet: true });
-    await tryCompanionBrain('ikinci soru', { hasNet: true });
+    const onlyOpenRouter = { hasNet: true, chain: [{ provider: 'openrouter' as const, apiKey: '' }] };
+    await tryCompanionBrain('ilk soru', onlyOpenRouter);
+    await tryCompanionBrain('ikinci soru', onlyOpenRouter);
 
     const second = C.gatewayCalls[1] as { history: Array<{ role: string; content: string }> };
     expect(second.history).toEqual([

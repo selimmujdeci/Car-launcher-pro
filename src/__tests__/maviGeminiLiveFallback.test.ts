@@ -8,9 +8,8 @@
  * (kaynak taraması değil): hangi sağlayıcının çağrıldığı, hangisinin ATLANDIĞI,
  * geçiş kütüğünün sebebi ve duplicate cevap/eylem yasağı gerçek zincirden okunur.
  *
- * OpenRouter adayı gateway BAYRAĞI altındadır (varsayılan kapalı); OpenRouter'ın
- * canlı çağrı yolu bu dosyada YÜRÜTÜLMEZ — zincirdeki YERİ (Gemini REST'in
- * arkası) kilitlenir, gateway'in kendi kredi/kimlik soğuması mevcut testlerde.
+ * OpenRouter çağrısı mevcut gateway ve güvenli BYOK key source üzerinden GERÇEKTEN
+ * yürütülür; feature flag bu fallback halkasını kapatamaz.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
@@ -44,6 +43,8 @@ import { GeminiLiveSession, type WebSocketLike } from '../platform/ai/live/gemin
 import { LIVE_TOOL_ACTION, buildLiveFunctionDeclarations } from '../platform/ai/live/liveToolSchema';
 import { matchDeterministicWholeInput } from '../platform/commandParser';
 import { useStore } from '../store/useStore';
+import { sensitiveKeyStore } from '../platform/sensitiveKeyStore';
+import { _resetDefaultAiGatewayForTest } from '../platform/ai/gateway/concrete/defaultAiGateway';
 
 /* ══════════════════════════════════════════════════════════════════════════
  * Sahte WebSocket — senaryo betiği
@@ -159,12 +160,12 @@ function makePorts() {
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
- * Sahte fetch — REST (Gemini/Groq/Haiku) yönlendiricisi
+ * Sahte fetch — REST (Gemini/OpenRouter/Claude) yönlendiricisi
  * ════════════════════════════════════════════════════════════════════════ */
 
 type Responder = (url: string) => { status: number; body: unknown };
 const brainOk = (say: string) => ({ status: 200, body: { candidates: [{ content: { parts: [{ text: JSON.stringify({ type: 'chat', say }) }] } }] } });
-const groqOk  = (say: string) => ({ status: 200, body: { choices: [{ message: { content: JSON.stringify({ type: 'chat', say }) } }] } });
+const openRouterOk = (say: string) => ({ status: 200, body: { choices: [{ message: { content: JSON.stringify({ type: 'chat', say }) } }] } });
 const haikuOk = (say: string) => ({ status: 200, body: { content: [{ type: 'text', text: JSON.stringify({ type: 'chat', say }) }] } });
 const quota429 = { status: 429, body: { error: { details: [{ retryDelay: '5s' }] } } };
 
@@ -187,7 +188,7 @@ const calledHosts = (spy: ReturnType<typeof vi.fn>): string[] =>
 
 const CHAIN_ALL = [
   { provider: 'gemini' as const, apiKey: 'AIzaTest' },
-  { provider: 'groq'   as const, apiKey: 'gsk_test' },
+  { provider: 'openrouter' as const, apiKey: '' },
   { provider: 'haiku'  as const, apiKey: 'sk-ant-test' },
 ];
 
@@ -198,18 +199,22 @@ async function brain(text: string, ports: ReturnType<typeof makePorts> | null, c
   });
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   localStorage.clear();
   useStore.getState().resetSettings();
   _resetCompanionChatForTest();
   _resetProviderHealthForTest();
   _resetAiHealthForTest();
   _resetGeminiLiveFlagForTest();
+  _resetDefaultAiGatewayForTest();
   vi.unstubAllGlobals();
+  await sensitiveKeyStore.set('openRouterApiKey', 'sk-or-v1-test');
 });
-afterEach(() => {
+afterEach(async () => {
   vi.unstubAllGlobals();
   _setGeminiLiveWsFactoryForTest(undefined);
+  _resetDefaultAiGatewayForTest();
+  await sensitiveKeyStore.remove('openRouterApiKey');
 });
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -265,11 +270,21 @@ describe('2 · Live kota/rate-limit → Normal Gemini REST', () => {
     expect(r && r.kind === 'chat' && r.route).toBe('companion_gemini');
     expect(r && r.kind === 'chat' && r.response).toBe('REST cevabı');
     expect(calledHosts(fetchSpy)).toContain('generativelanguage.googleapis.com');
-    expect(getProviderSwitchLog()[0]).toMatchObject({ from: 'live', to: 'gemini', reason: 'LIVE_QUOTA' });
+    expect(getProviderSwitchLog()[0]).toMatchObject({ from: 'live', to: 'gemini_rest', reason: 'LIVE_QUOTA' });
     expect(isProviderCoolingDown('live')).toBe(true);
     expect(isProviderCoolingDown('gemini')).toBe(false);
     expect(isGeminiKeyRejected('AIzaTest')).toBe(false);
     expect(ports.abort).toHaveBeenCalled();
+  });
+
+  it('rate-limit ayrı reason ile REST\'e geçer', async () => {
+    installWs({ connect: 'rejectSetup', code: 1008, reason: 'rate limit exceeded' });
+    installFetch(() => brainOk('REST cevabı'));
+    const r = await brain('nasılsın', makePorts());
+    expect(r && r.kind === 'chat' && r.route).toBe('companion_gemini');
+    expect(getProviderSwitchLog()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ from: 'live', to: 'gemini_rest', reason: 'LIVE_RATE_LIMIT' }),
+    ]));
   });
 });
 
@@ -280,7 +295,7 @@ describe('3 · Live servis/model kullanılamıyor → Normal Gemini REST', () =>
     const r = await brain('nasılsın', makePorts());
     expect(r && r.kind === 'chat' && r.route).toBe('companion_gemini');
     expect(fetchSpy).toHaveBeenCalled();
-    expect(getProviderSwitchLog()[0]).toMatchObject({ from: 'live', to: 'gemini', reason: 'LIVE_MODEL_UNAVAILABLE' });
+    expect(getProviderSwitchLog()[0]).toMatchObject({ from: 'live', to: 'gemini_rest', reason: 'LIVE_UNAVAILABLE' });
   });
 
   it('servis erişilemez (setup öncesi 1006, sebep yok) → REST; anahtar REDDİ ilan EDİLMEZ', async () => {
@@ -318,7 +333,7 @@ describe('4 · Live WebSocket geçici kopma → reconnect/resume', () => {
 });
 
 describe('5 · Live bağlantısı geri gelmez → Normal Gemini REST', () => {
-  it('iki kopma üst üste → REST; kütük LIVE_DISCONNECTED', async () => {
+  it('iki kopma üst üste → REST; kütük LIVE_CONNECTION_FAILURE', async () => {
     installWs(
       { connect: 'ok', turns: [[{ close: { code: 1006, reason: '' } }]] },
       { connect: 'ok', turns: [[{ close: { code: 1006, reason: '' } }]] },
@@ -327,29 +342,30 @@ describe('5 · Live bağlantısı geri gelmez → Normal Gemini REST', () => {
     const r = await brain('nasılsın', makePorts());
     expect(r && r.kind === 'chat' && r.route).toBe('companion_gemini');
     expect(fetchSpy).toHaveBeenCalled();
-    expect(getProviderSwitchLog()[0]).toMatchObject({ from: 'live', to: 'gemini', reason: 'LIVE_DISCONNECTED' });
+    expect(getProviderSwitchLog()[0]).toMatchObject({ from: 'live', to: 'gemini_rest', reason: 'LIVE_CONNECTION_FAILURE' });
   });
 });
 
 describe('6 · Gemini key invalid/revoked → REST tekrar DENENMEZ → sıradaki sağlayıcı', () => {
-  it('Live "API key not valid" → gemini REST fetch YOK, Groq cevaplar; kütük LIVE_AUTH + GEMINI_KEY_REJECTED', async () => {
+  it('Live "API key not valid" → Gemini REST fetch YOK, OpenRouter gerçekten cevaplar', async () => {
     installWs({ connect: 'rejectSetup', code: 1008, reason: 'API key not valid. Please pass a valid API key.' });
-    const fetchSpy = installFetch((url) => url.includes('groq') ? groqOk('Groq cevabı') : brainOk('OLMAMALI'));
+    const fetchSpy = installFetch((url) => url.includes('openrouter') ? openRouterOk('OpenRouter cevabı') : brainOk('OLMAMALI'));
 
     const r = await brain('nasılsın', makePorts());
 
-    expect(r && r.kind === 'chat' && r.route).toBe('companion_groq');
+    expect(r && r.kind === 'chat' && r.route).toBe('companion_gateway');
+    expect(r && r.kind === 'chat' && r.response).toBe('OpenRouter cevabı');
     expect(calledHosts(fetchSpy)).not.toContain('generativelanguage.googleapis.com');
-    expect(calledHosts(fetchSpy)).toContain('api.groq.com');
+    expect(calledHosts(fetchSpy)).toContain('openrouter.ai');
+    expect(calledHosts(fetchSpy)).not.toContain('api.groq.com');
     expect(isGeminiKeyRejected('AIzaTest')).toBe(true);
     const reasons = getProviderSwitchLog().map((x) => x.reason);
-    expect(reasons).toContain('LIVE_AUTH');
-    expect(reasons).toContain('GEMINI_KEY_REJECTED');
+    expect(reasons).toContain('GEMINI_AUTH_REJECTED');
   });
 
   it('sonraki turda Live de REST de atlanır (bounded pencere)', async () => {
     installWs({ connect: 'rejectSetup', code: 1008, reason: 'UNAUTHENTICATED' });
-    const fetchSpy = installFetch((url) => url.includes('groq') ? groqOk('Groq') : brainOk('OLMAMALI'));
+    const fetchSpy = installFetch((url) => url.includes('openrouter') ? openRouterOk('OpenRouter') : brainOk('OLMAMALI'));
     await brain('bir', makePorts());
     const before = FakeWs.instances.length;
     await brain('iki', makePorts());
@@ -358,32 +374,68 @@ describe('6 · Gemini key invalid/revoked → REST tekrar DENENMEZ → sıradaki
   });
 });
 
-describe('7 · Normal Gemini kota/unavailable → sıradaki (OpenRouter/gateway sonra Groq/Claude)', () => {
-  it('Live kota + REST 429 → Groq cevaplar; Gemini soğur', async () => {
+describe('7 · Normal Gemini kota/unavailable → OpenRouter', () => {
+  it('Live kota + REST 429 → OpenRouter gerçekten cevaplar; Gemini soğur', async () => {
     installWs({ connect: 'rejectSetup', code: 1008, reason: 'quota' });
-    const fetchSpy = installFetch((url) => url.includes('groq') ? groqOk('Groq cevabı') : quota429);
+    const fetchSpy = installFetch((url) => url.includes('openrouter') ? openRouterOk('OpenRouter cevabı') : quota429);
     const r = await brain('nasılsın', makePorts());
-    expect(r && r.kind === 'chat' && r.route).toBe('companion_groq');
+    expect(r && r.kind === 'chat' && r.route).toBe('companion_gateway');
     expect(calledHosts(fetchSpy)).toContain('generativelanguage.googleapis.com');
+    expect(calledHosts(fetchSpy)).toContain('openrouter.ai');
+    expect(calledHosts(fetchSpy)).not.toContain('api.groq.com');
     expect(isProviderCoolingDown('gemini')).toBe(true);
+    expect(getProviderSwitchLog()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ from: 'gemini_rest', to: 'openrouter', reason: 'GEMINI_RATE_LIMIT' }),
+    ]));
   });
 
-  it('🔒 zincir sırası: gateway (OpenRouter) adayı Gemini REST\'in ARKASINA, Live\'ın önüne DEĞİL', async () => {
-    const { readFileSync } = await import('node:fs');
-    const src = readFileSync('src/platform/companion/companionChatProvider.ts', 'utf8');
-    expect(src).toMatch(/if \(liveCandidate\) out\.push\(liveCandidate\);/);
-    expect(src).toMatch(/out\.push\(\.\.\.baseChain\.slice\(0, geminiIdx \+ 1\)\);\s*if \(gatewayCandidate\) out\.push\(gatewayCandidate\);/);
-    expect(src, 'eski "gateway zincirin başına" biçimi geri gelmiş').not.toMatch(/\[\{ provider: 'gateway', apiKey: '' \}, \.\.\.baseChain\]/);
+  it('Gemini REST 503/unavailable → OpenRouter gerçekten çağrılır', async () => {
+    installWs({ connect: 'rejectSetup', code: 1008, reason: 'model unavailable' });
+    const fetchSpy = installFetch((url) => url.includes('openrouter')
+      ? openRouterOk('OpenRouter 503 yedeği')
+      : { status: 503, body: { error: { message: 'service unavailable' } } });
+    const r = await brain('nasılsın', makePorts());
+    expect(r && r.kind === 'chat' && r.response).toBe('OpenRouter 503 yedeği');
+    expect(calledHosts(fetchSpy)).toContain('openrouter.ai');
+    expect(getProviderSwitchLog()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ from: 'gemini_rest', to: 'openrouter', reason: 'GEMINI_UNAVAILABLE' }),
+    ]));
+  });
+
+  it('OpenRouter success → Claude çağrılmaz', async () => {
+    installWs({ connect: 'rejectSetup', code: 1008, reason: 'quota' });
+    const fetchSpy = installFetch((url) => url.includes('openrouter') ? openRouterOk('OR') : quota429);
+    const r = await brain('nasılsın', makePorts());
+    expect(r && r.kind === 'chat' && r.response).toBe('OR');
+    expect(calledHosts(fetchSpy)).not.toContain('api.anthropic.com');
   });
 });
 
-describe('8 · OpenRouter/Groq unavailable → Claude', () => {
-  it('Live kota + REST 429 + Groq 429 → Haiku (Claude) cevaplar', async () => {
+describe('8 · OpenRouter unavailable → Claude', () => {
+  it('Live kota + REST 429 + OpenRouter 429 → Claude gerçekten cevaplar', async () => {
     installWs({ connect: 'rejectSetup', code: 1008, reason: 'quota' });
     const fetchSpy = installFetch((url) => url.includes('anthropic') ? haikuOk('Claude cevabı') : quota429);
     const r = await brain('nasılsın', makePorts());
     expect(r && r.kind === 'chat' && r.route).toBe('companion_haiku');
+    expect(calledHosts(fetchSpy)).toContain('openrouter.ai');
     expect(calledHosts(fetchSpy)).toContain('api.anthropic.com');
+    expect(getProviderSwitchLog()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ from: 'openrouter', to: 'claude', reason: 'OPENROUTER_RATE_LIMIT' }),
+    ]));
+  });
+
+  it('OpenRouter key yok → mevcut key authority auth sınıfı üretir ve Claude çağrılır', async () => {
+    await sensitiveKeyStore.remove('openRouterApiKey');
+    _resetDefaultAiGatewayForTest();
+    installWs({ connect: 'rejectSetup', code: 1008, reason: 'quota' });
+    const fetchSpy = installFetch((url) => url.includes('anthropic') ? haikuOk('Claude key yedeği') : quota429);
+    const r = await brain('nasılsın', makePorts());
+    expect(r && r.kind === 'chat' && r.response).toBe('Claude key yedeği');
+    expect(calledHosts(fetchSpy)).not.toContain('openrouter.ai');
+    expect(calledHosts(fetchSpy)).toContain('api.anthropic.com');
+    expect(getProviderSwitchLog()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ from: 'openrouter', to: 'claude', reason: 'OPENROUTER_AUTH_REJECTED' }),
+    ]));
   });
 });
 
@@ -394,6 +446,10 @@ describe('9 · Claude da yok → Local/Offline Mavi', () => {
     const r = await brain('nasılsın', makePorts());
     expect(r).not.toBeNull();
     expect(['companion_offline', 'companion_rate_limited', 'companion_reask']).toContain(r!.kind === 'chat' ? r!.route : '');
+    expect(getProviderSwitchLog()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ from: 'claude', to: 'offline', reason: 'CLAUDE_RATE_LIMIT' }),
+      expect.objectContaining({ from: 'online', to: 'offline', reason: 'ALL_ONLINE_PROVIDERS_UNAVAILABLE' }),
+    ]));
   });
 });
 
@@ -501,13 +557,13 @@ describe('classifyLiveFailure — "Live yok" ≠ "Gemini yok"', () => {
     expect(classifyLiveFailure('RESOURCE_EXHAUSTED', false)).toBe('LIVE_QUOTA');
   });
   it('anahtar reddi yalnız açık kanıtla', () => {
-    expect(classifyLiveFailure('API key not valid', false)).toBe('LIVE_AUTH');
-    expect(classifyLiveFailure('PERMISSION_DENIED', true)).toBe('LIVE_AUTH');
+    expect(classifyLiveFailure('API key not valid', false)).toBe('GEMINI_AUTH_REJECTED');
+    expect(classifyLiveFailure('PERMISSION_DENIED', true)).toBe('GEMINI_AUTH_REJECTED');
     expect(classifyLiveFailure('', false)).toBe('LIVE_UNAVAILABLE');
-    expect(classifyLiveFailure('', true)).toBe('LIVE_DISCONNECTED');
+    expect(classifyLiveFailure('', true)).toBe('LIVE_CONNECTION_FAILURE');
   });
   it('model bulunamadı ayrı sınıf', () => {
-    expect(classifyLiveFailure('NOT_FOUND: models/x', false)).toBe('LIVE_MODEL_UNAVAILABLE');
+    expect(classifyLiveFailure('NOT_FOUND: models/x', false)).toBe('LIVE_UNAVAILABLE');
   });
 });
 

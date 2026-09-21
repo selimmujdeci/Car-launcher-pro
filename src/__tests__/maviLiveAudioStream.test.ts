@@ -200,6 +200,45 @@ describe('tur sahipliği', () => {
     expect(getLiveAudioStreamDiagnostics().active).toBe(false);
     void b;
   });
+
+  it('yeni voice turn cleanup upstream Live turunu iptal eder; geç audio/tool eventi düşer', () => {
+    const cancelUpstream = vi.fn();
+    const onToolCall = vi.fn();
+    const turn = beginMaviTurn();
+    const h = beginLiveAudioStream({ turn, cancelUpstream, onToolCall });
+
+    cancelActiveLiveAudioStream();
+    cancelActiveLiveAudioStream();
+    expect(cancelUpstream).toHaveBeenCalledTimes(1);
+
+    h.sinks.onAudioChunk!(PCM());
+    h.sinks.onTranscript!('geç cevap');
+    h.sinks.onToolCall!({ name: 'mavi_action', args: { intent: 'OPEN_NAVIGATION' } });
+    expect(ctx.sources).toHaveLength(0);
+    expect(h.transcript).toBe('');
+    expect(h.sawToolCall).toBe(false);
+    expect(onToolCall).not.toHaveBeenCalled();
+    expect(getLiveAudioStreamDiagnostics().staleDropped).toBeGreaterThanOrEqual(1);
+  });
+
+  it('production startListening lifecycle önceki Live upstream turunu cancel eder', async () => {
+    const cancelUpstream = vi.fn();
+    const turn = beginMaviTurn();
+    beginLiveAudioStream({ turn, cancelUpstream });
+    const speech = {
+      lang: '', interimResults: false, continuous: false, maxAlternatives: 1,
+      start: vi.fn(), stop: vi.fn(), abort: vi.fn(),
+    };
+    const w = window as unknown as { webkitSpeechRecognition?: new () => typeof speech };
+    w.webkitSpeechRecognition = class { constructor() { return speech; } } as unknown as new () => typeof speech;
+
+    const voice = await import('../platform/voiceService');
+    voice._resetVoiceServiceForTest();
+    voice.startListening();
+    expect(cancelUpstream).toHaveBeenCalledTimes(1);
+    voice.stopListening();
+    delete w.webkitSpeechRecognition;
+  });
 });
 
 describe('Web Audio yok', () => {

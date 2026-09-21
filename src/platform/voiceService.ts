@@ -1547,19 +1547,12 @@ export async function _resolveAiKeys(): Promise<{
   /**
    * Gemini = ARAMA MOTORU anahtarı. Sohbet zincirinde olsun olmasın, web/güncel
    * bilgi sorgularının grounding'i (google_search) HER ZAMAN bu anahtarla yapılır.
-   * Groq/Haiku tek başına internete bakamaz → web kararlarını Gemini'ye devreder.
+   * Claude tek başına internete bakamaz → web kararlarını Gemini'ye devreder.
    * Boşsa (Gemini anahtarı yok) canlı arama yapılamaz (hava yine yerelden gelir).
    */
   searchKey: string;
-  /**
-   * SOHBET BEYNİ ZİNCİRİ — SIRA SABİT: Gemini → Groq → Haiku (yalnız anahtarı
-   * GİRİLMİŞ sağlayıcılar). Gemini birincil çünkü hem güvenilir sohbet/komut
-   * kararı hem YERLEŞİK google_search araması onda; Groq/Haiku, Gemini 429/hata
-   * olunca otomatik yedek. ("Groq birincil, Gemini yalnız arama" denemesi saha
-   * geri bildirimiyle geri alındı — Groq web/komut kararında yeterince güvenilir
-   * değildi.)
-   */
-  chain: ReadonlyArray<{ provider: 'gemini' | 'groq' | 'haiku'; apiKey: string }>;
+  /** SOHBET BEYNİ ZİNCİRİ — sıra sabit: Gemini → OpenRouter → Claude. */
+  chain: ReadonlyArray<{ provider: 'gemini' | 'openrouter' | 'haiku'; apiKey: string }>;
 }> {
   // GÜVENLİK: localStorage'dan SADECE hassas-olmayan provider SEÇİMİ okunur
   // (gemini|haiku enum'u). API ANAHTARLARI burada DEĞİL — aşağıda
@@ -1574,33 +1567,29 @@ export async function _resolveAiKeys(): Promise<{
   let apiKey = '';
   let tavilyKey = '';
   let searchKey = '';
-  const chain: { provider: 'gemini' | 'groq' | 'haiku'; apiKey: string }[] = [];
+  const chain: { provider: 'gemini' | 'openrouter' | 'haiku'; apiKey: string }[] = [];
   try {
     const { sensitiveKeyStore: sks } = await import('./sensitiveKeyStore');
-    const [geminiKey, haikuKey, groqKey, tavily] = await Promise.all([
+    const [geminiKey, haikuKey, openRouterKey, tavily] = await Promise.all([
       sks.get('geminiApiKey'),
       sks.get('claudeHaikuApiKey'),
-      sks.get('groqApiKey'),
+      sks.get('openRouterApiKey'),
       sks.get('tavilyApiKey'),
     ]);
     apiKey = resolveApiKey(
       provider,
-      provider === 'gemini' ? geminiKey : provider === 'haiku' ? haikuKey : groqKey,
+      provider === 'gemini' ? geminiKey : provider === 'haiku' ? haikuKey : '',
     );
     tavilyKey = (tavily ?? '').trim();
     const resolvedGemini = resolveApiKey('gemini', geminiKey);
-    const resolvedGroq   = resolveApiKey('groq', groqKey);
     const resolvedHaiku  = resolveApiKey('haiku', haikuKey);
-    // Gemini = arama motoru anahtarı (Groq/Haiku yedekteyken web kararını buna devreder).
+    const hasOpenRouter  = Boolean(openRouterKey?.trim());
+    // Gemini = arama motoru anahtarı (Claude yedekteyken web kararını buna devreder).
     searchKey = resolvedGemini;
-    // ZİNCİR SIRA SABİT: Gemini → Groq → Haiku (yalnız girilmiş anahtarlar).
-    // SAHA 2026-07-03: "Groq birincil, Gemini yalnız arama" denemesi GERİ ALINDI —
-    // Groq (Llama) type:"web" kararını Gemini kadar güvenilir üretmiyordu → haber/
-    // altın/döviz araması tetiklenmiyor + JSON komut kararı zayıf ("anladım ama iş
-    // yapmadı"). Gemini birincil: hem güvenilir sohbet/komut hem YERLEŞİK google_search.
-    // Groq/Haiku Gemini 429/hata olunca otomatik yedek (asistan aptallaşmaz).
+    // OpenRouter anahtarı gateway'in mevcut güvenli key source'undan çözülür; burada
+    // yalnız provider zincirine katılma işareti taşınır, ikinci key authority kurulmaz.
     if (resolvedGemini) chain.push({ provider: 'gemini', apiKey: resolvedGemini });
-    if (resolvedGroq)   chain.push({ provider: 'groq',   apiKey: resolvedGroq });
+    if (hasOpenRouter)  chain.push({ provider: 'openrouter', apiKey: '' });
     if (resolvedHaiku)  chain.push({ provider: 'haiku',  apiKey: resolvedHaiku });
   } catch { /* anahtar deposu hatası → AI'sız devam (fail-soft) */ }
   // Devre kesici (aiHealth): art arda Gemini ağ hatası/timeout sonrası soğuma
@@ -1627,7 +1616,7 @@ async function _warmupBrain(): Promise<void> {
     const { chain, hasNet } = await _resolveAiKeys();
     if (!hasNet || chain.length === 0) return;
     const gem = chain.find((c) => c.provider === 'gemini');
-    if (!gem) return; // yalnız Gemini soğuk-başlangıç yaşıyor; Groq/Haiku ısıtma gerekmez
+    if (!gem) return; // Live/REST Gemini ısıtması; OpenRouter/Claude kendi taşımasında kalır
     const { warmupGemini, warmupGeminiLive } = await import('./companion/companionChatProvider');
     /* Live birincil yol: WSS el sıkışması kullanıcı konuşurken tamamlansın.
        REST ısıtması KORUNUR (ilk yedeğin soğuk başlangıcı da örtülür). */
@@ -2168,9 +2157,9 @@ export async function processTextCommand(
   // yeni komut vermiş olabilir → bu tur artık sağlayıcıya gitmez, konuşmaz.
   if (!continueIfTurnActive(turn, 'provider_result')) return false;
 
-  // Online beyin (companionChatProvider) hibrit zinciri destekler: Gemini →
-  // Groq → Haiku (yalnız anahtarı girilmiş sağlayıcılar zincire girer).
-  // Eskiden bu gate sadece 'gemini' idi → Groq/Haiku seçildiğinde komutlar
+  // Online beyin zinciri: Gemini Live → Gemini REST → OpenRouter → Claude.
+  // Yalnız mevcut güvenli depoda anahtarı bulunan halkalar kullanılabilir.
+  // Eskiden bu gate sadece 'gemini' idi → diğer BYOK sağlayıcıları seçildiğinde komutlar
   // online beyne hiç ulaşmayıp OFFLINE asistana düşüyordu (#saha fix
   // 2026-06-21). Zincir boşsa tryCompanionBrain zaten null döner → güvenle
   // offline zincire iner.
@@ -2266,7 +2255,13 @@ export async function processTextCommand(
        adayı kurulur. Sağlayıcı konuşmaz; ses bu handle üzerinden `maviSpeech` →
        `ttsService`e gider. Tool çağrısı → `parseBrainJson` → aşağıdaki AYNI
        aksiyon köprüsü/capability/dispatch/authority zinciri (yeni yol YOK). */
-    const _live = _wlAllowsStream ? beginLiveAudioStream({ turn }) : null;
+    const _live = _wlAllowsStream ? beginLiveAudioStream({
+      turn,
+      // Yeni voice turn / barge-in / kesin fallback temizliği aynı lifecycle
+      // kapısından gerçek Live oturumuna kadar yayılır. Generation + turn
+      // muhafızları ayrıca korunur; bu callback onların yerine geçmez.
+      cancelUpstream: () => { _provider.cancelGeminiLiveTurn(); },
+    }) : null;
     const brain = await tryCompanionBrain(trimmed, {
       ...(_stream ? { onToken: _stream.onToken } : {}),
       ...(_live ? { live: _live } : {}),

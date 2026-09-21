@@ -273,33 +273,35 @@ export function isGeminiKeyRejected(apiKey: string): boolean {
  * gereksiz 10 dk susması).
  * ════════════════════════════════════════════════════════════════════════ */
 export type LiveFailureKind =
-  /** Kota/hız sınırı (RESOURCE_EXHAUSTED · 429 · quota) → Live soğur, REST denenir. */
+  /** Kota tükendi (RESOURCE_EXHAUSTED · quota) → Live soğur, REST denenir. */
   | 'LIVE_QUOTA'
-  /** Anahtar reddi (API_KEY_INVALID · UNAUTHENTICATED · PERMISSION_DENIED) → Gemini komple atlanır. */
-  | 'LIVE_AUTH'
-  /** Model bulunamadı/desteklenmiyor (NOT_FOUND · unsupported model) → Live uzun soğur, REST denenir. */
-  | 'LIVE_MODEL_UNAVAILABLE'
+  /** Hız sınırı (rate-limit · 429) → Live soğur, REST denenir. */
+  | 'LIVE_RATE_LIMIT'
+  /** Anahtar reddi → Gemini provider-geneli reddedilir; REST atlanır. */
+  | 'GEMINI_AUTH_REJECTED'
   /** Servis/ağ erişilemez (setup tamamlanmadan kapandı · 1006 · timeout) → Live kısa soğur, REST denenir. */
   | 'LIVE_UNAVAILABLE'
   /** Tur ortasında kopma (setup sonrası) → önce resume/retry, sonra REST. */
-  | 'LIVE_DISCONNECTED';
+  | 'LIVE_CONNECTION_FAILURE';
 
 const LIVE_AUTH_RE  = /api[ _-]?key|UNAUTHENTICATED|PERMISSION_DENIED|unauthori[sz]ed|\b40[13]\b/i;
-const LIVE_QUOTA_RE = /RESOURCE_EXHAUSTED|quota|rate[ _-]?limit|too many requests|\b429\b/i;
+const LIVE_RATE_RE  = /rate[ _-]?limit|too many requests|\b429\b/i;
+const LIVE_QUOTA_RE = /RESOURCE_EXHAUSTED|quota/i;
 const LIVE_MODEL_RE = /NOT_FOUND|not found|unsupported|not supported|no longer available|\b404\b/i;
 
 /**
  * Kapanış sebebi/hata metni + aşama → sınıf. Metin boşsa aşamaya göre karar:
- * setup öncesi → `LIVE_UNAVAILABLE`, setup sonrası → `LIVE_DISCONNECTED`.
+ * setup öncesi → `LIVE_UNAVAILABLE`, setup sonrası → `LIVE_CONNECTION_FAILURE`.
  */
 export function classifyLiveFailure(reasonText: string, setupCompleted: boolean): LiveFailureKind {
   const t = typeof reasonText === 'string' ? reasonText : '';
   // KOTA ÖNCE: kota mesajı "API key" kelimesini de içerebilir; anahtar reddi
   // yanlış pozitifte REST'i 10 dk susturur (fail-soft sınıf önce).
   if (LIVE_QUOTA_RE.test(t)) return 'LIVE_QUOTA';
-  if (LIVE_AUTH_RE.test(t))  return 'LIVE_AUTH';
-  if (LIVE_MODEL_RE.test(t)) return 'LIVE_MODEL_UNAVAILABLE';
-  return setupCompleted ? 'LIVE_DISCONNECTED' : 'LIVE_UNAVAILABLE';
+  if (LIVE_RATE_RE.test(t))  return 'LIVE_RATE_LIMIT';
+  if (LIVE_AUTH_RE.test(t))  return 'GEMINI_AUTH_REJECTED';
+  if (LIVE_MODEL_RE.test(t)) return 'LIVE_UNAVAILABLE';
+  return setupCompleted ? 'LIVE_CONNECTION_FAILURE' : 'LIVE_UNAVAILABLE';
 }
 
 /** Live soğuma pencereleri — sınıfa göre (kısa: geçici · uzun: kalıcıya yakın). */
@@ -310,17 +312,15 @@ export const LIVE_MODEL_COOLDOWN_MS       = NO_CREDIT_COOLDOWN_MS;
 export function noteLiveFailure(kind: LiveFailureKind, apiKey: string, retryAfterMs?: number): void {
   switch (kind) {
     case 'LIVE_QUOTA':
+    case 'LIVE_RATE_LIMIT':
       noteProviderRateLimited('live', retryAfterMs ?? RATE_LIMIT_COOLDOWN_MS);
       return;
-    case 'LIVE_AUTH':
+    case 'GEMINI_AUTH_REJECTED':
       noteGeminiKeyRejected(apiKey);
       noteProviderRateLimited('live', NO_CREDIT_COOLDOWN_MS);
       return;
-    case 'LIVE_MODEL_UNAVAILABLE':
-      noteProviderRateLimited('live', LIVE_MODEL_COOLDOWN_MS);
-      return;
     case 'LIVE_UNAVAILABLE':
-    case 'LIVE_DISCONNECTED':
+    case 'LIVE_CONNECTION_FAILURE':
       noteProviderRateLimited('live', LIVE_UNAVAILABLE_COOLDOWN_MS);
       return;
   }
@@ -335,11 +335,37 @@ export function noteLiveFailure(kind: LiveFailureKind, apiKey: string, retryAfte
 export type ProviderSwitchReason =
   | LiveFailureKind
   | 'LIVE_DISABLED' | 'LIVE_NOT_ELIGIBLE' | 'LIVE_COOLDOWN' | 'LIVE_NO_OUTPUT'
-  | 'GEMINI_QUOTA' | 'GEMINI_KEY_REJECTED' | 'GEMINI_UNAVAILABLE' | 'GEMINI_COOLDOWN'
-  | 'OPENROUTER_UNAVAILABLE' | 'OPENROUTER_QUOTA' | 'OPENROUTER_NO_CREDIT' | 'OPENROUTER_COOLDOWN'
-  | 'GROQ_UNAVAILABLE' | 'GROQ_COOLDOWN'
-  | 'CLAUDE_UNAVAILABLE' | 'CLAUDE_COOLDOWN'
+  | 'GEMINI_QUOTA' | 'GEMINI_RATE_LIMIT' | 'GEMINI_UNAVAILABLE' | 'GEMINI_AUTH_REJECTED' | 'GEMINI_COOLDOWN'
+  | 'OPENROUTER_QUOTA' | 'OPENROUTER_RATE_LIMIT' | 'OPENROUTER_UNAVAILABLE' | 'OPENROUTER_AUTH_REJECTED' | 'OPENROUTER_COOLDOWN'
+  | 'CLAUDE_QUOTA' | 'CLAUDE_RATE_LIMIT' | 'CLAUDE_UNAVAILABLE' | 'CLAUDE_AUTH_REJECTED' | 'CLAUDE_COOLDOWN'
   | 'ALL_ONLINE_PROVIDERS_UNAVAILABLE';
+
+export type RuntimeOnlineProvider = 'gemini' | 'openrouter' | 'claude';
+
+/** HTTP sonucu → nihai provider zincirinin bounded geçiş sebebi. */
+export function classifyProviderHttpFailure(
+  provider: RuntimeOnlineProvider,
+  status: number,
+  bodyText = '',
+): ProviderSwitchReason {
+  const prefix = provider === 'gemini' ? 'GEMINI' : provider === 'openrouter' ? 'OPENROUTER' : 'CLAUDE';
+  if (status === 401 || status === 403 || /API_KEY_INVALID|invalid api key|unauthori[sz]ed/i.test(bodyText)) {
+    return `${prefix}_AUTH_REJECTED` as ProviderSwitchReason;
+  }
+  if (status === 402 || /insufficient[_ ]credit|quota exhausted|quota exceeded/i.test(bodyText)) {
+    return `${prefix}_QUOTA` as ProviderSwitchReason;
+  }
+  if (status === 429) return `${prefix}_RATE_LIMIT` as ProviderSwitchReason;
+  return `${prefix}_UNAVAILABLE` as ProviderSwitchReason;
+}
+
+/** Gateway'in mevcut tipli hata sınıfını OpenRouter geçiş sebebine eşler. */
+export function classifyOpenRouterFailure(kind: string): ProviderSwitchReason {
+  if (kind === 'auth' || kind === 'no_api_key') return 'OPENROUTER_AUTH_REJECTED';
+  if (kind === 'insufficient_credit') return 'OPENROUTER_QUOTA';
+  if (kind === 'rate_limited') return 'OPENROUTER_RATE_LIMIT';
+  return 'OPENROUTER_UNAVAILABLE';
+}
 
 export interface ProviderSwitchRecord {
   readonly from: string;
