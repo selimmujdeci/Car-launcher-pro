@@ -855,29 +855,61 @@ export class CommandListener {
     // Reconnect'te bekleyen + retry-eligible komutları işle
     await this.processPendingCommands();
 
-    this.channel = supabase
-      .channel(`vehicle-cmds:${this.vehicleId}`)
-      .on(
-        'postgres_changes',
-        {
-          event:  'INSERT',
-          schema: 'public',
-          table:  'vehicle_commands',
-          filter: `vehicle_id=eq.${this.vehicleId}`,
-        },
-        ({ new: row }: { new: Record<string, unknown> }) => {
-          if (!this._alive) return;
-          void this.handleCommand(row as unknown as VehicleCommand);
-        },
-      )
-      .subscribe((status: string) => {
-        if (!this._alive) return;
-        if (status === 'CHANNEL_ERROR' || status === 'CLOSED') {
-          this.scheduleReconnect();
-        }
-      });
-
+    /* ── YOKLAMA REALTIME'DAN ÖNCE VE BAĞIMSIZ (2026-09-12 saha kusuru) ──────
+       `startPolling()` eskiden realtime aboneliğinden SONRA çağrılıyordu.
+       Aynı topic'li bir kanal hâlâ istemcide kayıtlıysa (reconnect'te bu
+       instance'ın eski kanalı, ya da eski instance'ın `removeChannel`i
+       'ok' dönmediği için teardown edilmemiş kanalı) realtime-js
+       `channel(topic)` MEVCUT kanalı geri verir ve `.on()` "cannot add
+       postgres_changes callbacks after subscribe()" FIRLATIR → `connect()`
+       burada ölür, `startPolling()` HİÇ çağrılmaz. Gerçek cihazda ölçüldü:
+       istisna boot'ta bir kez atılmış, 15 sn'lik yoklama hiç kurulmamış,
+       head-unit komutları TTL dolana dek `pending` kalmış (telemetri çalışırken).
+       Yoklama ASIL yol olduğundan (bkz. `PENDING_POLL_MS`) realtime'ın hiçbir
+       hatası onu engelleyemez. */
     this.startPolling();
+
+    /* Eski/takılı kanalı YENİDEN KULLANMA: aynı topic kayıtlıysa önce sök.
+       `removeChannel` 'ok' dönmezse kanal kayıtlı kalır; o durumda abonelik
+       kurulamaz ama yoklama zaten çalışıyor — realtime yalnız hızlandırıcıdır. */
+    const topic = `vehicle-cmds:${this.vehicleId}`;
+    const stale = supabase.getChannels().find((c) => c.topic === `realtime:${topic}`);
+    if (stale) {
+      this.channel = null;
+      try { await supabase.removeChannel(stale); } catch { /* aşağıda yeniden denenir */ }
+      if (!this._alive) return;
+    }
+
+    try {
+      this.channel = supabase
+        .channel(topic)
+        .on(
+          'postgres_changes',
+          {
+            event:  'INSERT',
+            schema: 'public',
+            table:  'vehicle_commands',
+            filter: `vehicle_id=eq.${this.vehicleId}`,
+          },
+          ({ new: row }: { new: Record<string, unknown> }) => {
+            if (!this._alive) return;
+            void this.handleCommand(row as unknown as VehicleCommand);
+          },
+        )
+        .subscribe((status: string) => {
+          if (!this._alive) return;
+          if (status === 'CHANNEL_ERROR' || status === 'CLOSED') {
+            this.scheduleReconnect();
+          }
+        });
+    } catch {
+      /* Realtime kurulamadı (ör. takılı kanal sökülemedi) — yoklama sürüyor.
+         Burada reconnect KURULMAZ: sökülemeyen kanal her 3 sn'de aynı hatayı
+         verip RPC'yi döverdi. Realtime yalnız hızlandırıcıdır; komut yolu
+         yoklamadır. Sessiz ölüm YOK: istisna artık `connect()`i kesmiyor. */
+      this.channel = null;
+      logInfo('[CmdListener] Realtime aboneliği kurulamadı; yoklama ile devam');
+    }
   }
 
   /**
