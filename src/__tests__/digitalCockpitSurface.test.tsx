@@ -2,10 +2,10 @@
  * digitalCockpitSurface.test — CarOS Digital Cockpit (HOME'un komşu sayfası).
  *
  * Kapsam:
- *   1. Geometri paket otoritesiyle (cockpit.layout.json) BİREBİR mi
+ *   1. Head unit geometrisi: sınırlar, hiyerarşi, gerçek dokunma alanları
  *   2. Gün/gece AYNI geometri, yalnız token farkı
  *   3. Fail-closed gösterim: ölçülmemiş alan `—`, sahte `0` YOK
- *   4. Swipe kararı: ses jestiyle çakışmaz, sürüşte eşik yükselir, ters yön reddedilir
+ *   4. Swipe kararı: ses jestiyle çakışmaz, sürüşte eşik yükselir
  *   5. HOME dokunulmazlığı: HOME ağacı kokpite BAĞLANMAZ (tek yönlü bağımlılık)
  */
 import { describe, it, expect } from 'vitest';
@@ -37,41 +37,46 @@ function render(node: React.ReactElement): { container: HTMLElement } {
 }
 
 const texts = (el: HTMLElement): string[] =>
-  [...el.querySelectorAll('text')].map((n) => (n.textContent ?? '').trim());
+  [...el.querySelectorAll('text, [data-cockpit-copy]')].map((n) => (n.textContent ?? '').trim());
 
 /** Yalnız ÖLÇÜM metinleri — devir skalasının sabit etiketleri (0·2·4·6·8) hariç. */
 const measurementTexts = (el: HTMLElement): string[] =>
-  [...el.querySelectorAll('text:not([data-cockpit-scale])')].map((n) => (n.textContent ?? '').trim());
+  [...el.querySelectorAll('text:not([data-cockpit-scale]), [data-cockpit-copy]')].map((n) => (n.textContent ?? '').trim());
 
 /** Kaynaktaki YALNIZ import satırları — yorumlardaki ad geçişleri sayılmaz. */
 const importLines = (src: string): string =>
   src.split(/\r?\n/).filter((l) => /^\s*import\s|^\s*\}\s*from\s|^\s*from\s/.test(l)).join(' | ');
 
 /* ══════════════════════════════════════════════════════════════════════════
- * 1) GEOMETRİ — paket otoritesiyle birebir
+ * 1) GEOMETRİ — head unit sınırları ve gerçek dokunma alanları
  * ════════════════════════════════════════════════════════════════════════ */
 
-describe('cockpit geometrisi — cockpit.layout.json ile birebir', () => {
-  it('referans tuval 1648×928', () => {
-    expect(COCKPIT_CANVAS).toEqual({ width: 1648, height: 928 });
+describe('cockpit geometrisi — 1024×600 head unit', () => {
+  it('ana hedefi küçültmeden doldurur', () => {
+    expect(COCKPIT_CANVAS).toEqual({ width: 1024, height: 600 });
+    expect(cockpitScale(1024, 600)).toBe(1);
   });
 
-  it('bölge kutuları paket değerleriyle AYNI (tahmin edilmiş koordinat yok)', () => {
-    expect(COCKPIT_REGIONS).toEqual({
-      topBar:       { x: 0,    y: 0,   w: 1648, h: 74,  z: 90 },
-      leftCluster:  { x: 20,   y: 120, w: 445,  h: 520, z: 30 },
-      speedCluster: { x: 585,  y: 94,  w: 480,  h: 235, z: 50 },
-      rightCluster: { x: 1183, y: 120, w: 445,  h: 520, z: 30 },
-      roadScene:    { x: 0,    y: 76,  w: 1648, h: 650, z: 5  },
-      maneuverBar:  { x: 500,  y: 635, w: 650,  h: 78,  z: 60 },
-      musicCard:    { x: 42,   y: 728, w: 665,  h: 145, z: 60 },
-      assistCard:   { x: 940,  y: 728, w: 665,  h: 145, z: 60 },
-    });
+  it('bilgi bölgeleri tuval içinde kalır, ana değerler ve medya/sürüş bölgeleri çakışmaz', () => {
+    for (const [name, r] of Object.entries(COCKPIT_REGIONS)) {
+      expect(r.x, name).toBeGreaterThanOrEqual(0);
+      expect(r.y, name).toBeGreaterThanOrEqual(0);
+      expect(r.w, name).toBeGreaterThan(0);
+      expect(r.h, name).toBeGreaterThan(0);
+      expect(r.x + r.w, name).toBeLessThanOrEqual(COCKPIT_CANVAS.width);
+      expect(r.y + r.h, name).toBeLessThanOrEqual(COCKPIT_CANVAS.height);
+    }
+    const { leftCluster: left, speedCluster: speed, rightCluster: right, maneuverBar: nav, musicCard: music, assistCard: driving } = COCKPIT_REGIONS;
+    expect(left.x + left.w).toBeLessThan(speed.x);
+    expect(speed.x + speed.w).toBeLessThan(right.x);
+    expect(speed.y + speed.h).toBeLessThan(nav.y);
+    expect(music.x + music.w).toBeLessThan(driving.x);
+    expect(speed.x + speed.w / 2).toBe(COCKPIT_CANVAS.width / 2);
   });
 
-  it('ölçek formülü: s = min(vw/1648, vh/928)', () => {
+  it('ölçek formülü: s = min(vw/1024, vh/600), kırpma yok', () => {
     for (const [w, h] of COCKPIT_RESPONSIVE_TARGETS) {
-      expect(cockpitScale(w, h)).toBeCloseTo(Math.min(w / 1648, h / 928), 6);
+      expect(cockpitScale(w, h)).toBeCloseTo(Math.min(w / 1024, h / 600), 6);
     }
     // Ölçülemeyen viewport → 1'e düşer (sıfır boyutlu ilk kare olmaz).
     expect(cockpitScale(0, 0)).toBe(1);
@@ -79,10 +84,16 @@ describe('cockpit geometrisi — cockpit.layout.json ile birebir', () => {
   });
 
   it('hedef çözünürlüklerde müzik transportu asgari dokunma hedefini korur', () => {
-    // Referansta oynat düğmesi 84 px çap; en küçük hedefte bile 56 px kuralına uymalı.
-    const smallest = Math.min(...COCKPIT_RESPONSIVE_TARGETS.map(([w, h]) => cockpitScale(w, h)));
-    expect(84 * smallest).toBeGreaterThanOrEqual(COCKPIT_MIN_TOUCH_PX * smallest);
-    expect(smallest).toBeGreaterThan(0.5); // 1024×600'de bile yarıdan fazla ölçek
+    const { container } = render(<DigitalCockpitScreen state={COCKPIT_REFERENCE_STATE} mode="day" clock={COCKPIT_REFERENCE_CLOCK} />);
+    const controls = [...container.querySelectorAll('button')];
+    expect(controls).toHaveLength(3);
+    for (const [w, h] of COCKPIT_RESPONSIVE_TARGETS) {
+      for (const button of controls) {
+        // Önceki test her iki tarafı da küçülterek 35 px hedefi yanlış kabul ediyordu.
+        expect(parseFloat(button.style.width) * cockpitScale(w, h)).toBeGreaterThanOrEqual(COCKPIT_MIN_TOUCH_PX);
+        expect(parseFloat(button.style.height) * cockpitScale(w, h)).toBeGreaterThanOrEqual(COCKPIT_MIN_TOUCH_PX);
+      }
+    }
   });
 });
 
@@ -92,10 +103,9 @@ describe('gün/gece — AYNI geometri, YALNIZ token farkı', () => {
     const night = cockpitTokensFor('night');
     expect(day.canvas).not.toBe(night.canvas);
     expect(day.textPrimary).not.toBe(night.textPrimary);
-    // Vurgu renkleri paket gereği İKİSİNDE DE aynıdır (anlam rengi değişmez).
-    expect(day.accentOrange).toBe(night.accentOrange);
-    expect(day.accentGreen).toBe(night.accentGreen);
-    expect(day.warningRed).toBe(night.warningRed);
+    expect(day.surfaceTop).not.toBe(night.surfaceTop);
+    expect(day.shelf).not.toBe(night.shelf);
+    expect(day.sign).not.toBe(night.sign);
   });
 
   it('iki modda da bölge kutuları birebir aynı yerde çizilir', () => {
@@ -104,14 +114,36 @@ describe('gün/gece — AYNI geometri, YALNIZ token farkı', () => {
         <DigitalCockpitScreen state={COCKPIT_REFERENCE_STATE} mode={mode} clock={COCKPIT_REFERENCE_CLOCK} />,
       );
       const out = [...container.querySelectorAll('[data-cockpit-region]')]
-        .map((n) => n.getAttribute('data-cockpit-region'))
-        .sort();
+        .map((n) => ({
+          name: n.getAttribute('data-cockpit-region'),
+          geometry: [...n.querySelectorAll('text, rect, path, circle, line, foreignObject')].map(el =>
+            ['x', 'y', 'width', 'height', 'cx', 'cy', 'r', 'd', 'transform', 'font-size', 'text-anchor']
+              .map(attr => el.getAttribute(attr))),
+        }));
       return out;
     };
     expect(boxOf('day')).toEqual(boxOf('night'));
-    expect(boxOf('day')).toContain('leftCluster');
-    expect(boxOf('day')).toContain('rightCluster');
-    expect(boxOf('day')).toContain('speedCluster');
+    expect(boxOf('day').map(r => r.name)).toEqual(expect.arrayContaining(['leftCluster', 'rightCluster', 'speedCluster']));
+  });
+
+  it('her palette ana ve ikincil metinler yüksek kontrastı korur', () => {
+    const luminance = (hex: string) => {
+      const channels = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255)
+        .map(v => v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
+      return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+    };
+    const contrast = (a: string, b: string) => {
+      const [low, high] = [luminance(a), luminance(b)].sort((x, y) => x - y);
+      return (high + 0.05) / (low + 0.05);
+    };
+    for (const mode of ['day', 'night'] as const) {
+      const t = cockpitTokensFor(mode);
+      for (const surface of [t.canvas, t.surfaceTop, t.surfaceBottom, t.shelf]) {
+        expect(contrast(t.textPrimary, surface), mode).toBeGreaterThanOrEqual(7);
+        expect(contrast(t.textSecondary, surface), mode).toBeGreaterThanOrEqual(4.5);
+      }
+    }
+    expect(luminance(cockpitTokensFor('night').sign)).toBeLessThan(luminance(cockpitTokensFor('day').sign));
   });
 });
 
@@ -201,12 +233,17 @@ describe('ekran — ölçüm yokken hiçbir sayı UYDURMAZ', () => {
     expect(container.querySelector('[data-cockpit-region="maneuverBar"]')).toBeNull();
   });
 
-  it('ADAS sinyali YOKKEN rozet çizilmez, dürüst metin yazılır', () => {
+  it('ADAS authority yok: şerit/araç/takip rozetleri yerine yalnız dekoratif yüzey vardır', () => {
     const { container } = render(
       <DigitalCockpitScreen state={COCKPIT_REFERENCE_STATE} mode="day" clock={COCKPIT_REFERENCE_CLOCK} />,
     );
     expect(COCKPIT_REFERENCE_STATE.laneAssist).toBeNull();
-    expect(texts(container)).toContain('Sürüş asistanı sinyali yok');
+    const horizon = container.querySelector('[data-cockpit-decoration="abstract-horizon"]');
+    expect(horizon?.getAttribute('aria-hidden')).toBe('true');
+    expect(horizon?.getAttribute('pointer-events')).toBe('none');
+    expect(texts(container).join(' ')).not.toMatch(/şerit|radar|takip mesafesi|otonom|asistanı aktif/i);
+    const source = readFileSync(resolve('src/components/cockpit/DigitalCockpitScreen.tsx'), 'utf8');
+    expect(source).not.toMatch(/state\.laneAssist|state\.followingAssist|skyGrad|roadGrad|RoadScene/);
   });
 
   it('hız limiti KESİN değilse levha kesikli çizilir', () => {
@@ -229,6 +266,43 @@ describe('ekran — ölçüm yokken hiçbir sayı UYDURMAZ', () => {
       '8.326 km', '300 m', 'Gazi Paşa Blv.', 'Leyla', 'Mabel Matiz', 'D', 'ECO', '24°C', '21:11']) {
       expect(all).toContain(expected);
     }
+  });
+
+  it('sıfır yakıt/sıcaklık sıfır doluluk taşır; unknown doluluk ve RPM işaretçisi çizmez', () => {
+    const zero = render(<DigitalCockpitScreen state={{ ...COCKPIT_REFERENCE_STATE, fuelLevelPct: 0, coolantTempC: 0, rpm: 0 }} mode="day" clock={COCKPIT_REFERENCE_CLOCK} />).container;
+    expect(zero.querySelector('[data-cockpit-value="fuel"]')?.textContent).toBe('%0');
+    expect(zero.querySelector('[data-cockpit-fuel-fill]')?.getAttribute('width')).toBe('0');
+    expect(zero.querySelector('[data-cockpit-coolant-fill]')?.getAttribute('width')).toBe('0');
+    expect(zero.querySelector('[data-cockpit-rpm-marker]')).not.toBeNull();
+    const unknown = render(<DigitalCockpitScreen state={EMPTY_COCKPIT_STATE} mode="day" clock={COCKPIT_REFERENCE_CLOCK} />).container;
+    expect(unknown.querySelector('[data-cockpit-fuel-fill], [data-cockpit-coolant-fill], [data-cockpit-rpm-marker]')).toBeNull();
+  });
+
+  it('bayat sıcaklık sunuma dolu gelse bile canlı sayı gösterilmez', () => {
+    const { container } = render(<DigitalCockpitScreen state={{ ...COCKPIT_REFERENCE_STATE, coolantFreshness: 'STALE' }} mode="night" clock={COCKPIT_REFERENCE_CLOCK} />);
+    expect(container.querySelector('[data-cockpit-value="coolant"]')?.textContent).toBe(EM_DASH);
+    expect(container.querySelector('[data-cockpit-coolant-fill]')).toBeNull();
+    expect(texts(container)).toContain('Veri güncel değil');
+  });
+
+  it.each([null, 'unrecognized', 'roundabout'])('yönü bilinmeyen manevra (%s) sağa dönüş uydurmaz', type => {
+    const { container } = render(<DigitalCockpitScreen state={{ ...COCKPIT_REFERENCE_STATE,
+      maneuver: { distanceMeters: 300, label: 'Bağlantı', type, modifier: null },
+    }} mode="day" clock={COCKPIT_REFERENCE_CLOCK} />);
+    expect(container.querySelector('[data-cockpit-maneuver-icon]')).toBeNull();
+    expect(container.querySelector('[data-cockpit-maneuver-unknown]')?.textContent).toBe(EM_DASH);
+    expect(texts(container)).toContain('300 m');
+  });
+
+  it('medya/sürüş yüzeyi: transport jestten muaf ve izinsizken native disabled', () => {
+    const { container } = render(<DigitalCockpitScreen state={EMPTY_COCKPIT_STATE} mode="day" clock={COCKPIT_REFERENCE_CLOCK} />);
+    expect(container.querySelector('[data-caros-cockpit="screen"]')?.getAttribute('role')).toBe('group');
+    for (const button of container.querySelectorAll('button')) {
+      expect(button.disabled).toBe(true);
+      expect(button.closest('[data-no-page-swipe]')).not.toBeNull();
+    }
+    expect(texts(container)).toContain('SÜRÜŞ TERCİHİ');
+    expect(texts(container)).toContain('Profil değeri');
   });
 });
 
