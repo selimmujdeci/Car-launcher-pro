@@ -29,6 +29,17 @@ Bir işlem şu üçünden hiçbirini sağlamıyorsa FAST DEV'de yapma:
 
 ---
 
+## Dil Kuralı
+
+- Kullanıcıya görünen TÜM yanıtlar Türkçe olmalıdır.
+- Planlar, analizler, ilerleme mesajları, durum bildirimleri, root-cause açıklamaları, test sonuçları ve final raporları Türkçe yazılmalıdır.
+- İngilizce teknik terimler yalnız teknik doğruluk gerektiğinde kullanılabilir; açıklaması Türkçe olmalıdır.
+- Kod, identifier, API adı, dosya yolu, commit mesajı, terminal komutu ve üçüncü taraf hata mesajları gerektiğinde orijinal dilinde kalabilir.
+- Kullanıcı açıkça başka bir dil istemedikçe varsayılan ve zorunlu iletişim dili Türkçedir.
+- Bu kural tüm Claude Code oturumları ve tüm modeller için geçerlidir.
+
+---
+
 ## 3. DOCUMENTATION GOVERNANCE
 
 - **Yeni Markdown oluşturma varsayılan olarak yasaktır.**
