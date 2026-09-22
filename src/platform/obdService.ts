@@ -86,7 +86,7 @@ import {
   type LinkLossRecord, type LinkLossSummary, type LinkLossTrigger,
 } from './obd/linkLossLedger';
 import { setActiveObdProtocol } from './obd/activeProtocol';
-import { bindObdSessionEpochReader } from './obd/obdEpochReader';
+import { bindDiagnosticLinkActivitySink, bindObdSessionEpochReader } from './obd/obdEpochReader';
 
 /**
  * Doğrulanmamış (oturum başı / modal tahmini) bağlantıda BLE ÖNCE denenirken verilen
@@ -200,6 +200,7 @@ let _nativeGeneration = 0;
    it never owns or increments the epoch.  Keeping the callback here avoids
    generic PDU → obdService → VDK/PDU routing module initialization cycles. */
 bindObdSessionEpochReader(() => _nativeGeneration);
+bindDiagnosticLinkActivitySink(_noteDiagnosticLinkActivity);
 
 // stopOBD() + startOBD() arasındaki native disconnect/connect race'ini önler.
 // _startNative() bu promise'i await ederek önceki disconnectOBD() tamamlanmadan
@@ -349,6 +350,11 @@ let _lastFuelRxMs = 0;
  * gelir → aynı damgada tutulursa donmayı maskeler (saha 2026-07-16 Doblo kökü).
  */
 let _lastRxAt = 0;
+/**
+ * Son TANI yanıtının alındığı an (bu oturumda) — bkz. `noteDiagnosticLinkActivity`.
+ * Canlı veri tazeliği DEĞİLDİR; yalnız "hat ve ECU tanıya cevap veriyor" kanıtıdır.
+ */
+let _lastDiagRxAt = 0;
 /**
  * C · ADAPTÖR VOLTAJININ OKUNDUĞU AN (duvar saati). `0` = hiç okunmadı.
  *
@@ -1577,6 +1583,11 @@ async function _maybeRunEcuRecovery(now: number, staleMs: number): Promise<void>
   if (_recoveryInFlight || _recoveryExhausted) return;
   if (!_current.transportConnected || _current.dataFresh) return;
   if (_ecuSilentStreak < ECU_SILENT_STREAK_TO_RECOVER) return;
+  /* ECU SESSİZ DEĞİL, TANIYA CEVAP VERİYOR: poll açlığını kendi tanı trafiğimiz
+     yaratıyor (DTC istekleri kuyrukta öncelikli). ATPC/ATWS/reconnect burada
+     taramanın ortasında hattı sıfırlar — saha 2026-09-22'de şanzıman ECU'sunu
+     "ertelendi"ye düşüren zincirin ikinci halkası. Canlı veri yine BAYAT gösterilir. */
+  if (now - _lastDiagRxAt < staleMs) return;
   /* P0-OBD-CORE-06 — TRANSPORT ↔ OTURUM KURTARMASI ÇAKIŞMAZ. Uçuşta bir
      connect denemesi (ya da beklemede bir merdiven tetiği) varken ATPC/ATWS
      koşturmak, kurulmakta olan oturumu ELM seviyesinde sıfırlar: iki motor
@@ -3717,6 +3728,24 @@ export function getObdSignalHealth(nowMs: number = performance.now()): {
  */
 export function getObdSessionEpoch(): number {
   return _nativeGeneration;
+}
+
+/**
+ * Bu oturumda bir TANI yanıtı alındı → LINK HEARTBEAT (ATRV ile aynı sınıf kanıt).
+ *
+ * SAHA (2026-09-22, gerçek araç): native canlı veriyi poll turunun SONUNDA tek
+ * olayla yollar; çoklu-ECU taramasında DTC istekleri kuyrukta öncelikli olduğu için
+ * tur 17 sn'yi aştı, JS hiç paket görmedi ve watchdog SAĞLIKLI hattı "öldü" sayıp
+ * kopardı → epoch arttı → sıradaki ECU (şanzıman, onaylı U1225/U1226) "ertelendi".
+ *
+ * Yalnız link canlılığını tazeler; `_lastValidFrameAt`e (canlı veri tazeliği)
+ * DOKUNMAZ — bayat veri bayat görünmeye devam eder. Başka oturumun yanıtı sayılmaz.
+ */
+function _noteDiagnosticLinkActivity(sessionEpoch: number): void {
+  if (!_running || sessionEpoch !== _nativeGeneration) return;
+  const now = Date.now();
+  _lastRxAt = now;
+  _lastDiagRxAt = now;
 }
 
 /* P0-OBD-09: kimlik katmanı oturum numarasını ÇEKMEZ, biz İTERİZ. Ters yön

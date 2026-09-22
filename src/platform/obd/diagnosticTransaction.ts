@@ -50,6 +50,8 @@
  */
 
 import { getObdSessionEpoch } from '../obdService';
+import { noteDiagnosticLinkActivity } from './obdEpochReader';
+import { isReplayActive } from './vdkTransport';
 import { getDiagnosticAdmission, getDiagnosticAdmissionSync } from './diagnosticAdmission';
 import { OwnerCommandEvidence } from '../message';
 
@@ -504,6 +506,9 @@ export function acceptResponse(txn: DiagnosticTransaction): boolean {
     txn.lastDenial = 'STALE_EPOCH';
     return false;
   }
+  /* Kabul edilen GERÇEK yanıt linkin canlı olduğunun kanıtıdır; ne kanıtladığına
+     link sahibi (obdService) karar verir. Replay (sanal hat) kanıt DEĞİLDİR. */
+  if (!isReplayActive()) noteDiagnosticLinkActivity(txn.sessionEpoch);
   return true;
 }
 

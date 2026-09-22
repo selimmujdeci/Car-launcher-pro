@@ -83,7 +83,8 @@ vi.mock('../platform/obdSanitizer', () => ({
   sanitizeNativeOBDPacket: vi.fn((d: Record<string, unknown>) => ({ patch: d, nextRpm: null })),
 }));
 
-import { startOBD, stopOBD, getOBDStatusSnapshot, getOBDDataSnapshot } from '../platform/obdService';
+import { startOBD, stopOBD, getOBDStatusSnapshot, getOBDDataSnapshot, getObdSessionEpoch } from '../platform/obdService';
+import { noteDiagnosticLinkActivity } from '../platform/obd/obdEpochReader';
 import { _resetObdDiagEmitterForTest } from '../platform/obdDiagEmitter';
 import {
   getRecoveryLevel, getRecoveryCooldownMs, isCanRecoveryApplicable,
@@ -356,6 +357,45 @@ describe('KWP (proto 5) — native ATPC davranışı BOZULMAZ', () => {
     await establish();
     await silentEcuFor(60_000);
     expect(M.recoverCalls).toHaveLength(0);
+  });
+});
+
+/* ══ TANI TRAFİĞİ POLL'U AÇ BIRAKIR (saha 2026-09-22) ═════════════════════ */
+
+describe('tanı taraması sırasında poll açlığı — link KOPARILMAZ, kurtarma ÇALIŞMAZ', () => {
+  /** Canlı veri HİÇ gelmiyor (native tur bitmiyor) ama tanı yanıtları geliyor. */
+  async function diagOnlyFor(ms: number, epoch: () => number): Promise<void> {
+    const step = 3_000;
+    for (let t = 0; t < ms; t += step) {
+      await vi.advanceTimersByTimeAsync(step);
+      noteDiagnosticLinkActivity(epoch());
+    }
+  }
+
+  it('🔒 SAHA: tanı yanıtı akarken sağlıklı hat "öldü" sayılmaz; veri yine BAYAT görünür', async () => {
+    await establish();
+    feed({ batteryVoltage: 14.2 });            // motor çalışıyor → kurtarma kapısı AÇIK olurdu
+    const connectsBefore = M.connectCalls;
+
+    await diagOnlyFor(45_000, getObdSessionEpoch);
+
+    expect(M.connectCalls).toBe(connectsBefore);                        // teardown/reconnect YOK
+    expect(getOBDDataSnapshot().transportConnected).toBe(true);
+    expect(getOBDStatusSnapshot().connectionState).toBe('connected');
+    expect(M.recoverCalls).toHaveLength(0);                             // ATPC/ATWS YOK
+    expect(getOBDDataSnapshot().dataFresh).toBe(false);                 // bayat → bayat (dürüst)
+  });
+
+  it('KONTROL: tanı yanıtı yoksa gerçek kopma HÂLÂ yakalanır', async () => {
+    await establish();
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(getOBDDataSnapshot().transportConnected).toBe(false);
+  });
+
+  it('KONTROL: BAŞKA oturumun yanıtı canlılık kanıtı SAYILMAZ', async () => {
+    await establish();
+    await diagOnlyFor(30_000, () => getObdSessionEpoch() - 1);
+    expect(getOBDDataSnapshot().transportConnected).toBe(false);
   });
 });
 
