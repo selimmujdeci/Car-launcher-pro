@@ -3269,6 +3269,7 @@ public final class ElmProtocol {
         java.util.List<String> bodies = new java.util.ArrayList<>();
         if (raw == null) return bodies;
         StringBuilder segmented = new StringBuilder();
+        int declaredBytes = -1;
         for (String line : raw.toUpperCase(Locale.ROOT).split("\n")) {
             String t = line.trim();
             if (t.isEmpty()) continue;
@@ -3284,7 +3285,15 @@ public final class ElmProtocol {
                (':' den onceki TEK hane) veri DEGILDIR, disarida birakilir. */
             String head = t.substring(0, Math.max(0, firstMark - 1)).replaceAll("[^0-9A-F]", "");
             if (!head.isEmpty()) bodies.add(head);
+            /* ELM327 ISO-TP toplam uzunlugunu TAM 3 hex hane basar. Son cercevenin
+               dolgusu (ECU'ya gore AA/55/00/FF) bu uzunlugun DISINDADIR; kesilmezse
+               veri sanilir. Olculen (2026-09-22, motor ECU 19-02, "110:" = 272 bayt):
+               sondaki "AAAAAAAAAA" dolgusu sahte ONAYLI "B2AAA-AA" kaydi uretiyordu. */
+            if (declaredBytes < 0 && head.length() == 3) declaredBytes = Integer.parseInt(head, 16);
             appendIsoTpSegments(t, firstMark, segmented);
+        }
+        if (declaredBytes > 0 && segmented.length() > declaredBytes * 2) {
+            segmented.setLength(declaredBytes * 2);
         }
         if (segmented.length() > 0) bodies.add(segmented.toString());
         return bodies;

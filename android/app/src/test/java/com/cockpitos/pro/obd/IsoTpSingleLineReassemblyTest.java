@@ -77,7 +77,7 @@ public class IsoTpSingleLineReassemblyTest {
     public void transmissionManufacturerDtcsAreDecodable() {
         final String raw = "00B0:5902FFD225861:2ED226862EFFFF";
         String data = bodyAfter(raw, "5902");
-        assertTrue("59 02 sonrasi govde gelmeli", data != null && data.length() >= 22);
+        assertTrue("59 02 sonrasi govde gelmeli", data != null && data.length() >= 18);
         // 59 02 | FF (statusAvailabilityMask) | <3 bayt DTC + 1 bayt durum> * n
         assertEquals("FF", data.substring(0, 2));
         assertEquals("D2258 62E".replace(" ", ""), data.substring(2, 10));   // U1225-86, durum 0x2E
@@ -108,6 +108,28 @@ public class IsoTpSingleLineReassemblyTest {
         assertEquals("FF", data.substring(0, 2));
         assertEquals("20311640", data.substring(2, 10));   // P2031-16, durum 0x40
         assertEquals("21000140", data.substring(10, 18));  // P2100-01, durum 0x40
+    }
+
+    /**
+     * Son cercevenin dolgusu (AA/FF) beyan edilen uzunlugun DISINDADIR ve veriye
+     * KARISMAMALI. Karisirsa "AAAAAA AA" kaydi sahte ONAYLI "B2AAA-AA" arizasi olur.
+     */
+    @Test
+    public void trailingPaddingIsTrimmedToDeclaredLength() {
+        String tcm = bodyAfter("00B0:5902FFD225861:2ED226862EFFFF", "5902");
+        assertEquals("FFD225862ED226862E", tcm);   // 0x00B = 11 bayt, "FFFF" dolgusu yok
+
+        String ecm = bodyAfter(
+            "0DB0:5902FF2031161:402100014006382:774014539240153:441640226321504:"
+          + "226322500544165:401641135016416:115016411250167:421350164211508:"
+          + "164212501643139:50164311501643A:12502080224002B:013A4002023A40C:"
+          + "02033A4002043AD:40200294401130E:1C4011351C4011F:35264011361C400:"
+          + "114D13400101221:401481014014892:1740148E2240163:416450164264504:"
+          + "16436450C305645:501659875006276:2150025B9850067:27F5500627F6508:"
+          + "025A1350025A119:50150377501503A:97501503965015B:03F75015030750C:"
+          + "150302500400F5D:40049AF5402000E:94401519124004F:9BF640AAAAAAAA", "5902");
+        assertEquals("Tam 219 bayt", 219, ecm.length() / 2 + 2);
+        assertTrue("Son kayit gercek DTC olmali", ecm.endsWith("049BF640"));
     }
 
     /** Cok-ECU TEK satirda bitisik: her ECU KENDI govdesini korumali. */
