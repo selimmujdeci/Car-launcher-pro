@@ -2857,7 +2857,7 @@ public final class ElmProtocol {
      *  - {@code UNKNOWN}     : yanit geldi ama hicbir sinifa girmedi (hukum YOK).
      */
     public static final class ClearResult {
-        /** Hatta GERCEKTEN gonderilen komut (her zaman "04"). */
+        /** Hatta GERCEKTEN gonderilen komut ("04" ya da UDS "14FFFFFF"). */
         public final String tx;
         /** ELM327 in dondurdugu HAM metin (kirpilmis). */
         public final String raw;
@@ -3023,6 +3023,53 @@ public final class ElmProtocol {
      */
     public boolean clearDTCs() throws IOException {
         return clearDtcCodesDetailed().isPositive();
+    }
+
+    /** UDS 0x14 ClearDiagnosticInformation — groupOfDTC 0xFFFFFF (tum gruplar). */
+    public static final String UDS_CLEAR_ALL_CMD = "14FFFFFF";
+
+    /**
+     * Uretici DTC hafizasini siler — UDS 0x14, TEK ECU (fiziksel hedef).
+     *
+     * {@code withEcuHeader} blogu ICINDE cagrilmalidir; hedef CAGIRANIN kanitli adresidir
+     * ve {@link #isPhysicalCanRequestHeader} ile suzulur. Fonksiyonel (7DF) yayinla
+     * gonderilmesi YASAKTIR: araçtaki TUM ECU'larin hafizasini silerdi.
+     *
+     * Mode 04 ile AYNI sozlesme: bu metot "silindi" DEMEZ, yalniz ECU'nun cevabini
+     * olcer; hukum TS'te silme sonrasi 19-02 yeniden okumasiyla verilir. Istek motoru
+     * {@link #udsRequestDetailed}: NRC siniflandirmasi, 0x78 beklemesi ve (gerekirse)
+     * TEK extended session denemesi tek yerde kalir. Ham metin bu motordan DISARI
+     * cikmaz → {@code raw} null'dur (uydurulmaz).
+     */
+    public ClearResult clearUdsDtcsDetailed() throws IOException {
+        final long t0 = System.currentTimeMillis();
+        String outcome;
+        Integer nrc = null;
+        try {
+            UdsEvidence ev = udsRequestDetailed(UDS_CLEAR_ALL_CMD, "14", "54",
+                UDS_PENDING_TOTAL_TIMEOUT_MS, "UDS 0x14");
+            if ("OK".equals(ev.kind))           outcome = "POSITIVE";
+            else if ("NO_DATA".equals(ev.kind)) outcome = "NO_DATA";
+            else { outcome = "NEGATIVE"; nrc = ev.nrc; }
+        } catch (UdsNegativeResponseException e) {
+            outcome = "NEGATIVE";
+            nrc = e.nrc;
+        }
+        return new ClearResult(UDS_CLEAR_ALL_CMD, null, outcome,
+            nrc == null ? null : String.format(Locale.ROOT, "%02X", nrc),
+            activeProtocol, System.currentTimeMillis() - t0);
+    }
+
+    /**
+     * Silme gibi YIKICI bir istegin gidebilecegi TEK hedef sinifi: fiziksel CAN adresi.
+     * 11-bit: 3 hane ve fonksiyonel 7DF DEGIL · 29-bit: 18DA (fiziksel) onekli 8 hane.
+     * K-line ve fonksiyonel yayin (7DF / 18DB33F1) REDDEDILIR — sahada dogrulanmadi.
+     */
+    public static boolean isPhysicalCanRequestHeader(String tx) {
+        if (tx == null) return false;
+        final String h = tx.replaceAll("[^0-9A-Fa-f]", "").toUpperCase(Locale.ROOT);
+        if (h.length() == 3) return !"7DF".equals(h);
+        return h.length() == 8 && h.startsWith("18DA");
     }
 
     /**

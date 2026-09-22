@@ -44,8 +44,8 @@ export type DtcClearRereadOutcome = DtcScanModeOutcome | 'not_run';
 
 /** Silme sonrası yeniden okumanın SINIF BAZINDA sonucu. */
 export interface DtcClearRereadClass {
-  /** SAE J1979 servisi. */
-  readonly service: '03' | '07' | '0A';
+  /** SAE J1979 servisi; üretici silmede UDS '19' (19-02 yeniden okuması). */
+  readonly service: '03' | '07' | '0A' | '19';
   /** O servisten dönen kodlar. Okuma düştüyse boş — `outcome` ayırt eder. */
   readonly codes: readonly string[];
   /** `DtcScanModeOutcome` ile AYNI sözlük (+ `not_run`). */
@@ -69,7 +69,9 @@ export interface DtcClearAttempt {
    * Bu alan o gerçeği kayda geçirir; "yanlış ECU'ya gitti mi" sorusu ancak
    * hedefi yazılıysa yanıtlanabilir.
    */
-  readonly scope: 'functional_7DF';
+  readonly scope: 'functional_7DF' | 'physical_ecu';
+  /** `physical_ecu` iken hedef ECU'nun tx başlığı (ör. 7E1); Mode 04'te yoktur. */
+  readonly target?: string | null;
   /** Komutun uçtan uca süresi (ms); ölçülmediyse `null`. */
   readonly elapsedMs: number | null;
 
@@ -77,6 +79,8 @@ export interface DtcClearAttempt {
   /** Yazma kapısı izin verdi mi. `false` ise komut HİÇ gönderilmedi. */
   readonly gateAllowed: boolean;
   readonly gateDenyReason: WriteGateDenyReason | null;
+  /** Yazma kapısı DIŞINDAKİ kapının (üretici kapısı) insan-okur ret gerekçesi. */
+  readonly denyDetail?: string | null;
 
   /* ── ÖLÇÜM ─────────────────────────────────────────────────────────────── */
   /** Silme ÖNCESİ görülen kodlar (sınıflarıyla, "P0089/pending" biçiminde). */

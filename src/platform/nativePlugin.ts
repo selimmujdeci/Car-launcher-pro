@@ -2052,6 +2052,23 @@ export interface CarLauncherPlugin {
   }>;
 
   /**
+   * ÜRETİCİ DTC SİLME — UDS 0x14 (ClearDiagnosticInformation, FFFFFF), TEK ECU.
+   * YIKICI: yalnız `dtcService.clearManufacturerDtcs` çağırır (yetki + yazma +
+   * üretici kapısı ARKASINDA). Native yalnız fiziksel CAN hedefini kabul eder.
+   * `clearDtcCodes` ile aynı sözleşme: ECU'nun ret cevabı `outcome`'da döner,
+   * yalnız taşıma hatası reject eder. `raw` taşınmaz (motor ham metni vermez).
+   * Opsiyonel: eski plugin'de yoktur.
+   */
+  clearUdsDtcs?(options: { tx: string; rx: string }): Promise<{
+    tx: string;
+    /** POSITIVE | NEGATIVE | NO_DATA */
+    outcome: string;
+    nrc?: string;
+    protocol?: string;
+    elapsedMs: number;
+  }>;
+
+  /**
    * V-08 — KWP2000 Service 0x18 (ReadDTCByStatus): KWP araçlarda üretici DTC'leri.
    *
    * UDS 0x19'un KWP KARŞILIĞIDIR — KWP araçlarda (Renault sınıfı, çoğu 2000-2008

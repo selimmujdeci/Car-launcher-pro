@@ -2425,6 +2425,40 @@ public class CarLauncherPlugin extends Plugin {
         }, "obd-dtc-clear-detailed").start();
     }
 
+    /**
+     * Uretici DTC silme — UDS 0x14, TEK ECU. {@link #clearDtcCodes} ile AYNI kanit
+     * sozlesmesi: ECU'nun olumsuz cevabi resolve ile {@code outcome}'da doner, yalniz
+     * tasima hatasi reject eder. Hedef dogrulamasi manager'dadir (fiziksel CAN disi
+     * hedefe tek bayt GITMEZ); izin karari TS'teki yetki + yazma + uretici kapisindadir.
+     */
+    @PluginMethod
+    public void clearUdsDtcs(PluginCall call) {
+        final String tx = call.getString("tx");
+        final String rx = call.getString("rx");
+        if (!present(tx) || !present(rx)) {
+            call.reject("OBD_BAD_ARGS", "tx ve rx zorunlu");
+            return;
+        }
+        new Thread(() -> {
+            try {
+                com.cockpitos.pro.obd.ElmProtocol.ClearResult r;
+                if (bleObdManager != null && bleObdManager.isConnected())  r = bleObdManager.clearUdsDtcs(tx, rx);
+                else if (obdManager != null && obdManager.isConnected())   r = obdManager.clearUdsDtcs(tx, rx);
+                else throw new java.io.IOException("OBD okuyucu bağlı değil");
+                JSObject ret = new JSObject();
+                ret.put("tx", r.tx);
+                ret.put("outcome", r.outcome);
+                if (r.nrc != null)      ret.put("nrc", r.nrc);
+                if (r.protocol != null) ret.put("protocol", r.protocol);
+                ret.put("elapsedMs", r.elapsedMs);
+                mainHandler.post(() -> call.resolve(ret));
+            } catch (Exception e) {
+                String msg = e.getMessage() != null ? e.getMessage() : "Üretici DTC silinemedi";
+                mainHandler.post(() -> call.reject("UDS_DTC_CLEAR_FAILED", msg));
+            }
+        }, "obd-uds-dtc-clear").start();
+    }
+
     // ── Patch 11A: Mode 07 (bekleyen) / Mode 0A (kalıcı) DTC ─────────────────
 
     /** Aktif transport üzerinden BEKLEYEN DTC okur; hiçbiri bağlı değilse IOException. */

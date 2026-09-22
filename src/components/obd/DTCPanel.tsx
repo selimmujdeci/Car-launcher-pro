@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import {
   useDTCState,
-  readDTCCodes, clearDTCCodes, readAllDTCs, readFreezeFrame,
+  readDTCCodes, clearDTCCodes, clearManufacturerDtcs, isUdsClearPathFieldVerified, readAllDTCs, readFreezeFrame,
   type DTCCode, type DTCSeverity, type DTCCodeWithStatus, type FreezeFrameResult,
   type DtcScanCompleteness, type DtcClearReport,
 } from '../../platform/dtcService';
@@ -256,6 +256,10 @@ function DTCPanelInner({ active = false }: { active?: boolean }) {
   const [clearReport, setClearReport] = useState<DtcClearReport | null>(null);
   // OBD-OS-F2: çoklu-ECU tarama sonucu (null = çalışmadı/desteklenmiyor → tek-ECU akışı).
   const [multiEcu, setMultiEcu] = useState<MultiEcuScanReport | null>(null);
+  /* Üretici DTC silme (UDS 0x14) — ECU BAŞINA iki aşama: kurulan ECU'nun tx'i. */
+  const [ecuClearArmed, setEcuClearArmed] = useState<string | null>(null);
+  const [ecuClearBusy, setEcuClearBusy] = useState<string | null>(null);
+  const [ecuClearResult, setEcuClearResult] = useState<{ tx: string; message: string; success: boolean } | null>(null);
 
   const criticalCount = dtc.codes.filter((c) => c.severity === 'critical').length;
   const warningCount  = dtc.codes.filter((c) => c.severity === 'warning').length;
@@ -310,6 +314,28 @@ function DTCPanelInner({ active = false }: { active?: boolean }) {
       }
     } finally {
       setIsDeepScanning(false);
+    }
+  }
+
+  /**
+   * ÜRETİCİ DTC SİLME (UDS 0x14) — ECU BAŞINA, İKİ AŞAMALI. İlk tık yalnız kurar;
+   * ikinci tık `confirmed:true` ile gönderir. Nihai karar servisteki kapılardadır
+   * (yazma · yetki · üretici kapısı); ekran yeniden taramayla ÖLÇÜMDEN tazelenir.
+   */
+  async function handleEcuClear(tx: string, rx: string): Promise<void> {
+    setEcuClearResult(null);
+    if (ecuClearArmed !== tx) { setEcuClearArmed(tx); return; }
+    setEcuClearArmed(null);
+    setEcuClearBusy(tx);
+    try {
+      const r = await clearManufacturerDtcs({ txHeader: tx, rxHeader: rx, confirmed: true, principal: 'LOCAL_UI' });
+      setEcuClearResult({ tx, message: r.userMessage, success: r.clear?.success === true });
+      if (r.allowed) await handleFullScan();
+    } catch (e) {
+      logError('DTCPanel:EcuClearFailed', e);
+      setEcuClearResult({ tx, message: 'Üretici hafızası silinemedi — beklenmeyen hata.', success: false });
+    } finally {
+      setEcuClearBusy(null);
     }
   }
 
@@ -675,6 +701,10 @@ function DTCPanelInner({ active = false }: { active?: boolean }) {
                   status === 'ok' ? String(count)
                     : status === 'unsupported' ? 'desteklenmiyor'
                       : status === 'deferred' ? 'ertelendi' : 'okunamadı';
+                /* Silinebilir = UDS ARIZA kaydı; "test tamamlanmadı" arıza değildir. */
+                const udsFaults = r.codes.filter((c) => c.fromUds === true
+                  && (c.state === 'ACTIVE' || c.state === 'CONFIRMED_INACTIVE' || c.state === 'PENDING')).length;
+                const tx = r.ecu.txHeader;
                 return (
                   <div key={r.ecu.txHeader} className="flex items-start justify-between gap-3 text-xs">
                     <div>
@@ -684,6 +714,32 @@ function DTCPanelInner({ active = false }: { active?: boolean }) {
                         Bekleyen: {serviceCopy(r.pending, standardCount('pending'))} ·{' '}
                         Kalıcı: {serviceCopy(r.permanent, standardCount('permanent'))}
                       </div>
+                      {udsFaults > 0 && r.ecu.rxHeader && isUdsClearPathFieldVerified() && (
+                        <button
+                          type="button"
+                          data-testid={`ecu-clear-${tx}`}
+                          onClick={() => void handleEcuClear(tx, r.ecu.rxHeader)}
+                          disabled={ecuClearBusy !== null || isBusy}
+                          className="mt-1.5 text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-lg border border-[var(--oem-danger)] text-[color:var(--oem-danger)] disabled:opacity-40"
+                        >
+                          {ecuClearBusy === tx ? 'SİLİNİYOR…'
+                            : ecuClearArmed === tx ? `ONAYLA — ${udsFaults} ARIZA KAYDINI SİL`
+                              : `ÜRETİCİ KODLARINI SİL (${udsFaults})`}
+                        </button>
+                      )}
+                      {ecuClearArmed === tx && ecuClearBusy === null && (
+                        <div className="mt-1 text-[10px] text-[color:var(--oem-warn)]">
+                          Bu ECU’nun arıza hafızası kalıcı silinir. Arıza sürüyorsa kod geri gelir.
+                        </div>
+                      )}
+                      {ecuClearResult?.tx === tx && (
+                        <div
+                          data-testid={`ecu-clear-result-${tx}`}
+                          className={`mt-1 text-[10px] font-bold ${ecuClearResult.success ? 'text-[color:var(--oem-success)]' : 'text-[color:var(--oem-warn)]'}`}
+                        >
+                          {ecuClearResult.message}
+                        </div>
+                      )}
                     </div>
                     <span className={
                       !reachable || partial ? 'text-[color:var(--oem-warn)] font-bold'

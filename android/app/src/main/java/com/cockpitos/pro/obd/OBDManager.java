@@ -1564,6 +1564,26 @@ public final class OBDManager {
         }
     }
 
+    /**
+     * Uretici DTC silme — UDS 0x14, YALNIZ fiziksel CAN hedefine (USER onceligi,
+     * atomik header). Fonksiyonel/K-line hedef ISTEK GONDERILMEDEN reddedilir.
+     */
+    public com.cockpitos.pro.obd.ElmProtocol.ClearResult clearUdsDtcs(String tx, String rx) throws Exception {
+        final ElmProtocol p = elm;
+        if (!obdRunning || p == null) throw new IOException("OBD bağlantısı yok");
+        if (!ElmProtocol.isPhysicalCanRequestHeader(tx) || rx == null || rx.trim().isEmpty()) {
+            throw new IOException("UDS silme yalnız fiziksel CAN hedefine gönderilir: " + tx);
+        }
+        try {
+            return cmdQueue.submit(ElmCommandQueue.Priority.USER, null,
+                () -> p.withEcuHeader(tx, rx, p::clearUdsDtcsDetailed)).get();
+        } catch (java.util.concurrent.ExecutionException ee) {
+            Throwable cause = ee.getCause();
+            if (cause instanceof Exception) throw (Exception) cause;
+            throw ee;
+        }
+    }
+
     /** Arıza kodlarını siler (Mode 04). false → ECU onay vermedi. USER önceliğiyle kuyruğa girer. */
     public boolean clearDTCs() throws Exception {
         final ElmProtocol p = elm;

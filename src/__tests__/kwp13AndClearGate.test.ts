@@ -232,6 +232,16 @@ describe('P0-OBD-DIAG-02 › üretici silme kapısı FAIL-CLOSED', () => {
     }
   });
 
+  it('🔒 SAHA 2026-09-22: 11-bit CAN ECU (7E1) geçerli hedeftir; fonksiyonel yayın DEĞİLDİR', () => {
+    const can = { ...FULL, protocolActive: '6', target: { ...FULL.target, txHeader: '7E1', rxHeader: '7E9', sourceService: '19' as const } };
+    expect(evaluateManufacturerClearGate(can).allowed).toBe(true);
+    expect(evaluateManufacturerClearGate(can).resolvedTarget).toBe('7E1');
+    for (const tx of ['7DF', '18DB33F1']) {
+      const d = evaluateManufacturerClearGate({ ...can, target: { ...can.target, txHeader: tx } });
+      expect(d.denyReasons, `${tx} hedef sayıldı`).toContain('NO_TARGET');
+    }
+  });
+
   it('TÜM koşullar kanıtla sağlanırsa karar POZİTİF olur (kapı ölü değil)', () => {
     const d = evaluateManufacturerClearGate(FULL);
     expect(d.allowed).toBe(true);
