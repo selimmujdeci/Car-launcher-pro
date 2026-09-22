@@ -2135,6 +2135,25 @@ public final class ElmProtocol {
             if (negIdx >= 0 && compact.length() >= negIdx + 6) {
                 String nrc = compact.substring(negIdx + 4, negIdx + 6);
                 Integer nrcVal = parseHexByte(nrc);
+                /* == OLCULEN KOK NEDEN (2026-09-22, gercek arac) ==================
+                   ECU "bekle" (0x78 responsePending) dedikten SONRA gercek yaniti
+                   gonderir. ELM327 ikisini AYNI tamponda verir (ATL0 + CR atiliyor):
+
+                     1902FF -> "7F1978" + "0DB0:5902FF2031161:402100014006382:..."
+
+                   Eski sira ONCE 7F'i goruyordu -> RETRY -> bos komut -> ELM "?" ->
+                   IOException -> transport_error. Yani 219 BAYTLIK OLUMLU YANIT
+                   ELDEYKEN ATILIYORDU; motor ECU'sunun uretici DTC tablosu (54 kayit)
+                   urunde HIC okunamiyordu.
+
+                   DUZELTME YALNIZ BEKLEME AILESINI (0x21/0x78 = RETRY) kapsar: yanit
+                   ZATEN geldiyse beklemenin anlami yoktur. Diger NRC'lerde
+                   (UNSUPPORTED / SESSION_REQUIRED / FATAL) sira ve davranis AYNEN
+                   korunur — orada 7F gercek ve TEK hukumdur. */
+                if (classifyNrc(nrc) == NrcAction.RETRY) {
+                    UdsEvidence settled = positiveEvidence(raw, positiveNeedle, openedHere, openedCmd);
+                    if (settled != null) return settled;
+                }
                 switch (classifyNrc(nrc)) {
                     case UNSUPPORTED:
                         // PR-CAP-2: NRC KORUNUR. Eskiden 0x11/0x12/0x31 (kimlik yok → kalıcı) ile
@@ -2181,15 +2200,30 @@ public final class ElmProtocol {
             }
             if (compact.equals("?")) throw new IOException("ELM327 komutu anlaşılmadı (" + label + ")");
 
-            for (String body : splitResponseBodies(raw)) {
-                int idx = body.indexOf(positiveNeedle);
-                if (idx >= 0) {
-                    return new UdsEvidence(body.substring(idx + positiveNeedle.length()), "OK", null)
-                        .withSession(openedHere, openedCmd);
-                }
-            }
+            UdsEvidence positive = positiveEvidence(raw, positiveNeedle, openedHere, openedCmd);
+            if (positive != null) return positive;
             throw new IOException("Beklenmeyen UDS yanıtı (" + label + "): " + summarize(raw));
         }
+    }
+
+    /**
+     * Ham yanitta OLUMLU yanit onegi var mi — varsa onek SOYULMUS kanit, yoksa {@code null}.
+     *
+     * TEK YER: hem normal cikis yolu hem de responsePending (0x78) kisa devresi BUNU
+     * kullanir; iki ayri arama yazilsaydi biri duzeltilip digeri unutulurdu. Arama
+     * {@link #splitResponseBodies} govdeleri uzerindedir — hizasiz/ilgisiz bir eslesme
+     * degil, ISO-TP birlestirmesinden gecmis govde.
+     */
+    private UdsEvidence positiveEvidence(String raw, String positiveNeedle,
+                                         boolean openedHere, String openedCmd) {
+        for (String body : splitResponseBodies(raw)) {
+            int idx = body.indexOf(positiveNeedle);
+            if (idx >= 0) {
+                return new UdsEvidence(body.substring(idx + positiveNeedle.length()), "OK", null)
+                    .withSession(openedHere, openedCmd);
+            }
+        }
+        return null;
     }
 
     /**
@@ -3198,14 +3232,38 @@ public final class ElmProtocol {
     }
 
     /**
-     * Ham çok-satırlı ELM327 yanıtını bağımsız hex "gövde"lere ayrıştırır (Patch 4 DTC parser'ından
-     * Patch 12A UDS readDid ile PAYLAŞILAN mantık — kopyalama YOK, tek doğruluk kaynağı):
-     *  - ISO-TP segment önekli satırlar ("0:", "1:"...) TEK gövdede BİRLEŞTİRİLİR (bir PDU'nun
-     *    parçalarıdır) — birleşik gövde listenin SONUNA eklenir.
-     *  - Önek YOK satırlar (çok-ECU: her ECU kendi tek çerçevesiyle yanıt verir) BAĞIMSIZ
-     *    gövdeler olarak sırayla eklenir — birbirine KARIŞTIRILMAZ.
+     * Ham ELM327 yanitini bagimsiz hex "govde"lere ayristirir (Patch 4 DTC parser'indan
+     * Patch 12A UDS readDid ile PAYLASILAN mantik — kopyalama YOK, tek dogruluk kaynagi):
+     *  - ISO-TP segment onekleri ("0:", "1:"...) TEK govdede BIRLESTIRILIR (bir PDU'nun
+     *    parcalaridir) — birlesik govde listenin SONUNA eklenir.
+     *  - Onek YOK satirlar (cok-ECU: her ECU kendi tek cercevesiyle yanit verir) BAGIMSIZ
+     *    govdeler olarak sirayla eklenir — birbirine KARISTIRILMAZ.
      *
-     * @return hex gövde listesi (boşluksuz, büyük harf); raw null/boş ise boş liste.
+     * == OLCULEN KOK NEDEN (2026-09-22, gercek arac + V-LINK / ELM327 v2.2) ==========
+     * Onek ARAMASI satir BASINA bagliydi ({@code ^[0-9A-F]&#123;1,2&#125;:}). GERCEK CIHAZDA
+     * BOYLE BIR SATIR YOKTUR: init {@code ATL0} gonderir (linefeed KAPALI) ve HER IKI tasima
+     * da CR'i atar ({@code OBDManager.RfcommChannel} ve {@code BleObdManager.appendRx}).
+     * Yani cok-cerceveli bir PDU TEK satir gelir ve onek satirin ICINDE yasar:
+     *
+     *   olculen  : "0140:4902015646311:524642303032352:39333238353639"   (0902 / VIN)
+     *   eski kod : onek eslesmez -> ':' silinir -> cerceve INDEKSLERI ("1","2") VERIYE KARISIR
+     *              -> "015646311 5246423030323 5239333238353639"  (BOZUK, tek uzunluk)
+     *   dogru    : "01" + "564631" + "52464230303235" + "39333238353639"
+     *              -> VIN "VF1RFB00259328569"
+     *
+     * Ayni bozulma ariza kodunu da YUTUYORDU: sanziman ECU'su (7E9) UDS 19-02 yaniti
+     * "00B0:5902FFD225861:2ED226862EFFFF" -> DOGRU cozum "59 02 FF | D2 25 86 2E |
+     * D2 26 86 2E" = U1225-86 ve U1226-86 (durum 0x2E = ONAYLI + BEKLEYEN + test basarisiz)
+     * iken urun "FFD2258612ED226862EFFFF" goruyordu. Yani ARACTAKI GERCEK ARIZA KODLARI
+     * kullaniciya HIC ulasmiyordu (referans tarayici ayni iki kodu gosteriyordu).
+     *
+     * YENI KURAL: onek satirin HER YERINDE aranir. ELM327 segment indeksi TEK hex hanedir
+     * (0..F, 16'da basa doner — sahada "A:".."F:" sonrasi "0:" olculdu), bu yuzden ':' den
+     * ONCEKI TEK hane indekstir ve veriden KESIN ayrilir. Satir ayracli girdi (ATL1 / mevcut
+     * test fixture'lari) BIREBIR eskisi gibi calisir.
+     * ===============================================================================
+     *
+     * @return hex govde listesi (bosluksuz, buyuk harf); raw null/bos ise bos liste.
      */
     static java.util.List<String> splitResponseBodies(String raw) {
         java.util.List<String> bodies = new java.util.ArrayList<>();
@@ -3214,15 +3272,44 @@ public final class ElmProtocol {
         for (String line : raw.toUpperCase(Locale.ROOT).split("\n")) {
             String t = line.trim();
             if (t.isEmpty()) continue;
-            if (t.matches("^[0-9A-F]{1,2}:.*")) {
-                segmented.append(t.substring(t.indexOf(':') + 1).replaceAll("[^0-9A-F]", ""));
-            } else {
+            final int firstMark = t.indexOf(':');
+            if (firstMark < 0) {
                 String hex = t.replaceAll("[^0-9A-F]", "");
                 if (!hex.isEmpty()) bodies.add(hex);
+                continue;
             }
+            /* Ilk onekten ONCEKI metin ISO-TP toplam uzunlugudur ("014" / "00B") — SID
+               tasimaz, ama ATILMAZ: cok-ECU ile cok-cercevenin ayni satirda karistigi
+               durumda oradaki BAGIMSIZ govde sessizce kaybolurdu. Onek hanesinin kendisi
+               (':' den onceki TEK hane) veri DEGILDIR, disarida birakilir. */
+            String head = t.substring(0, Math.max(0, firstMark - 1)).replaceAll("[^0-9A-F]", "");
+            if (!head.isEmpty()) bodies.add(head);
+            appendIsoTpSegments(t, firstMark, segmented);
         }
         if (segmented.length() > 0) bodies.add(segmented.toString());
         return bodies;
+    }
+
+    /**
+     * {@link #splitResponseBodies} yardimcisi — bir satirdaki TUM ISO-TP segmentlerini
+     * (onek satirin neresinde olursa olsun) {@code out}'a ekler.
+     *
+     * Her ':' icin ondan ONCEKI TEK hane cerceve indeksidir ve veriye DAHIL EDILMEZ;
+     * iki onek arasindaki her sey o cercevenin verisidir. Cerceve UZUNLUGU VARSAYILMAZ
+     * (6/7 bayt) — sinirlari onekler zaten verir, boylece kismi/dolgulu yanit da bozulmaz.
+     */
+    private static void appendIsoTpSegments(String line, int firstMark, StringBuilder out) {
+        int i = firstMark + 1;
+        while (true) {
+            int mark = line.indexOf(':', i);
+            if (mark < 0) {
+                out.append(line.substring(i).replaceAll("[^0-9A-F]", ""));
+                return;
+            }
+            int end = Math.max(i, mark - 1);     // indeks hanesi VERI DEGILDIR
+            out.append(line.substring(i, end).replaceAll("[^0-9A-F]", ""));
+            i = mark + 1;
+        }
     }
 
     /**

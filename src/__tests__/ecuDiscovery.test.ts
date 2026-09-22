@@ -72,6 +72,45 @@ describe('OBD-OS-F2-1 — parseEcuProbe', () => {
     expect(parseEcuProbe('UNABLE TO CONNECT')).toEqual([]);
     expect(parseEcuProbe('ZZZZ')).toEqual([]);
   });
+
+  /* ════════════════════════════════════════════════════════════════════════
+     SAHA KAYDI — 2026-09-22, gerçek araç · V-LINK / ELM327 v2.2 · protokol 6.
+     Aşağıdaki iki ham dizge `probeEcus` (ATH1 + 0100) çıktısından AYNEN alındı.
+
+     Yukarıdaki kilitler ECU'ları `
+` ile AYRILMIŞ besliyordu; GERÇEK CİHAZ
+     BÖYLE BİR GİRDİ ÜRETMEZ (init `ATL0` gönderir, taşıma CR'i atar) →
+     tüm ECU yanıtları TEK dizgede bitişik gelir. Eski kod header'ı yalnız
+     dizgenin BAŞINDA aradığı için İLK ECU dışındaki hepsi sessizce düşüyordu.
+     ════════════════════════════════════════════════════════════════════════ */
+  it('🔒 KİLİT: satır ayracı OLMADAN bitişik gelen ECU yanıtları — hepsi bulunur', () => {
+    // Ölçüm 1 (motor önce yanıtladı)
+    expect(parseEcuProbe('7E8064100983BA0177E906410088180013', '6').map((e) => e.rxHeader))
+      .toEqual(['7E8', '7E9']);
+    // Ölçüm 2 (şanzıman önce yanıtladı) — sıra ECU hızına bağlı, kayıp NONDETERMİNİSTİKTİ
+    expect(parseEcuProbe('7E9064100881800137E8064100983BA017', '6').map((e) => e.rxHeader))
+      .toEqual(['7E9', '7E8']);
+  });
+
+  it('🔒 KİLİT: bitişik satırda kaybolan ECU gerçek arızayı da kaybediyordu', () => {
+    // 7E9 = şanzıman kontrol ünitesi; U1225-86 / U1226-86 (ONAYLI) orada yaşıyor.
+    const ecus = parseEcuProbe('7E8064100983BA0177E906410088180013', '6');
+    const tcm = ecus.find((e) => e.rxHeader === '7E9');
+    expect(tcm).toBeDefined();
+    expect(tcm!.txHeader).toBe('7E1');      // ECU-başına sorgu bu adrese gider
+    expect(tcm!.role).toBe('unknown');      // rol UYDURULMAZ (araç-özel)
+  });
+
+  it("ZERO-TRUST: veri baytı header’e benzese bile UYDURMA ECU üretilmez", () => {
+    // Tek çerçevelik 7E8 yanıtı; gövdesinde "7E9" geçiyor ama o VERİDİR, ECU değil.
+    const ecus = parseEcuProbe('7E80641007E900AA', '6');
+    expect(ecus.map((e) => e.rxHeader)).toEqual(['7E8']);
+  });
+
+  it('çok-çerçeveli (1x PCI) bitişik yanıt: yürüyüş durur, davranış eskisiyle aynı', () => {
+    // Sınır hesaplanamaz → tek parça → tek ECU (sessiz uydurma bölme YOK).
+    expect(parseEcuProbe('7E81014490201313233', '6').map((e) => e.rxHeader)).toEqual(['7E8']);
+  });
 });
 
 describe('OBD-OS-F2-1 — buildTopology (fail-closed)', () => {
