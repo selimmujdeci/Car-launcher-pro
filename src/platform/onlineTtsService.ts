@@ -21,12 +21,14 @@ import { requestDuck, type DuckHandle } from './media/authority/duckRequest';
 import type { DuckReason } from './media/authority/duckPolicy';
 /* MAVI-F0: TTS sentez + ilk duyulabilir ses ölçümü (YALNIZ ÖLÇÜM). */
 import { markMaviLatency } from './assistant/maviLatencyTrace';
+/* Mavi ses kimliği: Live ile AYNI Gemini sesi (tek sabit). */
+import { MAVI_VOICE_PROFILE } from './assistant/maviVoiceProfile';
 
 const TTS_MODEL    = 'gemini-2.5-flash-preview-tts';
 const TTS_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${TTS_MODEL}:generateContent`;
 const TTS_TIMEOUT_MS = 12_000;
-/** Gemini önceden tanımlı ses; çok dilli (Türkçe metni Türkçe okur). */
-const TTS_VOICE = 'Kore';
+/** Gemini önceden tanımlı ses; çok dilli (Türkçe metni Türkçe okur). Live ile aynı. */
+const TTS_VOICE = MAVI_VOICE_PROFILE.geminiVoice;
 
 /** Aynı metni tekrar sentezlemeyi önleyen küçük LRU (maliyet + gecikme). */
 const _cache = new Map<string, string>();   // text → blob URL

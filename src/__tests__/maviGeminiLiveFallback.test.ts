@@ -40,6 +40,7 @@ import {
 import { _resetAiHealthForTest } from '../platform/aiHealth';
 import { _resetGeminiLiveFlagForTest, GEMINI_LIVE_LOCAL_FLAG } from '../platform/ai/live/geminiLiveFlag';
 import { GeminiLiveSession, type WebSocketLike } from '../platform/ai/live/geminiLiveSession';
+import { MAVI_VOICE_PROFILE } from '../platform/assistant/maviVoiceProfile';
 import { LIVE_TOOL_ACTION, buildLiveFunctionDeclarations } from '../platform/ai/live/liveToolSchema';
 import { matchDeterministicWholeInput } from '../platform/commandParser';
 import { useStore } from '../store/useStore';
@@ -244,6 +245,11 @@ describe('1 · Gemini Live çalışıyor → Live kullanılır (REST HİÇ çağ
     expect((setup.generationConfig as { responseModalities: string[] }).responseModalities).toEqual(['AUDIO']);
     expect(setup.outputAudioTranscription).toBeDefined();
     expect(Array.isArray((setup.tools as { functionDeclarations: unknown[] }[])[0].functionDeclarations)).toBe(true);
+    /* MAVI VOICE PROFILE: Live sesi ve dili TEK sabitten gelir (Gemini TTS
+       yedeğiyle aynı ses → Gemini ailesinde tek Mavi karakteri). */
+    const speech = (setup.generationConfig as { speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: string } }; languageCode: string } }).speechConfig;
+    expect(speech.voiceConfig.prebuiltVoiceConfig.voiceName).toBe(MAVI_VOICE_PROFILE.geminiVoice);
+    expect(speech.languageCode).toBe(MAVI_VOICE_PROFILE.language);
     expect(getGeminiLiveDiagnostics().state).toBe('ready');
   });
 

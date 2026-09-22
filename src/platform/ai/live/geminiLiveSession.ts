@@ -32,6 +32,8 @@
  */
 
 import { GEMINI_LIVE_MODEL, geminiLiveEndpoint } from '../gateway/models';
+/* Mavi ses kimliği TEK yerden (Live + Gemini TTS yedeği aynı ses). Yaprak modül. */
+import { MAVI_VOICE_PROFILE } from '../../assistant/maviVoiceProfile';
 
 /* ══════════════════════════════════════════════════════════════════════════
  * WebSocket soyutlaması (test enjeksiyonu)
@@ -132,8 +134,8 @@ export type LiveSessionState = 'idle' | 'connecting' | 'ready' | 'closed';
 
 const DEFAULT_CONNECT_TIMEOUT_MS = 4_000;
 const DEFAULT_TOTAL_TIMEOUT_MS   = 30_000;
-const DEFAULT_VOICE              = 'Kore';
-const DEFAULT_LANGUAGE           = 'tr-TR';
+const DEFAULT_VOICE              = MAVI_VOICE_PROFILE.geminiVoice;
+const DEFAULT_LANGUAGE           = MAVI_VOICE_PROFILE.language;
 
 /* ══════════════════════════════════════════════════════════════════════════
  * Yardımcılar
