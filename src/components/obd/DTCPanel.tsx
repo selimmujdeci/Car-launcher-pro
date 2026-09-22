@@ -23,6 +23,7 @@ import {
 } from '../../platform/obd/multiEcuScan';
 import { buildVehicleVerdict } from '../../platform/obd/verdictEngine';
 import { formatDtcDisplayCode, UDS_DTC_STATE_LABEL } from '../../platform/obd/udsDtc';
+import { explainDtcsWithAi, type DtcExplainItem } from '../../platform/obd/dtcAiExplanation';
 import { logError } from '../../platform/crashLogger';
 import { CarLauncher } from '../../platform/nativePlugin';
 import { useDebugStore } from '../../platform/debug';
@@ -260,6 +261,8 @@ function DTCPanelInner({ active = false }: { active?: boolean }) {
   const [ecuClearArmed, setEcuClearArmed] = useState<string | null>(null);
   const [ecuClearBusy, setEcuClearBusy] = useState<string | null>(null);
   const [ecuClearResult, setEcuClearResult] = useState<{ tx: string; message: string; success: boolean } | null>(null);
+  /* Yapay zekâ açıklaması — bir YORUMDUR; hiçbir hüküm/defter bundan beslenmez. */
+  const [aiExplain, setAiExplain] = useState<{ loading: boolean; text: string | null; error: string | null } | null>(null);
 
   const criticalCount = dtc.codes.filter((c) => c.severity === 'critical').length;
   const warningCount  = dtc.codes.filter((c) => c.severity === 'warning').length;
@@ -279,6 +282,7 @@ function DTCPanelInner({ active = false }: { active?: boolean }) {
    * StandardPidEnums içinde zaten try/catch'li) — biri düşerse diğerleri gelir.
    */
   async function handleFullScan(): Promise<void> {
+    setAiExplain(null);   // eski taramanın yorumu yeni sonuca TAŞINMAZ
     await readDTCCodes();
     setIsDeepScanning(true);
     try {
@@ -314,6 +318,31 @@ function DTCPanelInner({ active = false }: { active?: boolean }) {
       }
     } finally {
       setIsDeepScanning(false);
+    }
+  }
+
+  /**
+   * Bulunan kayıtları yapay zekâya açıklatır. Girdi, ekrandaki ÖLÇÜLMÜŞ künyelerdir
+   * (kod · alt kod · ECU · durum); durum ölçülmediyse UNKNOWN gider, uydurulmaz.
+   */
+  async function handleAiExplain(): Promise<void> {
+    if (!multiEcu) return;
+    const items: DtcExplainItem[] = multiEcu.allCodes.map((c) => ({
+      code: c.code,
+      subCode: c.subCode ?? null,
+      ecu: c.ecuLabel,
+      state: c.state ?? (c.fromUds || c.fromKwp ? 'UNKNOWN'
+        : c.mode === 'pending' ? 'MODE07_PENDING'
+          : c.mode === 'permanent' ? 'MODE0A_PERMANENT' : 'MODE03_STORED'),
+      source: c.fromUds ? 'UDS' : c.fromKwp ? 'KWP' : 'OBD',
+    }));
+    setAiExplain({ loading: true, text: null, error: null });
+    try {
+      const r = await explainDtcsWithAi(items);
+      setAiExplain(r.ok ? { loading: false, text: r.text, error: null } : { loading: false, text: null, error: r.reason });
+    } catch (e) {
+      logError('DTCPanel:AiExplainFailed', e);
+      setAiExplain({ loading: false, text: null, error: 'Yapay zekâ açıklaması alınamadı.' });
     }
   }
 
@@ -770,6 +799,38 @@ function DTCPanelInner({ active = false }: { active?: boolean }) {
               Mode 03'tür; bu blok ECU BAŞINA fiziksel okumanın künyesidir ve
               ikisi AYRI gerçeklerdir — bu yüzden "çift gösterim" değil,
               provenance'ı ayrı iki kayıttır (rozetler hangisi olduğunu yazar). */}
+          {multiEcu.allCodes.length > 0 && (
+            <div className="mt-3 pt-3 border-t border-[var(--oem-border)]">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-[10px] font-black uppercase tracking-widest text-[color:var(--oem-text-dim)]">
+                  Yapay zekâ açıklaması
+                </span>
+                <button
+                  type="button"
+                  data-testid="dtc-ai-explain"
+                  onClick={() => void handleAiExplain()}
+                  disabled={aiExplain?.loading === true || isBusy}
+                  className="text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-lg border border-[var(--oem-accent)] text-[color:var(--oem-accent)] disabled:opacity-40"
+                >
+                  {aiExplain?.loading ? 'HAZIRLANIYOR…' : aiExplain?.text ? 'YENİDEN AÇIKLA' : 'YAPAY ZEKÂ İLE AÇIKLA'}
+                </button>
+              </div>
+              {aiExplain?.error && (
+                <div className="mt-2 text-[11px] text-[color:var(--oem-warn)]">{aiExplain.error}</div>
+              )}
+              {aiExplain?.text && (
+                <div data-testid="dtc-ai-explain-text" className="mt-2">
+                  <div className="text-[9px] font-black uppercase tracking-widest text-[color:var(--oem-warn)]">
+                    Yapay zekâ yorumu — doğrulanmış kayıt değildir, kesin teşhis için servise danışın
+                  </div>
+                  <div className="mt-1.5 text-xs leading-relaxed whitespace-pre-wrap text-[color:var(--oem-text)]">
+                    {aiExplain.text}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {multiEcu.allCodes.length > 0 && (
             <div className="mt-3 pt-3 border-t border-[var(--oem-border)] space-y-2">
               <div className="text-[10px] font-black uppercase tracking-widest text-[color:var(--oem-text-dim)]">
