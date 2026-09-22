@@ -211,7 +211,7 @@ describe('T3-T7 · önemli ölçümler AYNI dilde küçük gösterge', () => {
     const svgs = [...container.querySelectorAll('.obdlive-gauge-svg')];
     expect(svgs.length, 'gösterge bulunamadı').toBeGreaterThan(8);
     for (const s of svgs) {
-      expect(s.getAttribute('viewBox'), 'gösterge ailesi bölündü').toBe('0 0 260 246');
+      expect(s.getAttribute('viewBox'), 'gösterge ailesi bölündü').toBe('0 0 260 206');
     }
   });
 

@@ -71,7 +71,7 @@ const NIGHT: Tokens = {
 const DAY: Tokens = {
   bg: '#E7EAEE', panel: '#F7F9FA', panelMuted: '#EFF2F5', line: '#CDD3DA', lineDash: '#C2C9D1',
   txt: '#10151A', txt2: '#525E6B', txt3: '#68747F', tick: '#78838E', dash: '#A6AFB8',
-  track: '#E1E5EA', trackEmpty: '#E7EAEE', accent: '#0E9E8C', onAccent: '#FFFFFF',
+  track: '#CBD3DB', trackEmpty: '#E7EAEE', accent: '#0E9E8C', onAccent: '#FFFFFF',
   ok: '#12793F', warn: '#A96800',
   okSoftBg: 'rgba(18,121,63,0.10)', okSoftLine: 'rgba(18,121,63,0.32)',
   warnSoftBg: 'rgba(169,104,0,0.10)', warnSoftLine: 'rgba(169,104,0,0.32)',
@@ -103,6 +103,7 @@ function digitsFor(entry: Pick<CatalogEntry, 'max' | 'min' | 'unit'>, r: Reading
   if (span <= 3) return 2;                 // lambda · O2 voltajı
   if (entry.unit === '%') return 0;        // yüzdeler tam sayı okunur
   const v = Math.abs(r.value ?? 0);
+  if (v === 0) return 0;                   // "0,00" gereksiz; sıfırda çözünürlük kaybı yok
   if (v < 1) return 2;
   if (v < 10) return 1;                    // MAF 3,2 g/s
   if (span <= 40) return 1;                // akü voltajı 14,2 V
@@ -177,7 +178,7 @@ function Gauge({ reading, entry, size, t, note }: GaugeProps): React.ReactElemen
   const tickSize = large ? 13 : 0;   // küçük göstergede uç etiketleri kalabalık yapar
 
   return (
-    <svg viewBox="0 0 260 246" role="img"
+    <svg viewBox="0 0 260 206" role="img"
       aria-label={`${entry.label}${hasNumber(reading) ? `: ${num(reading, digitsFor(entry, reading))} ${entry.unit}` : ''}`}
       className={large ? 'obdlive-gauge-svg obdlive-gauge-svg--lg' : 'obdlive-gauge-svg'}>
       <g transform="rotate(145 130 130)">
@@ -193,13 +194,13 @@ function Gauge({ reading, entry, size, t, note }: GaugeProps): React.ReactElemen
       {tickSize > 0 && (
         <>
           <text x={TICK_POS[0].x} y={TICK_POS[0].y} fontSize={tickSize} textAnchor="middle" fill={t.tick}>
-            {entry.min.toLocaleString('tr-TR')}
+            {Math.round(entry.min).toLocaleString('tr-TR')}
           </text>
           <text x={TICK_POS[2].x} y={TICK_POS[2].y} fontSize={tickSize} textAnchor="middle" fill={t.tick}>
             {Math.round((entry.min + entry.max) / 2).toLocaleString('tr-TR')}
           </text>
           <text x={TICK_POS[4].x} y={TICK_POS[4].y} fontSize={tickSize} textAnchor="middle" fill={t.tick}>
-            {entry.max.toLocaleString('tr-TR')}
+            {Math.round(entry.max).toLocaleString('tr-TR')}
           </text>
         </>
       )}
@@ -524,7 +525,7 @@ const CSS = `
 .obdlive-cap{font-size:clamp(9px,0.68vw,11px);font-weight:600;letter-spacing:1.8px;}
 
 .obdlive-body{flex:1 1 auto;min-height:0;display:flex;gap:clamp(8px,0.9vw,16px);}
-.obdlive-main{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;
+.obdlive-main{flex:1 1 auto;min-width:0;min-height:0;display:flex;flex-direction:column;
   gap:clamp(8px,0.9vh,14px);}
 
 /* LARGE */
@@ -541,7 +542,7 @@ const CSS = `
   display:flex;flex-direction:column;align-items:center;min-width:0;}
 .obdlive-mini-label{font-size:clamp(9px,0.7vw,12px);white-space:nowrap;overflow:hidden;
   text-overflow:ellipsis;max-width:100%;text-align:center;}
-.obdlive-mini .obdlive-gauge-svg{height:clamp(66px,8.5vh,104px);}
+.obdlive-mini .obdlive-gauge-svg{height:clamp(54px,9vh,96px);}
 
 /* DURUM */
 .obdlive-status{flex:0 0 auto;display:flex;gap:clamp(8px,0.9vw,16px);}
@@ -561,7 +562,7 @@ const CSS = `
   overflow:hidden;text-overflow:ellipsis;}
 
 /* SAĞ LİSTE */
-.obdlive-side{flex:0 0 clamp(280px,25vw,400px);display:flex;flex-direction:column;
+.obdlive-side{flex:0 0 clamp(236px,24vw,400px);display:flex;flex-direction:column;
   padding:clamp(8px,1vh,14px) 0 0;min-height:0;}
 .obdlive-side-head{display:flex;align-items:center;justify-content:space-between;
   padding:0 clamp(10px,1vw,16px) clamp(6px,0.8vh,10px);}
@@ -601,20 +602,30 @@ const CSS = `
 .obdlive-foot-note{flex:1 1 auto;min-width:0;font-size:clamp(9px,0.7vw,11px);text-align:right;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 
-/* DAR EKRANLAR */
-@media (max-width:1400px){
-  .obdlive-minis{grid-template-columns:repeat(4,minmax(0,1fr));}
+/* KISA EKRANLAR (telefon landscape ≈ 900×400) — hero ezilmez, ana sütun kayar.
+   Head unit (1024×600) bu kırılıma GİRMEZ; orada her şey tek ekrana sığar. */
+@media (max-height:520px){
+  .obdlive-main{overflow-y:auto;overscroll-behavior:contain;}
+  .obdlive-hero{flex:0 0 auto;height:clamp(180px,46vh,260px);}
+  .obdlive-side{flex-basis:clamp(220px,24vw,320px);}
 }
-@media (max-width:1100px){
-  .obdlive-body{flex-direction:column;}
-  .obdlive-side{flex:0 0 clamp(150px,22vh,240px);}
-  .obdlive-minis{grid-template-columns:repeat(3,minmax(0,1fr));}
+
+/* DAR EKRANLAR — 1024 px head unit sağ liste ile KALIR; yalnız daha darda yığılır */
+@media (max-width:960px){
+  .obdlive-minis{grid-template-columns:repeat(4,minmax(0,1fr));}
   .obdlive-clock{position:static;transform:none;text-align:right;}
   .obdlive-clock-time{font-size:clamp(16px,1.5vw,21px);}
 }
-@media (max-width:820px){
-  .obdlive-hero{flex-wrap:wrap;}
-  .obdlive-hero-panel{flex-basis:calc(50% - 8px);}
+@media (max-width:880px){
+  .obdlive-body{flex-direction:column;overflow-y:auto;overscroll-behavior:contain;}
+  .obdlive-main{flex:0 0 auto;overflow:visible;}
+  .obdlive-hero{flex:0 0 auto;height:clamp(180px,40vh,260px);}
+  .obdlive-side{flex:0 0 auto;}
+  .obdlive-side-scroll{overflow:visible;}
+}
+@media (max-width:640px){
+  .obdlive-hero{flex-wrap:wrap;height:auto;}
+  .obdlive-hero-panel{flex-basis:calc(50% - 8px);min-height:170px;}
   .obdlive-minis{grid-template-columns:repeat(2,minmax(0,1fr));}
   .obdlive-title,.obdlive-clock-date,.obdlive-foot-note{display:none;}
 }
