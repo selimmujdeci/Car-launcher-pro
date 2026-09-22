@@ -132,6 +132,36 @@ public class IsoTpSingleLineReassemblyTest {
         assertTrue("Son kayit gercek DTC olmali", ecm.endsWith("049BF640"));
     }
 
+    /**
+     * SAHA KAYDI (2026-09-22, motor ECU 7E8, obdTraffic capture): 0x78 "bekle" yaniti
+     * AYNI satira yapisik. Uzunluk ("107" = 263 bayt) head'in SON 3 hanesidir; sondaki
+     * "AAAA" dolgusu kesilmezse sahte ONAYLI "B2AAA-AA" kaydi olur.
+     */
+    @Test
+    public void paddingTrimmedWhenPendingNrcPrecedesLengthOnSameLine() {
+        final String raw = "7F19781070:5902FF2031161:400488774004712:954003801340033:"
+          + "801140038012404:210001400638775:401453644014536:924015441640227:"
+          + "632150226322508:054416401641139:50164111501641A:12501642135016B:"
+          + "42115016421250C:16431350164311D:50164312500190E:24402080224003F:"
+          + "80964002013A400:02023A4002033A1:4002043A4020022:944011301C40113:"
+          + "30264011351C404:1135264011361C5:40114D134001016:224014810140147:"
+          + "887740148917408:148E22400095649:40164164501642A:645016436450C3B:"
+          + "05645016598750C:06272150025B98D:500627F5500627E:F650025A135002F:"
+          + "5A1150150377500:150397501503961:501503F75015032:075015030250043:"
+          + "00F540049AF5404:200094401519125:40049BF640AAAA";
+        String data = bodyAfter(raw, "5902");
+        assertEquals("Tam 263 bayt", 263, data.length() / 2 + 2);
+        assertTrue("Son kayit gercek DTC olmali", data.endsWith("049BF640"));
+    }
+
+    /** Uzunluk tutarsizsa (fark > tek cerceve dolgusu) HICBIR SEY kesilmez — veri kaybi yok. */
+    @Test
+    public void implausibleDeclaredLengthDoesNotTruncate() {
+        // Beyan 9 bayt, gelen 20 bayt: fark (11) tek cercevenin dolgusu OLAMAZ.
+        String data = bodyAfter("0090:5902FF2031161:400488774004712:95400380134003", "5902");
+        assertEquals("FF203116" + "40048877400471" + "95400380134003", data);
+    }
+
     /** Cok-ECU TEK satirda bitisik: her ECU KENDI govdesini korumali. */
     @Test
     public void multiEcuSingleFrameLineStillYieldsBothBodies() {

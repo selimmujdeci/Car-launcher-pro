@@ -3285,14 +3285,22 @@ public final class ElmProtocol {
                (':' den onceki TEK hane) veri DEGILDIR, disarida birakilir. */
             String head = t.substring(0, Math.max(0, firstMark - 1)).replaceAll("[^0-9A-F]", "");
             if (!head.isEmpty()) bodies.add(head);
-            /* ELM327 ISO-TP toplam uzunlugunu TAM 3 hex hane basar. Son cercevenin
-               dolgusu (ECU'ya gore AA/55/00/FF) bu uzunlugun DISINDADIR; kesilmezse
-               veri sanilir. Olculen (2026-09-22, motor ECU 19-02, "110:" = 272 bayt):
-               sondaki "AAAAAAAAAA" dolgusu sahte ONAYLI "B2AAA-AA" kaydi uretiyordu. */
-            if (declaredBytes < 0 && head.length() == 3) declaredBytes = Integer.parseInt(head, 16);
+            /* ELM327 ISO-TP toplam uzunlugunu "0:" segmentinin HEMEN ONUNE 3 hex hane
+               basar. Son cercevenin dolgusu (AA/55/00/FF) bu uzunlugun DISINDADIR;
+               kesilmezse veri sanilir. Uzunluk head'in SON 3 hanesidir: onune ayni
+               satirda baska tek-cerceve yanitlar yapisabilir. Olculen (2026-09-22,
+               motor ECU 19-02): "7F1978" + "107" + "0:5902FF..." -> 263 bayt; sondaki
+               "AAAA" dolgusu sahte ONAYLI "B2AAA-AA" kaydi uretiyordu. */
+            if (declaredBytes < 0 && head.length() >= 3 && t.charAt(firstMark - 1) == '0') {
+                declaredBytes = Integer.parseInt(head.substring(head.length() - 3), 16);
+            }
             appendIsoTpSegments(t, firstMark, segmented);
         }
-        if (declaredBytes > 0 && segmented.length() > declaredBytes * 2) {
+        /* Yalniz TEK cercevenin dolgusu kadar fazlalik kesilir (son CF en az 1 veri
+           bayti tasir -> en fazla 6 bayt dolgu). Daha buyuk fark uzunlugun yanlis
+           okundugunu gosterir -> hicbir sey kesilmez (eski davranis, veri kaybi yok). */
+        final int excess = segmented.length() - declaredBytes * 2;
+        if (declaredBytes > 7 && excess > 0 && excess <= 12) {
             segmented.setLength(declaredBytes * 2);
         }
         if (segmented.length() > 0) bodies.add(segmented.toString());
