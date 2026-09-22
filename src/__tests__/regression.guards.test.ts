@@ -797,31 +797,28 @@ describe('Grounding hatası beyin devre kesicisini tetiklemez kilidi', () => {
     expect(ttsSrc, 'ttsCancel konuşma bayrağını temizlemiyor — kesilen cevap sonrası pencere gereksiz uzar').toMatch(/_markSpeakingEnd\(\); \/\/ konuşma kesildi/);
   });
 
-  it('YAPISAL: 429 pencereleri SAĞLAYICI-BAZLI — Groq/Haiku 429\'u Gemini\'yi kilitlemez', () => {
-    // SAHA 2026-07-04: tek paylaşılan _rateLimitedUntil vardı — Groq/Haiku 429'u
-    // Gemini'yi de 60sn susturuyordu (çapraz kirlenme → sahte offline).
-    // _rateLimitedUntil'a atama yalnız GEMİNİ yollarında ve retryDelay ile olmalı.
+  it('YAPISAL: 429 pencereleri SAĞLAYICI-BAZLI — Claude/OpenRouter 429\'u Gemini\'yi kilitlemez', () => {
+    // SAHA 2026-07-04: tek paylaşılan _rateLimitedUntil vardı — yedek sağlayıcının
+    // 429'u Gemini'yi de 60sn susturuyordu (çapraz kirlenme → sahte offline).
     /* MAVI-F13/3: pencereler `companionProviderHealth` defterine taşındı. Bu
        kilit ARTIK ÇAĞRI YERLERİNİ korur; defterin KENDİ davranışını
        voiceRuntimeSeparation `F13/3-8` kilitler. Her 429 KENDİ sağlayıcısını
-       adlandırmalı ve Gemini retryDelay'i taşımaya devam etmeli. */
+       adlandırmalı ve Gemini retryDelay'i taşımaya devam etmeli.
+       2f22f4b2 (2026-09-21): Groq beyin zincirinden ÇIKARILDI (yalnız STT'de
+       kalır); zincir LIVE → REST → OPENROUTER → CLAUDE → OFFLINE. Kilit artık
+       Groq dalını değil, mevcut yedek dalı (Claude/Haiku) denetler. */
     const geminiAssigns = [...src.matchAll(/noteProviderRateLimited\('gemini'([^)]*)\)/g)];
     expect(geminiAssigns.length, 'Gemini 429 ataması bulunamadı').toBeGreaterThanOrEqual(2);
     for (const m of geminiAssigns) {
       expect(m[1], 'Gemini 429 penceresi Google retryDelay değerini kullanmalı (cooldownFromGemini429) — sabit 60sn asistanı gereksiz uzun offline bırakır').toContain('cooldownFromGemini429');
     }
-    expect(src, 'Groq 429 KENDİ penceresini kurmalı').toMatch(/noteProviderRateLimited\('groq'\)/);
     expect(src, 'Haiku 429 KENDİ penceresini kurmalı').toMatch(/noteProviderRateLimited\('haiku'\)/);
-    /* Çapraz kirlenme yasağı — SAHA 2026-07-04: Groq/Haiku dalları GEMINI
-       penceresini kuramaz. */
-    const GROQ_FN  = src.match(/async function askCompanionBrainGroq\([\s\S]*?\n\}/);
+    expect(src, 'Groq beyin zincirine geri sızmış (2f22f4b2: yalnız STT)').not.toMatch(/askCompanionBrainGroq\(/);
+    /* Çapraz kirlenme yasağı — SAHA 2026-07-04: yedek dal GEMINI penceresini kuramaz. */
     const HAIKU_FN = src.match(/async function askCompanionBrainHaiku\([\s\S]*?\n\}/);
-    expect(GROQ_FN,  'askCompanionBrainGroq bulunamadı — kilit körleşti').toBeTruthy();
     expect(HAIKU_FN, 'askCompanionBrainHaiku bulunamadı — kilit körleşti').toBeTruthy();
-    for (const [name, fn] of [['Groq', GROQ_FN!], ['Haiku', HAIKU_FN!]] as const) {
-      expect(fn[0], `${name} 429'u GEMINI penceresini kuruyor (çapraz kirlenme geri geldi)`)
-        .not.toMatch(/noteProviderRateLimited\('gemini'/);
-    }
+    expect(HAIKU_FN![0], 'Haiku 429\'u GEMINI penceresini kuruyor (çapraz kirlenme geri geldi)')
+      .not.toMatch(/noteProviderRateLimited\('gemini'/);
   });
 
   it('YAPISAL: tüm adaylar kota soğumasındayken DÜRÜST kota cevabı (sahte offline yasak)', () => {
@@ -1164,13 +1161,14 @@ describe('Sesli asistan — hava/trafik dürüstlüğü + hibrit beyin zinciri k
     expect(src).toMatch(/build:\s*\(drv\)\s*=>\s*buildWeather\(drv\)/);
   });
 
-  it('YAPISAL: CompanionChatOpts.chain (Gemini→Groq→Haiku) + tryCompanionBrain\'de Gemini soğuma/hata → sıradaki aday kilidi', () => {
+  it('YAPISAL: CompanionChatOpts.chain (Gemini→OpenRouter→Haiku) + tryCompanionBrain\'de Gemini soğuma/hata → sıradaki aday kilidi', () => {
     const src = read('src/platform/companion/companionChatProvider.ts');
-    expect(src).toMatch(/chain\?:\s*ReadonlyArray<\{\s*provider:\s*'gemini'\s*\|\s*'groq'\s*\|\s*'haiku';\s*apiKey:\s*string\s*\}>/);
-    // Gemini adayı KENDİ _rateLimitedUntil soğumasındaysa ATLANIR (sıradaki aday
-    // denenir) — bu davranış (429 soğumasında asistan aptallaşmasın) bir daha
-    // sessizce kaldırılmamalı. SAHA 2026-07-04: atlama artık skippedByCooldown
-    // işaretler (dürüst kota cevabı) — pencereler sağlayıcı-bazlı.
+    /* 2f22f4b2: zincir tipi Groq'suz — Gemini | OpenRouter | Haiku. */
+    expect(src).toMatch(/chain\?:\s*ReadonlyArray<\{\s*provider:\s*'gemini'\s*\|\s*'openrouter'\s*\|\s*'haiku';\s*apiKey:\s*string\s*\}>/);
+    // Gemini adayı KENDİ soğumasındaysa ATLANIR (sıradaki aday denenir) — bu
+    // davranış (429 soğumasında asistan aptallaşmasın) bir daha sessizce
+    // kaldırılmamalı. SAHA 2026-07-04: atlama artık skippedByCooldown işaretler
+    // (dürüst kota cevabı) — pencereler sağlayıcı-bazlı.
     /* MAVI-F13/3: soğuma sorgusu `companionProviderHealth.isProviderCoolingDown`
        kapısına taşındı. Kilit korunur: soğumadaki aday ATLANIR ve atlama
        `skippedByCooldown` ile İŞARETLENİR (dürüst kota cevabı sessizce
@@ -1178,27 +1176,35 @@ describe('Sesli asistan — hava/trafik dürüstlüğü + hibrit beyin zinciri k
        SAHA 2026-09-11: `gateway` bu kapıdan MUAFTI ("kendi devre kesicisi var"),
        ama o kesici kredi/kimlik arızasını kapsamıyordu → kredisi bitmiş hat her
        turun başında yeniden denenip ölçülen 0,45 sn gecikme ekliyordu. Kapı artık
-       TÜM adaylar için aynı; muafiyetin geri gelmemesi de kilitlenir. */
-    expect(src).toMatch(/if \(isProviderCoolingDown\(cand\.provider\)\) \{/);
+       TÜM adaylar için aynı; muafiyetin geri gelmemesi de kilitlenir.
+       2f22f4b2: aday → sağlık defteri adı `_healthProvider(cand)` ile eşlenir. */
+    expect(src).toMatch(/if \(isProviderCoolingDown\(_healthProvider\(cand\)\)\) \{/);
     expect(src, 'gateway soğuma kapısından yeniden muaf tutulmuş — 402 her turda tekrar denenir')
-      .not.toMatch(/cand\.provider !== 'gateway' && isProviderCoolingDown/);
+      .not.toMatch(/cand\.provider !== '(gateway|openrouter)' && isProviderCoolingDown/);
     expect(src, 'soğumada atlanan aday işaretlenmiyor — dürüst kota cevabı düşer')
       .toMatch(/skippedByCooldown = true; continue;/);
-    expect(src).toMatch(/askCompanionBrainHaiku/); // hibrit zincirin son halkası
+    expect(src).toMatch(/askCompanionBrainHaiku/); // hibrit zincirin son online halkası
   });
 
-  it('YAPISAL: voiceService zincir SIRA SABİT — Gemini → Groq → Haiku (birincil Gemini; SAHA geri-alma)', () => {
+  it('YAPISAL: voiceService zincir SIRA SABİT — Gemini → OpenRouter → Haiku (birincil Gemini; SAHA geri-alma)', () => {
     const src = read('src/platform/voiceService.ts');
-    // Gemini = arama motoru anahtarı; Groq/Haiku yedekteyken web kararını buna devreder.
+    // Gemini = arama motoru anahtarı; OpenRouter/Claude yedekteyken web kararını buna devreder.
     expect(src).toMatch(/searchKey = resolvedGemini;/);
     // SABİT sıra: Gemini önce (birincil — güvenilir sohbet/komut + yerleşik google_search).
-    // "Groq birincil" denemesi geri alındı; bu sıra bir daha sessizce ters çevrilmemeli.
+    // "Groq birincil" denemesi geri alındı; 2f22f4b2 ile Groq beyin zincirinden
+    // tamamen ÇIKTI (yalnız STT). Sıra bir daha sessizce ters çevrilmemeli.
     expect(src).toMatch(/if \(resolvedGemini\) chain\.push\(\{ provider: 'gemini', apiKey: resolvedGemini \}\);/);
-    expect(src).toMatch(/if \(resolvedGroq\)\s+chain\.push\(\{ provider: 'groq',\s+apiKey: resolvedGroq \}\);/);
+    expect(src).toMatch(/if \(hasOpenRouter\)\s+chain\.push\(\{ provider: 'openrouter', apiKey: '' \}\);/);
     expect(src).toMatch(/if \(resolvedHaiku\)\s+chain\.push\(\{ provider: 'haiku',\s+apiKey: resolvedHaiku \}\);/);
-    // Gemini push, Groq push'tan ÖNCE gelmeli (birincil sıra korunsun)
-    expect(src.indexOf("provider: 'gemini', apiKey: resolvedGemini")).toBeLessThan(src.indexOf("provider: 'groq',   apiKey: resolvedGroq"));
-    // searchKey yine beyne iletilir (Groq/Haiku YEDEKTEyken web kararını Gemini'ye devreder)
+    expect(src, 'Groq beyin zincirine geri sızmış (2f22f4b2: yalnız STT)').not.toMatch(/provider: 'groq'/);
+    // Gemini push, OpenRouter push'tan, o da Haiku push'tan ÖNCE gelmeli (birincil sıra korunsun)
+    const iGem = src.indexOf("provider: 'gemini', apiKey: resolvedGemini");
+    const iOr  = src.indexOf("provider: 'openrouter', apiKey: ''");
+    const iHk  = src.indexOf("provider: 'haiku',  apiKey: resolvedHaiku");
+    expect(iGem).toBeGreaterThan(-1); expect(iOr).toBeGreaterThan(-1); expect(iHk).toBeGreaterThan(-1);
+    expect(iGem).toBeLessThan(iOr);
+    expect(iOr).toBeLessThan(iHk);
+    // searchKey yine beyne iletilir (yedek sağlayıcı web kararını Gemini'ye devreder)
     expect(src).toMatch(/searchKey,\s*\n\s*chain,/);
     expect(src).toMatch(/const aiUsable = chain\.length > 0 && hasNet;/);
   });
@@ -1286,12 +1292,16 @@ describe('Sesli asistan — hava/trafik dürüstlüğü + hibrit beyin zinciri k
     expect(engine).toMatch(/payload\.settingKey\s+= result\.settingKey/);
   });
 
-  it('YAPISAL: Groq/Haiku (yedekteyken) web kararı Gemini aramasına (searchKey) devredilir — Tavily\'den ÖNCE', () => {
+  it('YAPISAL: Haiku (yedekteyken) web kararı Gemini aramasına (searchKey) devredilir — Tavily\'den ÖNCE', () => {
     const src = read('src/platform/companion/companionChatProvider.ts');
     // searchKey opsiyonu + "önce Gemini google_search, yoksa Tavily" sırası
     expect(src).toMatch(/searchKey\?:\s*string/);
-    // hem Groq hem Haiku dalında hasGeminiSearch → askGroundedGemini(parsed.query, searchKey
-    expect((src.match(/await askGroundedGemini\(parsed\.query, searchKey as string/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    /* 2f22f4b2: Groq dalı yok; Haiku dalı hasGeminiSearch → askGroundedGemini(parsed.query, searchKey.
+       OpenRouter (gateway) hattı web YETENEĞİ taşımaz ve turu KAPATMAZ (SAHA 2026-09-11):
+       arama yapabilen sıradaki adaya düşer. */
+    expect((src.match(/await askGroundedGemini\(parsed\.query, searchKey as string/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect(src, 'gateway web kararında turu kapatan "canlı bilgilere bakamıyorum" cevabı geri gelmiş')
+      .not.toMatch(/return \{ result: \{ kind: 'chat', response: GATEWAY_NO_LIVE_INFO_REPLY/);
   });
 
   it('YAPISAL: "hava durumu" yerel bypass — beyne (Gemini/Groq/Haiku) GİTMEDEN yerelde cevaplanır', () => {
