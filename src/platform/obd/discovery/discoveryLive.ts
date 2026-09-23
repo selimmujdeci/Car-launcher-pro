@@ -91,7 +91,7 @@ const LEARN_STABLE_MS = 20_000;
 const MAX_LEARN_ECUS = 4;
 /** Çekirdek referansların extended karşılıkları (PID → referans). */
 const EXT_REFS: ReadonlyArray<[string, ReferenceKey]> = [
-  ['5C', 'oil'], ['46', 'ambient'], ['3C', 'catalyst'], ['23', 'fuelRail'], ['0B', 'map'],
+  ['5C', 'oil'], ['46', 'ambient'], ['3C', 'catalyst'], ['23', 'fuelRail'],
   ['42', 'ecuVoltage'], ['49', 'pedal'], ['45', 'relThrottle'], ['31', 'distSinceClear'],
   ['21', 'distMil'], ['1F', 'runtime'],
 ];
@@ -118,6 +118,8 @@ function pushCoreRefs(): void {
   add('throttle', s.throttle, s.throttle >= 0);
   add('intake', s.intakeTemp, s.intakeTemp !== -1);
   add('fuelLevel', s.fuelLevel, s.fuelLevel >= 0);
+  // PID 0B çekirdek grupta okunur (extended'da YOK) → OBDData.boostPressure (kPa, MAP).
+  add('map', s.boostPressure, s.boostPressure >= 0);
   if (_refQueue.length > 5000) _refQueue.splice(0, _refQueue.length - 5000);
 }
 

@@ -118,3 +118,86 @@ describe('otomatik DID öğrenme — uçtan uca', () => {
     expect(ecu.requests).toBe(2); // yalnız kimlik (F187 + F195)
   });
 });
+
+/* ══ GERÇEK ECU verisiyle smoke — 2026-09-23 Renault motor ECU fikstürü ══ */
+import { RENAULT_ENGINE_DID_SNAPSHOT as SNAP } from './fixtures/renaultEngineDidSnapshot';
+
+function snapshotEcu(opts: { partNo: string; rejectAfter?: { did: string; t: number }; clock: { t: number } }) {
+  let requests = 0;
+  const reqLog: string[] = [];
+  const read = async ({ did }: { did: string }): Promise<ReadDidResult> => {
+    requests++; reqLog.push(did);
+    if (did === 'F187') return { data: hexAscii(opts.partNo), supported: true, kind: 'OK' };
+    if (did === 'F195') return { data: hexAscii('A600'), supported: true, kind: 'OK' };
+    const ids = did.match(/.{4}/g) ?? [];
+    const vals = ids.map((d) => {
+      if (opts.rejectAfter && d === opts.rejectAfter.did && opts.clock.t >= opts.rejectAfter.t) return null;
+      return SNAP[d] ?? null;
+    });
+    if (vals.some((v) => v === null)) return { data: null, supported: false, kind: 'NEG_7F', nrc: 0x31 };
+    return { data: vals.map((v, i) => (i === 0 ? v : ids[i] + v)).join(''), supported: true, kind: 'OK' };
+  };
+  return { read, reqLog, get requests() { return requests; } };
+}
+
+function engineFor(ecu: { read: (o: { did: string }) => Promise<ReadDidResult> }, clock: { t: number }, runMs: number, speed = 0) {
+  const start = clock.t;
+  return new DidLearningEngine({
+    readObdDid: ecu.read,
+    getHealth: () => ({ connectionState: 'connected', source: 'real', dataFresh: true, speedKmh: speed }),
+    listEcus: async () => [{ tx: '7E0', rx: '7E8' }],
+    getVinHash: () => 'vin',
+    drainReferences: () => [],
+    onProvenProfile: () => {},
+    isEnabled: () => clock.t - start < runMs,
+    now: () => clock.t,
+    sleep: async (ms) => { clock.t += ms; },
+  });
+}
+
+describe('🔒 gerçek ECU verisiyle smoke (Renault 7E0, 398 DID)', () => {
+  it('maske zinciri 398 DID\'in TAMAMINI bulur, tabanı 2000, uzunluklar gerçek yanıtla birebir', async () => {
+    const clock = { t: 20_000_000 };
+    const ecu = snapshotEcu({ partNo: 'SNAP-ENUM', clock });
+    const e = engineFor(ecu, clock, 15 * 60_000);
+    await e.start();
+    const rec = e.records()[0]!;
+    expect(rec.enumeration).toMatchObject({ method: 'mask_chain', maskBases: ['2000'] });
+    const dataDids = Object.keys(SNAP).filter((d) => parseInt(d, 16) % 0x20 !== 0);
+    expect(dataDids).toHaveLength(398);
+    expect(Object.keys(rec.dids).sort()).toEqual(dataDids.sort());
+    for (const d of dataDids) expect(rec.dids[d]!.bytes, d).toBe(SNAP[d]!.length / 2);
+    // Sabit rölanti verisi: uzun oturumda değişmeyenler SABİT sınıfına düşer, hiçbiri kanıtlanmaz.
+    expect(Object.values(rec.dids).filter((d) => d.status === 'PROVEN')).toEqual([]);
+  });
+
+  it('sayım bütçesi makul: kimlik + 14 taban + doğrulama + zincir + ~133 üçlü (tekliye düşüş yok)', async () => {
+    const clock = { t: 30_000_000 };
+    const ecu = snapshotEcu({ partNo: 'SNAP-BUDGET', clock });
+    const e = engineFor(ecu, clock, 90_000);
+    await e.start();
+    const singles = ecu.reqLog.filter((r) => r.length === 4 && parseInt(r, 16) % 0x20 !== 0 && !r.startsWith('F'));
+    expect(singles.length).toBeLessThanOrEqual(8); // yalnız maske doğrulama yoklamaları
+    expect(ecu.reqLog.filter((r) => r.length === 12).length).toBeGreaterThanOrEqual(130);
+  });
+
+  it('düzeltme 1: sayımı bitmiş ECU HAREKET HALİNDE de örneklenir', async () => {
+    const clock = { t: 40_000_000 };
+    const ecu = snapshotEcu({ partNo: 'SNAP-MOVE', clock });
+    await engineFor(ecu, clock, 10 * 60_000).start(); // parkta sayım
+    const before = ecu.requests;
+    clock.t += 3_600_000;
+    const moving = engineFor(ecu, clock, 5 * 60_000, 50);
+    await moving.start();
+    expect(ecu.requests - before).toBeGreaterThan(50);
+    expect(moving.status().ecus[0]!.sampledSweeps).toBeGreaterThan(0);
+  });
+
+  it('düzeltme 3: okunamaz hâle gelen DID havuzdan çıkar, hattı meşgul etmez', async () => {
+    const clock = { t: 50_000_000 };
+    const ecu = snapshotEcu({ partNo: 'SNAP-FAIL', clock, rejectAfter: { did: '2003', t: 50_000_000 + 4 * 60_000 } });
+    await engineFor(ecu, clock, 30 * 60_000).start();
+    const lateHits = ecu.reqLog.slice(-300).filter((r) => r.includes('2003')).length;
+    expect(lateHits).toBeLessThanOrEqual(1);
+  });
+});

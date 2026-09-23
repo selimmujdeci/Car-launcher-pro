@@ -86,6 +86,10 @@ interface EcuRuntime {
   sweeps: number;
   cursor: number;
   focus: string[];
+  /** Bu oturumda sayım denendi mi (maske yoksa her turda yeniden yoklanmaz). */
+  enumAttempted: boolean;
+  /** Art arda okunamayan DID sayacı — eşik aşılınca havuzdan çıkarılır. */
+  failures: Map<string, number>;
 }
 
 const MAX_DID_SAMPLES = 400;
@@ -95,6 +99,8 @@ const FOCUS_CAP = 30;
 const CLASSIFY_SWEEPS = 3;
 /** Odak turunda her N istekte bir, yavaş (sabit/bayrak) DID'lerden bir grup okunur. */
 const SLOW_LANE_EVERY = 6;
+/** Tekli okumada art arda bu kadar ret → DID bu oturumda havuzdan çıkarılır. */
+const UNREADABLE_AFTER = 3;
 
 const defaultSleep = (ms: number): Promise<void> => new Promise((r) => { setTimeout(r, ms); });
 
@@ -200,47 +206,39 @@ export class DidLearningEngine {
       this.ecus.push({
         rec, tx: t.tx, rx: t.rx, dids: Object.keys(rec.dids).sort(), lengths,
         samples: new Map(), lastHex: new Map(), sweeps: 0, cursor: 0, focus: [],
+        enumAttempted: false, failures: new Map(),
       });
     }
     this.publishProven(true);
 
-    // SAYIM — yalnız parkta ve daha önce yapılmadıysa.
-    for (const e of this.ecus) {
-      if (this.stopRequested) return;
-      if (e.rec.enumeration && e.dids.length > 0) continue;
-      await this.waitFor(() => canStartDeepScan(this.d.getHealth()).allowed, 'paused');
-      // Bekleme devre dışı bırakma/oturum sonu ile de bitebilir → park koşulu YENİDEN şart.
-      if (this.stopRequested || !this.d.isEnabled() || !canStartDeepScan(this.d.getHealth()).allowed) return;
-      this.phase = 'enumerating';
-      await this.enumerate(e);
-      saveRecord(e.rec);
-    }
-
-    // ÖRNEKLEME
-    this.phase = 'sampling';
+    /* ÖRNEKLEME + FIRSATÇI SAYIM. Sayım yalnız parkta yapılır ama örneklemeyi
+       BLOKLAMAZ (saha incelemesi: yeni bir ECU park beklerken sayımı bitmiş ECU'ların
+       örneklenmesi tamamen duruyordu). Araç durduğu ilk anda sayılmamış ECU sayılır. */
     const gap = this.d.requestGapMs ?? 600;
     let tick = 0;
     while (!this.stopRequested && this.d.isEnabled()) {
       const h = this.d.getHealth();
       if (h.connectionState !== 'connected' || h.source !== 'real') break; // oturum bitti
       if (!this.healthy()) { this.phase = 'paused'; await this.sleep(3000); continue; }
+
+      const pending = this.ecus.find((x) => !(x.rec.enumeration && x.dids.length > 0) && !x.enumAttempted);
+      if (pending && canStartDeepScan(h).allowed) {
+        this.phase = 'enumerating';
+        pending.enumAttempted = true;
+        await this.enumerate(pending);
+        saveRecord(pending.rec);
+        continue;
+      }
+
+      const sampleable = this.ecus.filter((x) => x.dids.length > 0);
+      if (sampleable.length === 0) { this.phase = 'paused'; await this.sleep(3000); continue; }
       this.phase = 'sampling';
-      const e = this.ecus[tick % Math.max(1, this.ecus.length)];
+      const e = sampleable[tick % sampleable.length]!;
       tick++;
-      if (!e || e.dids.length === 0) { await this.sleep(2000); continue; }
       await this.sampleNext(e, tick);
       this.ingestReferences();
       if (this.now() - this.lastAnalyzeAt >= (this.d.analyzeEveryMs ?? 60_000)) this.analyze(false);
       await this.sleep(gap);
-    }
-  }
-
-  private async waitFor(cond: () => boolean, phase: EnginePhase): Promise<void> {
-    while (!this.stopRequested && this.d.isEnabled() && !cond()) {
-      const h = this.d.getHealth();
-      if (h.connectionState !== 'connected' || h.source !== 'real') { this.stopRequested = true; return; }
-      this.phase = phase;
-      await this.sleep(5000);
     }
   }
 
@@ -290,7 +288,21 @@ export class DidLearningEngine {
       for (const did of group) await this.readGroup(e, [did], learnLengths);
       return;
     }
-    if (!parts) return;
+    if (!parts) {
+      // Tekli okuma da başarısız: maske "var" dese de şu an okunamıyor. Hat hatası (r=null)
+      // araç hakkında kanıt değildir → sayılmaz. Eşik aşılınca havuzdan çıkar (grup bozulmasın).
+      if (r) {
+        const did = group[0]!;
+        const n = (e.failures.get(did) ?? 0) + 1;
+        e.failures.set(did, n);
+        if (n >= UNREADABLE_AFTER) {
+          e.dids = e.dids.filter((d) => d !== did);
+          e.focus = e.focus.filter((d) => d !== did);
+        }
+      }
+      return;
+    }
+    for (const did of parts.keys()) e.failures.delete(did);
     for (const [did, hex] of parts) {
       if (learnLengths || !e.lengths.has(did)) e.lengths.set(did, hex.length / 2);
       e.lastHex.set(did, hex);
@@ -352,6 +364,9 @@ export class DidLearningEngine {
     if (!this.sessionId) return;
     this.ingestReferences();
     for (const e of this.ecus) {
+      // Odak DURAĞAN DEĞİL: rölantide sabit olup sürüşte değişen DID'ler (pedal, basınç)
+      // yavaş şerit örnekleriyle yakalanır ve odağa girer.
+      if (e.sweeps >= CLASSIFY_SWEEPS) this.rebuildFocus(e);
       for (const did of e.dids) {
         const samples = e.samples.get(did);
         if (!samples || samples.length === 0) continue;
