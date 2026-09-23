@@ -365,6 +365,12 @@ export interface NativeAuthoritySnapshot {
   gaplessSupported?:  boolean;
   renderingVerified:  boolean;
   recoveryCount?:     number;
+  /** Parçaya özgü çalma hatası sayacı + son olay (native atlama kararının gözlemi). */
+  itemErrorCount?:    number;
+  lastErrorTitle?:    string;
+  lastErrorCode?:     number;
+  /** SKIPPED | END | HALTED */
+  lastErrorAction?:   string;
   shuffle?:           boolean;
   repeat?:            string;   // off|one|all
   title?:             string;

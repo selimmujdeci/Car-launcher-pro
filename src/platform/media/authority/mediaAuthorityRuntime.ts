@@ -31,6 +31,8 @@ import {
 import { recordRecovery, recordRecoverySucceeded } from './mediaAuthorityEvidence';
 import { recordMediaEvent } from './mediaAuthorityEvents';
 import { configureQueueRecovery, runQueueRecovery } from './queueRecoveryRuntime';
+import { derivePlaybackErrorNotice } from './playbackErrorNotice';
+import { showToast } from '../../errorBus';
 /* F3.2 — CANLI gözlenen kuyruk kanıtı. Bu iki modül SAF/tipsel ağırlıktadır
    (I/O yok, UI yok); statik import ana paket bütçesini etkilemez ve yayının
    snapshot işlemesiyle AYNI turda, sıra garantisiyle yapılmasını sağlar. */
@@ -260,6 +262,9 @@ async function runRecovery(): Promise<void> {
   }
 }
 
+/** Son gözlenen parça-hatası sayacı (`null` = henüz gözlenmedi → bildirim yok). */
+let _lastItemErrorCount: number | null = null;
+
 /** Otoriteyi başlatır — idempotent. */
 export async function startMediaAuthority(): Promise<void> {
   if (_started) return;
@@ -275,6 +280,10 @@ export async function startMediaAuthority(): Promise<void> {
 
   _unsubscribe = native.subscribe((s) => {
     void applySnapshotToMediaState(s);
+    /* Bozuk/desteklenmeyen parça: native atladıysa kullanıcıya SÖYLENİR. */
+    const step = derivePlaybackErrorNotice(_lastItemErrorCount, s);
+    _lastItemErrorCount = step.count;
+    if (step.notice) showToast({ ...step.notice, duration: 6000 });
     // Kurtarma fail-soft'tur ve ASLA oynatma komutu göndermez.
     try { runQueueRecovery(); } catch { /* kurtarma akışı bozamaz */ }
   });
@@ -293,6 +302,7 @@ export async function startMediaAuthority(): Promise<void> {
 /** Zero-Leak teardown. */
 export function stopMediaAuthority(): void {
   _started = false;
+  _lastItemErrorCount = null;
   if (_unsubscribe) { _unsubscribe(); _unsubscribe = null; }
   if (_persistTimer) { clearInterval(_persistTimer); _persistTimer = null; }
   native.stopNativeAuthority();

@@ -399,6 +399,10 @@ public final class CarosPlaybackBridge {
         o.put("playWhenReady",      d.getBoolean("playWhenReady", false));
         o.put("renderingVerified",  d.getBoolean("renderingVerified", false));
         o.put("recoveryCount",      d.getInt("recoveryCount", 0));
+        o.put("itemErrorCount",     d.getInt("itemErrorCount", 0));
+        o.put("lastErrorTitle",     d.getString("lastErrorTitle", ""));
+        o.put("lastErrorCode",      d.getInt("lastErrorCode", 0));
+        o.put("lastErrorAction",    d.getString("lastErrorAction", ""));
         /* MUSIC F20 — geçiş kanıtı. Servis bu alanları ZATEN üretiyordu ama bu
            allowlist'te yoktu → JS'e HİÇ ulaşmıyordu ve LAB satırı kalıcı
            olarak KAYNAK YOK görünüyordu (telefon ön doğrulamasında ölçüldü).
