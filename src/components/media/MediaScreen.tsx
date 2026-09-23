@@ -869,7 +869,10 @@ function PlayerView({
         />
       </div>
 
-      <div className="relative z-10 flex-1 flex flex-col px-8 pt-6 pb-4 min-h-0">
+      {/* SAHA 2026-09-23 (telefon yatay, içerik ≈284px): COMPACT düzen bile
+          sığmıyor, "Sırada" düğmesi taşıp GİZLENİYORDU. Sığmayan ekranda
+          içerik kayar; sığan ekranda davranış aynı. */}
+      <div className="relative z-10 flex-1 flex flex-col px-8 pt-6 pb-4 min-h-0 overflow-y-auto">
 
         {/* Üst: kaynak badge + ayar/kaynak kısayolu */}
         <div className="flex items-center justify-between flex-shrink-0"
@@ -907,7 +910,8 @@ function PlayerView({
             F11: kenar ÖLÇÜLEN genişlik+yükseklik bütçesinden gelir (yalnız
             genişliğe göre ölçeklenen eski `min(280px,70vw)` düşük ekranlarda
             kendi hücresinden TAŞIYORDU — bkz. nowPlayingLayoutModel başlığı). */}
-        <div className="flex-1 flex items-center justify-center min-h-0 py-4">
+        <div className="flex-1 flex items-center justify-center min-h-0 py-4"
+          style={{ minHeight: layout.artworkPx + 32 /* py-4: kapak hücresinden taşmasın */ }}>
           <div ref={artRef} data-editable="media.album-art" data-editable-type="card"
             className="relative group" style={{ width: layout.artworkPx, aspectRatio: '1 / 1' }}>
             <AlbumArt size={layout.artworkPx} src={artwork.url ?? undefined}
