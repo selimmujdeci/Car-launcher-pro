@@ -281,11 +281,19 @@ describe('F4 · kuyruk sunumu', () => {
       .toBe(500 - QUEUE_WINDOW_SIZE);
   });
 
-  it('sağlayıcı kuyruk düzenlemeyi desteklemiyorsa HİÇBİR eylem çizilmez', () => {
+  it('sağlayıcı kuyruk düzenlemeyi desteklemiyorsa DÜZENLEME çizilmez; gezinme (atla) kalır', () => {
     createQueue('SPOTIFY_CONNECT', [entry('a')], 0);
     const p = panelOf({ capabilities: getSource('SPOTIFY_CONNECT').capabilities, alignment: 'UNSUPPORTED' });
-    expect(p.actions).toEqual({ jump: false, remove: false, reorder: false, playNext: false });
+    expect(p.actions).toEqual({ jump: true, remove: false, reorder: false, playNext: false });
     expect(p.orderNotice).toMatchObject({ visible: true, message: 'Bu kaynakta sıra düzenlenemiyor' });
+  });
+
+  it('🔒 saha 2026-09-23: YouTube (kuyruk CarOS’ta) → listeden ATLAMA açık, düzenleme kapalı', () => {
+    expect(queueActionsFor(getSource('YOUTUBE').capabilities, 'normal'))
+      .toEqual({ jump: true, remove: false, reorder: false, playNext: false });
+    // Belirli öğeyi başlatamayan kaynakta (harici oturum) hiçbir eylem yok.
+    expect(queueActionsFor(getSource('EXTERNAL_MEDIA_SESSION').capabilities, 'normal'))
+      .toEqual({ jump: false, remove: false, reorder: false, playNext: false });
   });
 
   it('sürüşte düzenleme kapanır, atlama açık kalır', () => {

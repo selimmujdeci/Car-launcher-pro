@@ -46,6 +46,9 @@ export interface QueueActions {
 const NO_ACTIONS: QueueActions = Object.freeze({
   jump: false, remove: false, reorder: false, playNext: false,
 });
+const JUMP_ONLY: QueueActions = Object.freeze({
+  jump: true, remove: false, reorder: false, playNext: false,
+});
 
 /** Sıra uyumunun KULLANICI dilindeki karşılığı — teknik terim taşımaz. */
 export interface QueueOrderNotice {
@@ -133,7 +136,15 @@ export function windowStartFor(input: {
 export function queueActionsFor(
   capabilities: SourceCapabilities | null, drivingMode: DrivingMode,
 ): QueueActions {
-  if (!capabilities?.supportsQueue) return NO_ACTIONS;
+  if (!capabilities) return NO_ACTIONS;
+  /* SAHA 2026-09-23 (telefon, YouTube): atlama `supportsQueue`a bağlıydı →
+     kuyruğu CarOS'ta tutulan (backend'i zaman çizelgesiz) YouTube'da satırlar
+     `disabled`, dokunmak hiçbir şey yapmıyordu; oysa "Sonraki" aynı kanonik
+     kuyrukta çalışıyordu. Gezinmenin kapısı `supportsDesignatedItemStart`
+     (sourceCapabilities sözleşmesi); DÜZENLEMENİN kapısı `supportsQueue` kalır. */
+  if (!capabilities.supportsQueue) {
+    return capabilities.supportsDesignatedItemStart ? JUMP_ONLY : NO_ACTIONS;
+  }
   const editingAllowed = drivingMode !== 'driving';
   return Object.freeze({
     // Atlama sürüşte de açık: tek dokunuş, düşük dikkat, sık istenen eylem.
