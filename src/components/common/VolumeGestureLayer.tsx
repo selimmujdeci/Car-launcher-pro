@@ -20,6 +20,7 @@ import { createPortal } from 'react-dom';
 import { Volume2, VolumeX } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { setVolume, setInAppVolume } from '../../platform/systemSettingsService';
+import { startsInScrollable } from './volumeGestureGuard';
 
 // Şoför (sol) kenar bandı genişliği — ekran genişliğinin %18'i, 90–220px arası.
 const ZONE_RATIO = 0.18;
@@ -29,6 +30,7 @@ const ZONE_MAX_PX = 220;
 const ENGAGE_PX = 12;
 // Ekran yüksekliğinin bu oranı kadar kaydırma = tam 0–100 aralığı.
 const FULL_RANGE_RATIO = 0.6;
+
 
 export function VolumeGestureLayer() {
   const storeVolume    = useStore((s) => s.settings.volume);
@@ -79,7 +81,7 @@ export function VolumeGestureLayer() {
       const inZone = gestureSide === 'right'
         ? e.clientX >= window.innerWidth - w
         : e.clientX <= w;
-      if (!inZone) { g.current.armed = false; return; }
+      if (!inZone || startsInScrollable(e.target)) { g.current.armed = false; return; }
       g.current = { armed: true, active: false, startX: e.clientX, startY: e.clientY, startVol: volRef.current, pointerId: e.pointerId };
     };
 
