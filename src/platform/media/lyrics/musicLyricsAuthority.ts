@@ -41,6 +41,8 @@ import {
   notePersistWriteFailure, notePersistLoadRejectedRecord, noteSyncProjectionLatency,
 } from './musicLyricsTelemetry';
 
+import { buildLyricsQuery, lookupLrclib, type LyricsLookupOutcome, type LyricsLookupQuery } from './lrclibProvider';
+
 const STORAGE_KEY = 'caros.music.f16.lyrics.v1';
 
 /** `null` = arandı, bulunamadı (dürüst NEGATİF sonuç — her açılışta yeniden native'e sorulmaz). */
@@ -103,10 +105,87 @@ export function subscribeLyricsCache(listener: () => void): () => void {
 export interface LyricsQueryResult {
   readonly availability: LyricsAvailability;
   readonly result: LyricsResult | null;
+  /** `RETRY_LATER`: internet yok/sunucu hatası — "bulunamadı" DEĞİL, bağlantı gelince yeniden denenir. */
+  readonly reason?: 'RETRY_LATER';
 }
 
 const UNKNOWN_RESULT: LyricsQueryResult = Object.freeze({ availability: 'UNKNOWN', result: null });
 const UNAVAILABLE_RESULT: LyricsQueryResult = Object.freeze({ availability: 'UNAVAILABLE', result: null });
+const RETRY_RESULT: LyricsQueryResult = Object.freeze({ availability: 'UNAVAILABLE', result: null, reason: 'RETRY_LATER' });
+
+/* ── İnternet sağlayıcısı (LRCLIB) — yalnız gömülü söz YOKSA ─────────────────
+   Bağlantı yoksa kalıcı NEGATİF yazılmaz: kimlik bekleme listesine alınır ve
+   tarayıcının `online` olayında BİR KEZ yeniden sorulur (timer/polling YOK). */
+const MAX_RETRY_LATER = 5;
+const _retryLater = new Map<string, { identity: CanonicalMediaIdentity; sourceClass: SourceClass | null }>();
+const _inflight = new Map<string, Promise<LyricsQueryResult>>();
+let _onlineLookup: ((q: LyricsLookupQuery) => Promise<LyricsLookupOutcome>) | null = null;
+let _onlineListenerInstalled = false;
+
+/** Test/DI dikişi — gerçek ağ çağrısı yerine geçer. */
+export function _setOnlineLyricsLookupForTest(fn: typeof _onlineLookup): void { _onlineLookup = fn; }
+
+function isOnline(): boolean {
+  return typeof navigator === 'undefined' || navigator.onLine !== false;
+}
+
+function installOnlineListener(): void {
+  if (_onlineListenerInstalled || typeof window === 'undefined') return;
+  _onlineListenerInstalled = true;
+  window.addEventListener('online', () => {
+    const pending = [..._retryLater.values()];
+    _retryLater.clear();
+    notify();
+    for (const p of pending) void primeLyricsForCurrentItem(p.identity, p.sourceClass);
+  });
+}
+
+function retryLater(key: string, identity: CanonicalMediaIdentity, sourceClass: SourceClass | null): LyricsQueryResult {
+  _retryLater.delete(key);
+  _retryLater.set(key, { identity, sourceClass });
+  while (_retryLater.size > MAX_RETRY_LATER) {
+    const oldest = _retryLater.keys().next();
+    if (oldest.done) break;
+    _retryLater.delete(oldest.value);
+  }
+  installOnlineListener();
+  notify();
+  return RETRY_RESULT;
+}
+
+function notFound(key: string, nowMs: number): LyricsQueryResult {
+  cacheSet(key, null);
+  noteResolved(null, 'NONE', nowMs);
+  return UNAVAILABLE_RESULT;
+}
+
+/** Gömülü söz yokken internetten dener; yanlış eşleşme yerine "bulunamadı" der. */
+async function tryOnline(
+  identity: CanonicalMediaIdentity, sourceClass: SourceClass | null, key: string, nowMs: number,
+): Promise<LyricsQueryResult> {
+  const q = buildLyricsQuery(identity);
+  if (!q) return notFound(key, nowMs);
+  if (!isOnline()) return retryLater(key, identity, sourceClass);
+  const out = await (_onlineLookup ?? lookupLrclib)(q);
+  if (out.kind === 'RETRY') return retryLater(key, identity, sourceClass);
+  if (out.kind === 'NOT_FOUND') return notFound(key, nowMs);
+  let lines: readonly LyricsLine[] | null = null;
+  let format: LyricsFormat = 'PLAIN';
+  if (out.lyrics.synced) {
+    lines = sanitizeSyncedLines(out.lyrics.synced);
+    format = 'SYNCED';
+  }
+  if (lines === null && out.lyrics.plain) {
+    lines = sanitizePlainText(out.lyrics.plain);
+    format = 'PLAIN';
+  }
+  if (lines === null) { noteParseFailure(); return notFound(key, nowMs); }
+  const result = makeLyricsResult(identity, format, lines, 'ONLINE_LRCLIB', nowMs, null);
+  if (result === null) { noteIdentityMismatchRejected(); return UNAVAILABLE_RESULT; }
+  cacheSet(key, result);   // persist() yalnız LOCAL_ kaydı yazar → internet sonucu diske GİTMEZ
+  noteResolved(format, 'ONLINE_LRCLIB', nowMs);
+  return Object.freeze({ availability: 'AVAILABLE', result });
+}
 
 /**
  * Yalnız ÖNBELLEKTEN okur — native çağırmaz, senkrondur.
@@ -116,6 +195,7 @@ export function peekLyrics(identity: CanonicalMediaIdentity | null): LyricsQuery
   ensureLoaded();
   const key = identity ? lyricsKeyFor(identity) : null;
   if (key === null) { noteIdentityMismatchRejected(); return UNAVAILABLE_RESULT; }
+  if (_retryLater.has(key)) return RETRY_RESULT;
   if (!cache.has(key)) { noteCacheMiss(); noteUnknown(); return UNKNOWN_RESULT; }
   noteCacheHit();
   const value = cache.get(key)!;
@@ -161,29 +241,31 @@ export async function primeLyricsForCurrentItem(
   if (key === null || identity === null) { noteIdentityMismatchRejected(); return UNAVAILABLE_RESULT; }
 
   const cached = peekLyrics(identity);
-  if (cached.availability !== 'UNKNOWN') return cached;
+  if (cached.availability !== 'UNKNOWN' && cached.reason !== 'RETRY_LATER') return cached;
+  _retryLater.delete(key);
 
+  /* Panel ve Mavi aynı anda sorarsa TEK istek gider. */
+  const running = _inflight.get(key);
+  if (running) return running;
+  const job = resolveLyrics(identity, sourceClass, key, nowMs).finally(() => { _inflight.delete(key); });
+  _inflight.set(key, job);
+  return job;
+}
+
+async function resolveLyrics(
+  identity: CanonicalMediaIdentity, sourceClass: SourceClass | null, key: string, nowMs: number,
+): Promise<LyricsQueryResult> {
   if (sourceClass !== 'LOCAL' || !identity.libraryId) {
-    /* Sağlayıcı kaynağı bugün DESTEKLENMİYOR (§1) — native ÇAĞRILMAZ. */
-    cacheSet(key, null);
-    noteResolved(null, 'NONE', nowMs);
-    return UNAVAILABLE_RESULT;
+    /* Sağlayıcı kaynağında gömülü etiket YOK — native ÇAĞRILMAZ, internet denenir. */
+    return tryOnline(identity, sourceClass, key, nowMs);
   }
   const track = getMusicLibrarySnapshot().tracks.find((t) => t.id === identity.libraryId);
-  if (!track || !track.contentUri) {
-    cacheSet(key, null);
-    noteResolved(null, 'NONE', nowMs);
-    return UNAVAILABLE_RESULT;
-  }
+  if (!track || !track.contentUri) return tryOnline(identity, sourceClass, key, nowMs);
 
   try {
     const res = await readNative(track.contentUri);
     const row = res.results.find((r) => r.uri === track.contentUri) ?? res.results[0] ?? null;
-    if (!row || row.source === 'NONE') {
-      cacheSet(key, null);
-      noteResolved(null, 'NONE', nowMs);
-      return UNAVAILABLE_RESULT;
-    }
+    if (!row || row.source === 'NONE') return tryOnline(identity, sourceClass, key, nowMs);
     let lines: readonly LyricsLine[] | null = null;
     let format: LyricsFormat = 'PLAIN';
     if (row.source === 'ID3_SYLT' && row.synced) {
@@ -196,9 +278,7 @@ export async function primeLyricsForCurrentItem(
     }
     if (lines === null) {
       noteParseFailure();
-      cacheSet(key, null);
-      noteResolved(null, 'NONE', nowMs);
-      return UNAVAILABLE_RESULT;
+      return tryOnline(identity, sourceClass, key, nowMs);
     }
     /* Native taraf kaynağı `ID3_USLT`/`ID3_SYLT`/`VORBIS_LYRICS` olarak
        raporlar (bkz. `TrackLyricsExtractor.java` — bugün YALNIZ LOCAL
@@ -210,9 +290,7 @@ export async function primeLyricsForCurrentItem(
     const mappedSource = sourceMap[row.source];
     if (mappedSource === undefined) {
       noteParseFailure();
-      cacheSet(key, null);
-      noteResolved(null, 'NONE', nowMs);
-      return UNAVAILABLE_RESULT;
+      return tryOnline(identity, sourceClass, key, nowMs);
     }
     const result = makeLyricsResult(identity, format, lines, mappedSource, nowMs, track.generationModified);
     if (result === null) { noteIdentityMismatchRejected(); return UNAVAILABLE_RESULT; }
@@ -220,9 +298,10 @@ export async function primeLyricsForCurrentItem(
     noteResolved(format, result.source, nowMs);
     return Object.freeze({ availability: 'AVAILABLE', result });
   } catch {
-    /* Native yoksa (tarayıcı) veya izin reddedildiyse: kanıt YOK, uydurma YOK. */
+    /* Native yoksa (tarayıcı) veya izin reddedildiyse gömülü kanıt YOK —
+       internet denenir; o da yoksa dürüst sonuç döner, uydurma YOK. */
     noteUnknown();
-    return UNKNOWN_RESULT;
+    return tryOnline(identity, sourceClass, key, nowMs);
   }
 }
 
@@ -262,5 +341,8 @@ export function _resetMusicLyricsAuthorityForTest(): void {
   loaded = false;
   subs.clear();
   _nativeReader = null;
+  _onlineLookup = null;
+  _retryLater.clear();
+  _inflight.clear();
   try { safeStorage.removeItem(STORAGE_KEY); } catch { /* test ortamı — yoksay */ }
 }

@@ -26,7 +26,7 @@ import {
 import {
   peekLyrics, primeLyricsForCurrentItem, activeLyricsLineIndex, getActiveLyricsLine,
   getLyricsCacheSize, subscribeLyricsCache,
-  _resetMusicLyricsAuthorityForTest, _setNativeLyricsReaderForTest,
+  _resetMusicLyricsAuthorityForTest, _setNativeLyricsReaderForTest, _setOnlineLyricsLookupForTest,
 } from '../platform/media/lyrics/musicLyricsAuthority';
 import { _resetMusicLyricsTelemetryForTest } from '../platform/media/lyrics/musicLyricsTelemetry';
 import {
@@ -61,6 +61,8 @@ const identity = (over: Partial<CanonicalMediaIdentity> = {}): CanonicalMediaIde
 
 beforeEach(() => {
   _resetMusicLyricsAuthorityForTest();
+  /* Testler ASLA gerçek ağa çıkmaz: internet araması varsayılan olarak "bulunamadı". */
+  _setOnlineLyricsLookupForTest(async () => ({ kind: 'NOT_FOUND' }));
   _resetMusicLyricsTelemetryForTest();
   _resetLyricsPanelVisibilityForTest();
   _resetMusicIndexForTest();
@@ -136,7 +138,7 @@ describe('F16 · musicLyricsAuthority TEK kaynaktır ve dürüsttür', () => {
     expect(peekLyrics(id).availability).toBe('UNKNOWN');
   });
 
-  it('9 · PROVIDER kaynakta native HİÇ ÇAĞRILMAZ — bugün desteklenen sağlayıcı YOK (§1 ölçümü)', async () => {
+  it('9 · PROVIDER kaynakta native HİÇ ÇAĞRILMAZ — gömülü etiket yok; internette de yoksa UNAVAILABLE', async () => {
     let called = false;
     _setNativeLyricsReaderForTest(() => { called = true; return Promise.resolve({ results: [] }); });
     const id = identity({ providerNamespace: 'YOUTUBE', providerId: 'yt-1' });
