@@ -2065,6 +2065,12 @@ export interface CarLauncherPlugin {
    * yalnız taşıma hatası reject eder. `raw` taşınmaz (motor ham metni vermez).
    * Opsiyonel: eski plugin'de yoktur.
    */
+  /** Eşleşmiş TELEFONLAR (BT sınıfı PHONE) — `connected` yoksa bilinmiyor. */
+  getBluetoothPhones?(): Promise<{
+    state: 'NO_ADAPTER' | 'NO_PERMISSION' | 'OFF' | 'ON';
+    phones?: Array<{ name: string; connected?: boolean }>;
+  }>;
+
   /* ── Telefon Merkezi · bildirim aktarımı (NotificationMirror) ── */
   /** Kullanıcı "Bildirim erişimi" verdi mi — ölçülür. */
   getNotificationAccess?(): Promise<{ granted: boolean }>;

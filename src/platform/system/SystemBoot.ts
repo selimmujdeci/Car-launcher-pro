@@ -163,6 +163,12 @@ type Cleanup = () => void;
  */
 export const DIAG_COUNTER_MAX = 1_000_000;
 
+/**
+ * CarOS Companion (telefon uygulaması + RFCOMM Phone Link) ürün açılışında
+ * başlatılsın mı. Ürün kararı 2026-09-23: HAYIR — companion kullanılmıyor.
+ */
+export const PHONE_LINK_COMPANION_ENABLED: boolean = false;
+
 /** Doygun artış — `DIAG_COUNTER_MAX`'ta sabitlenir. */
 function _satInc(n: number): number {
   return n >= DIAG_COUNTER_MAX ? DIAG_COUNTER_MAX : n + 1;
@@ -1270,9 +1276,19 @@ class SystemBoot {
     // modül grafiği Capacitor `registerPlugin` çağrıları içerir; statik import
     // bu grafiği SystemBoot'u içe aktaran HER tüketiciye (ve `@capacitor/core`
     // kısmi mock kullanan testlere) taşırdı. Yükleme yalnız boot ANINDA olur.
-    _log('  › PhoneLink ProductBoot');
-    const { startPhoneLinkProductBoot } = await import('../phoneLink/phoneLinkProductBoot');
-    this._regNamed(gen, 'PhoneLinkProductBoot', startPhoneLinkProductBoot());
+    //
+    // ÜRÜN KARARI 2026-09-23: CarOS Companion (telefona kurulan uygulama +
+    // RFCOMM) KULLANILMIYOR. Açılışta sunucu/dinleyici KURULMAZ; altyapı ve LAB
+    // teşhis ekranı yerinde durur (bayrak açılırsa aynen döner). Telefon
+    // bağlantısı companion'sız yürür: ünitenin Bluetooth'u + bildirim erişimi
+    // (NotificationMirror → notificationService).
+    if (PHONE_LINK_COMPANION_ENABLED) {
+      _log('  › PhoneLink ProductBoot');
+      const { startPhoneLinkProductBoot } = await import('../phoneLink/phoneLinkProductBoot');
+      this._regNamed(gen, 'PhoneLinkProductBoot', startPhoneLinkProductBoot());
+    } else {
+      _log('  › PhoneLink ProductBoot — companion kapalı (ürün kararı)');
+    }
 
     // Mavi Çekirdeği Faz-2 wiring (SHADOW/coexistence). WakeWordService + VoiceService'ten SONRA
     // kaydedilir → LIFO shutdown'da bunlardan ÖNCE dispose olur (köprü kapanırken voiceService

@@ -742,7 +742,8 @@ public class CarLauncherPlugin extends Plugin {
                     }
                 }
             } catch (SecurityException ignored) {
-                btConnected = btOn;
+                /* İzin yokken bağlantı ÖLÇÜLEMEZ — "açık" ≠ "bağlı" (sahte bağlı YOK). */
+                btConnected = false;
             }
         }
         result.put("btConnected", btConnected);
@@ -2436,6 +2437,48 @@ public class CarLauncherPlugin extends Plugin {
     }
 
     /* ── Telefon Merkezi · bildirim erişimi + eylemler ───────────────────── */
+
+    /**
+     * Telefon Merkezi · Bağlantı — eşleşmiş TELEFONLAR ve bağlı olup olmadıkları.
+     * {@code getDeviceStatus.btConnected} HERHANGİ bir cihazı (ör. OBD adaptörü)
+     * sayar; burada yalnız Bluetooth sınıfı PHONE olanlar döner. Bağlantı gizli
+     * {@code isConnected()} ile okunur; okunamazsa {@code connected} alanı YOKTUR
+     * (bilinmiyor). MAC adresi döndürülmez.
+     */
+    @PluginMethod
+    public void getBluetoothPhones(PluginCall call) {
+        JSObject ret = new JSObject();
+        BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
+        if (adapter == null) { ret.put("state", "NO_ADAPTER"); call.resolve(ret); return; }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+            && ContextCompat.checkSelfPermission(getContext(), android.Manifest.permission.BLUETOOTH_CONNECT)
+                != PackageManager.PERMISSION_GRANTED) {
+            ret.put("state", "NO_PERMISSION"); call.resolve(ret); return;
+        }
+        try {
+            if (!adapter.isEnabled()) { ret.put("state", "OFF"); call.resolve(ret); return; }
+            JSArray phones = new JSArray();
+            Set<BluetoothDevice> bonded = adapter.getBondedDevices();
+            if (bonded != null) {
+                for (BluetoothDevice dev : bonded) {
+                    android.bluetooth.BluetoothClass cls = dev.getBluetoothClass();
+                    if (cls == null || cls.getMajorDeviceClass() != android.bluetooth.BluetoothClass.Device.Major.PHONE) continue;
+                    JSObject o = new JSObject();
+                    o.put("name", dev.getName() != null ? dev.getName() : "");
+                    try {
+                        Object v = dev.getClass().getMethod("isConnected").invoke(dev);
+                        if (v instanceof Boolean) o.put("connected", v);
+                    } catch (Exception ignored) { /* bilinmiyor → alan yok */ }
+                    phones.put(o);
+                }
+            }
+            ret.put("state", "ON");
+            ret.put("phones", phones);
+        } catch (SecurityException e) {
+            ret.put("state", "NO_PERMISSION");
+        }
+        call.resolve(ret);
+    }
 
     /** Kullanıcı bu uygulamaya "Bildirim erişimi" verdi mi (ölçülür, varsayılmaz). */
     @PluginMethod
