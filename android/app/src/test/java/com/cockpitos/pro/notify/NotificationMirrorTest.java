@@ -47,6 +47,10 @@ public class NotificationMirrorTest {
         assertEquals("ANSWER", NotificationMirror.actionKind("Cevapla", false, false, true));
         assertEquals("ANSWER", NotificationMirror.actionKind("Answer", false, false, true));
         assertEquals("DECLINE", NotificationMirror.actionKind("Reddet", false, false, true));
+        /* Saha (MIUI InCallUI): çalan aramada ["Yoksay", "Cevapla"]. */
+        assertEquals("DECLINE", NotificationMirror.actionKind("Yoksay", false, false, true));
+        assertEquals("DECLINE", NotificationMirror.actionKind("Dismiss", false, false, true));
+        assertEquals("OTHER", NotificationMirror.actionKind("Yoksay", false, false, false));
         assertEquals("HANG_UP", NotificationMirror.actionKind("Aramayı sonlandır", false, false, true));
         assertEquals("OTHER", NotificationMirror.actionKind("Hoparlör", false, false, true));
     }

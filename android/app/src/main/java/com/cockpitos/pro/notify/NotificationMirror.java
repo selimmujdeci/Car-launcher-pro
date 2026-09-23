@@ -108,6 +108,10 @@ public final class NotificationMirror {
         if (t.contains("cevapla") || t.contains("yanıtla") || t.contains("kabul") || t.contains("answer")
             || t.contains("accept")) return KIND_ANSWER;
         if (t.contains("reddet") || t.contains("decline") || t.contains("reject")) return KIND_DECLINE;
+        /* SAHA 2026-09-23 (Xiaomi MIUI InCallUI, AOSP tabanlı): çalan aramanın
+           reddetme eylemi "Yoksay" başlığını taşır (AOSP "Dismiss" →
+           ACTION_DECLINE_INCOMING_CALL). Tam eşleşme — başka metin sayılmaz. */
+        if (t.equals("yoksay") || t.equals("yok say") || t.equals("dismiss")) return KIND_DECLINE;
         if (t.contains("kapat") || t.contains("sonlandır") || t.contains("bitir") || t.contains("hang up")
             || t.contains("end call")) return KIND_HANG_UP;
         return KIND_OTHER;
