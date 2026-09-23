@@ -67,6 +67,21 @@ export interface GuidanceDecisionInput {
   readonly instruction: string;
   /** Bu manevra için ŞU ANA KADAR söylenmiş kademelerin bit maskesi. */
   readonly spokenBits: number;
+  /** Manevra VARIŞ adımı mı (OSRM `arrive`). Talimat metni "Hedefinize
+   *  ulaştınız" geçmiş zamandır; "600 metre sonra hedefinize ulaştınız"
+   *  denmesin diye varış kendi cümleleriyle söylenir. */
+  readonly isArrival?: boolean;
+}
+
+/**
+ * Talimatı SESE uygun hâle getirir. Ekrandaki "Sağa dönün (Atatürk Caddesi)"
+ * biçimi TTS'te parantezle okunuyordu → "sağa dönün, Atatürk Caddesi".
+ */
+export function spokenInstruction(instruction: string): string {
+  const inst = (instruction ?? '').trim();
+  const m = /^(.*\S)\s*\(([^()]+)\)$/.exec(inst);
+  const base = m ? `${m[1]}, ${m[2]!.trim()}` : inst;
+  return base.charAt(0).toLowerCase() + base.slice(1);
 }
 
 export interface GuidanceDecision {
@@ -88,7 +103,7 @@ export interface GuidanceDecision {
  * TEKRAR OYNATILMAZ.
  */
 export function decideGuidance(input: GuidanceDecisionInput): GuidanceDecision | null {
-  const { navActive, isRerouting, distanceM, distanceSource, speedKmh, instruction, spokenBits } = input;
+  const { navActive, isRerouting, distanceM, distanceSource, speedKmh, instruction, spokenBits, isArrival } = input;
 
   if (!navActive || isRerouting) return null;
   if (distanceSource === 'UNKNOWN') return null;
@@ -97,14 +112,14 @@ export function decideGuidance(input: GuidanceDecisionInput): GuidanceDecision |
   if (!inst) return null;
 
   // Talimatı cümle ortasına uydur: "Sola dönün" → "sola dönün"
-  const lower = inst.charAt(0).toLowerCase() + inst.slice(1);
+  const lower = isArrival ? 'hedefinize ulaşacaksınız' : spokenInstruction(inst);
   const rounded = Math.round(distanceM / 50) * 50;
 
   const finalM = finalTierMetres(speedKmh);
   if (distanceM <= finalM && !(spokenBits & STAGE_BIT.IMMINENT)) {
     return {
       stage: 'IMMINENT',
-      text: `Şimdi ${lower}`,
+      text: isArrival ? 'Hedefinize ulaşmak üzeresiniz' : `Şimdi ${lower}`,
       nextBits: spokenBits | STAGE_BIT.IMMINENT | STAGE_BIT.NEAR | STAGE_BIT.FAR,
     };
   }

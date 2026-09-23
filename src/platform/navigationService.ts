@@ -780,14 +780,6 @@ export function updateNavigationProgress(
     : calculateDistance(currentLat, currentLon, state.destination.latitude, state.destination.longitude);
   const distanceSource: 'ALONG_ROUTE' | 'STRAIGHT_LINE' = hasRouteGeom ? 'ALONG_ROUTE' : 'STRAIGHT_LINE';
 
-  // ── 500m Yakınlık Uyarısı (TTS) ─────────────────────────────────────────
-  // Hedefe ilk kez 500m altına girildiğinde tek seferlik sesli uyarı.
-  // _proximityAlertFired: session başında sıfırlanır — tekrar tetiklenmez.
-  if (!_proximityAlertFired && distance > 0 && distance < PROXIMITY_ALERT_M) {
-    _proximityAlertFired = true;
-    speakNavigation('Hedefiniz 500 metrede, hazır olun.');
-  }
-
   // ── Başlangıç konumu — ilk GPS tick'inde yakala (session artığı önlenir) ──
   if (_navStartLat === null) {
     _navStartLat = currentLat;
@@ -796,6 +788,23 @@ export function updateNavigationProgress(
     _navStartDistToDest = calculateDistance(
       currentLat, currentLon, state.destination.latitude, state.destination.longitude,
     );
+  }
+
+  // ── 500m Yakınlık Uyarısı (TTS) ─────────────────────────────────────────
+  // Hedefe ilk kez 500m altına girildiğinde tek seferlik sesli uyarı.
+  // _proximityAlertFired: session başında sıfırlanır — tekrar tetiklenmez.
+  //  · Rotanın sesli VARIŞ adımı varsa (≥2 adım) sesli yönlendirme varışı zaten
+  //    söyler → ikinci anons YAPILMAZ (eskiden aynı yerde iki anons oluyordu).
+  //  · Yolculuk 500 m içinden başladıysa "500 metrede" YANLIŞTIR → söylenmez.
+  //  · Mesafe kuş uçuşuysa metre İDDİA EDİLMEZ.
+  if (!_proximityAlertFired && distance > 0 && distance < PROXIMITY_ALERT_M) {
+    _proximityAlertFired = true;
+    const hasSpokenArrival = getRouteState().steps.length >= 2;
+    if (!hasSpokenArrival && _navStartDistToDest > PROXIMITY_ALERT_M) {
+      speakNavigation(distanceSource === 'ALONG_ROUTE'
+        ? 'Hedefiniz 500 metrede, hazır olun.'
+        : 'Hedefinize yaklaşıyorsunuz.');
+    }
   }
 
   // ── Sürekli düşük hız takibi ──────────────────────────────────────────────

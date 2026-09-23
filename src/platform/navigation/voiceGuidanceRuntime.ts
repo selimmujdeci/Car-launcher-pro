@@ -138,6 +138,8 @@ export interface VoiceGuidanceTickInput {
   readonly distanceM: number;
   readonly distanceSource: GuidanceDecisionInput['distanceSource'];
   readonly speedKmh: number;
+  /** Sıradaki adım varış mı (bkz. `GuidanceDecisionInput.isArrival`). */
+  readonly isArrival?: boolean;
 }
 
 /** Anons gerçekten yapıldığında çağrılır (test/gözlem için enjekte edilebilir). */
@@ -202,6 +204,7 @@ export function noteVoiceGuidanceTick(
     speedKmh: input.speedKmh,
     instruction: input.instruction,
     spokenBits: bits,
+    isArrival: input.isArrival,
   });
 
   if (!decision) {

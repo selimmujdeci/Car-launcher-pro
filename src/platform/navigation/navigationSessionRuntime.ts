@@ -361,6 +361,7 @@ function _feedVoiceGuidance(status: string): void {
         distanceM: rs.distanceToNextTurnMeters,
         distanceSource: rs.distanceToNextTurnSource,
         speedKmh,
+        isArrival: nextStep.maneuverType === 'arrive',
       },
       undefined,
       () => markFirstNewInstruction(_now()),
