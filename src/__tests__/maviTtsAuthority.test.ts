@@ -209,7 +209,11 @@ describe('MAVI-M6 · guard — tek otorite', () => {
      * Tur kapsamlı otoriteden geçirmek onu yanlışlıkla susturabilirdi. Bu bir
      * bypass DEĞİLDİR (ttsService korumaları uygulanır). Liste KİLİTTİR: uzayamaz.
      */
-    const ALLOWED = ['platform/companion/companionEngine.ts'];
+    /* İkinci istisna (2026-09-24): `notificationService` gelen arama/mesaj
+     * DUYURUSU — kullanıcı komut turu değil, proaktif bildirimdir; "Durdur"
+     * düğmesi `speakAssistant(text, onEnd)` bitişiyle söner (companionEngine ile
+     * aynı gerekçe). Eskiden `window.speechSynthesis`'i DOĞRUDAN kullanıyordu. */
+    const ALLOWED = ['platform/companion/companionEngine.ts', 'platform/notificationService.ts'];
     const offenders: string[] = [];
     for (const file of PROD) {
       const r = rel(file);
