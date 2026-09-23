@@ -7,7 +7,8 @@
  * Native: Android MediaSession üzerinden harici uygulama kontrolü
  * Web/Demo: mock track rotasyonu
  */
-import { memo, useEffect, useCallback, useMemo, useState, useRef, useSyncExternalStore } from 'react';
+import { Fragment, memo, useEffect, useCallback, useMemo, useState, useRef, useSyncExternalStore } from 'react';
+import { CarLauncher } from '../../platform/nativePlugin';
 import { createPortal } from 'react-dom';
 import {
   SkipBack, SkipForward, Play, Pause,
@@ -1291,8 +1292,8 @@ function SourcesView({
                 (src.key === 'local_files'   && activeSession === 'local')
               );
               return (
+                <Fragment key={src.key}>
                 <button
-                  key={src.key}
                   onClick={() => { onSelectSource(src); }}
                   data-editable="media.source-card" data-editable-type="card"
                   className="flex items-center gap-4 p-4 rounded-2xl glass-card text-left transition-all active:scale-[0.98] group"
@@ -1318,6 +1319,13 @@ function SourcesView({
                         <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: src.color }}>Çalıyor</span>
                       </div>
                     )}
+                    {/* Bluetooth: "bağlı" İDDİA EDİLMEZ — genel BT durumu OBD adaptörünü de
+                        sayar ve A2DP alıcı durumu ölçülmüyor. Yalnız gözlenen akış söylenir. */}
+                    {!isPlaying && src.key === 'bluetooth' && (
+                      <div className="text-[10px] font-bold mt-1" style={{ color: 'var(--oem-ink-3)' }}>
+                        Telefondan çalınan müzik burada görünür
+                      </div>
+                    )}
                   </div>
 
                   {/* Aktif işareti */}
@@ -1330,6 +1338,24 @@ function SourcesView({
                     <ChevronRight className="w-5 h-5 transition-colors" style={{ color: 'var(--oem-ink-3)' }} />
                   )}
                 </button>
+                {isActive && !isPlaying && src.key === 'bluetooth' && (
+                  <div data-testid="bluetooth-source-hint" className="flex items-center gap-3 px-4 py-3 rounded-2xl"
+                    style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--oem-line, rgba(255,255,255,0.08))' }}>
+                    <div className="flex-1 text-[11px] leading-relaxed" style={{ color: 'var(--oem-ink-2)' }}>
+                      Telefonunuzu Bluetooth ile bu cihaza bağlayın ve müziği telefondan başlatın.
+                    </div>
+                    {isNative && (
+                      <button
+                        onClick={() => { void CarLauncher.openBluetoothSettings?.().catch(() => undefined); }}
+                        className="flex-shrink-0 rounded-xl px-3 text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all"
+                        style={{ minHeight: 44, background: src.color, color: '#fff' }}
+                      >
+                        Bluetooth ayarları
+                      </button>
+                    )}
+                  </div>
+                )}
+                </Fragment>
               );
             })}
           </div>
