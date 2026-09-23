@@ -1999,6 +1999,22 @@ export async function processTextCommand(
     return true;
   }
 
+  // ── 1b1. MESAJ OKUMA BYPASS — "Mavi, oku" (read_message) ──────────────────
+  // Okunmamış mesajlar yalnız yerel bildirim deposunda (notificationService);
+  // beynin bu veriye aracı YOK → Gemini "okumaya yetkim yok, WhatsApp'ı
+  // açayım" diyordu (saha 2026-09-23, telefon). Hava (1b) ile AYNI desen.
+  if (
+    result.command &&
+    result.command.type === 'read_message' &&
+    result.command.confidence >= 0.7
+  ) {
+    _lastCommandTime = now;
+    void reportVoiceDiag('voice_route', { route: 'message_local_bypass' });
+    if (ctx?.isDriving) { dispatchDriving(result.command, ctx, turn); } else { dispatch(result.command, ctx, turn); }
+    completeMaviTurn(turn);
+    return true;
+  }
+
   // ── 1b2. SENSÖR SORGUSU BYPASS — yerel sensorQueryService kotasız/anında cevaplar ──
   // "yağ sıcaklığı kaç", "turbo basıncı ne kadar" gibi net (≥0.7) yerel eşleşmeler
   // (vehicleIntents.ts) beyne HİÇ GİTMEZ: querySensor taze OBD/EXTENDED/manufacturer
