@@ -873,7 +873,7 @@ public class CarosPlaybackService extends MediaSessionService {
     }
 
     /** Yalnız ÇALAN PARÇAYA özgü hatalar: başka parçaya geçmek bunları aşar. */
-    static boolean isItemSpecificError(int code) {
+    static boolean isItemSpecificError(int code, boolean localItem) {
         switch (code) {
             case PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND:
             case PlaybackException.ERROR_CODE_IO_NO_PERMISSION:
@@ -885,16 +885,29 @@ public class CarosPlaybackService extends MediaSessionService {
             case PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES:
             case PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED:
                 return true;
+            /* SAHA 2026-09-23 (telefon, bozuk MP3): ayrıştırıcı 463 MB ayırmaya
+               kalktı → Loader.UnexpectedLoaderException(OOM) → IO_UNSPECIFIED ve
+               kuyruk bozuk parçada DURDU. Yerel dosyada (content://) okuma hatası
+               o dosyanındır; ağ akışında geçici olabilir → yalnız yerelde atlanır. */
+            case PlaybackException.ERROR_CODE_IO_UNSPECIFIED:
+                return localItem;
             default:
                 return false;   // ağ · ses çıkışı · bilinmeyen → ATLANMAZ
         }
     }
 
+    /** Cihazdaki dosya mı (MediaStore content://) — ağ akışı DEĞİL. */
+    static boolean isLocalItem(@Nullable MediaItem item) {
+        return item != null && item.localConfiguration != null
+            && "content".equals(item.localConfiguration.uri.getScheme());
+    }
+
     /** Bozuk parçayı atlar (sınırlı); kullanıcının çalma niyeti korunur, uydurulmaz. */
     private void recoverFromItemError(int code) {
         Player p = player;
-        if (p == null || !isItemSpecificError(code)) return;
+        if (p == null) return;
         MediaItem failed = p.getCurrentMediaItem();
+        if (!isItemSpecificError(code, isLocalItem(failed))) return;
         lastErrorTitle = failed != null && failed.mediaMetadata.title != null
             ? failed.mediaMetadata.title.toString() : "";
         lastErrorCode = code;

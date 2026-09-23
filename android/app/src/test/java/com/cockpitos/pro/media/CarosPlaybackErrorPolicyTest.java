@@ -18,21 +18,30 @@ public class CarosPlaybackErrorPolicyTest {
 
     @Test
     public void corruptOrUnsupportedFilesAreSkippable() {
-        assertTrue(CarosPlaybackService.isItemSpecificError(PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED));
-        assertTrue(CarosPlaybackService.isItemSpecificError(PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED));
-        assertTrue(CarosPlaybackService.isItemSpecificError(PlaybackException.ERROR_CODE_DECODING_FAILED));
-        assertTrue(CarosPlaybackService.isItemSpecificError(PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED));
-        assertTrue(CarosPlaybackService.isItemSpecificError(PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND));
-        assertTrue(CarosPlaybackService.isItemSpecificError(PlaybackException.ERROR_CODE_IO_NO_PERMISSION));
+        assertTrue(CarosPlaybackService.isItemSpecificError(PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED, false));
+        assertTrue(CarosPlaybackService.isItemSpecificError(PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED, false));
+        assertTrue(CarosPlaybackService.isItemSpecificError(PlaybackException.ERROR_CODE_DECODING_FAILED, false));
+        assertTrue(CarosPlaybackService.isItemSpecificError(PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED, false));
+        assertTrue(CarosPlaybackService.isItemSpecificError(PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND, false));
+        assertTrue(CarosPlaybackService.isItemSpecificError(PlaybackException.ERROR_CODE_IO_NO_PERMISSION, false));
+    }
+
+    @Test
+    public void unspecifiedReadErrorSkipsOnlyForLocalFiles() {
+        /* Saha 2026-09-23: bozuk yerel MP3 → IO_UNSPECIFIED; kuyruk o parçada durmuştu. */
+        assertTrue(CarosPlaybackService.isItemSpecificError(PlaybackException.ERROR_CODE_IO_UNSPECIFIED, true));
+        /* Ağ akışında aynı kod geçici olabilir — atlamak listeyi boşuna tüketir. */
+        assertFalse(CarosPlaybackService.isItemSpecificError(PlaybackException.ERROR_CODE_IO_UNSPECIFIED, false));
     }
 
     @Test
     public void networkAndOutputErrorsAreNotSkipped() {
-        assertFalse(CarosPlaybackService.isItemSpecificError(PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED));
-        assertFalse(CarosPlaybackService.isItemSpecificError(PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT));
-        assertFalse(CarosPlaybackService.isItemSpecificError(PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED));
-        assertFalse(CarosPlaybackService.isItemSpecificError(PlaybackException.ERROR_CODE_AUDIO_TRACK_WRITE_FAILED));
-        assertFalse(CarosPlaybackService.isItemSpecificError(PlaybackException.ERROR_CODE_UNSPECIFIED));
+        /* Yerel parçada bile: ağ/ses çıkışı/bilinmeyen hata parçanın suçu değildir. */
+        assertFalse(CarosPlaybackService.isItemSpecificError(PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED, true));
+        assertFalse(CarosPlaybackService.isItemSpecificError(PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT, true));
+        assertFalse(CarosPlaybackService.isItemSpecificError(PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED, true));
+        assertFalse(CarosPlaybackService.isItemSpecificError(PlaybackException.ERROR_CODE_AUDIO_TRACK_WRITE_FAILED, true));
+        assertFalse(CarosPlaybackService.isItemSpecificError(PlaybackException.ERROR_CODE_UNSPECIFIED, true));
     }
 
     @Test
