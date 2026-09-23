@@ -51,6 +51,23 @@ const STORAGE_KEY = 'caros.music.f16.lyrics.v1';
 type CacheValue = LyricsResult | null;
 
 let cache = new Map<string, CacheValue>();
+
+/**
+ * Aynı önbellek kaydı → AYNI sonuç nesnesi. `peekLyrics` bir
+ * `useSyncExternalStore` anlık görüntüsüdür; veri değişmeden her okumada yeni
+ * nesne dönerse React bunu "değişti" sayıp sonsuz render'a girer. SAHA
+ * 2026-09-23 (telefon): internetten söz bulununca panel React #185 ile düştü ve
+ * tüm çekmece hata ekranına geçti (gömülü LRC'de de aynısı olurdu).
+ */
+const _availableByValue = new WeakMap<LyricsResult, LyricsQueryResult>();
+function availableResult(value: LyricsResult): LyricsQueryResult {
+  let r = _availableByValue.get(value);
+  if (!r) {
+    r = Object.freeze({ availability: 'AVAILABLE', result: value }) as LyricsQueryResult;
+    _availableByValue.set(value, r);
+  }
+  return r;
+}
 let loaded = false;
 const subs = new Set<() => void>();
 
@@ -189,7 +206,7 @@ async function tryOnline(
   if (result === null) { noteIdentityMismatchRejected(); return UNAVAILABLE_RESULT; }
   cacheSet(key, result);   // persist() yalnız LOCAL_ kaydı yazar → internet sonucu diske GİTMEZ
   noteResolved(format, 'ONLINE_LRCLIB', nowMs);
-  return Object.freeze({ availability: 'AVAILABLE', result });
+  return availableResult(result);
 }
 
 /**
@@ -214,7 +231,7 @@ export function peekLyrics(identity: CanonicalMediaIdentity | null): LyricsQuery
       return UNKNOWN_RESULT;
     }
   }
-  return Object.freeze({ availability: 'AVAILABLE', result: value });
+  return availableResult(value);
 }
 
 /* ── Asenkron çözümleme (yalnız LOCAL + cache miss'te native çağırır) ────── */
@@ -301,7 +318,7 @@ async function resolveLyrics(
     if (result === null) { noteIdentityMismatchRejected(); return UNAVAILABLE_RESULT; }
     cacheSet(key, result);
     noteResolved(format, result.source, nowMs);
-    return Object.freeze({ availability: 'AVAILABLE', result });
+    return availableResult(result);
   } catch {
     /* Native yoksa (tarayıcı) veya izin reddedildiyse gömülü kanıt YOK —
        internet denenir; o da yoksa dürüst sonuç döner, uydurma YOK. */

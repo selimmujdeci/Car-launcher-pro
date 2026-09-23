@@ -500,8 +500,7 @@ export const LocalMusicBrowser = memo(function LocalMusicBrowser({ drivingMode =
                     {track.title}
                   </div>
                   <div className="text-[11px] truncate mt-0.5 font-medium" style={{ color: 'var(--oem-ink-2)' }}>
-                    {track.artist}
-                    {track.album ? ` · ${track.album}` : ''}
+                    {[track.artist, track.album].filter(Boolean).join(' · ')}
                   </div>
                 </div>
 

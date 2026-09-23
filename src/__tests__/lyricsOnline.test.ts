@@ -124,6 +124,10 @@ describe('otorite · internet yedeği', () => {
     expect(q.result?.source).toBe('ONLINE_LRCLIB');
     expect(q.result?.format).toBe('SYNCED');
     expect(localStorage.getItem('caros.music.f16.lyrics.v1') ?? '').not.toContain('ONLINE_LRCLIB');
+    /* 🔒 useSyncExternalStore sözleşmesi: veri değişmedikçe AYNI nesne (saha: React #185). */
+    const id = identity({ libraryId: track.id, album: 'Gülümse' });
+    expect(peekLyrics(id)).toBe(peekLyrics(id));
+    expect(peekLyrics(id).availability).toBe('AVAILABLE');
   });
 
   it('akış/YouTube parçasında da internet denenir (native ÇAĞRILMAZ)', async () => {
