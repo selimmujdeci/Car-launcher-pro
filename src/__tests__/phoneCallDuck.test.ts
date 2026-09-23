@@ -73,6 +73,15 @@ describe('phoneCallDuck', () => {
     expect(releases).toEqual([]);
   });
 
+  it('🔒 saha: cevaplayınca görüşme bildirimi 3 sn sonra gelse de müzik AÇILMAZ', () => {
+    emit(st([n('c', 'call')]));                             // çalıyor
+    emit(st([]));                                           // cevaplandı → MIUI çalan bildirimi sildi
+    vi.advanceTimersByTime(3000);                           // görüşme ekranı açılırken boşluk (ölçülen)
+    emit(st([n('c', 'call')]));                             // süren görüşme bildirimi
+    expect(releases).toEqual([]);
+    expect(requested).toBe(1);
+  });
+
   it('🔒 durdurunca susma ses yolunda KALMAZ', () => {
     emit(st([n('c', 'call')]));
     stopPhoneCallDuck();

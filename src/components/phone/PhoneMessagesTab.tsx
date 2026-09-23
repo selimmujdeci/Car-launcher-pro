@@ -28,15 +28,15 @@ function relativeTime(ms: number): string {
 }
 
 export const PhoneMessagesTab = memo(function PhoneMessagesTab() {
-  const { notifications, hasPermission, isSpeaking } = useNotificationState();
+  const { notifications, hasPermission, listenerConnected, isSpeaking } = useNotificationState();
   const messages = notifications.filter((n) => n.category === 'message');
 
   return (
     <div data-editable="phone.messages-tab" data-editable-type="panel" className="h-full flex flex-col overflow-y-auto no-scrollbar p-4 gap-3">
-      <NotificationAccessCard hasPermission={hasPermission} />
+      <NotificationAccessCard hasPermission={hasPermission} listenerConnected={listenerConnected} />
 
       {messages.length === 0 ? (
-        hasPermission === true && (
+        hasPermission === true && listenerConnected !== false && (
           <div className="flex-1 flex flex-col items-center justify-center gap-3 text-center px-6">
             <div className="w-14 h-14 rounded-2xl flex items-center justify-center"
               style={{ background: 'var(--oem-surface-2)', border: '1px solid var(--oem-line)' }}>

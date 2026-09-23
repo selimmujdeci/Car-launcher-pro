@@ -86,7 +86,7 @@ export const PhoneCallsTab = memo(function PhoneCallsTab() {
   // abone olunur — asıl veri `getRecentContacts()`ten okunur.
   useContactsState();
   const recent = getRecentContacts(6);
-  const { notifications, hasPermission } = useNotificationState();
+  const { notifications, hasPermission, listenerConnected } = useNotificationState();
   const callNotifs = notifications
     .filter((n) => n.category === 'call' || n.category === 'missed_call')
     .slice(0, 5);
@@ -100,12 +100,12 @@ export const PhoneCallsTab = memo(function PhoneCallsTab() {
           Gelen Arama / Görüşme Durumu
         </div>
         {callNotifs.length === 0 ? (
-          hasPermission === true ? (
+          hasPermission === true && listenerConnected !== false ? (
             <div className="rounded-2xl px-4 py-3 text-xs leading-relaxed"
               style={{ background: 'var(--oem-surface-2)', border: '1px solid var(--oem-line)', color: 'var(--oem-ink-3)' }}>
               Şu an bildirilen bir arama yok.
             </div>
-          ) : <NotificationAccessCard hasPermission={hasPermission} />
+          ) : <NotificationAccessCard hasPermission={hasPermission} listenerConnected={listenerConnected} />
         ) : (
           <div className="flex flex-col gap-1.5">
             {callNotifs.map((n) => <CallRow key={n.id} n={n} />)}

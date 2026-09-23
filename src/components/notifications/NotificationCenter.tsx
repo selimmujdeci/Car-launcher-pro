@@ -377,7 +377,7 @@ function NotificationCenterInner() {
       ) : null}
 
       {/* Bildirim erişimi — ölçülen durum; kapalıysa tek dokunuşla sistem sayfası */}
-      <NotificationAccessCard hasPermission={ns.hasPermission} />
+      <NotificationAccessCard hasPermission={ns.hasPermission} listenerConnected={ns.listenerConnected} />
     </div>
   );
 }

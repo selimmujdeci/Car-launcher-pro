@@ -63,6 +63,16 @@ afterEach(() => {
 });
 
 describe('izin', () => {
+  it('🔒 saha (MIUI): izin açık ama servis BAĞLI DEĞİL ölçülür; ilk olay bağlı olduğunu kanıtlar', async () => {
+    plugin.getNotificationAccess.mockImplementation(async () => ({ granted: true, connected: false }) as { granted: boolean });
+    await svc.refreshNotificationAccess();
+    expect(state()).toMatchObject({ hasPermission: true, listenerConnected: false });
+    post({ key: 'm', category: 'message', sender: 'Ali', text: 'selam' });
+    expect(state().listenerConnected).toBe(true);
+    handlers.notificationListenerLost?.({});
+    expect(state().listenerConnected).toBe(false);
+  });
+
   it('ölçülür; köprü yöntemi yoksa "var" VARSAYILMAZ (null)', async () => {
     expect(state().hasPermission).toBe(true);
     plugin.getNotificationAccess.mockImplementation(async () => undefined);

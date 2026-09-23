@@ -64,6 +64,9 @@ export interface NotificationState {
   voiceReply: { notifId: string; state: VoiceReplyState } | null;
   /** `null` = ölçülemedi (eski APK/web) — "izin var" VARSAYILMAZ. */
   hasPermission: boolean | null;
+  /** Bildirim dinleyici servisi şu an BAĞLI mı. İzin açık olsa da sistem
+   *  servisi başlatmayabilir (saha: MIUI AutoStart reddi). `null` = ölçülemedi. */
+  listenerConnected: boolean | null;
 }
 
 export interface NotificationActionResult {
@@ -173,6 +176,7 @@ const INITIAL: NotificationState = {
   isSpeaking: false,
   voiceReply: null,
   hasPermission: null,
+  listenerConnected: null,
 };
 
 let _state: NotificationState = { ...INITIAL };
@@ -278,11 +282,15 @@ function _addNotification(raw: RawNotification): void {
 /** İzni ÖLÇER; ölçülemezse `null` — "izin var" VARSAYILMAZ. */
 export async function refreshNotificationAccess(): Promise<boolean | null> {
   let granted: boolean | null = null;
+  let connected: boolean | null = null;
   try {
     const res = await CarLauncher.getNotificationAccess?.();
     granted = typeof res?.granted === 'boolean' ? res.granted : null;
+    connected = typeof res?.connected === 'boolean' ? res.connected : null;
   } catch { granted = null; }
-  if (granted !== _state.hasPermission) _setState({ hasPermission: granted });
+  if (granted !== _state.hasPermission || connected !== _state.listenerConnected) {
+    _setState({ hasPermission: granted, listenerConnected: connected });
+  }
   return granted;
 }
 
@@ -321,6 +329,8 @@ async function _startNative(): Promise<void> {
       addListener: (event: string, handler: (data: Record<string, unknown>) => void) => Promise<{ remove: () => void }>;
     };
     const handle = await bridge.addListener('notification', (data) => {
+      /* Olay geldiyse dinleyici BAĞLIDIR (ölçüm, varsayım değil). */
+      if (_state.listenerConnected !== true) _setState({ listenerConnected: true });
       _addNotification({
         key: typeof data.key === 'string' ? data.key : undefined,
         category: typeof data.category === 'string' ? data.category : undefined,
@@ -346,6 +356,7 @@ async function _startNative(): Promise<void> {
        YOK: görüşme iddiası (ve müziğin susması) sürdürülmez; izin yeniden
        ölçülür. */
     const lost = await bridge.addListener('notificationListenerLost', () => {
+      _setState({ listenerConnected: false });
       _pruneCalls(null);
       void refreshNotificationAccess();
     });

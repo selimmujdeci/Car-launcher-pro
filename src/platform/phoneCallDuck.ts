@@ -13,8 +13,9 @@
  *
  * Seviye ve öncelik `duckPolicy`nindir, istek `duckRequest` adaptöründen
  * geçer (ikinci otorite kurulmaz). Tek yerel durum kısa bir BIRAKMA PAYIDIR:
- * saha 2026-09-23 (MIUI) çalan→süren geçişinde arama bildirimini silip ~0,4 sn
- * sonra yeniden yayınladı; pay olmasa müzik o arada bir an duyulurdu. Takılı
+ * saha 2026-09-23 (MIUI) çalan→süren geçişinde arama bildirimini silip 0,4 sn
+ * ile 3 sn arası (cevaplayınca görüşme ekranı açılırken) sonra yeniden
+ * yayınladı; pay olmasa müzik o arada bir an duyulurdu. Takılı
  * susmaya karşı savunma kaynaktadır: kaçan kaldırmalar ön plana dönüşte
  * native aktif-arama listesiyle budanır (`notificationService`).
  */
@@ -27,7 +28,7 @@ export function hasActiveCall(notifications: readonly AppNotification[]): boolea
 }
 
 /** Son arama kalktıktan sonra bırakmadan önceki bekleme (silip-yayınlama boşluğu). */
-export const CALL_DUCK_RELEASE_GRACE_MS = 1500;
+export const CALL_DUCK_RELEASE_GRACE_MS = 5000;
 
 let _handle: DuckHandle | null = null;
 let _unsub: (() => void) | null = null;

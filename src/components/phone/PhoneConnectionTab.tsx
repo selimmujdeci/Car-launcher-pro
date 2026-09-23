@@ -76,7 +76,7 @@ export function describePhoneConnection(s: PhonesState): PhoneLine {
 
 export const PhoneConnectionTab = memo(function PhoneConnectionTab() {
   const [phones, setPhones] = useState<PhonesState>(undefined);
-  const { hasPermission } = useNotificationState();
+  const { hasPermission, listenerConnected } = useNotificationState();
 
   const reload = useCallback(async () => {
     if (!isNative) { setPhones(null); return; }
@@ -151,7 +151,7 @@ export const PhoneConnectionTab = memo(function PhoneConnectionTab() {
         <div className="text-[10px] font-black uppercase tracking-widest mb-2 px-1" style={{ color: 'var(--oem-ink-3)' }}>
           Arama ve Mesaj Bildirimleri
         </div>
-        {hasPermission === true ? (
+        {hasPermission === true && listenerConnected !== false ? (
           <Card>
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
@@ -168,7 +168,7 @@ export const PhoneConnectionTab = memo(function PhoneConnectionTab() {
             </div>
           </Card>
         ) : (
-          <NotificationAccessCard hasPermission={hasPermission} />
+          <NotificationAccessCard hasPermission={hasPermission} listenerConnected={listenerConnected} />
         )}
       </div>
     </div>
