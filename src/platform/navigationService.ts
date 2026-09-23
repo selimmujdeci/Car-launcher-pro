@@ -13,6 +13,7 @@ import {
   clearAltRoutes,
   clearRoute,
   fetchRoute,
+  getNavigationCoreSnapshot,
 } from './routingService';
 import { useUnifiedVehicleStore } from './vehicleDataLayer/UnifiedVehicleStore';
 import { speakNavigation } from './ttsService';
@@ -1105,13 +1106,29 @@ function calculateRouteDistance(
     useNavigationStore.setState({ distanceMeters: undefined });
   }
 
-  // ── Step 1: find closest segment ─────────────────────────────────────
-  // First call after geometry change: full O(N) scan to locate initial position.
-  // All subsequent calls: O(52) window (2-back for GPS noise + 50-forward lookahead).
+  // ── Step 1: TEK EŞLEŞTİRME OTORİTESİ (analiz 2026-09-24) ──────────────
+  // Eskiden burada İKİNCİ, yöne kör bir "en yakın segment" eşleştiricisi
+  // çalışıyordu; manevra/ETA/sapma ise `routingService.matchToRoute`
+  // (yön + ilerleme + belirsizlik farkında) kullanıyordu. Bölünmüş yolda ya da
+  // rota aynı yoldan iki kez geçtiğinde ikisi AYRIŞIYOR: talimat bir yeri, işaret
+  // ve kalan km karşı şeridi gösteriyordu. Artık AYNI örnek için matchToRoute
+  // sonucu kullanılır; yalnız o bir cevap üretemezse (rota dışı / eşleşme yok)
+  // en-yakın-segment taramasına düşülür.
+  const _mf = getNavigationCoreSnapshot().fix;
+  const _useMatch = _mf !== null
+    && _mf.rawLat === lat && _mf.rawLon === lon
+    && getRouteState().geometry === geometry
+    && _mf.segIdx >= 0 && _mf.segIdx < geometry.length - 1
+    && _mf.snappedLat !== null && _mf.snappedLon !== null
+    && _mf.alongRemainingM !== null && Number.isFinite(_mf.alongRemainingM);
+
   let closestSegIdx = _lastClosestSegIdx < 0 ? 0 : _lastClosestSegIdx;
   let minSegDist    = Infinity;
 
-  if (_lastClosestSegIdx < 0) {
+  if (_useMatch) {
+    closestSegIdx = _mf.segIdx;
+    minSegDist    = _mf.lateralM ?? 0;
+  } else if (_lastClosestSegIdx < 0) {
     for (let i = 0; i < geometry.length - 1; i++) {
       const d = pointToSegmentDist(lat, lon,
         geometry[i][1], geometry[i][0], geometry[i + 1][1], geometry[i + 1][0]);
@@ -1143,9 +1160,11 @@ function calculateRouteDistance(
   // ── Step 2: project P onto closest segment → P' ───────────────────────
   const [aLon, aLat] = geometry[closestSegIdx];
   const [bLon, bLat] = geometry[closestSegIdx + 1];
-  const t    = projectOnSegment(lat, lon, aLat, aLon, bLat, bLon);
-  const pLat = aLat + t * (bLat - aLat);
-  const pLon = aLon + t * (bLon - aLon);
+  const t    = _useMatch
+    ? projectOnSegment(_mf.snappedLat as number, _mf.snappedLon as number, aLat, aLon, bLat, bLon)
+    : projectOnSegment(lat, lon, aLat, aLon, bLat, bLon);
+  const pLat = _useMatch ? (_mf.snappedLat as number) : aLat + t * (bLat - aLat);
+  const pLon = _useMatch ? (_mf.snappedLon as number) : aLon + t * (bLon - aLon);
 
   // Visual Snapping: snapped koordinatı ve rota sapma mesafesini kaydet.
   // getSnappedMarkerPosition() bu değerleri dışa açar; FullMapView RAF'ı tüketir.
@@ -1177,9 +1196,11 @@ function calculateRouteDistance(
   // O(1) with precomputed cumDist; O(N) fallback when unavailable (should not occur).
   const partialM  = calculateDistance(pLat, pLon, bLat, bLon);
   const suffixIdx = closestSegIdx + 1;
-  const remaining = (cumDist && cumDist.length === geometry.length)
-    ? partialM + cumDist[suffixIdx]
-    : partialM + _sumRemainingSegments(geometry, suffixIdx);
+  const remaining = _useMatch
+    ? (_mf.alongRemainingM as number)
+    : (cumDist && cumDist.length === geometry.length)
+      ? partialM + cumDist[suffixIdx]
+      : partialM + _sumRemainingSegments(geometry, suffixIdx);
 
   // Soft clamp: allow up to CLAMP_SLACK_M upward correction per tick (DR recovery),
   // while still rejecting large GPS spikes (> 50 m sudden jump).
