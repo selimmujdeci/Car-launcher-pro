@@ -23,7 +23,7 @@ import {
   type DtcClearCommandOutcome, type DtcClearVerdict,
 } from '../obd/dtcClearModel';
 import type {
-  DtcClearAttempt, DtcClearEvidenceSummary, DtcClearRereadOutcome,
+  DtcClearAttempt, DtcClearEvidenceSummary, DtcClearRereadClass, DtcClearRereadOutcome,
 } from '../obd/dtcClearEvidence';
 
 export type ClearTone = 'ok' | 'warn' | 'bad' | 'muted';
@@ -124,10 +124,11 @@ export interface ClearAttemptRow {
   readonly permanentText: string;
 }
 
-const CLASS_TITLE: Readonly<Record<'03' | '07' | '0A', string>> = {
+const CLASS_TITLE: Readonly<Record<DtcClearRereadClass['service'], string>> = {
   '03': 'Mode 03 — ONAYLANMIŞ',
   '07': 'Mode 07 — BEKLEYEN',
   '0A': 'Mode 0A — KALICI',
+  '19': 'UDS 19-02 — ÜRETİCİ',
 } as const;
 
 const GATE_DENY_TEXT: Readonly<Record<string, string>> = {
