@@ -76,6 +76,10 @@ import { bootRestoreListeningSession } from '../media/session/listeningSessionRu
 import {
   startLoudnessNormalization, stopLoudnessNormalization,
 } from '../media/loudness/loudnessRuntime';
+/* MUSIC · Hıza bağlı ses (SVC) — `volumePolicy.speedCompensation` tek yazarı. */
+import {
+  startSpeedVolumeCompensation, stopSpeedVolumeCompensation,
+} from '../media/loudness/speedVolumeRuntime';
 /* MUSIC F20 · Parça sınırı geçiş politikası. Kuyruğa dokunmaz, playback
    truth üretmez, timer kurmaz; yalnız oynatma sahibine politika bildirir. */
 import {
@@ -751,6 +755,15 @@ class SystemBoot {
       this._regNamed(gen, 'music-loudness', stopLoudnessNormalization);
     } catch (e) {
       logError('SystemBoot:musicLoudness', e);
+    }
+
+    /* MUSIC · Hıza bağlı ses (SVC). Varsayılan KAPALI; yalnız kısar, hız
+       bilinmiyorsa nötr. Düşerse telafi olmaz ama müzik ETKİLENMEZ. */
+    try {
+      void startSpeedVolumeCompensation();
+      this._regNamed(gen, 'music-speed-volume', stopSpeedVolumeCompensation);
+    } catch (e) {
+      logError('SystemBoot:musicSpeedVolume', e);
     }
 
     /* MUSIC F20 · Geçiş politikası (gapless korunur · sınırda fade).

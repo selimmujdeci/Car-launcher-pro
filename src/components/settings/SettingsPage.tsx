@@ -61,6 +61,7 @@ import { useSystemStore } from '../../store/useSystemStore';
    bu anahtarlar duyulabilir hiçbir şeyi değiştirmiyordu. Yeteneği olmayan
    kontrol RENDER EDİLMEZ (CLAUDE.md · capability honesty). */
 import { AudioExperiencePanel } from '../media/AudioExperiencePanel';
+import { SVC_LEVEL_LABEL } from '../../platform/media/loudness/speedVolumeRuntime';
 import type { DrivingMode } from '../media/nowPlayingModel';
 import { useDeviceStatus } from '../../platform/deviceApi';
 import { CarLauncher } from '../../platform/nativePlugin';
@@ -1144,6 +1145,7 @@ function SoundTabContent({ drivingMode }: { drivingMode: DrivingMode }) {
   /* F6: tek DSP otoritesinin projeksiyonu. Bu sekme kendi ses gerçeğini
      tutmaz ve desteklenmeyen bir kontrolü "kapalı" diye çizmez. */
   const resumeMusicOnStart = useStore((s) => s.settings.resumeMusicOnStart === true);
+  const speedVolumeLevel = useStore((s) => s.settings.speedVolumeLevel ?? 'OFF');
   const updateSettings = useStore((s) => s.updateSettings);
   return (
     <>
@@ -1161,6 +1163,31 @@ function SoundTabContent({ drivingMode }: { drivingMode: DrivingMode }) {
           value={resumeMusicOnStart}
           onChange={(v) => updateSettings({ resumeMusicOnStart: v })}
           accent="#a78bfa"
+        />
+        <SettingTile
+          icon={Gauge}
+          title="Hıza bağlı ses"
+          sub="Hız arttıkça ses ayarladığınız seviyeye çıkar; dururken biraz kısılır. Hız bilinmiyorsa uygulanmaz."
+          control={
+            <div className="flex gap-1" role="radiogroup" aria-label="Hıza bağlı ses seviyesi">
+              {(['OFF', 'LOW', 'MEDIUM', 'HIGH'] as const).map((lvl) => (
+                <button
+                  key={lvl}
+                  role="radio"
+                  aria-checked={speedVolumeLevel === lvl}
+                  onClick={() => updateSettings({ speedVolumeLevel: lvl })}
+                  className="rounded-lg px-2.5 text-[11px] font-black active:scale-95 transition-all"
+                  style={{
+                    minHeight: 40,
+                    background: speedVolumeLevel === lvl ? 'var(--oem-amber, #e0a23c)' : 'rgba(255,255,255,0.05)',
+                    color: speedVolumeLevel === lvl ? '#111' : 'var(--oem-ink-2)',
+                  }}
+                >
+                  {SVC_LEVEL_LABEL[lvl]}
+                </button>
+              ))}
+            </div>
+          }
         />
         <SettingTile icon={Volume2} title="Uyarı Tonları"
           sub="Şerit ihlali, hız limiti, kapı uyarıları için özelleştirilebilir tonlar."

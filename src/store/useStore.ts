@@ -228,6 +228,8 @@ export interface AppSettings {
   autoNavOnStart: boolean;
   /** Açılışta, kapanmadan önce ÇALAN ve kullanıcının DURAKLATMADIĞI müziğe devam et (varsayılan kapalı). */
   resumeMusicOnStart: boolean;
+  /** Hıza bağlı ses (SVC) seviyesi — varsayılan kapalı. */
+  speedVolumeLevel: 'OFF' | 'LOW' | 'MEDIUM' | 'HIGH';
   activeMediaSourceKey: string;
   musicFavorites: MusicFavorite[];
   /** Kullanıcının eklediği özel müzik kaynakları (internet akışı / radyo) — uygulama içinde çalar */
@@ -408,6 +410,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   activeVehicleProfileId: null,
   autoNavOnStart: false,
   resumeMusicOnStart: false,
+  speedVolumeLevel: 'OFF',
   activeMediaSourceKey: 'spotify',
   musicFavorites: [],
   customMusicSources: [],

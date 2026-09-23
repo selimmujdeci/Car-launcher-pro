@@ -13,8 +13,9 @@
  *
  * Kimse bu formülün dışında ses yazmaz; native taraf da aynı çarpımı uygular.
  *
- * SVC (hıza bağlı ses telafisi) BU PAKETTE ETKİNLEŞTİRİLMEZ — ama tek giriş
- * noktası (`speedCompensation`) burada hazırdır; ileride yalnız bu alan beslenir.
+ * SVC (hıza bağlı ses telafisi) bu alanı `speedVolumeRuntime` üzerinden besler:
+ * yalnız KISAR (≤ 1), geçersiz değer NÖTRdür (1) ve `SPEED_COMPENSATION_FLOOR`
+ * altına inemez — bir hata sesi hiçbir koşulda kapatamaz.
  *
  * SAFLIK: I/O · timer · Date.now · global durum YOK.
  */
@@ -28,7 +29,7 @@ export interface VolumeInputs {
   readonly safetyAttenuation: number;
   /** Kaynak ses seviyesi normalizasyonu (radyo/yerel farkı) — 0..1, varsayılan 1. */
   readonly sourceNormalization: number;
-  /** Hıza bağlı telafi çarpanı — BU PAKETTE her zaman 1 (kapalı). */
+  /** Hıza bağlı telafi çarpanı (≤ 1) — `speedVolumeRuntime` yazar; varsayılan 1. */
   readonly speedCompensation: number;
   readonly muted: boolean;
 }
@@ -41,6 +42,14 @@ export const DEFAULT_VOLUME_INPUTS: VolumeInputs = {
   speedCompensation: 1,
   muted: false,
 };
+
+/** SVC'nin inebileceği en düşük çarpan — hata/bozuk değer sesi KAPATAMAZ. */
+export const SPEED_COMPENSATION_FLOOR = 0.5;
+
+function speedCompensationOf(v: number | undefined): number {
+  if (v === undefined || !Number.isFinite(v)) return 1;   // geçersiz → NÖTR (asla 0)
+  return Math.max(SPEED_COMPENSATION_FLOOR, Math.min(1, v));
+}
 
 function clamp01(v: number): number {
   if (!Number.isFinite(v)) return 0;
@@ -58,8 +67,7 @@ export function sanitizeVolumeInputs(input: Partial<VolumeInputs>): VolumeInputs
     sourceNormalization: clamp01(
       input.sourceNormalization ?? DEFAULT_VOLUME_INPUTS.sourceNormalization,
     ),
-    // Hız telafisi bu pakette KAPALI — girdi ne gelirse gelsin 1'e sabitlenir.
-    speedCompensation: 1,
+    speedCompensation: speedCompensationOf(input.speedCompensation),
     muted: input.muted === true,
   };
 }
