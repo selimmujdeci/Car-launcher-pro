@@ -1951,7 +1951,11 @@ public final class ElmProtocol {
             if ("21".equals(s)) {
                 return udsRequestDetailed("21" + d, "21", "61" + d, UDS_PENDING_TOTAL_TIMEOUT_MS, "LID " + d);
             }
-            return udsRequestDetailed("22" + d, "22", "62" + d, UDS_PENDING_TOTAL_TIMEOUT_MS, "DID " + d);
+            /* ISO 14229-1 §10.2: tek istekte BİRDEN FAZLA DID (22 D1 D2 …). Yanıt
+               62 D1 <veri1> D2 <veri2> … biçimindedir → beklenen önek yalnız İLK DID'dir;
+               DID uzunlukları bilinmediği için ayrıştırma çağırana (TS) bırakılır. */
+            String prefix = (d.length() > 4 && d.length() % 4 == 0) ? "62" + d.substring(0, 4) : "62" + d;
+            return udsRequestDetailed("22" + d, "22", prefix, UDS_PENDING_TOTAL_TIMEOUT_MS, "DID " + d);
         } catch (UdsNegativeResponseException e) {
             // FATAL NRC (ör. 0x83 engineIsNotRunning) — ECU ayrık yanıt VERDİ, kimlik muhtemelen
             // VAR. Hata olarak yutmak yerine kanıt olarak taşı → TS condition_required öğrenir.
