@@ -271,7 +271,11 @@ describe('🔒 YAPISAL — çağıran sözleşmesi bozulmadı', () => {
   });
 
   it('60 sn tavanı KORUNDU', () => {
-    expect(runtimeSrc).toContain('Math.min(ageSec, DR_MAX_DT_SEC)');
+    /* İlerleme artık tick tick biriktirilir (∫v·dt); biriken süre fix yaşını
+       aşamaz ve yaş DR_MAX_DT_SEC'e ulaşınca güven 0 olup DR DURUR. */
+    expect(runtimeSrc).toContain('_drConfidence = Math.max(0, 1 - ageSec / DR_MAX_DT_SEC)');
+    expect(runtimeSrc).toContain("if (_drConfidence <= 0) { _setDrState('DR_EXPIRED'); return; }");
+    expect(runtimeSrc).toContain('_drAdvanceM += (speedKmh / 3.6) * Math.max(0, dtSec)');
   });
 
   it('HEADING FALLBACK korundu — rota çapası yoksa eski davranış', () => {

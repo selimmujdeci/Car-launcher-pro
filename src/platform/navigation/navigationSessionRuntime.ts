@@ -168,6 +168,12 @@ let _drProjectionMode: DrProjectionMode = 'HEADING_FALLBACK';
 let _drConsumedRouteM: number | null = null;
 /** Ulaşılan segment indeksi — `null` = ölçüm yok. */
 let _drProjectionSegIdx: number | null = null;
+/** Bu DR penceresinde BİRİKTİRİLEN tahmini yol (m) — her tick `v × Δt` eklenir.
+ *  Eskiden "şu anki hız × fix'ten beri geçen TÜM süre" idi: 40 sn yavaş gidip
+ *  hızlanınca geçmiş süre de yeni hızla çarpılıyor, işaret yüzlerce metre sıçrıyordu. */
+let _drAdvanceM = 0;
+/** Son DR tick'inin zamanı — `null` = pencere yeni açıldı. */
+let _drLastTickMs: number | null = null;
 
 /** GPS tazelendiğinde / oturum bittiğinde çapa ve gözlem alanları unutulur. */
 function _clearDrProjection(): void {
@@ -175,6 +181,8 @@ function _clearDrProjection(): void {
   _drProjectionMode = 'HEADING_FALLBACK';
   _drConsumedRouteM = null;
   _drProjectionSegIdx = null;
+  _drAdvanceM = 0;
+  _drLastTickMs = null;
 }
 
 /** Salt-okunur çalışma görüntüsü — CAROS LAB gözlem yüzeyi için. */
@@ -430,10 +438,20 @@ function _drTick(): void {
     /* Hız: ARACIN kendi doğrulanmış hızı > son geçerli GPS hızı.
        `UnifiedVehicleStore.speed` zaten `obdService.getObdSpeedFresh()` tazelik
        kapısından geçmiştir (store sözleşmesi) — bayat OBD hızı buraya ULAŞMAZ.
-       İkisi de yoksa projeksiyon YAPILMAZ (sahte ilerleme yasak). */
-    const vehicleKmh = useUnifiedVehicleStore.getState().speed ?? 0;
-    const speedKmh = resolveDrSpeed(vehicleKmh, fix.speedMs);
+       İkisi de yoksa projeksiyon YAPILMAZ (sahte ilerleme yasak).
+       Araç hızı BİLİNİYORSA 0 da GERÇEKTİR: tünelde trafikte duran araç son GPS
+       hızıyla (ör. 90 km/s) ilerletilmez. GPS hızına yalnız araç hızı `null`
+       (bilinmiyor) iken düşülür. */
+    const vehicleKmh = useUnifiedVehicleStore.getState().speed;
+    const speedKmh = (vehicleKmh != null && Number.isFinite(vehicleKmh))
+      ? Math.max(0, vehicleKmh)
+      : resolveDrSpeed(0, fix.speedMs);
+    /* Birikimli ilerleme: ilk DR tick'i fix'ten beri geçen süreyi, sonrakiler
+       yalnız kendi aralığını ekler. Durulan süre (hız < 1) mesafe EKLEMEZ. */
+    const dtSec = (_drLastTickMs === null ? ageMs : now - _drLastTickMs) / 1000;
+    _drLastTickMs = now;
     if (!(speedKmh >= 1)) { _setDrState('DR_EXPIRED'); return; }
+    _drAdvanceM += (speedKmh / 3.6) * Math.max(0, dtSec);
 
     const geometry = getRouteState().geometry;
 
@@ -447,9 +465,9 @@ function _drTick(): void {
       if (p) _drAnchor = { lat: p.lat, lon: p.lon, segIdx: p.segIdx };
     }
 
-    /* Kat edilmesi TAHMİN edilen yol-boyu mesafe — mevcut mutlak sözleşme:
-       "son gerçek fix'ten bu yana v × Δt", 60 sn tavanıyla. */
-    const advanceM = (speedKmh / 3.6) * Math.min(ageSec, DR_MAX_DT_SEC);
+    /* Kat edilmesi TAHMİN edilen yol-boyu mesafe — çapadan MUTLAK, ama mesafe
+       tick tick BİRİKTİRİLİR (∫v·dt). Pencere DR_MAX_DT_SEC'te zaten kapanır. */
+    const advanceM = _drAdvanceM;
 
     const along = _drAnchor
       ? advanceAlongRoute(geometry, _drAnchor.segIdx, _drAnchor.lat, _drAnchor.lon, advanceM)
@@ -469,8 +487,11 @@ function _drTick(): void {
     } else {
       /* FAIL-CLOSED: rota çapası yok / geometri bozuk-boş → BUGÜNKÜ heading
          projeksiyonu AYNEN. Rota uydurulmaz. */
+      /* projectDeadReckon "hız × fix'ten beri süre" ister; biriken mesafeyi
+         aynen üretmesi için eşdeğer ortalama hız verilir (ageSec < DR_MAX_DT_SEC). */
       const hp = projectDeadReckon(
-        { lat: fix.lat, lng: fix.lng, heading: fix.heading, ts: fix.ts }, speedKmh, now,
+        { lat: fix.lat, lng: fix.lng, heading: fix.heading, ts: fix.ts },
+        ageSec > 0 ? (advanceM / ageSec) * 3.6 : 0, now,
       );
       lat = hp.lat;
       lng = hp.lng;
@@ -483,8 +504,11 @@ function _drTick(): void {
        sahte reroute internet yokken gerçek rotayı düz-çizgiyle değiştirirdi.
        Bu sözleşme eski (görünüm-içi) hâliyle BİREBİR aynıdır. */
     updateRouteProgress(lat, lng, { allowReroute: false });
+    /* positionEstimated: DR konumu VARIŞ kararı veremez — tahmin rota sonuna
+       dayanınca kalan mesafe 0 olur ve tünelde sahte "varıldı" + oturum kapanması
+       üretiyordu. Varış yalnız gerçek GPS ölçümüyle ilan edilir. */
     updateNavigationProgress(lat, lng, fix.heading,
-      geometry && geometry.length >= 2 ? geometry : undefined);
+      geometry && geometry.length >= 2 ? geometry : undefined, { positionEstimated: true });
 
     /* DR konumu da işaret hareketini besler → tünelde mini haritada da araç
        akıcı ilerler. Doğruluk `null`: DR bir ÖLÇÜM değil PROJEKSİYONdur. */
@@ -497,7 +521,7 @@ function _drTick(): void {
       matched: false,
     });
 
-    _drDistanceM = (speedKmh / 3.6) * Math.min(ageSec, DR_MAX_DT_SEC);
+    _drDistanceM = advanceM;
     _setDrState('DR_ACTIVE');
     _drTickCount++;
     _feedVoiceGuidance(nav.status);

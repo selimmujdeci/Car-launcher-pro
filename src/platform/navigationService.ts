@@ -747,7 +747,9 @@ export function updateNavigationProgress(
   currentLat: number,
   currentLon: number,
   _currentHeading: number,  // API uyumluluğu için korundu; yön hedefe olan bearing'den hesaplanır
-  routeGeometry?: [number, number][]
+  routeGeometry?: [number, number][],
+  /** positionEstimated: konum ÖLÇÜM değil DR tahmini → varış ilan edilmez. */
+  opts?: { positionEstimated?: boolean },
 ): void {
   const state = useNavigationStore.getState();
   if (!state.destination) return;
@@ -818,7 +820,12 @@ export function updateNavigationProgress(
   // ── Varış Histerezisi: GPS spike koruması ────────────────────────────────
   // Tünel çıkışında GPS sıçraması tek tick'te eşik altına düşebilir.
   // Sayaç her "eşik altı" tick'te artar, eşik üstüne çıkınca sıfırlanır.
-  if (distance < ARRIVAL_THRESHOLD_M) {
+  /* Tahmini (DR) konum varış histerezisini BESLEMEZ ve varış tetiklemez:
+     tahmin rota sonuna dayanınca mesafe 0 olur — araç tünelde/trafikte olabilir. */
+  const _estimated = opts?.positionEstimated === true;
+  if (_estimated) {
+    _arrivalDistanceBelow = 0;
+  } else if (distance < ARRIVAL_THRESHOLD_M) {
     _arrivalDistanceBelow++;
   } else {
     _arrivalDistanceBelow = 0; // eşik üstüne çıktı — sayacı sıfırla (GPS spike resetlendi)
@@ -842,7 +849,7 @@ export function updateNavigationProgress(
       && Number.isFinite(state.destination.latitude)
       && Number.isFinite(state.destination.longitude));
 
-    if (_navigationStarted) {
+    if (_navigationStarted && !_estimated) {
       // Hard-trigger: 5m + HARD_HYSTERESIS ardışık okuma (GPS jitter, yavaş kapanma)
       // Tek GPS spike'ı (1 tick) tetikleme yapmaz — tünel çıkışı koruması.
       const hardTrigger = distance < 5 && _arrivalDistanceBelow >= ARRIVAL_HARD_HYSTERESIS;
