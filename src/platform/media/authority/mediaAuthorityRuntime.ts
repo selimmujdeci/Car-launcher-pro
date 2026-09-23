@@ -206,8 +206,18 @@ async function applySnapshotToMediaState(s: NativeAuthoritySnapshot): Promise<vo
   }
 }
 
-function persistNow(): void {
-  const s = native.getSnapshot();
+/**
+ * SAHA 2026-09-23 (telefon): "açılışta devam" parçayı 80. sn yerine 0'dan
+ * başlattı. `getSnapshot()` olay itişlidir ve native çalma SÜRERKEN konum
+ * itmez → kaydedilen konum parçanın başladığı andaki değer (0) kalıyordu.
+ * Kayıt anında görüntü native'den TAZE okunur; okunamazsa son bilinen görüntü
+ * kullanılır (kuyruk kaydı kaybolmasın).
+ */
+async function persistNow(): Promise<void> {
+  if (!native.getSnapshot().authorityAvailable || !_lastSource || _lastQueue.length === 0) return;
+  const fresh = await native.refreshSnapshot();
+  const s = fresh.authorityAvailable ? fresh : native.getSnapshot();
+  /* await sırasında otorite durdurulduysa/kuyruk boşaldıysa yazılmaz. */
   if (!s.authorityAvailable || !_lastSource || _lastQueue.length === 0) return;
   persistPlaybackState({
     source: _lastSource,
@@ -293,7 +303,7 @@ export async function startMediaAuthority(): Promise<void> {
   });
 
   if (_persistTimer) clearInterval(_persistTimer);
-  _persistTimer = setInterval(persistNow, PERSIST_PERIOD_MS);
+  _persistTimer = setInterval(() => { void persistNow(); }, PERSIST_PERIOD_MS);
 
   try { await runRecovery(); } catch { /* kurtarma ASLA açılışı bozmaz */ }
 
@@ -327,6 +337,9 @@ export function isAuthorityOwnedPackage(pkg: string): boolean {
 export function isAuthorityAvailable(): boolean {
   return isNative && native.getSnapshot().authorityAvailable;
 }
+
+/** @internal — yalnız testler: periyodik kaydın tek turu. */
+export function __persistNowForTest(): Promise<void> { return persistNow(); }
 
 export function __resetRuntimeForTest(): void {
   _started = false;
