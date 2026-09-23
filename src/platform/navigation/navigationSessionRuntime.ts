@@ -362,6 +362,10 @@ function _feedVoiceGuidance(status: string): void {
         distanceSource: rs.distanceToNextTurnSource,
         speedKmh,
         isArrival: nextStep.maneuverType === 'arrive',
+        /* routingService'in yakın-manevra yığını (MANEUVER_STACK_THRESHOLD_M) —
+           ekranda zaten birlikte gösterilen ikinci manevra sese de eklenir. */
+        thenInstruction: rs.pendingManeuver?.instruction ?? null,
+        thenIsArrival: rs.pendingManeuver?.maneuverType === 'arrive',
       },
       undefined,
       () => markFirstNewInstruction(_now()),

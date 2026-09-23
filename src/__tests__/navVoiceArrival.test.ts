@@ -88,3 +88,41 @@ describe('500 m yakınlık uyarısı', () => {
     expect(M.spoken.filter((t) => t.includes('500 metrede'))).toHaveLength(0);
   });
 });
+
+describe('otoyol kademeleri', () => {
+  it('🔒 80 km/s üstünde ilk anons 1 km, yaklaşma 400 m', () => {
+    const hw = { ...base, speedKmh: 110, instruction: 'Sağdaki çıkışı kullanın' };
+    expect(decideGuidance({ ...hw, distanceM: 980 })!.text).toBe('1 kilometre sonra sağdaki çıkışı kullanın');
+    expect(decideGuidance({ ...hw, distanceM: 380, spokenBits: 1 })!.stage).toBe('NEAR');
+    // Şehir hızında 980 m'de henüz konuşulmaz.
+    expect(decideGuidance({ ...hw, speedKmh: 50, distanceM: 980 })).toBeNull();
+  });
+
+  it('kilometre ondalığı Türkçe virgülle', async () => {
+    const { spokenDistance } = await import('../platform/navigation/core/voiceGuidanceModel');
+    expect(spokenDistance(1480)).toBe('1,5 kilometre');
+    expect(spokenDistance(240)).toBe('250 metre');
+  });
+});
+
+describe('ardışık manevra', () => {
+  it('🔒 yakın ikinci manevra "ardından" ile aynı anonsta söylenir', () => {
+    const d = decideGuidance({ ...base, distanceM: 200, instruction: 'Sağa dönün', thenInstruction: 'Sola dönün (Cumhuriyet Caddesi)' })!;
+    expect(d.text).toBe('200 metre sonra sağa dönün, ardından sola dönün, Cumhuriyet Caddesi');
+    expect(decideGuidance({ ...base, distanceM: 30, instruction: 'Sağa dönün', thenInstruction: 'Hedefinize ulaştınız', thenIsArrival: true })!.text)
+      .toBe('Şimdi sağa dönün, ardından hedefinize ulaşacaksınız');
+  });
+
+  it('uzak kademede (FAR) eklenmez — ikinci manevra o an henüz anlamsız', () => {
+    expect(decideGuidance({ ...base, distanceM: 580, instruction: 'Sağa dönün', thenInstruction: 'Sola dönün' })!.text)
+      .toBe('600 metre sonra sağa dönün');
+  });
+});
+
+describe('dikkat bütçesi kısaltması', () => {
+  it('🔒 ondalıklı kilometre ön eki artık kırpıntı bırakmaz', async () => {
+    const { shortenInstruction } = await vi.importActual<typeof import('../platform/ttsService')>('../platform/ttsService');
+    expect(shortenInstruction('1,5 kilometre sonra sağdaki çıkışı kullanın')).toBe('sağdaki çıkışı kullanın');
+    expect(shortenInstruction('250 metre sonra sola dönün')).toBe('sola dön');
+  });
+});

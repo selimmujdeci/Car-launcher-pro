@@ -30,7 +30,7 @@ import {
 import {
   decideGuidance, maneuverId,
   type GuidanceStage, type GuidanceDecisionInput,
-  finalTierMetres, FAR_TIER_M, NEAR_TIER_M,
+  finalTierMetres, farTierMetres, nearTierMetres,
 } from './core/voiceGuidanceModel';
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -140,6 +140,9 @@ export interface VoiceGuidanceTickInput {
   readonly speedKmh: number;
   /** Sıradaki adım varış mı (bkz. `GuidanceDecisionInput.isArrival`). */
   readonly isArrival?: boolean;
+  /** Hemen ardından gelen yakın manevra (bkz. `GuidanceDecisionInput.thenInstruction`). */
+  readonly thenInstruction?: string | null;
+  readonly thenIsArrival?: boolean;
 }
 
 /** Anons gerçekten yapıldığında çağrılır (test/gözlem için enjekte edilebilir). */
@@ -205,6 +208,8 @@ export function noteVoiceGuidanceTick(
     instruction: input.instruction,
     spokenBits: bits,
     isArrival: input.isArrival,
+    thenInstruction: input.thenInstruction,
+    thenIsArrival: input.thenIsArrival,
   });
 
   if (!decision) {
@@ -229,8 +234,8 @@ export function noteVoiceGuidanceTick(
   recordAnnouncementTiming(
     id, decision.stage, input.distanceM,
     decision.stage === 'IMMINENT' ? finalTierMetres(input.speedKmh)
-      : decision.stage === 'NEAR' ? NEAR_TIER_M
-      : FAR_TIER_M,
+      : decision.stage === 'NEAR' ? nearTierMetres(input.speedKmh)
+      : farTierMetres(input.speedKmh),
     Date.now(),
   );
 

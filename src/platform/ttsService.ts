@@ -783,7 +783,7 @@ export function ttsCancel(): void {
  *   → "Sağa dön, Bağdat Caddesi"
  */
 const _DIST_PATTERNS = [
-  /\d+[\s.,]*(?:km|kilometre|m|metre)\s+sonra\s*/gi,
+  /\d+(?:[.,]\d+)?\s*(?:km|kilometre|m|metre)\s+sonra\s*/gi,  // "1,5 kilometre sonra" dahil
   /yaklaşık\s+\d+\s+\w+\s+sonra\s*/gi,
 ];
 
