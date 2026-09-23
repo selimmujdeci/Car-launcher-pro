@@ -39,23 +39,32 @@ export interface CockpitTokens {
   readonly horizonLine: string;
   readonly warningRed: string;
   readonly sign: string;
+  /** Hız/devir halkasının ikinci gradyan durağı ve arka plan parıltısı. */
+  readonly accentHigh: string;
+  readonly glow: string;
+  /** Bilinmeyen (—) değerin sakin rengi: ikincil metinle aynı kontrast sınıfı. */
+  readonly muted: string;
 }
 
-// Gündüz mat mineral yüzey; gece daha az ışık yayan grafit ve yumuşak metin.
+// Modern dijital gösterge: iki modda da koyu enstrüman yüzeyi (OEM kümeleri gibi).
+// Gündüz daha parlak/kontrastlı, gece daha az ışık yayar. Kontrast testi: birincil
+// metin ≥7:1, ikincil ≥4.5:1 her yüzeyde.
 export const COCKPIT_DAY_TOKENS: CockpitTokens = Object.freeze({
-  canvas: '#E6EBEA', surfaceTop: '#F3F5F1', surfaceBottom: '#E4EAE7',
-  shelf: '#DCE3E1', textPrimary: '#1A2C33', textSecondary: '#50646A',
-  accent: '#326E72', accentSoft: '#CEDDD9', detail: '#937044',
-  border: '#C4CECB', edge: '#F9FAF6', track: '#CBD6D2',
-  horizon: '#D5DFDB', horizonLine: '#B8C8C2', warningRed: '#B74340', sign: '#F5F5EF',
+  canvas: '#0E141A', surfaceTop: '#18222A', surfaceBottom: '#10181F',
+  shelf: '#141D24', textPrimary: '#F2F6F7', textSecondary: '#9FB0B7',
+  accent: '#35C4E0', accentSoft: '#1B3A44', detail: '#E0A23C',
+  border: '#27343D', edge: '#33434D', track: '#243039',
+  horizon: '#15222A', horizonLine: '#24404A', warningRed: '#FF5A4E', sign: '#F5F5EF',
+  accentHigh: '#8BEBFF', glow: '#1F7A90', muted: '#8A9BA3',
 });
 
 export const COCKPIT_NIGHT_TOKENS: CockpitTokens = Object.freeze({
-  canvas: '#0C1217', surfaceTop: '#172127', surfaceBottom: '#10191E',
-  shelf: '#151F25', textPrimary: '#D6E0DE', textSecondary: '#8D9FA5',
-  accent: '#8DBABC', accentSoft: '#263C40', detail: '#B4956D',
-  border: '#2B383E', edge: '#344148', track: '#2E3E44',
-  horizon: '#1A2C31', horizonLine: '#304A50', warningRed: '#C06A61', sign: '#BCCAC8',
+  canvas: '#05080B', surfaceTop: '#0D1419', surfaceBottom: '#080D11',
+  shelf: '#0B1116', textPrimary: '#DCE6E8', textSecondary: '#8698A0',
+  accent: '#2AA9C4', accentSoft: '#123039', detail: '#C48A2E',
+  border: '#1A252C', edge: '#223039', track: '#17232A',
+  horizon: '#0E1A20', horizonLine: '#1B343C', warningRed: '#E0544A', sign: '#BCCAC8',
+  accentHigh: '#5FD4EE', glow: '#0F4A58', muted: '#6F818A',
 });
 
 export function cockpitTokensFor(mode: 'day' | 'night'): CockpitTokens {
