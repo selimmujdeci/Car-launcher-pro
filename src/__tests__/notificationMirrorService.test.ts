@@ -118,6 +118,27 @@ describe('aktarım', () => {
     expect(state().notifications.map((n) => n.id)).toEqual(['m', 'c']);   // liste yine dolar
   });
 
+  it('🔒 mesaj içeriği KENDİLİĞİNDEN okunmaz; yalnız duyurulur ("Mavi, oku")', () => {
+    post({ key: 'm', category: 'message', sender: 'Ali', text: 'gizli içerik' });
+    vi.advanceTimersByTime(400);
+    const spoken = speakAssistant.mock.calls[0]?.[0] as string;
+    expect(spoken).toContain('Ali');
+    expect(spoken).toContain('Mavi oku');
+    expect(spoken).not.toContain('gizli içerik');
+  });
+
+  it('takeLatestUnreadMessage: en yeni okunmamış mesaj + kalan sayı; okundu işaretler; yoksa null', () => {
+    expect(svc.takeLatestUnreadMessage()).toBeNull();
+    post({ key: 'm1', category: 'message', sender: 'Ali', text: 'bir' });
+    post({ key: 'c', category: 'call', sender: 'Ayşe', text: 'Gelen arama' });
+    post({ key: 'm2', category: 'message', sender: 'Veli', text: 'iki' });
+    const first = svc.takeLatestUnreadMessage();
+    expect(first?.message.id).toBe('m2');
+    expect(first?.remaining).toBe(1);
+    expect(svc.takeLatestUnreadMessage()?.message.id).toBe('m1');
+    expect(svc.takeLatestUnreadMessage()).toBeNull();   // arama mesaj sayılmaz
+  });
+
   it('güvenlik kilidinde KONUŞULMAZ', () => {
     (window as unknown as Record<string, unknown>).__SAFETY_LOCK__ = true;
     post({ key: 'm', category: 'message', sender: 'Ali', text: 'selam' });

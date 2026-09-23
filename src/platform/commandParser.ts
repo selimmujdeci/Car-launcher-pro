@@ -113,7 +113,9 @@ export type CommandType =
   | 'share_location'
   // WhatsApp konum gönderimi — extra.recipient (alıcı adı) · extra.isCurrent
   // ('1' ise şu anki GPS, aksi halde extra.name kayıtlı konum adı).
-  | 'send_location_contact';
+  | 'send_location_contact'
+  // Telefon Merkezi · "Mavi, oku" — en son okunmamış mesajı okur (voiceInfoService).
+  | 'read_message';
 
 export type CommandPriority = 'critical' | 'high' | 'normal';
 
@@ -773,6 +775,23 @@ const PATTERNS: CommandPattern[] = [
   // vehicle_status — tanımı taşındı: vehicleIntents.ts (V3, aynı dizi
   // pozisyonunda; keywords/tokens/feedback BİREBİR).
   VEHICLE_STATUS_PATTERN,
+  // Telefon Merkezi · mesaj okuma (2026-09-23). Mesaj gelince Mavi içeriği
+  // KENDİLİĞİNDEN okumaz, yalnız duyurur ("Okumamı istersen, Mavi oku de");
+  // içerik bu komutla okunur. Dizinin SONUNDA durur: eşit puanda önceki kalıp
+  // kazanır → "obd oku" / "sistemi oku" araç kalıplarında kalır. Kısa 'oku' /
+  // 'okur' yalnız TAM KELİME eşleşir ("okula git" DEĞİL); token katmanı bilerek
+  // BOŞ — önek eşlemesi 'oku' → 'okula' gasbı yapardı.
+  {
+    type: 'read_message', priority: 'normal',
+    feedback: 'Mesaj okunuyor',
+    label: 'Mesajı Oku', example: 'mesajı oku',
+    keywords: [
+      'oku', 'okur', 'okusana', 'okuyabilir', 'okuyun',
+      'mesajı oku', 'mesajları oku', 'son mesajı oku', 'gelen mesajı oku', 'mesajımı oku',
+      'kim yazdı', 'kim mesaj attı', 'mesaj ne diyor',
+    ],
+    tokens: [],
+  },
 ];
 
 /* ── Text normalisation ──────────────────────────────────── */

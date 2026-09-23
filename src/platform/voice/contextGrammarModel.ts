@@ -137,6 +137,9 @@ export const VEHICLE_TYPES: readonly CommandType[] = Object.freeze([
  */
 export const ESCAPE_TYPES: readonly CommandType[] = Object.freeze([
   'navigate_home', 'open_maps', 'open_music', 'stop_music', 'hw_lock_doors',
+  /* Mesaj duyurusu HER bağlamda gelebilir (müzik/navigasyon açıkken de);
+     "Mavi, oku" dar gramerde tanınmazsa duyurunun söz verdiği eylem ölürdü. */
+  'read_message',
 ]);
 
 /** Sınıfın komut türleri (confirmation/general/wake bu haritada YOKTUR). */

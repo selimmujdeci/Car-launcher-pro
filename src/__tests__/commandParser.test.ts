@@ -352,3 +352,21 @@ describe('commandParser · hafıza cümlesi muafiyeti (SAHA 2026-09-11)', () => 
     expect(parseCommandFull('yerimi kaydet').command?.type).toBe('save_location');
   });
 });
+
+/* Telefon Merkezi · "Mavi, oku" (read_message) — kısa 'oku' tam kelime; araç
+   "oku" kalıpları ve "okula" gasp edilmez. */
+describe('read_message', () => {
+  for (const q of ['oku', 'evet oku', 'mesajı oku', 'okur musun', 'okuyabilir misin', 'kim yazdı']) {
+    it(`"${q}" → read_message`, () => {
+      expect(parseCommandFull(q).command?.type).toBe('read_message');
+    });
+  }
+  it('"okula git" → read_message DEĞİL', () => {
+    expect(parseCommandFull('okula git').command?.type).not.toBe('read_message');
+  });
+  for (const q of ['obd oku', 'sistemi oku']) {
+    it(`"${q}" → read_message DEĞİL`, () => {
+      expect(parseCommandFull(q).command?.type).not.toBe('read_message');
+    });
+  }
+});

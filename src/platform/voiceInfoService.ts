@@ -32,6 +32,7 @@ import { getEarlyWarnings } from './obd/predictionRuntime';
 import { getObdSignalHealth } from './obdService';
 import { explainEarlyWarnings } from './obd/earlyWarningEngine';
 import { getMaintenanceSummaryText } from './vehicleMaintenanceService';
+import { takeLatestUnreadMessage } from './notificationService';
 
 /* ── Bilgi sorgusu tipleri ───────────────────────────────────────────────── */
 
@@ -46,6 +47,7 @@ const INFO_TYPES = new Set<CommandType>([
   'vehicle_temp',
   'vehicle_status',
   'vehicle_maintenance',
+  'read_message',
 ]);
 
 export function isInformationalCommand(type: CommandType): boolean {
@@ -182,6 +184,17 @@ async function _speakStatus(turn: MaviTurnToken | null): Promise<void> {
   speakMaviAnswer(parts.join(', ') + '.', { turn });
 }
 
+/* ── Mesaj (Telefon Merkezi) ─────────────────────────────────────────────── */
+
+/** "Mavi, oku": en son okunmamış mesajı gönderenle okur; yoksa bunu söyler. */
+function _speakLatestMessage(turn: MaviTurnToken | null): void {
+  const taken = takeLatestUnreadMessage();
+  if (!taken) { speakMaviAnswer('Okunmamış mesajın yok.', { turn }); return; }
+  const { message, remaining } = taken;
+  const more = remaining > 0 ? ` Okunmamış ${remaining} mesaj daha var.` : '';
+  speakMaviAnswer(`${message.sender} yazdı: ${message.text}${more}`, { turn });
+}
+
 /* ── Genel giriş ─────────────────────────────────────────────────────────── */
 
 /**
@@ -198,6 +211,7 @@ export async function answerInformational(
     case 'vehicle_fuel':         _speakFuel(turn);          break;
     case 'vehicle_temp':         _speakTemp(turn);          break;
     case 'vehicle_status':       await _speakStatus(turn);  break;
+    case 'read_message':         _speakLatestMessage(turn); break;
     case 'vehicle_maintenance': {
       try {
         const summary = await getMaintenanceSummaryText();

@@ -272,7 +272,11 @@ function _addNotification(raw: RawNotification): void {
   if (shouldRead) {
     const ttsText = category === 'call'
       ? `Gelen arama: ${raw.sender}`
-      : `${raw.appName}. ${raw.sender} diyor ki: ${raw.text}`;
+      : category === 'message'
+        /* Mesaj içeriği KENDİLİĞİNDEN okunmaz (sürüşte dikkat + yolcu gizliliği):
+           yalnız duyurulur; içerik "Mavi, oku" komutuyla okunur (read_message). */
+        ? `Yeni ${raw.appName} mesajı, gönderen ${raw.sender}. Okumamı istersen, Mavi oku de.`
+        : `${raw.appName}. ${raw.sender} diyor ki: ${raw.text}`;
     setTimeout(() => _speak(ttsText), 300);
   }
 }
@@ -529,6 +533,18 @@ export async function replyToMessage(id: string, text: string): Promise<Notifica
   } catch {
     return { ok: false, reason: 'bridge_error' };
   }
+}
+
+/**
+ * "Mavi, oku": en son OKUNMAMIŞ mesajı döndürür ve okundu işaretler (liste en
+ * yeni önce). Okunacak mesaj yoksa `null` — uydurma içerik YOK.
+ */
+export function takeLatestUnreadMessage(): { message: AppNotification; remaining: number } | null {
+  const unread = _state.notifications.filter((n) => n.category === 'message' && !n.isRead);
+  const message = unread[0];
+  if (!message) return null;
+  markNotificationRead(message.id);
+  return { message, remaining: unread.length - 1 };
 }
 
 export function markAllRead(): void {
