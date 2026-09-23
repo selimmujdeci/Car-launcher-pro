@@ -249,6 +249,8 @@ const CMD_TO_INTENT: Record<CommandType, IntentType> = {
   delete_location:  'UNKNOWN',
   share_location:   'UNKNOWN',
   send_location_contact: 'UNKNOWN',
+  // Bilgi sorgusu — voiceInfoService yanıtlar (vehicle_speed gibi).
+  read_message:          'UNKNOWN',
 };
 
 /**
