@@ -223,12 +223,10 @@ describe('MAVI M1 · TTS tek otorite', () => {
    * · M1 (2026-07-28): 2 dosya.
    * · M6 (2026-07-28): `useVoiceCommandHandler._speakAndToast` bypass'ı KALDIRILDI
    *   → tek TTS otoritesine (`speakMaviAnswer` → `ttsService`) bağlandı.
-   * KALAN: `notificationService` (Mavi komut hattı DIŞINDA — bildirim okuma;
-   * ayrı borç olarak açık, bkz. M6 raporu).
+   * · 2026-09-23: `notificationService` bildirim okuması `speakAssistant`e
+   *   bağlandı → borç KAPANDI, liste boş.
    */
-  const KNOWN_TTS_BYPASS = [
-    'platform/notificationService.ts',   // window.speechSynthesis.speak
-  ].sort();
+  const KNOWN_TTS_BYPASS: string[] = [];
 
   it('ttsService dışında doğrudan konuşan dosyalar SABİT borç listesidir', () => {
     const offenders: string[] = [];

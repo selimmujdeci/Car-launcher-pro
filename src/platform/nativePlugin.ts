@@ -2065,6 +2065,18 @@ export interface CarLauncherPlugin {
    * yalnız taşıma hatası reject eder. `raw` taşınmaz (motor ham metni vermez).
    * Opsiyonel: eski plugin'de yoktur.
    */
+  /* ── Telefon Merkezi · bildirim aktarımı (NotificationMirror) ── */
+  /** Kullanıcı "Bildirim erişimi" verdi mi — ölçülür. */
+  getNotificationAccess?(): Promise<{ granted: boolean }>;
+  openNotificationAccessSettings?(): Promise<{ opened: boolean }>;
+  /** Mesajın KENDİ yanıt eylemiyle; yoksa ok:false (sahte gönderim yok). */
+  replyToNotification?(opts: { key: string; text: string }): Promise<{ ok: boolean; reason?: string }>;
+  /** Arama eylemi: ANSWER · DECLINE · HANG_UP · CALL_BACK (cevapsız aramada "Geri ara"). */
+  invokeNotificationAction?(opts: { key: string; kind: 'ANSWER' | 'DECLINE' | 'HANG_UP' | 'CALL_BACK' }): Promise<{ ok: boolean; reason?: string }>;
+  dismissNotification?(opts: { key: string }): Promise<{ ok: boolean }>;
+  /** Dinleyici kurulduktan sonra süren/çalan aramaları yeniden yayınlatır. */
+  replayActiveCallNotifications?(): Promise<{ replayed: boolean }>;
+
   clearUdsDtcs?(options: { tx: string; rx: string }): Promise<{
     tx: string;
     /** POSITIVE | NEGATIVE | NO_DATA */

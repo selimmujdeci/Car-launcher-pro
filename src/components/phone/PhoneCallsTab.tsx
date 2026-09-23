@@ -7,18 +7,19 @@
  *     yapılan ve `recordCall()` ile işaretlenen aramalar (gerçek sistem CallLog
  *     erişimi bu derlemede YOK — icat edilmez, olmayan bir yetenek UYDURULMAZ).
  *  3. Gelen arama/görüşme durumu — `notificationService` (category 'call' /
- *     'missed_call'). ── DÜRÜSTLÜK NOTU: bu kaynağın native ayağı (Android
- *     NotificationListenerService), depo taramasıyla doğrulandığı üzere, bu
- *     derlemede henüz UYGULANMADI (`MediaListenerService` yalnız
- *     MediaSessionManager için var olan bir stub'tur, bildirim OKUMAZ). Bu
- *     yüzden gerçek cihazda bu bölüm normalde boş görünür — "arama yok"
- *     ile "okuyamıyoruz" KARIŞTIRILMASIN diye bu gerçek açıkça yazılır.
+ *     'missed_call'), native `NotificationMirror` üzerinden (2026-09-23).
+ *     Cevapla/Reddet/Kapat/Geri ara YALNIZ bildirim o eylemi taşıyorsa
+ *     görünür; erişim kapalıysa "arama yok" DENMEZ, izin kartı gösterilir.
  */
 import { memo, useState } from 'react';
-import { Phone, Delete, PhoneMissed, PhoneIncoming, History } from 'lucide-react';
+import { Phone, Delete, PhoneMissed, PhoneIncoming, PhoneOff, History } from 'lucide-react';
 import { getRecentContacts, useContactsState } from '../../platform/contactsService';
-import { useNotificationState } from '../../platform/notificationService';
+import {
+  useNotificationState, hasAction, answerCall, declineCall, hangUpCall, callBack,
+  type AppNotification, type NotificationActionResult,
+} from '../../platform/notificationService';
 import { callNumber } from './phoneCallAction';
+import { NotificationAccessCard } from './NotificationAccessCard';
 
 const DIAL_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '*', '0', '#'];
 
@@ -32,13 +33,60 @@ function relativeTime(ms: number): string {
   return `${Math.floor(hr / 24)} gün önce`;
 }
 
+function CallActionBtn({ label, icon: Icon, tone, onClick, disabled }: {
+  label: string; icon: typeof Phone; tone: 'good' | 'danger'; onClick: () => void; disabled: boolean;
+}) {
+  const color = tone === 'good' ? 'var(--oem-good, #22c55e)' : 'var(--oem-danger, #ef4444)';
+  return (
+    <button onClick={onClick} disabled={disabled}
+      className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[11px] font-bold active:scale-95 transition-transform disabled:opacity-40"
+      style={{ background: 'var(--oem-surface-0)', border: `1px solid ${color}`, color }}>
+      <Icon className="w-3.5 h-3.5" /> {label}
+    </button>
+  );
+}
+
+/** Tek arama satırı — düğmeler bildirimin GERÇEK eylemlerinden türetilir. */
+const CallRow = memo(function CallRow({ n }: { n: AppNotification }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const run = async (action: (id: string) => Promise<NotificationActionResult>) => {
+    setBusy(true);
+    setError(null);
+    const res = await action(n.id);
+    setBusy(false);
+    if (!res.ok) setError(res.reason === 'notification_gone' ? 'Arama artık yok' : 'Telefon kabul etmedi — telefondan yapın');
+  };
+  const missed = n.category === 'missed_call';
+  return (
+    <div className="flex items-center gap-3 px-4 py-2.5 rounded-2xl"
+      style={{ background: 'var(--oem-surface-2)', border: '1px solid var(--oem-line)' }}>
+      {missed
+        ? <PhoneMissed className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--oem-danger, #ef4444)' }} />
+        : <PhoneIncoming className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--oem-good, #22c55e)' }} />}
+      <div className="flex-1 min-w-0">
+        <div className="text-sm font-bold truncate" style={{ color: 'var(--oem-ink)' }}>{n.sender}</div>
+        <div className="text-[11px] truncate" style={{ color: error ? 'var(--oem-danger, #ef4444)' : 'var(--oem-ink-3)' }}>
+          {error ?? (missed ? `Cevapsız · ${relativeTime(n.time)}` : (n.text || relativeTime(n.time)))}
+        </div>
+      </div>
+      <div className="flex gap-1.5 flex-shrink-0">
+        {hasAction(n, 'DECLINE') && <CallActionBtn label="Reddet" icon={PhoneOff} tone="danger" disabled={busy} onClick={() => void run(declineCall)} />}
+        {hasAction(n, 'ANSWER') && <CallActionBtn label="Cevapla" icon={Phone} tone="good" disabled={busy} onClick={() => void run(answerCall)} />}
+        {hasAction(n, 'HANG_UP') && !hasAction(n, 'ANSWER') && <CallActionBtn label="Kapat" icon={PhoneOff} tone="danger" disabled={busy} onClick={() => void run(hangUpCall)} />}
+        {missed && hasAction(n, 'CALL_BACK') && <CallActionBtn label="Geri ara" icon={Phone} tone="good" disabled={busy} onClick={() => void run(callBack)} />}
+      </div>
+    </div>
+  );
+});
+
 export const PhoneCallsTab = memo(function PhoneCallsTab() {
   const [dial, setDial] = useState('');
   // Rehber değişince (favori/son arama güncellemesi) liste tazelensin diye
   // abone olunur — asıl veri `getRecentContacts()`ten okunur.
   useContactsState();
   const recent = getRecentContacts(6);
-  const { notifications } = useNotificationState();
+  const { notifications, hasPermission } = useNotificationState();
   const callNotifs = notifications
     .filter((n) => n.category === 'call' || n.category === 'missed_call')
     .slice(0, 5);
@@ -52,26 +100,15 @@ export const PhoneCallsTab = memo(function PhoneCallsTab() {
           Gelen Arama / Görüşme Durumu
         </div>
         {callNotifs.length === 0 ? (
-          <div className="rounded-2xl px-4 py-3 text-xs leading-relaxed"
-            style={{ background: 'var(--oem-surface-2)', border: '1px solid var(--oem-line)', color: 'var(--oem-ink-3)' }}>
-            Şu an bildirilen bir arama yok. Bu cihazda bildirim yansıtma (gelen arama/mesaj
-            için Android Bildirim Dinleyici erişimi) bu sürümde etkin değil — gerçek destek
-            eklendiğinde bu alan otomatik dolacak.
-          </div>
+          hasPermission === true ? (
+            <div className="rounded-2xl px-4 py-3 text-xs leading-relaxed"
+              style={{ background: 'var(--oem-surface-2)', border: '1px solid var(--oem-line)', color: 'var(--oem-ink-3)' }}>
+              Şu an bildirilen bir arama yok.
+            </div>
+          ) : <NotificationAccessCard hasPermission={hasPermission} />
         ) : (
           <div className="flex flex-col gap-1.5">
-            {callNotifs.map((n) => (
-              <div key={n.id} className="flex items-center gap-3 px-4 py-2.5 rounded-2xl"
-                style={{ background: 'var(--oem-surface-2)', border: '1px solid var(--oem-line)' }}>
-                {n.category === 'missed_call'
-                  ? <PhoneMissed className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--oem-danger, #ef4444)' }} />
-                  : <PhoneIncoming className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--oem-good, #22c55e)' }} />}
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-bold truncate" style={{ color: 'var(--oem-ink)' }}>{n.sender}</div>
-                  <div className="text-[11px]" style={{ color: 'var(--oem-ink-3)' }}>{relativeTime(n.time)}</div>
-                </div>
-              </div>
-            ))}
+            {callNotifs.map((n) => <CallRow key={n.id} n={n} />)}
           </div>
         )}
       </div>

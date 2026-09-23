@@ -1,6 +1,6 @@
-import { memo, useCallback } from 'react';
+import { memo, useCallback, useState } from 'react';
 import {
-  Bell, BellOff, Volume2, VolumeX, Mic, MicOff,
+  Bell, BellOff, Volume2, VolumeX, Mic,
   Phone, PhoneOff, PhoneMissed, MessageCircle,
   Mail, X, CheckCheck,
 } from 'lucide-react';
@@ -10,12 +10,22 @@ import {
   startVoiceReply,
   dismissNotification,
   markAllRead,
+  markNotificationRead,
   setAutoRead,
   stopSpeaking,
+  hasAction,
+  isVoiceReplySupported,
+  answerCall,
+  declineCall,
+  hangUpCall,
+  callBack,
   type AppNotification,
   type AutoReadMode,
+  type NotificationActionResult,
   type NotificationCategory,
 } from '../../platform/notificationService';
+import { MessageQuickReplies } from '../phone/MessageQuickReplies';
+import { NotificationAccessCard } from '../phone/NotificationAccessCard';
 
 /* ── Category icon ───────────────────────────────────────── */
 
@@ -40,7 +50,25 @@ const VOICE_LABELS: Record<string, string> = {
 
 /* ── Incoming call card ──────────────────────────────────── */
 
-const IncomingCallCard = memo(function IncomingCallCard({ notif, onDismiss }: { notif: AppNotification; onDismiss: () => void }) {
+function useCallAction(id: string) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const run = useCallback(async (action: (id: string) => Promise<NotificationActionResult>) => {
+    setBusy(true);
+    setError(null);
+    const res = await action(id);
+    setBusy(false);
+    if (!res.ok) setError(res.reason === 'notification_gone' ? 'Arama artık yok' : 'Telefon kabul etmedi — telefondan yapın');
+  }, [id]);
+  return { busy, error, run };
+}
+
+/* Düğmeler bildirimin GERÇEK eylemlerinden türetilir — eylem yoksa düğme yok. */
+const IncomingCallCard = memo(function IncomingCallCard({ notif }: { notif: AppNotification }) {
+  const { busy, error, run } = useCallAction(notif.id);
+  const ringing = hasAction(notif, 'ANSWER');
+  const canDecline = hasAction(notif, 'DECLINE');
+  const canHangUp = !ringing && hasAction(notif, 'HANG_UP');
   return (
     <div className="rounded-2xl p-5 flex flex-col gap-4 animate-slide-up"
       data-editable="notifications.call-card" data-editable-type="card"
@@ -52,29 +80,49 @@ const IncomingCallCard = memo(function IncomingCallCard({ notif, onDismiss }: { 
         </div>
         <div>
           <div className="font-black text-base" style={{ color: 'var(--oem-ink)' }}>{notif.sender}</div>
-          <div className="text-xs font-medium uppercase tracking-widest" style={{ color: 'var(--oem-good, #22c55e)' }}>Gelen Arama</div>
+          <div className="text-xs font-medium uppercase tracking-widest" style={{ color: 'var(--oem-good, #22c55e)' }}>{ringing ? 'Gelen Arama' : 'Görüşme'}</div>
         </div>
         <div className="ml-auto flex items-center gap-1.5" style={{ color: 'var(--oem-good, #22c55e)' }}>
           <div className="w-1.5 h-1.5 rounded-full animate-ping" style={{ background: 'var(--oem-good, #22c55e)' }} />
           <span className="text-[10px] font-bold">AKTİF</span>
         </div>
       </div>
+      {error && (
+        <div className="text-xs font-bold" style={{ color: 'var(--oem-danger, #ef4444)' }}>{error}</div>
+      )}
       <div className="flex gap-3">
-        <button
-          onClick={onDismiss}
-          className="flex-1 h-12 flex items-center justify-center gap-2 rounded-2xl font-bold text-sm active:scale-95 transition-all"
-          style={{ background: 'var(--oem-danger-soft, rgba(239,68,68,0.15))', border: '1px solid var(--oem-danger, rgba(239,68,68,0.35))', color: 'var(--oem-danger, #ef4444)' }}
-        >
-          <PhoneOff className="w-5 h-5" />
-          Reddet
-        </button>
-        <button
-          className="flex-1 h-12 flex items-center justify-center gap-2 rounded-2xl font-bold text-sm active:scale-95 transition-all"
-          style={{ background: 'var(--oem-good-soft, rgba(34,197,94,0.15))', border: '1px solid var(--oem-good, rgba(34,197,94,0.35))', color: 'var(--oem-good, #22c55e)' }}
-        >
-          <Phone className="w-5 h-5" />
-          Cevapla
-        </button>
+        {(canDecline || canHangUp) && (
+          <button
+            onClick={() => void run(canHangUp ? hangUpCall : declineCall)}
+            disabled={busy}
+            className="flex-1 h-12 flex items-center justify-center gap-2 rounded-2xl font-bold text-sm active:scale-95 transition-all disabled:opacity-50"
+            style={{ background: 'var(--oem-danger-soft, rgba(239,68,68,0.15))', border: '1px solid var(--oem-danger, rgba(239,68,68,0.35))', color: 'var(--oem-danger, #ef4444)' }}
+          >
+            <PhoneOff className="w-5 h-5" />
+            {canHangUp ? 'Kapat' : 'Reddet'}
+          </button>
+        )}
+        {ringing && (
+          <button
+            onClick={() => void run(answerCall)}
+            disabled={busy}
+            className="flex-1 h-12 flex items-center justify-center gap-2 rounded-2xl font-bold text-sm active:scale-95 transition-all disabled:opacity-50"
+            style={{ background: 'var(--oem-good-soft, rgba(34,197,94,0.15))', border: '1px solid var(--oem-good, rgba(34,197,94,0.35))', color: 'var(--oem-good, #22c55e)' }}
+          >
+            <Phone className="w-5 h-5" />
+            Cevapla
+          </button>
+        )}
+        {!ringing && !canHangUp && (
+          <button
+            onClick={() => markNotificationRead(notif.id)}
+            className="flex-1 h-12 flex items-center justify-center gap-2 rounded-2xl font-bold text-sm active:scale-95 transition-all"
+            style={{ background: 'var(--oem-surface-2)', border: '1px solid var(--oem-line)', color: 'var(--oem-ink-2)' }}
+          >
+            <X className="w-5 h-5" />
+            Gizle
+          </button>
+        )}
       </div>
     </div>
   );
@@ -108,8 +156,10 @@ const NotificationCard = memo(function NotificationCard({
     dismissNotification(notif.id);
   }, [notif.id]);
 
+  const missedCall = useCallAction(notif.id);
+
   if (notif.category === 'call') {
-    return <IncomingCallCard notif={notif} onDismiss={handleDismiss} />;
+    return <IncomingCallCard notif={notif} />;
   }
 
   return (
@@ -181,8 +231,8 @@ const NotificationCard = memo(function NotificationCard({
           {isSpeaking ? 'Durdur' : 'Sesli Oku'}
         </button>
 
-        {/* Voice reply (messages only) */}
-        {(notif.category === 'message') && (
+        {/* Voice reply — yalnız yanıt eylemi VE tanıma motoru varsa (WebView'de yok) */}
+        {notif.category === 'message' && hasAction(notif, 'REPLY') && isVoiceReplySupported() && (
           <button
             onClick={handleReply}
             disabled={isListening}
@@ -197,16 +247,22 @@ const NotificationCard = memo(function NotificationCard({
           </button>
         )}
 
-        {/* Missed call callback hint */}
-        {notif.category === 'missed_call' && (
+        {/* Missed call — yalnız bildirim "Geri ara" eylemini taşıyorsa */}
+        {notif.category === 'missed_call' && hasAction(notif, 'CALL_BACK') && (
           <button
-            className="flex-1 h-9 flex items-center justify-center gap-1.5 rounded-xl text-xs font-bold active:scale-95 transition-all"
+            onClick={() => void missedCall.run(callBack)}
+            disabled={missedCall.busy}
+            className="flex-1 h-9 flex items-center justify-center gap-1.5 rounded-xl text-xs font-bold active:scale-95 transition-all disabled:opacity-50"
             style={{ background: 'var(--oem-good-soft)', border: '1px solid var(--oem-good, rgba(34,197,94,0.28))', color: 'var(--oem-good, #22c55e)' }}>
             <Phone className="w-3.5 h-3.5" />
             Geri Ara
           </button>
         )}
       </div>
+      {missedCall.error && (
+        <div className="mt-2 text-[11px] font-bold" style={{ color: 'var(--oem-danger, #ef4444)' }}>{missedCall.error}</div>
+      )}
+      {notif.category === 'message' && <MessageQuickReplies notif={notif} />}
     </div>
   );
 });
@@ -277,15 +333,6 @@ function NotificationCenterInner() {
         </div>
       </div>
 
-      {/* TTS / Mic not available warning */}
-      {!('speechSynthesis' in window) && (
-        <div className="rounded-xl p-3 text-xs flex items-center gap-2"
-          style={{ background: 'var(--oem-warn-soft)', border: '1px solid var(--oem-warn, rgba(245,158,11,0.3))', color: 'var(--oem-warn, #f59e0b)' }}>
-          <MicOff className="w-4 h-4 flex-shrink-0" />
-          Bu tarayıcı Sesli Okuma özelliğini desteklemiyor.
-        </div>
-      )}
-
       {/* ── Incoming calls (pinned at top) ────────────────── */}
       {calls.length > 0 && (
         <div className="flex flex-col gap-3">
@@ -329,13 +376,8 @@ function NotificationCenterInner() {
         </div>
       ) : null}
 
-      {/* Native permission notice */}
-      {ns.hasPermission === false && (
-        <div className="rounded-2xl p-4 text-sm"
-          style={{ background: 'var(--oem-danger-soft)', border: '1px solid var(--oem-danger, rgba(239,68,68,0.3))', color: 'var(--oem-danger, #ef4444)' }}>
-          Bildirim erişim izni reddedildi. Lütfen Android Ayarlar → Özel Uygulama Erişimi → Bildirim Erişimi bölümünden izin verin.
-        </div>
-      )}
+      {/* Bildirim erişimi — ölçülen durum; kapalıysa tek dokunuşla sistem sayfası */}
+      <NotificationAccessCard hasPermission={ns.hasPermission} />
     </div>
   );
 }

@@ -42,9 +42,10 @@ describe('Telefon Merkezi Faz 1 — duman testi', () => {
     expect(html).toContain('Numara Çevir');
   });
 
-  it('Mesajlar sekmesi — sahte mesaj göstermez, native erişim engelini dürüstçe açıklar', () => {
+  it('Mesajlar sekmesi — sahte mesaj göstermez; ölçülmemiş erişimi "mesaj yok" diye sunmaz', () => {
     const html = renderToStaticMarkup(<PhoneMessagesTab />);
-    expect(html).toContain('kullanılamıyor');
+    expect(html).toContain('Bildirim erişimi');
+    expect(html).not.toContain('Yeni mesaj yok');
     expect(html).not.toContain('Ahmet');
     expect(html).not.toContain('Ayşe');
   });

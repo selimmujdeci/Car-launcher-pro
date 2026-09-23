@@ -219,6 +219,16 @@ public class CarLauncherPlugin extends Plugin {
             }
         });
 
+        /* Telefon Merkezi — arama/mesaj bildirimleri (içerik loglanmaz). */
+        com.cockpitos.pro.notify.NotificationMirror.setSink(new com.cockpitos.pro.notify.NotificationMirror.Sink() {
+            @Override public void posted(JSObject data) { notifyListeners("notification", data); }
+            @Override public void removed(String key) {
+                JSObject o = new JSObject();
+                o.put("key", key);
+                notifyListeners("notificationRemoved", o);
+            }
+        });
+
         // CanBusManager'ı ForegroundService watchdog'a inject et
         CarLauncherForegroundService.setCanBusManager(canBusManager);
         // Kayıtlı CAN ID yapılandırmasını yükle
@@ -2423,6 +2433,66 @@ public class CarLauncherPlugin extends Plugin {
                 mainHandler.post(() -> call.reject("DTC_CLEAR_FAILED", msg));
             }
         }, "obd-dtc-clear-detailed").start();
+    }
+
+    /* ── Telefon Merkezi · bildirim erişimi + eylemler ───────────────────── */
+
+    /** Kullanıcı bu uygulamaya "Bildirim erişimi" verdi mi (ölçülür, varsayılmaz). */
+    @PluginMethod
+    public void getNotificationAccess(PluginCall call) {
+        JSObject ret = new JSObject();
+        ret.put("granted", androidx.core.app.NotificationManagerCompat
+            .getEnabledListenerPackages(getContext()).contains(getContext().getPackageName()));
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void openNotificationAccessSettings(PluginCall call) {
+        try {
+            Intent i = new Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS);
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            getContext().startActivity(i);
+            JSObject ret = new JSObject();
+            ret.put("opened", true);
+            call.resolve(ret);
+        } catch (Exception e) {
+            call.reject("SETTINGS_UNAVAILABLE", e.getMessage());
+        }
+    }
+
+    /** Mesaja yanıt — bildirimin kendi yanıt eylemiyle; yoksa ok:false (sahte gönderim YOK). */
+    @PluginMethod
+    public void replyToNotification(PluginCall call) {
+        call.resolve(com.cockpitos.pro.notify.NotificationMirror.reply(
+            getContext(), call.getString("key"), call.getString("text")));
+    }
+
+    /** Arama eylemi: ANSWER · DECLINE · HANG_UP. */
+    @PluginMethod
+    public void invokeNotificationAction(PluginCall call) {
+        call.resolve(com.cockpitos.pro.notify.NotificationMirror.invoke(
+            getContext(), call.getString("key"), call.getString("kind")));
+    }
+
+    /** JS dinleyicisi kurulduktan sonra süren/çalan aramaları yeniden aktarır. */
+    @PluginMethod
+    public void replayActiveCallNotifications(PluginCall call) {
+        MediaListenerService svc = MediaListenerService.instance;
+        if (svc != null) svc.replayActiveCalls();
+        JSObject ret = new JSObject();
+        ret.put("replayed", svc != null);
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void dismissNotification(PluginCall call) {
+        MediaListenerService svc = MediaListenerService.instance;
+        String key = call.getString("key");
+        JSObject ret = new JSObject();
+        if (svc == null || key == null) { ret.put("ok", false); call.resolve(ret); return; }
+        try { svc.cancelNotification(key); ret.put("ok", true); }
+        catch (Exception e) { ret.put("ok", false); }
+        call.resolve(ret);
     }
 
     /**

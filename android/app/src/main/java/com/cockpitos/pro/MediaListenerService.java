@@ -18,8 +18,10 @@ import com.cockpitos.pro.media.MediaManager;
  *   3. CarLauncherPlugin, getMediaInfo() çağrısında instance üzerinden
  *      ComponentName'i MediaSessionManager'a verir.
  *
- * NOT: Bu servis bildirimleri OKUMAZ. Sadece MediaSessionManager'a
- * "güvenilir bileşen" kaydı için var.
+ * Telefon Merkezi (2026-09-23): AYNI izinle arama · cevapsız arama · mesaj
+ * bildirimleri {@link com.cockpitos.pro.notify.NotificationMirror} üzerinden JS'e
+ * aktarılır (diğer kategoriler aktarılmaz, içerik loglanmaz/diske yazılmaz).
+ * Yeni izin ya da ikinci bir dinleyici servisi KURULMADI.
  */
 public class MediaListenerService extends NotificationListenerService {
 
@@ -33,9 +35,40 @@ public class MediaListenerService extends NotificationListenerService {
     @Override
     public void onListenerConnected() {
         instance = this;
+        replayActiveCalls();
         // Plugin yüklüyse, OnActiveSessionsChangedListener'ı şimdi attach et —
         // böylece müzik halihazırda çalıyorsa anında metadata UI'a düşer.
         try { MediaManager.getInstance(this).attachMediaSessionsListener(); } catch (Throwable ignored) {}
+    }
+
+    /**
+     * Uygulama bir görüşme sırasında (yeniden) başladıysa süren arama kartı
+     * kaybolmasın: YALNIZ aktif arama bildirimleri yeniden aktarılır — eski
+     * mesajlar tekrar okunmasın diye mesajlar replay EDİLMEZ. JS dinleyicisi
+     * kurulduktan sonra da çağrılır (servis ondan önce bağlanmış olabilir).
+     */
+    public void replayActiveCalls() {
+        try {
+            android.service.notification.StatusBarNotification[] active = getActiveNotifications();
+            if (active != null) {
+                for (android.service.notification.StatusBarNotification sbn : active) {
+                    android.app.Notification n = sbn.getNotification();
+                    if (n != null && android.app.Notification.CATEGORY_CALL.equals(n.category)) {
+                        com.cockpitos.pro.notify.NotificationMirror.onPosted(sbn, getPackageManager(), getPackageName());
+                    }
+                }
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    @Override
+    public void onNotificationPosted(android.service.notification.StatusBarNotification sbn) {
+        com.cockpitos.pro.notify.NotificationMirror.onPosted(sbn, getPackageManager(), getPackageName());
+    }
+
+    @Override
+    public void onNotificationRemoved(android.service.notification.StatusBarNotification sbn) {
+        com.cockpitos.pro.notify.NotificationMirror.onRemoved(sbn);
     }
 
     @Override
