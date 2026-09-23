@@ -19,6 +19,10 @@ import { _resetMusicIndexForTest, getMusicLibrarySnapshot, reconcileMusicIndex }
 import type { LocalMusicTrack } from '../platform/localMusicService';
 import type { CanonicalMediaIdentity } from '../platform/media/session/mediaIdentityMatching';
 import type { AiHttpResponse } from '../platform/ai/nativeHttp';
+import {
+  _resetConnectivityAuthorityForTest, ingestConnectivityEvidence,
+} from '../platform/connectivity/connectivityAuthority';
+import { evidenceFromFacts } from '../platform/connectivity/connectivityEvidence';
 
 const identity = (over: Partial<CanonicalMediaIdentity> = {}): CanonicalMediaIdentity => ({
   libraryId: null, providerId: null, providerNamespace: null, contentUri: null,
@@ -93,7 +97,9 @@ describe('LRCLIB · ağ sonucu sınıflandırması', () => {
 describe('otorite · internet yedeği', () => {
   const found: LyricsLookupOutcome = { kind: 'FOUND', lyrics: { synced: parseLrc(LRC), plain: null } };
 
-  beforeEach(() => { _resetMusicLyricsAuthorityForTest(); _resetMusicIndexForTest(); });
+  beforeEach(() => {
+    _resetMusicLyricsAuthorityForTest(); _resetMusicIndexForTest(); _resetConnectivityAuthorityForTest();
+  });
   afterEach(() => { vi.unstubAllGlobals(); });
 
   it('🔒 yerel dosyada gömülü söz yoksa internetten gelir; diske YAZILMAZ', async () => {
@@ -120,7 +126,7 @@ describe('otorite · internet yedeği', () => {
     expect(nativeCalled).toBe(false);
   });
 
-  it('🔒 internet yoksa "bulunamadı" DENMEZ; bağlantı gelince yeniden denenir', async () => {
+  it('🔒 internet yoksa "bulunamadı" DENMEZ; bağlantı otoritesi hükmü değiştirince yeniden denenir', async () => {
     vi.stubGlobal('navigator', { onLine: false });
     const lookup = vi.fn(async () => found);
     _setOnlineLyricsLookupForTest(lookup);
@@ -131,7 +137,14 @@ describe('otorite · internet yedeği', () => {
     expect(peekLyrics(id).reason).toBe('RETRY_LATER');
 
     vi.stubGlobal('navigator', { onLine: true });
-    window.dispatchEvent(new Event('online'));
+    /* Kanonik bağlantı otoritesi hükmü değiştirir (Android ağ geri çağrısı: doğrulanmış internet). */
+    ingestConnectivityEvidence(evidenceFromFacts({
+      source: 'ANDROID_NETWORK_CALLBACK', observedAt: Date.now(), continuous: true,
+      facts: {
+        present: true, transport: 'WIFI', hasInternetCapability: true, validated: true,
+        captivePortal: false, metered: false, downstreamKbps: 8_000, upstreamKbps: 2_000,
+      },
+    }));
     await vi.waitFor(() => expect(peekLyrics(id).availability).toBe('AVAILABLE'));
     expect(lookup).toHaveBeenCalledTimes(1);
   });

@@ -42,6 +42,8 @@ import {
 } from './musicLyricsTelemetry';
 
 import { buildLyricsQuery, lookupLrclib, type LyricsLookupOutcome, type LyricsLookupQuery } from './lrclibProvider';
+import { allowsConnectivity } from '../../connectivity/connectivityGate';
+import { subscribeConnectivity } from '../../connectivity/connectivityAuthority';
 
 const STORAGE_KEY = 'caros.music.f16.lyrics.v1';
 
@@ -115,24 +117,27 @@ const RETRY_RESULT: LyricsQueryResult = Object.freeze({ availability: 'UNAVAILAB
 
 /* ── İnternet sağlayıcısı (LRCLIB) — yalnız gömülü söz YOKSA ─────────────────
    Bağlantı yoksa kalıcı NEGATİF yazılmaz: kimlik bekleme listesine alınır ve
-   tarayıcının `online` olayında BİR KEZ yeniden sorulur (timer/polling YOK). */
+   kanonik bağlantı otoritesi (F7) hükmü değiştirdiğinde BİR KEZ yeniden
+   sorulur (timer/polling YOK). "İnternet var mı" kararı bu modülde VERİLMEZ:
+   iş sınıfı `LIGHTWEIGHT_INTERNET` olarak beyan edilir, karar kapıdadır. */
 const MAX_RETRY_LATER = 5;
 const _retryLater = new Map<string, { identity: CanonicalMediaIdentity; sourceClass: SourceClass | null }>();
 const _inflight = new Map<string, Promise<LyricsQueryResult>>();
 let _onlineLookup: ((q: LyricsLookupQuery) => Promise<LyricsLookupOutcome>) | null = null;
-let _onlineListenerInstalled = false;
+let _connectivityUnsub: (() => void) | null = null;
 
 /** Test/DI dikişi — gerçek ağ çağrısı yerine geçer. */
 export function _setOnlineLyricsLookupForTest(fn: typeof _onlineLookup): void { _onlineLookup = fn; }
 
-function isOnline(): boolean {
-  return typeof navigator === 'undefined' || navigator.onLine !== false;
+/** Küçük, tekrar denenebilir bulut isteği — karar kanonik bağlantı kapısında. */
+function canFetchLyrics(): boolean {
+  return allowsConnectivity('LIGHTWEIGHT_INTERNET');
 }
 
-function installOnlineListener(): void {
-  if (_onlineListenerInstalled || typeof window === 'undefined') return;
-  _onlineListenerInstalled = true;
-  window.addEventListener('online', () => {
+function installConnectivityRetry(): void {
+  if (_connectivityUnsub) return;
+  _connectivityUnsub = subscribeConnectivity(() => {
+    if (_retryLater.size === 0 || !canFetchLyrics()) return;
     const pending = [..._retryLater.values()];
     _retryLater.clear();
     notify();
@@ -148,7 +153,7 @@ function retryLater(key: string, identity: CanonicalMediaIdentity, sourceClass: 
     if (oldest.done) break;
     _retryLater.delete(oldest.value);
   }
-  installOnlineListener();
+  installConnectivityRetry();
   notify();
   return RETRY_RESULT;
 }
@@ -165,7 +170,7 @@ async function tryOnline(
 ): Promise<LyricsQueryResult> {
   const q = buildLyricsQuery(identity);
   if (!q) return notFound(key, nowMs);
-  if (!isOnline()) return retryLater(key, identity, sourceClass);
+  if (!canFetchLyrics()) return retryLater(key, identity, sourceClass);
   const out = await (_onlineLookup ?? lookupLrclib)(q);
   if (out.kind === 'RETRY') return retryLater(key, identity, sourceClass);
   if (out.kind === 'NOT_FOUND') return notFound(key, nowMs);
@@ -344,5 +349,6 @@ export function _resetMusicLyricsAuthorityForTest(): void {
   _onlineLookup = null;
   _retryLater.clear();
   _inflight.clear();
+  if (_connectivityUnsub) { _connectivityUnsub(); _connectivityUnsub = null; }
   try { safeStorage.removeItem(STORAGE_KEY); } catch { /* test ortamı — yoksay */ }
 }
