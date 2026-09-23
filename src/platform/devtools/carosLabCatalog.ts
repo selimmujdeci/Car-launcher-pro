@@ -54,7 +54,7 @@ export const CAROS_LAB_STATUS_LABEL: Readonly<Record<CarosLabToolStatus, string>
 
 export type CarosLabToolId =
   // Vehicle
-  | 'live-data' | 'pid-did-explorer' | 'signal-authority' | 'fleet-kb' | 'service-routines'
+  | 'live-data' | 'pid-did-explorer' | 'did-learning' | 'signal-authority' | 'fleet-kb' | 'service-routines'
   | 'fleet-connectivity' | 'trip-engine' | 'trip-cost'
   | 'location-engine' | 'navigation-core' | 'map-data-platform'
   | 'address-search-evidence' | 'enforcement-points'
@@ -135,6 +135,12 @@ export const CAROS_LAB_TOOLS: readonly CarosLabTool[] = Object.freeze([
   {
     id: 'pid-did-explorer', category: 'vehicle', name: 'PID/DID Gezgini',
     desc: 'Salt-okunur PID/DID keşif koordinatörü: aday tarama, doğrulanan/şüpheli/reddedilen sayaçları.',
+    status: 'AVAILABLE', layer: 'Mode 22 / DID',
+    note: null,
+  },
+  {
+    id: 'did-learning', category: 'vehicle', name: 'DID Öğrenme',
+    desc: 'Her araçta otomatik üretici-DID keşfi: maske zinciri sayımı (parkta), bütçeli örnekleme, standart sinyallerle kanıtlı anlamlandırma.',
     status: 'AVAILABLE', layer: 'Mode 22 / DID',
     note: null,
   },

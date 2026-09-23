@@ -48,6 +48,7 @@ import {
 }                                  from '../vehicleDataLayer';
 import { dispatchSpeedLimitExceeded } from '../vehicleDataLayer/VehicleEventHub';
 import { startAutoDidWatcher }     from '../obd/autoDidDiscovery';
+import { startDidLearningWatcher } from '../obd/discovery/discoveryLive';
 import { startEarlyIdentityWatcher } from '../obd/identity/earlyIdentityRuntime';
 import { startSystemOrchestrator } from './SystemOrchestrator';
 import { startPlatformCoreVehicleHalWiring } from './platformCoreVehicleHalWiring';
@@ -903,6 +904,13 @@ class SystemBoot {
     // Sağlık bozulursa abort → çekirdek poll'u (RPM) boğmaz. Fail-soft; salt-okuma.
     _log('  › Auto DID discovery watcher');
     this._reg(gen, startAutoDidWatcher());
+
+    /* Otomatik DID ÖĞRENME (2026-09-23): her araçta maske zinciriyle üretici DID'lerini
+     * sayar (yalnız parkta), bütçeli örnekler ve standart sinyallerle KANITLI eşleşeni
+     * "Marka verileri"ne ekler. Aktif tarama otoritesi discoveryLive'dır (deepScanAuthority).
+     * Salt-okuma (servis 22); fail-soft; CAROS LAB'dan kapatılabilir. */
+    _log('  › DID learning watcher');
+    this._reg(gen, startDidLearningWatcher());
 
     /* P0-VDK-F5H — ERKEN ARAÇ KİMLİĞİ. Tam araç taramasını BEKLEMEDEN, bağlantı
      * kısa süre kesintisiz sağlıklı olunca en çok ÜÇ salt-okunur kimlik DID'i
