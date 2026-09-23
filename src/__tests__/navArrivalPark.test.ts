@@ -27,7 +27,7 @@ const at = (ms: number, lat: number, lon: number) => { now = ms; updateNavigatio
 
 beforeEach(() => {
   vi.spyOn(performance, 'now').mockImplementation(() => now);
-  startNavigation(dest, false, 'USER');
+  startNavigation(dest, false, 'USER_SEARCH');
   activateNavigation();
   at(0, 40.99, 29.0);                      // başlangıç, 1,1 km
 });
@@ -65,5 +65,34 @@ describe('bilinmeyen hız', () => {
     });
     for (let t = 1_000; t <= 21_000; t += 1_000) at(t, PARK.lat, PARK.lon);
     expect(getNavigationState().status).toBe(NavStatus.ARRIVED);
+  });
+});
+
+describe('sürüşte hedef değişimi', () => {
+  it('🔒 eski hedefin ETA/mesafesi taşınmaz; yeni ETA yazılır', async () => {
+    const { writeActiveRoute, updateRouteProgress, clearRoute } = await import('../platform/routingService');
+    const drive = (id: string) => {
+      startNavigation({ ...dest, id }, false, 'USER_SEARCH');
+      activateNavigation();
+      writeActiveRoute({ geometry: geom, distanceM: 1100, durationS: 120 });
+      useUnifiedVehicleStore.setState({
+        speed: 40,
+        location: { latitude: 40.995, longitude: 29.0, accuracy: 5, heading: 0, speed: 11, timestamp: Date.now() },
+      });
+      now += 10_000;
+      updateRouteProgress(40.995, 29.0);
+      updateNavigationProgress(40.995, 29.0, 0, geom);
+      return getNavigationState().etaSeconds;
+    };
+    const first = drive('a');
+    expect(first).toBeGreaterThan(0);
+    // Hedef değişti (stop çağrılmadan): ESKİ hedefin ETA/mesafesi taşınmaz…
+    startNavigation({ ...dest, id: 'b', latitude: 41.01 }, false, 'USER_SEARCH');
+    expect(getNavigationState().etaSeconds).toBeUndefined();
+    expect(getNavigationState().distanceMeters).toBeUndefined();
+    // …ve yeni oturumun ETA'sı (eskisine çok yakın olsa da) yazılır.
+    const second = drive('b');
+    expect(second).toBeGreaterThan(0);
+    clearRoute();
   });
 });

@@ -149,6 +149,11 @@ const useNavigationStore = create<NavigationStore>((set) => ({
     destination,
     isOfflineResult: isOffline,
     errorMessage: undefined,
+    /* Yeni hedefte ESKİ hedefin ETA/mesafesi GÖSTERİLMEZ (sürüşte hedef
+       değişince stop çağrılmıyor ve bu değerler taşınıyordu). */
+    etaSeconds: undefined,
+    distanceMeters: undefined,
+    distanceSource: undefined,
   }),
 
   updateDistance: (distance, source) => set({ distanceMeters: distance, distanceSource: source }),
@@ -420,6 +425,8 @@ export function startNavigation(
   // Yeni hedef → yeni oturum; önceki oturumun istek sahipliği düşer.
   _sessionId += 1;
   _routeClaim = null;
+  _resetSessionEtaState();
+  _lastPersistedStepIdx = -1;   // eski rotanın adım mührü yeni oturuma taşınmaz
   const op = `nav:${_sessionId}:${destination.id}`;
   _commandEvidence.record({ id: `${op}:request`, kind: 'COMMAND', name: 'navigation.destination.set', source, target: 'navigationService', operationId: op, correlationId: op, sessionId: String(_sessionId), generation: _sessionId, nowMs: Date.now() });
   useNavigationStore.getState().setDestination(destination, isOffline);
@@ -542,11 +549,7 @@ export function stopNavigation(): void {
   useNavigationStore.getState().clearNavigation();
   clearRerouteContext();
   // Per-session izleme state'ini sıfırla — sonraki navigasyon temiz başlar
-  _speedHistory.length    = 0;
-  _stopStartMs            = null;
-  _prevAppliedEtaFactor   = null;   // #551 — yeni oturum çarpanı serbest yakalar
-  _lastEtaUpdateMs        = -ETA_HYSTERESIS_MS;
-  _lastStoredEtaS         = 0;
+  _resetSessionEtaState();
   _lastRouteDistanceM     = Infinity;
   _lastGeoHash            = '';
   _lastClosestSegIdx      = -1;
@@ -562,6 +565,22 @@ export function stopNavigation(): void {
   _lastSnappedSegBearing  = null;
   _lastOffRouteM          = Infinity;
   corridorSync.stop();
+}
+
+/**
+ * Oturum başına ETA izleme durumu. Hem `stopNavigation` hem YENİ oturum
+ * (`startNavigation`) sıfırlar: sürüş sırasında hedef değişince stop ÇAĞRILMAZ
+ * (ACTIVE → PREVIEW → ACTIVE) ve eskiden önceki rotanın hız geçmişi, düzeltme
+ * çarpanı ve son yazılan ETA yeni rotaya taşınıyordu — yeni ETA eskisine 5 sn'den
+ * yakınsa store'a HİÇ yazılmıyor, sıçrama defterine de sahte bir sıçrama düşüyordu.
+ */
+function _resetSessionEtaState(): void {
+  _speedHistory.length    = 0;
+  _stopStartMs            = null;
+  _prevAppliedEtaFactor   = null;   // #551 — yeni oturum çarpanı serbest yakalar
+  _lastEtaUpdateMs        = -ETA_HYSTERESIS_MS;
+  _lastStoredEtaS         = 0;
+  _prevEtaSample          = null;
 }
 
 /**

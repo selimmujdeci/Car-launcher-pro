@@ -60,7 +60,7 @@ describe('500 m yakınlık uyarısı', () => {
   beforeEach(() => { M.spoken.length = 0; stopNavigation(); });
 
   const drive = () => {
-    startNavigation(dest, false, 'USER');
+    startNavigation(dest, false, 'USER_SEARCH');
     activateNavigation();
     updateNavigationProgress(41.01, 29.0, 0, geom);    // ~1,1 km
     updateNavigationProgress(41.004, 29.0, 0, geom);   // ~445 m
@@ -81,7 +81,7 @@ describe('500 m yakınlık uyarısı', () => {
 
   it('🔒 yolculuk 500 m içinden başladıysa "500 metrede" denmez', () => {
     setSteps([step]);
-    startNavigation(dest, false, 'USER');
+    startNavigation(dest, false, 'USER_SEARCH');
     activateNavigation();
     updateNavigationProgress(41.003, 29.0, 0, geom);   // ~330 m
     stopNavigation();

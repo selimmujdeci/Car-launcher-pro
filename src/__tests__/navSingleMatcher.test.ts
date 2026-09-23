@@ -28,7 +28,7 @@ afterEach(() => { stopNavigation(); clearRoute(); });
 describe('tek eşleştirme otoritesi', () => {
   it('🔒 kuzeye giden araç, dönüş şeridine daha yakın olsa da GİDİŞ bacağında sayılır', () => {
     writeActiveRoute({ geometry: geom, distanceM: 2250, durationS: 200 });
-    startNavigation({ id: 'm1', name: 'M', latitude: 41.0, longitude: 29.0003, type: 'history' as const }, false, 'USER');
+    startNavigation({ id: 'm1', name: 'M', latitude: 41.0, longitude: 29.0003, type: 'history' as const }, false, 'USER_SEARCH');
     activateNavigation();
 
     // Araç gidiş bacağında, kuzeye 60 km/s; GPS noktası doğuya kaymış (dönüş şeridine 8 m, gidişe 17 m).
