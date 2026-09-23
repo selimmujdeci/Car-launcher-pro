@@ -119,6 +119,23 @@ let _lastMismatchMs = 0;
 const MISMATCH_WINDOW_MS = 10_000;
 let _lastNotifyMs   = 0;
 let _initialized    = false;
+/** Dinleyicilere EN SON iletilen görüntü — "değişti mi" bununla ölçülür. */
+let _lastNotified: FusedSpeedData | null = null;
+/** Kısıcı penceresine düşen değişimi pencere sonunda ileten tek atış. */
+let _trailingTimer: ReturnType<typeof setTimeout> | null = null;
+
+function _sameAsNotified(): boolean {
+  const p = _lastNotified;
+  return p !== null && p.speed === _fused.speed && p.source === _fused.source
+    && p.plausibilityWarning === _fused.plausibilityWarning && p.confidence === _fused.confidence;
+}
+
+function _notifyListeners(nowMs: number): void {
+  _lastNotifyMs = nowMs;
+  _lastNotified = { ..._fused };
+  const snap = { ..._fused };
+  _listeners.forEach((fn) => fn(snap));
+}
 
 // ── Histerezis & Kalibrasyon durumu ──────────────────────────────────────
 /** true iken GPS kaynak kilidinde — geri dönmek için düşük eşik gerekli */
@@ -249,26 +266,30 @@ function _computeAndNotify(): void {
   // Ham değer — EMA yok, anlık hız
   const smoothed = Math.max(0, Math.round(raw));
 
-  const prev = _fused;
   _fused = {
     speed: smoothed, source, obdRaw: _lastObd, gpsRaw: _lastGpsKmh,
     plausibilityWarning: warn, confidence, calibrationOffset: _calibOffset,
   };
 
-  // Throttle: listener'ları max 2 Hz'de bilgilendir
-  if (now - _lastNotifyMs < NOTIFY_THROTTLE_MS) return;
-
-  // Değer gerçekten değişmediyse bildirim gönderme
-  if (
-    prev.speed === smoothed &&
-    prev.source === source  &&
-    prev.plausibilityWarning === warn &&
-    prev.confidence === confidence
-  ) return;
-
-  _lastNotifyMs = now;
-  const snap = { ..._fused };
-  _listeners.forEach((fn) => fn(snap));
+  /* SAHA 2026-09-23: karşılaştırma önceki HESAPLA yapılıyordu ve kısıcı
+     penceresine düşen değişim düşürülüyordu. Değer sonra sabit kalınca (araç
+     durunca 0 · OBD bağlanınca "kaynak yok → obd") o değişim BİR DAHA HİÇ
+     iletilmiyordu → hıza bağlı ses açılışta "kaynak yok" örneğinde takılı
+     kaldı (araçta ölçüldü). Artık karşılaştırma SON BİLDİRİLENLE yapılır ve
+     pencereye düşen değişim pencere sonunda bir kez iletilir (bayat → güncel
+     görünümü yok; kısıcı yalnız sıklığı sınırlar). */
+  if (_sameAsNotified()) return;
+  const wait = NOTIFY_THROTTLE_MS - (now - _lastNotifyMs);
+  if (wait > 0) {
+    if (_trailingTimer === null) {
+      _trailingTimer = setTimeout(() => {
+        _trailingTimer = null;
+        if (!_sameAsNotified()) _notifyListeners(Date.now());
+      }, wait);
+    }
+    return;
+  }
+  _notifyListeners(now);
 }
 
 /* ── Abonelik başlatma (lazy, bir kez) ─────────────────────── */
@@ -334,6 +355,8 @@ if (import.meta.hot) {
     _cleanupObd?.();
     _cleanupGps?.();
     _listeners.clear();
+    if (_trailingTimer) { clearTimeout(_trailingTimer); _trailingTimer = null; }
+    _lastNotified  = null;
     _initialized   = false;
     _gpsSourceLock = false;
     _diffHistory   = [];
