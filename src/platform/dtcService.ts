@@ -821,12 +821,14 @@ function isClearCommandOutcome(v: unknown): v is DtcClearCommandOutcome {
 /**
  * UDS 0x14 yolunun SAHA doğrulaması — YALNIZ UDS 0x19 kaynağı × CAN protokolü.
  *
- * KAPALI (fail-closed): komut henüz gerçek bir ECU'ya GÖNDERİLMEDİ. Açılması için
- * gereken kanıt: gerçek araçta bir ECU'ya 0x14 → pozitif yanıt → 19-02 yeniden
- * okumasında arıza bitleri temiz. O ölçüm alınana kadar bu değer `true` YAPILMAZ.
+ * AÇIK — saha kanıtı 2026-09-23 (kütük #1330): gerçek araçta şanzıman ECU'suna
+ * (fiziksel 7E1, CAN protokol 6, V-LINK ELM327) 0x14 → pozitif yanıt → 19-02
+ * yeniden okumasında kod yok; bağımsız tam taramada U1225/U1226 GÖRÜNMEDİ
+ * (üretici kod sayısı 67 → 65). Yazma kapısı · yetki · iki adımlı onay ·
+ * fiziksel başlık · TOCTOU · yeniden-okuma hükmü AYNEN geçerlidir.
  * K-line/KWP yolu bundan bağımsız olarak kapalı kalır (CAN dışı protokol).
  */
-let _udsCanClearFieldVerified = false;
+let _udsCanClearFieldVerified = true;
 
 /** Ürün bu yolu açık sayıyor mu — UI düğmeyi yalnız o zaman gösterir. */
 export function isUdsClearPathFieldVerified(): boolean { return _udsCanClearFieldVerified; }

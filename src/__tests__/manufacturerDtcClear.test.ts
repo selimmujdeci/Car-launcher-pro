@@ -61,7 +61,7 @@ beforeEach(async () => {
 afterEach(() => { _setSecurityContextForTest(null); _setUdsClearFieldVerifiedForTest(false); });
 
 describe('üretici DTC silme — UDS 0x14 zinciri', () => {
-  it('🔒 KİLİT: yol SAHADA doğrulanmadıysa (ürün varsayılanı) komut GİTMEZ', async () => {
+  it('🔒 KİLİT: yol kapalıysa (saha kanıtı geri çekilirse) komut GİTMEZ', async () => {
     _setUdsClearFieldVerifiedForTest(false);
     programReads(TCM_CONFIRMED);
     const r = await clearManufacturerDtcs({ ...TCM, confirmed: true });
