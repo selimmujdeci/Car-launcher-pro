@@ -32,6 +32,7 @@ import { recordRecovery, recordRecoverySucceeded } from './mediaAuthorityEvidenc
 import { recordMediaEvent } from './mediaAuthorityEvents';
 import { configureQueueRecovery, runQueueRecovery } from './queueRecoveryRuntime';
 import { derivePlaybackErrorNotice } from './playbackErrorNotice';
+import { useStore } from '../../../store/useStore';
 import { showToast } from '../../errorBus';
 /* F3.2 — CANLI gözlenen kuyruk kanıtı. Bu iki modül SAF/tipsel ağırlıktadır
    (I/O yok, UI yok); statik import ana paket bütçesini etkilemez ve yayının
@@ -223,11 +224,14 @@ function persistNow(): void {
 }
 
 /**
- * Process-death kurtarması. Kuyruk YÜKLENİR ama ÇALMAZ — kullanıcı play'e
- * basana kadar araçta beklenmedik ses çıkmaz.
+ * Process-death kurtarması. Varsayılan: kuyruk YÜKLENİR ama ÇALMAZ. Kullanıcı
+ * "açılışta devam" ayarını açtıysa ve müzik çalarken kapandıysa kaldığı yerden
+ * çalar (karar `decideRecovery`de, tek yerde).
  */
 async function runRecovery(): Promise<void> {
-  const decision = decideRecovery(readPersistedRaw(), Date.now());
+  const decision = decideRecovery(readPersistedRaw(), Date.now(), {
+    resumeIfWasPlaying: useStore.getState().settings.resumeMusicOnStart === true,
+  });
   if (decision.action === 'NONE') {
     if (decision.reason === 'corrupt_json' || decision.reason === 'corrupt_shape') {
       clearPersistedState();   // bozuk kayıt fail-soft silinir
@@ -245,7 +249,7 @@ async function runRecovery(): Promise<void> {
     items: decision.state.items,
     startIndex: decision.state.currentIndex,
     positionMs: decision.state.positionMs,
-    autoPlay: false,   // ASLA otomatik çalma
+    autoPlay: decision.autoPlay,   // yalnız açık kullanıcı tercihiyle true
   });
 
   /* Kurtarma TAMAMLANDI → deneme sayacı sıfırlanır.

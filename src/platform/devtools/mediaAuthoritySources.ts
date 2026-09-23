@@ -490,7 +490,10 @@ export function readMediaAuthoritySnapshot(): MediaAuthorityRawSnapshot {
     const decision = decideRecovery(readPersistedRaw(), readAt);
     return decision.action === 'NONE'
       ? { label: `YOK (${decision.reason})`, count: null as number | null }
-      : { label: 'DURAKLATILMIŞ GERİ YÜKLEME', count: decision.state.items.length };
+      : {
+        label: decision.action === 'RESTORE_PLAYING' ? 'ÇALARAK GERİ YÜKLEME' : 'DURAKLATILMIŞ GERİ YÜKLEME',
+        count: decision.state.items.length,
+      };
   }, { label: 'OKUNAMADI', count: null as number | null });
 
   /* Kuyruk uzlaştırma. GİRDİ: native'e GÖNDERİLEN pencere (UI'nin tamamı DEĞİL).

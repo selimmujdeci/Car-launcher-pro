@@ -226,6 +226,8 @@ export interface AppSettings {
   vehicleProfiles: VehicleProfile[];
   activeVehicleProfileId: string | null;
   autoNavOnStart: boolean;
+  /** Açılışta, kapanmadan önce ÇALAN ve kullanıcının DURAKLATMADIĞI müziğe devam et (varsayılan kapalı). */
+  resumeMusicOnStart: boolean;
   activeMediaSourceKey: string;
   musicFavorites: MusicFavorite[];
   /** Kullanıcının eklediği özel müzik kaynakları (internet akışı / radyo) — uygulama içinde çalar */
@@ -405,6 +407,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   vehicleProfiles: [],
   activeVehicleProfileId: null,
   autoNavOnStart: false,
+  resumeMusicOnStart: false,
   activeMediaSourceKey: 'spotify',
   musicFavorites: [],
   customMusicSources: [],

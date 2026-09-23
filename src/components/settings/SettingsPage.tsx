@@ -1143,6 +1143,8 @@ function AboutTabContent() {
 function SoundTabContent({ drivingMode }: { drivingMode: DrivingMode }) {
   /* F6: tek DSP otoritesinin projeksiyonu. Bu sekme kendi ses gerçeğini
      tutmaz ve desteklenmeyen bir kontrolü "kapalı" diye çizmez. */
+  const resumeMusicOnStart = useStore((s) => s.settings.resumeMusicOnStart === true);
+  const updateSettings = useStore((s) => s.updateSettings);
   return (
     <>
       <SettingsHero
@@ -1152,6 +1154,14 @@ function SoundTabContent({ drivingMode }: { drivingMode: DrivingMode }) {
       />
       <div className="grid gap-4" style={{ gridTemplateColumns: '1fr', maxWidth: 720, margin: '0 auto' }}>
         <AudioExperiencePanel drivingMode={drivingMode} />
+        <PremiumToggle
+          icon={Volume2}
+          label="Açılışta müziğe devam et"
+          desc="Kapanırken çalan müzik kaldığı yerden sürer. Duraklattığınız müzik kendiliğinden başlamaz."
+          value={resumeMusicOnStart}
+          onChange={(v) => updateSettings({ resumeMusicOnStart: v })}
+          accent="#a78bfa"
+        />
         <SettingTile icon={Volume2} title="Uyarı Tonları"
           sub="Şerit ihlali, hız limiti, kapı uyarıları için özelleştirilebilir tonlar."
           control={<div className="text-[13px] font-bold" style={{ color: 'var(--oem-ink-2, rgba(240,235,224,0.74))' }}>OEM Varsayılan</div>} />
