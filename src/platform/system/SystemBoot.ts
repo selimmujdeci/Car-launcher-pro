@@ -1290,6 +1290,17 @@ class SystemBoot {
       _log('  › PhoneLink ProductBoot — companion kapalı (ürün kararı)');
     }
 
+    // Görüşme sürerken müzik SUSAR — kanonik 'PHONE' duck'ı (duckPolicy +
+    // CarosAudioFocusManager). Tek sinyal arama bildirimidir. DİNAMİK import:
+    // bildirim servisi grafiği SystemBoot tüketicilerine taşınmasın. Düşerse
+    // susma olmaz; müzik ve bildirimler ETKİLENMEZ (fail-soft).
+    try {
+      const { startPhoneCallDuck } = await import('../phoneCallDuck');
+      this._regNamed(gen, 'phone-call-duck', startPhoneCallDuck());
+    } catch (e) {
+      logError('SystemBoot:phoneCallDuck', e);
+    }
+
     // Mavi Çekirdeği Faz-2 wiring (SHADOW/coexistence). WakeWordService + VoiceService'ten SONRA
     // kaydedilir → LIFO shutdown'da bunlardan ÖNCE dispose olur (köprü kapanırken voiceService
     // komut akışı hâlâ ayakta). Model A: pilot handler'lar no-op → mevcut komut davranışı DEĞİŞMEZ,

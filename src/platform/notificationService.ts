@@ -259,7 +259,9 @@ function _addNotification(raw: RawNotification): void {
   /* Auto-read: yalnız YENİ içerik; arama yalnız ÇALARKEN (cevaplanabilirken)
      duyurulur — süren görüşmenin her güncellemesinde tekrar okunmaz. */
   const ringing = category !== 'call' || hasAction(notif, 'ANSWER');
-  const shouldRead = isNewContent && ringing && (
+  /* Başka bir görüşme sürerken hiçbir şey seslendirilmez — konuşmanın üstüne okunmaz. */
+  const otherCallActive = rest.some((n) => n.category === 'call');
+  const shouldRead = isNewContent && ringing && !otherCallActive && (
     _state.autoRead === 'all' ||
     (_state.autoRead === 'priority' && isPriority));
 
@@ -282,6 +284,28 @@ export async function refreshNotificationAccess(): Promise<boolean | null> {
   } catch { granted = null; }
   if (granted !== _state.hasPermission) _setState({ hasPermission: granted });
   return granted;
+}
+
+/**
+ * Native'deki AKTİF arama bildirimlerini yeniden yayınlatır ve listede artık
+ * aktif olmayan arama kartlarını budar — kaçmış bir kaldırma "görüşme sürüyor"
+ * (ve müziğin susması) iddiasını TAKILI bırakamaz. Eski APK (liste yok) →
+ * budama YOK. Dinleyici bağlı değilse native boş liste döner: sinyal yokken
+ * görüşme iddiası sürdürülmez.
+ */
+export async function reconcileActiveCalls(): Promise<void> {
+  let res: { replayed: boolean; activeCallKeys?: string[] } | undefined;
+  try { res = await CarLauncher.replayActiveCallNotifications?.(); } catch { return; }
+  const active = res?.activeCallKeys;
+  if (!Array.isArray(active)) return;
+  _pruneCalls(new Set(active));
+}
+
+/** Arama kartlarını budar; `keep` yoksa HEPSİ (arama sinyali yok). */
+function _pruneCalls(keep: ReadonlySet<string> | null): void {
+  const notifications = _state.notifications.filter((n) => n.category !== 'call' || (keep !== null && keep.has(n.id)));
+  if (notifications.length === _state.notifications.length) return;
+  _setState({ notifications, unreadCount: notifications.filter((n) => !n.isRead).length });
 }
 
 /** Sistem "Bildirim erişimi" sayfasını açar (kullanıcı CarOS'u etkinleştirir). */
@@ -318,13 +342,26 @@ async function _startNative(): Promise<void> {
       const notifications = _state.notifications.filter((n) => n.id !== key);
       _setState({ notifications, unreadCount: notifications.filter((n) => !n.isRead).length });
     });
+    /* Sistem dinleyiciyi kopardı (erişim geri alındı vb.) → arama sinyali
+       YOK: görüşme iddiası (ve müziğin susması) sürdürülmez; izin yeniden
+       ölçülür. */
+    const lost = await bridge.addListener('notificationListenerLost', () => {
+      _pruneCalls(null);
+      void refreshNotificationAccess();
+    });
+    /* Ön plana her dönüşte aktif aramalar native'le uzlaştırılır (olay
+       tetiklemeli; zamanlayıcı/yoklama YOK). */
+    const onVisible = () => { if (document.visibilityState === 'visible') void reconcileActiveCalls(); };
+    document.addEventListener('visibilitychange', onVisible);
     _nativeListenerStop = () => {
       try { handle.remove(); } catch { /* ignore */ }
       try { removed.remove(); } catch { /* ignore */ }
+      try { lost.remove(); } catch { /* ignore */ }
+      document.removeEventListener('visibilitychange', onVisible);
     };
     /* Dinleyici servisi bizden ÖNCE bağlanmış olabilir → görüşme sürerken
-       açılan uygulamada arama kartı kaybolmasın (yalnız aramalar; tek atış). */
-    try { await CarLauncher.replayActiveCallNotifications?.(); } catch { /* eski APK */ }
+       açılan uygulamada arama kartı kaybolmasın. */
+    await reconcileActiveCalls();
 
   } catch {
     // Native dinleyici kurulamadı → bildirim yok (simülasyona düşülmez).

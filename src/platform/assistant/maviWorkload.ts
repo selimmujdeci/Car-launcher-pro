@@ -108,10 +108,10 @@ export type MaviCognitiveLoad = 'normal' | 'protection' | 'critical';
  * Çözümleyicinin SAF girdisi. Her alan MEVCUT bir otoriteden gelir; `null`
  * "bu kaynak bu an bilgi vermiyor" demektir — sıfır/false DEĞİL.
  *
- * ⚠️ **Telefon görüşmesi alanı YOKTUR.** Denetim ölçtü: repoda üretimde
- * telefon çağrı durumu üreten hiçbir kaynak yok (`DuckReason 'PHONE'` tanımlı
- * ama üretimde `duck('PHONE')` çağıran YOK; native telephony dinleyicisi de
- * yok). Olmayan sinyal UYDURULMAZ — bu bir açık borçtur, sahte alan değil.
+ * ⚠️ **Telefon görüşmesi alanı YOKTUR.** 2026-09-23'ten beri tek sinyal arama
+ * bildirimidir (`notificationService`, category 'call'); müzik onunla
+ * `duck('PHONE')` ile susar. Bu çözümleyici o sinyali HENÜZ okumaz — açık
+ * borçtur; ölçülmeden sahte alan EKLENMEZ.
  */
 export interface MaviWorkloadSnapshot {
   /** `maviVehicleContext` üç durumlu hareket hükmü. */

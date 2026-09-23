@@ -2080,8 +2080,9 @@ export interface CarLauncherPlugin {
   /** Arama eylemi: ANSWER · DECLINE · HANG_UP · CALL_BACK (cevapsız aramada "Geri ara"). */
   invokeNotificationAction?(opts: { key: string; kind: 'ANSWER' | 'DECLINE' | 'HANG_UP' | 'CALL_BACK' }): Promise<{ ok: boolean; reason?: string }>;
   dismissNotification?(opts: { key: string }): Promise<{ ok: boolean }>;
-  /** Dinleyici kurulduktan sonra süren/çalan aramaları yeniden yayınlatır. */
-  replayActiveCallNotifications?(): Promise<{ replayed: boolean }>;
+  /** Dinleyici kurulduktan sonra süren/çalan aramaları yeniden yayınlatır;
+   *  `activeCallKeys` = şu an aktif arama bildirimleri (dinleyici yoksa boş). */
+  replayActiveCallNotifications?(): Promise<{ replayed: boolean; activeCallKeys?: string[] }>;
 
   clearUdsDtcs?(options: { tx: string; rx: string }): Promise<{
     tx: string;

@@ -47,7 +47,8 @@ public class MediaListenerService extends NotificationListenerService {
      * mesajlar tekrar okunmasın diye mesajlar replay EDİLMEZ. JS dinleyicisi
      * kurulduktan sonra da çağrılır (servis ondan önce bağlanmış olabilir).
      */
-    public void replayActiveCalls() {
+    public java.util.List<String> replayActiveCalls() {
+        final java.util.List<String> keys = new java.util.ArrayList<>();
         try {
             android.service.notification.StatusBarNotification[] active = getActiveNotifications();
             if (active != null) {
@@ -55,10 +56,12 @@ public class MediaListenerService extends NotificationListenerService {
                     android.app.Notification n = sbn.getNotification();
                     if (n != null && android.app.Notification.CATEGORY_CALL.equals(n.category)) {
                         com.cockpitos.pro.notify.NotificationMirror.onPosted(sbn, getPackageManager(), getPackageName());
+                        keys.add(sbn.getKey());
                     }
                 }
             }
         } catch (Throwable ignored) {}
+        return keys;
     }
 
     @Override
@@ -74,6 +77,7 @@ public class MediaListenerService extends NotificationListenerService {
     @Override
     public void onListenerDisconnected() {
         instance = null;
+        com.cockpitos.pro.notify.NotificationMirror.onListenerLost();
         try { MediaManager.getInstance(this).detachMediaSessionsListener(); } catch (Throwable ignored) {}
     }
 

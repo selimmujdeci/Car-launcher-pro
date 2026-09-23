@@ -41,6 +41,8 @@ public final class NotificationMirror {
     public interface Sink {
         void posted(JSObject data);
         void removed(String key);
+        /** Sistem dinleyiciyi kopardı — artık arama/mesaj sinyali YOK. */
+        void listenerLost();
     }
 
     public static final String CAT_CALL = "call";
@@ -202,12 +204,21 @@ public final class NotificationMirror {
         }
     }
 
+    /** Dinleyici koptu: izlenen eylemler geçersiz; JS görüşme iddiasını bırakır. */
+    public static void onListenerLost() {
+        synchronized (TRACKED) { TRACKED.clear(); }
+        final Sink s = sink;
+        if (s != null) s.listenerLost();
+    }
+
     public static void onRemoved(StatusBarNotification sbn) {
         if (sbn == null) return;
-        final boolean known;
-        synchronized (TRACKED) { known = TRACKED.remove(sbn.getKey()) != null; }
+        synchronized (TRACKED) { TRACKED.remove(sbn.getKey()); }
+        /* HER kaldırma bildirilir: izlenen tablo (LRU) uzun bir görüşmede arama
+           anahtarını düşürmüş olabilir — kaldırma kaçarsa "görüşme sürüyor" ve
+           müziğin susması TAKILI kalırdı. JS yalnız tanıdığı arama kartını kapatır. */
         final Sink s = sink;
-        if (known && s != null) s.removed(sbn.getKey());
+        if (s != null) s.removed(sbn.getKey());
     }
 
     /* ══════════════════════════════════════════════════════════════════════

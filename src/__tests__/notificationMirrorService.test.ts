@@ -20,6 +20,7 @@ const plugin = {
   invokeNotificationAction: vi.fn(async () => ({ ok: true })),
   replyToNotification: vi.fn(async () => ({ ok: true })),
   dismissNotification: vi.fn(async () => ({ ok: true })),
+  replayActiveCallNotifications: vi.fn(async () => ({ replayed: true }) as { replayed: boolean; activeCallKeys?: string[] }),
 };
 const speakAssistant = vi.fn();
 
@@ -47,6 +48,7 @@ beforeEach(async () => {
   for (const k of Object.keys(handlers)) delete handlers[k];
   for (const fn of Object.values(plugin)) fn.mockClear();
   plugin.getNotificationAccess.mockImplementation(async () => ({ granted: true }));
+  plugin.replayActiveCallNotifications.mockImplementation(async () => ({ replayed: true }));
   speakAssistant.mockClear();
   localStorage.clear();
   delete (window as unknown as Record<string, unknown>).__SAFETY_LOCK__;
@@ -98,11 +100,48 @@ describe('aktarım', () => {
     expect(speakAssistant).toHaveBeenCalledTimes(2);
   });
 
+  it('🔒 görüşme sürerken gelen mesaj konuşmanın ÜSTÜNE okunmaz', () => {
+    post({ key: 'c', category: 'call', sender: 'Ayşe', text: 'Süren arama', actions: [{ kind: 'HANG_UP', title: 'Kapat' }] });
+    post({ key: 'm', category: 'message', sender: 'Ali', text: 'selam' });
+    vi.advanceTimersByTime(400);
+    expect(speakAssistant).not.toHaveBeenCalled();
+    expect(state().notifications.map((n) => n.id)).toEqual(['m', 'c']);   // liste yine dolar
+  });
+
   it('güvenlik kilidinde KONUŞULMAZ', () => {
     (window as unknown as Record<string, unknown>).__SAFETY_LOCK__ = true;
     post({ key: 'm', category: 'message', sender: 'Ali', text: 'selam' });
     vi.advanceTimersByTime(400);
     expect(speakAssistant).not.toHaveBeenCalled();
+  });
+
+  it('🔒 kaçmış kaldırma: native aktif listesinde olmayan arama kartı BUDANIR; eski APK budamaz', async () => {
+    post({ key: 'c1', category: 'call', sender: 'Ayşe', text: 'Süren arama' });
+    post({ key: 'c2', category: 'call', sender: 'Veli', text: 'Gelen arama' });
+    post({ key: 'm', category: 'message', sender: 'Ali', text: 'selam' });
+
+    await svc.reconcileActiveCalls();                      // liste yok (eski APK)
+    expect(state().notifications).toHaveLength(3);
+
+    plugin.replayActiveCallNotifications.mockImplementation(async () => ({ replayed: true, activeCallKeys: ['c2'] }));
+    await svc.reconcileActiveCalls();
+    expect(state().notifications.map((n) => n.id).sort()).toEqual(['c2', 'm']);
+
+    plugin.replayActiveCallNotifications.mockImplementation(async () => ({ replayed: false, activeCallKeys: [] }));
+    await svc.reconcileActiveCalls();                      // dinleyici yok → görüşme iddiası sürmez
+    expect(state().notifications.map((n) => n.id)).toEqual(['m']);
+  });
+
+  it('🔒 dinleyici koparsa arama kartları kapanır (takılı susma yok), izin yeniden ölçülür', async () => {
+    post({ key: 'c', category: 'call', sender: 'Ayşe', text: 'Süren arama' });
+    post({ key: 'm', category: 'message', sender: 'Ali', text: 'selam' });
+    plugin.getNotificationAccess.mockClear();
+    plugin.getNotificationAccess.mockImplementation(async () => ({ granted: false }));
+    handlers.notificationListenerLost?.({});
+    await flush();
+    expect(state().notifications.map((n) => n.id)).toEqual(['m']);
+    expect(plugin.getNotificationAccess).toHaveBeenCalledTimes(1);
+    expect(state().hasPermission).toBe(false);
   });
 
   it('arama bildirimi kalkınca kart kapanır; mesaj geçmişte KALIR', () => {

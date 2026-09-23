@@ -227,6 +227,7 @@ public class CarLauncherPlugin extends Plugin {
                 o.put("key", key);
                 notifyListeners("notificationRemoved", o);
             }
+            @Override public void listenerLost() { notifyListeners("notificationListenerLost", new JSObject()); }
         });
 
         // CanBusManager'ı ForegroundService watchdog'a inject et
@@ -2517,13 +2518,19 @@ public class CarLauncherPlugin extends Plugin {
             getContext(), call.getString("key"), call.getString("kind")));
     }
 
-    /** JS dinleyicisi kurulduktan sonra süren/çalan aramaları yeniden aktarır. */
+    /**
+     * JS dinleyicisi kurulduktan sonra süren/çalan aramaları yeniden aktarır ve
+     * şu an AKTİF arama anahtarlarını döner (JS kaçmış kaldırmaları budar).
+     * Dinleyici bağlı değilse liste BOŞTUR: sinyal yokken görüşme iddia edilmez.
+     */
     @PluginMethod
     public void replayActiveCallNotifications(PluginCall call) {
         MediaListenerService svc = MediaListenerService.instance;
-        if (svc != null) svc.replayActiveCalls();
+        JSArray keys = new JSArray();
+        if (svc != null) for (String k : svc.replayActiveCalls()) keys.put(k);
         JSObject ret = new JSObject();
         ret.put("replayed", svc != null);
+        ret.put("activeCallKeys", keys);
         call.resolve(ret);
     }
 
