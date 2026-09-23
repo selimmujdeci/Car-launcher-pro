@@ -198,7 +198,7 @@ function _speakLatestMessage(turn: MaviTurnToken | null): void {
 
 /** "Mesaja X diye cevap yaz": sonuç YALNIZ native gönderim sonucundan söylenir. */
 async function _replyLatestMessage(text: string, turn: MaviTurnToken | null): Promise<void> {
-  if (!text) { speakMaviAnswer('Ne yazayım? Örneğin "nasılsın diye cevap yaz" de.', { turn }); return; }
+  if (!text) { speakMaviAnswer('Ne yazacağımı da söyle, örneğin "nasılsın diye cevap yaz".', { turn }); return; }
   const res = await replyToLatestMessage(text);
   if (res.ok) { speakMaviAnswer(`${res.sender} kişisine gönderildi: ${text}`, { turn }); return; }
   speakMaviAnswer(

@@ -59,6 +59,7 @@ vi.mock('../platform/obd/sensorQueryService', () => ({
 
 import {
   processTextCommand,
+  armMessageAnnouncementFollowUp,
   _resetVoiceServiceForTest,
 } from '../platform/voiceService';
 
@@ -97,6 +98,40 @@ describe('voiceService — read_message yerel bypass (1b1)', () => {
     expect(await processTextCommand('mesaja nasılsın diye cevap yaz')).toBe(true);
     expect(M.answerInformational).toHaveBeenCalledWith('reply_message', expect.anything(), { text: 'nasılsın' });
     expect(M.askAI).not.toHaveBeenCalled();
+  });
+
+  it('metinsiz "mesaja cevap yaz" → "Ne yazayım?"; SONRAKİ söz cevap metni olur (beyin YOK)', async () => {
+    M.parseResult = {
+      command: { ...READ_CMD, type: 'reply_message', extra: { text: '' } },
+      suggestions: [], needsSemantic: false,
+    };
+    await processTextCommand('mesaja cevap yaz');
+    expect(M.answerInformational).not.toHaveBeenCalled();
+    M.parseResult = { command: null, suggestions: [], needsSemantic: false };
+    expect(await processTextCommand('Nasılsın')).toBe(true);
+    expect(M.answerInformational).toHaveBeenCalledWith('reply_message', expect.anything(), { text: 'Nasılsın' });
+    expect(M.askAI).not.toHaveBeenCalled();
+  });
+
+  it('"Ne yazayım?" sonrası "vazgeç" → GÖNDERİLMEZ', async () => {
+    M.parseResult = {
+      command: { ...READ_CMD, type: 'reply_message', extra: { text: '' } },
+      suggestions: [], needsSemantic: false,
+    };
+    await processTextCommand('mesaja cevap yaz');
+    M.parseResult = { command: null, suggestions: [], needsSemantic: false };
+    await processTextCommand('vazgeç');
+    expect(M.answerInformational).not.toHaveBeenCalled();
+  });
+
+  it('mesaj duyurusundan sonra yalın "evet" → mesaj okunur (navigate_home DEĞİL)', async () => {
+    armMessageAnnouncementFollowUp();
+    M.parseResult = {
+      command: { ...READ_CMD, type: 'navigate_home', confidence: 0.82 },
+      suggestions: [], needsSemantic: false,
+    };
+    expect(await processTextCommand('evet')).toBe(true);
+    expect(M.answerInformational).toHaveBeenCalledWith('read_message', expect.anything(), undefined);
   });
 
   it('confidence < 0.7 → bypass ALINMAZ', async () => {

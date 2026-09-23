@@ -1533,6 +1533,29 @@ const BRAIN_TIMEOUT_PARKED_MS  = 8_000;
 /* MAVI-F13/2: onay/ret söylem regexleri `voiceCommandPolicy`de (AFFIRM_RE · NEGATE_RE). */
 let _pendingCmd: ParsedCommand | null = null;
 let _pendingAt  = 0;
+/* "Ne yazayım?" sorusundan sonra: bir sonraki söz CEVAP METNİDİR (onay penceresiyle aynı süre). */
+let _awaitingReplyTextAt = 0;
+
+/**
+ * Mavi soru sorarak konuştu (mesaj duyurusu · okunan mesaj · "Ne yazayım?"):
+ * sesli oturum açılır ve takip dinlemesi kurulur → konuşma bitince mikrofon
+ * kendiliğinden açılır, "Hey Mavi" gerekmez. Mevcut sohbet döngüsü mekanizması
+ * (`armFollowUp`) kullanılır; ikinci bir dinleme yolu KURULMAZ.
+ */
+export function armMaviPromptFollowUp(): void {
+  beginConversationSession();
+  armVoiceFollowUp();
+}
+
+/* Mesaj duyurusundan sonra: "evet" = oku, "hayır" = geç. Aksi hâlde yalın
+   "evet" sözlükte `navigate_home`a (0.82) düşüyordu. */
+let _awaitingReadAt = 0;
+
+/** Mesaj duyurusu ("Okumamı istersen…") bitince mikrofon açılır; evet/hayır anlaşılır. */
+export function armMessageAnnouncementFollowUp(): void {
+  _awaitingReadAt = Date.now();
+  armMaviPromptFollowUp();
+}
 
 /* ── AI anahtar çözümü (tembel — yalnız AI yolları çağırır) ──
  * Bozuk persist kaydı (JSON.parse throw) komut akışını öldürmesin: provider
@@ -1840,6 +1863,57 @@ export async function processTextCommand(
     _pendingCmd = null; // süresi geçti ya da farklı bir şey söylendi → temizle, devam et
   }
 
+  // ── Mesaj duyurusuna evet/hayır ──
+  if (_awaitingReadAt) {
+    const fresh = (now - _awaitingReadAt) < PENDING_TTL_MS;
+    _awaitingReadAt = 0;
+    if (fresh && NEGATE_RE.test(trimmed)) {
+      _lastCommandTime = now;
+      endConversationSession();
+      speakMaviAnswer('Tamam.');
+      push({ status: 'idle', error: null });
+      completeMaviTurn(turn);
+      return true;
+    }
+    if (fresh && AFFIRM_RE.test(trimmed)) {
+      _lastCommandTime = now;
+      const readCmd: ParsedCommand = {
+        type: 'read_message', raw: trimmed, confidence: 1,
+        feedback: 'Mesaj okunuyor', priority: 'normal',
+      };
+      void reportVoiceDiag('voice_route', { route: 'message_local_bypass' });
+      if (ctx?.isDriving) { dispatchDriving(readCmd, ctx, turn); } else { dispatch(readCmd, ctx, turn); }
+      armMaviPromptFollowUp();   // okunan mesaja cevap verilebilsin
+      completeMaviTurn(turn);
+      return true;
+    }
+  }
+
+  // ── "Ne yazayım?" → bu söz cevap metnidir (hayır/vazgeç → gönderilmez) ──
+  if (_awaitingReplyTextAt) {
+    const fresh = (now - _awaitingReplyTextAt) < PENDING_TTL_MS;
+    _awaitingReplyTextAt = 0;
+    if (fresh) {
+      _lastCommandTime = now;
+      if (NEGATE_RE.test(trimmed)) {
+        endConversationSession();
+        _emitVoiceEvent('execution_result', { result: 'cancelled' });
+        speakMaviAnswer('Tamam, göndermiyorum.');
+        push({ status: 'idle', error: null });
+        completeMaviTurn(turn);
+        return true;
+      }
+      const replyCmd: ParsedCommand = {
+        type: 'reply_message', raw: trimmed, confidence: 1,
+        feedback: 'Cevap gönderiliyor', priority: 'normal', extra: { text: trimmed },
+      };
+      void reportVoiceDiag('voice_route', { route: 'message_local_bypass' });
+      if (ctx?.isDriving) { dispatchDriving(replyCmd, ctx, turn); } else { dispatch(replyCmd, ctx, turn); }
+      completeMaviTurn(turn);
+      return true;
+    }
+  }
+
   // ── Sohbet kapatma sözleri ("tamam", "sus", "kapat", "sonra konuşuruz") ──
   // Yalnız sesli oturumda (takip dinleme döngüsü) geçerli: döngü SESSİZCE
   // kapanır, TTS yok (timeout/kapatmada tekrar tekrar konuşma istenmiyor).
@@ -2010,7 +2084,20 @@ export async function processTextCommand(
   ) {
     _lastCommandTime = now;
     void reportVoiceDiag('voice_route', { route: 'message_local_bypass' });
+    const isReply = result.command.type === 'reply_message';
+    if (isReply && !(result.command.extra?.text ?? '').trim()) {
+      /* Metin söylenmedi → sor ve bir sonraki sözü cevap metni olarak bekle. */
+      _awaitingReplyTextAt = now;
+      speakMaviAnswer('Ne yazayım?');
+      armMaviPromptFollowUp();
+      push({ status: 'idle', error: null });
+      completeMaviTurn(turn);
+      return true;
+    }
     if (ctx?.isDriving) { dispatchDriving(result.command, ctx, turn); } else { dispatch(result.command, ctx, turn); }
+    /* Okunan mesajdan sonra cevap verilebilsin: mikrofon kendiliğinden açılır.
+       (dispatch sohbet oturumunu kapatır → kurulum ONDAN SONRA.) */
+    if (!isReply) armMaviPromptFollowUp();
     completeMaviTurn(turn);
     return true;
   }
@@ -3104,6 +3191,8 @@ export function _resetVoiceServiceForTest(): void {
   _terminalExtensions = 0;
   _voiceCogPaused  = false;
   _pendingCmd      = null;
+  _awaitingReplyTextAt = 0;
+  _awaitingReadAt  = 0;
   _lastCommandTime = 0;
   /* MAVI-F13/2: sohbet oturumu zamanlayıcılarının sıfırlaması SAHİBİNDEDİR —
      kökte tek tek saymak yerine tek kapı çağrılır (biri unutulamaz). */

@@ -277,7 +277,15 @@ function _addNotification(raw: RawNotification): void {
            yalnız duyurulur; içerik "Mavi, oku" komutuyla okunur (read_message). */
         ? `Yeni ${raw.appName} mesajı, gönderen ${raw.sender}. Okumamı istersen, Mavi oku de.`
         : `${raw.appName}. ${raw.sender} diyor ki: ${raw.text}`;
-    setTimeout(() => _speak(ttsText), 300);
+    setTimeout(() => {
+      /* Mesaj duyurusu bir SORUdur: bitince mikrofon açılsın ("oku" demek için
+         "Hey Mavi" gerekmesin). Dinamik import — voiceService bu modülü
+         dolaylı import eder (döngü kurulmaz). */
+      if (category === 'message') {
+        void import('./voiceService').then((v) => v.armMessageAnnouncementFollowUp()).catch(() => { /* fail-soft: yalnız duyuru */ });
+      }
+      _speak(ttsText);
+    }, 300);
   }
 }
 
