@@ -61,14 +61,30 @@ export function buildLyricsQuery(identity: {
 }): LyricsLookupQuery | null {
   let title = identity.title ? cleanTitle(identity.title) : '';
   let artist = (identity.artist ?? '').trim();
-  if (!artist && title.includes(' - ')) {
-    const [a, ...rest] = title.split(' - ');
-    artist = (a ?? '').trim();
-    title = rest.join(' - ').trim();
+  const split = splitArtistPrefix(title);
+  if (split && !artist) {
+    [artist, title] = split;
+  } else if (split && norm(split[0]).startsWith(norm(artist))) {
+    /* SAHA 2026-09-23: YouTube indirmelerinde etikette sanatçı VARKEN başlık
+       yine "Sanatçı - Başlık" gelir ("Rojbin Kizil - LAWO DİNO"); önekli başlık
+       LRCLIB'de 0 sonuç verdi, öneksiz aynı sorgu 3 eşleşme buldu. */
+    title = split[1];
   }
   if (!title || !artist) return null;
   const durationSec = identity.durationMs && identity.durationMs > 0 ? Math.round(identity.durationMs / 1000) : null;
   return { title, artist, album: identity.album?.trim() || null, durationSec };
+}
+
+/** "Sanatçı - Başlık" ayırıcısı: boşluklu - – — veya -- ("feat. X -- Başlık"). */
+const ARTIST_SEPARATOR = /\s+(?:--|[-–—])\s+/;
+
+/** İlk ayırıcıdan böler; iki taraf da doluysa [sol, sağ], değilse `null`. */
+function splitArtistPrefix(title: string): [string, string] | null {
+  const m = ARTIST_SEPARATOR.exec(title);
+  if (!m) return null;
+  const left = title.slice(0, m.index).trim();
+  const right = title.slice(m.index + m[0].length).trim();
+  return left && right ? [left, right] : null;
 }
 
 /** "[mm:ss.xx]" damgalı LRC metnini sıralı satırlara çevirir; damga yoksa `null`. */

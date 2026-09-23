@@ -28,6 +28,11 @@ export const BROWSE_TAB_LABEL: Readonly<Record<BrowseTab, string>> = {
   TRACKS: 'Parçalar', ALBUMS: 'Albümler', ARTISTS: 'Sanatçılar', FOLDERS: 'Klasörler', GENRES: 'Türler',
 };
 
+/** Sayıdan sonra tekil birim — Türkçede "2 klasör" (çoğul eki almaz). */
+export const BROWSE_TAB_UNIT: Readonly<Record<BrowseTab, string>> = {
+  TRACKS: 'parça', ALBUMS: 'albüm', ARTISTS: 'sanatçı', FOLDERS: 'klasör', GENRES: 'tür',
+};
+
 /** Sürüşte gösterilen azami satır — kütüphane parça listesiyle AYNI değer. */
 export const DRIVING_BROWSE_LIMIT = 30;
 /** Duruşta azami satır; aşan liste GİZLENMEZ, "daraltmak için ara" denir. */

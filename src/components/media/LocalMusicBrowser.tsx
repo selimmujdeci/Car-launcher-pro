@@ -34,7 +34,7 @@ import { startLibraryListening } from '../../platform/media/session/listeningSes
 import { setShuffle } from '../../platform/media/authority/mediaCommandGateway';
 import type { DrivingMode } from './nowPlayingModel';
 import {
-  availableBrowseTabs, buildBrowseDetail, buildBrowseList, selectionStartingAt, BROWSE_TAB_LABEL,
+  availableBrowseTabs, buildBrowseDetail, buildBrowseList, selectionStartingAt, BROWSE_TAB_LABEL, BROWSE_TAB_UNIT,
   type BrowseRow, type BrowseTab,
 } from './libraryBrowseModel';
 
@@ -408,7 +408,7 @@ export const LocalMusicBrowser = memo(function LocalMusicBrowser({ drivingMode =
           {collection
             ? (collection.truncated
               ? `İlk ${collection.rows.length} / ${collection.total} — daraltmak için ara`
-              : `${collection.total} ${BROWSE_TAB_LABEL[tab].toLocaleLowerCase('tr-TR')}`)
+              : `${collection.total} ${BROWSE_TAB_UNIT[tab]}`)
             : isTruncated
               ? `İlk ${filtered.length} / ${availableTotal} parça — daraltmak için ara`
               : `${filtered.length} parça`}
@@ -420,7 +420,7 @@ export const LocalMusicBrowser = memo(function LocalMusicBrowser({ drivingMode =
         {collection ? (
           collection.rows.length === 0 ? (
             <div className="text-sm text-center mt-8" style={{ color: 'var(--oem-ink-3)' }}>
-              {query ? 'Aramayla eşleşen sonuç yok.' : `Kütüphanede ${BROWSE_TAB_LABEL[tab].toLocaleLowerCase('tr-TR')} bilgisi yok.`}
+              {query ? 'Aramayla eşleşen sonuç yok.' : `Kütüphanede ${BROWSE_TAB_UNIT[tab]} bilgisi yok.`}
             </div>
           ) : (
             <div className="flex flex-col gap-1">

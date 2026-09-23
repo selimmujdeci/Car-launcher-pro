@@ -44,6 +44,15 @@ describe('LRCLIB · saf yardımcılar', () => {
     expect(buildLyricsQuery({ title: 'Gidiyorum', artist: null, album: null, durationMs: 1000 })).toBeNull();
   });
 
+  it('🔒 saha: etikette sanatçı VARKEN başlıktaki "Sanatçı - " öneki atılır; başka önek korunur', () => {
+    expect(buildLyricsQuery({ title: 'Rojbin Kizil - LAWO DİNO', artist: 'Rojbin Kizil', album: 'YMusic', durationMs: 170_472 }))
+      .toEqual({ title: 'LAWO DİNO', artist: 'Rojbin Kizil', album: 'YMusic', durationSec: 170 });
+    expect(buildLyricsQuery({ title: 'Rojbin Kizil feat. Fehîme -- Keçê dînê', artist: 'Rojbin Kizil', album: null, durationMs: null })?.title)
+      .toBe('Keçê dînê');
+    expect(buildLyricsQuery({ title: 'Yalnızlık Senfonisi - Akustik', artist: 'Sezen Aksu', album: null, durationMs: null })?.title)
+      .toBe('Yalnızlık Senfonisi - Akustik');
+  });
+
   it('🔒 LRC: çoklu damga, etiket satırları ve 1–3 haneli kesir doğru ms olur', () => {
     expect(parseLrc(LRC)).toEqual([
       { ms: 12_500, text: 'Gidiyorum' },
