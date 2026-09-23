@@ -1,246 +1,135 @@
 /**
- * TrafficMapMini — Kompakt statik harita, trafik yoğunluğunu görselleştirir.
+ * TrafficMapMini — trafik haritası (Google Maps tarzı), YALNIZ GERÇEK veriyle.
  *
- * interactive:false → pan/zoom yok, Mali-400 için güvenli.
- * Segment yönleri GPS konumundan offset hesaplanır (tahmin modunda gerçek
- * koordinat olmadığından yön bazlı yaklaşık gösterim kullanılır).
- * HERE/TomTom tile URL varsa gerçek trafik katmanı eklenir.
+ *  · Yollar TomTom resmî akış katmanıyla trafiğe göre renklenir (yeşil → koyu kırmızı).
+ *  · Bulunulan yol, TomTom'un döndüğü GERÇEK geometriyle vurgulanır.
+ *  · Olaylar (kaza/çalışma/kapalı yol/sıkışıklık) gerçek konumlarında işaretlenir.
+ *
+ * Eskiden: veri yokken konumun etrafına SAHTE yönlerde (offset) uydurma yol noktaları ve
+ * kesik çizgiler çiziliyordu — kaldırıldı (CLAUDE.md §8). Veri yoksa yalnız zemin + konum.
+ *
+ * Performans: harita BİR KEZ kurulur; konum/veri değişince yalnız merkez + GeoJSON
+ * güncellenir (eskiden her konum değişiminde harita baştan yaratılıyordu). interactive:false
+ * (Mali-400 sözleşmesi). Yalnız trafik çekmecesi açıkken mount edilir.
  */
-
 import { useEffect, useRef, memo } from 'react';
 import maplibregl from 'maplibre-gl';
 import { getMapStyle } from '../../platform/mapSourceManager';
-import type { TrafficSegment } from '../../platform/trafficService';
-/* ARCH-06/F3 — ÜÇÜNCÜ harita yüzeyi. Yalnız sayılır; yaşam döngüsü bu
-   bileşende KALIR (DrawerPanel yalnız drawer açıkken mount eder). */
+import { TRAFFIC_COLORS, type TrafficIncident, type TrafficRoad } from '../../platform/trafficService';
 import { noteMapInstanceMounted, noteMapInstanceUnmounted } from '../../platform/perf/mapInstanceEvidence';
+import { INCIDENT_COLORS } from './trafficPanelModel';
 
-/* ── Sabitler ──────────────────────────────────────────────── */
-
-const LEVEL_COLORS: Record<string, string> = {
-  free:       '#22c55e',
-  moderate:   '#f59e0b',
-  heavy:      '#ef4444',
-  standstill: '#7c3aed',
-};
-
-const DIR_BEARING: Record<string, number> = {
-  'kuzey':     0,
-  'kuzeydoğu': 45,
-  'doğu':      90,
-  'güneydoğu': 135,
-  'güney':     180,
-  'güneybatı': 225,
-  'batı':      270,
-  'kuzeybatı': 315,
-};
-
-/** GPS konumundan verilen yön ve mesafede yeni koordinat hesaplar */
-function offsetPos(lat: number, lng: number, bearingDeg: number, distM: number): [number, number] {
-  const d  = distM / 6_371_000;
-  const b  = bearingDeg * (Math.PI / 180);
-  const φ1 = lat * (Math.PI / 180);
-  const λ1 = lng * (Math.PI / 180);
-  const φ2 = Math.asin(Math.sin(φ1) * Math.cos(d) + Math.cos(φ1) * Math.sin(d) * Math.cos(b));
-  const λ2 = λ1 + Math.atan2(
-    Math.sin(b) * Math.sin(d) * Math.cos(φ1),
-    Math.cos(d) - Math.sin(φ1) * Math.sin(φ2),
-  );
-  return [φ2 * (180 / Math.PI), λ2 * (180 / Math.PI)];
-}
-
-/* ── Bileşen ───────────────────────────────────────────────── */
 
 interface Props {
-  lat:       number;
-  lng:       number;
-  segments:  TrafficSegment[];
-  tileUrl?:  string;
+  lat: number;
+  lng: number;
+  tileUrl?: string;
+  road: TrafficRoad | null;
+  incidents: readonly TrafficIncident[];
+  height?: number;
 }
 
-export const TrafficMapMini = memo(function TrafficMapMini({ lat, lng, segments, tileUrl }: Props) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const mapRef       = useRef<maplibregl.Map | null>(null);
+type FC = GeoJSON.FeatureCollection;
+const EMPTY: FC = { type: 'FeatureCollection', features: [] };
 
+function roadFc(road: TrafficRoad | null): FC {
+  if (!road || road.coordinates.length < 2) return EMPTY;
+  return {
+    type: 'FeatureCollection',
+    features: [{
+      type: 'Feature', properties: { color: TRAFFIC_COLORS[road.level] },
+      geometry: { type: 'LineString', coordinates: road.coordinates.map((c) => [c[0], c[1]]) },
+    }],
+  };
+}
+
+function incidentFc(incidents: readonly TrafficIncident[]): FC {
+  return {
+    type: 'FeatureCollection',
+    features: incidents.map((i) => {
+      const mid = i.coordinates[Math.floor(i.coordinates.length / 2)]!;
+      return {
+        type: 'Feature', properties: { color: INCIDENT_COLORS[i.kind] },
+        geometry: { type: 'Point', coordinates: [mid[0], mid[1]] },
+      };
+    }),
+  };
+}
+
+export const TrafficMapMini = memo(function TrafficMapMini({ lat, lng, tileUrl, road, incidents, height = 300 }: Props) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const mapRef = useRef<maplibregl.Map | null>(null);
+  const markerRef = useRef<maplibregl.Marker | null>(null);
+  const readyRef = useRef(false);
+  const latest = useRef({ lat, lng, road, incidents });
+  latest.current = { lat, lng, road, incidents };
+
+  // Kurulum — yalnız tile URL değişirse yeniden.
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-
-    // Mevcut harita varsa önce temizle (lat/lng/tileUrl değişiminde yeniden init)
-    if (mapRef.current) { mapRef.current.remove(); mapRef.current = null; }
-
     let style: maplibregl.StyleSpecification;
     try {
       style = getMapStyle() as maplibregl.StyleSpecification;
     } catch {
-      // Fallback: sade koyu harita
-      style = {
-        version: 8,
-        sources: {},
-        layers: [{ id: 'bg', type: 'background', paint: { 'background-color': '#0a0e1a' } }],
-      };
+      style = { version: 8, sources: {}, layers: [{ id: 'bg', type: 'background', paint: { 'background-color': '#0a0e1a' } }] };
     }
-
     noteMapInstanceMounted('TRAFFIC');
     const map = new maplibregl.Map({
-      container:        el,
-      style,
-      center:           [lng, lat],
-      zoom:             13,
-      pitch:            0,
-      bearing:          0,
-      interactive:      false,   // pan/zoom/tilt yok — statik görüntü
-      attributionControl: false,
+      container: el, style, center: [latest.current.lng, latest.current.lat], zoom: 13.2,
+      interactive: false, attributionControl: false,
     });
-
     mapRef.current = map;
 
     map.on('load', () => {
-      // ── HERE/TomTom trafik tile katmanı ───────────────────────────
       if (tileUrl) {
-        map.addSource('traffic-tiles', {
-          type:     'raster',
-          tiles:    [tileUrl],
-          tileSize: 256,
-        });
-        map.addLayer({
-          id:     'traffic-layer',
-          type:   'raster',
-          source: 'traffic-tiles',
-          paint:  { 'raster-opacity': 0.75 },
-        });
+        map.addSource('traffic-flow', { type: 'raster', tiles: [tileUrl], tileSize: 256 });
+        map.addLayer({ id: 'traffic-flow', type: 'raster', source: 'traffic-flow', paint: { 'raster-opacity': 0.95 } });
       }
+      map.addSource('road', { type: 'geojson', data: roadFc(latest.current.road) });
+      map.addLayer({ id: 'road-casing', type: 'line', source: 'road',
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': '#ffffff', 'line-width': 9, 'line-opacity': 0.9 } });
+      map.addLayer({ id: 'road-line', type: 'line', source: 'road',
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': ['get', 'color'], 'line-width': 5 } });
+      map.addSource('incidents', { type: 'geojson', data: incidentFc(latest.current.incidents) });
+      map.addLayer({ id: 'incident-halo', type: 'circle', source: 'incidents',
+        paint: { 'circle-radius': 13, 'circle-color': ['get', 'color'], 'circle-opacity': 0.25 } });
+      map.addLayer({ id: 'incident-dot', type: 'circle', source: 'incidents',
+        paint: { 'circle-radius': 7, 'circle-color': ['get', 'color'], 'circle-stroke-width': 2.5, 'circle-stroke-color': '#ffffff' } });
 
-      // ── Segment yoğunluk noktaları (GPS ofset + bağlantı çizgisi) ─
-      const features: GeoJSON.Feature[] = [];
-
-      segments.forEach((seg, i) => {
-        const bearing         = DIR_BEARING[seg.direction] ?? (i * 72);
-        const [sLat, sLng]    = offsetPos(lat, lng, bearing, 750);
-        const color           = LEVEL_COLORS[seg.level] ?? '#94a3b8';
-
-        // GPS → segment yön çizgisi
-        features.push({
-          type:       'Feature',
-          geometry:   { type: 'LineString', coordinates: [[lng, lat], [sLng, sLat]] },
-          properties: { color, opacity: 0.55 },
-        });
-
-        // Segment nokta işareti
-        features.push({
-          type:       'Feature',
-          geometry:   { type: 'Point', coordinates: [sLng, sLat] },
-          properties: { color, label: seg.label, level: seg.level },
-        });
-      });
-
-      map.addSource('traffic-segments', {
-        type: 'geojson',
-        data: { type: 'FeatureCollection', features },
-      });
-
-      // Bağlantı çizgileri
-      map.addLayer({
-        id:     'seg-lines',
-        type:   'line',
-        source: 'traffic-segments',
-        filter: ['==', ['geometry-type'], 'LineString'],
-        paint:  {
-          'line-color':   ['get', 'color'],
-          'line-width':   2.5,
-          'line-opacity': ['get', 'opacity'],
-          'line-dasharray': [2, 3],
-        },
-      });
-
-      // Yoğunluk halkaları (dış hale — glow efekti)
-      map.addLayer({
-        id:     'seg-dots-glow',
-        type:   'circle',
-        source: 'traffic-segments',
-        filter: ['==', ['geometry-type'], 'Point'],
-        paint:  {
-          'circle-radius':       12,
-          'circle-color':        ['get', 'color'],
-          'circle-opacity':      0.20,
-          'circle-blur':         0.6,
-        },
-      });
-
-      // Yoğunluk noktaları (iç)
-      map.addLayer({
-        id:     'seg-dots',
-        type:   'circle',
-        source: 'traffic-segments',
-        filter: ['==', ['geometry-type'], 'Point'],
-        paint:  {
-          'circle-radius':        7,
-          'circle-color':         ['get', 'color'],
-          'circle-stroke-width':  2,
-          'circle-stroke-color':  '#ffffff',
-          'circle-stroke-opacity': 0.9,
-        },
-      });
-
-      // ── GPS konum noktası ──────────────────────────────────────────
-      const posEl = document.createElement('div');
-      posEl.style.cssText = [
-        'width:14px', 'height:14px', 'border-radius:50%',
-        'background:#3b82f6',
-        'border:3px solid #fff',
-        'box-shadow:0 0 0 5px rgba(59,130,246,0.25), 0 0 12px rgba(59,130,246,0.6)',
-        'flex-shrink:0',
-      ].join(';');
-
-      new maplibregl.Marker({ element: posEl })
-        .setLngLat([lng, lat])
-        .addTo(map);
-
-      // ── Segment isim etiketleri (HTML marker) ─────────────────────
-      segments.forEach((seg, i) => {
-        const bearing      = DIR_BEARING[seg.direction] ?? (i * 72);
-        const [sLat, sLng] = offsetPos(lat, lng, bearing, 750);
-        const color        = LEVEL_COLORS[seg.level] ?? '#94a3b8';
-
-        const el = document.createElement('div');
-        el.style.cssText = [
-          'font-size:10px', 'font-weight:800', 'font-family:system-ui,sans-serif',
-          'color:#fff',
-          'background:rgba(0,0,0,0.72)',
-          `border:1px solid ${color}55`,
-          'padding:2px 6px', 'border-radius:5px',
-          'white-space:nowrap',
-          'max-width:72px', 'overflow:hidden', 'text-overflow:ellipsis',
-          'pointer-events:none',
-          'margin-top:14px',  // dot yüksekliğinin altına kaydır
-        ].join(';');
-        el.textContent = seg.label;
-
-        new maplibregl.Marker({ element: el, anchor: 'top' })
-          .setLngLat([sLng, sLat])
-          .addTo(map);
-      });
+      const dot = document.createElement('div');
+      dot.style.cssText = 'width:16px;height:16px;border-radius:50%;background:#1A73E8;border:3px solid #fff;'
+        + 'box-shadow:0 0 0 8px rgba(26,115,232,0.22),0 2px 6px rgba(0,0,0,0.4)';
+      markerRef.current = new maplibregl.Marker({ element: dot }).setLngLat([latest.current.lng, latest.current.lat]).addTo(map);
+      readyRef.current = true;
     });
 
     return () => {
-      if (mapRef.current) { noteMapInstanceUnmounted(); mapRef.current.remove(); mapRef.current = null; }
+      readyRef.current = false;
+      markerRef.current = null;
+      noteMapInstanceUnmounted();
+      map.remove();
+      mapRef.current = null;
     };
-  // Sadece konum veya tile URL değiştiğinde yeniden init
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lat, lng, tileUrl]);
+  }, [tileUrl]);
+
+  // Güncelleme — harita yeniden YARATILMAZ.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !readyRef.current) return;
+    map.jumpTo({ center: [lng, lat] });
+    markerRef.current?.setLngLat([lng, lat]);
+    (map.getSource('road') as maplibregl.GeoJSONSource | undefined)?.setData(roadFc(road));
+    (map.getSource('incidents') as maplibregl.GeoJSONSource | undefined)?.setData(incidentFc(incidents));
+  }, [lat, lng, road, incidents]);
 
   return (
     <div
       ref={containerRef}
-      style={{
-        width:        '100%',
-        height:       190,
-        borderRadius: 14,
-        overflow:     'hidden',
-        border:       '1px solid rgba(255,255,255,0.08)',
-        background:   '#070d1a',
-        flexShrink:   0,
-      }}
+      data-traffic-map=""
+      style={{ width: '100%', height, borderRadius: 16, overflow: 'hidden', background: '#0b1220', flexShrink: 0 }}
     />
   );
 });
