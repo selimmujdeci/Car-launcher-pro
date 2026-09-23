@@ -219,6 +219,9 @@ public class CarLauncherPlugin extends Plugin {
             }
         });
 
+        /* Güncelleme sonrası bağlanmamış bildirim dinleyicisi açılışta yeniden bağlanır. */
+        try { ensureNotificationListenerBound(notificationAccessGranted()); } catch (Exception ignored) {}
+
         /* Telefon Merkezi — arama/mesaj bildirimleri (içerik loglanmaz). */
         com.cockpitos.pro.notify.NotificationMirror.setSink(new com.cockpitos.pro.notify.NotificationMirror.Sink() {
             @Override public void posted(JSObject data) { notifyListeners("notification", data); }
@@ -2485,9 +2488,32 @@ public class CarLauncherPlugin extends Plugin {
     @PluginMethod
     public void getNotificationAccess(PluginCall call) {
         JSObject ret = new JSObject();
-        ret.put("granted", androidx.core.app.NotificationManagerCompat
-            .getEnabledListenerPackages(getContext()).contains(getContext().getPackageName()));
+        boolean granted = notificationAccessGranted();
+        ret.put("granted", granted);
+        ret.put("connected", ensureNotificationListenerBound(granted));
         call.resolve(ret);
+    }
+
+    private boolean notificationAccessGranted() {
+        return androidx.core.app.NotificationManagerCompat
+            .getEnabledListenerPackages(getContext()).contains(getContext().getPackageName());
+    }
+
+    /**
+     * Erişim onaylı ama dinleyici BAĞLI değilse sistemden yeniden bağlamasını ister.
+     * SAHA 2026-09-23 (MIUI): uygulama güncellemesinden sonra dinleyici onaylı
+     * listede kaldı ama bağlı dinleyicilere dönmedi → arama/mesaj aktarımı
+     * sessizce durdu (elle kapat-aç ile düzeldi). @return şu an bağlı mı.
+     */
+    private boolean ensureNotificationListenerBound(boolean granted) {
+        if (MediaListenerService.instance != null) return true;
+        if (granted) {
+            try {
+                android.service.notification.NotificationListenerService.requestRebind(
+                    new android.content.ComponentName(getContext(), MediaListenerService.class));
+            } catch (Exception ignored) { /* sistem reddetti → bağlı değil kalır */ }
+        }
+        return false;
     }
 
     @PluginMethod

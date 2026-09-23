@@ -2072,8 +2072,9 @@ export interface CarLauncherPlugin {
   }>;
 
   /* ── Telefon Merkezi · bildirim aktarımı (NotificationMirror) ── */
-  /** Kullanıcı "Bildirim erişimi" verdi mi — ölçülür. */
-  getNotificationAccess?(): Promise<{ granted: boolean }>;
+  /** Kullanıcı "Bildirim erişimi" verdi mi — ölçülür. `connected` = dinleyici şu an
+   *  bağlı mı (değilse native yeniden bağlama ister). */
+  getNotificationAccess?(): Promise<{ granted: boolean; connected?: boolean }>;
   openNotificationAccessSettings?(): Promise<{ opened: boolean }>;
   /** Mesajın KENDİ yanıt eylemiyle; yoksa ok:false (sahte gönderim yok). */
   replyToNotification?(opts: { key: string; text: string }): Promise<{ ok: boolean; reason?: string }>;
