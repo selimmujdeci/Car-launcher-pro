@@ -126,3 +126,16 @@ describe('dikkat bütçesi kısaltması', () => {
     expect(shortenInstruction('250 metre sonra sola dönün')).toBe('sola dön');
   });
 });
+
+describe('tabela yönü', () => {
+  it('🔒 çıkış rampasında OSRM tabela yönü kullanılır; yoksa ad → yol numarası', async () => {
+    const { stepPlaceLabel } = await import('../platform/routingService');
+    const m = (type: string) => ({ type });
+    expect(stepPlaceLabel({ name: '', destinations: 'O-4: Ankara, İzmit', maneuver: m('off ramp') })).toBe('Ankara, İzmit yönü');
+    expect(stepPlaceLabel({ name: 'Bağlantı Yolu', destinations: 'Tarsus', maneuver: m('fork') })).toBe('Tarsus yönü');
+    // Dönüşte tabela değil yol adı.
+    expect(stepPlaceLabel({ name: 'Atatürk Caddesi', destinations: 'Merkez', maneuver: m('turn') })).toBe('Atatürk Caddesi');
+    expect(stepPlaceLabel({ name: '', ref: 'D400', maneuver: m('turn') })).toBe('D400');
+    expect(stepPlaceLabel({ name: '', maneuver: m('turn') })).toBe('');
+  });
+});

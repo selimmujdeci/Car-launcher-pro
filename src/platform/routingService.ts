@@ -406,6 +406,8 @@ interface OsrmStep {
   duration: number;
   name: string;
   ref?: string;
+  /** OSRM `destinations` — tabeladaki yön ("O-4: Ankara, İzmit"); çoğu adımda YOK. */
+  destinations?: string;
   maneuver: { type: string; modifier?: string; exit?: number };
   geometry: { coordinates: [number, number][] };
   intersections?: Array<{ classes?: string[]; lanes?: OsrmLane[] }>;
@@ -437,11 +439,30 @@ function extractLanes(st: OsrmStep): RouteLane[] | null {
   return null;
 }
 
+/** Tabela yönü taşıyan manevralar — çıkış/giriş rampası ve yol ayrımı. */
+const _SIGNPOST_TYPES = new Set(['off ramp', 'on ramp', 'fork']);
+
+/**
+ * Talimattaki yer etiketi. Rampa/ayrımda TABELA YÖNÜ yol adından değerlidir
+ * (sürücü tabelayı okur: "Ankara, İzmit yönü"); OSRM vermezse ad → yol numarası.
+ * Hiçbiri yoksa boş — uydurulmaz.
+ */
+export function stepPlaceLabel(st: Pick<OsrmStep, 'name' | 'ref' | 'destinations' | 'maneuver'>): string {
+  const name = (st.name ?? '').trim();
+  const ref = (st.ref ?? '').trim();
+  const dest = (st.destinations ?? '').trim();
+  if (dest && _SIGNPOST_TYPES.has(st.maneuver.type)) {
+    const towards = (dest.includes(':') ? dest.slice(dest.indexOf(':') + 1) : dest).trim();
+    if (towards) return `${towards} yönü`;
+  }
+  return name || ref;
+}
+
 /** OSRM adımını dahili `RouteStep`e çevirir — tek dönüşüm noktası. */
 function _toRouteStep(st: OsrmStep): RouteStep {
   const exit = typeof st.maneuver.exit === 'number' ? st.maneuver.exit : null;
   return {
-    instruction:      toTR(st.maneuver.type, st.maneuver.modifier ?? 'straight', st.name ?? '', exit),
+    instruction:      toTR(st.maneuver.type, st.maneuver.modifier ?? 'straight', stepPlaceLabel(st), exit),
     streetName:       st.name ?? '',
     distance:         st.distance,
     duration:         st.duration,
