@@ -539,12 +539,31 @@ export async function replyToMessage(id: string, text: string): Promise<Notifica
  * "Mavi, oku": en son OKUNMAMIŞ mesajı döndürür ve okundu işaretler (liste en
  * yeni önce). Okunacak mesaj yoksa `null` — uydurma içerik YOK.
  */
+/** "Mavi, oku" ile en son OKUNAN mesaj — sesli cevabın hedefi. */
+let _lastSpokenMessageId: string | null = null;
+
 export function takeLatestUnreadMessage(): { message: AppNotification; remaining: number } | null {
   const unread = _state.notifications.filter((n) => n.category === 'message' && !n.isRead);
   const message = unread[0];
   if (!message) return null;
   markNotificationRead(message.id);
+  _lastSpokenMessageId = message.id;
   return { message, remaining: unread.length - 1 };
+}
+
+/**
+ * "Mesaja X diye cevap yaz": hedef, Mavi'nin en son OKUDUĞU mesaj (hâlâ
+ * listedeyse), yoksa en yeni mesaj. Gönderim `replyToMessage` üzerinden —
+ * başarı yalnız native'in `ok:true` sonucudur. Mesaj yoksa `no_message`.
+ */
+export async function replyToLatestMessage(
+  text: string,
+): Promise<NotificationActionResult & { sender?: string }> {
+  const messages = _state.notifications.filter((n) => n.category === 'message');
+  const target = messages.find((n) => n.id === _lastSpokenMessageId) ?? messages[0];
+  if (!target) return { ok: false, reason: 'no_message' };
+  const res = await replyToMessage(target.id, text);
+  return { ...res, sender: target.sender };
 }
 
 export function markAllRead(): void {

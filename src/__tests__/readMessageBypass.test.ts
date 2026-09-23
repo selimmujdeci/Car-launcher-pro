@@ -46,7 +46,7 @@ vi.mock('../platform/ai/semanticAiService', () => ({
 }));
 vi.mock('../platform/intentEngine', () => ({ fromSemanticResult: () => null }));
 vi.mock('../platform/voiceInfoService', () => ({
-  isInformationalCommand: (t: string) => t === 'read_message',
+  isInformationalCommand: (t: string) => t === 'read_message' || t === 'reply_message',
   answerInformational: (...a: unknown[]) => M.answerInformational(...a),
 }));
 vi.mock('../platform/weatherService', () => ({ weatherQueryNamesCity: () => false }));
@@ -85,7 +85,17 @@ describe('voiceService — read_message yerel bypass (1b1)', () => {
     M.parseResult = { command: READ_CMD, suggestions: [], needsSemantic: false };
     expect(await processTextCommand('mesajı oku')).toBe(true);
     expect(M.diag).toHaveBeenCalledWith('voice_route', { route: 'message_local_bypass' });
-    expect(M.answerInformational).toHaveBeenCalledWith('read_message', expect.anything());
+    expect(M.answerInformational).toHaveBeenCalledWith('read_message', expect.anything(), undefined);
+    expect(M.askAI).not.toHaveBeenCalled();
+  });
+
+  it('"X diye cevap yaz" → beyne gitmeden cevap metniyle voiceInfoService', async () => {
+    M.parseResult = {
+      command: { ...READ_CMD, type: 'reply_message', extra: { text: 'nasılsın' } },
+      suggestions: [], needsSemantic: false,
+    };
+    expect(await processTextCommand('mesaja nasılsın diye cevap yaz')).toBe(true);
+    expect(M.answerInformational).toHaveBeenCalledWith('reply_message', expect.anything(), { text: 'nasılsın' });
     expect(M.askAI).not.toHaveBeenCalled();
   });
 

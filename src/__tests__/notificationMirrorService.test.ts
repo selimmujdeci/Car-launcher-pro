@@ -194,6 +194,18 @@ describe('eylemler — sahte başarı yok', () => {
     expect(plugin.replyToNotification).not.toHaveBeenCalled();
   });
 
+  it('replyToLatestMessage: hedef Mavi’nin SON OKUDUĞU mesaj; mesaj yoksa no_message', async () => {
+    expect(await svc.replyToLatestMessage('Tamam')).toEqual({ ok: false, reason: 'no_message' });
+    const reply = [{ kind: 'REPLY', title: 'Yanıtla' }];
+    post({ key: 'm1', category: 'message', sender: 'Ali', text: 'bir', actions: reply });
+    post({ key: 'm2', category: 'message', sender: 'Veli', text: 'iki', actions: reply });
+    svc.takeLatestUnreadMessage();                       // m2 okundu
+    post({ key: 'm3', category: 'message', sender: 'Can', text: 'üç', actions: reply });
+    const res = await svc.replyToLatestMessage('nasılsın');
+    expect(res).toMatchObject({ ok: true, sender: 'Veli' });
+    expect(plugin.replyToNotification).toHaveBeenCalledWith({ key: 'm2', text: 'nasılsın' });
+  });
+
   it('var olan eylem gerçek anahtarla gider; native reddi ok:false döner', async () => {
     post({ key: 'c', category: 'call', sender: 'Ayşe', text: 'Gelen arama', actions: [{ kind: 'ANSWER', title: 'Cevapla' }] });
     expect(await svc.answerCall('c')).toEqual({ ok: true, reason: undefined });

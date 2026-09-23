@@ -115,7 +115,10 @@ export type CommandType =
   // ('1' ise şu anki GPS, aksi halde extra.name kayıtlı konum adı).
   | 'send_location_contact'
   // Telefon Merkezi · "Mavi, oku" — en son okunmamış mesajı okur (voiceInfoService).
-  | 'read_message';
+  | 'read_message'
+  // Telefon Merkezi · "mesaja X diye cevap yaz" — extra.text (cevap metni; boşsa
+  // Mavi ne yazılacağını sorar). Hedef: son okunan / en yeni mesaj.
+  | 'reply_message';
 
 export type CommandPriority = 'critical' | 'high' | 'normal';
 
@@ -1217,6 +1220,27 @@ function settingFeedback(m: VoiceSettingMatch): string {
  * Full parse — returns command + ranked suggestions.
  * Use this everywhere; `parseCommand` is a thin compatibility wrapper.
  */
+const REPLY_LEAD = String.raw`^(?:mavi[,\s]+)?(?:(?:bu|son|gelen)\s+)?(?:(?:mesaja|ona|buna)\s+)?`;
+const REPLY_VERB = String.raw`(?:cevap|yanıt|yanit)\s+(?:yaz|ver|gönder|gonder|at)`;
+/** "mesaja nasılsın diye cevap yaz" · "nasılsın diye yanıtla" */
+const REPLY_DIYE_RE = new RegExp(String.raw`${REPLY_LEAD}(.+?)\s+diye\s+(?:${REPLY_VERB}|cevapla|yanıtla|yanitla)[.!?]*$`, 'i');
+/** "mesaja cevap yaz: nasılsın" · "cevap yaz nasılsın" */
+const REPLY_AFTER_RE = new RegExp(String.raw`${REPLY_LEAD}${REPLY_VERB}\s*[:,]?\s+(.+?)[.!?]*$`, 'i');
+/** Metinsiz: "mesaja cevap yaz" / "cevap yaz" ("cevap ver" tek başına arama olabilir → yalnız "mesaja" ile). */
+const REPLY_EMPTY_RE = /^(?:mavi[,\s]+)?(?:(?:(?:bu|son|gelen)\s+)?mesaja\s+(?:cevap|yanıt|yanit)\s+(?:yaz|ver|gönder|gonder)|(?:cevap|yanıt|yanit)\s+yaz)[.!?]*$/i;
+
+/** Cevap metnini döndürür ('' = metin söylenmedi); cevap komutu değilse null. */
+export function tryParseReplyMessage(input: string): string | null {
+  const t = input.trim().toLocaleLowerCase('tr-TR');
+  if (REPLY_EMPTY_RE.test(t)) return '';
+  const m = REPLY_DIYE_RE.exec(t) ?? REPLY_AFTER_RE.exec(t);
+  if (!m) return null;
+  /* Orijinal yazımı koru: eşleşen dilimi küçültülmemiş girdiden al. */
+  const start = t.indexOf(m[1]);
+  const text = input.trim().slice(start, start + m[1].length).trim();
+  return text || null;
+}
+
 export function parseCommandFull(input: string): ParseResult {
   const trimmed = input.trim();
   if (!trimmed) return { command: null, suggestions: [], needsSemantic: false };
@@ -1280,6 +1304,24 @@ export function parseCommandFull(input: string): ParseResult {
         speechActClass: speechAct.speechClass ?? undefined,
         speechActCue:   speechAct.blocked ? speechAct.cue : undefined,
       },
+    };
+  }
+
+  /* Mesaja sesli cevap — serbest metin taşır, sözlük skorlamasından ÖNCE
+   * çözülür (metindeki kelimeler başka kalıplara gasp edilmesin). */
+  const replyText = tryParseReplyMessage(trimmed);
+  if (replyText !== null) {
+    return {
+      command: {
+        type:       'reply_message',
+        raw:        trimmed,
+        confidence: EXACT_SCORE,
+        feedback:   'Cevap gönderiliyor',
+        priority:   'normal',
+        extra:      { text: replyText },
+      },
+      suggestions:   [],
+      needsSemantic: false,
     };
   }
 

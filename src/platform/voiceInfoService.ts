@@ -32,7 +32,7 @@ import { getEarlyWarnings } from './obd/predictionRuntime';
 import { getObdSignalHealth } from './obdService';
 import { explainEarlyWarnings } from './obd/earlyWarningEngine';
 import { getMaintenanceSummaryText } from './vehicleMaintenanceService';
-import { takeLatestUnreadMessage } from './notificationService';
+import { takeLatestUnreadMessage, replyToLatestMessage } from './notificationService';
 
 /* ── Bilgi sorgusu tipleri ───────────────────────────────────────────────── */
 
@@ -48,6 +48,7 @@ const INFO_TYPES = new Set<CommandType>([
   'vehicle_status',
   'vehicle_maintenance',
   'read_message',
+  'reply_message',
 ]);
 
 export function isInformationalCommand(type: CommandType): boolean {
@@ -195,6 +196,19 @@ function _speakLatestMessage(turn: MaviTurnToken | null): void {
   speakMaviAnswer(`${message.sender} yazdı: ${message.text}${more}`, { turn });
 }
 
+/** "Mesaja X diye cevap yaz": sonuç YALNIZ native gönderim sonucundan söylenir. */
+async function _replyLatestMessage(text: string, turn: MaviTurnToken | null): Promise<void> {
+  if (!text) { speakMaviAnswer('Ne yazayım? Örneğin "nasılsın diye cevap yaz" de.', { turn }); return; }
+  const res = await replyToLatestMessage(text);
+  if (res.ok) { speakMaviAnswer(`${res.sender} kişisine gönderildi: ${text}`, { turn }); return; }
+  speakMaviAnswer(
+    res.reason === 'no_message'      ? 'Cevap verilecek mesaj yok.'
+    : res.reason === 'no_reply_action' ? 'Bu mesaj buradan cevaplanamıyor.'
+    : 'Cevabı gönderemedim.',
+    { turn },
+  );
+}
+
 /* ── Genel giriş ─────────────────────────────────────────────────────────── */
 
 /**
@@ -204,6 +218,7 @@ function _speakLatestMessage(turn: MaviTurnToken | null): void {
 export async function answerInformational(
   type: CommandType,
   turn: MaviTurnToken | null = null,
+  extra?: Record<string, string>,
 ): Promise<void> {
   switch (type) {
     case 'show_weather':         await _speakWeather(turn); break;
@@ -212,6 +227,7 @@ export async function answerInformational(
     case 'vehicle_temp':         _speakTemp(turn);          break;
     case 'vehicle_status':       await _speakStatus(turn);  break;
     case 'read_message':         _speakLatestMessage(turn); break;
+    case 'reply_message':        await _replyLatestMessage((extra?.text ?? '').trim(), turn); break;
     case 'vehicle_maintenance': {
       try {
         const summary = await getMaintenanceSummaryText();

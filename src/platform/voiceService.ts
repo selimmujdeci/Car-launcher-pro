@@ -871,7 +871,7 @@ function dispatch(cmd: ParsedCommand, ctx?: VehicleContext, turn?: MaviTurnToken
   // Bilgi sorguları ("hava durumu nasıl", "hızım kaç") → statik feedback yerine
   // GERÇEK veriyle cevap ver. Aksi halde sadece "gösteriliyor" denir, cevap verilmez.
   if (isInformationalCommand(cmd.type)) {
-    void answerInformational(cmd.type, turn ?? null);
+    void answerInformational(cmd.type, turn ?? null, cmd.extra);
   } else if (!isResultAckCommand(cmd.type)) {
     // MAVI-M3: yıkıcı/davranışsal komutlarda parser'ın hazır metni SESLENDİRİLMEZ —
     // ACK yürütme sonucundan gelir (bkz. isResultAckCommand).
@@ -916,7 +916,7 @@ function dispatchDriving(cmd: ParsedCommand, ctx?: VehicleContext, turn?: MaviTu
   pushTrail('action', `sesli komut (sürüşte): ${cmd.type}`);  // olay izi (PII yok)
   endConversationSession(); // araç komutu → sohbet döngüsü biter (yalnız companion sohbeti sürer)
   if (isInformationalCommand(cmd.type)) {
-    void answerInformational(cmd.type, turn ?? null);
+    void answerInformational(cmd.type, turn ?? null, cmd.extra);
   } else if (!isResultAckCommand(cmd.type)) {
     // MAVI-M3 + M6: sonuç-ACK komutlarında parser metni KONUŞULMAZ; kalanlar TEK otoriteden.
     speakMaviAnswer(cmd.feedback, {
@@ -1999,13 +1999,13 @@ export async function processTextCommand(
     return true;
   }
 
-  // ── 1b1. MESAJ OKUMA BYPASS — "Mavi, oku" (read_message) ──────────────────
+  // ── 1b1. MESAJ OKUMA/CEVAP BYPASS — "Mavi, oku" · "X diye cevap yaz" ──────────────────
   // Okunmamış mesajlar yalnız yerel bildirim deposunda (notificationService);
   // beynin bu veriye aracı YOK → Gemini "okumaya yetkim yok, WhatsApp'ı
   // açayım" diyordu (saha 2026-09-23, telefon). Hava (1b) ile AYNI desen.
   if (
     result.command &&
-    result.command.type === 'read_message' &&
+    (result.command.type === 'read_message' || result.command.type === 'reply_message') &&
     result.command.confidence >= 0.7
   ) {
     _lastCommandTime = now;
