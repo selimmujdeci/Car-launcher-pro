@@ -690,6 +690,8 @@ let _lastSnappedSegBearing: number | null = null;
 const ARRIVAL_SPEED_GUARD_KMH          = 10;    // varış için maksimum hız eşiği
 const ARRIVAL_MIN_MOVE_M               = 50;    // navigasyon başından bu yana minimum hareket (m)
 const ARRIVAL_CONSECUTIVE_LOW_SPEED_MS = 5_000; // düşük hız için zorunlu sürekli süre (ms)
+const ARRIVAL_PARK_RADIUS_M            = 60;    // park-trigger: rota sonu VE hedefe en fazla (m)
+const ARRIVAL_PARK_DWELL_MS            = 20_000; // park-trigger: kesintisiz düşük hız süresi (ms)
 
 // ── Varış Histerezisi — GPS spike koruması ───────────────────────────────────
 // Tünel çıkışında GPS sıçraması tek tick'te eşik altına düşebilir.
@@ -819,9 +821,17 @@ export function updateNavigationProgress(
    *     tetiklenmiyordu.**
    * Aynı hata `routingService.updateRouteProgress` içinde de vardı ve orada
    * düzeltilmişti; navigationService'teki üç kopya GÖZDEN KAÇMIŞTI. */
-  const { speed: _rawArrSpd } = useUnifiedVehicleStore.getState();
-  const speedAtArrival = _rawArrSpd ?? 0;   // km/h
-  if (speedAtArrival >= ARRIVAL_SPEED_GUARD_KMH) {
+  /* Hız BİLİNMİYORSA "duruyor" sayılmaz (CLAUDE.md §8 — missing→zero yasak).
+     Araç hızı (OBD) yoksa GPS hızı kullanılır; ikisi de yoksa düşük-hız süresi
+     BİRİKMEZ → varış yalnız 5 m hard-trigger ile olabilir. OBD'siz araçta
+     eskiden hız hep 0 okunup araç sürekli "duruyor" sayılıyordu. */
+  const { speed: _rawArrSpd, location: _arrLoc } = useUnifiedVehicleStore.getState();
+  const _gpsArrMs = _arrLoc?.speed;
+  const speedAtArrival: number | null =
+    (_rawArrSpd != null && Number.isFinite(_rawArrSpd)) ? _rawArrSpd
+      : (_gpsArrMs != null && Number.isFinite(_gpsArrMs) && _gpsArrMs >= 0) ? _gpsArrMs * 3.6
+        : null;   // km/h
+  if (speedAtArrival === null || speedAtArrival >= ARRIVAL_SPEED_GUARD_KMH) {
     _arrivalLowSpeedStartMs = null; // hız yüksek → süreç sıfırla
   } else if (_arrivalLowSpeedStartMs === null) {
     _arrivalLowSpeedStartMs = performance.now(); // ilk düşük hız anı
@@ -867,13 +877,24 @@ export function updateNavigationProgress(
       const softTrigger = distance < ARRIVAL_THRESHOLD_M
         && _arrivalDistanceBelow >= ARRIVAL_HYSTERESIS_COUNT
         && lowSpeedMs >= ARRIVAL_CONSECUTIVE_LOW_SPEED_MS;
+      /* Park-trigger (analiz 2026-09-24): rota sonu yolun üstündedir; hedefin
+         otoparkı/bahçesi 30–50 m ötede olabilir. Araç rota sonuna VE hedefe
+         yakın bir yerde UZUN süre (20 sn) durduysa varılmıştır — eskiden bu
+         durumda navigasyon hiç bitmiyordu. Kırmızı ışıkta erken bitmesin diye
+         süre soft-trigger'ın 4 katıdır. */
+      const straightToDest = hasValidDest
+        ? calculateDistance(currentLat, currentLon, state.destination.latitude, state.destination.longitude)
+        : Infinity;
+      const parkTrigger = distance < ARRIVAL_PARK_RADIUS_M
+        && straightToDest < ARRIVAL_PARK_RADIUS_M
+        && lowSpeedMs >= ARRIVAL_PARK_DWELL_MS;
       // M3: Kısa yolculukta (hedef <50m) 50m hareket koşulu asla sağlanmaz → varış takılır.
       // Eşiği başlangıç mesafesinin yarısına ölçekle (min 5m); normal yolculukta 50m kalır.
       const minMove = Math.min(ARRIVAL_MIN_MOVE_M, Math.max(_navStartDistToDest * 0.5, 5));
       const allowed = hasValidDest
         && hasValidGeometry
         && movedFromStart >= minMove
-        && (hardTrigger || softTrigger);
+        && (hardTrigger || softTrigger || parkTrigger);
 
       if (allowed) {
         transitionToArrived();
