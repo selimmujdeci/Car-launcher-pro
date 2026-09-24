@@ -14,18 +14,14 @@ import {
 } from
   '@/security/accountCleanup/canonicalAuthMutations';
 import { resolveAuthFailureRedirect } from '@/lib/pwaAuth';
+import { safeNextPath } from '@/lib/safeRedirect';
 
 export default function HashCallbackPage() {
   const router = useRouter();
 
   useEffect(() => {
     const code = new URLSearchParams(window.location.search).get('code');
-    const requestedNext =
-      new URLSearchParams(window.location.search).get('next') ?? '/dashboard';
-    const next = requestedNext.startsWith('/') &&
-      !requestedNext.startsWith('//')
-      ? requestedNext
-      : '/dashboard';
+    const next = safeNextPath(new URLSearchParams(window.location.search).get('next'));
     if (code) {
       const supabase = getSupabaseBrowserClient();
       if (!supabase) {

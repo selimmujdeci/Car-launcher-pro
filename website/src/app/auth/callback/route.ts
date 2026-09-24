@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { AUTH_CLEANUP_MARKER_COOKIE } from '@/security/accountCleanup/authCleanupMarker';
+import { safeNextPath } from '@/lib/safeRedirect';
 
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url);
@@ -7,11 +8,8 @@ export async function GET(request: NextRequest) {
   const code      = searchParams.get('code');
   const tokenHash = searchParams.get('token_hash');
   const type      = searchParams.get('type') as 'recovery' | 'signup' | 'email' | null;
-  const requestedNext = searchParams.get('next') ?? '/dashboard';
   /* Yalnız kendi kökümüze dönen göreli yol kabul edilir (open redirect yok). */
-  const next = requestedNext.startsWith('/') && !requestedNext.startsWith('//')
-    ? requestedNext
-    : '/dashboard';
+  const next = safeNextPath(searchParams.get('next'));
   /* F1 · Arabam Cebimde kullanıcısı filo panelinin `/login` sayfasına
      düşürülmez; kendi yüzeyine döner. Güvenlik kararı DEĞİŞMEZ — oturum yine
      kurulmaz, yalnız kullanıcı doğru ürüne geri gider. */
