@@ -1003,7 +1003,11 @@ export const MiniMapWidget = memo(function MiniMapWidget({
    *  kalkar. Başlık gizliyse (bölünmüş ekran) harita üstünde şerit olarak kalır. */
   const navInfo = (() => {
     if (!isNavigating) return null;
-    const step = route.steps[route.currentStepIndex];
+    /* Adım semantiği (NavigationHUD ile AYNI, off-by-one 2026-07-05): steps[i]
+       az önce GEÇİLEN manevradır; mesafe steps[i+1]'e sayılır. Sahada
+       (2026-09-24, sahte sürüş) mini harita "şimdi sola dönün" okunurken hâlâ
+       geçilmiş "sağa dönün"ü gösteriyordu. Tek adım kaldıysa kendisi. */
+    const step = route.steps[route.currentStepIndex + 1] ?? route.steps[route.currentStepIndex];
     // Manevra metni: talimat → yoksa cadde adı → yoksa satır YOK.
     const maneuver = step?.instruction?.trim() || step?.streetName?.trim() || null;
     // Manevraya mesafe: yalnız yöntemi bilinen ölçü gösterilir.
@@ -1037,7 +1041,7 @@ export const MiniMapWidget = memo(function MiniMapWidget({
     /* Hedef adı: adresin ilk parçası ("Tarsus Şelalesi, Çağlayan Mah." → "Tarsus Şelalesi"). */
     const destName = destination?.name?.split(',')[0]?.trim() || null;
     /* Sonraki manevra — yalnız sağlayıcının verdiği adım varsa (uydurma levha YOK). */
-    const next = route.steps[route.currentStepIndex + 1] ?? null;
+    const next = route.steps[route.currentStepIndex + 2] ?? null;
     const nextText = next ? (next.instruction?.trim() || next.streetName?.trim() || null) : null;
     return {
       maneuver, turnM, remainM, etaTxt, title: phase ?? destName ?? 'NAVİGASYON',
