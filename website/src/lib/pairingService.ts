@@ -54,7 +54,9 @@ export interface LocalVehicle {
 function storeLocalVehicle(v: LocalVehicle): void {
   try {
     localStorage.setItem(STORAGE.VEHICLE_ID,    v.id);
-    localStorage.setItem(STORAGE.API_KEY,       v.apiKey);
+    /* `api_key` ARTIK SAKLANMAZ (#631): boş dize yazmak yerine SİLİNİR — eski
+       sürümden kalmış gerçek bir anahtar da temizlenir, düz metin sır yazılmaz. */
+    localStorage.removeItem(STORAGE.API_KEY);
     localStorage.setItem(STORAGE.VEHICLE_NAME,  v.name);
     localStorage.setItem(STORAGE.VEHICLE_PLATE, v.plate);
   } catch { /* quota — silently ignore */ }
