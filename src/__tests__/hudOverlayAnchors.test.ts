@@ -61,6 +61,10 @@ describe('#605 · P2-3 — sol alt köşenin TEK sahibi var', () => {
   const hud  = read('src/components/map/NavigationHUD.tsx');
   const ctrl = read('src/components/map/MapHudControls.tsx');
 
+  it('🔒 rapor düğmesi rota ÖNİZLEMESİNDE çizilmez (NAVİGASYONU BAŞLAT üstüne binmez)', () => {
+    expect(ctrl).toContain('{!drivingMode && !isPreview && (');
+  });
+
   /** `MapHudControls` içindeki "Yol durumu bildir" düğmesinin kendi ölçüleri. */
   function reportButtonStrip(): { bottomOffset: number; size: number } {
     const at = ctrl.indexOf('aria-label="Yol durumu bildir"');

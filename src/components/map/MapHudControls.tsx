@@ -288,8 +288,11 @@ export const MapHudControls = memo(function MapHudControls({
        * FOLLOW_SUSPENDED / USER_PANNING) görünür. Zoom, rehberlik dışında
        * aşağıdaki idle kolonunda AYNEN durmaya devam eder. */}
 
-      {/* ── SOL: Yol durumu rapor butonu — sürüş modunda gizli ── */}
-      {!drivingMode && (
+      {/* ── SOL: Yol durumu rapor butonu — sürüş modunda gizli ──
+       *  Rota önizlemesinde de gizli (saha 2026-09-24, telefon): önizleme
+       *  sayfası ekranın altını kaplıyor, düğme NAVİGASYONU BAŞLAT'ın üstüne
+       *  biniyordu. Sol zoom sütunuyla aynı kapı (`isPreview`). */}
+      {!drivingMode && !isPreview && (
         <button
           onClick={() => setReportOpen(true)}
           aria-label="Yol durumu bildir"
