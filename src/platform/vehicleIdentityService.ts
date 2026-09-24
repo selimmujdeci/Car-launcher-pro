@@ -80,10 +80,14 @@ function _uuid(): string {
   });
 }
 
-function _mockCode(): LinkingCodeInfo {
-  const code = String(Math.floor(Math.random() * 1_000_000)).padStart(6, '0');
-  return { code, expiresAt: Date.now() + 60_000 };
-}
+/* ESKİ `_mockCode()` KALDIRILDI (2026-09-25, CodeQL js/insecure-randomness
+   incelemesi): sunucuya ulaşılamayınca `Math.random` ile 6 haneli SAHTE kod
+   üretip ekrana basıyordu — sunucuda olmayan kod telefona girilince eşleşme
+   sessizce düşüyordu (§8: sahte başarı). Artık dürüst hata fırlatılır;
+   MobileLinkWidget hatayı zaten gösterir. */
+const ERR_LINK_NOT_CONFIGURED = 'Sunucu yapılandırılmamış — eşleşme kodu alınamıyor';
+const ERR_LINK_OFFLINE = 'Sunucuya ulaşılamadı — eşleşme kodu alınamadı. İnternet bağlantısını kontrol edip tekrar deneyin.';
+const ERR_LINK_NOT_REGISTERED = 'Araç henüz sunucuya kayıtlı değil — önce eşleşme kodu oluşturun';
 
 async function _rpc(fn: string, body: Record<string, unknown>): Promise<unknown> {
   if (!RPC_BASE || !SUPABASE_ANON_KEY) throw new Error('Supabase not configured');
@@ -264,7 +268,7 @@ export async function getVehicleIdentity(): Promise<VehicleIdentity | null> {
 export async function registerVehicle(name = 'Araç'): Promise<LinkingCodeInfo> {
   const deviceId = await _getOrCreateDeviceId();
 
-  if (!RPC_BASE) return _mockCode();
+  if (!RPC_BASE) throw new Error(ERR_LINK_NOT_CONFIGURED);
 
   try {
     const data = await _rpc('register_vehicle', { p_device_id: deviceId, p_name: name }) as {
@@ -302,8 +306,8 @@ export async function registerVehicle(name = 'Araç'): Promise<LinkingCodeInfo> 
             : 0,
     };
   } catch {
-    // Sunucu ulaşılamıyor veya RPC hatası → çevrimdışı mod, mock kod göster
-    return _mockCode();
+    // Sunucu ulaşılamıyor veya RPC hatası → SAHTE kod YOK, dürüst hata
+    throw new Error(ERR_LINK_OFFLINE);
   }
 }
 
@@ -312,10 +316,10 @@ export async function registerVehicle(name = 'Araç'): Promise<LinkingCodeInfo> 
  * Authenticated by the stored api_key — no user JWT required.
  */
 export async function refreshLinkingCode(): Promise<LinkingCodeInfo> {
-  if (!RPC_BASE) return _mockCode();
+  if (!RPC_BASE) throw new Error(ERR_LINK_NOT_CONFIGURED);
 
   const apiKey = _apiKey ?? (await sensitiveKeyStore.get(SK_API_KEY));
-  if (!apiKey) return _mockCode();
+  if (!apiKey) throw new Error(ERR_LINK_NOT_REGISTERED);
 
   try {
     const data = await _rpc('refresh_linking_code', { p_api_key: apiKey }) as {
@@ -327,7 +331,7 @@ export async function refreshLinkingCode(): Promise<LinkingCodeInfo> {
       expiresAt: new Date(data.expires_at).getTime(),
     };
   } catch {
-    return _mockCode();
+    throw new Error(ERR_LINK_OFFLINE);
   }
 }
 
