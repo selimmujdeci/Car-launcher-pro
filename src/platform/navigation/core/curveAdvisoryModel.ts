@@ -22,7 +22,9 @@
 export const COMFORT_LATERAL_MPS2 = 3.0;
 export const CURVE_MAX_RADIUS_M = 250;
 export const CURVE_MIN_TURN_DEG = 30;
-export const MANEUVER_EXCLUSION_M = 40;
+/** Kavşak dönüşünün kavisi TomTom dönüş noktasından 41 m ötede ölçüldü (Tarsus,
+ *  2026-09-24: "Şimdi sağa dönün"den 1 sn önce "keskin sağ viraj" dendi). */
+export const MANEUVER_EXCLUSION_M = 60;
 /** Bu ve üstü öneri gösterilmez (geniş kavis; sınır bilinmese de gürültü olur). */
 export const CURVE_MAX_ADVISORY_KMH = 90;
 const STEP_M = 10;

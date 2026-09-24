@@ -16,6 +16,9 @@ import { decideCurveAdvisory, type CurveAdvisory } from './core/curveAdvisoryMod
 export const CURVE_VOICE_MARGIN_KMH = 10;
 export const CURVE_LOOKAHEAD_MIN_M = 400;
 export const CURVE_LOOKAHEAD_S = 15;
+/** Tepe noktası örnekleme ızgarasıyla (10 m) ve en dar nokta seçimiyle kayar;
+ *  bu mesafe içindeki tepe AYNI virajdır (cihaz 2026-09-24: aynı viraj 5 kez söylendi). */
+export const CURVE_SAME_APEX_M = 50;
 
 let _current: CurveAdvisory | null = null;
 const _listeners = new Set<() => void>();
@@ -55,7 +58,7 @@ export function noteCurveTick(i: CurveTickInput, speak: (t: string) => void = sp
   _publish(a);
   if (!a || v === null) return null;
   const id = Math.round(a.apexAlongRemainingM);
-  if (_announced.has(id)) return null;
+  for (const x of _announced) if (Math.abs(x - id) <= CURVE_SAME_APEX_M) return null;
   const voiceWindow = Math.max(150, (v / 3.6) * 7);
   if (a.distanceM > voiceWindow || v <= a.advisoryKmh + CURVE_VOICE_MARGIN_KMH) return null;
   _announced.add(id);

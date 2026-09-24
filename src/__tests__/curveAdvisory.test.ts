@@ -99,4 +99,19 @@ describe('runtime (ses + yayın)', () => {
     resetCurveAdvisory();
     expect(getCurveAdvisory()).toBeNull();
   });
+
+  it('🔒 tepe noktası tick tick kaysa da aynı viraj İKİNCİ kez söylenmez (cihaz 2026-09-24: 5 kez)', async () => {
+    const { noteCurveTick, resetCurveAdvisory } = await import('../platform/navigation/curveAdvisoryRuntime');
+    resetCurveAdvisory();
+    const g = road(30); const cum = suffix(g); const total = cum[0]!;
+    const spoken: string[] = [];
+    for (let s = 100; s < total - 100; s += 7) {
+      noteCurveTick({
+        sessionId: 1, routeRevision: 1, geometry: g, cumulativeDistances: cum, vehicleAlongRemainingM: total - s,
+        maneuverAlongRemainingM: [], limitKmh: 90, speedKmh: 70,
+      }, (t) => spoken.push(t));
+    }
+    expect(spoken).toHaveLength(1);
+    resetCurveAdvisory();
+  });
 });
