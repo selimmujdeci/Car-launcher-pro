@@ -202,7 +202,9 @@ const Header = memo(function Header() {
         <div style={{ fontWeight: 800, fontSize: 20, letterSpacing: '0.22em', color: p.ink2 }}>CAR<b style={{ color: p.ink }}>OS</b></div>
       </div>
       <div data-header-status className="flex items-center" style={{ gap: 16, color: p.ink2 }}>
-        <button onClick={() => openDrawer('notifications')} className="ex-btn relative" style={{ background: 'none', border: 'none', cursor: 'pointer', color: p.ink2, display: 'flex' }}>
+        {/* `caros-status-item`: güneş modunun "2px siyah çerçeve + 52px" düğme kuralından
+            muaf (Tesla/Horizon zili ile aynı) — yoksa zil boş siyah kutu görünüyordu. */}
+        <button onClick={() => openDrawer('notifications')} aria-label={n.unreadCount > 0 ? `Bildirimler: ${n.unreadCount} okunmamış` : 'Bildirimler'} className="caros-status-item ex-btn relative" style={{ background: 'none', border: 'none', cursor: 'pointer', color: p.ink2, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <Bell className="w-[18px] h-[18px]" />
           {n.unreadCount > 0 && <span style={{ position: 'absolute', top: -4, right: -5, minWidth: 14, height: 14, background: p.accent, color: '#1a0f02', fontSize: 8, fontWeight: 900, borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 2px' }}>{n.unreadCount > 9 ? '9+' : n.unreadCount}</span>}
         </button>

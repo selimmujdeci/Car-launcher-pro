@@ -58,6 +58,16 @@ describe('kaynak kilitleri', () => {
     expect(sunRule).toBeGreaterThan(-1);
     expect(exempt).toBeGreaterThan(sunRule);   // muafiyet SONRA → eşit özgüllükte kazanır
   });
+  it('🔒 başlıktaki zil düğmesi de muaf (Tesla · Horizon · Expedition)', () => {
+    /* Saha 2026-09-24: Expedition düzeninde zil muafiyetsiz kalmıştı → güneş
+       modunda durum çubuğunun başında BOŞ siyah kutu görünüyordu. */
+    for (const f of ['TeslaLayout', 'HorizonLayout', 'ExpeditionLayout']) {
+      const src = readFileSync(resolve(HERE, `../components/themes/${f}.tsx`), 'utf8');
+      const bell = src.split(/\r?\n/).filter((l) => l.includes('<button') && l.includes("openDrawer('notifications')"));
+      expect(bell.length, f).toBeGreaterThan(0);
+      for (const l of bell) expect(l, f).toContain('className="caros-status-item');
+    }
+  });
   it('🔒 sahte şebeke çubukları geri gelmedi', () => {
     const src = readFileSync(resolve(HERE, '../components/common/StatusControls.tsx'), 'utf8');
     expect(src).not.toMatch(/showCellular/);
