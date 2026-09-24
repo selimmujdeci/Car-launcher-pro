@@ -480,6 +480,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
               ? _rsArrow.distanceToNextTurnMeters : null,
             maneuverType:          _nextStep?.maneuverType ?? '',
             maneuverModifier:      _nextStep?.maneuverModifier ?? '',
+            speedMps:              loc.speed ?? null,
           });
           setPaintedArrow(mapRef.current, _arrow, _anchorIdx, getMapNight());
         }

@@ -1062,8 +1062,11 @@ export function setPaintedArrow(
    * atlandıysa sonraki tick TEKRAR dener (bayat anahtar kilitlemez). */
   if (!map) return;
 
+  /* Gövde boyu da anahtarda (2 m adım): yalnız `anchor|turn` iken 140 m'de
+     çizilen 32 m'lik ok dönüşe kadar HİÇ tazelenmiyor, araç yaklaşınca kuyruğu
+     aracın altına giriyordu (saha 2026-09-24). Uzakta boy sabit → setData yok. */
   const key = verdict.visible
-    ? `v|${anchorIndex}|${verdict.turn}`
+    ? `v|${anchorIndex}|${verdict.turn}|${Math.round(verdict.approachM / 2)}`
     : `h|${verdict.reason}`;
   /* Örnek-başına dedup (renkle aynı kusur sınıfı) — kaynak denetimi KORUNDU:
      yaratma stil yüzünden atlandıysa sonraki tick yeniden dener. */
@@ -1108,7 +1111,10 @@ export function setPaintedArrow(
 
     /* Rota çizgisinin ÜSTÜNE konur: ok rotanın üzerine boyanır, altına değil.
        Kullanıcı işaretçisi (USER_LAYERS) daha da üstte kalır — araç okun
-       altında kaybolmamalı. */
+       altında kaybolmamalı. `beforeId` VERİLMİYORDU (saha 2026-09-24): ok ilk
+       dönüşte, araç katmanlarından SONRA eklendiği için stilin en üstüne
+       gidiyor ve aracın ÜSTÜNE çiziliyordu. */
+    const _beforeUser = USER_LAYERS.find((id) => map.getLayer(id));
     map.addLayer({
       id: PAINTED_ARROW_FILL,
       type: 'fill',
@@ -1117,7 +1123,7 @@ export function setPaintedArrow(
         'fill-color': night ? '#5b96f7' : '#4285f4',
         'fill-opacity': night ? 0.80 : 0.86,
       },
-    });
+    }, _beforeUser);
     map.addLayer({
       id: PAINTED_ARROW_EDGE,
       type: 'line',
@@ -1128,7 +1134,7 @@ export function setPaintedArrow(
         'line-width': 1.8,
         'line-opacity': 0.9,
       },
-    });
+    }, _beforeUser);
     _recordPaintedArrowLayer(true);
   } catch {
     /* fail-soft: ok çizilemezse navigasyon aynen sürer — ok bir SÜS değil ama
