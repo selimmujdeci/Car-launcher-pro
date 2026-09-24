@@ -25,7 +25,7 @@ import { recordAddressSearch } from './geo/addressSearchLedgerStore';
 import { applyLocationBias, detectCitiesInQuery } from './geo/locationBiasGate';
 import { resolveCityAnchor } from './geo/cityAnchor';
 import { awaitNominatimSlot } from './geo/nominatimRateLimit';
-import { premiumGeocode } from './geocodingProviders';
+import { premiumGeocode, normalizeTrAddressQuery } from './geocodingProviders';
 import {
   detectPlaceIntent, rankPlaces, dedupePlacesWithEvidence, type PlaceLayer,
 } from './geo/placeQueryModel';
@@ -541,7 +541,7 @@ export async function searchPlaces(
     ]);
 
     if (premiumRaw.length > 0) {
-      const premHits = filterNumberedStreetMismatch(query, premiumRaw.map((g) => ({ ...g, fullName: g.fullName })));
+      const premHits = filterNumberedStreetMismatch(normalizeTrAddressQuery(query), premiumRaw.map((g) => ({ ...g, fullName: g.fullName })));
       const premGated = _gate(premHits.map((g): LayeredLocation => ({
         id: g.id, name: g.name, address: g.fullName, lat: g.lat, lng: g.lng,
         source: 'search', timestamp: Date.now(), useCount: 0, layer: 'PREMIUM',

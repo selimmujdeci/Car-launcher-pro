@@ -100,6 +100,26 @@ describe('Türkiye adres sorgusu', () => {
     await premiumGeocode('0455 sokak Tarsus', 36.91, 34.89);
     expect(urls).toHaveLength(1);                     // bulundu → ek istek YOK
   });
+
+  it('🔒 eşleşme UZAKTAYSA ıskalama sayılır — yazarken de sıfırlı varyant denenir (cihaz 2026-09-24)', async () => {
+    vi.stubEnv('VITE_TOMTOM_API_KEY', 'k');
+    const urls: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (u: string) => {
+      urls.push(decodeURIComponent(u));
+      const zero = decodeURIComponent(u).includes('0455');
+      return new Response(JSON.stringify({ results: zero
+        ? [{ type: 'Street', address: { freeformAddress: 'Bağlar, 0455. Sokak, 33420, Tarsus, Mersin' }, position: { lat: 36.9176, lon: 34.8621 } }]
+        : [{ type: 'Street', address: { freeformAddress: 'Akdeniz, 455. Sokak, 01291, Yüreğir, Adana' }, position: { lat: 36.99, lon: 35.33 } }],
+      }), { status: 200 });
+    }));
+    const r = await premiumGeocode('455 sokak', 36.9175, 34.8622, { typeahead: true });
+    expect(urls).toHaveLength(2);
+    expect(r[0]!.fullName).toContain('0455. Sokak');
+
+    urls.length = 0;                                  // yakın eşleşme → ek istek YOK
+    await premiumGeocode('455 sokak', 36.99, 35.33, { typeahead: true });
+    expect(urls).toHaveLength(1);
+  });
 });
 
 describe('sorgu yönü', () => {

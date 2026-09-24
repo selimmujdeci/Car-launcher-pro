@@ -43,7 +43,7 @@
 import { sensitiveKeyStore } from './sensitiveKeyStore';
 import type { SensitiveKey } from './sensitiveKeyStore';
 import type { GeoResult } from './geocodingService';
-import { detectCitiesInQuery } from './geo/locationBiasGate';
+import { detectCitiesInQuery, haversineKm } from './geo/locationBiasGate';
 
 export type GeocodeProviderId = 'google' | 'here' | 'yandex' | 'tomtom';
 
@@ -62,6 +62,8 @@ export const GEOCODE_PROVIDERS: ReadonlyArray<{
 /** Sağlayıcı çağrısı navigasyonu BEKLETMEZ — ücretsiz zincir zaten arkada. */
 const TIMEOUT_MS = 5_000;
 const MAX_HITS   = 4;
+/** Numaralı sokak eşleşmesi bu mesafeden uzaksa ıskalama sayılır (varyant denenir). */
+const NEAR_STREET_KM = 15;
 
 /* ── Anahtar okuma (kısa ömürlü önbellek) ───────────────────────────────── */
 
@@ -348,9 +350,16 @@ export async function premiumGeocode(
        denenir (yalnız ISKALAMADA ek istek → kota korunur). Bulunan varyantın
        sokağı içeren sonuçları başa alınır; bulunamazsa ilk sonuçlar aynen döner
        (sonraki numara filtresi yanlışları zaten eler). */
-    const n = !opts.typeahead ? numberedStreetOf(q) : null;
-    if (n && !hits.some((h) => mentionsNumberedStreet(h.full, n))) {
-      for (const v of numberedStreetVariants(q)) {
+    /* Cihazda ölçüldü (2026-09-24): Tarsus'ta "455 sokak" → Adana'daki
+       "455. Sokak" (43 km) eşleşme sayıldı, 16 m'deki "0455. Sokak" hiç
+       sorulmadı. Eşleşme yalnız konuma YAKINSA (≤ NEAR_STREET_KM) ıskalama
+       değildir. Yazarken yalnız sıfırlı varyant denenir (kota). */
+    const n = numberedStreetOf(q);
+    const nearHere = (h: RawHit): boolean =>
+      lat == null || lng == null || haversineKm(lat, lng, h.lat, h.lng) <= NEAR_STREET_KM;
+    if (n && !hits.some((h) => mentionsNumberedStreet(h.full, n) && nearHere(h))) {
+      const variants = numberedStreetVariants(q);
+      for (const v of opts.typeahead ? variants.slice(0, n.length < 4 ? 1 : 0) : variants) {
         const vh = await run(v);
         const good = vh.filter((h) => mentionsNumberedStreet(h.full, n));
         if (good.length > 0) { hits = [...good, ...hits]; break; }
