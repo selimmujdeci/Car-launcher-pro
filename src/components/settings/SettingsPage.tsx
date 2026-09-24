@@ -8,7 +8,7 @@ import {
   Wifi, HardDrive, RefreshCw, Database, Cloud, ArrowLeft, X,
   Cpu, Shield, ShieldCheck, Gauge, Settings2,
   Mic, Loader,
-  Grid3X3, Star, Users, ChevronRight, Info, MessageCircle, AlertTriangle, type LucideIcon,
+  Star, Users, Map as MapIcon, ChevronRight, Info, MessageCircle, AlertTriangle, type LucideIcon,
   Home, Fuel,
 } from 'lucide-react';
 import {
@@ -1141,7 +1141,7 @@ function AboutTabContent() {
    TAB CONTENTS — Sound, Connect, Profiles (gerçek servislere bağlı)
 ════════════════════════════════════════ */
 
-function SoundTabContent({ drivingMode }: { drivingMode: DrivingMode }) {
+function SoundTabContent({ drivingMode, volumeSlot }: { drivingMode: DrivingMode; volumeSlot?: ReactNode }) {
   /* F6: tek DSP otoritesinin projeksiyonu. Bu sekme kendi ses gerçeğini
      tutmaz ve desteklenmeyen bir kontrolü "kapalı" diye çizmez. */
   const resumeMusicOnStart = useStore((s) => s.settings.resumeMusicOnStart === true);
@@ -1155,6 +1155,7 @@ function SoundTabContent({ drivingMode }: { drivingMode: DrivingMode }) {
         sub="Ekolayzer, hazır profiller, loudness ve denge — cihazın gerçekten desteklediği kadarı."
       />
       <div className="grid gap-4" style={{ gridTemplateColumns: '1fr', maxWidth: 720, margin: '0 auto' }}>
+        {volumeSlot}
         <AudioExperiencePanel drivingMode={drivingMode} />
         <PremiumToggle
           icon={Volume2}
@@ -1218,7 +1219,7 @@ function ConnectTabContent() {
       <SettingsHero
         eyebrow="Bağlantı"
         title="Ağ & Eşleme"
-        sub="Wi-Fi, Bluetooth ve sistem güncellemeleri — cihazın gerçek durumu."
+        sub="Wi-Fi, Bluetooth, telefon ve OBD adaptörü — cihazın gerçek durumu."
       />
       <div className="grid gap-4" style={{ gridTemplateColumns: '1fr', maxWidth: 720, margin: '0 auto' }}>
         <SettingTile icon={Wifi} accent={dev.wifiConnected ? 'amber' : undefined} title="Wi-Fi"
@@ -1229,8 +1230,6 @@ function ConnectTabContent() {
           sub={(dev.btConnected ? `Bağlı${dev.btDevice ? ` · ${dev.btDevice}` : ''}` : 'Eşleşmiş cihaz bağlı değil') + tapHint}
           onClick={isNative ? openBt : undefined}
           control={<ConnStatusBadge on={dev.btConnected} />} />
-        {/* Gerçek OTA akışı — Hakkında sekmesindeki kartla aynı store (otaUpdateService) */}
-        <OtaUpdateCard />
         <SettingTile icon={HardDrive} title="Veri Yansıtma"
           sub="CarPlay / Android Auto / MirrorLink protokol katmanı."
           control={<div className="text-[13px] font-bold" style={{ color: 'var(--oem-ink-2, rgba(240,235,224,0.74))' }}>Pasif</div>} />
@@ -1458,8 +1457,13 @@ interface Props {
   drivingMode?: DrivingMode;
 }
 
-type Tab = 'general' | 'appearance' | 'performance' | 'maintenance' | 'sound' | 'connect' | 'profiles' | 'about';
-const TAB_IDS: Tab[] = ['general', 'appearance', 'performance', 'maintenance', 'sound', 'connect', 'profiles'];
+/* 2026-09-24 (kullanıcı: "ayarlar çok karışık, neyin nerede olduğu belli değil"):
+   her ayar kendi konusunun sekmesinde. 'general' (Genel Bakış: parlaklık, ses,
+   navigasyon, asistan, bağlantı karışıktı) ve 'performance' ("Sürüş Asistanı" adlı
+   ama güç profili/donanım içeren) KALDIRILDI; kayıtlı eski değer yakın sekmeye döner. */
+type Tab = 'appearance' | 'sound' | 'navigation' | 'assistant' | 'maintenance' | 'connect' | 'profiles' | 'about';
+const TAB_IDS: Tab[] = ['appearance', 'sound', 'navigation', 'assistant', 'maintenance', 'connect', 'profiles', 'about'];
+const LEGACY_TAB: Record<string, Tab> = { general: 'appearance', performance: 'about' };
 const TAB_STORAGE_KEY = 'caros.settings.tab';
 
 function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
@@ -1472,9 +1476,10 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
   // Tab persists across the session (CLAUDE.md Faz 8 task 3).
   const [tab, setTab] = useState<Tab>(() => {
     try {
-      const saved = sessionStorage.getItem(TAB_STORAGE_KEY) as Tab | null;
-      return saved && TAB_IDS.includes(saved) ? saved : 'general';
-    } catch { return 'general'; }
+      const raw = sessionStorage.getItem(TAB_STORAGE_KEY);
+      const saved = (raw && LEGACY_TAB[raw]) ?? (raw as Tab | null);
+      return saved && TAB_IDS.includes(saved) ? saved : 'appearance';
+    } catch { return 'appearance'; }
   });
   useEffect(() => {
     try { sessionStorage.setItem(TAB_STORAGE_KEY, tab); } catch { /* quota / private mode */ }
@@ -1483,7 +1488,7 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
   // mount olur; panelin kendisi AIVoicePanel içinde ayrıca odaklanır).
   useEffect(() => {
     const SECTION_TO_TAB: Record<string, Tab> = {
-      'gemini-qr': 'general', 'assistant': 'general', 'sound': 'sound', 'appearance': 'appearance',
+      'gemini-qr': 'assistant', 'assistant': 'assistant', 'sound': 'sound', 'appearance': 'appearance',
     };
     return registerSettingsFocus((section) => {
       const target = SECTION_TO_TAB[section];
@@ -1544,16 +1549,16 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
     setAutoMode(true);
   }, []);
 
-  // ─ Sidebar nav — 1:1 screens.jsx SETTINGS_NAV (Genel Bakış, Ekran, Ses, Araç, Sürüş, Bağlantı, Profiller)
-  const TABS: Array<{ id: Tab; label: string; Icon: LucideIcon; color: string }> = [
-    { id: 'general'     as Tab, label: 'Genel Bakış',      Icon: Grid3X3,    color: '#60a5fa' },
-    { id: 'appearance'  as Tab, label: 'Ekran & Atmosfer', Icon: Palette,    color: '#e879f9' },
-    { id: 'sound'       as Tab, label: 'Ses',              Icon: Volume2,    color: '#a78bfa' },
-    { id: 'maintenance' as Tab, label: 'Araç',             Icon: Gauge,      color: '#34d399' },
-    { id: 'performance' as Tab, label: 'Sürüş Asistanı',   Icon: Zap,        color: '#fbbf24' },
-    { id: 'connect'     as Tab, label: 'Bağlantı',         Icon: Wifi,       color: '#22d3ee' },
-    { id: 'profiles'    as Tab, label: 'Profiller',        Icon: Star,       color: '#fb923c' },
-    { id: 'about'       as Tab, label: 'Hakkında',         Icon: Info,       color: '#60a5fa' },
+  // ─ Sidebar nav — konuya göre: her ayarın TEK yeri
+  const TABS: Array<{ id: Tab; label: string; short?: string; Icon: LucideIcon; color: string }> = [
+    { id: 'appearance'  as Tab, label: 'Ekran',            Icon: Palette,       color: '#e879f9' },
+    { id: 'sound'       as Tab, label: 'Ses',              Icon: Volume2,       color: '#a78bfa' },
+    { id: 'navigation'  as Tab, label: 'Navigasyon',       short: 'Harita', Icon: MapIcon,       color: '#60a5fa' },
+    { id: 'assistant'   as Tab, label: 'Asistan',          Icon: MessageCircle, color: '#22d3ee' },
+    { id: 'maintenance' as Tab, label: 'Araç',             Icon: Gauge,         color: '#34d399' },
+    { id: 'connect'     as Tab, label: 'Bağlantı',         Icon: Wifi,          color: '#22d3ee' },
+    { id: 'profiles'    as Tab, label: 'Profiller',        Icon: Star,          color: '#fb923c' },
+    { id: 'about'       as Tab, label: 'Sistem',           Icon: Cpu,           color: '#fbbf24' },
   ];
 
   const WALLPAPERS: Array<{ id: string; label: string; url: string; preview?: string; type: 'gradient' | 'photo'; online?: boolean }> = [
@@ -1757,7 +1762,7 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
                   {isCompactScreen && (
                     <span className="text-[9px] font-black uppercase tracking-[0.10em] truncate w-full"
                       style={{ color: active ? 'var(--oem-amber, oklch(80% 0.13 60))' : 'var(--oem-ink-3, rgba(240,235,224,0.52))' }}>
-                      {s.label.split(' ')[0]}
+                      {s.short ?? s.label.split(' ')[0]}
                     </span>
                   )}
                 </button>
@@ -1778,39 +1783,15 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
           }}>
         <div className="max-w-[1600px] mx-auto flex flex-col gap-3">
 
-          {tab === 'general' && (
+          {tab === 'navigation' && (
             <div className="flex flex-col gap-4 mx-auto w-full" style={{ maxWidth: 760 }}>
-              {nativeControls && (
-                <Panel accent="var(--oem-accent)">
-                  <SectionTitle icon={Settings2} title="Donanım Kontrolleri" sub="Sistem öncelikli ayarlar" color="var(--oem-accent)" />
-                  <div className="flex flex-col gap-6">
-                    <PremiumSlider icon={Sun}     label="Parlaklık Seviyesi" value={settings.brightness} onChange={handleBrightness} colorA="var(--oem-warn)" colorB="#f97316" />
-                    <PremiumSlider icon={Volume2} label="Ses Düzeyi" value={settings.volume} onChange={handleVolume} colorA="var(--oem-accent)" colorB="var(--oem-accent-strong)" />
-                  </div>
-                </Panel>
-              )}
-
               <Panel accent="#60a5fa">
-                <SectionTitle icon={Wifi} title="Akıllı Servisler" sub="Bağlam duyarlı özellikler" color="#60a5fa" />
+                <SectionTitle icon={MapIcon} title="Harita" sub="Açılış davranışı ve çevrimdışı harita" color="#60a5fa" />
                 <div className="flex flex-col gap-3">
                   <PremiumToggle icon={Layout}   label="Hızlı Harita" desc="Açılışta otomatik navigasyon" value={settings.autoNavOnStart ?? true} onChange={v => updateSettings({ autoNavOnStart: v })} accent="#60a5fa" />
-                  <PremiumToggle icon={Smartphone} label="Voice Assistant" desc='"Hey Araba" komut desteği' value={settings.wakeWordEnabled ?? false} onChange={v => updateSettings({ wakeWordEnabled: v })} accent="#a78bfa" />
-                  <PremiumToggle icon={Cpu} label="Smart Engine" desc="Yapay zeka tabanlı sürüş modları" value={settings.smartContextEnabled ?? true} onChange={v => updateSettings({ smartContextEnabled: v })} accent="#34d399" />
                   <PremiumToggle icon={HardDrive} label="Offline Map HUD" desc="Gömülü vektör harita motoru" value={settings.offlineMap} onChange={v => updateSettings({ offlineMap: v })} accent="#22d3ee" />
                 </div>
                 {settings.offlineMap && <MapSourcePanel />}
-                <AIVoicePanel />
-              </Panel>
-
-              {/* ── "Yol Arkadaşım" (Companion AI) ── */}
-              <Panel accent="#22d3ee">
-                <SectionTitle icon={MessageCircle} title="Yol Arkadaşım" sub="Kişilikli yolculuk asistanı" color="#22d3ee" />
-                <CompanionPanel />
-              </Panel>
-
-              <Panel accent="#22d3ee">
-                <SectionTitle icon={HardDrive} title="Offline Konum Veritabanı" sub="Mahalle, benzinlik, hastane — internetsiz ara" color="#22d3ee" />
-                <OfflineDataPanel />
               </Panel>
 
               {/* ── Ev / İş Adresi (NAVIGATION-P0-1) ──
@@ -1821,69 +1802,31 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
                 <HomeWorkAddressPanel />
               </Panel>
 
-              {/* ── CarOS Bağlantı Önceliği (Phone Link F6) ── */}
-              <CarOsConnectionPriorityCard />
-
-              {/* ── Hotspot / İnternet Bağlantısı ── */}
               <Panel accent="#22d3ee">
-                <SectionTitle icon={Wifi} title="Bluetooth İnternet" sub="Telefondan Bluetooth ile internet paylaşımı" color="#22d3ee" />
-
-                {/* Mode seçici */}
-                <div className="flex flex-col gap-2 mb-4">
-                  {(
-                    [
-                      { val: 'auto', label: 'Otomatik Aç',       sub: 'Uygulama açılınca Bluetooth ayarlarına git', color: '#34d399' },
-                      { val: 'ask',  label: 'Her Seferinde Sor', sub: 'Açılışta sor, ben karar vereyim',             color: '#60a5fa' },
-                      { val: 'off',  label: 'Kapalı',         sub: 'Bildirim gösterme',                                color: '#6b7280' },
-                    ] as const
-                  ).map(({ val, label, sub, color }) => {
-                    const active = (settings.hotspotMode ?? 'ask') === val;
-                    return (
-                      <button
-                        key={val}
-                        onClick={() => updateSettings({ hotspotMode: val })}
-                        className="flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 active:scale-[0.98] text-left"
-                        style={{
-                          background: active ? `${color}12` : 'rgba(255,255,255,0.03)',
-                          border: `1.5px solid ${active ? `${color}40` : 'rgba(255,255,255,0.07)'}`,
-                          boxShadow: active ? `0 0 16px ${color}14` : 'none',
-                        }}
-                      >
-                        {/* Radio dot */}
-                        <div
-                          className="w-4 h-4 rounded-full flex-shrink-0 flex items-center justify-center"
-                          style={{
-                            border: `2px solid ${active ? color : 'rgba(255,255,255,0.2)'}`,
-                            background: active ? color : 'transparent',
-                          }}
-                        >
-                          {active && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-bold" style={{ color: active ? 'var(--oem-ink, #fff)' : 'var(--oem-ink-2, rgba(255,255,255,0.80))' }}>{label}</p>
-                          <p className="text-[10px] mt-0.5" style={{ color: active ? `${color}90` : 'var(--oem-ink-3, rgba(255,255,255,0.60))' }}>{sub}</p>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {/* Manuel aç butonu */}
-                {isNative && (
-                  <button
-                    onClick={() => bridge.launchHotspotSettings()}
-                    className="w-full flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-sm transition-all active:scale-95"
-                    style={{
-                      background: 'rgba(34,211,238,0.08)',
-                      border: '1px solid rgba(34,211,238,0.25)',
-                      color: '#22d3ee',
-                    }}
-                  >
-                    <Wifi size={15} />
-                    Bluetooth Ayarlarını Şimdi Aç
-                  </button>
-                )}
+                <SectionTitle icon={HardDrive} title="Offline Konum Veritabanı" sub="Mahalle, benzinlik, hastane — internetsiz ara" color="#22d3ee" />
+                <OfflineDataPanel />
               </Panel>
+
+            </div>
+          )}
+
+          {tab === 'assistant' && (
+            <div className="flex flex-col gap-4 mx-auto w-full" style={{ maxWidth: 760 }}>
+              <Panel accent="#a78bfa">
+                <SectionTitle icon={Mic} title="Sesli Asistan" sub="Uyandırma, akıllı mod ve yapay zekâ hizmetleri" color="#a78bfa" />
+                <div className="flex flex-col gap-3">
+                  <PremiumToggle icon={Smartphone} label="Voice Assistant" desc='"Hey Araba" komut desteği' value={settings.wakeWordEnabled ?? false} onChange={v => updateSettings({ wakeWordEnabled: v })} accent="#a78bfa" />
+                  <PremiumToggle icon={Cpu} label="Smart Engine" desc="Yapay zeka tabanlı sürüş modları" value={settings.smartContextEnabled ?? true} onChange={v => updateSettings({ smartContextEnabled: v })} accent="#34d399" />
+                </div>
+                <AIVoicePanel />
+              </Panel>
+
+              {/* ── "Yol Arkadaşım" (Companion AI) ── */}
+              <Panel accent="#22d3ee">
+                <SectionTitle icon={MessageCircle} title="Yol Arkadaşım" sub="Kişilikli yolculuk asistanı" color="#22d3ee" />
+                <CompanionPanel />
+              </Panel>
+
             </div>
           )}
 
@@ -1891,6 +1834,12 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
             <>
               {/* ── Tema Seçici ── */}
               <ThemePanel />
+              {nativeControls && (
+                <Panel accent="var(--oem-accent)">
+                  <SectionTitle icon={Sun} title="Parlaklık" sub="Ekran parlaklığı (sistem)" color="var(--oem-warn)" />
+                  <PremiumSlider icon={Sun}     label="Parlaklık Seviyesi" value={settings.brightness} onChange={handleBrightness} colorA="var(--oem-warn)" colorB="#f97316" />
+                </Panel>
+              )}
 
               <div className="grid grid-cols-1 gap-4">
                 <Panel accent="var(--oem-accent-strong)">
@@ -2030,34 +1979,6 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
                 )}
               </Panel>
 
-              {/* ── Mobil Cihaz Eşleştirme ── */}
-              <Panel accent="#22d3ee">
-                <SectionTitle icon={Smartphone} title="Mobil Cihaz Eşleştirme" sub="Telefon uygulamasıyla araç bağlantısı — QR veya 6 haneli kod" color="#22d3ee" />
-                <MobileLinkWidget />
-              </Panel>
-
-              {/* ── OBD Cihaz Bağlantısı ── */}
-              <Panel accent="#38bdf8">
-                <SectionTitle icon={Wifi} title="OBD Cihaz Bağlantısı" sub="iCar 3 / ELM327 Bluetooth adaptörü bağla" color="#38bdf8" />
-                <div className="glass-card p-4">
-                  <p className="text-[11px] mb-3 leading-relaxed" style={{ color: 'var(--oem-ink-2, rgba(255,255,255,0.4))' }}>
-                    OBD adaptörünüzü araca takın, ardından aşağıdan tarayıp doğrudan bağlanın. Android Bluetooth ayarlarına girmenize gerek yok.
-                  </p>
-                  <button
-                    onClick={() => setShowOBDConnect(true)}
-                    className="w-full flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-sm transition-all active:scale-95"
-                    style={{
-                      background: 'rgba(56,189,248,0.12)',
-                      border: '1px solid rgba(56,189,248,0.3)',
-                      color: '#38bdf8',
-                    }}
-                  >
-                    <Wifi className="w-4 h-4" />
-                    OBD Cihazı Tara ve Bağlan
-                  </button>
-                </div>
-              </Panel>
-
               {/* ── Yakıt Seviyesi Kalibrasyonu ──
                   Saha 2026-08-04: depo FULL iken ECU `41 2F 99` (%60) döndü. Formül
                   doğru, ARACIN şamandıra eğrisi 0–255'in tamamını kullanmıyor. Ölçek
@@ -2087,7 +2008,115 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
             </div>
           )}
 
-          {tab === 'performance' && (
+          {/* ── Phase 8 new tabs — Sound, Connect, Profiles ── */}
+          {tab === 'sound' && <SoundTabContent drivingMode={drivingMode} volumeSlot={
+            nativeControls ? (
+              <Panel accent="var(--oem-accent)">
+                <SectionTitle icon={Volume2} title="Ses Düzeyi" sub="Sistem ses seviyesi" color="var(--oem-accent)" />
+                <PremiumSlider icon={Volume2} label="Ses Düzeyi" value={settings.volume} onChange={handleVolume} colorA="var(--oem-accent)" colorB="var(--oem-accent-strong)" />
+              </Panel>
+            ) : null
+          } />}
+          {tab === 'connect' && (
+            <>
+              <ConnectTabContent />
+              <div className="flex flex-col gap-4 mx-auto w-full" style={{ maxWidth: 760 }}>
+              {/* ── CarOS Bağlantı Önceliği (Phone Link F6) ── */}
+              <CarOsConnectionPriorityCard />
+
+              {/* ── Hotspot / İnternet Bağlantısı ── */}
+              <Panel accent="#22d3ee">
+                <SectionTitle icon={Wifi} title="Bluetooth İnternet" sub="Telefondan Bluetooth ile internet paylaşımı" color="#22d3ee" />
+
+                {/* Mode seçici */}
+                <div className="flex flex-col gap-2 mb-4">
+                  {(
+                    [
+                      { val: 'auto', label: 'Otomatik Aç',       sub: 'Uygulama açılınca Bluetooth ayarlarına git', color: '#34d399' },
+                      { val: 'ask',  label: 'Her Seferinde Sor', sub: 'Açılışta sor, ben karar vereyim',             color: '#60a5fa' },
+                      { val: 'off',  label: 'Kapalı',         sub: 'Bildirim gösterme',                                color: '#6b7280' },
+                    ] as const
+                  ).map(({ val, label, sub, color }) => {
+                    const active = (settings.hotspotMode ?? 'ask') === val;
+                    return (
+                      <button
+                        key={val}
+                        onClick={() => updateSettings({ hotspotMode: val })}
+                        className="flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 active:scale-[0.98] text-left"
+                        style={{
+                          background: active ? `${color}12` : 'rgba(255,255,255,0.03)',
+                          border: `1.5px solid ${active ? `${color}40` : 'rgba(255,255,255,0.07)'}`,
+                          boxShadow: active ? `0 0 16px ${color}14` : 'none',
+                        }}
+                      >
+                        {/* Radio dot */}
+                        <div
+                          className="w-4 h-4 rounded-full flex-shrink-0 flex items-center justify-center"
+                          style={{
+                            border: `2px solid ${active ? color : 'rgba(255,255,255,0.2)'}`,
+                            background: active ? color : 'transparent',
+                          }}
+                        >
+                          {active && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-bold" style={{ color: active ? 'var(--oem-ink, #fff)' : 'var(--oem-ink-2, rgba(255,255,255,0.80))' }}>{label}</p>
+                          <p className="text-[10px] mt-0.5" style={{ color: active ? `${color}90` : 'var(--oem-ink-3, rgba(255,255,255,0.60))' }}>{sub}</p>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Manuel aç butonu */}
+                {isNative && (
+                  <button
+                    onClick={() => bridge.launchHotspotSettings()}
+                    className="w-full flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-sm transition-all active:scale-95"
+                    style={{
+                      background: 'rgba(34,211,238,0.08)',
+                      border: '1px solid rgba(34,211,238,0.25)',
+                      color: '#22d3ee',
+                    }}
+                  >
+                    <Wifi size={15} />
+                    Bluetooth Ayarlarını Şimdi Aç
+                  </button>
+                )}
+              </Panel>
+              {/* ── Mobil Cihaz Eşleştirme ── */}
+              <Panel accent="#22d3ee">
+                <SectionTitle icon={Smartphone} title="Mobil Cihaz Eşleştirme" sub="Telefon uygulamasıyla araç bağlantısı — QR veya 6 haneli kod" color="#22d3ee" />
+                <MobileLinkWidget />
+              </Panel>
+
+              {/* ── OBD Cihaz Bağlantısı ── */}
+              <Panel accent="#38bdf8">
+                <SectionTitle icon={Wifi} title="OBD Cihaz Bağlantısı" sub="iCar 3 / ELM327 Bluetooth adaptörü bağla" color="#38bdf8" />
+                <div className="glass-card p-4">
+                  <p className="text-[11px] mb-3 leading-relaxed" style={{ color: 'var(--oem-ink-2, rgba(255,255,255,0.4))' }}>
+                    OBD adaptörünüzü araca takın, ardından aşağıdan tarayıp doğrudan bağlanın. Android Bluetooth ayarlarına girmenize gerek yok.
+                  </p>
+                  <button
+                    onClick={() => setShowOBDConnect(true)}
+                    className="w-full flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-sm transition-all active:scale-95"
+                    style={{
+                      background: 'rgba(56,189,248,0.12)',
+                      border: '1px solid rgba(56,189,248,0.3)',
+                      color: '#38bdf8',
+                    }}
+                  >
+                    <Wifi className="w-4 h-4" />
+                    OBD Cihazı Tara ve Bağlan
+                  </button>
+                </div>
+              </Panel>
+
+              </div>
+            </>
+          )}
+          {tab === 'profiles' && <ProfilesTabContent />}
+          {tab === 'about' && (
             <div className="flex flex-col gap-4">
               <Panel accent="#fbbf24">
                 <div className="flex items-center justify-between mb-4">
@@ -2177,14 +2206,9 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
                   ))}
                 </div>
               </Panel>
+              <AboutTabContent />
             </div>
           )}
-
-          {/* ── Phase 8 new tabs — Sound, Connect, Profiles ── */}
-          {tab === 'sound' && <SoundTabContent drivingMode={drivingMode} />}
-          {tab === 'connect' && <ConnectTabContent />}
-          {tab === 'profiles' && <ProfilesTabContent />}
-          {tab === 'about' && <AboutTabContent />}
 
           {/* Privacy */}
           <div className="flex justify-center py-10">
