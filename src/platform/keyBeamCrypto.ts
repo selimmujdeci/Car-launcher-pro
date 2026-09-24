@@ -55,9 +55,18 @@ function _b64urlEnc(bytes: Uint8Array): string {
 
 /** Rastgele 8 haneli eşleşme kodu (Crockford benzeri, karışabilir karakter yok). */
 export function generateBeamCode(): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(KEY_BEAM_CODE_LENGTH));
+  /* Ret örneklemesi (CodeQL js/biased-cryptographic-random, 2026-09-25): 31
+     karakterde `bayt % 31` ilk 8 karakteri 9/256, kalanı 8/256 olasılıkla
+     seçiyordu. 248 = 31·8 ve üstü baytlar ATILIR → her karakter tam eşit olası. */
+  const n = CODE_CHARSET.length;
+  const limit = 256 - (256 % n);
   let out = '';
-  for (let i = 0; i < bytes.length; i++) out += CODE_CHARSET[bytes[i] % CODE_CHARSET.length];
+  while (out.length < KEY_BEAM_CODE_LENGTH) {
+    const bytes = crypto.getRandomValues(new Uint8Array(KEY_BEAM_CODE_LENGTH * 2));
+    for (let i = 0; i < bytes.length && out.length < KEY_BEAM_CODE_LENGTH; i++) {
+      if (bytes[i] < limit) out += CODE_CHARSET[bytes[i] % n];
+    }
+  }
   return out;
 }
 

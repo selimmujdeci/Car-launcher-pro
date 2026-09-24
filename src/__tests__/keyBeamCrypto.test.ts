@@ -14,7 +14,7 @@
  *  - Hata yolları: yanlış anahtar, bozuk ciphertext/iv
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   generateBeamCode,
   generateBeamKey,
@@ -254,5 +254,22 @@ describe('KİLİT — credentialRegistry ↔ API_KEY_BEAM_REGEX tutarlılığı'
 describe('KEY_BEAM_TTL_MS', () => {
   it('5 dakika (300_000 ms)', () => {
     expect(KEY_BEAM_TTL_MS).toBe(5 * 60_000);
+  });
+});
+
+describe('generateBeamCode — modulo yanlılığı yok (CodeQL, 2026-09-25)', () => {
+  it('🔒 248 ve üstü baytlar ATILIR (31 karakterde eşit olasılık)', () => {
+    const spy = vi.spyOn(crypto, 'getRandomValues').mockImplementation(<T extends ArrayBufferView | null>(arr: T): T => {
+      const u = arr as unknown as Uint8Array;
+      u.fill(0);
+      u[0] = 250;   // reddedilmeli (eski kod bunu 250 % 31 = 2 → 'C' yapardı)
+      u[1] = 255;   // reddedilmeli
+      return arr;
+    });
+    try {
+      expect(generateBeamCode()).toBe('AAAAAAAA');   // yalnız 0 baytları kullanıldı
+    } finally {
+      spy.mockRestore();
+    }
   });
 });
