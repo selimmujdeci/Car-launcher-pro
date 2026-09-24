@@ -1,0 +1,10 @@
+# CodeQL tarama kapsamı.
+#
+# `field-runs/` — cihaz/saha doğrulamasında kullanılan tek seferlik CDP/adb
+# betikleri ve kanıt çıktıları. Ürüne GİRMEZ, derlenmez, dağıtılmaz (CLAUDE.md:
+# "field evidence normal geliştirme bağlamında okunmaz"). PR #114'te 19 yüksek
+# uyarının tamamı bu betiklerin geliştirici makinesinde çalışan CDP köprüsündendi.
+#
+# Ürün kodu, testler ve `scripts/` TARAMADA KALIR.
+paths-ignore:
+  - field-runs/**
