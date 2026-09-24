@@ -1227,9 +1227,9 @@ function ConnectTabContent() {
           sub={(dev.btConnected ? `Bağlı${dev.btDevice ? ` · ${dev.btDevice}` : ''}` : 'Eşleşmiş cihaz bağlı değil') + tapHint}
           onClick={isNative ? openBt : undefined}
           control={<ConnStatusBadge on={dev.btConnected} />} />
-        <SettingTile icon={HardDrive} title="Veri Yansıtma"
-          sub="CarPlay / Android Auto / MirrorLink protokol katmanı."
-          control={<div className="text-[13px] font-bold" style={{ color: 'var(--oem-ink-2, rgba(240,235,224,0.74))' }}>Pasif</div>} />
+        {/* "Veri Yansıtma (CarPlay / Android Auto / MirrorLink) · Pasif" KALDIRILDI
+            (2026-09-24): arkasında altyapı yoktu; CarPlay MFi lisansı, Android Auto
+            Google sertifikası + üretici entegrasyonu ister, MirrorLink terk edildi. */}
       </div>
     </>
   );
