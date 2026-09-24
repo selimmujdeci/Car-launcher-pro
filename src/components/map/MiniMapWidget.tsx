@@ -52,6 +52,7 @@ import {
   getRenderedMotion, useMarkerMotionSampleTick,
 } from '../../platform/navigation/navMarkerMotionRuntime';
 import { SpeedLimitCard } from './SpeedLimitCard';
+import { ManeuverArrow } from './hud/ManeuverArrow';
 import {
   canDriveCamera,
   notifyUserPanStart,
@@ -1035,7 +1036,13 @@ export const MiniMapWidget = memo(function MiniMapWidget({
 
     /* Hedef adı: adresin ilk parçası ("Tarsus Şelalesi, Çağlayan Mah." → "Tarsus Şelalesi"). */
     const destName = destination?.name?.split(',')[0]?.trim() || null;
-    return { maneuver, turnM, remainM, etaTxt, title: phase ?? destName ?? 'NAVİGASYON' };
+    /* Sonraki manevra — yalnız sağlayıcının verdiği adım varsa (uydurma levha YOK). */
+    const next = route.steps[route.currentStepIndex + 1] ?? null;
+    const nextText = next ? (next.instruction?.trim() || next.streetName?.trim() || null) : null;
+    return {
+      maneuver, turnM, remainM, etaTxt, title: phase ?? destName ?? 'NAVİGASYON',
+      step: step ?? null, next, nextText,
+    };
   })();
 
   const endNavButton = (
@@ -1078,6 +1085,20 @@ export const MiniMapWidget = memo(function MiniMapWidget({
           <span className="text-[14px] leading-none font-black tabular-nums text-[#C8862A] flex-shrink-0">{navInfo.etaTxt}</span>
         </div>
       </div>
+      {/* ARDINDAN levhası — başlığın boş kalan kısmında; dar kartta (head unit)
+          yer yoksa gizlenir, ana bilgi kısalmaz. */}
+      {navInfo.next && (
+        <div className="hidden @[620px]:flex items-center gap-2 flex-shrink min-w-0 max-w-[40%] pl-3"
+          style={{ borderLeft: '1px solid var(--oem-line, rgba(127,127,127,0.25))' }}>
+          <span className="text-[10px] font-black tracking-[0.15em] uppercase opacity-50 flex-shrink-0">Ardından</span>
+          <div className="w-9 h-9 rounded-lg bg-[#E0A23C]/15 text-[#E0A23C] flex items-center justify-center flex-shrink-0">
+            <ManeuverArrow mod={navInfo.next.maneuverModifier} type={navInfo.next.maneuverType} size="sm" />
+          </div>
+          {navInfo.nextText && (
+            <span className="text-[13px] leading-tight font-bold text-primary opacity-75 truncate">{navInfo.nextText}</span>
+          )}
+        </div>
+      )}
       {endNavButton}
     </div>
   );
@@ -1149,11 +1170,19 @@ export const MiniMapWidget = memo(function MiniMapWidget({
 
       {/* Header — hideHeader=true ise tamamen gizlenir, harita tüm alanı kaplar */}
       {!hideHeader && (
-        <div className="flex-shrink-0 flex items-center justify-between px-5 pt-5 pb-2 relative z-[var(--z-map-label)]">
+        <div className="@container flex-shrink-0 flex items-center justify-between px-5 pt-5 pb-2 relative z-[var(--z-map-label)]">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-[#E0A23C] border-2 border-[#E0A23C] flex items-center justify-center flex-shrink-0 shadow-lg shadow-[#E0A23C]/20">
-              <div className={`w-2.5 h-2.5 rounded-full ${location ? 'bg-emerald-300 animate-pulse shadow-[0_0_10px_rgba(110,231,183,0.8)]' : 'bg-white opacity-40'}`} />
-            </div>
+            {navInfo?.step ? (
+              /* Manevra levhası — tam ekran HUD ile AYNI ok grafiği (ManeuverArrow). */
+              <div className="w-12 h-12 rounded-xl bg-[#E0A23C] flex items-center justify-center flex-shrink-0 shadow-lg shadow-[#E0A23C]/25 text-white"
+                data-testid="mini-maneuver-sign">
+                <ManeuverArrow mod={navInfo.step.maneuverModifier} type={navInfo.step.maneuverType} size="md" />
+              </div>
+            ) : (
+              <div className="w-9 h-9 rounded-xl bg-[#E0A23C] border-2 border-[#E0A23C] flex items-center justify-center flex-shrink-0 shadow-lg shadow-[#E0A23C]/20">
+                <div className={`w-2.5 h-2.5 rounded-full ${location ? 'bg-emerald-300 animate-pulse shadow-[0_0_10px_rgba(110,231,183,0.8)]' : 'bg-white opacity-40'}`} />
+              </div>
+            )}
             {!navHeader && (
               <div className="flex flex-col leading-none">
                 <span className="text-[#E0A23C] font-black text-[10px] tracking-[0.2em] uppercase mb-0.5">NAVİGASYON</span>
