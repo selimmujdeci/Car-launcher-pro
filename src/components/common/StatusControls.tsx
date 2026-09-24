@@ -6,6 +6,7 @@ import { setVolume } from '../../platform/systemSettingsService';
 import { useStore } from '../../store/useStore';
 import { VehicleStatusIndicators } from './VehicleStatusIndicators';
 import { StatusItem } from './StatusItem';
+import { DriverSwitcher } from './DriverSwitcher';
 
 /**
  * StatusControls — tema status bar'larının paylaştığı CANLI + TIKLANIR durum düğmeleri.
@@ -64,6 +65,9 @@ function StatusControlsInner({ palette, size = 15 }: { palette: StatusPalette; s
 
   return (
     <div className="flex items-center" style={{ gap: 4, position: 'relative' }}>
+      {/* Sürücü — hızlı değiştirme (driverProfileService) */}
+      <DriverSwitcher palette={palette} size={size} />
+
       {/* Wi-Fi — native panel */}
       <StatusItem
         Icon={device.wifiConnected ? Wifi : WifiOff}

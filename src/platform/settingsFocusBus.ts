@@ -11,7 +11,7 @@
  * drawer'ı kapanınca) _current temizlenir → bayat tetik yok.
  */
 
-export type SettingsSection = 'gemini-qr' | 'assistant' | 'sound' | 'appearance';
+export type SettingsSection = 'gemini-qr' | 'assistant' | 'sound' | 'appearance' | 'profiles';
 
 type FocusHandler = (section: SettingsSection) => void;
 
