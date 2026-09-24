@@ -31,7 +31,8 @@ const mocks = vi.hoisted(() => {
     channel:       vi.fn(),
     removeChannel: vi.fn(),
   };
-  return { channel, supabase };
+  const ensurePwaSession = vi.fn(async () => 'test-access-token');
+  return { channel, supabase, ensurePwaSession };
 });
 
 const mockChannel  = mocks.channel;
@@ -47,10 +48,10 @@ vi.mock('../lib/supabase', () => ({
   supabaseBrowser:      mocks.supabase,
   isSupabaseConfigured: true,
   /* `sendCommand` komutu kullanıcı JWT'siyle gönderir; oturum jetonunu bu
-     tek yerden okur. Mock'ta eksikti ve jetonun okunduğu satırda test
-     "No export is defined on the mock" ile düşüyordu — yani RLS/TTL
-     kilitleri hiç ölçülmüyordu. Oturum VAR senaryosu varsayılandır. */
-  ensurePwaSession:     vi.fn(async () => 'test-access-token'),
+     tek yerden okur. Oturum VAR senaryosu varsayılandır — bu dosyanın
+     kilitleri RLS ve TTL davranışıdır, oturumun nasıl elde edildiği
+     `supabase.ts`in konusudur. */
+  ensurePwaSession:     mocks.ensurePwaSession,
 }));
 
 vi.mock('../security/accountCleanup/accountCleanupRuntime', () => ({
@@ -75,6 +76,7 @@ vi.mock('@/lib/e2eCommandCrypto', async (importOriginal) => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.ensurePwaSession.mockResolvedValue('test-access-token');
   cleanupPolicy.evaluate.mockReturnValue({ allowed: true, generation: 1 });
   mockSupabase.auth.getSession.mockResolvedValue({
     data: { session: { access_token: 'test-access-token' } },
