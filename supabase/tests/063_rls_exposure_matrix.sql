@@ -207,6 +207,24 @@ BEGIN
     RAISE EXCEPTION 'RLS KAPI 4 DUSTU -- kimliksiz authenticated % tabloyu OKUYOR (policy sabite bagli): %', n, bad;
   END IF;
 
+  -- KAPI 5 — TRUNCATE ORACLE (F0.1).
+  -- ÖLÇÜLEN KÖR NOKTA: bu matris yalnız SELECT/INSERT/UPDATE/DELETE prob'luyordu.
+  -- PostgreSQL'de RLS `TRUNCATE`e UYGULANMAZ: ayrıcalığı olan bir rol tabloyu
+  -- politikalardan BAĞIMSIZ olarak tamamen boşaltabilir. prod baseline 19
+  -- tabloda `anon`/`authenticated` rollerine TRUNCATE veriyordu ve dört kapı da
+  -- YEŞİL görünüyordu. `TRIGGER`/`REFERENCES` de istemcinin hiçbir ürün
+  -- akışında kullanmadığı DDL-komşusu ayrıcalıklardır.
+  SELECT string_agg(format('%s:%s', x.role, c.relname), ', '), count(*) INTO bad, n
+    FROM pg_class c JOIN pg_namespace ns ON ns.oid = c.relnamespace
+   CROSS JOIN (VALUES ('anon'), ('authenticated')) AS x(role)
+   WHERE ns.nspname = 'public' AND c.relkind = 'r'
+     AND (has_table_privilege(x.role, c.oid, 'TRUNCATE')
+       OR has_table_privilege(x.role, c.oid, 'TRIGGER')
+       OR has_table_privilege(x.role, c.oid, 'REFERENCES'));
+  IF n > 0 THEN
+    RAISE EXCEPTION 'RLS KAPI 5 DUSTU -- istemci rolunde TRUNCATE/TRIGGER/REFERENCES ayricaligi VAR (RLS bunu KORUMAZ) -- % kayit: %', n, bad;
+  END IF;
+
   -- NOT (kapı değil) — RLS açık + policy YOK + GRANT VAR: erişim sessizce ÖLÜ.
   -- Güvenlik açığı değil ama "kod var, besleyen yok" sınıfı; görünür olmalı.
   -- `has_table_privilege` OID ile çağrılır: metin sürümü adı ÇÖZMEYE çalışır ve
@@ -221,7 +239,9 @@ BEGIN
     RAISE WARNING 'RLS NOTU -- policy YOK ama authenticated GRANT VAR (erisim olu, RPC bekleniyor): %', bad;
   END IF;
 
-  RAISE NOTICE 'RLS MATRISI: 4 KAPI DA GECTI.';
+  -- Koşucu (`npm run test:rls`) bu ifadeyi arar; metin KORUNUR. Kapı 5 ek
+  -- güvencedir ve düşerse yukarıda EXCEPTION ile durur (ON_ERROR_STOP on).
+  RAISE NOTICE 'RLS MATRISI: 4 KAPI DA GECTI. (+KAPI 5 TRUNCATE ORACLE GECTI)';
 END
 $gates$;
 

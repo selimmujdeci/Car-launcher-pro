@@ -252,9 +252,11 @@ describe('account-scoped storage registry', () => {
     expect(registry.listStorageDescriptors()).toHaveLength(
       PRODUCTION_STORAGE_DESCRIPTOR_COUNT,
     );
-    // Bu turda eklendi: 'active-vehicle-preference' (caros_active_vehicle_id) —
-    // çoklu araçlı Kumanda seçimi için hesap-kapsamlı persistence hint'i.
-    expect(PRODUCTION_STORAGE_DESCRIPTOR_COUNT).toBe(19);
+    // 'active-vehicle-preference' (caros_active_vehicle_id) — çoklu araçlı
+    // Kumanda seçimi için hesap-kapsamlı persistence hint'i.
+    // 'critical-pin-enrolled-hint' (d2960fe6, 2026-09-20) — PIN sunucuya taşındı;
+    // yalnız UX ipucu, çıkışta/hesap değişiminde/güvenlik sıfırlamasında silinir.
+    expect(PRODUCTION_STORAGE_DESCRIPTOR_COUNT).toBe(20);
   });
 });
 
