@@ -536,7 +536,7 @@ export async function searchPlaces(
          sokaklar / işletmeler. Anahtar yoksa boş döner (fail-soft). Çok kısa
          sorgular gönderilmez (ücretli kota). */
       query.trim().length >= 3
-        ? premiumGeocode(query, userLat, userLng).catch(() => [])
+        ? premiumGeocode(query, userLat, userLng, { typeahead: true, limit: 6 }).catch(() => [])
         : Promise.resolve([]),
     ]);
 
