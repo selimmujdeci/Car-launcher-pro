@@ -151,8 +151,9 @@ const EngineZone = memo(function EngineZone({ rpm, redline, coolant, freshness, 
   );
 });
 
-const SpeedZone = memo(function SpeedZone({ speed, limit, definitive, over, t, ids }: PaletteProps & {
+const SpeedZone = memo(function SpeedZone({ speed, limit, definitive, over, curve, t, ids }: PaletteProps & {
   speed: number | null; limit: number | null; definitive: boolean; over: boolean;
+  curve: CockpitState['curve'];
 }) {
   const validLimit = bandOrNull(limit, COCKPIT_BANDS.speed);
   const validSpeed = bandOrNull(speed, COCKPIT_BANDS.speed);
@@ -181,6 +182,19 @@ const SpeedZone = memo(function SpeedZone({ speed, limit, definitive, over, t, i
       <text data-cockpit-value="speed" x={512} y={284} textAnchor="middle" className="caros-cockpit-numeral"
         fontSize={132} fontWeight={200} letterSpacing={-5} fill={valueFill(speedText, t)}>{speedText}</text>
       <text x={512} y={312} textAnchor="middle" fontSize={13} letterSpacing={2.5} fill={t.textSecondary}>km/h</text>
+      {curve && (
+        /* Öndeki viraj — hız sınırı levhasının SİMETRİĞİ (sol üst), sarı uyarı levhası. */
+        <g data-cockpit-curve={curve.direction}
+          aria-label={`${curve.direction === 'right' ? 'Sağa' : 'Sola'} viraj, önerilen ${curve.advisoryKmh} km/h`}>
+          <rect x={348} y={116} width={32} height={32} rx={4} transform="rotate(45 364 132)"
+            fill="#FFC107" stroke={validSpeed !== null && validSpeed > curve.advisoryKmh + 5 ? t.warningRed : '#1f2937'}
+            strokeWidth={validSpeed !== null && validSpeed > curve.advisoryKmh + 5 ? 3.5 : 1.5} />
+          <text x={364} y={139} fontSize={curve.advisoryKmh >= 100 ? 15 : 18} textAnchor="middle"
+            fontWeight={800} fill="#111">{curve.advisoryKmh}</text>
+          <text x={364} y={178} fontSize={11} textAnchor="middle" fill={t.textSecondary}>
+            {`${curve.direction === 'right' ? 'SAĞ VİRAJ' : 'SOL VİRAJ'}${curve.distanceM >= 50 ? ` · ${Math.round(curve.distanceM / 50) * 50} m` : ''}`}</text>
+        </g>
+      )}
       {validLimit !== null && (() => {
         /* Aşımda levha KIRMIZIYA döner — karar veri katmanında (overspeedModel). */
         return (
@@ -477,7 +491,7 @@ export const DigitalCockpitScreen = memo(function DigitalCockpitScreen({
       <Horizon t={t} ids={ids} />
       <EngineZone rpm={state.rpm} redline={state.rpmRedline} coolant={state.coolantTempC} freshness={state.coolantFreshness} t={t} ids={ids} />
       <SpeedZone speed={state.speedKmh} limit={state.speedLimitKmh} definitive={state.speedLimitDefinitive}
-        over={state.speedOverLimit === true} t={t} ids={ids} />
+        over={state.speedOverLimit === true} curve={state.curve ?? null} t={t} ids={ids} />
       <VehicleZone range={state.rangeKm} fuelLevel={state.fuelLevelPct} consumption={state.avgConsumptionL100} odometer={state.odometerKm} t={t} ids={ids} />
       {state.maneuver !== null ? <ManeuverZone {...state.maneuver} t={t} /> : (
         <g data-cockpit-navigation="unavailable">

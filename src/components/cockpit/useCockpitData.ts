@@ -30,6 +30,7 @@
  * "kurtarılmış" yakıt seviyesini canlı sanmak) düzeltmesidir.
  */
 
+import { useCurveAdvisory } from '../../platform/navigation/curveAdvisoryRuntime';
 import { isOverspeed } from '../../platform/navigation/core/overspeedModel';
 import { useMemo } from 'react';
 import { useStore } from '../../store/useStore';
@@ -75,6 +76,7 @@ export function useCockpitData(): CockpitState {
   /* Rehberlik ACTIVE/REROUTING'de vardır; rota ÖNİZLEMESİ dönüş işareti göstermez (#416). */
   const { isGuidanceActive } = useNavigation();
   const route = useRouteState();
+  const curve = useCurveAdvisory();
 
   /* ── Müzik ───────────────────────────────────────────────────────────── */
   const media = useMediaState();
@@ -127,6 +129,9 @@ export function useCockpitData(): CockpitState {
       speedLimitKmh: showLimit ? bandOrNull(limit.effectiveLimitKmh, COCKPIT_BANDS.speed) : null,
       speedLimitDefinitive: showLimit && isEffectiveLimitDefinitive(limit),
       speedOverLimit: showLimit && isOverspeed(speedKmh, limit.effectiveLimitKmh),
+      curve: isGuidanceActive && curve
+        ? { advisoryKmh: curve.advisoryKmh, direction: curve.direction, distanceM: curve.distanceM }
+        : null,
       rpm: bandOrNull(obdOrNull(rpmRaw), COCKPIT_BANDS.rpm),
       rpmRedline: bandOrNull(profile?.maxRpm ?? null, COCKPIT_BANDS.rpm),
       coolantTempC,
@@ -155,6 +160,6 @@ export function useCockpitData(): CockpitState {
     };
   }, [
     speedKmh, limit, rpmRaw, coolant, ambientTempC, obd,
-    odometerRaw, canGearPos, isGuidanceActive, route, media, profile,
+    odometerRaw, canGearPos, isGuidanceActive, route, curve, media, profile,
   ]);
 }

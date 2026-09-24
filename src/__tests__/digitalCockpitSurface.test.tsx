@@ -506,3 +506,18 @@ describe('HOME dokunulmazlığı — bağımlılık TEK YÖNLÜ', () => {
     expect(app).not.toMatch(/<CockpitPager[^>]*>\s*<MainLayout/);
   });
 });
+
+describe('viraj ve hız aşımı (sürüş ekranı)', () => {
+  it('🔒 viraj önerisi varsa sarı levha; hız sınırı aşılınca levha kırmızı işaretli', () => {
+    const { container } = render(<DigitalCockpitScreen state={{ ...COCKPIT_REFERENCE_STATE,
+      speedKmh: 68, speedLimitKmh: 50, speedOverLimit: true,
+      curve: { advisoryKmh: 40, direction: 'right', distanceM: 180 } }} mode="night" clock={COCKPIT_REFERENCE_CLOCK} />);
+    expect(container.querySelector('[data-cockpit-curve="right"]')?.textContent).toContain('40');
+    expect(container.querySelector('[data-cockpit-overspeed="true"]')).not.toBeNull();
+  });
+
+  it('viraj yoksa levha YOK', () => {
+    const { container } = render(<DigitalCockpitScreen state={{ ...COCKPIT_REFERENCE_STATE, curve: null }} mode="night" clock={COCKPIT_REFERENCE_CLOCK} />);
+    expect(container.querySelector('[data-cockpit-curve]')).toBeNull();
+  });
+});

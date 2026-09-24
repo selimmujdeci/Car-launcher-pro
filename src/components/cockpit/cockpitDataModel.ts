@@ -54,6 +54,8 @@ export interface CockpitState {
   readonly speedLimitDefinitive: boolean;
   /** Hız sınırı aşılıyor mu (levha kırmızı) — karar `overspeedModel`. */
   readonly speedOverLimit?: boolean;
+  /** Öndeki viraj önerisi (rota geometrisinden); yoksa `null`/tanımsız. */
+  readonly curve?: { readonly advisoryKmh: number; readonly direction: 'left' | 'right'; readonly distanceM: number } | null;
   readonly rpm: number | null;
   readonly rpmRedline: number | null;
   readonly coolantTempC: number | null;

@@ -1,4 +1,6 @@
 import { bindMapUserInteraction } from '../../platform/map/bindMapUserInteraction';
+import { CurveAdvisoryBadge } from './CurveAdvisoryBadge';
+import { useCurveAdvisory } from '../../platform/navigation/curveAdvisoryRuntime';
 import { isOverspeed } from '../../platform/navigation/core/overspeedModel';
 import { isEffectiveLimitDisplayable } from '../../platform/navigation/core/vehicleAwareSpeedLimitAuthority';
 import { syncRouteTrafficOverlay } from '../../platform/map/routeTrafficOverlay';
@@ -247,6 +249,7 @@ export const MiniMapWidget = memo(function MiniMapWidget({
    * ile BİREBİR AYNIDIR — konum çıpası, sınıflandırma ve araç tavanı orada
    * tek yerde toplanmıştır (ikinci motor YOK). */
   const speedLimit = useEffectiveSpeedLimit();
+  const curveAdvisory = useCurveAdvisory();
 
   /* Navigasyon aktifliğini otoriteye bildir (otomatik dönüş gecikmesini seçer). */
   useEffect(() => {
@@ -1126,9 +1129,11 @@ export const MiniMapWidget = memo(function MiniMapWidget({
          *  Konum: sağ üst, kaynak rozetinin ALTINDA; sağ alttaki hız
          *  göstergesiyle ve tema kartının +/- düğmeleriyle çakışmaz.
          *  Animasyon YOK — sürüşte dikkat dağıtmaz.                            */}
-        <div className="absolute z-[var(--z-map-label)] pointer-events-none" style={{ top: 34, right: 8 }}>
+        <div className="absolute z-[var(--z-map-label)] pointer-events-none flex flex-col items-center gap-1" style={{ top: 34, right: 8 }}>
           <SpeedLimitCard limit={speedLimit} size="mini"
             overSpeed={isEffectiveLimitDisplayable(speedLimit) && isOverspeed(displaySpeedKmh, speedLimit.effectiveLimitKmh)} />
+          {/* Öndeki viraj önerisi — hız levhasının ALTINDA, yalnız varsa. */}
+          <CurveAdvisoryBadge advisory={curveAdvisory} speedKmh={displaySpeedKmh} size="mini" />
         </div>
 
         {/* ── ARACI ORTALA — KANONİK KAMERA OTORİTESİNDEN ─────────────────────

@@ -63,6 +63,8 @@ import {
   noteEgoHeadingFix, tickEgoHorizon,
 } from './navEgoHorizonBridge';
 import { logError } from '../crashLogger';
+import { noteCurveTick, resetCurveAdvisory } from './curveAdvisoryRuntime';
+import { speedLimitOnRouteAt } from '../routing/tomtomRouting';
 
 /* ── Gözlem sayaçları (CAROS LAB · salt-okunur, koordinat TAŞIMAZ) ─────────── */
 
@@ -308,6 +310,7 @@ export function startNavigationSessionRuntime(): () => void {
       _tickCount++;
       _lastTickAtMs = _now();
       _feedVoiceGuidance(status);
+      _feedCurveAdvisory();
       /* F3/C1: GNSS yönü jiro İŞARETİNİN tek kanıtıdır (yalnız GERÇEK fix'te —
          DR projeksiyonu bir gözlem DEĞİLDİR ve işaret öğretemez). */
       noteEgoHeadingFix(
@@ -390,6 +393,34 @@ function _feedVoiceGuidance(status: string): void {
   }
 }
 
+/**
+ * Öndeki viraj önerisi — YALNIZ gerçek GPS tick'inden (DR tahmini viraj
+ * anonsu üretmez). Girdi tek otoritelerden: rota geometrisi/mesafeleri ve
+ * manevra çapaları (routingService), aracın rota konumu (matchToRoute),
+ * rota hız sınırı (TomTom bölümü; yoksa null).
+ */
+function _feedCurveAdvisory(): void {
+  try {
+    const rs = getRouteState();
+    const fix = getNavigationCoreSnapshot().fix;
+    const along = fix && (fix.state === 'MATCHED' || fix.state === 'MATCH_UNCERTAIN') ? fix.alongRemainingM : null;
+    noteCurveTick({
+      sessionId: getNavSessionId(),
+      routeRevision: rs.routeRevision,
+      geometry: rs.geometry,
+      cumulativeDistances: rs.cumulativeDistances,
+      vehicleAlongRemainingM: along,
+      maneuverAlongRemainingM: rs.maneuverAnchors
+        .map((m) => m.alongRemainingM).filter((x): x is number => typeof x === 'number'),
+      limitKmh: fix && fix.segIdx >= 0 ? speedLimitOnRouteAt(rs.speedLimitSections ?? [], fix.segIdx) : null,
+      speedKmh: useUnifiedVehicleStore.getState().speed,
+    });
+  } catch (e) {
+    _errorCount++; _lastErrorAtMs = _now();
+    logError('NavSessionRuntime:curve', e);
+  }
+}
+
 /** Navigasyon aktif değil → ses ve DR durumunu temizle (tek yerden). */
 function _onNavigationInactive(): void {
   if (_drTimer !== null) { clearInterval(_drTimer); _drTimer = null; }
@@ -399,6 +430,7 @@ function _onNavigationInactive(): void {
   _drConfidence = 0;
   _clearDrProjection();
   resetVoiceGuidance('navigasyon aktif değil');
+  resetCurveAdvisory();
   resetMarkerMotion();
   /* Zero-Leak + güç: navigasyon bitince jiro aboneliği DÜŞER ve ego/ufuk
      durumu sıfırlanır (bayat oturum kanıtı yeni oturuma taşınmaz). */

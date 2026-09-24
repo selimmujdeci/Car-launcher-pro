@@ -15,6 +15,8 @@
  * Çubuk kaldırılmadı, HUD'un güvenlik katmanında kendi yerinde kalır.
  */
 
+import { CurveAdvisoryBadge } from '../CurveAdvisoryBadge';
+import { useCurveAdvisory } from '../../../platform/navigation/curveAdvisoryRuntime';
 import { isOverspeed } from '../../../platform/navigation/core/overspeedModel';
 import { memo } from 'react';
 import { SpeedLimitCard } from '../SpeedLimitCard';
@@ -41,6 +43,7 @@ export const DrivingSpeed = memo(function DrivingSpeed({
   /* Aşım kuralı TEK yerde (overspeedModel) — mini harita / kokpit / ses AYNI eşik. */
   const overSpeed = hasLimit && isOverspeed(speedKmh, limitKmh);
   const rounded   = Math.round(speedKmh);
+  const curve     = useCurveAdvisory();
   const portrait  = hud.layout === 'PORTRAIT';
 
   /* Rakam rengi SEMANTİKTİR: aşım/müdahale kırmızı, dikkat amber, normalde
@@ -66,6 +69,8 @@ export const DrivingSpeed = memo(function DrivingSpeed({
     >
       {/* Levha ÖNCE (solda): limit, hızdan önce okunur — sürücü "ne kadar
           gidebilirim"i "ne kadar gidiyorum"la karşılaştırır. */}
+      {/* Öndeki viraj (rota geometrisinden) — levhanın SOLUNDA, yalnız varsa. */}
+      <CurveAdvisoryBadge advisory={curve} speedKmh={speedKmh} size={portrait ? 'mini' : 'full'} />
       <SpeedLimitCard limit={speedLimit} size={portrait ? 'mini' : 'full'} overSpeed={overSpeed} />
 
       <div
