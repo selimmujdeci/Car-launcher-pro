@@ -1043,8 +1043,16 @@ export const MiniMapWidget = memo(function MiniMapWidget({
     /* Sonraki manevra — yalnız sağlayıcının verdiği adım varsa (uydurma levha YOK). */
     const next = route.steps[route.currentStepIndex + 2] ?? null;
     const nextText = next ? (next.instruction?.trim() || next.streetName?.trim() || null) : null;
+    /* GERİ YÜKLENEN ÖNERİ (saha 2026-09-24): `restoreNavigationAsync` açılışta son
+       hedefi bilerek yalnız PREVIEW kurar (eski rehberlik diriltilmez); rotayı
+       FullMapView ister. Ana ekranda rota hiç gelmediği için mini harita sonsuza
+       dek "ÖNİZLEME — · —" gösteriyordu. Hedef adı + "dokun" yazılır; dokunuş tam
+       ekranı açar (rota orada, kullanıcı eylemiyle istenir). */
+    const proposal = navStatus === NavStatus.PREVIEW && !navRouteVisible;
     return {
-      maneuver, turnM, remainM, etaTxt, title: phase ?? destName ?? 'NAVİGASYON',
+      proposal,
+      maneuver: proposal ? null : maneuver, turnM, remainM, etaTxt,
+      title: proposal ? (destName ?? 'ÖNİZLEME') : (phase ?? destName ?? 'NAVİGASYON'),
       step: step ?? null, next, nextText,
     };
   })();
@@ -1061,7 +1069,26 @@ export const MiniMapWidget = memo(function MiniMapWidget({
   );
 
   /* Başlık içi bilgi — tek bakışta: dönüş mesafesi en büyük öğe. */
-  const navHeader = navInfo && (
+  const navHeader = navInfo?.proposal ? (
+    <div className="flex items-center gap-3 min-w-0 flex-1">
+      <button
+        onClick={onFullScreenClick}
+        className="flex flex-col items-start gap-1 min-w-0 flex-1 text-left"
+        style={{ background: 'transparent', border: 'none', minHeight: 0, minWidth: 0 }}
+        aria-label="Rotayı tam ekranda aç"
+      >
+        <div className="flex items-center gap-2 min-w-0 max-w-full">
+          <Navigation2 className="w-3.5 h-3.5 text-[#E0A23C] flex-shrink-0" />
+          <span className="text-[14px] leading-tight font-black text-[#C8862A] truncate">{navInfo.title}</span>
+          <span className="text-[9px] font-black tracking-wider uppercase px-1.5 py-px rounded bg-amber-500/15 text-amber-600 flex-shrink-0">ÖNİZLEME</span>
+        </div>
+        <span className="text-[12px] leading-tight font-bold text-primary opacity-60 truncate max-w-full">
+          Rotayı görmek için dokunun
+        </span>
+      </button>
+      {endNavButton}
+    </div>
+  ) : navInfo && (
     <div className="flex items-center gap-3 min-w-0 flex-1">
       <div className="flex flex-col gap-1 min-w-0 flex-1">
         {navInfo.maneuver && (

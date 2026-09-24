@@ -15,3 +15,14 @@ describe('mini harita adım semantiği', () => {
     expect(src).not.toMatch(/const step = route\.steps\[route\.currentStepIndex\];/);
   });
 });
+
+describe('geri yüklenen öneri (rotasız PREVIEW)', () => {
+  it('🔒 "— · —" yerine hedef adı + dokun; dokunuş tam ekranı açar, rehberlik başlatmaz', () => {
+    expect(src).toContain('const proposal = navStatus === NavStatus.PREVIEW && !navRouteVisible;');
+    expect(src).toContain('Rotayı görmek için dokunun');
+    const at = src.indexOf('const navHeader = navInfo?.proposal ? (');
+    const body = src.slice(at, at + 1500);
+    expect(body).toContain('onClick={onFullScreenClick}');
+    expect(body).not.toContain('startNavigation');
+  });
+});
