@@ -48,7 +48,6 @@ import {
 }                                  from '../vehicleDataLayer';
 import { dispatchSpeedLimitExceeded } from '../vehicleDataLayer/VehicleEventHub';
 import { startAutoDidWatcher }     from '../obd/autoDidDiscovery';
-import { startDidLearningWatcher } from '../obd/discovery/discoveryLive';
 import { startEarlyIdentityWatcher } from '../obd/identity/earlyIdentityRuntime';
 import { startSystemOrchestrator } from './SystemOrchestrator';
 import { startPlatformCoreVehicleHalWiring } from './platformCoreVehicleHalWiring';
@@ -910,7 +909,22 @@ class SystemBoot {
      * "Marka verileri"ne ekler. Aktif tarama otoritesi discoveryLive'dır (deepScanAuthority).
      * Salt-okuma (servis 22); fail-soft; CAROS LAB'dan kapatılabilir. */
     _log('  › DID learning watcher');
-    this._reg(gen, startDidLearningWatcher());
+    /* TEMBEL import: statik import açılış paketine OBD keşif zincirinin tamamını
+     * (discoveryLive → standardPidDiscovery → extendedPidService…) çekiyor ve
+     * SystemBoot'u yükleyen testleri kırıyordu (2026-09-24). Durdurma, import
+     * bitmeden gelse bile izleyiciyi başlatmaz. */
+    {
+      let stopWatcher: (() => void) | null = null;
+      let cancelled = false;
+      void import('../obd/discovery/discoveryLive')
+        .then((m) => {
+          if (cancelled || this._isStaleGeneration(gen)) return;
+          const stop = m.startDidLearningWatcher();
+          stopWatcher = typeof stop === 'function' ? stop : null;
+        })
+        .catch(() => { /* fail-soft: DID öğrenme yalnız devre dışı kalır */ });
+      this._reg(gen, () => { cancelled = true; stopWatcher?.(); });
+    }
 
     /* P0-VDK-F5H — ERKEN ARAÇ KİMLİĞİ. Tam araç taramasını BEKLEMEDEN, bağlantı
      * kısa süre kesintisiz sağlıklı olunca en çok ÜÇ salt-okunur kimlik DID'i
