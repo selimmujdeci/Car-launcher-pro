@@ -52,6 +52,7 @@ describe('OSRM response parse', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   it('should parse OSRM response when available', async () => {
@@ -78,6 +79,8 @@ describe('OSRM response parse', () => {
   });
 
   it('should parse OSRM response when online', async () => {
+    // OSRM ayrıştırma testi — TomTom katmanı (anahtar varsa önce denenir) devre dışı.
+    vi.stubEnv('VITE_TOMTOM_API_KEY', '');
     // Mock online state
     Object.defineProperty(navigator, 'onLine', { value: true, writable: true, configurable: true });
 

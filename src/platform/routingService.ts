@@ -72,6 +72,9 @@ import {
 } from './navigation/core/routeProgressLedger';
 import { maneuverToTr } from './navigation/core/maneuverSemanticsModel';
 import {
+  TOMTOM_ROUTING_SERVER, fetchTomTomRoutes, type TomTomRoute,
+} from './routing/tomtomRouting';
+import {
   recordNavTickCost, resetNavTickCost,
 } from './navigation/core/navTickCostModel';
 
@@ -368,7 +371,41 @@ function getRoutingServers(): string[] {
     'https://routing.openstreetmap.de/routed-car/route/v1/driving',
     'https://osrm.route.at/route/v1/driving',
   ];
-  return custom ? [custom, ...defaults] : defaults;
+  const osrm = custom ? [custom, ...defaults] : defaults;
+  /* TomTom (trafikli rota) YALNIZ anahtar varsa ve EN ÖNDE denenir; hata/zaman
+     aşımında aynı döngü OSRM'e geçer. Ücretli → satışta anahtarı silmek yeter. */
+  return _tomtomRoutingKey() ? [TOMTOM_ROUTING_SERVER, ...osrm] : osrm;
+}
+
+function _tomtomRoutingKey(): string | null {
+  const k = import.meta.env['VITE_TOMTOM_API_KEY'] as string | undefined;
+  return k && k.trim() ? k.trim() : null;
+}
+
+/** TomTom rotalarını `_tryServer` ile AYNI sonuç biçimine çevirir. */
+async function _tryTomTom(
+  fromLon: number, fromLat: number, toLon: number, toLat: number,
+  headingDeg?: number | null,
+): Promise<Awaited<ReturnType<typeof _tryServer>>> {
+  const key = _tomtomRoutingKey();
+  if (!key) throw new Error('TOMTOM_NO_KEY');
+  const routes = await fetchTomTomRoutes(key, fromLat, fromLon, toLat, toLon, headingDeg,
+    HEADERS_TIMEOUT_MS + BODY_TIMEOUT_MS);
+  const [main, ...alts] = routes;
+  const toSteps = (r: TomTomRoute): RouteStep[] => r.steps.map((st) => _toRouteStep(st as OsrmStep));
+  return {
+    steps:        toSteps(main),
+    altSteps:     alts.map(toSteps),
+    geometry:     main.geometry,
+    alternatives: alts.map((r) => r.geometry),
+    altDistances: alts.map((r) => r.distance),
+    altDurations: alts.map((r) => r.duration),
+    altHasToll:   alts.map((r) => r.hasToll),
+    distance:     main.distance,
+    duration:     main.duration,
+    hasToll:      main.hasToll,
+    annotationDurations: routes.map((r) => r.annotationDurations),
+  };
 }
 
 /* ── OSRM maneuver → Türkçe ──────────────────────────────────── */
@@ -1149,7 +1186,9 @@ export async function fetchRoute(
     for (const server of servers) {
       const _t0Server = performance.now();
       try {
-        const result = await _tryServer(server, fromLon, fromLat, toLon, toLat, headingDeg);
+        const result = server === TOMTOM_ROUTING_SERVER
+          ? await _tryTomTom(fromLon, fromLat, toLon, toLat, headingDeg)
+          : await _tryServer(server, fromLon, fromLat, toLon, toLat, headingDeg);
         recordResponse(reqId, performance.now(), server);
 
         // ── ROTA DOĞRULUK KAPISI ────────────────────────────────────────────
