@@ -3499,9 +3499,17 @@ describe('Adres sağlayıcı katmanı (BYOK)', () => {
 
   it('🔒 anahtar YOKKEN premium yol hiç çağrılmaz (davranış birebir eski)', async () => {
     const mod = await import('../platform/geocodingProviders');
-    // Depoda anahtar yok → boş dizi; çağıran ücretsiz zincire devam eder.
-    await expect(mod.premiumGeocode('Adana')).resolves.toEqual([]);
-    await expect(mod.premiumGeocode('')).resolves.toEqual([]);
+    // Derlemedeki TomTom anahtarı da YOK sayılır (geliştirme istisnası) → gerçekten "anahtar yok".
+    vi.stubEnv('VITE_TOMTOM_API_KEY', '');
+    mod.invalidateGeocodeProviderCache();
+    try {
+      // Depoda anahtar yok → boş dizi; çağıran ücretsiz zincire devam eder.
+      await expect(mod.premiumGeocode('Adana')).resolves.toEqual([]);
+      await expect(mod.premiumGeocode('')).resolves.toEqual([]);
+    } finally {
+      vi.unstubAllEnvs();
+      mod.invalidateGeocodeProviderCache();
+    }
   });
 
   it('🔒 durum özeti anahtar DEĞERİNİ taşımaz (yalnız VAR/YOK)', async () => {
@@ -4023,7 +4031,8 @@ describe('Hız limiti levhası uydurmaz', () => {
        gidebilirim"i "ne kadar gidiyorum"dan ÖNCE okur. Aşım sinyali korundu. */
     const speed = read('src/components/map/hud/DrivingSpeed.tsx');
     expect(speed).toContain('overSpeed={overSpeed}');
-    expect(speed).toContain('const overSpeed = hasLimit && speedKmh > (limitKmh as number) + OVER_SPEED_TOLERANCE_KMH');
+    // Aşım kuralı tek yerde (overspeedModel) — mini harita/kokpit/ses AYNI eşik.
+    expect(speed).toContain('const overSpeed = hasLimit && isOverspeed(speedKmh, limitKmh)');
     /* Levha JSX'te hız kutusundan ÖNCE gelir → soldadır. */
     const iSign = speed.indexOf('<SpeedLimitCard');
     const iVal  = speed.indexOf('driving-speed-value');

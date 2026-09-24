@@ -151,8 +151,8 @@ const EngineZone = memo(function EngineZone({ rpm, redline, coolant, freshness, 
   );
 });
 
-const SpeedZone = memo(function SpeedZone({ speed, limit, definitive, t, ids }: PaletteProps & {
-  speed: number | null; limit: number | null; definitive: boolean;
+const SpeedZone = memo(function SpeedZone({ speed, limit, definitive, over, t, ids }: PaletteProps & {
+  speed: number | null; limit: number | null; definitive: boolean; over: boolean;
 }) {
   const validLimit = bandOrNull(limit, COCKPIT_BANDS.speed);
   const validSpeed = bandOrNull(speed, COCKPIT_BANDS.speed);
@@ -181,15 +181,19 @@ const SpeedZone = memo(function SpeedZone({ speed, limit, definitive, t, ids }: 
       <text data-cockpit-value="speed" x={512} y={284} textAnchor="middle" className="caros-cockpit-numeral"
         fontSize={132} fontWeight={200} letterSpacing={-5} fill={valueFill(speedText, t)}>{speedText}</text>
       <text x={512} y={312} textAnchor="middle" fontSize={13} letterSpacing={2.5} fill={t.textSecondary}>km/h</text>
-      {validLimit !== null && (
-        <g data-cockpit-speedlimit={definitive ? 'definitive' : 'uncertain'}
-          aria-label={`${definitive ? 'Hız sınırı' : 'Kesin olmayan hız sınırı'}: ${Math.round(validLimit)} km/h`}>
-          <circle cx={660} cy={132} r={21} fill={t.sign} stroke={t.warningRed} strokeWidth={4}
-            strokeDasharray={definitive ? undefined : '6 4'} />
-          <text x={660} y={139} fontSize={validLimit >= 100 ? 17 : 20} textAnchor="middle"
-            fontWeight={700} fill="#233239">{Math.round(validLimit)}</text>
-        </g>
-      )}
+      {validLimit !== null && (() => {
+        /* Aşımda levha KIRMIZIYA döner — karar veri katmanında (overspeedModel). */
+        return (
+          <g data-cockpit-speedlimit={definitive ? 'definitive' : 'uncertain'}
+            data-cockpit-overspeed={over ? 'true' : undefined}
+            aria-label={`${definitive ? 'Hız sınırı' : 'Kesin olmayan hız sınırı'}: ${Math.round(validLimit)} km/h`}>
+            <circle cx={660} cy={132} r={21} fill={over ? t.warningRed : t.sign} stroke={t.warningRed} strokeWidth={4}
+              strokeDasharray={definitive ? undefined : '6 4'} />
+            <text x={660} y={139} fontSize={validLimit >= 100 ? 17 : 20} textAnchor="middle"
+              fontWeight={700} fill={over ? '#ffffff' : '#233239'}>{Math.round(validLimit)}</text>
+          </g>
+        );
+      })()}
     </g>
   );
 });
@@ -472,7 +476,8 @@ export const DigitalCockpitScreen = memo(function DigitalCockpitScreen({
       <path d="M56 89H968" fill="none" stroke={t.edge} strokeLinecap="round" />
       <Horizon t={t} ids={ids} />
       <EngineZone rpm={state.rpm} redline={state.rpmRedline} coolant={state.coolantTempC} freshness={state.coolantFreshness} t={t} ids={ids} />
-      <SpeedZone speed={state.speedKmh} limit={state.speedLimitKmh} definitive={state.speedLimitDefinitive} t={t} ids={ids} />
+      <SpeedZone speed={state.speedKmh} limit={state.speedLimitKmh} definitive={state.speedLimitDefinitive}
+        over={state.speedOverLimit === true} t={t} ids={ids} />
       <VehicleZone range={state.rangeKm} fuelLevel={state.fuelLevelPct} consumption={state.avgConsumptionL100} odometer={state.odometerKm} t={t} ids={ids} />
       {state.maneuver !== null ? <ManeuverZone {...state.maneuver} t={t} /> : (
         <g data-cockpit-navigation="unavailable">

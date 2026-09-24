@@ -1,4 +1,6 @@
 import { bindMapUserInteraction } from '../../platform/map/bindMapUserInteraction';
+import { isOverspeed } from '../../platform/navigation/core/overspeedModel';
+import { isEffectiveLimitDisplayable } from '../../platform/navigation/core/vehicleAwareSpeedLimitAuthority';
 import { syncRouteTrafficOverlay } from '../../platform/map/routeTrafficOverlay';
 import { useCallback, useEffect, useRef, useState, memo } from 'react';
 import type { Map as MapLibreMap } from 'maplibre-gl';
@@ -1125,7 +1127,8 @@ export const MiniMapWidget = memo(function MiniMapWidget({
          *  göstergesiyle ve tema kartının +/- düğmeleriyle çakışmaz.
          *  Animasyon YOK — sürüşte dikkat dağıtmaz.                            */}
         <div className="absolute z-[var(--z-map-label)] pointer-events-none" style={{ top: 34, right: 8 }}>
-          <SpeedLimitCard limit={speedLimit} size="mini" />
+          <SpeedLimitCard limit={speedLimit} size="mini"
+            overSpeed={isEffectiveLimitDisplayable(speedLimit) && isOverspeed(displaySpeedKmh, speedLimit.effectiveLimitKmh)} />
         </div>
 
         {/* ── ARACI ORTALA — KANONİK KAMERA OTORİTESİNDEN ─────────────────────

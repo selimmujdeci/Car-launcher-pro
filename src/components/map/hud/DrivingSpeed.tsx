@@ -15,6 +15,7 @@
  * Çubuk kaldırılmadı, HUD'un güvenlik katmanında kendi yerinde kalır.
  */
 
+import { isOverspeed } from '../../../platform/navigation/core/overspeedModel';
 import { memo } from 'react';
 import { SpeedLimitCard } from '../SpeedLimitCard';
 import {
@@ -31,15 +32,14 @@ export interface DrivingSpeedProps {
   readonly intervention?: boolean;
 }
 
-/** Aşım payı — mevcut davranışla BİREBİR (yeni eşik icat edilmedi). */
-const OVER_SPEED_TOLERANCE_KMH = 5;
 
 export const DrivingSpeed = memo(function DrivingSpeed({
   speedKmh, speedLimit, hud, caution = false, intervention = false,
 }: DrivingSpeedProps) {
   const limitKmh  = speedLimit.effectiveLimitKmh;
   const hasLimit  = isEffectiveLimitDisplayable(speedLimit);
-  const overSpeed = hasLimit && speedKmh > (limitKmh as number) + OVER_SPEED_TOLERANCE_KMH;
+  /* Aşım kuralı TEK yerde (overspeedModel) — mini harita / kokpit / ses AYNI eşik. */
+  const overSpeed = hasLimit && isOverspeed(speedKmh, limitKmh);
   const rounded   = Math.round(speedKmh);
   const portrait  = hud.layout === 'PORTRAIT';
 

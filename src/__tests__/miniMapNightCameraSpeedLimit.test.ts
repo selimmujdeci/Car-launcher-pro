@@ -364,7 +364,9 @@ describe('C. Hız limiti — yalnız GERÇEK levha', () => {
 describe('C2. 🔒 Mini harita hız limiti bağlantısı (paylaşılan motor)', () => {
   it('🔒 kart YALNIZ gösterilebilir hükümde render edilir', () => {
     // Gizleme kararı paylaşılan kartın içindedir; kart hükmü aynen alır.
-    expect(miniMapSrc).toContain('<SpeedLimitCard limit={speedLimit} size="mini" />');
+    expect(miniMapSrc).toContain('<SpeedLimitCard limit={speedLimit} size="mini"');
+    // Aşımda levha kırmızı — büyük harita / kokpit ile AYNI kural (overspeedModel).
+    expect(miniMapSrc).toContain('isOverspeed(displaySpeedKmh, speedLimit.effectiveLimitKmh)');
     expect(code(speedCardSrc)).toContain('if (!isEffectiveLimitDisplayable(limit)) return null;');
   });
 

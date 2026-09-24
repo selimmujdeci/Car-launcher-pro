@@ -30,6 +30,7 @@
  * "kurtarılmış" yakıt seviyesini canlı sanmak) düzeltmesidir.
  */
 
+import { isOverspeed } from '../../platform/navigation/core/overspeedModel';
 import { useMemo } from 'react';
 import { useStore } from '../../store/useStore';
 import { useDisplaySpeed } from '../../hooks/useDisplaySpeed';
@@ -125,6 +126,7 @@ export function useCockpitData(): CockpitState {
       speedKmh: bandOrNull(speedKmh, COCKPIT_BANDS.speed),
       speedLimitKmh: showLimit ? bandOrNull(limit.effectiveLimitKmh, COCKPIT_BANDS.speed) : null,
       speedLimitDefinitive: showLimit && isEffectiveLimitDefinitive(limit),
+      speedOverLimit: showLimit && isOverspeed(speedKmh, limit.effectiveLimitKmh),
       rpm: bandOrNull(obdOrNull(rpmRaw), COCKPIT_BANDS.rpm),
       rpmRedline: bandOrNull(profile?.maxRpm ?? null, COCKPIT_BANDS.rpm),
       coolantTempC,

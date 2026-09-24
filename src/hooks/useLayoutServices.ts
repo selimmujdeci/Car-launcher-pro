@@ -3,6 +3,7 @@ import { initFcmService }           from '../platform/fcmService';
 import { initConnectivityService }  from '../platform/connectivityService';
 import { startVehicleDetection, stopVehicleDetection } from '../platform/vehicleProfileService';
 import { startTrafficService, stopTrafficService, updateTrafficLocation } from '../platform/trafficService';
+import { useOverspeedWarning } from '../platform/navigation/overspeedWarningRuntime';
 import { initializeContacts } from '../platform/contactsService';
 import { startMediaHub } from '../platform/mediaService';
 import {
@@ -305,6 +306,9 @@ export function useLayoutServices({
     startVehicleDetection();
     return () => { stopVehicleDetection(); };
   }, []);
+
+  // Hız sınırı aşımı — TEK SEFERLİK sesli uyarı (hangi ekranda olunursa olunsun).
+  useOverspeedWarning();
 
   // Traffic service startup (bir kez) + ilk konum ile başlat
   useEffect(() => {

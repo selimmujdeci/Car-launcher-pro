@@ -52,6 +52,8 @@ export interface CockpitState {
   readonly speedLimitKmh: number | null;
   /** Hız limiti KESİN mi (kesin değilse levha kesikli çizilir). */
   readonly speedLimitDefinitive: boolean;
+  /** Hız sınırı aşılıyor mu (levha kırmızı) — karar `overspeedModel`. */
+  readonly speedOverLimit?: boolean;
   readonly rpm: number | null;
   readonly rpmRedline: number | null;
   readonly coolantTempC: number | null;
