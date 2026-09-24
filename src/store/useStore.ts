@@ -149,12 +149,49 @@ export interface VehicleProfile {
   driveMode?: 'comfort' | 'sport' | 'eco';
   /** ESKİ — sabit 21 °C yazılıyordu; uygulamanın araca iklim komutu yolu YOK. */
   climateTempC?: number;
-  /** Sürücü tercihi: ses düzeyi (%) — profil seçilince uygulanır. */
-  volume?: number;
-  /** Sürücü tercihi: ekran parlaklığı (%) — profil seçilince uygulanır. */
-  brightness?: number;
-  /** Sürücü tercihi: ana ekran teması (useCarTheme) — profil seçilince uygulanır. */
+}
+
+/* ── SÜRÜCÜ PROFİLİ (2026-09-24) ─────────────────────────────────────────────
+   Araç profilinden AYRI: araç = tahrik/OBD/VIN; sürücü = kişisel tercihler.
+   Yalnız uygulamanın GERÇEKTEN uygulayabildiği tercihler tutulur (koltuk/iklim
+   gibi araca komut gerektirenler YOK — araca yazma yolu yoktur). */
+
+/** Sürücü profilinin taşıdığı ayar anahtarları — TEK liste (yakala/uygula/senkron). */
+export const DRIVER_PREF_KEYS = [
+  'dayNightMode', 'volume', 'brightness',
+  'defaultMusic', 'resumeMusicOnStart', 'speedVolumeLevel', 'alertToneStyle',
+  'autoNavOnStart', 'mapOfflineOnly',
+  'companionEnabled', 'companionAssistantName', 'companionUserCallsign',
+  'companionPersonality', 'companionChattiness',
+  'companionWakeWordEnabled', 'companionWakeMode', 'companionWakePhrase', 'companionWakeEnrollment',
+  'wakeWordEnabled',
+] as const;
+export type DriverPrefKey = typeof DRIVER_PREF_KEYS[number];
+
+/** Kaydedilmiş hızlı adres (Ev/İş) — adres defterinin şekli. */
+export interface DriverQuickAddress {
+  name: string;
+  latitude: number;
+  longitude: number;
+  fullAddress?: string;
+}
+
+export interface DriverPrefs extends Partial<Pick<AppSettings, DriverPrefKey>> {
+  /** Ana ekran teması (useCarTheme). */
   carTheme?: string;
+  /** Ev / İş — `null` = bu sürücüde kayıtlı değil (uygulanınca SİLİNİR). */
+  home?: DriverQuickAddress | null;
+  work?: DriverQuickAddress | null;
+}
+
+export interface DriverProfile {
+  id: string;
+  name: string;
+  /** Profil rengi (avatar) — yalnız görünüm. */
+  color: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+  prefs: DriverPrefs;
 }
 
 export interface AppSettings {
@@ -235,6 +272,9 @@ export interface AppSettings {
   weatherFallbackCity: { lat: number; lng: number; name: string } | null;
   vehicleProfiles: VehicleProfile[];
   activeVehicleProfileId: string | null;
+  /** Sürücü profilleri — araç profillerinden AYRI liste (v17). */
+  driverProfiles: DriverProfile[];
+  activeDriverProfileId: string | null;
   autoNavOnStart: boolean;
   /** Açılışta, kapanmadan önce ÇALAN ve kullanıcının DURAKLATMADIĞI müziğe devam et (varsayılan kapalı). */
   resumeMusicOnStart: boolean;
@@ -421,6 +461,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   weatherFallbackCity: null,
   vehicleProfiles: [],
   activeVehicleProfileId: null,
+  driverProfiles: [],
+  activeDriverProfileId: null,
   autoNavOnStart: false,
   resumeMusicOnStart: false,
   speedVolumeLevel: 'OFF',
@@ -442,6 +484,9 @@ const DEFAULT_SETTINGS: AppSettings = {
   companionWakeEnrollment: [],
   runtimeOverride: 'AUTO',
 };
+
+/** Sürücü avatar renkleri — sırayla atanır. */
+export const DRIVER_COLORS = ['#e0a23c', '#60a5fa', '#34d399', '#f472b6', '#a78bfa', '#f87171'] as const;
 
 export const useStore = create<StoreState>()(
   persist(
@@ -542,7 +587,7 @@ export const useStore = create<StoreState>()(
         setItem: (name, value) => safeStorage.setItem(name, value),
         removeItem: (name) => safeStorage.removeItem(name),
       })),
-      version: 16,
+      version: 17,
       migrate: (persistedState: unknown, fromVersion: number) => {
         const ps = (persistedState as { settings?: Partial<AppSettings> }) ?? {};
         const settings: AppSettings = { ...DEFAULT_SETTINGS, ...(ps.settings ?? {}) };
@@ -592,6 +637,26 @@ export const useStore = create<StoreState>()(
           // varsayılan 'hey_name' (yalnız "Hey Mavi"). Yalnız eski varsayılan
           // 'both' taşınır; kullanıcının seçtiği name/custom/hey_name korunur.
           if (settings.companionWakeMode === 'both') settings.companionWakeMode = 'hey_name';
+        }
+        if (fromVersion < 17) {
+          // v17: sürücü profilleri araç listesinden AYRILDI. Profiller sekmesinin
+          // oluşturduğu kayıtlar `prof-` ile başlar (Araç sekmesi `vp-`); onlar
+          // sürücü listesine taşınır. Müzik tercihi korunur; uygulanmayan eski
+          // iklim/mod alanları taşınmaz.
+          const all = Array.isArray(settings.vehicleProfiles) ? settings.vehicleProfiles : [];
+          const drivers = all.filter((p) => typeof p?.id === 'string' && p.id.startsWith('prof-'));
+          if (drivers.length) {
+            settings.vehicleProfiles = all.filter((p) => !drivers.includes(p));
+            settings.driverProfiles = drivers.map((p, i) => ({
+              id: p.id, name: p.name, color: DRIVER_COLORS[i % DRIVER_COLORS.length],
+              createdAt: p.createdAt, lastUsedAt: p.lastUsedAt ?? null,
+              prefs: p.defaultMusic ? { defaultMusic: p.defaultMusic } : {},
+            }));
+            if (drivers.some((p) => p.id === settings.activeVehicleProfileId)) {
+              settings.activeDriverProfileId = settings.activeVehicleProfileId;
+              settings.activeVehicleProfileId = settings.vehicleProfiles[0]?.id ?? null;
+            }
+          }
         }
         return { ...ps, settings };
       },

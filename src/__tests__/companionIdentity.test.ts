@@ -282,7 +282,7 @@ describe('useStore — companion ayarları', () => {
     expect(raw).toBeTruthy();
     const parsed = JSON.parse(raw!) as { state: { settings: Record<string, unknown> }; version: number };
     expect(parsed.state.settings.companionAssistantName).toBe('Bulut');
-    expect(parsed.version).toBe(16);
+    expect(parsed.version).toBe(17);   // v17: sürücü profilleri araç listesinden ayrıldı
   });
 
   it('companion alanı güncellemesi diğer ayarları bozmaz', () => {

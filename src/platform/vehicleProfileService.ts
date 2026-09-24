@@ -18,9 +18,6 @@ import type { HeadUnitPlatform } from './headUnitPlatform';
 import { setHandshakeVin, getHandshakeVin } from './safety/vinContext';
 import { decodeWmi, decodeVinYear } from './canBus/VehicleHandshake';
 import { useVidStore } from '../store/useVidStore';
-import { useCarTheme, type CarTheme } from '../store/useCarTheme';
-import { useSystemStore } from '../store/useSystemStore';
-import { setVolume, setBrightness } from './systemSettingsService';
 
 /* ── Preset araç profilleri — platforma göre otomatik oluşturulur ── */
 
@@ -120,44 +117,13 @@ function _mirrorVehicleToVid(): void {
   } catch { /* fail-soft — aynalama profil tespitini asla bozmaz */ }
 }
 
-/** 0..100 tam sayı; geçersiz/eksik → null (sahte 0 UYGULANMAZ). */
-function _pct(v: unknown): number | null {
-  return typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.min(100, Math.round(v))) : null;
-}
-
-/** Profilin tercihlerini şimdiki ayarlardan yakalar (yeni profil / "kaydet"). */
-export function captureDriverPreferences(): Pick<VehicleProfile, 'defaultMusic' | 'volume' | 'brightness' | 'carTheme'> {
-  const s = useStore.getState().settings;
-  return {
-    defaultMusic: s.defaultMusic,
-    volume:       _pct(s.volume) ?? undefined,
-    brightness:   _pct(s.brightness) ?? undefined,
-    carTheme:     useCarTheme.getState().theme,
-  };
-}
-
 function _applyProfileSettings(profile: VehicleProfile): void {
   const { updateSettings } = useStore.getState();
   const overrides: Partial<AppSettings> = {};
   if (profile.themePack)    overrides.themePack    = profile.themePack;
   if (profile.defaultNav)   overrides.defaultNav   = profile.defaultNav;
   if (profile.defaultMusic) overrides.defaultMusic = profile.defaultMusic;
-  /* Sürücü hafızası (2026-09-24): uygulamanın GERÇEKTEN uygulayabildiği tercihler.
-     Ses/parlaklık ayar ekranındaki kaydırıcıyla AYNI yoldan: ayar + sistem. */
-  const vol = _pct(profile.volume);
-  const bri = _pct(profile.brightness);
-  if (vol !== null) overrides.volume = vol;
-  if (bri !== null) overrides.brightness = bri;
   if (Object.keys(overrides).length) updateSettings(overrides);
-  if (vol !== null) setVolume(vol);
-  if (bri !== null) {
-    setBrightness(bri);
-    useSystemStore.getState().setUserOverride(120_000);  // oto-parlaklık hemen ezmesin
-  }
-  if (profile.carTheme) {
-    const theme = useCarTheme.getState();
-    if (theme.theme !== profile.carTheme) theme.setTheme(profile.carTheme as CarTheme);  // setTheme normalize eder
-  }
 
   // lastUsedAt güncelle
   useStore.getState().updateVehicleProfile(profile.id, {

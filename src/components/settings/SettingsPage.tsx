@@ -24,7 +24,7 @@ import { ApiCredentialsPanel } from './ApiCredentialsPanel';
 import { registerSettingsFocus } from '../../platform/settingsFocusBus';
 import { isNative, bridge } from '../../platform/bridge';
 import { PrivacyPolicy } from './PrivacyPolicy';
-import { useStore, type VehicleType, type VehicleProfile } from '../../store/useStore';
+import { useStore, type VehicleType, type DriverProfile } from '../../store/useStore';
 import { useShallow } from 'zustand/react/shallow';
 import { MUSIC_OPTIONS } from '../../data/apps';
 import {
@@ -46,7 +46,10 @@ import { SupportSnapshotCard } from './SupportSnapshotCard';
 import { DeviceDiagnosticCard } from './DeviceDiagnosticCard';
 import { OBDConnectModal } from '../obd/OBDConnectModal';
 import { cacheLRUManager } from '../../core/storage/CacheLRUManager';
-import { forceApplyVehicleProfile, captureDriverPreferences } from '../../platform/vehicleProfileService';
+import {
+  switchDriver, addDriver, renameDriver, removeDriver, clearActiveDriver, MAX_DRIVER_PROFILES,
+} from '../../platform/driverProfileService';
+import { showToast } from '../../platform/errorBus';
 import { playSafetyChime, type AlertToneStyle } from '../../platform/safety/safetyChime';
 import { useLayoutSync } from '../../platform/themeLayoutEngine';
 import { useScreenSense } from '../../hooks/useScreenSense';
@@ -1259,139 +1262,165 @@ function ConnectTabContent() {
   );
 }
 
-const MAX_PROFILES = 4;
-/** Profil özet satırı — yalnız GERÇEKTEN uygulanan tercihler (2026-09-24: eski
- *  "Konfor mod, 21°C" sabit yazılıyor ve hiçbir yerde uygulanmıyordu). */
-function profileSummary(p: VehicleProfile): string {
-  const parts: string[] = [];
-  if (p.carTheme) parts.push(THEME_LABEL[baseOf(p.carTheme as never)] ?? p.carTheme);
-  if (typeof p.volume === 'number') parts.push(`Ses %${p.volume}`);
-  if (typeof p.brightness === 'number') parts.push(`Parlaklık %${p.brightness}`);
-  if (p.defaultMusic && MUSIC_OPTIONS[p.defaultMusic]) parts.push(MUSIC_OPTIONS[p.defaultMusic].name);
-  return parts.length ? parts.join(' · ') : 'Tercih kaydedilmedi';
-}
+/* ════════════════════════════════════════
+   SÜRÜCÜ PROFİLLERİ (2026-09-24) — araç profillerinden AYRI
+   Tek otorite: platform/driverProfileService (yakala · uygula · otomatik hafıza).
+════════════════════════════════════════ */
 const THEME_LABEL: Record<string, string> = {
   expedition: 'Expedition', horizon: 'Horizon', tesla: 'Tesla', pro: 'Pro', oled: 'OLED',
 };
 
+/** Profilde GERÇEKTEN kayıtlı olan tercihlerin özeti (kayıtsız alan yazılmaz). */
+function driverSummary(d: DriverProfile): string[] {
+  const p = d.prefs;
+  const out: string[] = [];
+  if (p.carTheme) out.push(`Tema: ${THEME_LABEL[baseOf(p.carTheme as never)] ?? p.carTheme}${p.dayNightMode ? (p.dayNightMode === 'night' ? ' · Gece' : ' · Gündüz') : ''}`);
+  if (typeof p.volume === 'number') out.push(`Ses %${p.volume}`);
+  if (typeof p.brightness === 'number') out.push(`Parlaklık %${p.brightness}`);
+  if (p.defaultMusic && MUSIC_OPTIONS[p.defaultMusic]) out.push(`Müzik: ${MUSIC_OPTIONS[p.defaultMusic].name}`);
+  if (p.companionAssistantName) out.push(`Asistan: ${p.companionAssistantName}`);
+  if (p.companionUserCallsign) out.push(`"${p.companionUserCallsign}" diye seslenir`);
+  if (p.home !== undefined) out.push(p.home ? 'Ev kayıtlı' : 'Ev yok');
+  if (p.work !== undefined) out.push(p.work ? 'İş kayıtlı' : 'İş yok');
+  return out;
+}
+
+function DriverAvatar({ d, size = 48 }: { d: DriverProfile; size?: number }) {
+  return (
+    <span aria-hidden style={{
+      width: size, height: size, borderRadius: size / 2, flex: 'none',
+      display: 'grid', placeItems: 'center', fontSize: size * 0.42, fontWeight: 900,
+      background: `${d.color}26`, border: `2px solid ${d.color}`, color: d.color,
+    }}>
+      {d.name.trim().charAt(0).toLocaleUpperCase('tr') || '?'}
+    </span>
+  );
+}
+
 function ProfilesTabContent() {
-  const { profiles, activeId, addVehicleProfile, removeVehicleProfile, updateVehicleProfile } =
-    useStore(useShallow((s) => ({
-      profiles: s.settings.vehicleProfiles,
-      activeId: s.settings.activeVehicleProfileId,
-      addVehicleProfile: s.addVehicleProfile,
-      removeVehicleProfile: s.removeVehicleProfile,
-      updateVehicleProfile: s.updateVehicleProfile,
-    })));
+  const { drivers, activeId } = useStore(useShallow((s) => ({
+    drivers: s.settings.driverProfiles ?? [],
+    activeId: s.settings.activeDriverProfileId,
+  })));
+  const active = drivers.find((d) => d.id === activeId) ?? null;
+  const others = drivers.filter((d) => d.id !== activeId);
 
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState('');
-  const [pendingDel, setPendingDel] = useState<VehicleProfile | null>(null);
+  const [pendingDel, setPendingDel] = useState<DriverProfile | null>(null);
 
-  /* Tek uygulama yolu: vehicleProfileService (otomatik VIN eşleşmesiyle AYNI). */
-  const activate = useCallback((p: VehicleProfile) => {
-    forceApplyVehicleProfile(p.id);
+  const activate = useCallback((d: DriverProfile) => {
+    if (switchDriver(d.id)) showToast({ type: 'success', title: `Hoş geldin, ${d.name}`, message: 'Sürücü tercihlerin uygulandı.', duration: 2500 });
   }, []);
-  const saveCurrent = useCallback((p: VehicleProfile) => {
-    updateVehicleProfile(p.id, captureDriverPreferences());
-  }, [updateVehicleProfile]);
-
   const confirmAdd = useCallback(() => {
-    const name = newName.trim();
-    if (!name) return;
-    const now = new Date().toISOString();
-    // Yeni profil MEVCUT tercihleri anlık görüntü olarak yakalar.
-    addVehicleProfile({
-      id: `prof-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      name,
-      ...captureDriverPreferences(),
-      createdAt: now,
-      lastUsedAt: null,
-    });
+    const d = addDriver(newName);
+    if (!d) return;
     setNewName(''); setAdding(false);
-  }, [newName, addVehicleProfile]);
-
-  // In-app temalı onay (native window.confirm YOK — head-unit'te siyah/İngilizce
-  // OK-CANCEL dialog'u çıkarıyordu; gündüz/gece uyumlu modal ile değiştirildi).
-  const del = useCallback((p: VehicleProfile) => {
-    setPendingDel(p);
-  }, []);
+    showToast({ type: 'success', title: `${d.name} profili oluşturuldu`, message: 'Şimdiki ayarlarla başladı; değişikliklerin bu profile kaydedilir.', duration: 3000 });
+  }, [newName]);
+  const del = useCallback((d: DriverProfile) => { setPendingDel(d); }, []);
   const confirmDel = useCallback(() => {
-    if (pendingDel) removeVehicleProfile(pendingDel.id);
+    if (pendingDel) removeDriver(pendingDel.id);
     setPendingDel(null);
-  }, [pendingDel, removeVehicleProfile]);
+  }, [pendingDel]);
 
-  const full = profiles.length >= MAX_PROFILES;
+  const full = drivers.length >= MAX_DRIVER_PROFILES;
+  const card: React.CSSProperties = {
+    padding: '22px 26px', borderRadius: 24,
+    background: 'var(--oem-surface-1, #262C3C)', border: '1px solid var(--oem-line-strong, rgba(255,240,210,0.18))',
+  };
 
   return (
     <>
       <SettingsHero
         eyebrow="Profiller"
-        title="Sürücü hafızası"
-        sub="Tema, ses düzeyi, parlaklık ve müzik tercihini profil başına saklayın — profile dokununca uygulanır."
+        title="Sürücü profilleri"
+        sub="Her sürücünün tema, ses, parlaklık, müzik, asistan ve Ev/İş tercihleri ayrı saklanır. Etkin sürücüde yaptığın değişiklikler kendiliğinden kaydedilir."
       />
       <div className="grid gap-4" style={{ gridTemplateColumns: '1fr', maxWidth: 720, margin: '0 auto' }}>
-        {profiles.length === 0 && !adding && (
-          <div style={{ padding: '28px 30px', borderRadius: 24, textAlign: 'center',
-            background: 'var(--oem-surface-1, #262C3C)', border: '1px dashed var(--oem-line, rgba(255,240,210,0.18))',
-            color: 'var(--oem-ink-2, rgba(240,235,224,0.74))', fontSize: 15 }}>
-            Henüz profil yok. İlk sürücü profilini ekleyerek tercihlerini kaydet.
+
+        {/* ── Etkin sürücü ── */}
+        {active ? (
+          <div style={{ ...card, borderColor: `${active.color}80` }}>
+            <div className="flex items-center gap-4">
+              <DriverAvatar d={active} size={60} />
+              <div className="flex-1 min-w-0">
+                <input
+                  key={active.id}
+                  defaultValue={active.name}
+                  aria-label="Sürücü adı"
+                  onBlur={(e) => renameDriver(active.id, e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                  className="w-full bg-transparent outline-none"
+                  style={{ fontSize: 22, fontWeight: 800, color: 'var(--oem-ink, #F0EBE0)', border: 'none', padding: 0 }}
+                />
+                <div className="text-[10px] font-black uppercase tracking-[0.2em] mt-1" style={{ color: active.color }}>
+                  Etkin sürücü · otomatik kaydediliyor
+                </div>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-1.5 mt-4">
+              {driverSummary(active).map((t) => (
+                <span key={t} className="text-[11px] font-bold px-2.5 py-1 rounded-lg"
+                  style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid var(--oem-line, rgba(255,240,210,0.10))', color: 'var(--oem-ink-2)' }}>
+                  {t}
+                </span>
+              ))}
+            </div>
+            <div className="flex gap-2 mt-4">
+              <button type="button" onClick={() => clearActiveDriver()}
+                className="rounded-xl px-4 text-[12px] font-bold active:scale-95 transition-all"
+                style={{ minHeight: 42, background: 'rgba(255,255,255,0.05)', border: '1px solid var(--oem-line)', color: 'var(--oem-ink-2)' }}>
+                Misafir moda geç
+              </button>
+              <button type="button" onClick={() => del(active)}
+                className="rounded-xl px-4 text-[12px] font-bold active:scale-95 transition-all"
+                style={{ minHeight: 42, background: 'transparent', border: '1px solid rgba(248,113,113,0.35)', color: '#f87171' }}>
+                Sil
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div style={{ ...card, borderStyle: 'dashed', textAlign: 'center', color: 'var(--oem-ink-2, rgba(240,235,224,0.74))', fontSize: 15 }}>
+            {drivers.length === 0
+              ? 'Henüz sürücü profili yok. Ekle — şimdiki ayarlarınla başlar.'
+              : 'Misafir mod: sürücü seçili değil, değişiklikler hiçbir profile kaydedilmiyor.'}
           </div>
         )}
 
-        {profiles.map((p) => {
-          const isActive = p.id === activeId;
-          return (
-            <SettingTile
-              key={p.id}
-              icon={Users}
-              accent={isActive ? 'amber' : undefined}
-              title={p.name}
-              sub={`${isActive ? 'Aktif profil · ' : ''}${profileSummary(p)}`}
-              onClick={() => activate(p)}
-              control={
-                <div className="flex items-center gap-3">
-                  {isActive && (
-                    <button
-                      type="button"
-                      onClick={(e) => { e.stopPropagation(); saveCurrent(p); }}
-                      className="rounded-lg px-2.5 text-[11px] font-black active:scale-95 transition-all"
-                      style={{ minHeight: 34, background: 'rgba(255,255,255,0.06)', color: 'var(--oem-ink-2)' }}
-                      aria-label="Şimdiki ayarları bu profile kaydet"
-                    >
-                      Şimdikini kaydet
-                    </button>
-                  )}
-                  <span className="text-[10px] font-black uppercase tracking-[0.20em]"
-                    style={{ color: isActive ? 'var(--oem-amber, oklch(80% 0.13 60))' : 'var(--oem-ink-3, rgba(240,235,224,0.52))' }}>
-                    {isActive ? 'AKTİF' : 'PASİF'}
-                  </span>
-                  <button
-                    type="button"
-                    aria-label="Profili sil"
-                    onClick={(e) => { e.stopPropagation(); del(p); }}
-                    style={{ width: 34, height: 34, borderRadius: 10, display: 'grid', placeItems: 'center',
-                      background: 'var(--oem-surface-2, #303749)', border: '1px solid var(--oem-line, rgba(255,240,210,0.08))',
-                      color: 'var(--oem-ink-3, rgba(240,235,224,0.52))' }}>
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-              }
-            />
-          );
-        })}
+        {/* ── Diğer sürücüler — dokun, geç ── */}
+        {others.map((d) => (
+          <SettingTile
+            key={d.id}
+            icon={Users}
+            title={d.name}
+            sub={driverSummary(d).slice(0, 3).join(' · ') || 'Tercih kaydedilmedi'}
+            onClick={() => activate(d)}
+            control={
+              <div className="flex items-center gap-3">
+                <DriverAvatar d={d} size={34} />
+                <button type="button" aria-label={`${d.name} profilini sil`}
+                  onClick={(e) => { e.stopPropagation(); del(d); }}
+                  style={{ width: 34, height: 34, borderRadius: 10, display: 'grid', placeItems: 'center',
+                    background: 'var(--oem-surface-2, #303749)', border: '1px solid var(--oem-line, rgba(255,240,210,0.08))',
+                    color: 'var(--oem-ink-3, rgba(240,235,224,0.52))' }}>
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            }
+          />
+        ))}
 
+        {/* ── Yeni sürücü ── */}
         {adding ? (
-          <div style={{ padding: '24px 30px', borderRadius: 24,
-            background: 'var(--oem-surface-1, #262C3C)', border: '1px solid var(--oem-line-strong, rgba(255,240,210,0.18))',
-            display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div style={{ ...card, display: 'flex', flexDirection: 'column', gap: 16 }}>
             <input
               autoFocus
               value={newName}
+              maxLength={32}
               onChange={(e) => setNewName(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') confirmAdd(); if (e.key === 'Escape') { setAdding(false); setNewName(''); } }}
               placeholder="Sürücü adı (örn. Mehmet)"
-              maxLength={24}
               className="w-full outline-none"
               style={{ background: 'var(--oem-surface-2, #303749)', border: '1px solid var(--oem-line, rgba(255,240,210,0.10))',
                 borderRadius: 14, padding: '14px 16px', fontSize: 17, color: 'var(--oem-ink, #F0EBE0)' }}
@@ -1401,7 +1430,7 @@ function ProfilesTabContent() {
                 className="flex-1" style={{ padding: '13px 0', borderRadius: 14, fontSize: 15, fontWeight: 700,
                   background: newName.trim() ? 'var(--oem-amber, oklch(80% 0.13 60))' : 'var(--oem-surface-2, #303749)',
                   color: newName.trim() ? '#1a1206' : 'var(--oem-ink-3, rgba(240,235,224,0.4))', border: 'none' }}>
-                Kaydet
+                Oluştur
               </button>
               <button type="button" onClick={() => { setAdding(false); setNewName(''); }}
                 style={{ padding: '13px 22px', borderRadius: 14, fontSize: 15, fontWeight: 600,
@@ -1414,11 +1443,11 @@ function ProfilesTabContent() {
         ) : (
           <SettingTile
             icon={Star}
-            title="Yeni Profil Ekle"
-            sub={full ? 'Profil sınırına ulaşıldı — silerek yer açın.' : `Maksimum ${MAX_PROFILES} profil destekler.`}
+            title="Yeni Sürücü Ekle"
+            sub={full ? 'Sürücü sınırına ulaşıldı — silerek yer açın.' : 'Şimdiki ayarlarınla başlar; sonra değiştirdiklerin ona kaydedilir.'}
             onClick={full ? undefined : () => setAdding(true)}
             control={<div className="text-[10px] font-black uppercase tracking-[0.20em]"
-              style={{ color: 'var(--oem-ink-3, rgba(240,235,224,0.52))' }}>{profiles.length} / {MAX_PROFILES}</div>}
+              style={{ color: 'var(--oem-ink-3, rgba(240,235,224,0.52))' }}>{drivers.length} / {MAX_DRIVER_PROFILES}</div>}
           />
         )}
       </div>
@@ -1447,7 +1476,7 @@ function ProfilesTabContent() {
                 Profili sil
               </div>
               <div style={{ fontSize: 13, color: 'var(--oem-ink-2)', lineHeight: 1.5 }}>
-                <b style={{ color: 'var(--oem-ink)' }}>"{pendingDel.name}"</b> profili kalıcı olarak silinsin mi?
+                <b style={{ color: 'var(--oem-ink)' }}>"{pendingDel.name}"</b> sürücü profili ve kayıtlı tercihleri kalıcı olarak silinsin mi? (Şimdiki ayarlar değişmez.)
               </div>
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, padding: '12px 22px 18px' }}>
