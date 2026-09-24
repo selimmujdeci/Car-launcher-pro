@@ -44,7 +44,7 @@ import {
   type RouteTrimMark,
 } from '../../platform/map/routeTrimGate';
 import { useHazardStore } from '../../store/useHazardStore';
-import { useGPSSource, onGPSLocation, type GPSLocation, LOCATION_STALE_MS } from '../../platform/gpsService';
+import { useGPSSource, onGPSLocation, getLocationEvidence, type GPSLocation, LOCATION_STALE_MS } from '../../platform/gpsService';
 import { acquireCompassDemand } from '../../platform/gps/compassDemand';
 import { enterMapLiteInteraction, exitMapLiteInteraction } from '../../platform/map/mapLiteMode';
 import { pauseWakeWordForInteraction, resumeWakeWordAfterInteraction } from '../../platform/wakeWordService';
@@ -872,6 +872,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
     wakeLoopRef.current = wake;
 
     let lastCameraUpdate    = 0;
+    let lastFixEvidenceTs   = 0; // aynı-fix kontrolü — kanonik kanıta en fazla 1 Hz sorulur
     let lastMarkerUpdate    = 0;
     let lastThermalFrameTs  = 0; // termal FPS gate — son ağır-iş frame zamanı
 
@@ -924,6 +925,18 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
          `interpolation.DR_CONFIDENT_SEC`te, `navigationSessionRuntime`te ve
          `gpsService`te AYRI AYRI yazılıydı — dört kopya, tek gerçek. Biri
          değişirse diğerleri sessizce ayrışırdı. */
+      /* AYNI FIX TEKRARI (duran araç, smoke 2026-09-24): `onGPSLocation` yalnız
+         konum DEĞİŞİNCE çağrılır → kırmızı ışıkta/parkta damga bayatlıyor, harita
+         "KONUM N sn" yazıp işareti DR'ye alıyordu. Damga bayat görünürse kanonik
+         fix yaşına (#553 dersi) sorulur; fix geliyorsa damga ileri alınır. */
+      if (lastFixTsRef.current !== null && now - lastFixTsRef.current > LOCATION_STALE_MS
+          && now - lastFixEvidenceTs >= 1_000) {
+        lastFixEvidenceTs = now;
+        try {
+          const _age = getLocationEvidence().fixAgeMs;
+          if (_age !== null && _age <= LOCATION_STALE_MS) lastFixTsRef.current = now - _age;
+        } catch { /* kanıt okunamadı → eski karar (fail-soft) */ }
+      }
       const fixFresh = lastFixTsRef.current !== null && (now - lastFixTsRef.current) <= LOCATION_STALE_MS;
       const gpsOk = !!(fixFresh && locationRef.current && Number.isFinite(locationRef.current.accuracy) && locationRef.current.accuracy < 1000);
 

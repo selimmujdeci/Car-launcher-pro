@@ -19,7 +19,7 @@
  */
 
 import { useUnifiedVehicleStore }   from '../vehicleDataLayer/UnifiedVehicleStore';
-import { onGPSLocation, onGPSFixArrival, getGPSState } from '../gpsService';
+import { onGPSLocation, onGPSFixArrival, getGPSState, getLocationEvidence } from '../gpsService';
 import { reconcileGpsHealth } from '../gps/gpsHealthReconcile';
 import {
   getOBDStatusSnapshot, getObdSessionHealth, getObdFreshWindowMs, onOBDData,
@@ -579,6 +579,14 @@ class SystemHealthMonitor {
           entry.lastBeat = now;
           continue;
         }
+        /* Duran araçta aynı fix tekrar gelir; mağaza aynı konum nesnesini (ESKİ
+           `timestamp`) tutar → yukarıdaki yaş büyür ve OBD yokken 30 sn sonra
+           "Sensör verisi dondu" basılıyordu (smoke 2026-09-24). Kanonik fix yaşı
+           kabul edilen HER fix'te tazelenir (#553 dersi). */
+        try {
+          const _fixAge = getLocationEvidence().fixAgeMs;
+          if (_fixAge !== null && _fixAge < 30_000) { entry.lastBeat = now; continue; }
+        } catch { /* kanıt okunamadı → aşağıdaki OBD kapısı */ }
         // T3: canonical OBD tazelik otoritesi — paketler akıyorsa sessizlik SAHTEDİR.
         // (Park hâlinde speed/fuel değişmez ama veri akar; eski kod bunu kesinti sanıyordu.)
         if (this._obdFreshnessSaysAlive()) {
