@@ -46,6 +46,7 @@ import { SupportSnapshotCard } from './SupportSnapshotCard';
 import { DeviceDiagnosticCard } from './DeviceDiagnosticCard';
 import { OBDConnectModal } from '../obd/OBDConnectModal';
 import { cacheLRUManager } from '../../core/storage/CacheLRUManager';
+import { playSafetyChime, type AlertToneStyle } from '../../platform/safety/safetyChime';
 import { useLayoutSync } from '../../platform/themeLayoutEngine';
 import { useScreenSense } from '../../hooks/useScreenSense';
 import { setObdVehicleType } from '../../platform/obdService';
@@ -1138,11 +1139,14 @@ function AboutTabContent() {
    TAB CONTENTS — Sound, Connect, Profiles (gerçek servislere bağlı)
 ════════════════════════════════════════ */
 
+const ALERT_TONE_LABEL: Record<AlertToneStyle, string> = { classic: 'Klasik', soft: 'Yumuşak', bright: 'Belirgin' };
+
 function SoundTabContent({ drivingMode, volumeSlot }: { drivingMode: DrivingMode; volumeSlot?: ReactNode }) {
   /* F6: tek DSP otoritesinin projeksiyonu. Bu sekme kendi ses gerçeğini
      tutmaz ve desteklenmeyen bir kontrolü "kapalı" diye çizmez. */
   const resumeMusicOnStart = useStore((s) => s.settings.resumeMusicOnStart === true);
   const speedVolumeLevel = useStore((s) => s.settings.speedVolumeLevel ?? 'OFF');
+  const alertToneStyle = useStore((s) => s.settings.alertToneStyle ?? 'classic');
   const updateSettings = useStore((s) => s.updateSettings);
   return (
     <>
@@ -1188,8 +1192,27 @@ function SoundTabContent({ drivingMode, volumeSlot }: { drivingMode: DrivingMode
           }
         />
         <SettingTile icon={Volume2} title="Uyarı Tonları"
-          sub="Şerit ihlali, hız limiti, kapı uyarıları için özelleştirilebilir tonlar."
-          control={<div className="text-[13px] font-bold" style={{ color: 'var(--oem-ink-2, rgba(240,235,224,0.74))' }}>OEM Varsayılan</div>} />
+          sub="Güvenlik uyarılarının bip sesi. Kritik uyarı her tarzda ayırt edilir; kapatılamaz. Seçince örnek çalar."
+          control={
+            <div className="flex gap-1" role="radiogroup" aria-label="Uyarı tonu">
+              {(['classic', 'soft', 'bright'] as const).map((st) => (
+                <button
+                  key={st}
+                  role="radio"
+                  aria-checked={alertToneStyle === st}
+                  onClick={() => { updateSettings({ alertToneStyle: st }); playSafetyChime('critical', st); }}
+                  className="rounded-lg px-2.5 text-[11px] font-black active:scale-95 transition-all"
+                  style={{
+                    minHeight: 40,
+                    background: alertToneStyle === st ? 'var(--oem-amber, #e0a23c)' : 'rgba(255,255,255,0.05)',
+                    color: alertToneStyle === st ? '#111' : 'var(--oem-ink-2)',
+                  }}
+                >
+                  {ALERT_TONE_LABEL[st]}
+                </button>
+              ))}
+            </div>
+          } />
       </div>
     </>
   );

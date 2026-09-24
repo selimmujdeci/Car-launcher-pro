@@ -233,6 +233,8 @@ export interface AppSettings {
   resumeMusicOnStart: boolean;
   /** Hıza bağlı ses (SVC) seviyesi — varsayılan kapalı. */
   speedVolumeLevel: 'OFF' | 'LOW' | 'MEDIUM' | 'HIGH';
+  /** Güvenlik uyarı tonunun tarzı (safetyChime). KAPALI seçeneği bilerek YOK. */
+  alertToneStyle: 'classic' | 'soft' | 'bright';
   activeMediaSourceKey: string;
   musicFavorites: MusicFavorite[];
   /** Kullanıcının eklediği özel müzik kaynakları (internet akışı / radyo) — uygulama içinde çalar */
@@ -415,6 +417,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   autoNavOnStart: false,
   resumeMusicOnStart: false,
   speedVolumeLevel: 'OFF',
+  alertToneStyle: 'classic',
   activeMediaSourceKey: 'spotify',
   musicFavorites: [],
   customMusicSources: [],
