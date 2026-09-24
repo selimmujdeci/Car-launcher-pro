@@ -68,7 +68,8 @@ function DriverSwitcherInner({ palette, size }: { palette: StatusPalette; size: 
       <StatusItem
         Icon={UserRound}
         state="neutral"
-        caption={active ? active.name : 'Misafir'}
+        /* Türkçe büyük harf burada: CSS `uppercase` "Misafir"i "MISAFIR" (noktasız) yapıyordu. */
+        caption={(active ? active.name : 'Misafir').toLocaleUpperCase('tr')}
         label={active ? `Sürücü: ${active.name} — değiştir` : 'Sürücü seçili değil — sürücü seç'}
         onClick={() => setOpen((o) => !o)}
         palette={palette}

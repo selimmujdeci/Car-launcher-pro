@@ -33,8 +33,8 @@ beforeEach(() => {
 afterEach(() => { act(() => root.unmount()); host.remove(); });
 
 describe('durum çubuğu sürücü değiştirici', () => {
-  it('🔒 sürücü yokken "Misafir" yazar (sahte sürücü adı yok)', () => {
-    expect(host.textContent).toContain('Misafir');
+  it('🔒 sürücü yokken "MİSAFİR" yazar — Türkçe büyük harf (noktasız "MISAFIR" değil)', () => {
+    expect(host.textContent).toContain('MİSAFİR');
   });
 
   it('🔒 listeden seçilen sürücü uygulanır (tek otorite: driverProfileService)', () => {
@@ -42,7 +42,7 @@ describe('durum çubuğu sürücü değiştirici', () => {
     act(() => (host.querySelector('button[role="menuitemradio"]') as HTMLButtonElement).click());
     expect(useStore.getState().settings.activeDriverProfileId).toBe('d1');
     expect(useStore.getState().settings.volume).toBe(66);
-    expect(host.textContent).toContain('Ayşe');
+    expect(host.textContent).toContain('AYŞE');
   });
 
   it('"Sürücüleri yönet" Ayarlar › Profiller açar', () => {
