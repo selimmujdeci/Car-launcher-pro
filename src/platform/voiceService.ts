@@ -1693,6 +1693,10 @@ export { dedupeAlts as _dedupeAlts, bestLocalParse as _bestLocalParse } from './
 function _liveRequestEvidence(text: string, cmd: ParsedCommand | null): 'action' | 'unknown' {
   try {
     if (cmd && cmd.confidence >= 0.5 && !isInformationalCommand(cmd.type)) return 'action';
+    /* Mesaj okuma bir bilgi sorgusu ama veri YEREL (bildirim servisi): model
+       mesajlara erişemez → araçsız sesli cevabı ("okumaya yetkim yok") çözüm
+       SAYILMAZ; tur UNRESOLVED olur ve yerel kurtarma mesajı okur (saha 2026-09-24). */
+    if (cmd && cmd.confidence >= 0.5 && cmd.type === 'read_message') return 'action';
     if (resolveScreenEntry(text) !== null) return 'action';
   } catch { /* kanıt okunamadı → bilinmiyor (fail-soft) */ }
   return 'unknown';

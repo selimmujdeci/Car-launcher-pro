@@ -23,6 +23,12 @@ import { PROTECTED_ACTION_TYPES } from '../platform/protectedCommandGate';
 describe('hızlı yol — TAM EŞLEŞME açar', () => {
   const cases: ReadonlyArray<readonly [string, CommandType]> = [
     ['sonraki şarkı',   'music_next'],
+    /* Saha 2026-09-24: mesaj okuma beyne gitmemeli (model mesaja erişemez). */
+    ['oku',               'read_message'],
+    ['Mavi, oku',         'read_message'],
+    ['mesajı oku',        'read_message'],
+    ['mesajı okur musun', 'read_message'],
+    ['kim yazdı',         'read_message'],
     ['önceki şarkı',    'music_prev'],
     ['haritayı aç',     'open_maps'],
     ['müziği aç',       'open_music'],
@@ -130,6 +136,9 @@ describe('hızlı yol KÜMESİ — kapsam kilidi', () => {
 describe('korunan eylem — hızlı yoldan SIZAMAZ', () => {
   it('"kapıları kilitle" hızlı yol üretmez', () => {
     expect(matchDeterministicWholeInput('kapıları kilitle')).toBeNull();
+  });
+  it('"okula git" mesaj okumaya ÇEKİLMEZ (tam eşleşme şartı)', () => {
+    expect(matchDeterministicWholeInput('okula git')?.type).not.toBe('read_message');
   });
   it('"kornaya bas" hızlı yol üretmez', () => {
     expect(matchDeterministicWholeInput('kornaya bas')).toBeNull();

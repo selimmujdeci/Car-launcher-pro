@@ -789,7 +789,7 @@ const PATTERNS: CommandPattern[] = [
     feedback: 'Mesaj okunuyor',
     label: 'Mesajı Oku', example: 'mesajı oku',
     keywords: [
-      'oku', 'okur', 'okusana', 'okuyabilir', 'okuyun',
+      'oku', 'okur', 'okusana', 'okuyabilir', 'okuyun', 'okur musun', 'mesajı okur musun',
       'mesajı oku', 'mesajları oku', 'son mesajı oku', 'gelen mesajı oku', 'mesajımı oku',
       'kim yazdı', 'kim mesaj attı', 'mesaj ne diyor',
     ],
@@ -1002,6 +1002,10 @@ const FAST_PATH_TYPES: ReadonlySet<CommandType> = new Set<CommandType>([
   /* Sabit hedefli navigasyon — hedef kullanıcı ayarından gelir, metinden DEĞİL;
      serbest adres (`navigate_address`/`navigate_place`) BİLİNÇLİ olarak YOK. */
   'navigate_home', 'navigate_work',
+  /* Mesaj okuma — parametresiz; içerik YEREL veridir (bildirim servisi).
+     SAHA 2026-09-24: "Mavi, mesajı oku" beyne (Gemini Live) gidiyor, model
+     mesajlara erişemediği için "okumaya yetkim yok" deyip turu kapatıyordu. */
+  'read_message',
 ]);
 
 /**
