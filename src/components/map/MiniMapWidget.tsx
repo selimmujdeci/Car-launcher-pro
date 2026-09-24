@@ -118,6 +118,8 @@ export const MiniMapWidget = memo(function MiniMapWidget({
   // uygulanmış son konumu izleyerek; park halinde hareket eşik altındaysa kamera/marker
   // işini TAMAMEN atlarız (GL render burst'ü kesilir). Sürüşte davranış değişmez.
   const wasDrivingRef = useRef(false);
+  /** Kamerayı çizim döngüsü mü sürüyor (canlı navigasyon) — konum efekti o zaman sürmez. */
+  const motionCameraRef = useRef(false);
   // ── Compass TALEBİ (saha fix 2026-07-11) ────────────────────────────────
   // Mini harita heading'i YALNIZ sürüş dalında kullanır (setDrivingView rotasyonu +
   // marker yönü). Park/dur dalında kuzey-yukarı statiktir → compass İSTEMEZ.
@@ -276,18 +278,47 @@ export const MiniMapWidget = memo(function MiniMapWidget({
 
     let rafId = 0;
     let lastDrawMs = 0;
+    let lastCamMs = 0;
     let sentLat = NaN, sentLng = NaN, sentBear = NaN;
 
     const draw = (now: number) => {
       rafId = requestAnimationFrame(draw);
-      if (!wasDrivingRef.current) { cancelAnimationFrame(rafId); rafId = 0; return; }
+      if (!wasDrivingRef.current) {
+        cancelAnimationFrame(rafId); rafId = 0; motionCameraRef.current = false; return;
+      }
+      /* KAMERA DA BU DÖNGÜDEN (saha 2026-09-24, telefonda ölçüldü): canlı
+         navigasyonda kamera yalnız GPS fix'inde (1 Hz) sürülüyordu; `easeTo`
+         ~320 ms'de bitip kalan ~680 ms bekliyordu → kareler %68 DURUYORDU
+         ("takıla takıla"). Artık tam ekranla aynı kadansla (150 ms), işaretin
+         çizildiği AYNI konumdan sürülür. Navigasyon dışında hareket modeli
+         beslenmez → kamera eskisi gibi konum efektinden (fix başına). */
+      motionCameraRef.current = navLiveRef.current;
+      const camDue = navLiveRef.current && now - lastCamMs >= 150;
       // ~16 fps: tek nokta `setData` ucuzdur ama düşük-uç GPU'da her kare pahalıdır.
-      if (now - lastDrawMs < 60) return;
+      if (now - lastDrawMs < 60 && !camDue) return;
 
       const m = getRenderedMotion(now);
       if (m.lat === null || m.lon === null) return;
       // Bayat konumda hareket UYDURULMAZ — model zaten donduruyor, burada da çizme.
       if (m.state === 'STALE') return;
+
+      const mp = mapRef.current;
+      if (camDue) lastCamMs = now;
+      if (camDue && mp && canDriveCamera()) {
+        const _rs = getRouteState();
+        const _turnDist = _rs.steps.length && _rs.distanceToNextTurnSource === 'ALONG_ROUTE'
+          ? _rs.distanceToNextTurnMeters : undefined;
+        const _routeBearing = resolveRouteForwardBearing(
+          m.lat, m.lon, _rs.steps, _rs.currentStepIndex,
+        ) ?? undefined;
+        try {
+          setDrivingView(
+            mp, m.lat, m.lon, headingRef.current ?? 0, lastEffKmhRef.current,
+            containerRef.current?.offsetHeight ?? 400, _turnDist, undefined, undefined, _routeBearing,
+          );
+        } catch { /* stil hazır değil */ }
+      }
+      if (now - lastDrawMs < 60) return;
 
       const bear = m.bearingDeg ?? sentBear;
       const movedM = Number.isNaN(sentLat)
@@ -304,6 +335,9 @@ export const MiniMapWidget = memo(function MiniMapWidget({
       sentLat = m.lat; sentLng = m.lon; sentBear = bear ?? 0;
     };
 
+    /* Bayrak SENKRON kurulur: efekt her örnekte yeniden kurulur ve aynı commit'te
+       sonra koşan konum efekti kamerayı bir kez de ham fix'le sürmesin. */
+    motionCameraRef.current = navLiveRef.current;
     rafId = requestAnimationFrame(draw);
     return () => { if (rafId) cancelAnimationFrame(rafId); };
     // `motionTick` yeni örnek geldiğinde döngüyü tazeler (duruştan sonra yeniden açar).
@@ -849,8 +883,9 @@ export const MiniMapWidget = memo(function MiniMapWidget({
        * davranışı gösteriyordu. Artık AYNI politika, AYNI argümanlar.
        *
        * Marker konumu burada değil, paylaşılan motion runtime'ından RAF ile
-       * çizilir (aşağıdaki `motion` effect'i) → 2 Hz zıplama biter. */
-      if (_cameraOwned) {
+       * çizilir (aşağıdaki `motion` effect'i) → 2 Hz zıplama biter.
+       * Canlı navigasyonda kamerayı da o döngü sürer (`motionCameraRef`). */
+      if (_cameraOwned && !motionCameraRef.current) {
         const containerH = containerRef.current?.offsetHeight ?? 400;
         const _rs = getRouteState();
         const _turnDist = _rs.steps.length && _rs.distanceToNextTurnSource === 'ALONG_ROUTE'
@@ -868,7 +903,7 @@ export const MiniMapWidget = memo(function MiniMapWidget({
           mapRef.current, latitude, longitude, hdg, _effKmh, containerH,
           _turnDist, undefined, undefined, _routeBearing,
         );
-      } else {
+      } else if (!_cameraOwned) {
         // Kamera kullanıcıda — marker yine de güncel kalsın (araç nerede görünsün).
         updateUserMarker(latitude, longitude, hdg);
       }

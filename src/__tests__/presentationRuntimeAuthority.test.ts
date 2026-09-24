@@ -173,21 +173,26 @@ describe('F0-B8 · rAF yalnız render', () => {
   });
 
   it('C2 — mini harita rAF DONGUSU yalniz cizim yapar', () => {
-    /* Kapsam DONGUNUN KENDISIDIR — dosyanin tamami degil. Mini harita kamerayi
-       GPS yolunda ayrica surer (`setDrivingView`, kanonik yurutme yolu) ve bu
-       mesrudur; yasak olan, rAF cizim dongusunun navigation isi yapmasidir. */
+    /* Kapsam DONGUNUN KENDISIDIR — dosyanin tamami degil. Yasak olan, rAF cizim
+       dongusunun navigation isi yapmasidir (ilerleme, recenter/pan sahipligi).
+       2026-09-24 (telefonda olculdu): canli navigasyonda kamera yalniz GPS
+       fix'inde suruluyordu → karelerin %68'i DURUYORDU. Kamera bir SUNUM isidir;
+       tam ekrandaki gibi dongu surer — kamera otoritesine uyarak ve isaretle
+       AYNI hareket modeli konumundan. */
     const src = readSrc(MINI);
     const s0 = src.indexOf('const draw = (now: number) => {');
     const s1 = src.indexOf('return () => { if (rafId) cancelAnimationFrame(rafId); };', s0);
     expect(s0, 'mini rAF cizim dongusu bulunamadi — kilit bayat').toBeGreaterThan(0);
     expect(s1).toBeGreaterThan(s0);
     const loop = strip(src.slice(s0, s1));
-    for (const bad of ['setDrivingView(', 'updateRouteProgress(', 'beginRecenter(',
+    for (const bad of ['updateRouteProgress(', 'beginRecenter(',
       'completeRecenter(', 'notifyUserPan']) {
       expect(loop, `mini rAF dongusu navigation isi yapiyor: ${bad}`).not.toContain(bad);
     }
     /* Kilit kor degil: dongu GERCEKTEN cizim yapiyor. */
     expect(loop).toContain('updateUserMarker(');
+    /* Kamera: otorite kapisi + hareket modeli konumu (ham fix DEGIL). */
+    expect(loop).toMatch(/canDriveCamera\(\)[\s\S]{0,700}setDrivingView\(\s*mp, m\.lat, m\.lon/);
   });
 
   it('C3 — YENİ zamanlayıcı/scheduler servisi EKLENMEDİ', () => {

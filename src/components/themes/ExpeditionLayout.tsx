@@ -1,8 +1,8 @@
 import { memo, useState, lazy, Suspense, useEffect, useMemo, useRef, createContext, useContext } from 'react';
 import {
   Navigation, Music2, Mic, Wind, Settings, Car, Bell,
-  Plus, Minus, SkipBack, SkipForward, Play, Pause, MoreVertical,
-  ChevronRight, Maximize2, CornerUpRight,
+  SkipBack, SkipForward, Play, Pause, MoreVertical,
+  ChevronRight,
    Fuel,
   Phone, Cloud, AlertTriangle, Camera, Route, ShieldAlert, Shield, Tv2, Zap, LayoutGrid,
   FlaskConical,
@@ -31,7 +31,6 @@ import { StatusControls } from '../common/StatusControls';
 import { openMusicDrawer } from '../../platform/mediaUi';
 import { MiniMapWidget } from '../map/MiniMapWidget';
 import { TripMeterRow } from '../trip/TripMeterRow';
-import { useNavSummary } from '../../hooks/useNavSummary';
 import { type AppItem } from '../../data/apps';
 import type { SmartSnapshot } from '../../platform/smartEngine';
 import { MagicContextCard } from '../common/MagicContextCard';
@@ -308,11 +307,9 @@ const RangePlate = memo(function RangePlate() {
   );
 });
 
-/* ─── MAP PLATE (canlı harita + expedition overlay) ──────────────── */
+/* ─── MAP PLATE (canlı harita) ──────────────── */
 const MapPlate = memo(function MapPlate({ onOpenMap, fullMapOpen }: { onOpenMap: () => void; fullMapOpen?: boolean }) {
   const p = usePal();
-  const navSummary = useNavSummary();
-  const chip: React.CSSProperties = { background: p.night ? 'rgba(16,12,7,0.82)' : 'rgba(250,244,232,0.9)', border: `1px solid ${p.edge}`, borderRadius: 13 };
   // minHeight 200: grid çökse bile harita konteyneri asla 0px olamaz —
   // MiniMapWidget 0 boyutta init'i bekletir (MiniMapWidget.tsx tryInit)
   return (
@@ -323,32 +320,13 @@ const MapPlate = memo(function MapPlate({ onOpenMap, fullMapOpen }: { onOpenMap:
           : <MiniMapWidget onFullScreenClick={onOpenMap} />}
         <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, pointerEvents: 'none', borderRadius: 20, boxShadow: p.night ? 'inset 0 0 90px rgba(0,0,0,.65), inset 0 2px 0 rgba(176,134,76,.30)' : 'inset 0 0 60px rgba(0,0,0,.4), inset 0 2px 0 rgba(255,255,255,.6)' }} />
       </div>
-      <div className="absolute flex items-start justify-between" style={{ top: 14, left: 14, right: 14, pointerEvents: 'none' }}>
-        {/* Rota özeti — GERÇEK navigasyon durumundan. Sabit sahte yol adı + mesafe
-            YAZILIYDI; hiçbir kaynağa bağlı değildi (saha 2026-08-02). Rota yoksa
-            chip HİÇ gösterilmez — sahte hedef/mesafe ÜRETİLMEZ. */}
-        {navSummary ? (
-          <div style={{ ...chip, padding: '9px 13px', pointerEvents: 'auto' }}>
-            <div className="flex items-center" style={{ gap: 12 }}>
-              <div className="flex items-center justify-center" style={{ width: 36, height: 36, borderRadius: 11, background: p.accent, boxShadow: `0 6px 16px ${p.accentGlow}` }}><CornerUpRight className="w-5 h-5" style={{ color: '#fff' }} /></div>
-              <div>
-                <div style={{ fontSize: 21, fontWeight: 800, color: p.inkCritical, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{navSummary.mesafe} <span style={{ fontSize: 12, fontWeight: 600, color: p.ink2 }}>km</span></div>
-                <div style={{ fontSize: 12, fontWeight: 500, color: p.ink2, marginTop: 2 }}>{navSummary.hedef}</div>
-              </div>
-            </div>
-          </div>
-        ) : <div />}
-        <div className="flex items-center" style={{ gap: 8, pointerEvents: 'auto' }}>
-          <div className="flex items-center" style={{ gap: 6, padding: '6px 10px', borderRadius: 999, ...chip }}>
-            <span style={{ width: 6, height: 6, borderRadius: '50%', background: p.accent, animation: 'exPulse 2s infinite' }} />
-            <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '0.1em', textTransform: 'uppercase', color: p.accent }}>Online</span>
-          </div>
-          <div className="flex items-center justify-center" style={{ width: 34, height: 34, ...chip }}><Maximize2 className="w-4 h-4" style={{ color: p.ink2 }} /></div>
-        </div>
-      </div>
-      <div className="absolute flex flex-col" style={{ right: 14, top: '50%', transform: 'translateY(-50%)', gap: 8 }} onClick={e => e.stopPropagation()}>
-        {[Plus, Minus].map((Ic, i) => <button key={i} className="ex-btn flex items-center justify-center" style={{ width: 34, height: 34, ...chip, cursor: 'pointer' }}><Ic className="w-4 h-4" style={{ color: p.ink2 }} /></button>)}
-      </div>
+      {/* ── TEMA KATMANI KALDIRILDI (saha 2026-09-24, telefonda ölçüldü) ────────
+       * Mini haritanın kendi başlığı, tam ekran düğmesi, kaynak rozeti, hız
+       * levhası ve navigasyon şeridi zaten var; bu kart üstüne İKİNCİ bir katman
+       * çiziyordu: rota çipi başlığın %70’ini, "+" düğmesi hız levhasını %100
+       * örtüyordu; "Online" SABİT metindi (bağlantıya bağlı değil), +/-
+       * düğmelerinin işlevi YOKTU, çip gerçek manevradan bağımsız hep "sağa dön"
+       * oku gösteriyordu. Kullanıcı: "Mini haritada her şey düzensiz". */}
       {/* Kütük #382/#431 — SAHTE ETA ŞERİDİ KALDIRILDI (saha 2026-08-05).
        * Burada "23 dk · 19:56 · 18 km · EV kullanımı" SABİT değerleri vardı ve
        * rota iptal edilir edilmez geri geliyordu (`shot_18`). Hiçbiri ölçüme
