@@ -187,7 +187,7 @@ const StatusCluster = memo(function StatusCluster() {
     <div data-editable="tesla.status" data-editable-type="header" className="flex items-center gap-3" style={{ color: p.ink2 }}>
       <span className={online ? 'lt-pulse' : undefined} aria-label={online ? 'Çevrimiçi' : 'Çevrimdışı'}
         style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, background: online ? '#34d399' : 'currentColor', opacity: online ? 1 : 0.4 }} />
-      <button onClick={() => openDrawer('notifications')} className="ex-btn relative flex items-center justify-center" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: p.ink2 }}>
+      <button onClick={() => openDrawer('notifications')} aria-label={n.unreadCount > 0 ? `Bildirimler: ${n.unreadCount} okunmamış` : 'Bildirimler'} className="caros-status-item ex-btn relative flex items-center justify-center" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: p.ink2 }}>
         <Bell className="w-4 h-4" />
         {n.unreadCount > 0 && (
           <span style={{ position: 'absolute', top: -4, right: -5, minWidth: 14, height: 14, background: p.accent, color: '#1a120a', fontSize: 8, fontWeight: 900, borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 2px' }}>

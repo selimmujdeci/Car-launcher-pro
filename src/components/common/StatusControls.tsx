@@ -1,20 +1,27 @@
 import { memo, useState, useCallback } from 'react';
-import type { CSSProperties } from 'react';
-import { Wifi, WifiOff, Bluetooth, BluetoothConnected, Volume2, Volume1, VolumeX } from 'lucide-react';
+import { Wifi, WifiOff, BluetoothConnected, BluetoothOff, Volume2, Volume1, VolumeX } from 'lucide-react';
 import { CarLauncher } from '../../platform/nativePlugin';
 import { useDeviceStatus, refreshDeviceStatusNow } from '../../platform/deviceApi';
 import { setVolume } from '../../platform/systemSettingsService';
 import { useStore } from '../../store/useStore';
 import { VehicleStatusIndicators } from './VehicleStatusIndicators';
+import { StatusItem } from './StatusItem';
 
 /**
  * StatusControls — tema status bar'larının paylaştığı CANLI + TIKLANIR durum düğmeleri.
  *
- * - Wi-Fi / Bluetooth: bağlıysa accent + belirgin, değilse sönük (useDeviceStatus canlı
- *   yoklama). Dokununca native sistem panelini açar (openWifiSettings/openBluetoothSettings)
- *   ve ~1.2s sonra durumu tazeler (kullanıcı panelde açıp dönünce ikon güncellensin).
- * - Ses: UYGULAMA İÇİ popover slider (settings.volume + sistem sesi). Native panel açmaz.
- * - Şebeke: pasif gösterge (cellular toggle head unit'lerde OEM kilitli — karma karar).
+ * - Wi-Fi / Bluetooth: dokununca native sistem panelini açar ve ~1.2 sn sonra
+ *   durumu tazeler (kullanıcı panelde açıp dönünce öğe güncellensin).
+ * - Ses: UYGULAMA İÇİ popover slider (settings.volume + sistem sesi).
+ *
+ * ── GÖRSEL DİL (2026-09-24, saha: "bağlandığı/koptuğu belli olmuyor") ─────────
+ * Her öğe = ikon + KISA ETİKET + anlamsal durum noktası (`StatusItem`):
+ *   bağlı → tam kontrast + YEŞİL nokta · bağlanıyor/zayıf → TURUNCU (bağlanırken
+ *   nabız) · hata → KIRMIZI · kapalı → soluk, üstü çizili ikon, nokta yok.
+ * Bağlıyken KOPARSA öğe birkaç kez kırmızı yanıp söner, bağlanınca kısa yeşil
+ * parlama — ikisi de CSS-only (JS timer YOK). Durum renkleri tema accent'inden
+ * BAĞIMSIZDIR (her temada aynı anlam).
+ * Eski "şebeke" çubukları KALDIRILDI: hiçbir şey ölçmeyen dekoratif göstergeydi.
  *
  * Tema sadece palette + ikon boyutunu verir; davranış ortak (tek doğruluk kaynağı).
  */
@@ -23,15 +30,17 @@ export interface StatusPalette {
   ink: string;
   ink2: string;
   accent: string;
-  /** Ses popover zemini — verilmezse koyu fallback. */
+  /** Ses popover zemini — verilmezse koyu fallback. Durum noktası halkası da bundan. */
   surface?: string;
   /** Ses popover kenar rengi (renk, tam border string DEĞİL) — verilmezse fallback. */
   line?: string;
 }
 
-function StatusControlsInner({
-  palette, size = 15, showCellular = true,
-}: { palette: StatusPalette; size?: number; showCellular?: boolean }) {
+/* ══════════════════════════════════════════════════════════════════════════
+ * StatusControls
+ * ════════════════════════════════════════════════════════════════════════ */
+
+function StatusControlsInner({ palette, size = 15 }: { palette: StatusPalette; size?: number }) {
   const device = useDeviceStatus();
   const volume = useStore((s) => s.settings.volume);
   const updateSettings = useStore((s) => s.updateSettings);
@@ -51,58 +60,45 @@ function StatusControlsInner({
     setVolume(clamped); // sistem sesi (native, debounce'lı)
   }, [updateSettings]);
 
-  const px: CSSProperties = { width: size, height: size, flexShrink: 0 };
-  const btn: CSSProperties = {
-    background: 'transparent', border: 'none', cursor: 'pointer',
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
-    padding: 5, borderRadius: 9, minWidth: 34, minHeight: 34,
-  };
   const VolIcon = volume === 0 ? VolumeX : volume < 50 ? Volume1 : Volume2;
 
   return (
-    <div className="flex items-center" style={{ gap: 2, position: 'relative' }}>
-      {showCellular && (
-        <div className="flex items-end" style={{ gap: 2, height: size, padding: '0 5px' }} aria-hidden>
-          {[0.45, 0.65, 0.85, 1].map((f, i) => (
-            <div key={i} style={{
-              width: 2.5, height: Math.round(size * f), borderRadius: 1,
-              background: palette.ink2, opacity: device.wifiConnected ? 0.35 : 0.7,
-            }} />
-          ))}
-        </div>
-      )}
-
-      {/* Wi-Fi — native panel; bağlıysa accent */}
-      <button
+    <div className="flex items-center" style={{ gap: 4, position: 'relative' }}>
+      {/* Wi-Fi — native panel */}
+      <StatusItem
+        Icon={device.wifiConnected ? Wifi : WifiOff}
+        state={device.wifiConnected ? 'ok' : 'off'}
+        caption="Wi-Fi"
+        label={device.wifiConnected ? `Wi-Fi bağlı: ${device.wifiName || 'ağ'}` : 'Wi-Fi bağlı değil — ayarları aç'}
         onClick={openWifi}
-        style={btn}
-        aria-label={device.wifiConnected ? `Wi-Fi bağlı: ${device.wifiName || 'ağ'}` : 'Wi-Fi ayarlarını aç'}
-        title={device.wifiConnected ? (device.wifiName || 'Wi-Fi bağlı') : 'Wi-Fi'}
-      >
-        {device.wifiConnected
-          ? <Wifi    style={{ ...px, color: palette.accent }} />
-          : <WifiOff style={{ ...px, color: palette.ink2, opacity: 0.5 }} />}
-      </button>
+        palette={palette}
+        size={size}
+      />
 
-      {/* Bluetooth — native panel; bağlıysa accent */}
-      <button
+      {/* Bluetooth — native panel; bağlıyken etiket = bağlı cihazın adı */}
+      <StatusItem
+        Icon={device.btConnected ? BluetoothConnected : BluetoothOff}
+        state={device.btConnected ? 'ok' : 'off'}
+        caption={device.btConnected && device.btDevice ? device.btDevice : 'BT'}
+        label={device.btConnected ? `Bluetooth bağlı: ${device.btDevice || 'cihaz'}` : 'Bluetooth bağlı değil — ayarları aç'}
         onClick={openBt}
-        style={btn}
-        aria-label={device.btConnected ? `Bluetooth bağlı: ${device.btDevice || 'cihaz'}` : 'Bluetooth ayarlarını aç'}
-        title={device.btConnected ? (device.btDevice || 'Bluetooth bağlı') : 'Bluetooth'}
-      >
-        {device.btConnected
-          ? <BluetoothConnected style={{ ...px, color: palette.accent }} />
-          : <Bluetooth          style={{ ...px, color: palette.ink2, opacity: 0.5 }} />}
-      </button>
+        palette={palette}
+        size={size}
+      />
 
       {/* OEM araç göstergeleri — OBD / GPS / AI (mevcut kaynaklardan; sahte "bağlı" yok) */}
       <VehicleStatusIndicators palette={palette} size={size} />
 
       {/* Ses — uygulama içi popover */}
-      <button onClick={() => setVolOpen((o) => !o)} style={btn} aria-label="Ses seviyesi" title={`Ses: ${volume}%`}>
-        <VolIcon style={{ ...px, color: volume > 0 ? palette.ink : palette.ink2, opacity: volume > 0 ? 1 : 0.5 }} />
-      </button>
+      <StatusItem
+        Icon={VolIcon}
+        state={volume > 0 ? 'neutral' : 'off'}
+        caption={`${volume}%`}
+        label={`Ses: ${volume}%`}
+        onClick={() => setVolOpen((o) => !o)}
+        palette={palette}
+        size={size}
+      />
 
       {volOpen && (
         <>
