@@ -114,6 +114,56 @@ function _isPriority(category: NotificationCategory): boolean {
   return category === 'call' || category === 'missed_call' || category === 'message';
 }
 
+/* ── Mesaj duyurusu süzgeci ──────────────────────────────────
+ * Saha 2026-09-24: "Mavi durmadan telefonun sesini kısıyor." Her WhatsApp
+ * mesajı (ve WhatsApp'ın aynı anahtarla GÜNCELLEDİĞİ grup/özet bildirimleri)
+ * ayrı ayrı duyuruluyordu: her duyuru konuşurken müziği kısıyor, ardından
+ * mikrofon açılıp bir kez daha kısıyordu. Kalabalık sohbette ses sürekli
+ * inip çıkıyordu. Mesaj LİSTEDE kalır ("Mavi, oku" her zaman çalışır);
+ * yalnız SESLİ duyuru seyreltilir. */
+export const MESSAGE_ANNOUNCE_SAME_SENDER_MS = 2 * 60_000;
+export const MESSAGE_ANNOUNCE_GLOBAL_GAP_MS = 20_000;
+
+export interface MessageAnnounceLedger {
+  readonly lastAnyAt: number;
+  readonly lastByKey: Readonly<Record<string, number>>;
+}
+export const EMPTY_ANNOUNCE_LEDGER: MessageAnnounceLedger = { lastAnyAt: -Infinity, lastByKey: {} };
+let _announceLedger: MessageAnnounceLedger = EMPTY_ANNOUNCE_LEDGER;
+
+/** WhatsApp/Telegram özet bildirimi mi ("5 yeni mesaj", "3 sohbetten 12 mesaj"). */
+function _isSummaryNotification(sender: string, appName: string, text: string): boolean {
+  const t = `${text}`.toLocaleLowerCase('tr-TR');
+  if (sender.trim() === '' || sender.trim().toLocaleLowerCase('tr-TR') === appName.trim().toLocaleLowerCase('tr-TR')) return true;
+  return /^\d+\s+(?:yeni\s+)?mesaj/.test(t) || /\d+\s+sohbet(?:ten)?\s+\d+\s+mesaj/.test(t)
+    || /^\d+\s+new messages?/.test(t) || /messages? from \d+ chats?/.test(t);
+}
+
+/** SAF: bu mesaj sesli duyurulmalı mı? */
+export function decideMessageAnnounce(
+  ledger: MessageAnnounceLedger,
+  m: { key: string; sender: string; appName: string; text: string },
+  nowMs: number,
+): boolean {
+  if (_isSummaryNotification(m.sender, m.appName, m.text)) return false;
+  if (nowMs - ledger.lastAnyAt < MESSAGE_ANNOUNCE_GLOBAL_GAP_MS) return false;
+  const last = ledger.lastByKey[m.key];
+  if (last !== undefined && nowMs - last < MESSAGE_ANNOUNCE_SAME_SENDER_MS) return false;
+  return true;
+}
+
+export function noteMessageAnnounced(ledger: MessageAnnounceLedger, key: string, nowMs: number): MessageAnnounceLedger {
+  const byKey: Record<string, number> = {};
+  for (const [k, v] of Object.entries(ledger.lastByKey)) {
+    if (nowMs - v < MESSAGE_ANNOUNCE_SAME_SENDER_MS) byKey[k] = v;       // eskileri at (sınırlı bellek)
+  }
+  byKey[key] = nowMs;
+  return { lastAnyAt: nowMs, lastByKey: byKey };
+}
+
+/** @internal testler için. */
+export function _resetMessageAnnounceLedgerForTest(): void { _announceLedger = EMPTY_ANNOUNCE_LEDGER; }
+
 /* ── TTS ─────────────────────────────────────────────────── */
 
 let _speakToken = 0;
@@ -269,7 +319,14 @@ function _addNotification(raw: RawNotification): void {
     _state.autoRead === 'all' ||
     (_state.autoRead === 'priority' && isPriority));
 
-  if (shouldRead) {
+  /* Mesaj duyurusu süzgeci — aramalar ETKİLENMEZ (çalan telefon her zaman duyurulur). */
+  const announceOk = category !== 'message'
+    || decideMessageAnnounce(_announceLedger, { key: `${raw.packageName}|${raw.sender}`, sender: raw.sender, appName: raw.appName, text: raw.text }, Date.now());
+  if (shouldRead && category === 'message' && announceOk) {
+    _announceLedger = noteMessageAnnounced(_announceLedger, `${raw.packageName}|${raw.sender}`, Date.now());
+  }
+
+  if (shouldRead && announceOk) {
     const ttsText = category === 'call'
       ? `Gelen arama: ${raw.sender}`
       : category === 'message'
