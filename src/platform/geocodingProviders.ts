@@ -38,7 +38,7 @@ import { sensitiveKeyStore } from './sensitiveKeyStore';
 import type { SensitiveKey } from './sensitiveKeyStore';
 import type { GeoResult } from './geocodingService';
 
-export type GeocodeProviderId = 'google' | 'here' | 'yandex';
+export type GeocodeProviderId = 'google' | 'here' | 'yandex' | 'tomtom';
 
 /**
  * Sağlayıcı sırası = ÖNCELİK. Birden çok anahtar kayıtlıysa üstteki kullanılır.
@@ -83,6 +83,13 @@ export async function getGeocodeProvider(): Promise<ProviderConfig | null> {
     }
   } catch {
     cfg = null; // depo hatası → ücretsiz zincir (fail-soft)
+  }
+  /* Kullanıcı anahtarı yoksa: derlemeye verilmiş TomTom anahtarı (rota/trafikle
+     AYNI anahtar, kullanıcı kararı 2026-09-24). Satışta `.env`den silinince
+     bu dal kendiliğinden kapanır ve ücretsiz OSM zinciri aynen çalışır. */
+  if (!cfg) {
+    const tt = (import.meta.env['VITE_TOMTOM_API_KEY'] as string | undefined)?.trim();
+    if (tt) cfg = { id: 'tomtom', key: tt };
   }
   _cache = { at: now, cfg };
   return cfg;
@@ -157,6 +164,39 @@ async function _yandex(q: string, key: string, lat: number | undefined, lng: num
   return out;
 }
 
+/**
+ * TomTom Fuzzy Search — adres (ev numarasına kadar) + POI tek sorguda.
+ * Konum verilirse yakındakiler öne alınır. Koordinat olarak varsa ANA GİRİŞ
+ * noktası kullanılır (bina/AVM içi değil, yoldan erişilen kapı → rota oraya biter).
+ * Ölçüldü (2026-09-24): "Atatürk Caddesi 45 Tarsus", "Atatürk Bulvarı 120 Ankara"
+ * ev numarasıyla bulundu; Nominatim yalnız caddeyi / yanlış binayı verdi.
+ */
+async function _tomtom(q: string, key: string, lat: number | undefined, lng: number | undefined, signal: AbortSignal): Promise<RawHit[]> {
+  const p = new URLSearchParams({ key, countrySet: 'TR', language: 'tr-TR', limit: String(MAX_HITS), typeahead: 'false' });
+  if (lat != null && lng != null) { p.set('lat', String(lat)); p.set('lon', String(lng)); }
+  const j = await _fetchJson(`https://api.tomtom.com/search/2/search/${encodeURIComponent(q)}.json?${p}`, signal) as
+    { results?: Array<{
+      poi?: { name?: string };
+      address?: { freeformAddress?: string; streetName?: string; streetNumber?: string };
+      position?: { lat?: number; lon?: number };
+      entryPoints?: Array<{ type?: string; position?: { lat?: number; lon?: number } }>;
+    }> } | null;
+  if (!j) return [];
+  return (j.results ?? []).map((r) => {
+    const entry = r.entryPoints?.find((e) => e.type === 'main')?.position ?? r.entryPoints?.[0]?.position;
+    const pos = entry ?? r.position;
+    const addr = r.address?.freeformAddress ?? '';
+    const street = [r.address?.streetName, r.address?.streetNumber].filter(Boolean).join(' ');
+    const name = r.poi?.name ?? (street || addr.split(',')[0] || q);
+    return {
+      name,
+      full: r.poi?.name ? `${r.poi.name}, ${addr}` : (addr || name),
+      lat: _num(pos?.lat),
+      lng: _num(pos?.lon),
+    };
+  });
+}
+
 /* ── Genel giriş noktası ────────────────────────────────────────────────── */
 
 /**
@@ -178,6 +218,7 @@ export async function premiumGeocode(
     const hits =
       cfg.id === 'google' ? await _google(q, cfg.key, lat, lng, ctrl.signal)
       : cfg.id === 'here' ? await _here(q, cfg.key, lat, lng, ctrl.signal)
+      : cfg.id === 'tomtom' ? await _tomtom(q, cfg.key, lat, lng, ctrl.signal)
       :                     await _yandex(q, cfg.key, lat, lng, ctrl.signal);
 
     return hits

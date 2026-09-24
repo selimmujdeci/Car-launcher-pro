@@ -57,6 +57,10 @@ vi.mock('../platform/offlineSearchService', () => ({
   searchPOI:     vi.fn(async () => _mockPOIResults),
 }));
 
+/* Bu dosya OSM (Nominatim) yedek zincirini sınar — lisanslı sağlayıcı
+   (derlemedeki TomTom anahtarı dahil) devre dışı. */
+vi.mock('../platform/geocodingProviders', () => ({ premiumGeocode: vi.fn(async () => []) }));
+
 /* ── fetch mock ──────────────────────────────────────────────── */
 
 const _nominatimResponse = [

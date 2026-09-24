@@ -25,6 +25,7 @@ import { recordAddressSearch } from './geo/addressSearchLedgerStore';
 import { applyLocationBias, detectCitiesInQuery } from './geo/locationBiasGate';
 import { resolveCityAnchor } from './geo/cityAnchor';
 import { awaitNominatimSlot } from './geo/nominatimRateLimit';
+import { premiumGeocode } from './geocodingProviders';
 import {
   detectPlaceIntent, rankPlaces, dedupePlacesWithEvidence, type PlaceLayer,
 } from './geo/placeQueryModel';
@@ -299,6 +300,7 @@ const _STAGE_OF_LAYER: Readonly<Record<PlaceLayer, AddressSearchStage>> = {
   OVERPASS_CATEGORY: 'OVERPASS_CATEGORY',
   OVERPASS_NAME:     'NOMINATIM',   // bu yüzeyde ad araması Nominatim'e aittir
   OVERPASS_STREET:   'OVERPASS_STREET',
+  PREMIUM:           'PREMIUM',
 };
 
 /**
@@ -521,7 +523,8 @@ export async function searchPlaces(
     const _nearSink = _sink();
     const _wideSink = _sink();
     const _catT0    = Date.now();
-    const [onlineRaw, wideRaw, catRaw] = await Promise.all([
+    const _premT0 = Date.now();
+    const [onlineRaw, wideRaw, catRaw, premiumRaw] = await Promise.all([
       _nominatimSearch(query, maxResults, userLat, userLng, _nearSink),
       _wantsWideGeocode
         ? _nominatimSearch(query, maxResults, undefined, undefined, _wideSink)
@@ -529,7 +532,26 @@ export async function searchPlaces(
       (_catDef !== null && _canGeo)
         ? searchCategoryNearby(_catDef, userLat as number, userLng as number)
         : Promise.resolve([]),
+      /* Lisanslı sağlayıcı (TomTom): OSM'de olmayan ev numaraları / adsız
+         sokaklar / işletmeler. Anahtar yoksa boş döner (fail-soft). Çok kısa
+         sorgular gönderilmez (ücretli kota). */
+      query.trim().length >= 3
+        ? premiumGeocode(query, userLat, userLng).catch(() => [])
+        : Promise.resolve([]),
     ]);
+
+    if (premiumRaw.length > 0) {
+      const premHits = filterNumberedStreetMismatch(query, premiumRaw.map((g) => ({ ...g, fullName: g.fullName })));
+      const premGated = _gate(premHits.map((g): LayeredLocation => ({
+        id: g.id, name: g.name, address: g.fullName, lat: g.lat, lng: g.lng,
+        source: 'search', timestamp: Date.now(), useCount: 0, layer: 'PREMIUM',
+      })));
+      combined.push(...premGated);
+      _attempts.push({
+        provider: 'PREMIUM', outcome: 'HIT', rawCount: premiumRaw.length,
+        keptCount: premGated.length, ms: Date.now() - _premT0,
+      });
+    }
 
     /* ── SAHA DÜZELTMESİ (2026-08-03, cihazda gözlendi) ───────────────────────
      * Bu çubuğa "0455 sokak" yazıldığında Nominatim **İzmir'de 701 km uzaktaki

@@ -454,7 +454,8 @@ export type PlaceLayer =
   | 'NOMINATIM'          // çevrimiçi serbest metin
   | 'OVERPASS_CATEGORY'  // çevrimiçi kategori + yarıçap
   | 'OVERPASS_NAME'      // çevrimiçi işletme adı + yarıçap
-  | 'OVERPASS_STREET';   // çevrimiçi sokak adı tam eşleşme
+  | 'OVERPASS_STREET'    // çevrimiçi sokak adı tam eşleşme
+  | 'PREMIUM';           // lisanslı sağlayıcı (TomTom/Google/HERE/Yandex) — ev numarası + POI
 
 export interface RankablePlace {
   readonly id: string;
@@ -520,6 +521,7 @@ const _LAYER_BONUS: Readonly<Record<PlaceLayer, number>> = {
   OVERPASS_STREET:   0.03,
   OFFLINE_POI:       0.02,
   OVERPASS_NAME:     0.02,
+  PREMIUM:           0.02,
   NOMINATIM:         0.00,
 };
 
@@ -687,6 +689,7 @@ const _LAYER_RICHNESS: Readonly<Record<PlaceLayer, number>> = {
   OVERPASS_STREET:   3,
   NOMINATIM:         2,   // tam idari adres taşır
   OVERPASS_NAME:     2,
+  PREMIUM:           3,   // lisanslı adres: ev numarası + giriş noktası
   OFFLINE_POI:       1,
 };
 
