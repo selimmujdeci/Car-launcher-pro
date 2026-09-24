@@ -288,16 +288,91 @@ async function loadTraffic(lat?: number, lng?: number): Promise<void> {
   push({ loading: false, summary: null, error: 'Trafik verisi alınamadı', unavailable: 'fetch_failed' });
 }
 
-/* ── Refresh döngüsü ─────────────────────────────────────── */
+/* ── Talep güdümlü yenileme (maliyet + hata düzeltmesi, 2026-09-24) ──────────
+ *
+ * ESKİDEN: servis uygulama açık olduğu SÜRECE çalışıyordu (head unit'te = araç
+ * çalıştığı sürece) ve konum her değiştiğinde, veri 60 sn'den eskiyse yeniden
+ * çekiyordu → sürüşte dakikada 2 TomTom isteği; tek kullanıcı ayda ~2.700 olay
+ * isteği yapıp TomTom'un aylık ücretsiz hakkını (2.500) TEK BAŞINA aşıyordu.
+ * Daha kötüsü: veri alınamazsa (`summary` null) "eski mi?" kontrolü hep EVET
+ * diyordu → internet yokken / 403'te / kota bitince HER GPS tick'inde (≈1 Hz)
+ * yeni istek atılıyordu.
+ *
+ * ŞİMDİ:
+ *  · Veri YALNIZ trafik paneli açıkken çekilir (`acquireTrafficDemand`) — trafik
+ *    verisinin tek tüketicisi odur; navigasyon trafiği TomTom rotasından alır.
+ *  · İki başarılı çekim arası en az `TRAFFIC_REFRESH_MS`.
+ *  · Hata sonrası bekleme katlanır: 1 → 2 → 4 → 8 → 15 dk (tavan).
+ *  · Aynı anda tek istek.
+ *  · HERE resmî olayları (tehlike motoru) — yalnız HERE anahtarı varsa — panel
+ *    kapalıyken de aynı aralık/geri çekilme kurallarıyla sürer (güvenlik verisi).
+ */
+export const TRAFFIC_REFRESH_MS = 3 * 60_000;
+export const TRAFFIC_BACKOFF_BASE_MS = 60_000;
+export const TRAFFIC_BACKOFF_MAX_MS = 15 * 60_000;
+
+let _demand = 0;
+let _inFlight = false;
+let _lastAttemptAt = -Infinity;
+let _failCount = 0;
+
+/** Bir sonraki çekime kadar gereken bekleme (ms). */
+export function trafficNextDelayMs(failCount: number): number {
+  if (failCount <= 0) return TRAFFIC_REFRESH_MS;
+  return Math.min(TRAFFIC_BACKOFF_MAX_MS, TRAFFIC_BACKOFF_BASE_MS * 2 ** (failCount - 1));
+}
+
+function _now(): number { return Date.now(); }
+
+function _due(): boolean {
+  return _now() - _lastAttemptAt >= trafficNextDelayMs(_failCount);
+}
+
+async function _runLoad(): Promise<void> {
+  if (_inFlight) return;
+  const wantsPanel = _demand > 0;
+  if (!wantsPanel) {
+    // Panel kapalı: yalnız HERE güvenlik olayları (varsa); TomTom ÇAĞRILMAZ.
+    if (!HERE_KEY || _currentLat == null || _currentLng == null) return;
+    _inFlight = true;
+    _lastAttemptAt = _now();
+    try { await fetchHereIncidents(_currentLat, _currentLng); _failCount = 0; }
+    catch { _failCount++; }
+    finally { _inFlight = false; }
+    return;
+  }
+  _inFlight = true;
+  _lastAttemptAt = _now();
+  try {
+    await loadTraffic(_currentLat, _currentLng);
+    if (_state.summary && _state.unavailable === null) _failCount = 0;
+    else if (_state.unavailable === 'fetch_failed') _failCount++;
+  } catch {
+    _failCount++;
+  } finally {
+    _inFlight = false;
+  }
+}
+
+function _maybeLoad(): void {
+  if (!HERE_KEY && !TOMTOM_KEY) return;
+  if (!_due()) return;
+  void _runLoad();
+}
 
 function scheduleRefresh(): void {
   if (_refreshTimer) clearTimeout(_refreshTimer);
+  _refreshTimer = null;
   // Anahtar yoksa yenileme döngüsü KURULMAZ (üretilecek veri yok).
   if (!HERE_KEY && !TOMTOM_KEY) return;
+  // Panel kapalı ve HERE yok → zamanlayıcı da yok (boşuna uyanma).
+  if (_demand === 0 && !HERE_KEY) return;
+  const wait = Math.max(1_000, trafficNextDelayMs(_failCount) - (_now() - _lastAttemptAt));
   _refreshTimer = setTimeout(() => {
-    loadTraffic(_currentLat, _currentLng).catch(() => {});
+    _refreshTimer = null;
+    _maybeLoad();
     scheduleRefresh();
-  }, 3 * 60_000);
+  }, wait);
 }
 
 /* ── Public API ──────────────────────────────────────────── */
@@ -305,16 +380,45 @@ function scheduleRefresh(): void {
 export function startTrafficService(lat?: number, lng?: number): void {
   _currentLat = lat;
   _currentLng = lng;
-  loadTraffic(lat, lng).catch(() => {});
+  // Anahtar yoksa neden kartı hemen hazır olsun (istek YOK).
+  if (!HERE_KEY && !TOMTOM_KEY) { push({ loading: false, summary: null, unavailable: 'no_key' }); return; }
   scheduleRefresh();
 }
 
 export function updateTrafficLocation(lat: number, lng?: number): void {
   _currentLat = lat;
   if (lng != null) _currentLng = lng;
-  if (!_state.summary || Date.now() - _state.summary.updatedAt > 60_000) {
-    loadTraffic(lat, _currentLng).catch(() => {});
+  // Konum değişimi TEK BAŞINA istek tetiklemez; yalnız talep varsa ve süre dolduysa.
+  if (_demand > 0) _maybeLoad();
+}
+
+/**
+ * Trafik paneli görünürken çağrılır; dönen fonksiyon talebi bırakır.
+ * Açılışta veri yoksa ya da süre dolduysa hemen çekilir.
+ */
+export function acquireTrafficDemand(): () => void {
+  _demand++;
+  if (_demand === 1) {
+    // Panel açıldı: eski veri 'canlı' sayılmaz → süre dolduysa hemen yenile.
+    _maybeLoad();
+    scheduleRefresh();
   }
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    _demand = Math.max(0, _demand - 1);
+    if (_demand === 0) scheduleRefresh();   // HERE yoksa zamanlayıcı durur
+  };
+}
+
+/** @internal testler için. */
+export function _resetTrafficForTest(): void {
+  if (_refreshTimer) clearTimeout(_refreshTimer);
+  _refreshTimer = null;
+  _demand = 0; _inFlight = false; _lastAttemptAt = -Infinity; _failCount = 0;
+  _currentLat = undefined; _currentLng = undefined;
+  _state = { ...INITIAL };
 }
 
 export function setTrafficTileUrl(url: string): void {

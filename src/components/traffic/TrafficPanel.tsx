@@ -10,7 +10,7 @@ import {
   Ban, CarFront, CloudRain, Construction, OctagonAlert, Radio, TrafficCone, TriangleAlert,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { useTrafficState, TRAFFIC_COLORS, type TrafficIncident } from '../../platform/trafficService';
+import { useTrafficState, acquireTrafficDemand, TRAFFIC_COLORS, type TrafficIncident } from '../../platform/trafficService';
 import { useUnifiedVehicleStore } from '../../platform/vehicleDataLayer/UnifiedVehicleStore';
 import { TrafficMapMini } from './TrafficMapMini';
 import {
@@ -73,6 +73,8 @@ export function TrafficPanel() {
   const location = useUnifiedVehicleStore((st) => st.location);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => { const id = setInterval(() => setNow(Date.now()), 30_000); return () => clearInterval(id); }, []);
+  // Trafik verisi YALNIZ panel görünürken çekilir (maliyet + hata döngüsü — bkz. trafficService).
+  useEffect(() => acquireTrafficDemand(), []);
 
   const lat = location?.latitude;
   const lng = location?.longitude;
