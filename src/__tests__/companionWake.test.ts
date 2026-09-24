@@ -696,14 +696,28 @@ describe('startWakeWordService — ayar değişimine göre wake aç/kapa', () =>
     stop();
   });
 
-  it('legacy wakeWordEnabled → companion olmadan etkinleşir (eski "hey car")', () => {
+  /* 2026-09-24: eski yol İngilizce "hey car"ı Türkçe grammar'a veriyordu; ayar
+     "Hey Araba" diyordu. Anahtar artık GERÇEKTEN "hey araba"yı dinletir. */
+  it('🔒 "Hey Araba" anahtarı tek başına → "hey araba" companion yolundan dinlenir', () => {
     useStore.getState().updateSettings({
       companionEnabled: false, companionWakeWordEnabled: false,
       wakeWordEnabled: true, wakeWord: 'hey car',
     });
     const stop = startWakeWordService();
-    expect(getWakeWordState().enabled).toBe(true);
-    expect(getWakeWordState().companion).toBe(false);
+    const s = getWakeWordState();
+    expect(s.enabled).toBe(true);
+    expect(s.companion).toBe(true);
+    expect(s.wakeWords).toEqual(['hey araba']);
+    stop();
+  });
+
+  it('🔒 "Hey Araba" + sesle uyandırma → asistan adına EK söz (tek oturum)', () => {
+    useStore.getState().updateSettings({
+      companionEnabled: true, companionWakeWordEnabled: true,
+      companionAssistantName: 'Mavi', companionWakeMode: 'name', wakeWordEnabled: true,
+    });
+    const stop = startWakeWordService();
+    expect(getWakeWordState().wakeWords).toEqual(['mavi', 'hey araba']);
     stop();
   });
 

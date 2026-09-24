@@ -1834,7 +1834,7 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
               <Panel accent="#a78bfa">
                 <SectionTitle icon={Mic} title="Sesli Asistan" sub="Uyandırma, akıllı mod ve yapay zekâ hizmetleri" color="#a78bfa" />
                 <div className="flex flex-col gap-3">
-                  <PremiumToggle icon={Smartphone} label="Voice Assistant" desc='"Hey Araba" komut desteği' value={settings.wakeWordEnabled ?? false} onChange={v => updateSettings({ wakeWordEnabled: v })} accent="#a78bfa" />
+                  <PremiumToggle icon={Smartphone} label='"Hey Araba" ile uyandır' desc='Asistanın adına ek olarak "Hey Araba" sözü de uyandırır' value={settings.wakeWordEnabled ?? false} onChange={v => updateSettings({ wakeWordEnabled: v })} accent="#a78bfa" />
                   <PremiumToggle icon={Cpu} label="Smart Engine" desc="Yapay zeka tabanlı sürüş modları" value={settings.smartContextEnabled ?? true} onChange={v => updateSettings({ smartContextEnabled: v })} accent="#34d399" />
                 </div>
                 <AIVoicePanel />
