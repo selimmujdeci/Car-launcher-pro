@@ -28,6 +28,9 @@ import { setNavigationGpsPower } from './navigation/navGpsPowerBridge';
    döngü riski yok. Yön formülünü ikinci kez yazmamak için oradan alınır. */
 import { bearingBetween } from './cameraEngine';
 import { roadBearingAheadDeg } from './navigation/core/geo';
+import {
+  EMPTY_GLIDE, glideAlongAt, pointAtAlongRemaining, pushGlideSample, type GlideState,
+} from './navigation/core/routeGlideModel';
 import { safeSetRawImmediate, safeGetRaw, safeRemoveRaw } from '../utils/safeStorage';
 import {
   judgeDestinationChange, recordDestinationChange,
@@ -564,6 +567,7 @@ export function stopNavigation(): void {
   _lastSnappedLon         = null;
   _lastSnappedSegBearing  = null;
   _lastOffRouteM          = Infinity;
+  _glide = EMPTY_GLIDE; _glideGeom = null; _glideCum = null;
   corridorSync.stop();
 }
 
@@ -1242,6 +1246,12 @@ function calculateRouteDistance(
       ? partialM + cumDist[suffixIdx]
       : partialM + _sumRemainingSegments(geometry, suffixIdx);
 
+  /* Akıcı çizim örneği (routeGlideModel) — yalnız ekran; karar girdisi DEĞİL. */
+  if (cumDist && cumDist.length === geometry.length && Number.isFinite(remaining)) {
+    if (_glideGeom !== geometry) { _glide = EMPTY_GLIDE; _glideGeom = geometry; _glideCum = cumDist; }
+    _glide = pushGlideSample(_glide, { alongRemainingM: remaining, ts: performance.now() });
+  }
+
   // Soft clamp: allow up to CLAMP_SLACK_M upward correction per tick (DR recovery),
   // while still rejecting large GPS spikes (> 50 m sudden jump).
   const clamped       = Math.min(remaining, _lastRouteDistanceM + CLAMP_SLACK_M);
@@ -1353,6 +1363,24 @@ export function getSnappedMarkerPosition(): { lat: number; lon: number } | null 
   if (_lastSnappedLat === null || _lastSnappedLon === null) return null;
   if (_lastOffRouteM > SNAP_VISUAL_THRESHOLD_M) return null;
   return { lat: _lastSnappedLat, lon: _lastSnappedLon };
+}
+
+let _glide: GlideState = EMPTY_GLIDE;
+let _glideGeom: [number, number][] | null = null;
+let _glideCum: Float64Array | null = null;
+
+/**
+ * `getSnappedMarkerPosition()`in AKICI hâli — GPS örnekleri arasında rota
+ * boyunca ilerletilmiş konum (routeGlideModel). AYNI güven kapısı; kapı
+ * kapalıysa ya da örnek yoksa `null` (çağıran oturtulmuş/ham konuma düşer).
+ * Yalnız çizim içindir (saha 2026-09-24: "takıla takıla gidiyor").
+ */
+export function getGlidingMarkerPosition(nowMs: number): { lat: number; lon: number } | null {
+  if (getSnappedMarkerPosition() === null) return null;
+  if (!_glideGeom || !_glideCum || getRouteState().geometry !== _glideGeom) return null;
+  const along = glideAlongAt(_glide, nowMs);
+  if (along === null) return null;
+  return pointAtAlongRemaining(_glideGeom, _glideCum, along);
 }
 
 /**

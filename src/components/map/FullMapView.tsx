@@ -78,7 +78,7 @@ import {
   type RecenterReason,
 } from '../../platform/navigation/cameraFollowAuthority';
 import {
-  useNavigation, getSnappedMarkerPosition, getSnappedRoadBearing,
+  useNavigation, getSnappedMarkerPosition, getGlidingMarkerPosition, getSnappedRoadBearing,
   getRouteProgressPoint,
   setNavStatus, NavStatus, activateNavigation,
   getNavigationState, claimRouteRequest, releaseRouteRequest, endNavigation,
@@ -1076,7 +1076,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
         // ACTIVE: snap → rota yoluna kilitle, GPS zıplamalarını gizle
         // Kamera da snapped koordinatı kullanır → sürücü rota dışı görünmez
         const _snap = navStatusRef.current === NavStatus.ACTIVE
-          ? getSnappedMarkerPosition()
+          ? (getGlidingMarkerPosition(now) ?? getSnappedMarkerPosition())
           : null;
         const displayLat = _snap?.lat ?? lat;
         const displayLng = _snap?.lon ?? lng;
