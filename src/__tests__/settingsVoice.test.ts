@@ -20,8 +20,8 @@ describe('matchVoiceSetting — boolean', () => {
   it('akıllı motoru aç → smartContextEnabled/on', () => {
     expect(matchVoiceSetting('akıllı motoru aç')).toMatchObject({ key: 'smartContextEnabled', action: 'on' });
   });
-  it('çevrimdışı haritayı aç → offlineMap/on', () => {
-    expect(matchVoiceSetting('çevrimdışı haritayı aç')).toMatchObject({ key: 'offlineMap', action: 'on' });
+  it('çevrimdışı haritayı aç → mapOfflineOnly/on', () => {
+    expect(matchVoiceSetting('çevrimdışı haritayı aç')).toMatchObject({ key: 'mapOfflineOnly', action: 'on' });
   });
 });
 

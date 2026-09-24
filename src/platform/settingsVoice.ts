@@ -98,7 +98,7 @@ export const VOICE_SETTINGS: VoiceSetting[] = [
     aliases: ['performans modu', 'performans', 'yuksek performans', 'guc modu'] },
   { key: 'smartContextEnabled',   kind: 'bool', label: 'Smart Engine',
     aliases: ['smart engine', 'akilli motor', 'akilli oneriler', 'akilli baglam', 'smart mod', 'akilli mod'] },
-  { key: 'offlineMap',            kind: 'bool', label: 'Çevrimdışı harita',
+  { key: 'mapOfflineOnly',        kind: 'bool', label: 'Yalnız çevrimdışı harita',
     aliases: ['cevrimdisi harita', 'offline harita', 'offline map', 'cevrimdisi map', 'gomulu harita'] },
   { key: 'wakeWordEnabled',       kind: 'bool', label: 'Sesli asistan',
     aliases: ['sesli asistan', 'uyandirma kelimesi', 'hey araba', 'wake word', 'sesli komut'] },

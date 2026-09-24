@@ -171,7 +171,10 @@ export interface AppSettings {
   defaultNav: string;
   defaultMusic: MusicOptionKey;
   sleepMode: boolean;
+  /** ESKİ "Offline Map HUD" — haritayı hiç etkilemiyordu; artık okunmaz (kalıcı kayıt uyumu için duruyor). */
   offlineMap: boolean;
+  /** Yalnız çevrimdışı harita: önbellekte olmayan karo internetten İNDİRİLMEZ (CacheLRUManager). */
+  mapOfflineOnly: boolean;
   widgetVisible: Record<string, boolean>;
   widgetOrder: string[];
   widgetSizes: Record<string, 'small' | 'medium' | 'large'>;
@@ -358,6 +361,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   defaultMusic: 'spotify',
   sleepMode: false,
   offlineMap: true,
+  mapOfflineOnly: false,
   widgetVisible: { nav: true, media: true, shortcuts: true, obd: true },
   widgetOrder: ['nav', 'speed', 'media'],
   widgetSizes: { media: 'medium', shortcuts: 'small' },

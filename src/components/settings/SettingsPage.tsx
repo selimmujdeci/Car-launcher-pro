@@ -5,7 +5,7 @@ import { allowsConnectivity } from '../../platform/connectivity/connectivityGate
 import expeditionEmblem from '../../assets/expedition/emblem.png';
 import {
   Sun, Smartphone, Zap, Palette, Layout, Check, PenTool as Tool, Volume2,
-  Wifi, HardDrive, RefreshCw, Database, Cloud, ArrowLeft, X,
+  Wifi, HardDrive, Database, ArrowLeft, X,
   Cpu, Shield, ShieldCheck, Gauge, Settings2,
   Mic, Loader,
   Star, Users, Map as MapIcon, ChevronRight, Info, MessageCircle, AlertTriangle, type LucideIcon,
@@ -45,10 +45,7 @@ import { OtaUpdateCard } from './OtaUpdateCard';
 import { SupportSnapshotCard } from './SupportSnapshotCard';
 import { DeviceDiagnosticCard } from './DeviceDiagnosticCard';
 import { OBDConnectModal } from '../obd/OBDConnectModal';
-import {
-  useMapSources, useMapNetworkStatus, setActiveMapSource,
-  refreshMapSources, type MapSource,
-} from '../../platform/mapSourceManager';
+import { cacheLRUManager } from '../../core/storage/CacheLRUManager';
 import { useLayoutSync } from '../../platform/themeLayoutEngine';
 import { useScreenSense } from '../../hooks/useScreenSense';
 import { setObdVehicleType } from '../../platform/obdService';
@@ -643,51 +640,51 @@ const CompanionPanel = memo(function CompanionPanel() {
 });
 
 /* ════════════════════════════════════════
-   MAP SOURCE PANEL
+   MAP DATA PANEL — harita karolarının nereden geldiği (GERÇEK seçim)
+   Eski "Offline Map HUD" anahtarı + "Harita Altyapısı" seçimi haritayı hiç
+   etkilemiyordu (yalnız stil ADINI değiştiriyordu, saha 2026-09-24). Karolar
+   tek yoldan gelir (`caros-tile://` → önce önbellek, yoksa internet); buradaki
+   seçim o yolun internete çıkıp çıkmayacağını belirler.
 ════════════════════════════════════════ */
-const MapSourcePanel = memo(function MapSourcePanel() {
-  const mapState = useMapSources();
-  const sources: MapSource[] = Array.from(mapState.sources.values());
-  const activeId = mapState.activeSourceId;
-  const { isOnline } = useMapNetworkStatus();
+const MapDataPanel = memo(function MapDataPanel() {
+  const offlineOnly = useStore((s) => s.settings.mapOfflineOnly === true);
   const updateSettings = useStore((s) => s.updateSettings);
-  const [refreshing, setRefreshing] = useState(false);
+  const [stats, setStats] = useState(() => cacheLRUManager.getCacheStats());
+  useEffect(() => {
+    const t = setInterval(() => setStats(cacheLRUManager.getCacheStats()), 5_000);
+    return () => clearInterval(t);
+  }, []);
+  const mb = stats.totalBytes / (1024 * 1024);
+  const options = [
+    { val: false, label: 'Otomatik', sub: 'Önce önbellek, yoksa internetten indirir', color: '#60a5fa' },
+    { val: true,  label: 'Yalnız çevrimdışı', sub: 'İnternetten karo indirmez — mobil veri harcamaz; önbellekte olmayan alan boş kalır', color: '#34d399' },
+  ] as const;
   return (
-    <div className="mt-8 pt-8 border-t border-white/10 flex flex-col gap-4">
-      <div className="flex items-center justify-between mb-3">
-        <span className="text-[10px] font-black uppercase tracking-[0.4em] text-[color:var(--oem-ink-3)]">Harita Altyapısı</span>
-        <div className="flex gap-2.5">
-          <span className="flex items-center gap-2 px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest glass-card border-none !shadow-none bg-[var(--oem-surface-2)]"
-            style={isOnline ? { color: 'var(--oem-good)' } : { color: 'var(--oem-danger)' }}>
-            <div className={`w-2 h-2 rounded-full ${isOnline ? 'bg-[var(--oem-good)] animate-pulse' : 'bg-[var(--oem-danger)]'}`} />
-            {isOnline ? 'Çevrimiçi' : 'Çevrimdışı'}
-          </span>
-          <button onClick={async () => { setRefreshing(true); await refreshMapSources(); setRefreshing(false); }}
-            className="w-10 h-10 rounded-2xl flex items-center justify-center bg-[var(--oem-surface-2)] hover:bg-[var(--oem-surface-3)] border border-[var(--oem-line)] transition-all active:rotate-180">
-            <RefreshCw className={`w-5 h-5 text-[color:var(--oem-ink-2)] ${refreshing ? 'animate-spin' : ''}`} />
-          </button>
-        </div>
-      </div>
-      {sources.map(src => {
-        const Icon = src.type === 'offline' ? HardDrive : src.id === 'cached' ? Database : Cloud;
-        const isActive = activeId === src.id;
+    <div className="flex flex-col gap-2 mt-4">
+      <span className="text-[10px] font-black uppercase tracking-[0.3em] text-[color:var(--oem-ink-3)]">Harita verisi</span>
+      {options.map(({ val, label, sub, color }) => {
+        const active = offlineOnly === val;
         return (
-          <button key={src.id} onClick={() => { if (src.isAvailable) { setActiveMapSource(src.id); updateSettings({ activeMapSourceId: src.id }); } }}
-            disabled={!src.isAvailable}
-            className="flex items-center gap-5 p-5 rounded-3xl transition-all duration-300 glass-card border-white/5 hover:border-white/20 shadow-md"
-            style={isActive ? { backgroundColor: 'rgba(59,130,246,0.08)', borderColor: 'rgba(59,130,246,0.4)' } : { opacity: src.isAvailable ? 1 : 0.4 }}>
-            <div className="w-12 h-12 rounded-[1.25rem] flex items-center justify-center bg-[var(--oem-surface-2)] border border-[var(--oem-line)] shadow-inner"
-              style={isActive ? { backgroundColor: 'rgba(59,130,246,0.15)', borderColor: 'rgba(59,130,246,0.5)' } : {}}>
-              <Icon className="w-6 h-6 transition-colors" style={{ color: isActive ? 'var(--oem-info)' : 'var(--oem-ink-3)' }} />
+          <button key={label} onClick={() => updateSettings({ mapOfflineOnly: val })}
+            className="flex items-center gap-3 px-4 py-3 rounded-xl transition-all active:scale-[0.98] text-left"
+            style={{
+              background: active ? `${color}12` : 'rgba(255,255,255,0.03)',
+              border: `1.5px solid ${active ? `${color}40` : 'rgba(255,255,255,0.07)'}`,
+            }}>
+            <div className="w-4 h-4 rounded-full flex-shrink-0 flex items-center justify-center"
+              style={{ border: `2px solid ${active ? color : 'rgba(255,255,255,0.2)'}`, background: active ? color : 'transparent' }}>
+              {active && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
             </div>
-            <div className="flex-1 text-left">
-              <div className="text-base font-black tracking-tight text-[color:var(--oem-ink)]">{src.name}</div>
-              <div className="text-[11px] text-[color:var(--oem-ink-3)] font-bold uppercase tracking-widest mt-1">{src.description}</div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-bold" style={{ color: 'var(--oem-ink, #fff)' }}>{label}</p>
+              <p className="text-[10px] mt-0.5" style={{ color: 'var(--oem-ink-3, rgba(255,255,255,0.60))' }}>{sub}</p>
             </div>
-            {isActive && <div className="w-8 h-8 rounded-full bg-[var(--oem-info)] flex items-center justify-center shadow-lg"><Check className="w-5 h-5 text-[color:var(--oem-accent-ink)] stroke-[4px]" /></div>}
           </button>
         );
       })}
+      <p className="text-[11px] mt-1" style={{ color: 'var(--oem-ink-3)' }}>
+        Önbellekte {stats.tileCount.toLocaleString('tr-TR')} karo · {mb < 10 ? mb.toFixed(1) : Math.round(mb)} MB
+      </p>
     </div>
   );
 });
@@ -1786,12 +1783,11 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
           {tab === 'navigation' && (
             <div className="flex flex-col gap-4 mx-auto w-full" style={{ maxWidth: 760 }}>
               <Panel accent="#60a5fa">
-                <SectionTitle icon={MapIcon} title="Harita" sub="Açılış davranışı ve çevrimdışı harita" color="#60a5fa" />
+                <SectionTitle icon={MapIcon} title="Harita" sub="Açılış davranışı ve harita verisinin kaynağı" color="#60a5fa" />
                 <div className="flex flex-col gap-3">
                   <PremiumToggle icon={Layout}   label="Hızlı Harita" desc="Açılışta otomatik navigasyon" value={settings.autoNavOnStart ?? true} onChange={v => updateSettings({ autoNavOnStart: v })} accent="#60a5fa" />
-                  <PremiumToggle icon={HardDrive} label="Offline Map HUD" desc="Gömülü vektör harita motoru" value={settings.offlineMap} onChange={v => updateSettings({ offlineMap: v })} accent="#22d3ee" />
                 </div>
-                {settings.offlineMap && <MapSourcePanel />}
+                <MapDataPanel />
               </Panel>
 
               {/* ── Ev / İş Adresi (NAVIGATION-P0-1) ──

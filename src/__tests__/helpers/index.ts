@@ -308,6 +308,7 @@ export const STORE_FIXTURES = {
     defaultMusic: 'spotify' as const,
     sleepMode: false,
     offlineMap: true,
+    mapOfflineOnly: false,
     widgetVisible: { nav: true, media: true, shortcuts: true, obd: true },
     widgetOrder: ['nav', 'speed', 'media'],
     widgetSizes: { media: 'medium', shortcuts: 'small' },
