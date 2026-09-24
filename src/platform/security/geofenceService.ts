@@ -20,7 +20,7 @@ import { onVehicleEvent, dispatchGeofenceViolation } from '../vehicleDataLayer/V
 import { updateGeofenceZones }   from '../vehicleDataLayer/index';
 import { sensitiveKeyStore }     from '../sensitiveKeyStore';
 import { getSupabaseClient }     from '../supabaseClient';
-import { connectivityService }   from '../connectivityService';
+import { connectivityService, VEHICLE_API_KEY_SLOT } from '../connectivityService';
 import { useSystemStore }        from '../../store/useSystemStore';
 import { speakAlert }            from '../ttsService';
 import { logNetworkAware }       from '../crashLogger';
@@ -218,7 +218,7 @@ export async function pushZoneToCloud(zone: GeofenceZone): Promise<void> {
     `${RPC_BASE}/push_geofence_zone`,
     'POST',
     { 'Content-Type': 'application/json', apikey: SUPABASE_ANON_KEY },
-    { p_api_key: apiKey, p_zone: _toCloudZone(zone) },
+    { p_api_key: VEHICLE_API_KEY_SLOT, p_zone: _toCloudZone(zone) },   // anahtar gönderimde çözülür
     'normal',
     'telemetry',
   );
@@ -237,7 +237,7 @@ export async function deleteZoneFromCloud(zoneId: string): Promise<void> {
     `${RPC_BASE}/delete_geofence_zone`,
     'POST',
     { 'Content-Type': 'application/json', apikey: SUPABASE_ANON_KEY },
-    { p_api_key: apiKey, p_zone_id: zoneId },
+    { p_api_key: VEHICLE_API_KEY_SLOT, p_zone_id: zoneId },
     'normal',
     'telemetry',
   );

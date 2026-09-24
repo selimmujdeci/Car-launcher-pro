@@ -27,6 +27,27 @@ import {
 
 export type QueuePriority = 'critical' | 'high' | 'normal';
 
+/* ── Kuyrukta SIR TUTULMAZ (2026-09-25, CodeQL clear-text-storage incelemesi) ──
+   Araç API anahtarı `p_api_key` gövdeye konup kuyruk IndexedDB'ye DÜZ METİN
+   yazılıyordu — güvenli depodaki (sensitiveKeyStore) anahtarın şifresiz kopyası.
+   Artık gövdeye YER TUTUCU yazılır; gerçek değer yalnız GÖNDERİM anında,
+   sahibi tarafından kaydedilen çözücüden alınır. Çözülemezse istek GİTMEZ ve
+   kuyrukta kalır (ağ hatası gibi, sahte başarı yok). */
+export const VEHICLE_API_KEY_SLOT = '__CAROS_VEHICLE_API_KEY__';
+let _vehicleApiKeyResolver: (() => Promise<string | null>) | null = null;
+/** Anahtarın SAHİBİ (vehicleIdentityService) çağırır — kuyruk depoya bağımlı olmaz. */
+export function setQueueVehicleApiKeyResolver(fn: (() => Promise<string | null>) | null): void {
+  _vehicleApiKeyResolver = fn;
+}
+async function _resolveBodySecrets(body: string): Promise<string | null> {
+  const slot = JSON.stringify(VEHICLE_API_KEY_SLOT);
+  if (!body.includes(slot)) return body;
+  let key: string | null = null;
+  try { key = _vehicleApiKeyResolver ? await _vehicleApiKeyResolver() : null; } catch { key = null; }
+  if (!key) return null;
+  return body.split(slot).join(JSON.stringify(key));
+}
+
 export interface QueueEntry {
   id:            string;
   url:           string;
@@ -443,10 +464,12 @@ class ConnectivityService {
     const sentBytes = _octetLen(entry.body);
     let outcome: HttpOutcome;
     try {
+      const body = await _resolveBodySecrets(entry.body);
+      if (body === null) throw new Error('queue secret unavailable');   // → ağ hatası yolu: kuyrukta kal
       const res = await fetch(entry.url, {
         method:  entry.method,
         headers: entry.headers,
-        body:    entry.body,
+        body,
         signal:  signalWithTimeout(10_000),
       });
       // Gövdeyi oku (UUID/null çıkarımı). Gövde okuma hatası BAŞARILI fetch'i asla

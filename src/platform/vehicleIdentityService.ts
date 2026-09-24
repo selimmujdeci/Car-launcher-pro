@@ -13,7 +13,7 @@
 
 import { Capacitor }              from '@capacitor/core';
 import { sensitiveKeyStore }      from './sensitiveKeyStore';
-import { connectivityService }    from './connectivityService';
+import { connectivityService, VEHICLE_API_KEY_SLOT, setQueueVehicleApiKeyResolver } from './connectivityService';
 import { CarLauncher }            from './nativePlugin';
 /* MRI N-7: sunucu `Date` başlığı gözlemi — komut geçerliliği yerel saate mahkûm kalmasın. */
 import { observeServerDate }      from './serverClock';
@@ -42,6 +42,9 @@ export interface LinkingCodeInfo {
 
 let _identity: VehicleIdentity | null = null;
 let _apiKey:   string | null = null;
+/* Kuyruk gövdesindeki anahtar yer tutucusunu GÖNDERİM anında güvenli depodan çözer
+   (kuyrukta sır tutulmaz — connectivityService VEHICLE_API_KEY_SLOT). */
+setQueueVehicleApiKeyResolver(async () => _apiKey ?? (await sensitiveKeyStore.get(SK_API_KEY)));
 
 /* ── Internal helpers ───────────────────────────────────────── */
 
@@ -376,7 +379,7 @@ export async function updateRemoteCommandStatus(
 
   // Durum → timestamp eşlemesi
   const body: Record<string, unknown> = {
-    p_api_key:    apiKey,
+    p_api_key:    VEHICLE_API_KEY_SLOT,   // gerçek anahtar gönderimde çözülür (kuyrukta sır yok)
     p_command_id: commandId,
     p_status:     status,
   };
@@ -524,7 +527,7 @@ export async function pushVehicleEvent(
     `${RPC_BASE}/push_vehicle_event`,
     'POST',
     { 'Content-Type': 'application/json', apikey: SUPABASE_ANON_KEY },
-    { p_api_key: apiKey, p_type: type, p_payload: payload },
+    { p_api_key: VEHICLE_API_KEY_SLOT, p_type: type, p_payload: payload },
     priority,
     'telemetry',
     reportId,

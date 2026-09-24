@@ -7,7 +7,7 @@
  */
 
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { connectivityService } from './connectivityService';
+import { connectivityService, VEHICLE_API_KEY_SLOT } from './connectivityService';
 import { allowsConnectivity } from './connectivity/connectivityGate';
 import { sensitiveKeyStore }   from './sensitiveKeyStore';
 
@@ -180,7 +180,7 @@ export async function insertVehicleEvent(
       `${SUPABASE_URL}/rest/v1/rpc/push_vehicle_event`,
       'POST',
       { 'Content-Type': 'application/json', apikey: SUPABASE_ANON_KEY },
-      { p_api_key: apiKey, p_type: type, p_payload: { vehicle_id: vehicleId, ...metadata } },
+      { p_api_key: VEHICLE_API_KEY_SLOT, p_type: type, p_payload: { vehicle_id: vehicleId, ...metadata } },   // anahtar gönderimde çözülür
       'normal',
       `veh_event_${type}_${Date.now()}`,
     );

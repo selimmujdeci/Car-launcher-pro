@@ -33,6 +33,8 @@ vi.mock('../platform/sensitiveKeyStore', () => ({
 }));
 
 vi.mock('../platform/connectivityService', () => ({
+  VEHICLE_API_KEY_SLOT: '__CAROS_VEHICLE_API_KEY__',
+  setQueueVehicleApiKeyResolver: vi.fn(),
   connectivityService: {
     enqueue: vi.fn(async (url: string, _m: string, _h: unknown, body: Record<string, unknown>) => {
       M.enqueued.push({ url, body });
@@ -115,7 +117,9 @@ describe('pushVehicleEvent — apiKey varken normal akış', () => {
     expect(warnSpy).not.toHaveBeenCalled();
     expect(M.enqueued).toHaveLength(1);
     expect(M.enqueued[0].url).toContain('/rpc/push_vehicle_event');
-    expect(M.enqueued[0].body.p_api_key).toBe('veh_test_key_123');
+    // Kuyrukta SIR yok (2026-09-25): gövdede yer tutucu, gerçek anahtar gönderimde çözülür.
+    expect(M.enqueued[0].body.p_api_key).toBe('__CAROS_VEHICLE_API_KEY__');
+    expect(JSON.stringify(M.enqueued[0].body)).not.toContain('veh_test_key_123');
     expect(M.enqueued[0].body.p_type).toBe('voice_diag');
     expect(getVehicleEventPipelineStatus().droppedNoKeyCount).toBe(0);
   });
