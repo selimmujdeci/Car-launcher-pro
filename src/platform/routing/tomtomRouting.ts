@@ -373,3 +373,78 @@ export function speedLimitOnRouteAt(
   for (const s of sections) if (segIdx >= s.startIdx && segIdx < s.endIdx) return s.kmh;
   return null;
 }
+
+/* ── Daha hızlı rota denetimi (TomTom `alternativeType=betterRoute`) ──────── */
+
+/** Referans rotanın en fazla bu kadar noktası gönderilir (istek gövdesi sınırlı). */
+export const BETTER_ROUTE_MAX_POINTS = 150;
+/** En az bu kadar kazanç (sn) — altı "daha hızlı rota" diye önerilmez. */
+export const BETTER_ROUTE_MIN_SAVING_S = 180;
+/** …ve kalan sürenin en az bu oranı (kısa yolda 3 dk gürültü sayılmaz). */
+export const BETTER_ROUTE_MIN_SAVING_RATIO = 0.1;
+
+/** Rota noktalarını ilk/son korunarak en fazla `max` noktaya seyreltir. */
+export function samplePolyline(g: readonly [number, number][], max = BETTER_ROUTE_MAX_POINTS): [number, number][] {
+  if (g.length <= max) return g.slice() as [number, number][];
+  const step = (g.length - 1) / (max - 1);
+  const out: [number, number][] = [];
+  for (let i = 0; i < max; i++) out.push(g[Math.round(i * step)] as [number, number]);
+  return out;
+}
+
+/** Kazanç anlamlıysa saniye cinsinden döndürür; değilse `null`. SAF. */
+export function betterRouteSaving(referenceS: number, candidateS: number): number | null {
+  if (!Number.isFinite(referenceS) || !Number.isFinite(candidateS) || referenceS <= 0) return null;
+  const saving = referenceS - candidateS;
+  if (saving < BETTER_ROUTE_MIN_SAVING_S) return null;
+  if (saving < referenceS * BETTER_ROUTE_MIN_SAVING_RATIO) return null;
+  return saving;
+}
+
+/**
+ * Mevcut rotanın KALAN kısmını referans verip TomTom'a güncel trafikle daha iyi
+ * rota var mı diye sorar. Dönen: referansın GÜNCEL süresi + (varsa) en iyi
+ * alternatifin süresi. Hata FIRLATILIR (çağıran sessizce yutar).
+ */
+export async function fetchTomTomBetterRoute(
+  key: string,
+  remaining: readonly [number, number][],   // [lon, lat], ilk nokta = aracın konumu
+  headingDeg: number | null | undefined,
+  timeoutMs: number,
+  fetchImpl: typeof fetch = fetch,
+): Promise<{ referenceS: number; bestAlternativeS: number | null }> {
+  if (remaining.length < 2) throw new Error('NO_REFERENCE');
+  const pts = samplePolyline(remaining);
+  const a = pts[0]!, b = pts[pts.length - 1]!;
+  const q = new URLSearchParams({
+    key, traffic: 'true', travelMode: 'car', routeType: 'fastest',
+    maxAlternatives: '1', alternativeType: 'betterRoute', minDeviationTime: '0',
+  });
+  if (headingDeg != null && Number.isFinite(headingDeg)) {
+    q.set('vehicleHeading', String(((Math.round(headingDeg) % 360) + 360) % 360));
+  }
+  const url = `https://api.tomtom.com/routing/1/calculateRoute/${a[1].toFixed(6)},${a[0].toFixed(6)}:`
+    + `${b[1].toFixed(6)},${b[0].toFixed(6)}/json?${q.toString()}`;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    let res: Response;
+    try {
+      res = await fetchImpl(url, {
+        method: 'POST', signal: ctrl.signal,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ supportingPoints: pts.map(([lon, lat]) => ({ latitude: lat, longitude: lon })) }),
+      });
+    } catch (e) {
+      throw ctrl.signal.aborted ? new Error('TOMTOM_TIMEOUT') : (e as Error);
+    }
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json() as { routes?: Array<{ summary?: { travelTimeInSeconds?: number } }> };
+    const ref = data.routes?.[0]?.summary?.travelTimeInSeconds;
+    if (typeof ref !== 'number') throw new Error('NO_ROUTES');
+    const alt = data.routes?.[1]?.summary?.travelTimeInSeconds;
+    return { referenceS: ref, bestAlternativeS: typeof alt === 'number' ? alt : null };
+  } finally {
+    clearTimeout(timer);
+  }
+}

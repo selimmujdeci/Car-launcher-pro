@@ -73,7 +73,7 @@ import {
 import { maneuverToTr } from './navigation/core/maneuverSemanticsModel';
 import {
   TOMTOM_ROUTING_SERVER, fetchTomTomRoutes, type TomTomRoute, type RouteTrafficSection,
-  type RouteSpeedLimitSection,
+  type RouteSpeedLimitSection, fetchTomTomBetterRoute, betterRouteSaving,
 } from './routing/tomtomRouting';
 export type { RouteTrafficSection, RouteSpeedLimitSection } from './routing/tomtomRouting';
 import {
@@ -396,6 +396,50 @@ let _tomtomFailures = 0;
 /** @internal testler için. */
 export function _resetTomTomRoutingBreakerForTest(): void {
   _tomtomSkipUntil = 0; _tomtomFailures = 0;
+  _betterLastCheckMs = 0; _betterInFlight = false;
+}
+
+/* ── DAHA HIZLI ROTA (Google "daha hızlı rota bulundu") ─────────────────────
+ * Sürüşte en fazla `BETTER_ROUTE_CHECK_MS`de bir, kalan rota REFERANS verilerek
+ * TomTom'a (güncel trafikle) daha iyi rota sorulur. Kazanç anlamlıysa
+ * (`betterRouteSaving`) rota aracın konumundan yeniden kurulur ve sürücüye
+ * kazanç söylenir. Yeni zamanlayıcı YOK — ilerleme tick'inde süre kontrolü.
+ * Maliyet: sürüş saatinde en fazla 6 istek; kısa yolda (<10 km kaldı) hiç. */
+export const BETTER_ROUTE_CHECK_MS = 10 * 60_000;
+export const BETTER_ROUTE_MIN_REMAINING_M = 10_000;
+let _betterLastCheckMs = 0;
+let _betterInFlight = false;
+
+function _maybeCheckBetterRoute(now: number, fix: MapMatchFix, geometry: [number, number][] | null): void {
+  if (_betterInFlight || _isFetchingRoute || !_rerouteCtx) return;
+  if (now - _betterLastCheckMs < BETTER_ROUTE_CHECK_MS) return;
+  const key = _tomtomRoutingKey();
+  if (!key || Date.now() < _tomtomSkipUntil) return;
+  if (fix.state !== 'MATCHED' || fix.snappedLat == null || fix.snappedLon == null) return;
+  if (fix.alongRemainingM == null || fix.alongRemainingM < BETTER_ROUTE_MIN_REMAINING_M) return;
+  if (!geometry || fix.segIdx < 0 || fix.segIdx + 1 >= geometry.length) return;
+
+  _betterLastCheckMs = now;
+  _betterInFlight = true;
+  const rev = useRouteStore.getState().routeRevision;
+  const from = { lat: fix.snappedLat, lon: fix.snappedLon };
+  const to = { ..._rerouteCtx };
+  const remaining: [number, number][] = [[from.lon, from.lat], ...geometry.slice(fix.segIdx + 1)];
+  void fetchTomTomBetterRoute(key, remaining, _currentHeadingDeg(), HEADERS_TIMEOUT_MS + BODY_TIMEOUT_MS)
+    .then(async ({ referenceS, bestAlternativeS }) => {
+      if (bestAlternativeS === null) return;
+      const saving = betterRouteSaving(referenceS, bestAlternativeS);
+      // Bu arada rota değiştiyse (reroute / yeni hedef) eski öneri UYGULANMAZ.
+      if (saving === null || useRouteStore.getState().routeRevision !== rev || _isFetchingRoute) return;
+      await fetchRoute(from.lat, from.lon, to.toLat, to.toLon, 'REROUTE');
+      const st = useRouteStore.getState();
+      if (st.routeRevision !== rev && st.serverUsed === TOMTOM_ROUTING_SERVER) {
+        const min = Math.max(1, Math.round(saving / 60));
+        try { speakNavigation(`Daha hızlı bir rota bulundu, yaklaşık ${min} dakika kazanç.`); } catch { /* TTS yok */ }
+      }
+    })
+    .catch(() => { /* öneri başarısız — mevcut rota aynen sürer */ })
+    .finally(() => { _betterInFlight = false; });
 }
 
 function _tomtomRoutingKey(): string | null {
@@ -1069,6 +1113,7 @@ function _commitRoute(
   });
   recordRouteSource(sourceKind, providerLabel);
   recordCommit(reqId, performance.now(), providerLabel);
+  _betterLastCheckMs = performance.now();   // yeni rota → ilk denetim 10 dk sonra
   return true;
 }
 
@@ -1673,6 +1718,11 @@ function _updateRouteProgressInner(
     pendingManeuver,
     remainingRouteDurationSeconds: remainingDurS,
   });
+
+  // ── 4c) DAHA HIZLI ROTA (yalnız gerçek GPS; DR konumu öneri üretmez) ───────
+  if (opts?.allowReroute !== false) {
+    try { _maybeCheckBetterRoute(now, fix, geometry); } catch { /* fail-soft */ }
+  }
 
   // ── 5) SAPMA DEĞERLENDİRMESİ ──────────────────────────────────────────────
   // Kütük #402: bu erken çıkışlar da artık ADLANDIRILIR — "sapma vardı ama

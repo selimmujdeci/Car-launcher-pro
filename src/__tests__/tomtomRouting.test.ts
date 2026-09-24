@@ -195,3 +195,39 @@ describe('rota hız sınırı', () => {
     expect(classifySpeedLimit(obs, { lat: 36.95, lon: 34.8, nowMs: 1500 }).state).toBe('STALE');
   });
 });
+
+describe('daha hızlı rota', () => {
+  it('🔒 kazanç kuralı: en az 3 dk VE kalan sürenin %10\'u', async () => {
+    const { betterRouteSaving } = await import('../platform/routing/tomtomRouting');
+    expect(betterRouteSaving(2442, 2113)).toBe(329);        // gerçek TomTom ölçümü (Tarsus→Mersin)
+    expect(betterRouteSaving(3600, 3480)).toBeNull();       // 2 dk — gürültü
+    expect(betterRouteSaving(7200, 6900)).toBeNull();       // 5 dk ama %4
+    expect(betterRouteSaving(0, 0)).toBeNull();
+  });
+
+  it('referans rota seyreltilir (uçlar korunur)', async () => {
+    const { samplePolyline } = await import('../platform/routing/tomtomRouting');
+    const g = Array.from({ length: 1000 }, (_, i) => [i, i] as [number, number]);
+    const s = samplePolyline(g, 150);
+    expect(s).toHaveLength(150);
+    expect(s[0]).toEqual([0, 0]);
+    expect(s[149]).toEqual([999, 999]);
+  });
+
+  it('istemci kalan rotayı POST gövdesinde referans verir; referans + alternatif süresi döner', async () => {
+    const { fetchTomTomBetterRoute } = await import('../platform/routing/tomtomRouting');
+    let body: { supportingPoints: { latitude: number; longitude: number }[] } | null = null;
+    let url = '';
+    const f = vi.fn(async (u: string, init?: RequestInit) => {
+      url = u; body = JSON.parse(String(init?.body));
+      return new Response(JSON.stringify({ routes: [
+        { summary: { travelTimeInSeconds: 2442 } }, { summary: { travelTimeInSeconds: 2113 } },
+      ] }), { status: 200 });
+    });
+    const r = await fetchTomTomBetterRoute('k', [[34.89, 36.91], [34.8, 36.85], [34.64, 36.81]], null, 5000, f as never);
+    expect(r).toEqual({ referenceS: 2442, bestAlternativeS: 2113 });
+    expect(url).toContain('alternativeType=betterRoute');
+    expect(url).toContain('/36.910000,34.890000:36.810000,34.640000/');
+    expect(body!.supportingPoints[1]).toEqual({ latitude: 36.85, longitude: 34.8 });
+  });
+});
