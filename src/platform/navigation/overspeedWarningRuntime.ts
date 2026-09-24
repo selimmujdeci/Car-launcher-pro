@@ -5,14 +5,17 @@
  * yerde çağrılırsa çağrılsın aynı sınır için ikinci anons YOKTUR.
  * Girdi: gösterilen hız (`useDisplaySpeed` — OBD/CAN/GPS füzyonu) ve
  * gösterilebilir etkin sınır (`useEffectiveSpeedLimit` — rota/OSM + araç sınıfı).
- * Yeni zamanlayıcı YOK: hız/sınır değiştikçe değerlendirilir.
+ * Hız/sınır değiştikçe değerlendirilir; aşım sürerken teyit için tek seferlik
+ * bir yeniden değerlendirme kurulur (periyodik zamanlayıcı YOK).
  */
 import { useEffect } from 'react';
 import { speakNavigation } from '../ttsService';
 import { useDisplaySpeed } from '../../hooks/useDisplaySpeed';
 import { useEffectiveSpeedLimit } from './useEffectiveSpeedLimit';
 import { isEffectiveLimitDisplayable } from './core/vehicleAwareSpeedLimitAuthority';
-import { EMPTY_OVERSPEED_LEDGER, stepOverspeed, type OverspeedLedger } from './core/overspeedModel';
+import {
+  EMPTY_OVERSPEED_LEDGER, OVERSPEED_CONFIRM_MS, isOverspeed, stepOverspeed, type OverspeedLedger,
+} from './core/overspeedModel';
 
 let _ledger: OverspeedLedger = EMPTY_OVERSPEED_LEDGER;
 let _warnings = 0;
@@ -45,6 +48,15 @@ export function useOverspeedWarning(): void {
   const limit = useEffectiveSpeedLimit();
   const shownLimit = isEffectiveLimitDisplayable(limit) ? limit.effectiveLimitKmh : null;
   useEffect(() => {
-    try { noteOverspeedSample(speed, shownLimit, performance.now()); } catch { /* fail-soft */ }
+    const sample = (): void => {
+      try { noteOverspeedSample(speed, shownLimit, performance.now()); } catch { /* fail-soft */ }
+    };
+    sample();
+    /* Cihaz 2026-09-24: sabit hızda (50'de 30 bölgesi) hız/sınır değişmediği
+       için 3 sn teyit hiç gelmiyordu → anons yoktu. Aşım sürüyorsa teyit anında
+       bir kez daha değerlendirilir; hız/sınır değişirse iptal edilir. */
+    if (!isOverspeed(speed, shownLimit)) return undefined;
+    const t = setTimeout(sample, OVERSPEED_CONFIRM_MS + 50);
+    return () => clearTimeout(t);
   }, [speed, shownLimit]);
 }

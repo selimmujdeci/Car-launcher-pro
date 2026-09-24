@@ -55,4 +55,24 @@ describe('tek seferlik sesli uyarı', () => {
     at(120, null, 10_000); at(120, null, 20_000);
     expect(spoken).toHaveLength(0);
   });
+
+  it('🔒 30↔50 sık değişen bölümler: aynı değer 2 dk içinde geri gelince İKİNCİ anons yok (cihaz 2026-09-24)', () => {
+    at(50, 30, 0); at(50, 30, 3_500);                 // 30 bölgesi → uyarı
+    at(50, 50, 20_000);                               // 50 bölgesi (aşım yok)
+    at(50, 30, 40_000); at(50, 30, 44_000);           // yine 30 → sessiz
+    expect(spoken).toHaveLength(1);
+    at(50, 50, 150_000);
+    at(50, 30, 200_000); at(50, 30, 204_000);         // 2 dk sonra → yeniden bir kez
+    expect(spoken).toHaveLength(2);
+  });
+});
+
+describe('kaynak kilidi', () => {
+  it('🔒 sabit hızda da teyit gelir — hook aşım sürerken teyit anında yeniden değerlendirir', async () => {
+    const { readFileSync } = await import('node:fs');
+    const src = readFileSync('src/platform/navigation/overspeedWarningRuntime.ts', 'utf8');
+    expect(src).toMatch(/if \(!isOverspeed\(speed, shownLimit\)\) return undefined;/);
+    expect(src).toMatch(/setTimeout\(sample, OVERSPEED_CONFIRM_MS/);
+    expect(src).toMatch(/return \(\) => clearTimeout\(t\)/);
+  });
 });
