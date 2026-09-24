@@ -27,6 +27,7 @@ import {
   setRouteGeometry, setTurnFocus, clearTurnFocus,
 } from '../../../platform/mapService';
 import { getRouteState, notifyStyleChange, type RouteStep } from '../../../platform/routingService';
+import { NavStatus } from '../../../platform/navigationService';
 import {
   applyRouteEmphasis, invalidateRouteEmphasis, routeConfidenceFrom,
 } from '../../../platform/map/MapLayerManager';
@@ -95,6 +96,12 @@ export function useRouteDrawingLifecycle(o: RouteDrawingLifecycleOptions): void 
   // notifyStyleChange(false) → styleKey increments → this effect re-runs automatically.
   useEffect(() => {
     if (!route.geometry) return;
+    /* OTURUM KAPANDI → YENİDEN ÇİZME (smoke 2026-09-24, cihazda ölçüldü): varıştan
+       5 sn sonra IDLE'da `FullMapView` haritayı ve rota deposunu temizliyor, AYNI
+       commit'te bu efekt render anındaki (henüz silinmemiş) `route.geometry` ile
+       rotayı yeniden çiziyordu; depo boşalınca efekt erken döndüğü için tam rota
+       haritada KALIYORDU. Ref'lere de yazılmaz (stil yenilenince geri çizilmesin). */
+    if (!isNavigating) return;
     // Ref'leri mapStatus'ten bağımsız her zaman güncelle.
     // _onStyleReady ve webglcontextrestored callback'leri bu ref'lerden okur;
     // harita LOADING iken gelen yeni geometri kaybolmamalı.
@@ -111,6 +118,8 @@ export function useRouteDrawingLifecycle(o: RouteDrawingLifecycleOptions): void 
     // gerçekten yüklüyse (isStyleLoaded) çizime devam et.
     if (!mapRef.current || (mapStatus !== 'READY' && !mapRef.current.isStyleLoaded())) return;
     if (styleChangingRef.current) return; // style reload in-flight — wait for notifyStyleChange(false)
+    /* Varıldı: dedup anahtarı durumu da içerdiği için kırpılmış rota BAŞTAN çiziliyordu. */
+    if (navStatus === NavStatus.ARRIVED) return;
     const hash = routeHash(route.geometry);
     const last = lastAppliedRef.current;
     const styleKeyChanged = !last || last.styleKey !== styleKey;
