@@ -19,7 +19,8 @@
  *    kümülatif sürelerinden türetilir: iki talimat arası süre, aradaki
  *    segmentlere mesafe oranıyla dağıtılır. Sabit hız UYDURULMAZ.
  *  · Ücretli yol TomTom `TOLL` bölümünden okunur (sezgisel değil).
- *  · Şerit verisi istenmez → `lanes` yok (UI şerit göstermez).
+ *  · Şerit verisi TomTom `LANES` bölümünden gelir ve YALNIZ bölümün bittiği
+ *    manevra noktasına bağlanır; bölüm yoksa şerit paneli çıkmaz.
  */
 
 export const TOMTOM_ROUTING_SERVER = 'tomtom:routing';
@@ -33,6 +34,18 @@ export interface TomTomOsrmStep {
   destinations?: string;
   maneuver: { type: string; modifier?: string; exit?: number };
   geometry: { coordinates: [number, number][] };
+  /** OSRM `intersections[].lanes` biçiminde GERÇEK şerit (TomTom LANES). */
+  intersections?: Array<{ lanes: Array<{ valid: boolean; active: boolean; indications: string[] }> }>;
+}
+
+/** Rota üzerindeki trafik/olay bölümü (TomTom TRAFFIC). Nokta indeksleri rota geometrisine göredir. */
+export interface RouteTrafficSection {
+  readonly startIdx: number;
+  readonly endIdx: number;
+  readonly level: 'moderate' | 'heavy' | 'standstill';
+  readonly kind: 'JAM' | 'ROAD_WORK' | 'ROAD_CLOSURE' | 'OTHER';
+  /** TomTom'un bildirdiği gecikme (sn); yoksa `null`. */
+  readonly delayS: number | null;
 }
 
 export interface TomTomRoute {
@@ -44,6 +57,20 @@ export interface TomTomRoute {
   steps: TomTomOsrmStep[];
   /** geometry.length − 1 uzunlukta segment süreleri; türetilemezse null. */
   annotationDurations: number[] | null;
+  /** Rota üzerindeki trafik bölümleri (boş = TomTom bildirmedi). */
+  trafficSections: RouteTrafficSection[];
+}
+
+/**
+ * TomTom TRAFFIC bölümü → seviye. `magnitudeOfDelay`: 1 küçük · 2 orta · 3 büyük ·
+ * 4 tanımsız (kapalı yol). Kapalı yol en koyu; 0/bilinmeyen gecikme "yavaş".
+ */
+export function trafficSectionLevel(
+  category: string | undefined, magnitude: number | undefined,
+): RouteTrafficSection['level'] {
+  if (category === 'ROAD_CLOSURE' || magnitude === 4 || magnitude === 3) return 'standstill';
+  if (magnitude === 2) return 'heavy';
+  return 'moderate';
 }
 
 interface TtInstruction {
@@ -152,12 +179,40 @@ export function segmentDurationsFromKnots(
   return out;
 }
 
+const _LANE_DIR: Readonly<Record<string, string>> = {
+  STRAIGHT: 'straight', SLIGHT_RIGHT: 'slight right', RIGHT: 'right', SHARP_RIGHT: 'sharp right',
+  SLIGHT_LEFT: 'slight left', LEFT: 'left', SHARP_LEFT: 'sharp left', U_TURN: 'uturn',
+};
+
+interface TtLaneSection {
+  sectionType?: string; startPointIndex?: number; endPointIndex?: number;
+  simpleCategory?: string; magnitudeOfDelay?: number; delayInSeconds?: number;
+  lanes?: Array<{ directions?: string[]; follow?: string }>;
+}
+
+/**
+ * TomTom LANES bölümü → OSRM şerit dizisi. `follow` olan şerit rotanın
+ * önerdiği şerittir (valid+active); olmayan için izin bilgisi TomTom'da YOK →
+ * `valid:false` (izin UYDURULMAZ). Yön tanınmazsa 'none' (UI nötr çizer).
+ */
+export function tomtomLanesToOsrm(
+  sec: TtLaneSection,
+): Array<{ valid: boolean; active: boolean; indications: string[] }> | null {
+  const lanes = sec.lanes;
+  if (!Array.isArray(lanes) || lanes.length === 0) return null;
+  return lanes.map((l) => {
+    const follow = typeof l.follow === 'string' && l.follow.length > 0;
+    const ind = (l.directions ?? []).map((d) => _LANE_DIR[d] ?? 'none');
+    return { valid: follow, active: follow, indications: ind.length ? ind : ['none'] };
+  });
+}
+
 /** Tek TomTom rotasını çözer; kullanılamazsa `null`. */
 export function parseTomTomRoute(raw: unknown): TomTomRoute | null {
   const r = raw as {
     summary?: { lengthInMeters?: number; travelTimeInSeconds?: number; trafficDelayInSeconds?: number };
     legs?: Array<{ points?: Array<{ latitude?: number; longitude?: number }> }>;
-    sections?: Array<{ sectionType?: string }>;
+    sections?: Array<TtLaneSection & { sectionType?: string }>;
     guidance?: { instructions?: TtInstruction[] };
   } | null;
   if (!r || !r.summary || !Array.isArray(r.legs)) return null;
@@ -184,6 +239,13 @@ export function parseTomTomRoute(raw: unknown): TomTomRoute | null {
   const annotationDurations = segmentDurationsFromKnots(geometry, knots);
 
   const man = ins.filter((i) => !_INFO_ONLY.has((i.maneuver as string).toUpperCase()));
+  // Şerit bölümü manevra kavşağında BİTER → aynı noktadaki manevraya bağlanır.
+  const lanesAt = new Map<number, ReturnType<typeof tomtomLanesToOsrm>>();
+  for (const sec of r.sections ?? []) {
+    if (sec.sectionType !== 'LANES' || typeof sec.endPointIndex !== 'number') continue;
+    const l = tomtomLanesToOsrm(sec);
+    if (l) lanesAt.set(sec.endPointIndex, l);
+  }
   const steps: TomTomOsrmStep[] = man.map((i, k) => {
     const next = man[k + 1];
     const from = i.pointIndex as number;
@@ -201,12 +263,27 @@ export function parseTomTomRoute(raw: unknown): TomTomRoute | null {
         ...(typeof i.roundaboutExitNumber === 'number' ? { exit: i.roundaboutExitNumber } : {}),
       },
       geometry: { coordinates: geometry.slice(from, to + 1) },
+      ...(lanesAt.get(from) ? { intersections: [{ lanes: lanesAt.get(from)! }] } : {}),
     };
   });
   if (steps.length === 0) return null;
 
+  const trafficSections: RouteTrafficSection[] = [];
+  for (const sec of r.sections ?? []) {
+    if (sec.sectionType !== 'TRAFFIC') continue;
+    const a = sec.startPointIndex, b = sec.endPointIndex;
+    if (typeof a !== 'number' || typeof b !== 'number' || a < 0 || b > last || b <= a) continue;
+    const cat = sec.simpleCategory;
+    trafficSections.push({
+      startIdx: a, endIdx: b,
+      level: trafficSectionLevel(cat, sec.magnitudeOfDelay),
+      kind: cat === 'JAM' || cat === 'ROAD_WORK' || cat === 'ROAD_CLOSURE' ? cat : 'OTHER',
+      delayS: typeof sec.delayInSeconds === 'number' ? sec.delayInSeconds : null,
+    });
+  }
+
   return {
-    geometry, distance, duration,
+    geometry, distance, duration, trafficSections,
     trafficDelayS: r.summary.trafficDelayInSeconds ?? 0,
     hasToll: (r.sections ?? []).some((s) => s.sectionType === 'TOLL'),
     steps,
@@ -225,6 +302,9 @@ export function tomtomRouteUrl(
     maxAlternatives: '2', instructionsType: 'coded', language: 'tr-TR',
   });
   q.append('sectionType', 'toll');
+  q.append('sectionType', 'lanes');
+  q.append('sectionType', 'traffic');
+  q.append('sectionType', 'speedLimit');
   if (headingDeg != null && Number.isFinite(headingDeg)) {
     q.set('vehicleHeading', String(((Math.round(headingDeg) % 360) + 360) % 360));
   }

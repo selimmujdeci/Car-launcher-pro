@@ -1,4 +1,5 @@
 import { bindMapUserInteraction } from '../../platform/map/bindMapUserInteraction';
+import { syncRouteTrafficOverlay } from '../../platform/map/routeTrafficOverlay';
 import { useEffect, useRef, useState, useCallback, memo, lazy, Suspense } from 'react';
 import type { Map as MapLibreMap } from 'maplibre-gl';
 
@@ -450,6 +451,8 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
                 ..._geom.slice(_prog.segIdx + 1),
               ];
               trimRouteGeometry(mapRef.current, _remaining);
+              // Rota trafiği de aynı noktadan kırpılır (kat edilen sıkışıklık silinir).
+              syncRouteTrafficOverlay(mapRef.current, _geom, getRouteState().trafficSections, _prog);
             }
           }
 

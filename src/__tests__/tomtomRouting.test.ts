@@ -129,3 +129,44 @@ describe('sağlayıcı zinciri (fetchRoute)', () => {
     expect(urls(f).some((u) => u.includes('api.tomtom.com'))).toBe(false);
   });
 });
+
+describe('şerit ve rota trafiği (aynı istekte, ek maliyet yok)', () => {
+  const WITH = {
+    ...RAW,
+    sections: [
+      ...RAW.sections,
+      { startPointIndex: 1, endPointIndex: 3, sectionType: 'LANES',
+        lanes: [{ directions: ['STRAIGHT'] }, { directions: ['STRAIGHT'] }, { directions: ['SLIGHT_RIGHT'], follow: 'SLIGHT_RIGHT' }] },
+      { startPointIndex: 6, endPointIndex: 8, sectionType: 'TRAFFIC', simpleCategory: 'JAM', magnitudeOfDelay: 2, delayInSeconds: 98 },
+      { startPointIndex: 8, endPointIndex: 9, sectionType: 'TRAFFIC', simpleCategory: 'ROAD_CLOSURE', magnitudeOfDelay: 4 },
+    ],
+  };
+
+  it('🔒 şerit bölümü, BİTTİĞİ manevra noktasına bağlanır; yalnız önerilen şerit geçerli', () => {
+    const r = parseTomTomRoute(WITH)!;
+    const exit = r.steps.find((s) => s.maneuver.type === 'off ramp')!;
+    expect(exit.intersections![0]!.lanes).toEqual([
+      { valid: false, active: false, indications: ['straight'] },
+      { valid: false, active: false, indications: ['straight'] },
+      { valid: true, active: true, indications: ['slight right'] },
+    ]);
+    expect(r.steps.filter((s) => s.intersections).length).toBe(1);
+  });
+
+  it('🔒 trafik bölümleri seviye ve gecikmeyle çözülür; kapalı yol en koyu', () => {
+    const r = parseTomTomRoute(WITH)!;
+    expect(r.trafficSections).toEqual([
+      { startIdx: 6, endIdx: 8, level: 'heavy', kind: 'JAM', delayS: 98 },
+      { startIdx: 8, endIdx: 9, level: 'standstill', kind: 'ROAD_CLOSURE', delayS: null },
+    ]);
+  });
+
+  it('fetchRoute şeritleri RouteStep.lanes\'e, trafiği rota durumuna taşır', async () => {
+    vi.stubEnv('VITE_TOMTOM_API_KEY', 'test-key');
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ routes: [WITH] }), { status: 200 })));
+    await fetchRoute(36.9165, 34.895, 36.9065, 34.885);
+    const st = getRouteState();
+    expect(st.steps[1]!.lanes?.[2]).toEqual({ valid: true, active: true, indications: ['slight right'] });
+    expect(st.trafficSections).toHaveLength(2);
+  });
+});

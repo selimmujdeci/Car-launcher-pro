@@ -34,6 +34,7 @@ import {
   type RouteStepLabelInput,
 } from './core/routeStepLabelsModel';
 import type { RouteStep } from '../routingService';
+import { syncRouteTrafficOverlay, clearRouteTrafficOverlay } from './routeTrafficOverlay';
 import {
   resolveDeclutter, DECLUTTER_OWNED_LAYERS, DECLUTTER_POLICY_VERSION,
   type MapSurface, type DeclutterDecision,
@@ -2019,6 +2020,14 @@ export function _applyRouteGeometry(
       safeMoveLayer(map, id);
     }
 
+    /* Rota trafiği (TomTom bölümleri) — ayrı katman, çekirdek rengine DOKUNMAZ.
+       Sıralamadan SONRA: katman çekirdeğin üstünde, araç işaretçisinin altında. */
+    void import('../routingService').then(({ getRouteState }) => {
+      const rs = getRouteState();
+      const same = !!rs.geometry && rs.geometry.length === coords.length;
+      syncRouteTrafficOverlay(map, same ? rs.geometry : null, same ? rs.trafficSections : [], null, true);
+    }).catch(() => { /* fail-soft */ });
+
     // ── Step 6: fit bounds (sadece preview modda) ───
     if (!useMapStore.getState().drivingMode) {
       try {
@@ -2123,6 +2132,7 @@ export function clearRouteGeometry(map: MapLibreMap): void {
   try {
     if (map.getLayer(DEBUG_LAYER))     map.removeLayer(DEBUG_LAYER);
     if (map.getSource(DEBUG_SRC))      map.removeSource(DEBUG_SRC);
+    clearRouteTrafficOverlay(map);
     // 5-layer stack — ters sırayla kaldır (üstten alta)
     if (map.getLayer(ROUTE_FLOW))      map.removeLayer(ROUTE_FLOW);
     if (map.getLayer(SEL_LAYER))       map.removeLayer(SEL_LAYER);

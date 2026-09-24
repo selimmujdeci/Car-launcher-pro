@@ -1,4 +1,5 @@
 import { bindMapUserInteraction } from '../../platform/map/bindMapUserInteraction';
+import { syncRouteTrafficOverlay } from '../../platform/map/routeTrafficOverlay';
 import { useCallback, useEffect, useRef, useState, memo } from 'react';
 import type { Map as MapLibreMap } from 'maplibre-gl';
 
@@ -928,6 +929,7 @@ export const MiniMapWidget = memo(function MiniMapWidget({
             [prog.lon, prog.lat],
             ...geom.slice(prog.segIdx + 1),
           ]);
+          syncRouteTrafficOverlay(mapRef.current, geom, getRouteState().trafficSections, prog);
         } catch { /* stil yeniden yükleniyor olabilir — sonraki fix'te tekrar */ }
       }
     }
