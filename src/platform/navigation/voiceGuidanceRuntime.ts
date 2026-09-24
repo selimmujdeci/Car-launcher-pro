@@ -27,6 +27,7 @@ import { speakNavigation } from '../ttsService';
 import {
   recordAnnouncementTiming, recordMissedGuidance, resetGuidanceAudit,
 } from './core/voiceGuidanceAudit';
+import { decideTrafficAhead, type TrafficAheadInput } from './core/trafficAheadModel';
 import {
   decideGuidance, maneuverId,
   type GuidanceStage, type GuidanceDecisionInput,
@@ -253,7 +254,51 @@ export function noteVoiceGuidanceTick(
  * (maske boş başlar ama araç zaten manevraya yakınsa yalnız SON kademe söylenir —
  * `decideGuidance` yakın kademede uzaktakileri de kapatır).
  */
+/* ── Öndeki trafik uyarısı (TomTom rota bölümleri) ────────────────────────
+ * Karar saf modelde (`decideTrafficAhead`); burada yalnız "bu rotada hangi
+ * bölüm söylendi" defteri tutulur. Anahtar oturum + rota revizyonudur →
+ * reroute sonrası yeni rotanın olayları yeniden değerlendirilir. */
+let _trafficRouteKey = '';
+let _trafficAnnounced = new Set<number>();
+
+export interface TrafficAheadTickInput {
+  readonly sessionId: number;
+  readonly routeRevision: number;
+  readonly isRerouting: boolean;
+  readonly sections: TrafficAheadInput['sections'];
+  readonly cumulativeDistances: TrafficAheadInput['cumulativeDistances'];
+  readonly vehicleAlongRemainingM: number | null;
+  readonly speedKmh: number;
+  /** Sıradaki manevraya kalan mesafe — manevra anonsu yakınsa trafik ERTELENİR. */
+  readonly distanceToNextTurnM: number | null;
+}
+
+/** Trafik uyarısı söylendiyse metnini döndürür. */
+export function noteTrafficAheadTick(
+  input: TrafficAheadTickInput, speak: SpeakFn = speakNavigation,
+): string | null {
+  const key = `${input.sessionId}:${input.routeRevision}`;
+  if (key !== _trafficRouteKey) { _trafficRouteKey = key; _trafficAnnounced = new Set(); }
+  if (input.isRerouting || input.sections.length === 0) return null;
+  // Dönüş anonsu kapıdaysa (≤300 m) trafik ertelenir — bir sonraki tick yeniden bakar.
+  if (input.distanceToNextTurnM !== null && input.distanceToNextTurnM > 0 && input.distanceToNextTurnM <= 300) return null;
+  const d = decideTrafficAhead({
+    sections: input.sections,
+    cumulativeDistances: input.cumulativeDistances,
+    vehicleAlongRemainingM: input.vehicleAlongRemainingM,
+    speedKmh: input.speedKmh,
+    announcedStarts: _trafficAnnounced,
+  });
+  if (!d) return null;
+  _trafficAnnounced.add(d.startIdx);
+  const text = d.text.charAt(0).toUpperCase() + d.text.slice(1);
+  try { speak(text); } catch { /* TTS yoksa sessiz */ }
+  return text;
+}
+
 export function resetVoiceGuidance(_reason = 'sıfırlandı'): void {
+  _trafficRouteKey = '';
+  _trafficAnnounced = new Set();
   _spoken = new Map();
   _routeKey = '';
   _state = 'IDLE';

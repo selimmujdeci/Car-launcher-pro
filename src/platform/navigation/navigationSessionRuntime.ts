@@ -38,7 +38,7 @@
 
 import { onGPSLocation, noteDeadReckoningState } from '../gpsService';
 import { GPS_FIX_STALE_MS } from '../freshnessPolicy';
-import { getRouteState, updateRouteProgress } from '../routingService';
+import { getRouteState, updateRouteProgress, getNavigationCoreSnapshot } from '../routingService';
 import {
   NavStatus,
   getNavigationState,
@@ -53,7 +53,7 @@ import {
 } from '../../utils/interpolation';
 import { advanceAlongRoute } from './core/routeProjectionModel';
 import {
-  noteVoiceGuidanceTick, resetVoiceGuidance,
+  noteVoiceGuidanceTick, resetVoiceGuidance, noteTrafficAheadTick,
 } from './voiceGuidanceRuntime';
 import {
   noteMotionSample, resetMarkerMotion, registerMotionFeeder,
@@ -347,9 +347,22 @@ export function startNavigationSessionRuntime(): () => void {
 function _feedVoiceGuidance(status: string): void {
   try {
     const rs = getRouteState();
+    const speedKmh = useUnifiedVehicleStore.getState().speed ?? 0;
+    /* Öndeki trafik olayı (TomTom rota bölümleri) — manevradan BAĞIMSIZ. */
+    try {
+      noteTrafficAheadTick({
+        sessionId: getNavSessionId(),
+        routeRevision: rs.routeRevision,
+        isRerouting: status === NavStatus.REROUTING,
+        sections: rs.trafficSections ?? [],
+        cumulativeDistances: rs.cumulativeDistances,
+        vehicleAlongRemainingM: getNavigationCoreSnapshot().fix?.alongRemainingM ?? null,
+        speedKmh,
+        distanceToNextTurnM: rs.distanceToNextTurnSource === 'UNKNOWN' ? null : rs.distanceToNextTurnMeters,
+      });
+    } catch { /* trafik uyarısı yönlendirmeyi ASLA bozmaz */ }
     const nextStep = rs.steps[rs.currentStepIndex + 1];
     if (!nextStep) return;   // sıradaki manevra yok → söylenecek bir şey yok
-    const speedKmh = useUnifiedVehicleStore.getState().speed ?? 0;
     noteVoiceGuidanceTick(
       {
         navActive: true,
