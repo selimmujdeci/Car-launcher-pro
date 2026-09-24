@@ -144,10 +144,17 @@ export interface VehicleProfile {
   oilType?: OilType;
   /** İkinci el araç için başlangıç aşınma oranı (0–1); 0 = sıfır km */
   initialWearOffset?: number;
-  /** Sürücü tercihi: sürüş modu (özet + gelecekte tema/gaz tepkisi) */
+  /** ESKİ — sabit 'comfort' yazılıyordu, hiçbir yerde UYGULANMIYORDU (2026-09-24);
+   *  artık yazılmaz/gösterilmez. Kayıt uyumu + kokpit etiketi için duruyor. */
   driveMode?: 'comfort' | 'sport' | 'eco';
-  /** Sürücü tercihi: iklim sıcaklığı (°C) */
+  /** ESKİ — sabit 21 °C yazılıyordu; uygulamanın araca iklim komutu yolu YOK. */
   climateTempC?: number;
+  /** Sürücü tercihi: ses düzeyi (%) — profil seçilince uygulanır. */
+  volume?: number;
+  /** Sürücü tercihi: ekran parlaklığı (%) — profil seçilince uygulanır. */
+  brightness?: number;
+  /** Sürücü tercihi: ana ekran teması (useCarTheme) — profil seçilince uygulanır. */
+  carTheme?: string;
 }
 
 export interface AppSettings {

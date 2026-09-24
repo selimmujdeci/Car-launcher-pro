@@ -26,7 +26,7 @@ import { isNative, bridge } from '../../platform/bridge';
 import { PrivacyPolicy } from './PrivacyPolicy';
 import { useStore, type VehicleType, type VehicleProfile } from '../../store/useStore';
 import { useShallow } from 'zustand/react/shallow';
-import { MUSIC_OPTIONS, type MusicOptionKey } from '../../data/apps';
+import { MUSIC_OPTIONS } from '../../data/apps';
 import {
   getPerformanceMode, setPerformanceMode,
   isAutoModeEnabled, enableAutoMode, disableAutoMode,
@@ -46,6 +46,7 @@ import { SupportSnapshotCard } from './SupportSnapshotCard';
 import { DeviceDiagnosticCard } from './DeviceDiagnosticCard';
 import { OBDConnectModal } from '../obd/OBDConnectModal';
 import { cacheLRUManager } from '../../core/storage/CacheLRUManager';
+import { forceApplyVehicleProfile, captureDriverPreferences } from '../../platform/vehicleProfileService';
 import { playSafetyChime, type AlertToneStyle } from '../../platform/safety/safetyChime';
 import { useLayoutSync } from '../../platform/themeLayoutEngine';
 import { useScreenSense } from '../../hooks/useScreenSense';
@@ -1259,40 +1260,41 @@ function ConnectTabContent() {
 }
 
 const MAX_PROFILES = 4;
-const DRIVE_MODE_LABEL: Record<'comfort' | 'sport' | 'eco', string> = {
-  comfort: 'Konfor mod', sport: 'Spor mod', eco: 'Eko mod',
-};
-
-/** Profil özet satırı: mod · sıcaklık · müzik (yalnız dolu alanlar). */
+/** Profil özet satırı — yalnız GERÇEKTEN uygulanan tercihler (2026-09-24: eski
+ *  "Konfor mod, 21°C" sabit yazılıyor ve hiçbir yerde uygulanmıyordu). */
 function profileSummary(p: VehicleProfile): string {
   const parts: string[] = [];
-  if (p.driveMode) parts.push(DRIVE_MODE_LABEL[p.driveMode]);
-  if (typeof p.climateTempC === 'number') parts.push(`${p.climateTempC}°C`);
+  if (p.carTheme) parts.push(THEME_LABEL[baseOf(p.carTheme as never)] ?? p.carTheme);
+  if (typeof p.volume === 'number') parts.push(`Ses %${p.volume}`);
+  if (typeof p.brightness === 'number') parts.push(`Parlaklık %${p.brightness}`);
   if (p.defaultMusic && MUSIC_OPTIONS[p.defaultMusic]) parts.push(MUSIC_OPTIONS[p.defaultMusic].name);
-  return parts.length ? parts.join(', ') : 'Tercih kaydedilmedi';
+  return parts.length ? parts.join(' · ') : 'Tercih kaydedilmedi';
 }
+const THEME_LABEL: Record<string, string> = {
+  expedition: 'Expedition', horizon: 'Horizon', tesla: 'Tesla', pro: 'Pro', oled: 'OLED',
+};
 
 function ProfilesTabContent() {
-  const { profiles, activeId, settings, addVehicleProfile, setActiveVehicleProfile, removeVehicleProfile, updateSettings } =
+  const { profiles, activeId, addVehicleProfile, removeVehicleProfile, updateVehicleProfile } =
     useStore(useShallow((s) => ({
       profiles: s.settings.vehicleProfiles,
       activeId: s.settings.activeVehicleProfileId,
-      settings: s.settings,
       addVehicleProfile: s.addVehicleProfile,
-      setActiveVehicleProfile: s.setActiveVehicleProfile,
       removeVehicleProfile: s.removeVehicleProfile,
-      updateSettings: s.updateSettings,
+      updateVehicleProfile: s.updateVehicleProfile,
     })));
 
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState('');
   const [pendingDel, setPendingDel] = useState<VehicleProfile | null>(null);
 
+  /* Tek uygulama yolu: vehicleProfileService (otomatik VIN eşleşmesiyle AYNI). */
   const activate = useCallback((p: VehicleProfile) => {
-    setActiveVehicleProfile(p.id);
-    // Güvenli, görünür etki: profilin müzik tercihini uygulamaya yansıt.
-    if (p.defaultMusic) updateSettings({ defaultMusic: p.defaultMusic });
-  }, [setActiveVehicleProfile, updateSettings]);
+    forceApplyVehicleProfile(p.id);
+  }, []);
+  const saveCurrent = useCallback((p: VehicleProfile) => {
+    updateVehicleProfile(p.id, captureDriverPreferences());
+  }, [updateVehicleProfile]);
 
   const confirmAdd = useCallback(() => {
     const name = newName.trim();
@@ -1302,14 +1304,12 @@ function ProfilesTabContent() {
     addVehicleProfile({
       id: `prof-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       name,
-      defaultMusic: settings.defaultMusic as MusicOptionKey | undefined,
-      driveMode: 'comfort',
-      climateTempC: 21,
+      ...captureDriverPreferences(),
       createdAt: now,
       lastUsedAt: null,
     });
     setNewName(''); setAdding(false);
-  }, [newName, settings.defaultMusic, addVehicleProfile]);
+  }, [newName, addVehicleProfile]);
 
   // In-app temalı onay (native window.confirm YOK — head-unit'te siyah/İngilizce
   // OK-CANCEL dialog'u çıkarıyordu; gündüz/gece uyumlu modal ile değiştirildi).
@@ -1328,7 +1328,7 @@ function ProfilesTabContent() {
       <SettingsHero
         eyebrow="Profiller"
         title="Sürücü hafızası"
-        sub="Koltuk, iklim, müzik ve sürüş tercihlerini profil başına saklayın."
+        sub="Tema, ses düzeyi, parlaklık ve müzik tercihini profil başına saklayın — profile dokununca uygulanır."
       />
       <div className="grid gap-4" style={{ gridTemplateColumns: '1fr', maxWidth: 720, margin: '0 auto' }}>
         {profiles.length === 0 && !adding && (
@@ -1351,6 +1351,17 @@ function ProfilesTabContent() {
               onClick={() => activate(p)}
               control={
                 <div className="flex items-center gap-3">
+                  {isActive && (
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); saveCurrent(p); }}
+                      className="rounded-lg px-2.5 text-[11px] font-black active:scale-95 transition-all"
+                      style={{ minHeight: 34, background: 'rgba(255,255,255,0.06)', color: 'var(--oem-ink-2)' }}
+                      aria-label="Şimdiki ayarları bu profile kaydet"
+                    >
+                      Şimdikini kaydet
+                    </button>
+                  )}
                   <span className="text-[10px] font-black uppercase tracking-[0.20em]"
                     style={{ color: isActive ? 'var(--oem-amber, oklch(80% 0.13 60))' : 'var(--oem-ink-3, rgba(240,235,224,0.52))' }}>
                     {isActive ? 'AKTİF' : 'PASİF'}
