@@ -30,6 +30,7 @@ import {
   type SearchProviderAttempt,
   type SearchProviderOutcome,
 } from './geo/searchChainModel';
+import { normalizePlaceQuery, textMatchScore } from './geo/placeQueryModel';
 
 const NOMINATIM          = 'https://nominatim.openstreetmap.org/search';
 const NOMINATIM_REVERSE  = 'https://nominatim.openstreetmap.org/reverse';
@@ -314,6 +315,25 @@ function shortName(displayName: string): string {
   return parts.slice(0, 2).join(', ');
 }
 
+/** Şehir belirtilmemişken adı sorguya uyan aday bu mesafeden uzaksa OSM'de yakını aranır. */
+const LOCAL_NAME_MATCH_KM = 15;
+/** "Adı sorguya uyuyor" eşiği — `textMatchScore`: tam 1 · önek 0,92 · içerme 0,82. */
+const NAME_MATCH_MIN = 0.82;
+
+function _nameScore(query: string, name: string): number {
+  return textMatchScore(normalizePlaceQuery(query), normalizePlaceQuery(name));
+}
+
+/** Adı sorguya uyan adayların en yakını uzaksa o mesafe (km); yakında eşleşme varsa ya da hiç yoksa `null`. */
+function _farNameMatchKm(query: string, results: readonly GeoResult[]): number | null {
+  let nearest = Infinity;
+  for (const r of results) {
+    if (r.distanceKm === undefined || _nameScore(query, r.name) < NAME_MATCH_MIN) continue;
+    nearest = Math.min(nearest, r.distanceKm);
+  }
+  return nearest !== Infinity && nearest > LOCAL_NAME_MATCH_KM ? nearest : null;
+}
+
 function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const R  = 6371;
   const dL = ((lat2 - lat1) * Math.PI) / 180;
@@ -591,7 +611,34 @@ export async function geocodeAddress(
     keptCount: premiumRaw.length > 0 ? premium.length : null,
     ms:        Date.now() - _premiumT0,
   });
-  if (premium.length) return done(premium, 'PREMIUM');
+  if (premium.length) {
+    /* ── UZAKTAKİ AD EŞLEŞMESİ → YAKINDA AYNI ADLI YER VAR MI (saha 2026-09-24) ─
+     * Sesli "tarsus şelalesi": TomTom'daki aynı adlı TEK kayıt 32,6 km ötede bir
+     * SPOR TESİSİYDİ (Mezitli) ve seçildi; asıl şelale TomTom'da YOK, OSM'de
+     * 3,7 km'de turistik yer. Harita arama çubuğu iki kaynağı birlikte sıralar,
+     * bu yol TomTom cevap verince OSM'e hiç sormuyordu (P0-NAV-07 ayrışması).
+     * Şehir belirtilmemişken adı sorguya uyan adaylar YALNIZ uzaktaysa OSM'e
+     * bir kez sorulur; yakında aynı adlı yer varsa cevap odur. */
+    const farKm = biasMode === 'PROXIMITY' ? _farNameMatchKm(query, premium) : null;
+    if (farKm !== null) {
+      const nSink = _nomSink();
+      const nom = await _nominatimOnce(query, currentLat, currentLng, nSink);
+      const near = nom === null ? [] : gate(nom).filter((r) =>
+        r.distanceKm !== undefined && r.distanceKm <= LOCAL_NAME_MATCH_KM
+        && _nameScore(query, r.name) >= NAME_MATCH_MIN);
+      attempts.push({
+        provider:  'NOMINATIM',
+        outcome:   nSink.outcome === 'NOT_ATTEMPTED' ? 'TIMEOUT' : nSink.outcome,
+        rawCount:  nSink.rawCount,
+        keptCount: near.length,
+        ms:        nSink.ms,
+      });
+      /* Yol/patika parçası yerine yerin kendisi (ör. turistik yer) tercih edilir. */
+      const pick = near.find((r) => !r.type.startsWith('highway/')) ?? near[0];
+      if (pick) return done([pick], 'NOMINATIM');
+    }
+    return done(premium, 'PREMIUM');
+  }
 
   const firstSink = _nomSink();
   const first = await _nominatimOnce(query, currentLat, currentLng, firstSink);
