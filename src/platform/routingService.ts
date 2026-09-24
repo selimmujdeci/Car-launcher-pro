@@ -73,8 +73,9 @@ import {
 import { maneuverToTr } from './navigation/core/maneuverSemanticsModel';
 import {
   TOMTOM_ROUTING_SERVER, fetchTomTomRoutes, type TomTomRoute, type RouteTrafficSection,
+  type RouteSpeedLimitSection,
 } from './routing/tomtomRouting';
-export type { RouteTrafficSection } from './routing/tomtomRouting';
+export type { RouteTrafficSection, RouteSpeedLimitSection } from './routing/tomtomRouting';
 import {
   recordNavTickCost, resetNavTickCost,
 } from './navigation/core/navTickCostModel';
@@ -154,6 +155,8 @@ interface RouteState {
   pendingManeuver:          RouteStep | null;
   /** Rota üzerindeki trafik bölümleri (yalnız TomTom verir; diğer sağlayıcılarda boş). */
   trafficSections:          readonly RouteTrafficSection[];
+  /** Rota üzerindeki hız sınırı bölümleri (yalnız TomTom verir; diğerlerinde boş). */
+  speedLimitSections:       readonly RouteSpeedLimitSection[];
   /**
    * Manevra noktalarının geometri çapaları — yol-boyu mesafenin O(1) kaynağı.
    * Rota kurulunca bir kez hesaplanır. Boş dizi = çözülmedi (kuş uçuşuna düşülür).
@@ -208,6 +211,7 @@ const INITIAL: RouteState = {
   cumulativeDistances: null,
   pendingManeuver: null,
   trafficSections: [],
+  speedLimitSections: [],
   maneuverAnchors: [],
   distanceToNextTurnSource: 'UNKNOWN',
   validation: null,
@@ -432,6 +436,7 @@ async function _tryTomTom(
     hasToll:      main.hasToll,
     annotationDurations: routes.map((r) => r.annotationDurations),
     trafficSections: routes.map((r) => r.trafficSections),
+    speedLimitSections: routes.map((r) => r.speedLimitSections),
   };
 }
 
@@ -623,7 +628,8 @@ async function _tryServer(
   /** Ana + alternatif rotaların OSRM segment süreleri (sn). `null` = sağlayıcı göndermedi. */
   annotationDurations: (number[] | null)[];
   /** Ana + alternatif rotaların trafik bölümleri (yalnız TomTom). */
-  trafficSections?: RouteTrafficSection[][] }> {
+  trafficSections?: RouteTrafficSection[][];
+  speedLimitSections?: RouteSpeedLimitSection[][] }> {
   // Coordinate validation
   if (!Number.isFinite(fromLat) || Math.abs(fromLat) > 90)  throw new Error(`INVALID_COORDS: origin lat=${fromLat}`);
   if (!Number.isFinite(fromLon) || Math.abs(fromLon) > 180) throw new Error(`INVALID_COORDS: origin lon=${fromLon}`);
@@ -888,6 +894,7 @@ interface _StoredRoute {
   annotationDurations: number[] | null;
   /** Adayın trafik bölümleri (TomTom); yoksa boş. */
   trafficSections?: readonly RouteTrafficSection[];
+  speedLimitSections?: readonly RouteSpeedLimitSection[];
 }
 let _allRoutes: _StoredRoute[] = [];
 
@@ -950,6 +957,7 @@ export function selectAltRoute(index: number): void {
     steps:                picked.steps,
     hasToll:              picked.hasToll,
     trafficSections:      picked.trafficSections ?? [],
+    speedLimitSections:   picked.speedLimitSections ?? [],
     selectedAltIndex:     index,
     currentStepIndex:     0,
     distanceToNextTurnMeters: 0,
@@ -1042,6 +1050,7 @@ function _commitRoute(
 
   useRouteStore.setState({
     trafficSections:          [],   // sağlayıcı vermediyse ESKİ rotanın trafiği taşınmaz
+    speedLimitSections:       [],
     ...patch,
     geometry,
     cumulativeDistances:      cum,
@@ -1279,12 +1288,14 @@ export async function fetchRoute(
           { geometry: picked.candidate.geometry as [number, number][], distanceM: picked.candidate.distanceM,
             durationS: picked.candidate.durationS, steps: picked.candidate.steps as RouteStep[], hasToll: pickedToll,
             annotationDurations: result.annotationDurations[picked.index] ?? null,
-            trafficSections: result.trafficSections?.[picked.index] ?? [] },
+            trafficSections: result.trafficSections?.[picked.index] ?? [],
+            speedLimitSections: result.speedLimitSections?.[picked.index] ?? [] },
           ...others.map((c, i) => ({
             geometry: c.geometry as [number, number][], distanceM: c.distanceM,
             durationS: c.durationS, steps: c.steps as RouteStep[], hasToll: otherToll[i] ?? false,
             annotationDurations: result.annotationDurations[otherIdx[i]] ?? null,
             trafficSections: result.trafficSections?.[otherIdx[i]] ?? [],
+            speedLimitSections: result.speedLimitSections?.[otherIdx[i]] ?? [],
           })),
         ];
 
@@ -1298,6 +1309,7 @@ export async function fetchRoute(
           selectedAltIndex: 0,
           hasToll:          pickedToll,
           trafficSections:  result.trafficSections?.[picked.index] ?? [],
+          speedLimitSections: result.speedLimitSections?.[picked.index] ?? [],
           steps:            picked.candidate.steps as RouteStep[],
           totalDistanceMeters:  picked.candidate.distanceM,
           totalDurationSeconds: picked.candidate.durationS,

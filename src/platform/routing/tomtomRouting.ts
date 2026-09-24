@@ -48,6 +48,13 @@ export interface RouteTrafficSection {
   readonly delayS: number | null;
 }
 
+/** Rota üzerindeki yasal hız sınırı bölümü (TomTom SPEED_LIMIT). */
+export interface RouteSpeedLimitSection {
+  readonly startIdx: number;
+  readonly endIdx: number;
+  readonly kmh: number;
+}
+
 export interface TomTomRoute {
   geometry: [number, number][];            // [lon, lat]
   distance: number;                         // m
@@ -59,6 +66,8 @@ export interface TomTomRoute {
   annotationDurations: number[] | null;
   /** Rota üzerindeki trafik bölümleri (boş = TomTom bildirmedi). */
   trafficSections: RouteTrafficSection[];
+  /** Rota üzerindeki hız sınırı bölümleri (boş = TomTom bildirmedi). */
+  speedLimitSections: RouteSpeedLimitSection[];
 }
 
 /**
@@ -187,6 +196,7 @@ const _LANE_DIR: Readonly<Record<string, string>> = {
 interface TtLaneSection {
   sectionType?: string; startPointIndex?: number; endPointIndex?: number;
   simpleCategory?: string; magnitudeOfDelay?: number; delayInSeconds?: number;
+  maxSpeedLimitInKmh?: number;
   lanes?: Array<{ directions?: string[]; follow?: string }>;
 }
 
@@ -282,8 +292,17 @@ export function parseTomTomRoute(raw: unknown): TomTomRoute | null {
     });
   }
 
+  const speedLimitSections: RouteSpeedLimitSection[] = [];
+  for (const sec of r.sections ?? []) {
+    if (sec.sectionType !== 'SPEED_LIMIT') continue;
+    const a = sec.startPointIndex, b = sec.endPointIndex, v = sec.maxSpeedLimitInKmh;
+    if (typeof a !== 'number' || typeof b !== 'number' || a < 0 || b > last || b <= a) continue;
+    if (typeof v !== 'number' || !Number.isFinite(v) || v <= 0 || v > 200) continue;
+    speedLimitSections.push({ startIdx: a, endIdx: b, kmh: v });
+  }
+
   return {
-    geometry, distance, duration, trafficSections,
+    geometry, distance, duration, trafficSections, speedLimitSections,
     trafficDelayS: r.summary.trafficDelayInSeconds ?? 0,
     hasToll: (r.sections ?? []).some((s) => s.sectionType === 'TOLL'),
     steps,
@@ -341,4 +360,16 @@ export async function fetchTomTomRoutes(
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * Araç `segIdx` segmentindeyken geçerli rota hız sınırı; bölüm yoksa `null`
+ * (uydurulmaz). Segment [segIdx, segIdx+1] bölüm aralığının İÇİNDE olmalı.
+ */
+export function speedLimitOnRouteAt(
+  sections: readonly RouteSpeedLimitSection[], segIdx: number,
+): number | null {
+  if (!Number.isInteger(segIdx) || segIdx < 0) return null;
+  for (const s of sections) if (segIdx >= s.startIdx && segIdx < s.endIdx) return s.kmh;
+  return null;
 }

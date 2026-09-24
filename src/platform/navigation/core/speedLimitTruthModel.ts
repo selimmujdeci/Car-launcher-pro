@@ -38,7 +38,7 @@ export interface SpeedLimitObservation {
   /** km/h — kaynak hiç cevap vermediyse `null`. */
   readonly kmh: number | null;
   /** `'osm'` = yolun `maxspeed` etiketi (levha karşılığı) · `'inferred'` = yol sınıfından TAHMİN. */
-  readonly source: 'osm' | 'inferred' | null;
+  readonly source: 'osm' | 'inferred' | 'route' | null;
   /** Değerin çözüldüğü an (monotonik ms) — `null` = hiç çözülmedi. */
   readonly resolvedAtMs: number | null;
   /** Değerin çözüldüğü konum — araç oradan uzaklaştıysa limit o yola ait DEĞİLDİR. */
@@ -65,7 +65,7 @@ export interface SpeedLimitVerdict {
   readonly state: SpeedLimitState;
   /** YALNIZ `AVAILABLE` iken sayı taşır; diğer tüm durumlarda `null`. */
   readonly kmh: number | null;
-  readonly source: 'osm' | 'inferred' | null;
+  readonly source: 'osm' | 'inferred' | 'route' | null;
   /** Değerin yaşı (ms) — `null` = damga yok. */
   readonly ageMs: number | null;
   /** Aracın, limitin çözüldüğü noktadan uzaklığı (m) — `null` = hesaplanamadı. */
@@ -138,7 +138,7 @@ function _haversineM(aLat: number, aLon: number, bLat: number, bLon: number): nu
 }
 
 const _HIDDEN = (state: SpeedLimitState, reason: string,
-                 source: 'osm' | 'inferred' | null = null,
+                 source: 'osm' | 'inferred' | 'route' | null = null,
                  ageMs: number | null = null,
                  distanceFromFixM: number | null = null): SpeedLimitVerdict =>
   ({ state, kmh: null, source, ageMs, distanceFromFixM, confidence: 0, reason });
@@ -213,7 +213,8 @@ export function classifySpeedLimit(
     ageMs,
     distanceFromFixM,
     confidence,
-    reason: obs.source === 'osm' ? 'yolun maxspeed etiketi' : 'yol sınıfından çıkarım (izinli)',
+    reason: obs.source === 'osm' ? 'yolun maxspeed etiketi'
+      : obs.source === 'route' ? 'rota sağlayıcısının hız sınırı' : 'yol sınıfından çıkarım (izinli)',
   };
 }
 

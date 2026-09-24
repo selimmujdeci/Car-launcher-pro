@@ -170,3 +170,28 @@ describe('şerit ve rota trafiği (aynı istekte, ek maliyet yok)', () => {
     expect(st.trafficSections).toHaveLength(2);
   });
 });
+
+describe('rota hız sınırı', () => {
+  it('🔒 SPEED_LIMIT bölümleri çözülür; segment bölümdeyse sınır, değilse null (uydurma yok)', async () => {
+    const { speedLimitOnRouteAt } = await import('../platform/routing/tomtomRouting');
+    const r = parseTomTomRoute({ ...RAW, sections: [
+      { startPointIndex: 0, endPointIndex: 4, sectionType: 'SPEED_LIMIT', maxSpeedLimitInKmh: 50 },
+      { startPointIndex: 4, endPointIndex: 8, sectionType: 'SPEED_LIMIT', maxSpeedLimitInKmh: 120 },
+      { startPointIndex: 8, endPointIndex: 9, sectionType: 'SPEED_LIMIT', maxSpeedLimitInKmh: 999 },
+    ] })!;
+    expect(r.speedLimitSections).toEqual([
+      { startIdx: 0, endIdx: 4, kmh: 50 }, { startIdx: 4, endIdx: 8, kmh: 120 },
+    ]);
+    expect(speedLimitOnRouteAt(r.speedLimitSections, 3)).toBe(50);
+    expect(speedLimitOnRouteAt(r.speedLimitSections, 4)).toBe(120);
+    expect(speedLimitOnRouteAt(r.speedLimitSections, 9)).toBeNull();
+  });
+
+  it('🔒 rota kaynağı aynı sınıflandırıcıdan geçer: taze + araç yakında → gösterilir; uzaklaşınca gizlenir', async () => {
+    const { classifySpeedLimit } = await import('../platform/navigation/core/speedLimitTruthModel');
+    const obs = { kmh: 120, source: 'route' as const, resolvedAtMs: 1000, resolvedAtLat: 36.9, resolvedAtLon: 34.8 };
+    const ok = classifySpeedLimit(obs, { lat: 36.9, lon: 34.8, nowMs: 1500 });
+    expect(ok).toMatchObject({ state: 'AVAILABLE', kmh: 120, source: 'route' });
+    expect(classifySpeedLimit(obs, { lat: 36.95, lon: 34.8, nowMs: 1500 }).state).toBe('STALE');
+  });
+});

@@ -30,7 +30,7 @@ export interface RoadClassObservation {
   /** Okunan levha (km/sa) — `maxspeed` etiketi. `null` = levha okunmadı. */
   readonly postedKmh: number | null;
   /** Levha gerçekten OKUNDU mu (`osm`), yoksa sınıftan mı çıkarıldı (`inferred`). */
-  readonly postedSource: 'osm' | 'inferred' | null;
+  readonly postedSource: 'osm' | 'inferred' | 'route' | null;
 }
 
 export interface RoadClassVerdict {
@@ -78,7 +78,7 @@ function _classFromPosted(kmh: number): { roadClass: PolicyRoadClass; confidence
  */
 export function resolveRoadClass(obs: RoadClassObservation): RoadClassVerdict {
   const hw = (obs.highway ?? '').trim().toLowerCase();
-  const posted = obs.postedSource === 'osm' && typeof obs.postedKmh === 'number'
+  const posted = (obs.postedSource === 'osm' || obs.postedSource === 'route') && typeof obs.postedKmh === 'number'
     ? obs.postedKmh : null;
 
   if (hw && _MOTORWAY.has(hw)) {
