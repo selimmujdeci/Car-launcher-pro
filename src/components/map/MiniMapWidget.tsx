@@ -992,7 +992,11 @@ export const MiniMapWidget = memo(function MiniMapWidget({
    * `--z-map-chip` gibi) ayrı bir tasarım kararıdır ve bilinçli olarak bu
    * turun DIŞINDADIR. */
   return (
-    <div data-no-page-swipe
+    /* `data-theme-surface="nav"`: gündüz saatlerinde açılan güneş modunun "her
+       düğmeye 52 px + 2 px siyah çerçeve" kuralı tam ekranda olduğu gibi burada da
+       geri çekilir (index.css HARİTA YÜZEYİ muafiyeti). Saha 2026-09-24: mini
+       haritada 20 px'lik "×" 52 px siyah kutuya, yuvarlak "ortala" kareye dönüyordu. */
+    <div data-no-page-swipe data-theme-surface="nav"
       className="w-full h-full min-h-0 min-w-0 glass-card flex flex-col overflow-hidden relative border-none !shadow-none">
       {/* Ambient glow */}
       <div className="absolute -top-12 -left-12 w-32 h-32 bg-[#E0A23C]/[0.05] rounded-full blur-[40px] pointer-events-none" />
@@ -1235,53 +1239,62 @@ export const MiniMapWidget = memo(function MiniMapWidget({
             navStatus === NavStatus.ROUTING   ? 'ROTA HESAPLANIYOR'    :
             navStatus === NavStatus.PREVIEW   ? 'ÖNİZLEME'             : null;
 
-          return (
-            <div className="absolute bottom-2 left-2 z-[var(--z-map-label)] max-w-[68%] pointer-events-auto">
-              <div
-                className="flex flex-col gap-1 px-2.5 py-1.5 rounded-xl bg-black/65 backdrop-blur-xl shadow-lg"
-                style={{ border: '1px solid rgba(224,162,60,0.35)' }}
-              >
-                {/* Başlık satırı — hedef + sonlandır */}
-                <div className="flex items-center gap-1.5">
-                  <Navigation2 className="w-3 h-3 text-[#E0A23C] flex-shrink-0" />
-                  <span className="text-[9px] font-black tracking-widest uppercase text-[#E0A23C] truncate">
-                    {phase ?? (destination?.name ?? 'NAVİGASYON')}
-                  </span>
-                  {isOfflineResult && (
-                    <span className="text-[7px] font-black tracking-wider uppercase px-1 py-px rounded bg-amber-500/15 text-amber-400 flex-shrink-0">
-                      ÇEVRİMDIŞI
-                    </span>
-                  )}
-                  <button
-                    onClick={endNavigation}
-                    className="ml-auto w-5 h-5 rounded-md bg-white/10 border border-white/20 flex items-center justify-center text-white/70 active:scale-90 transition-all flex-shrink-0"
-                    title="Navigasyonu sonlandır"
-                    aria-label="Navigasyonu sonlandır"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </div>
+          /* Hedef adı: adresin ilk parçası ("Tarsus Şelalesi, Çağlayan Mah." → "Tarsus Şelalesi"). */
+          const destName = destination?.name?.split(',')[0]?.trim() || null;
 
-                {/* Sıradaki manevra — kanıt yoksa satır YOK */}
-                {maneuver && (
-                  <div className="flex items-baseline gap-1.5">
-                    {turnM !== null && (
-                      <span className="text-[10px] font-black tabular-nums text-white flex-shrink-0">
-                        {formatDistance(turnM)}
+          /* Sürücü okunurluğu (saha 2026-09-24, "mini haritada her şey düzensiz"):
+             9–10 px yazı bir bakışta okunmuyordu. Sıradaki manevranın mesafesi en
+             büyük öğe; hedef adı ayrı satırda, kısaltılmadan önce tam görünür. */
+          return (
+            <div className="absolute bottom-2 left-2 z-[var(--z-map-label)] max-w-[62%] pointer-events-auto">
+              <div
+                className="flex items-start gap-2 pl-3 pr-1.5 py-2 rounded-2xl bg-black/75 backdrop-blur-xl shadow-lg"
+                style={{ border: '1px solid rgba(224,162,60,0.45)', minWidth: 190 }}
+              >
+                <div className="flex flex-col gap-1 min-w-0 flex-1">
+                  {/* Sıradaki manevra — kanıt yoksa satır YOK */}
+                  {maneuver && (
+                    <div className="flex items-baseline gap-2 min-w-0">
+                      {turnM !== null && (
+                        <span className="text-[20px] leading-none font-black tabular-nums text-white flex-shrink-0">
+                          {formatDistance(turnM)}
+                        </span>
+                      )}
+                      <span className="text-[13px] leading-tight font-bold text-white/85 truncate">{maneuver}</span>
+                    </div>
+                  )}
+
+                  {/* Hedef (ya da oturum aşaması) */}
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <Navigation2 className="w-3.5 h-3.5 text-[#E0A23C] flex-shrink-0" />
+                    <span className="text-[12px] leading-tight font-black text-[#E0A23C] truncate">
+                      {phase ?? destName ?? 'NAVİGASYON'}
+                    </span>
+                    {isOfflineResult && (
+                      <span className="text-[9px] font-black tracking-wider uppercase px-1 py-px rounded bg-amber-500/15 text-amber-400 flex-shrink-0">
+                        ÇEVRİMDIŞI
                       </span>
                     )}
-                    <span className="text-[9px] font-bold text-white/70 truncate">{maneuver}</span>
                   </div>
-                )}
 
-                {/* Kalan mesafe · ETA */}
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-black tabular-nums text-white">
-                    {remainM !== null ? formatDistance(remainM) : '—'}
-                  </span>
-                  <span className="text-white/20 text-[9px]">•</span>
-                  <span className="text-[10px] font-black tabular-nums text-[#E0A23C]">{etaTxt}</span>
+                  {/* Kalan mesafe · ETA */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-[14px] leading-none font-black tabular-nums text-white">
+                      {remainM !== null ? formatDistance(remainM) : '—'}
+                    </span>
+                    <span className="text-white/30 text-[12px]">•</span>
+                    <span className="text-[14px] leading-none font-black tabular-nums text-[#E0A23C]">{etaTxt}</span>
+                  </div>
                 </div>
+
+                <button
+                  onClick={endNavigation}
+                  className="w-9 h-9 rounded-xl bg-white/10 border border-white/20 flex items-center justify-center text-white/80 active:scale-90 transition-all flex-shrink-0"
+                  title="Navigasyonu sonlandır"
+                  aria-label="Navigasyonu sonlandır"
+                >
+                  <X className="w-4 h-4" />
+                </button>
               </div>
             </div>
           );
