@@ -2802,7 +2802,15 @@ describe('Ana ekran harita kartı sahte rota GÖSTERMEZ', () => {
     expect(/>\s*2\.4\s*</.test(src), 'sabit 2.4 km mesafesi geri geldi').toBe(false);
   });
 
-  it.each(LAYOUTS)('🔒 %s: rota özeti GERÇEK navigasyon otoritesinden okunur', (_ad, src) => {
+  /* ExpeditionLayout 2026-09-24'te KENDİ rota çipini bıraktı: mini haritanın
+     nav şeridinin üstüne ikinci katman çizip başlığı/hız levhasını örtüyordu.
+     Rota özeti orada yalnız mini haritanın şeridindedir (aynı otorite). */
+  it('🔒 ExpeditionLayout: mini haritanın üstüne İKİNCİ rota özeti çizmez', () => {
+    expect(expeditionLayoutSrc).not.toContain('useNavSummary');
+    expect(expeditionLayoutSrc).not.toContain('navSummary');
+  });
+
+  it.each(LAYOUTS.filter(([ad]) => ad !== 'ExpeditionLayout'))('🔒 %s: rota özeti GERÇEK navigasyon otoritesinden okunur', (_ad, src) => {
     expect(src).toContain("from '../../hooks/useNavSummary'");
     expect(src).toContain('useNavSummary()');
     // Kanıt yoksa chip HİÇ çizilmez — sahte hedef üretilmez.
@@ -5055,7 +5063,8 @@ describe('Uydurma ETA barı aktif rotayla çelişemez', () => {
     expect(hook).toContain('if (!isNavigating || !destination) return null;');
     for (const name of LAYOUTS) {
       const src = read(`src/components/themes/${name}.tsx`);
-      expect(src).toContain('useNavSummary()');
+      // Expedition kendi çipini çizmez (yukarıdaki kilit) — özet mini haritada.
+      if (name !== 'ExpeditionLayout') expect(src).toContain('useNavSummary()');
       // Eskiden buradaydı: sabit "Sahil Yolu Cd." / "2.4 km"
       expect(src).not.toContain('Sahil Yolu');
     }
