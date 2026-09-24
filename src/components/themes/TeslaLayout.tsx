@@ -202,16 +202,18 @@ const StatusCluster = memo(function StatusCluster() {
   );
 });
 
-/* ─── CLOCK CARD ─────────────────────────────────────────────────── */
-const ClockCard = memo(function ClockCard() {
+/* ─── HEADER CLOCK ───────────────────────────────────────────────────
+   Saat sol sütunun kartıydı; başlık satırının ORTASINA taşındı (saha
+   2026-09-24, tüm temalar): sütun hız göstergesine kalır. Kimlik
+   (`tesla.clock`) korunur → Tema Stüdyo stil ayarı aynen uygulanır. */
+const HeaderClock = memo(function HeaderClock() {
   const p = usePal();
   const use24Hour = useStore(s => s.settings.use24Hour);
   const { time, date } = useClock(use24Hour, false);
   return (
-    <div data-editable="tesla.clock" data-editable-type="card" style={{ ...card(p, { pad: '13px 16px' }) }} className="flex-shrink-0">
-      <Screws />
-      <div style={{ fontSize: 38, fontWeight: 800, lineHeight: 1, color: p.ink, letterSpacing: '-0.5px', fontVariantNumeric: 'tabular-nums' }}>{time}</div>
-      <div style={{ fontSize: 14, fontWeight: 500, color: p.ink2, marginTop: 6 }}>{date}</div>
+    <div data-editable="tesla.clock" data-editable-type="card" className="absolute" style={{ left: '50%', top: '50%', transform: 'translate(-50%,-50%)', textAlign: 'center', pointerEvents: 'none' }}>
+      <div style={{ fontSize: 24, fontWeight: 800, lineHeight: 1, color: p.ink, letterSpacing: '-0.3px', fontVariantNumeric: 'tabular-nums' }}>{time}</div>
+      <div style={{ fontSize: 11, fontWeight: 500, color: p.ink2, marginTop: 2 }}>{date}</div>
     </div>
   );
 });
@@ -714,7 +716,7 @@ export const TeslaLayout = memo(function TeslaLayout(props: Props) {
 
   const renderTsCard = (id: string) => {
     switch (id) {
-      case 'clock':   return <ClockCard />;
+      case 'clock':   return null;   // saat başlıkta (HeaderClock)
       case 'speed':   return <SpeedGauge />;
       case 'fuel':    return <FuelCard />;
       case 'music':   return <MusicCard />;
@@ -745,8 +747,12 @@ export const TeslaLayout = memo(function TeslaLayout(props: Props) {
     );
   };
 
+  /* `clock` yerleşim niyetinde kalır (Tema Stüdyo kaydı bozulmaz) ama sütunda
+     ÇİZİLMEZ — saat başlıktadır; boş sarmalayıcı/boşluk da bırakılmaz. */
   const tsRail = (zone: Zone) =>
-    solved[zone].groups.map((g, i) => renderTsGroup(g, g.map((x) => x.id).join('+') || String(i)));
+    solved[zone].groups.map((g) => g.filter((x) => x.id !== 'clock'))
+      .filter((g) => g.length > 0)
+      .map((g, i) => renderTsGroup(g, g.map((x) => x.id).join('+') || String(i)));
 
   return (
     <PalCtx.Provider value={pal}>
@@ -754,7 +760,8 @@ export const TeslaLayout = memo(function TeslaLayout(props: Props) {
         <TopoBackground />
         {voiceOpen && <Suspense fallback={null}><VoiceAssistant onClose={() => setVoiceOpen(false)} minimal /></Suspense>}
         <div className="relative flex flex-col w-full h-full">
-          <div className="flex items-center justify-end px-5 pt-2.5 pb-1 flex-shrink-0">
+          <div className="relative flex items-center justify-end px-5 pt-2.5 pb-1 flex-shrink-0" style={{ minHeight: 40 }}>
+            <HeaderClock />
             <StatusCluster />
           </div>
           <div className="flex-1 min-h-0 flex" style={{ gap: 12, padding: '4px 14px 8px' }}>

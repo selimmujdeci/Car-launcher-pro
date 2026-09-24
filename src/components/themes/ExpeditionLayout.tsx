@@ -185,7 +185,7 @@ function Label({ children }: { children: React.ReactNode }) {
 const Header = memo(function Header() {
   const p = usePal();
   const use24Hour = useStore(s => s.settings.use24Hour);
-  const { time } = useClock(use24Hour, false);
+  const { time, date } = useClock(use24Hour, false);
   /* P0-OBD-03: doğrudan CAN alanı okuması KALDIRILDI. `canAmbientTemp` CAN'ı
      olmayan (aftermarket ELM327'li) araçta kalıcı null'dır ve başlık sonsuza
      dek '—' gösteriyordu — oysa PID 0x46 okunuyordu. Otorite tek yerde:
@@ -195,10 +195,16 @@ const Header = memo(function Header() {
   // Living theme — bağlantı durumu (online yeşil nabız / offline soluk).
   const online = useLivingThemeState().conn === 'online';
   return (
-    <div data-editable="expedition.header" data-editable-type="header" className="flex items-center justify-between flex-shrink-0" style={{ height: 50, padding: '0 16px' }}>
+    <div data-editable="expedition.header" data-editable-type="header" className="relative flex items-center justify-between flex-shrink-0" style={{ height: 50, padding: '0 16px' }}>
       <div className="flex items-center" style={{ gap: 12 }}>
         <img src={emblemUrl} alt="CarOS" style={{ width: 38, height: 38, objectFit: 'contain', filter: p.night ? 'drop-shadow(0 2px 4px rgba(0,0,0,.55))' : 'none' }} />
         <div style={{ fontWeight: 800, fontSize: 20, letterSpacing: '0.22em', color: p.ink2 }}>CAR<b style={{ color: p.ink }}>OS</b></div>
+      </div>
+      {/* Saat + tarih başlığın ORTASINDA (saha 2026-09-24, kullanıcı): hız plakasının
+          üstünü kaplıyordu, "km görünmüyor" — hız göstergesi kartın altından taşıyordu. */}
+      <div className="absolute" style={{ left: '50%', top: '50%', transform: 'translate(-50%,-50%)', textAlign: 'center', pointerEvents: 'none' }}>
+        <div style={{ fontWeight: 700, fontSize: 26, lineHeight: 1, color: p.ink, fontVariantNumeric: 'tabular-nums', letterSpacing: '0.01em' }}>{time}</div>
+        <div style={{ marginTop: 2, fontSize: 11, fontWeight: 600, color: p.ink2 }}>{date}</div>
       </div>
       <div data-header-status className="flex items-center" style={{ gap: 16, color: p.ink2 }}>
         {/* `caros-status-item`: güneş modunun "2px siyah çerçeve + 52px" düğme kuralından
@@ -211,18 +217,14 @@ const Header = memo(function Header() {
           style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, background: online ? '#34d399' : 'currentColor', opacity: online ? 1 : 0.4 }} />
         <StatusControls palette={{ ink: p.ink, ink2: p.ink2, accent: p.accent, line: p.hairline }} size={17} />
         <span style={{ fontWeight: 700, fontSize: 17, color: p.ink, fontVariantNumeric: 'tabular-nums' }}>{ambient != null ? `${Math.round(ambient)}°C` : '—'}</span>
-        <span style={{ width: 1, height: 18, background: p.hairline }} />
-        <span style={{ fontWeight: 700, fontSize: 17, color: p.ink, fontVariantNumeric: 'tabular-nums' }}>{time}</span>
       </div>
     </div>
   );
 });
 
-/* ─── SPEED PLATE (saat + gösterge + D/4WD) ──────────────────────── */
+/* ─── SPEED PLATE (gösterge + gövde sinyalleri; saat başlıkta) ────── */
 const SpeedPlate = memo(function SpeedPlate() {
   const p = usePal();
-  const use24Hour = useStore(s => s.settings.use24Hour);
-  const { time, date } = useClock(use24Hour, false);
   /* SAHA 2026-08-12: ham değer YUVARLANMADAN basılıyordu. GPS kaynaklı hız
      `loc.speed * 3.6` ile üretilir → ONDALIKLIDIR ("67.154"); 88 px'lik rakamla
      6+ karakter plakayı taşırıp ekranın dışına çıkıyordu. OBD (`010D`) tam sayı
@@ -236,11 +238,7 @@ const SpeedPlate = memo(function SpeedPlate() {
   const offset = useMemo(() => 471 - Math.min(speed / 200, 1) * 471, [speed]);
   return (
     <Plate editId="expedition.speed" editType="gauge" style={{ padding: '22px 20px', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-      <div>
-        <div style={{ fontWeight: 700, fontSize: 52, lineHeight: 0.95, color: p.ink, fontVariantNumeric: 'tabular-nums', letterSpacing: '0.01em' }}>{time}</div>
-        <div style={{ marginTop: 5, color: p.ink2, fontSize: 15, fontWeight: 500 }}>{date}</div>
-      </div>
-      <div style={{ flex: 1, display: 'grid', placeItems: 'center', position: 'relative', marginTop: 6, minHeight: 0 }}>
+      <div style={{ flex: 1, display: 'grid', placeItems: 'center', position: 'relative', minHeight: 0 }}>
         <div style={RING_BOX}>
           <svg viewBox="0 0 232 232" width="100%" height="100%" style={{ transform: 'rotate(135deg)' }}>
             <circle cx="116" cy="116" r="100" fill="none" stroke={p.plateSunk} strokeWidth="16" strokeLinecap="round" strokeDasharray="471 628" />
@@ -254,7 +252,10 @@ const SpeedPlate = memo(function SpeedPlate() {
       </div>
       {/* Gerçek araç gövde sinyalleri (CAN) — kapı/elfreni/sinyal/dörtlü/far/gerivites.
           Sahte "D / 4WD" kaldırıldı: bu araçta vites verisi CAN'da yok (yanıltıcıydı). */}
-      <div className="flex-shrink-0" style={{ marginTop: 6 }}>
+      {/* `hide-compact` — uygulamanın ekran sınıfı sistemi (LayoutContext →
+          theme-layouts.css). COMPACT'ta plaka ~107 px kalıyor, sinyaller 79 px
+          alıp hız halkasının ALTINA giriyordu (saha 2026-09-24, ölçüldü). */}
+      <div className="hide-compact flex-shrink-0" style={{ marginTop: 6 }}>
         <VehicleTellTales />
       </div>
     </Plate>
