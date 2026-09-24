@@ -104,7 +104,9 @@ const CURRENT_LOCATION_BARE_RE = new RegExp(`^(${CURRENT_LOCATION_WORDS})$`);
  * KISALTIR, dolayısıyla döngü sonludur.
  */
 const SAVE_NAME_PREFIX_RE =
-  /^(şu\s+anki|şu\s+an|şuanki|şuan|mevcut|bulunduğumuz|bulunduğum|buradaki|buray[ıi]|burasını|burası|buraya|burada|burda|şuray[ıi]|şurası|konumumuzu|konumumu|konumu|yerimizi|yerimi|yeri|bu)\s+/i;
+  /* Saha 2026-09-24: sesli döküm "şu anki"yi "şu an ki" diye AYIRIYOR; "şu anda",
+     "şimdiki" de doğal. Uzun biçimler kısalardan ÖNCE denenir. */
+  /^(şu\s+an\s+ki|şu\s+anki|şu\s+anda|şuanda|şu\s+an|şuan\s+ki|şuanki|şuan|şimdiki|mevcut|bulunduğumuz|bulunduğum|buradaki|buray[ıi]|burasını|burası|buraya|burada|burda|şuray[ıi]|şurası|konumumuzu|konumumu|konumu|yerimizi|yerimi|yeri|bu)\s+/i;
 
 function stripLocationPrefixes(s: string): string {
   let out = clean(s);
@@ -224,6 +226,17 @@ export function tryParseSavedLocationCommand(rawText: string): ParsedSavedLocati
         const capStart = lower.indexOf(m[1], m.index);
         if (capStart >= 0) {
           const cand = stripLocationPrefixes(raw.slice(capStart, capStart + m[1].length));
+          name = cand.length > 0 ? cand : null;
+        }
+      }
+      /* İsim FİİLDEN SONRA da söylenir: "şu anki konumu kaydet ev" · "kaydet ev
+         olarak" · "kaydet, adı ev" (saha 2026-09-24: isim boş kalıyor, kayıt
+         "Konum N" adını alıyordu). */
+      if (name === null) {
+        const after = /(?:kaydet|kay[ıi]t\s+et)\s*[,:]?\s+(?:ad[ıi]\s+)?(.+?)(?:\s+(?:olarak|diye|ad[ıi]yla|olsun))?\s*$/.exec(lower);
+        if (after) {
+          const st = lower.indexOf(after[1], after.index);
+          const cand = st >= 0 ? stripLocationPrefixes(raw.slice(st, st + after[1].length)) : '';
           name = cand.length > 0 ? cand : null;
         }
       }

@@ -324,3 +324,25 @@ describe('saha 2026-09-24 — sesli dökümdeki doğal cümleler', () => {
     expect(p('bulunduğum konumu şelale olarak kaydet')).toMatchObject({ verb: 'save', name: 'şelale' });
   });
 });
+
+describe('saha 2026-09-24 — "şu anki konumu ev olarak kayıt et"', () => {
+  it.each([
+    ['şu anki konumu ev olarak kayıt et', 'ev'],
+    ['şu an ki konumu ev olarak kayıt et', 'ev'],
+    ['şu an ki konumumu ev olarak kaydet', 'ev'],
+    ['şu anda bulunduğum konumu ev olarak kaydet', 'ev'],
+    ['şu an ki konumu kaydet ev', 'ev'],
+    ['şu anki konumu kaydet ev olarak', 'ev'],
+    ['konumu kaydet adı ev', 'ev'],
+    ['şimdiki konumu şelale diye kaydet', 'şelale'],
+  ])('🔒 "%s" → ad "%s"', async (q, name) => {
+    const { tryParseSavedLocationCommand: p } = await import('../platform/savedLocationCommandParser');
+    expect(p(q)).toMatchObject({ verb: 'save', name });
+  });
+
+  it('isimsiz kaydet hâlâ isimsiz (varsayılan ad servisin kuralı)', async () => {
+    const { tryParseSavedLocationCommand: p } = await import('../platform/savedLocationCommandParser');
+    expect(p('burayı kaydet')).toMatchObject({ verb: 'save', name: null });
+    expect(p('konumumu kaydet')).toMatchObject({ verb: 'save', name: null });
+  });
+});
