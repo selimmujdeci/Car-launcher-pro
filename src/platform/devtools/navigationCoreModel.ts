@@ -341,7 +341,7 @@ export function buildNavigationCoreCards(s: NavigationCoreRawSnapshot): readonly
             note: 'Zaman aşımı ≠ yol yok ≠ HTTP hatası ≠ bozuk geometri.', updatedAt: null },
             Object.entries(s.routeAttemptCounts ?? {})
               .sort((a, b) => b[1] - a[1])
-              .map(([k, n]) => `${k.replace('|', '→')} ×${n}`)
+              .map(([k, n]) => `${k.replaceAll('|', '→')} ×${n}`)
               .join(' · '))
         : unavailable({ id: 'pv-outcomes', label: 'Sağlayıcı × sonuç dağılımı', source: SRC_ROUTE_LEDGER,
             note: 'Henüz hiç rota isteği yapılmadı — sahte 0 gösterilmez.', updatedAt: null },
