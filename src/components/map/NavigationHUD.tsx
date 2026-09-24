@@ -745,10 +745,13 @@ const PreviewCard = memo(function PreviewCard({
               </div>
             )}
           </div>
+          {/* Alçak ekranda (telefon yatay, ≤480 px) sayfa ekranın TEPESİNE uzanır ve
+              bu × sabit "ANA EKRAN" düğmesinin (sağ üst, ~118 px) ALTINDA kalıyordu
+              (saha 2026-09-24). Orada ANA EKRAN'ın soluna alınır; head unit'te yer değişmez. */}
           <button
             onClick={onCancel}
             aria-label="Navigasyonu iptal et"
-            className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 active:scale-90 transition-all bg-[var(--oem-surface-2)] border border-[var(--oem-line)] mt-0.5"
+            className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 active:scale-90 transition-all bg-[var(--oem-surface-2)] border border-[var(--oem-line)] mt-0.5 [@media(max-height:480px)]:mr-[88px]"
           >
             <X className="w-4 h-4 text-[color:var(--oem-ink-3,rgba(240,235,224,0.52))]" />
           </button>
