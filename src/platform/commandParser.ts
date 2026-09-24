@@ -1455,6 +1455,8 @@ export function parseCommandFull(input: string): ParseResult {
             recipient: savedLocMatch.recipient ?? '',
             isCurrent: savedLocMatch.isCurrentLocation ? '1' : '',
           } : {}),
+          /* "konumumu paylaş" — kayıt değil, canlı konum. */
+          ...(savedLocMatch.verb === 'share' && savedLocMatch.isCurrentLocation ? { isCurrent: '1' } : {}),
         },
       },
       suggestions:   [],
