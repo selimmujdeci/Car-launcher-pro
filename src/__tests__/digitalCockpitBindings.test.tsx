@@ -29,7 +29,7 @@ vi.mock('../hooks/useDisplaySpeed', () => ({ useDisplaySpeed: () => source.speed
 vi.mock('../hooks/useCanonicalVehicleSignal', () => ({ useCanonicalVehicleSignal: () => source.coolant, useAmbientTemp: () => source.ambient }));
 vi.mock('../platform/obdService', () => ({ useOBDRPM: () => source.rpm, useOBDState: () => source.obd }));
 vi.mock('../platform/vehicleDataLayer/UnifiedVehicleStore', () => ({ useUnifiedVehicleStore: (select: (s: typeof source.vehicle) => unknown) => select(source.vehicle) }));
-vi.mock('../platform/navigationService', () => ({ useNavigation: () => ({ isNavigating: source.navigating }) }));
+vi.mock('../platform/navigationService', () => ({ useNavigation: () => ({ isNavigating: source.navigating, isGuidanceActive: source.navigating }) }));
 vi.mock('../platform/routingService', () => ({ useRouteState: () => source.route }));
 vi.mock('../platform/navigation/useEffectiveSpeedLimit', () => ({ useEffectiveSpeedLimit: () => source.limit }));
 vi.mock('../platform/mediaService', () => ({ useMediaState: () => source.media, togglePlayPause: source.toggle }));

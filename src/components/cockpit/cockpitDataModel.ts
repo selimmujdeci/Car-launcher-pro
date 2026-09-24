@@ -32,6 +32,10 @@ export interface CockpitManeuver {
   readonly type: string | null;
   /** OSRM yön değiştirici ('left' · 'right' · 'straight'…); yoksa `null`. */
   readonly modifier: string | null;
+  /** Dönel kavşak çıkış numarası; sağlayıcı bildirmediyse `null` (UYDURULMAZ). */
+  readonly roundaboutExit?: number | null;
+  /** Hemen ardından gelen YAKIN manevra (routingService yığını); yoksa `null`. */
+  readonly then?: { readonly type: string | null; readonly modifier: string | null } | null;
 }
 
 export interface CockpitMedia {

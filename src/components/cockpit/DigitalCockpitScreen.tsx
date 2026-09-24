@@ -260,18 +260,77 @@ function maneuverIconPath(type: string | null, modifier: string | null): string 
   }
 }
 
-const ManeuverZone = memo(function ManeuverZone({ distanceMeters, label, type, modifier, t }: Omit<PaletteProps, 'ids'> & CockpitManeuver) {
+const ROUNDABOUT_TYPES = new Set(['roundabout', 'rotary', 'roundabout turn']);
+/** Dönel kavşak halkası + giriş kolu (48×48 kutu). */
+const ROUNDABOUT_RING_PATH = 'M24 47V38M24 38A15 15 0 1 1 24.01 38';
+
+/** Dönüşe bu mesafe kala manevra kartı vurgulanır (Google/OEM "şimdi" hâli). */
+export const MANEUVER_IMMINENT_M = 100;
+
+/**
+ * Manevra simgesi (48×48 kutuda tasarlanır, `size` px'e ölçeklenir).
+ * Dönel kavşak YALNIZ çıkış numarası biliniyorsa çizilir (numara halkanın
+ * içinde); bilinmiyorsa `null` → çağıran nötr "—" gösterir (uydurma yok).
+ */
+function ManeuverGlyph({ type, modifier, exit, cx, cy, size, color }: {
+  type: string | null; modifier: string | null; exit: number | null | undefined;
+  cx: number; cy: number; size: number; color: string;
+}) {
+  const k = size / 48;
+  const tf = `translate(${cx - size / 2} ${cy - size / 2}) scale(${k})`;
+  if (ROUNDABOUT_TYPES.has(type ?? '') && modifier === 'uturn') {
+    return <path data-cockpit-maneuver-icon="" d={maneuverIconPath('turn', 'uturn')!} transform={tf}
+      fill="none" stroke={color} strokeWidth={5} strokeLinecap="round" strokeLinejoin="round" />;
+  }
+  if (ROUNDABOUT_TYPES.has(type ?? '') && typeof exit === 'number' && exit > 0) {
+    return (
+      <g data-cockpit-maneuver-icon="" data-cockpit-roundabout-exit={exit} transform={tf}>
+        <path d={ROUNDABOUT_RING_PATH} fill="none" stroke={color} strokeWidth={4.5} strokeLinecap="round" />
+        <text x={24} y={30} textAnchor="middle" fontSize={20} fontWeight={800} fill={color}>{exit}</text>
+      </g>
+    );
+  }
   const path = maneuverIconPath(type, modifier);
+  if (!path) return null;
+  return <path data-cockpit-maneuver-icon="" d={path} transform={tf}
+    fill="none" stroke={color} strokeWidth={5} strokeLinecap="round" strokeLinejoin="round" />;
+}
+
+function hasGlyph(type: string | null, modifier: string | null, exit: number | null | undefined): boolean {
+  if (ROUNDABOUT_TYPES.has(type ?? '')) return modifier === 'uturn' || (typeof exit === 'number' && exit > 0);
+  return maneuverIconPath(type, modifier) !== null;
+}
+
+const ManeuverZone = memo(function ManeuverZone({ distanceMeters, label, type, modifier, roundaboutExit, then, t }: Omit<PaletteProps, 'ids'> & CockpitManeuver) {
+  const imminent = distanceMeters !== null && distanceMeters <= MANEUVER_IMMINENT_M;
+  const known = hasGlyph(type, modifier, roundaboutExit);
+  const thenKnown = then ? hasGlyph(then.type, then.modifier, null) : false;
+  const pillFill = imminent ? t.accent : t.accentSoft;
+  const badgeFill = imminent ? t.canvas : t.accent;
+  const glyphColor = imminent ? t.accentHigh : t.canvas;
+  const distColor = imminent ? t.canvas : t.textPrimary;
+  const exitLabel = ROUNDABOUT_TYPES.has(type ?? '') && typeof roundaboutExit === 'number' && roundaboutExit > 0
+    ? `${roundaboutExit}. çıkış` : null;
+  const caption = [exitLabel, label].filter(Boolean).join(' · ') || EM_DASH;
   return (
-    <g data-cockpit-region="maneuverBar">
-      <rect x={392} y={334} width={240} height={52} rx={26} fill={t.accentSoft} stroke={t.border} />
-      {path ? <path data-cockpit-maneuver-icon="" d={path} transform="translate(419 341) scale(.65)"
-        fill="none" stroke={t.accentHigh} strokeWidth={5} strokeLinecap="round" strokeLinejoin="round" />
-        : <text data-cockpit-maneuver-unknown="" x={435} y={368} textAnchor="middle" fontSize={24} fill={t.muted}>{EM_DASH}</text>}
-      <text data-cockpit-value="maneuverDistance" x={464} y={370} fontSize={28} fontWeight={400} className="caros-cockpit-numeral"
-        fill={t.textPrimary}>{fmtManeuverDistance(distanceMeters)}</text>
-      <Copy x={COCKPIT_REGIONS.maneuverBar.x} y={392} width={COCKPIT_REGIONS.maneuverBar.w}
-        color={t.textSecondary} center>{label ?? EM_DASH}</Copy>
+    <g data-cockpit-region="maneuverBar" data-cockpit-maneuver-imminent={imminent ? 'true' : undefined}>
+      <rect x={372} y={330} width={280} height={58} rx={29} fill={pillFill} stroke={imminent ? t.accentHigh : t.border} />
+      <circle cx={402} cy={359} r={24} fill={badgeFill} />
+      {known
+        ? <ManeuverGlyph type={type} modifier={modifier} exit={roundaboutExit} cx={402} cy={359}
+            size={ROUNDABOUT_TYPES.has(type ?? '') ? 40 : 32} color={glyphColor} />
+        : <text data-cockpit-maneuver-unknown="" x={402} y={367} textAnchor="middle" fontSize={24} fill={imminent ? t.muted : t.canvas}>{EM_DASH}</text>}
+      <text data-cockpit-value="maneuverDistance" x={438} y={371} fontSize={32} fontWeight={500} className="caros-cockpit-numeral"
+        fill={distColor}>{fmtManeuverDistance(distanceMeters)}</text>
+      {then && thenKnown && (
+        <g data-cockpit-maneuver-then="">
+          <text x={590} y={352} textAnchor="middle" fontSize={10} letterSpacing={1} fill={imminent ? t.canvas : t.textSecondary}>ARDINDAN</text>
+          <ManeuverGlyph type={then.type} modifier={then.modifier} exit={null} cx={590} cy={370} size={20}
+            color={imminent ? t.canvas : t.accentHigh} />
+        </g>
+      )}
+      <Copy x={COCKPIT_REGIONS.maneuverBar.x} y={394} width={COCKPIT_REGIONS.maneuverBar.w}
+        color={t.textSecondary} center>{caption}</Copy>
     </g>
   );
 });

@@ -294,6 +294,28 @@ describe('ekran — ölçüm yokken hiçbir sayı UYDURMAZ', () => {
     expect(texts(container)).toContain('300 m');
   });
 
+  it('🔒 dönel kavşak YALNIZ çıkış numarası biliniyorsa simgeyle; numara ve metin gösterilir', () => {
+    const { container } = render(<DigitalCockpitScreen state={{ ...COCKPIT_REFERENCE_STATE,
+      maneuver: { distanceMeters: 650, label: 'Cumhuriyet Bulvarı', type: 'roundabout', modifier: 'straight', roundaboutExit: 2 },
+    }} mode="night" clock={COCKPIT_REFERENCE_CLOCK} />);
+    expect(container.querySelector('[data-cockpit-roundabout-exit="2"]')).not.toBeNull();
+    expect(texts(container)).toContain('2. çıkış · Cumhuriyet Bulvarı');
+  });
+
+  it('🔒 dönüşe 100 m kala kart vurgulanır; uzakta vurgulanmaz', () => {
+    const at = (d: number) => render(<DigitalCockpitScreen state={{ ...COCKPIT_REFERENCE_STATE,
+      maneuver: { distanceMeters: d, label: 'X', type: 'turn', modifier: 'right' } }} mode="night" clock={COCKPIT_REFERENCE_CLOCK} />).container;
+    expect(at(60).querySelector('[data-cockpit-maneuver-imminent="true"]')).not.toBeNull();
+    expect(at(400).querySelector('[data-cockpit-maneuver-imminent="true"]')).toBeNull();
+  });
+
+  it('yakın ikinci manevra "ardından" olarak gösterilir; bilinmeyen yön gösterilmez', () => {
+    const withThen = (then: { type: string | null; modifier: string | null }) => render(<DigitalCockpitScreen state={{ ...COCKPIT_REFERENCE_STATE,
+      maneuver: { distanceMeters: 200, label: 'X', type: 'turn', modifier: 'right', then } }} mode="night" clock={COCKPIT_REFERENCE_CLOCK} />).container;
+    expect(withThen({ type: 'turn', modifier: 'left' }).querySelector('[data-cockpit-maneuver-then]')).not.toBeNull();
+    expect(withThen({ type: 'mystery', modifier: null }).querySelector('[data-cockpit-maneuver-then]')).toBeNull();
+  });
+
   it('medya/sürüş yüzeyi: transport jestten muaf ve izinsizken native disabled', () => {
     const { container } = render(<DigitalCockpitScreen state={EMPTY_COCKPIT_STATE} mode="day" clock={COCKPIT_REFERENCE_CLOCK} />);
     expect(container.querySelector('[data-caros-cockpit="screen"]')?.getAttribute('role')).toBe('group');

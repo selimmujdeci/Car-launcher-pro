@@ -71,7 +71,8 @@ export function useCockpitData(): CockpitState {
   const canGearPos = useUnifiedVehicleStore((s) => s.canGearPos);
 
   /* ── Navigasyon ──────────────────────────────────────────────────────── */
-  const { isNavigating } = useNavigation();
+  /* Rehberlik ACTIVE/REROUTING'de vardır; rota ÖNİZLEMESİ dönüş işareti göstermez (#416). */
+  const { isGuidanceActive } = useNavigation();
   const route = useRouteState();
 
   /* ── Müzik ───────────────────────────────────────────────────────────── */
@@ -99,7 +100,7 @@ export function useCockpitData(): CockpitState {
 
     /* Manevra: navigasyon AKTİF DEĞİLSE manevra YOKTUR (eski adım gösterilmez). */
     let maneuver: CockpitManeuver | null = null;
-    if (isNavigating) {
+    if (isGuidanceActive) {
       const step = route.steps[route.currentStepIndex + 1] ?? null;
       const d = route.distanceToNextTurnMeters;
       const distanceMeters = typeof d === 'number' && Number.isFinite(d) && d >= 0 ? d : null;
@@ -109,6 +110,10 @@ export function useCockpitData(): CockpitState {
           label: step?.streetName?.trim() || step?.instruction?.trim() || null,
           type: step?.maneuverType ?? null,
           modifier: step?.maneuverModifier ?? null,
+          roundaboutExit: step?.roundaboutExit ?? null,
+          then: route.pendingManeuver
+            ? { type: route.pendingManeuver.maneuverType ?? null, modifier: route.pendingManeuver.maneuverModifier ?? null }
+            : null,
         };
       }
     }
@@ -148,6 +153,6 @@ export function useCockpitData(): CockpitState {
     };
   }, [
     speedKmh, limit, rpmRaw, coolant, ambientTempC, obd,
-    odometerRaw, canGearPos, isNavigating, route, media, profile,
+    odometerRaw, canGearPos, isGuidanceActive, route, media, profile,
   ]);
 }
