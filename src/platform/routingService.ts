@@ -374,7 +374,20 @@ function getRoutingServers(): string[] {
   const osrm = custom ? [custom, ...defaults] : defaults;
   /* TomTom (trafikli rota) YALNIZ anahtar varsa ve EN ÖNDE denenir; hata/zaman
      aşımında aynı döngü OSRM'e geçer. Ücretli → satışta anahtarı silmek yeter. */
-  return _tomtomRoutingKey() ? [TOMTOM_ROUTING_SERVER, ...osrm] : osrm;
+  return _tomtomRoutingKey() && Date.now() >= _tomtomSkipUntil ? [TOMTOM_ROUTING_SERVER, ...osrm] : osrm;
+}
+
+/* TomTom devre kesici: hata (403/kota/zaman aşımı) sonrası TomTom bir süre
+   ATLANIR — yoksa her yeniden rota denemesi (2,5–6 sn) önce TomTom'a gidip
+   ücretli kotayı/gecikmeyi boşa harcardı. 5 → 10 → 20 → 30 dk (tavan). */
+export const TOMTOM_ROUTING_BACKOFF_MS = 5 * 60_000;
+const TOMTOM_ROUTING_BACKOFF_MAX_MS = 30 * 60_000;
+let _tomtomSkipUntil = 0;
+let _tomtomFailures = 0;
+
+/** @internal testler için. */
+export function _resetTomTomRoutingBreakerForTest(): void {
+  _tomtomSkipUntil = 0; _tomtomFailures = 0;
 }
 
 function _tomtomRoutingKey(): string | null {
@@ -389,8 +402,17 @@ async function _tryTomTom(
 ): Promise<Awaited<ReturnType<typeof _tryServer>>> {
   const key = _tomtomRoutingKey();
   if (!key) throw new Error('TOMTOM_NO_KEY');
-  const routes = await fetchTomTomRoutes(key, fromLat, fromLon, toLat, toLon, headingDeg,
-    HEADERS_TIMEOUT_MS + BODY_TIMEOUT_MS);
+  let routes: TomTomRoute[];
+  try {
+    routes = await fetchTomTomRoutes(key, fromLat, fromLon, toLat, toLon, headingDeg,
+      HEADERS_TIMEOUT_MS + BODY_TIMEOUT_MS);
+  } catch (e) {
+    _tomtomFailures++;
+    _tomtomSkipUntil = Date.now()
+      + Math.min(TOMTOM_ROUTING_BACKOFF_MAX_MS, TOMTOM_ROUTING_BACKOFF_MS * 2 ** (_tomtomFailures - 1));
+    throw e;
+  }
+  _tomtomFailures = 0;
   const [main, ...alts] = routes;
   const toSteps = (r: TomTomRoute): RouteStep[] => r.steps.map((st) => _toRouteStep(st as OsrmStep));
   return {

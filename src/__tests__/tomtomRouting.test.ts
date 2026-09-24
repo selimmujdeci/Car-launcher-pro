@@ -13,7 +13,7 @@ import {
   parseTomTomRoute, tomtomManeuverToOsrm, segmentDurationsFromKnots, tomtomRouteUrl,
   TOMTOM_ROUTING_SERVER,
 } from '../platform/routing/tomtomRouting';
-import { fetchRoute, getRouteState, clearRoute } from '../platform/routingService';
+import { fetchRoute, getRouteState, clearRoute, _resetTomTomRoutingBreakerForTest } from '../platform/routingService';
 
 const pts = (n: number, lat0: number, lon0: number) =>
   Array.from({ length: n }, (_, i) => ({ latitude: lat0 - i * 0.001, longitude: lon0 - i * 0.001 }));
@@ -36,7 +36,7 @@ const RAW = {
   },
 };
 
-afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); clearRoute(); });
+afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); clearRoute(); _resetTomTomRoutingBreakerForTest(); });
 
 describe('çözücü', () => {
   it('🔒 adımlar OSRM biçimine çevrilir; bilgi talimatı (FOLLOW) adım ÜRETMEZ', () => {
@@ -108,6 +108,17 @@ describe('sağlayıcı zinciri (fetchRoute)', () => {
     await fetchRoute(36.9165, 34.895, 36.9065, 34.885);
     expect(urls(f).some((u) => u.includes('routing.openstreetmap.de'))).toBe(true);
     expect(getRouteState().serverUsed).not.toBe(TOMTOM_ROUTING_SERVER);
+  });
+
+  it('🔒 TomTom hata verince devre kesici: sonraki istekler 5 dk TomTom’u atlar', async () => {
+    vi.stubEnv('VITE_TOMTOM_API_KEY', 'test-key');
+    const f = vi.fn(async () => new Response('{}', { status: 403 }));
+    vi.stubGlobal('fetch', f);
+    await fetchRoute(36.9165, 34.895, 36.9065, 34.885);
+    const before = urls(f).filter((u) => u.includes('api.tomtom.com')).length;
+    expect(before).toBe(1);
+    await fetchRoute(36.9165, 34.895, 36.9065, 34.885);   // yeniden rota
+    expect(urls(f).filter((u) => u.includes('api.tomtom.com')).length).toBe(1);
   });
 
   it('🔒 anahtar yoksa TomTom HİÇ denenmez (satışta kaldırma = anahtarı silmek)', async () => {
