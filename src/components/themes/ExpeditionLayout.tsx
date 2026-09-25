@@ -215,7 +215,7 @@ const Header = memo(function Header() {
         </button>
         <span className={online ? 'lt-pulse' : undefined} aria-label={online ? 'Çevrimiçi' : 'Çevrimdışı'}
           style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, background: online ? '#34d399' : 'currentColor', opacity: online ? 1 : 0.4 }} />
-        <StatusControls palette={{ ink: p.ink, ink2: p.ink2, accent: p.accent, line: p.hairline }} size={17} />
+        <StatusControls palette={{ ink: p.ink, ink2: p.ink2, accent: p.accent, surface: p.plateRaised, line: p.edge }} size={17} />
         <span style={{ fontWeight: 700, fontSize: 17, color: p.ink, fontVariantNumeric: 'tabular-nums' }}>{ambient != null ? `${Math.round(ambient)}°C` : '—'}</span>
       </div>
     </div>

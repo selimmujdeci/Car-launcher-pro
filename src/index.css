@@ -647,6 +647,15 @@ html.rt-no-blur * {
 [data-theme="sunlight"] .caros-status-item svg *[stroke] {
   stroke-width: 2.25 !important;
 }
+/* Açılır menü satırları (sürücü seçici): güneş modunun düğme kutusu satırları
+   ayrı siyah kutulara çeviriyordu (saha 2026-09-25). Okunabilirlik menünün
+   tema zemini + tema mürekkebi kontrastıyla sağlanır. */
+.sunlight-mode button.caros-menu-row,
+[data-theme="sunlight"] button.caros-menu-row {
+  border: none !important;
+  min-height: 44px !important;
+}
+.caros-menu-row:active { background-color: rgba(127, 127, 127, 0.16) !important; }
 .caros-status-item { transition: background-color 0.15s ease; }
 .caros-status-item:active { background-color: rgba(127, 127, 127, 0.16) !important; }
 

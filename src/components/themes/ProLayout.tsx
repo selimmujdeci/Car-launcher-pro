@@ -163,7 +163,7 @@ const StatusCluster = memo(function StatusCluster() {
           opacity:    online ? 1 : 0.4,
         }}
       />
-      <StatusControls palette={{ ink: p.ink, ink2: p.ink2, accent: p.accent }} size={15} />
+      <StatusControls palette={{ ink: p.ink, ink2: p.ink2, accent: p.accent, surface: p.cardSolid }} size={15} />
       <span style={{ fontSize: 12, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: p.ink }}>
         {device.ready ? `${device.battery}%` : '—'}
       </span>

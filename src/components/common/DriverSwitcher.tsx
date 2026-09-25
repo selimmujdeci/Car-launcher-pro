@@ -90,19 +90,19 @@ function DriverSwitcherInner({ palette, size }: { palette: StatusPalette; size: 
             }}
           >
             {drivers.map((d) => (
-              <button key={d.id} role="menuitemradio" aria-checked={d.id === activeId} onClick={() => pick(d)} style={row}>
+              <button key={d.id} role="menuitemradio" aria-checked={d.id === activeId} onClick={() => pick(d)} className="caros-menu-row" style={row}>
                 <Avatar d={d} size={30} />
                 <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name}</span>
                 {d.id === activeId && <Check style={{ width: 16, height: 16, color: palette.accent }} />}
               </button>
             ))}
-            <button role="menuitemradio" aria-checked={!active} onClick={guest} style={{ ...row, color: palette.ink2 }}>
+            <button role="menuitemradio" aria-checked={!active} onClick={guest} className="caros-menu-row" style={{ ...row, color: palette.ink2 }}>
               <UserRound style={{ width: 30, height: 18 }} />
               <span style={{ flex: 1 }}>Misafir</span>
               {!active && <Check style={{ width: 16, height: 16, color: palette.accent }} />}
             </button>
             <div style={{ height: 1, margin: '4px 6px', background: palette.line ?? 'rgba(255,255,255,0.12)' }} />
-            <button role="menuitem" onClick={manage} style={{ ...row, color: palette.ink2, fontWeight: 600 }}>
+            <button role="menuitem" onClick={manage} className="caros-menu-row" style={{ ...row, color: palette.ink2, fontWeight: 600 }}>
               <Settings2 style={{ width: 30, height: 18 }} />
               <span style={{ flex: 1 }}>{drivers.length ? 'Sürücüleri yönet' : 'Sürücü ekle'}</span>
             </button>
