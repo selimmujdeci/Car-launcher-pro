@@ -326,7 +326,7 @@ export const TripComputerScreen = memo(function TripComputerScreen(
               <div className="tripc-stat" data-trip-hero="avgSpeed" data-trip-source={m.averageSpeedKmh.source}>
                 <div className="tripc-stat-num" style={{ color: has(m.averageSpeedKmh) ? t.txt : t.dash }}>
                   <span data-trip-value="avgSpeed">{fmt(m.averageSpeedKmh)}</span>
-                  <i style={{ color: t.txt2 }}>km/s</i>
+                  <i style={{ color: t.txt2 }}>km/h</i>
                 </div>
                 <div className="tripc-stat-label" style={{ color: t.txt3 }}>
                   ORTALAMA HIZ · {srcLabel(m.averageSpeedKmh)}
@@ -363,7 +363,7 @@ export const TripComputerScreen = memo(function TripComputerScreen(
                   <span className="tripc-speed-num" style={{ color: has(m.maximumSpeedKmh) ? t.txt : t.dash }}>
                     <span data-trip-value="maxSpeed">{fmt(m.maximumSpeedKmh)}</span>
                   </span>
-                  <i style={{ color: t.txt2 }}>km/s</i>
+                  <i style={{ color: t.txt2 }}>km/h</i>
                 </div>
                 <span className="tripc-speed-cap" style={{ color: t.txt3 }}>
                   MAKSİMUM · {srcLabel(m.maximumSpeedKmh)}
@@ -380,9 +380,9 @@ export const TripComputerScreen = memo(function TripComputerScreen(
               </div>
               <div className="tripc-band-foot" style={{ color: t.txt2 }}>
                 <span data-trip-cell="avgSpeedFoot" data-trip-source={m.averageSpeedKmh.source}>
-                  ortalama {fmt(m.averageSpeedKmh)} km/s
+                  ortalama {fmt(m.averageSpeedKmh)} km/h
                 </span>
-                <span>maksimum {fmt(m.maximumSpeedKmh)} km/s</span>
+                <span>maksimum {fmt(m.maximumSpeedKmh)} km/h</span>
               </div>
 
               {/* sürüş olayları — ayrı kart değil, hızın altında ince satır */}

@@ -76,7 +76,7 @@ function RunLabCardInner() {
           </div>
           <div className="text-right">
             <div className="text-[color:var(--oem-ink)] text-xl font-black tabular-nums">{s.liveKmh ?? '—'}</div>
-            <div className="text-[color:var(--oem-ink-3)] text-[10px]">{s.liveKmh === null ? 'OBD hız verisi bekleniyor' : 'km/s'}</div>
+            <div className="text-[color:var(--oem-ink-3)] text-[10px]">{s.liveKmh === null ? 'OBD hız verisi bekleniyor' : 'km/h'}</div>
           </div>
         </div>
       )}

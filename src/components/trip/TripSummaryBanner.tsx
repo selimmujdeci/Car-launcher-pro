@@ -79,7 +79,7 @@ export function TripSummaryBanner({ trip, onClose, onViewDetails }: Props) {
           <StatCell icon={<Clock size={13} />} value={`${trip.durationMin} dk`} label="Süre" />
           <StatCell
             icon={<Gauge size={13} />}
-            value={trip.avgSpeedKmh === null ? '—' : `${trip.avgSpeedKmh} km/s`}
+            value={trip.avgSpeedKmh === null ? '—' : `${trip.avgSpeedKmh} km/h`}
             label="Ort. Hız"
           />
         </div>

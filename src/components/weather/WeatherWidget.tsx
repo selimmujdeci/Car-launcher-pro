@@ -150,7 +150,7 @@ function WeatherWidgetInner() {
             {/* Details row */}
             <div className="flex gap-4 mt-4 pt-3 border-t border-[var(--oem-line)]">
               <Detail icon={Droplets}    label="Nem"     value={`${w.humidity}%`}       color="text-[color:var(--oem-info)]" />
-              <Detail icon={Wind}        label="Rüzgar"  value={`${w.windSpeed} km/s ${windDir(w.windDirection)}`} color="text-[color:var(--oem-ink-2)]" />
+              <Detail icon={Wind}        label="Rüzgar"  value={`${w.windSpeed} km/h ${windDir(w.windDirection)}`} color="text-[color:var(--oem-ink-2)]" />
               <Detail icon={Thermometer} label="Hissedilen" value={`${w.feelsLike}°C`} color="text-[color:var(--oem-warn)]" />
             </div>
           </div>
