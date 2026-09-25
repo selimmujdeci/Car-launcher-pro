@@ -135,6 +135,9 @@ dependencies {
     // (bildirim · kilit ekranı · AVRCP · direksiyon tuşları tek kapıya gider).
     // Apache-2.0 → ticari satışa uygun.
     implementation "androidx.media3:media3-exoplayer:$media3Version"
+    // HLS (.m3u8) — Kral FM gibi radyolar HLS yayınlar. Modül yokken
+    // DefaultMediaSourceFactory ClassNotFoundException ile UYGULAMAYI çökertiyordu (2026-09-25).
+    implementation "androidx.media3:media3-exoplayer-hls:$media3Version"
     implementation "androidx.media3:media3-session:$media3Version"
     implementation "androidx.media3:media3-common:$media3Version"
     testImplementation "junit:junit:$junitVersion"

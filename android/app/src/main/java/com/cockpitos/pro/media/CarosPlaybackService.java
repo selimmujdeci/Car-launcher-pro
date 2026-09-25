@@ -613,7 +613,14 @@ public class CarosPlaybackService extends MediaSessionService {
         logEvent(CarosMediaEventLog.EV_SOURCE_SWITCH_DONE, activeSource);
         int idx = Math.max(0, Math.min(startIndex, items.size() - 1));
 
-        p.setMediaItems(items, idx, Math.max(0, positionMs));
+        try {
+            p.setMediaItems(items, idx, Math.max(0, positionMs));
+        } catch (RuntimeException e) {
+            // Tek bir çözülemeyen yayın biçimi tüm uygulamayı ÇÖKERTMEZ; dürüst hata döner.
+            lastFailureCode = "unsupported_stream";
+            publishDiagnostics();
+            return "unsupported_stream";
+        }
         p.prepare();
         userVolume = 1.0f;
         applyEffectiveVolume();
