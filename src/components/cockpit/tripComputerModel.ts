@@ -329,6 +329,9 @@ export function fromCompletedRecord(r: TripRecord): TripComputerState {
  * Hangi yolculuk gösterilecek
  * ════════════════════════════════════════════════════════════════════════ */
 
+/** Gösterilecek en kısa yolculuk (km) — `tripLogService.TRIP_DISCARD_MIN_DISTANCE_KM` ile AYNI (testle kilitli). */
+export const MIN_SHOWN_TRIP_KM = 0.1;
+
 /**
  * SEKME YOKTUR: süren bir yolculuk varsa O gösterilir, yoksa son tamamlanan.
  * Hiçbiri yoksa `none` — sahte sıfırlarla dolu bir özet ÜRETİLMEZ.
@@ -346,11 +349,16 @@ export function selectTrip(
      Açık bir seyahat oturumu varsa ekran ONU gösterir: tek segment yerine
      yolculuğun BAŞINDAN İTİBAREN toplamı. Oturum yoksa (kayıt reddedildi,
      servis başlamadı) eski davranışa düşülür — sahte toplam üretilmez. */
-  if (session && session.sessionId !== null) {
+  /* Seyir Defteri'nin atacağı kadar kısa hareket (park hâlinde GPS oynaması)
+     "süren yolculuk" diye GÖSTERİLMEZ — telefon smoke 2026-09-25: masadaki
+     telefonda "SÜREN YOLCULUK · 22 dk · 0,0 km". Eşik yolculuk kaydıyla aynı. */
+  if (session && session.sessionId !== null
+    && session.distanceMeters / 1000 >= MIN_SHOWN_TRIP_KM) {
     return fromSessionProjection(session, fuel);
   }
 
-  if (state.active && state.current) {
+  if (state.active && state.current
+    && (state.current as unknown as ActiveTripView).liveDistanceKm >= MIN_SHOWN_TRIP_KM) {
     return fromActiveTrip(state.current as unknown as ActiveTripView, fuel);
   }
   const last = Array.isArray(state.history) ? state.history[0] : undefined;

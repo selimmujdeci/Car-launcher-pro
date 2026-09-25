@@ -4,7 +4,8 @@
  * Ekrandaki sayılar birbirini tutmalı.
  */
 import { describe, it, expect } from 'vitest';
-import { fromActiveTrip, timeComposition, formatDuration, type ActiveTripView } from '../components/cockpit/tripComputerModel';
+import { fromActiveTrip, timeComposition, formatDuration, selectTrip, MIN_SHOWN_TRIP_KM, type ActiveTripView } from '../components/cockpit/tripComputerModel';
+import { TRIP_DISCARD_MIN_DISTANCE_KM } from '../platform/tripLogService';
 
 const field = (over: Partial<ActiveTripView> = {}): ActiveTripView => ({
   startTime: 1, liveDistanceKm: 6.2, liveDurationMin: 15, maxSpeedKmh: 79,
@@ -38,5 +39,18 @@ describe('yolculuk bilgisayarı tutarlılığı', () => {
     expect(formatDuration(1.8)).toBe('2 dk');
     expect(formatDuration(59.6)).toBe('1 sa 0 dk');
     expect(formatDuration(0.4)).toBe('0 dk');
+  });
+  it('🔒 kayda girmeyecek kadar kısa hareket "süren yolculuk" gösterilmez', () => {
+    const last = { id: 'r1', startTime: 1, endTime: 2, distanceKm: 3.6, durationMin: 7, avgSpeedKmh: 31,
+      maxSpeedKmh: 78, fuelConsumptionL: null, fuelCostTL: null, drivingScore: 92, harshEvents: 0 };
+    const parked = field({ liveDistanceKm: 0, liveDurationMin: 22 });
+    const st = selectTrip({ active: true, current: parked as never, history: [last as never] }, { tankL: null });
+    expect(st.view).toBe('last');
+    expect(st.metrics.distanceKm.value).toBe(3.6);
+    const moving = selectTrip({ active: true, current: field() as never, history: [last as never] }, { tankL: null });
+    expect(moving.view).toBe('active');
+  });
+  it('🔒 gösterim eşiği yolculuk kaydının atma eşiğiyle aynı', () => {
+    expect(MIN_SHOWN_TRIP_KM).toBe(TRIP_DISCARD_MIN_DISTANCE_KM);
   });
 });
