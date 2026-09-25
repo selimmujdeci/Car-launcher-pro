@@ -19,6 +19,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 vi.mock('../utils/safeStorage', () => ({
+  isSafeStorageHydrated: () => true,
   safeGetRaw: vi.fn(() => null),
   safeSetRaw: vi.fn(),
   safeFlushKey: vi.fn(),

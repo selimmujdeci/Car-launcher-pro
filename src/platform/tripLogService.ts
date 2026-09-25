@@ -16,7 +16,7 @@ import { onOBDData }       from './obdService';
 import { onGPSLocation }   from './gpsService';
 import type { GPSLocation } from './gpsService';
 import type { OBDData }    from './obdTypes';
-import { safeSetRaw, safeGetRaw } from '../utils/safeStorage';
+import { safeSetRaw, safeGetRaw, isSafeStorageHydrated } from '../utils/safeStorage';
 /* ARCH-05 — yıkıcı depolama işlemi `STORAGE_ADMIN` yetkisi ister. Normal ayar
    yazımı bu yetkiyi ASLA vermez (`SETTINGS_WRITE` ≠ `STORAGE_ADMIN`). */
 import { authorizeStorageAdmin } from './security/enforcement';
@@ -283,12 +283,23 @@ function _load(): TripRecord[] {
 }
 
 function _save(records: TripRecord[]): void {
+  /* Geçmiş diskten okunmadan YAZILMAZ: okunmamış geçmiş "boş" değil
+     "bilinmiyor"dur; üstüne yazmak eski yolculukları kalıcı siliyordu. */
+  if (!_historyLoaded) return;
   safeSetRaw(STORAGE_KEY, JSON.stringify(records.slice(0, MAX_STORED_TRIPS)));
 }
 
 /* ── Module state ────────────────────────────────────────── */
 
-const _history = _load();
+/* SAHA 2026-09-25 ("seyir defteri kayıt tutuyor, bir süre sonra kendi kendine
+ * siliyor"): bu modül `App`'in statik içe aktarma zincirinde → `main.tsx`'teki
+ * `initSafeStorageAsync()` BEKLENMEDEN değerlendiriliyordu. Native'de bu anahtar
+ * yalnız dosyada durur (kritik değil → localStorage yedeği yok) ve önbellek
+ * boşken okuma `[]` döndü; her açılışta geçmiş boş göründü, ilk biten yolculuk
+ * da dosyanın ÜSTÜNE yazıldı. Artık geçmiş depo hazır olunca yüklenir
+ * (`_ensureHistoryLoaded`), o ana kadar diske yazılmaz. */
+let _historyLoaded = isSafeStorageHydrated();
+const _history = _historyLoaded ? _load() : [];
 
 function _sumDistance(records: TripRecord[]): number {
   return Math.round(records.reduce((s, r) => s + r.distanceKm, 0) * 10) / 10;
@@ -732,6 +743,7 @@ function _endTrip(reason: TripEndReason = 'UNKNOWN'): void {
   _active = null;
   if (_liveClock) { clearInterval(_liveClock); _liveClock = null; }
 
+  _ensureHistoryLoaded();
   const newHistory = [record, ..._state.history];
   _save(newHistory);
 
@@ -953,7 +965,23 @@ function _onOBD(data: OBDData): void {
 let _gpsUnsub: (() => void) | null = null;
 let _obdUnsub: (() => void) | null = null;
 
+/**
+ * Geçmişi depo hazırsa bir kez yükler; bu arada bellekte biten yolculuklar
+ * korunur ve diskteki geçmişle birleştirilip (kimliğe göre tekilleştirilerek) kaydedilir.
+ */
+function _ensureHistoryLoaded(): void {
+  if (_historyLoaded || !isSafeStorageHydrated()) return;
+  _historyLoaded = true;
+  const disk = _load();
+  const inMemory = _state.history;
+  const ids = new Set(inMemory.map((t) => t.id));
+  const merged = [...inMemory, ...disk.filter((t) => !ids.has(t.id))];
+  if (inMemory.length > 0) _save(merged);
+  _setState({ history: merged, totalDistanceKm: _sumDistance(merged), totalTrips: merged.length });
+}
+
 export function startTripLog(): void {
+  _ensureHistoryLoaded();
   if (_started) return;
   _started = true;
 
@@ -984,6 +1012,7 @@ export function stopTripLog(): void {
 }
 
 export function deleteTrip(id: string): void {
+  _ensureHistoryLoaded();
   const newHistory = _state.history.filter((t) => t.id !== id);
   _save(newHistory);
   _setState({
@@ -1010,6 +1039,8 @@ export function clearAllTrips(principal: SecurityPrincipalClass = 'LOCAL_UI'): b
     operationId: `storage.trips.clear:${Date.now()}`,
   });
   if (!authz.allowed) return false;
+  _ensureHistoryLoaded();
+  if (!_historyLoaded) return false;   // geçmiş okunamadı → silindi iddiası yok
   _save([]);
   _setState({ history: [], totalDistanceKm: 0, totalTrips: 0 });
   return true;
@@ -1088,6 +1119,6 @@ export function getTripJournalGlance(): TripJournalGlance {
 
 export function useTripState(): TripState {
   const [s, setS] = useState<TripState>({ ..._state, history: [..._state.history], current: null });
-  useEffect(() => onTripState(setS), []);
+  useEffect(() => { const off = onTripState(setS); _ensureHistoryLoaded(); return off; }, []);
   return s;
 }

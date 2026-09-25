@@ -31,6 +31,7 @@ vi.mock('../platform/sensitiveKeyStore', () => ({
   sensitiveKeyStore: { get: async () => 'api-key-123' },
 }));
 vi.mock('../utils/safeStorage', () => ({
+  isSafeStorageHydrated: () => true,
   safeStorage:  { getItem: () => null, setItem: () => {}, removeItem: () => {} },
   safeFlushKey: () => {},
   safeGetRaw:   () => null,

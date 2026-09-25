@@ -354,11 +354,10 @@ describe('safeLruEvict — kritik anahtarlar hiçbir zaman silinmez', () => {
     expect(localStorage.getItem('car-cache-map-v1')).toBeNull();
   });
 
-  it('car-launcher-trip-log evict edilir', () => {
-    localStorage.setItem('car-launcher-trip-log', '[]');
-    const evicted = safeLruEvict();
-    expect(evicted).toBeGreaterThan(0);
-    expect(localStorage.getItem('car-launcher-trip-log')).toBeNull();
+  it('🔒 car-launcher-trip-log evict EDİLMEZ (geçmişin tek kopyası — saha 2026-09-25)', () => {
+    localStorage.setItem('car-launcher-trip-log', '[{"id":"t1"}]');
+    safeLruEvict();
+    expect(localStorage.getItem('car-launcher-trip-log')).toBe('[{"id":"t1"}]');
   });
 });
 

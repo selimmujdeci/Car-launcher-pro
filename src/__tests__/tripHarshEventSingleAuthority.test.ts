@@ -21,6 +21,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 /* ── Mock'lar (import'lardan ÖNCE) ─────────────────────────────────────── */
 
 vi.mock('../utils/safeStorage', () => ({
+  isSafeStorageHydrated: () => true,
   safeGetRaw:   vi.fn(() => null),
   safeSetRaw:   vi.fn(),
   safeFlushKey: vi.fn(),

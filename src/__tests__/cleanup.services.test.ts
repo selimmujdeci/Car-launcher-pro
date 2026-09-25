@@ -28,6 +28,7 @@ vi.mock('../platform/cameraService', () => ({
   closeRearCamera: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock('../utils/safeStorage', () => ({
+  isSafeStorageHydrated: () => true,
   safeStorage:  { getItem: () => null, setItem: () => {}, removeItem: () => {} },
   safeFlushKey: () => {},
   safeGetRaw:   () => null,

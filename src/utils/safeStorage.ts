@@ -58,6 +58,17 @@ const _fpt = (key: string) => `${FS_SUB}/${key}.json.tmp`;
 
 const _fsCache    = new Map<string, string>();
 let   _fsCacheReady = false;
+/** Native'de dosya önbelleği TAMAMEN yüklendi mi (`_fsCacheReady` yükleme BAŞINDA açılır). */
+let   _fsHydrated = false;
+
+/**
+ * Kalıcı depo okunmaya hazır mı. Web'de her zaman; native'de ancak
+ * `initSafeStorageAsync` dosyaları önbelleğe aldıktan SONRA. Bundan önce
+ * kritik olmayan bir anahtarı okumak "yok" döner — "boş" DEĞİLDİR.
+ */
+export function isSafeStorageHydrated(): boolean {
+  return !NATIVE || _fsHydrated;
+}
 
 /**
  * Salt-okunur persistence altyapısı tanısı. Bu bir yazılabilirlik probe'u
@@ -90,7 +101,10 @@ export function getSafeStorageDiagnostics(): Readonly<{
  * Sıra: en değersiz → en değerli.
  */
 const LRU_EVICT_PREFIXES: string[] = [
-  'car-launcher-trip-log',  // yeniden üretilebilir trip geçmişi
+  /* 'car-launcher-trip-log' ÇIKARILDI (saha 2026-09-25, "seyir defteri kendi
+     kendine siliniyor"): "yeniden üretilebilir" DEĞİL — geçmişin tek kopyası.
+     Herhangi bir dosyanın yazma hatası (0 baytlık .tmp'ler cihazda görüldü)
+     bu temizliği tetikleyip bütün seyir defterini siliyordu. */
   'car-cache-',             // genel uygulama önbelleği
   'car-glyph-',             // harita font verileri
 ];
@@ -441,6 +455,7 @@ export async function initSafeStorageAsync(): Promise<void> {
   } catch {
     // ss/ dizini henüz oluşmamış (ilk çalışma) — normal durum
   }
+  _fsHydrated = true;
 }
 
 /* ── eMMC Yazma Sayacı (doğrulama / fleet telemetri) ────────── */
