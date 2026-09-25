@@ -337,10 +337,10 @@ export const TripComputerScreen = memo(function TripComputerScreen(
             {/* halka açıklaması — hangi renk ne */}
             <div className="tripc-legend">
               <span style={{ color: t.txt2 }}>
-                <i style={{ background: t.moving }} />Hareket {fmtMin(comp.movingMin, comp.measured)}
+                <i style={{ background: t.moving }} />Hareket {fmtMin(comp.movingMin, has(m.movingTimeMin))}
               </span>
               <span style={{ color: t.txt2 }}>
-                <i style={{ background: t.idle }} />Duruş {fmtMin(comp.idleMin, comp.measured)}
+                <i style={{ background: t.idle }} />Duruş {fmtMin(comp.idleMin, has(m.idleTimeMin))}
               </span>
               {comp.measured && comp.unknownMin > 0 && (
                 <span style={{ color: t.txt2 }}>
@@ -405,9 +405,9 @@ export const TripComputerScreen = memo(function TripComputerScreen(
             <Panel title="YOLCULUK VE ZAMAN" t={t} testId="time">
               <div className="tripc-grid3">
                 <Cell label="Hareket" metric={m.movingTimeMin} t={t} testId="movingMin"
-                  text={fmtMin(comp.movingMin, comp.measured)} />
+                  text={fmtMin(comp.movingMin, has(m.movingTimeMin))} />
                 <Cell label="Duruş" metric={m.idleTimeMin} t={t} testId="idleMin"
-                  text={fmtMin(comp.idleMin, comp.measured)} />
+                  text={fmtMin(comp.idleMin, has(m.idleTimeMin))} />
                 <Cell label="Duruş sayısı" metric={m.stopCount} t={t} testId="stopCount" />
               </div>
 
