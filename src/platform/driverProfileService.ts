@@ -166,6 +166,25 @@ export function renameDriver(id: string, name: string): void {
   _writeProfiles(_profiles().map((d) => d.id === id ? { ...d, name: clean } : d));
 }
 
+/** Telefonu sürücüye bağlar; aynı telefon başka sürücüdeyse oradan kaldırılır. */
+export function linkDriverPhone(id: string, phone: { address: string; name: string }): void {
+  const address = phone.address.trim().toUpperCase();
+  if (!address) return;
+  _writeProfiles(_profiles().map((d) => {
+    if (d.id === id) return { ...d, phone: { address, name: phone.name.slice(0, 40) } };
+    if (d.phone?.address.toUpperCase() === address) { const { phone: _drop, ...rest } = d; void _drop; return rest; }
+    return d;
+  }));
+}
+
+export function unlinkDriverPhone(id: string): void {
+  _writeProfiles(_profiles().map((d) => {
+    if (d.id !== id) return d;
+    const { phone: _drop, ...rest } = d; void _drop;
+    return rest;
+  }));
+}
+
 export function removeDriver(id: string): void {
   const s = useStore.getState().settings;
   _writeProfiles(_profiles().filter((d) => d.id !== id),

@@ -194,6 +194,8 @@ export interface DriverProfile {
   createdAt: string;
   lastUsedAt: string | null;
   prefs: DriverPrefs;
+  /** Bu sürücünün telefonu (Bluetooth) — bağlanınca profil kendiliğinden gelir. */
+  phone?: { address: string; name: string };
 }
 
 export interface AppSettings {

@@ -3,6 +3,7 @@ import { initFcmService }           from '../platform/fcmService';
 import { initConnectivityService }  from '../platform/connectivityService';
 import { startVehicleDetection, stopVehicleDetection } from '../platform/vehicleProfileService';
 import { startDriverProfileSync } from '../platform/driverProfileService';
+import { startDriverPhoneRecognition } from '../platform/driverPhoneRecognition';
 import { startTrafficService, stopTrafficService, updateTrafficLocation } from '../platform/trafficService';
 import { useOverspeedWarning } from '../platform/navigation/overspeedWarningRuntime';
 import { initializeContacts } from '../platform/contactsService';
@@ -310,6 +311,8 @@ export function useLayoutServices({
 
   // Sürücü profili otomatik hafızası — etkin sürücünün tercih değişikliklerini kaydeder
   useEffect(() => startDriverProfileSync(), []);
+  // Sürücüyü telefonundan tanıma — bağlı telefon → o sürücünün profili
+  useEffect(() => startDriverPhoneRecognition(), []);
 
   // Hız sınırı aşımı — TEK SEFERLİK sesli uyarı (hangi ekranda olunursa olunsun).
   useOverspeedWarning();

@@ -257,10 +257,13 @@ public class CarLauncherPlugin extends Plugin {
                     try { name = dev != null ? dev.getName() : ""; } catch (SecurityException ignored) {}
                     event.put("connected", true);
                     event.put("deviceName", name != null ? name : "Araç");
+                    // Adres: sürücüyü telefonundan tanıma (ad çakışabilir, adres çakışmaz).
+                    event.put("deviceAddress", dev != null ? dev.getAddress() : "");
                     notifyListeners("btChanged", event);
                 } else if (android.bluetooth.BluetoothDevice.ACTION_ACL_DISCONNECTED.equals(action)) {
                     event.put("connected", false);
                     event.put("deviceName", "");
+                    event.put("deviceAddress", dev != null ? dev.getAddress() : "");
                     notifyListeners("btChanged", event);
                 }
             }
@@ -724,6 +727,7 @@ public class CarLauncherPlugin extends Plugin {
         boolean btOn = btAdapter != null && btAdapter.isEnabled();
         boolean btConnected = false;
         String  btDevice    = "";
+        JSArray btConnectedDevices = new JSArray();   // TÜM bağlı cihazlar (ad + adres)
 
         if (btOn) {
             try {
@@ -738,9 +742,12 @@ public class CarLauncherPlugin extends Plugin {
                         try {
                             Method m = dev.getClass().getMethod("isConnected");
                             if (Boolean.TRUE.equals(m.invoke(dev))) {
-                                btDevice = dev.getName();
+                                if (btDevice.isEmpty()) btDevice = dev.getName();
                                 btConnected = true;
-                                break;
+                                JSObject d = new JSObject();
+                                d.put("name", dev.getName());
+                                d.put("address", dev.getAddress());
+                                btConnectedDevices.put(d);
                             }
                         } catch (Exception ignored) {}
                     }
@@ -752,6 +759,7 @@ public class CarLauncherPlugin extends Plugin {
         }
         result.put("btConnected", btConnected);
         result.put("btDevice",    btDevice);
+        result.put("btConnectedDevices", btConnectedDevices);
 
         /*
          * CONNECTIVITY F7-B (§15) — ACIK ISTISNA: SALT GOSTERGE.

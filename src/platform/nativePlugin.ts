@@ -59,6 +59,8 @@ export interface GetAppsResult {
 export interface NativeDeviceStatus {
   btConnected: boolean;
   btDevice: string;      // connected BT device name (empty if none)
+  /** Tüm bağlı BT cihazları — eski plugin sürümünde yok. */
+  btConnectedDevices?: Array<{ name: string; address: string }>;
   wifiConnected: boolean;
   wifiName: string;      // SSID (requires ACCESS_FINE_LOCATION on API 26+)
   battery: number;       // 0–100
@@ -1535,7 +1537,7 @@ export interface CarLauncherPlugin {
   // Bluetooth bağlantı değişiklikleri — araç BT sistemine bağlan/bağlantı kes
   addListener(
     event: 'btChanged',
-    handler: (data: { connected: boolean; deviceName: string }) => void,
+    handler: (data: { connected: boolean; deviceName: string; deviceAddress?: string }) => void,
   ): Promise<PluginListenerHandle>;
 
   addListener(
