@@ -26,6 +26,16 @@ import type { NearbyPoiCategory } from './nearbyPoiNavigation';
 // MAVI-M3: yürütme sonucu sözleşmesi (saf veri — TTS/UI/store yan etkisi YOK).
 import { intentResult, type IntentExecutionResult } from './intentExecutionResult';
 import { cancelNavigationByVoice } from './navigationService';
+import { openDrawer } from './drawerBus';
+import { setFullMapView } from './mapViewBus';
+
+/** "Ana ekrana dön" — mevcut iki veri yolu (çekmece + harita görünümü) kapatılır.
+ *  Navigasyon oturumuna DOKUNMAZ: rota sürerken ana ekran mini haritayı gösterir. */
+export function goHomeScreenResult(openDrawerPort?: (t: 'none') => void): IntentExecutionResult {
+  (openDrawerPort ?? openDrawer)('none');
+  setFullMapView(false);
+  return intentResult('GO_HOME_SCREEN', 'succeeded', 'home_screen', 'Ana ekrandayız.');
+}
 
 /** Sesli navigasyon iptali — yerel ve beyin yolu AYNI sonucu üretir. */
 export function stopNavigationResult(): IntentExecutionResult {
@@ -48,6 +58,7 @@ export type IntentType =
    *  Eskiden FIND_NEARBY_PARKING'e düşüyordu ve ŞEHİR OTOPARKI öneriyordu. */
   | 'FIND_NEARBY_REST_AREA'
   | 'STOP_NAVIGATION'     // Aktif navigasyon oturumunu kapat
+  | 'GO_HOME_SCREEN'      // Açık panel + tam ekran harita kapanır (rota korunur)
   | 'OPEN_MUSIC'
   | 'PLAY_MUSIC_SEARCH'
   | 'PLAY_MUSIC_QUERY'
@@ -194,6 +205,7 @@ const CMD_TO_INTENT: Record<CommandType, IntentType> = {
   navigate_address:     'NAVIGATE_ADDRESS',
   navigate_place:       'NAVIGATE_PLACE',
   stop_navigation:      'STOP_NAVIGATION',
+  go_home_screen:       'GO_HOME_SCREEN',
   find_nearby_gas:        'FIND_NEARBY_GAS',
   find_nearby_parking:    'FIND_NEARBY_PARKING',
   find_nearby_restaurant: 'UNKNOWN',
@@ -476,6 +488,8 @@ export async function routeIntent(intent: AppIntent, ctx: RouterContext): Promis
     }
     case 'STOP_NAVIGATION':
       return stopNavigationResult();
+    case 'GO_HOME_SCREEN':
+      return goHomeScreenResult(ctx.openDrawer);
     case 'OPEN_PHONE':
     case 'OPEN_LAST_APP': {
       const appId = intent.payload.targetApp;
@@ -656,7 +670,7 @@ export async function routeIntent(intent: AppIntent, ctx: RouterContext): Promis
 /** All valid intent strings — used to validate AI output before trusting it. */
 const VALID_INTENTS = new Set<IntentType>([
   'SEARCH_POI',
-  'OPEN_NAVIGATION', 'NAVIGATE_ADDRESS', 'NAVIGATE_PLACE', 'STOP_NAVIGATION',
+  'OPEN_NAVIGATION', 'NAVIGATE_ADDRESS', 'NAVIGATE_PLACE', 'STOP_NAVIGATION', 'GO_HOME_SCREEN',
   'FIND_NEARBY_GAS', 'FIND_NEARBY_PARKING', 'FIND_NEARBY_HOSPITAL', 'FIND_NEARBY_REST_AREA',
   'OPEN_MUSIC', 'PLAY_MUSIC_SEARCH', 'PLAY_MUSIC_QUERY', 'ADD_MUSIC_FAVORITE', 'OPEN_PHONE', 'OPEN_APP', 'OPEN_SCREEN', 'OPEN_SETTINGS',
   'PLAY_MEDIA', 'PAUSE_MEDIA', 'MEDIA_NEXT', 'MEDIA_PREV', 'MEDIA_VIDEO_MODE',

@@ -456,6 +456,7 @@ describe('MAVI-F5 · F · prompt listesi tek kaynaktan türetilir', () => {
     const ADDED_SINCE_F5 = [
       'PLAY_MEDIA',                                       // MAVI-F7 · media.playback#resume
       'STOP_NAVIGATION',                                  // navigation.route#cancel — beyin "iptal"i rota başlatmaya çeviriyordu
+      'GO_HOME_SCREEN',                                   // surface.home#open — "ana ekrana dön" hiç yoktu
     ];
     const LEGACY_ONLY = ['SHOW_WEATHER', 'ENABLE_DRIVING_MODE', 'TOGGLE_SLEEP_MODE', 'REMEMBER', 'FORGET'];
     const derivedSet = new Set([...brainExposedIntents(), ...LEGACY_ONLY]);

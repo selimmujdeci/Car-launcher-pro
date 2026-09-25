@@ -659,7 +659,10 @@ export async function next(requester?: string): Promise<MediaCommandResult> {
 
 /** Önceki parça — ilk 3 sn'den sonra baştan başlatır; değilse önceki parçaya geçer. */
 export async function previous(requester?: string): Promise<MediaCommandResult> {
-  if (getMediaState().track.positionSec > 3) {
+  /* Düğme: 3 sn'den sonra "önceki" = baştan al (oynatıcı alışkanlığı). Sesli
+     "önceki şarkıya dön" ise AÇIKÇA önceki parçayı ister — baştan almak
+     kullanıcıya "çalışmadı" gibi görünüyordu (saha 2026-09-25). */
+  if (requester !== 'mavi' && getMediaState().track.positionSec > 3) {
     seek(0);
     /* Baştan alma bir ATLAMA değildir; gözlem üretmez ve öyleymiş gibi
        raporlanmaz (sahte doğrulama yok). */

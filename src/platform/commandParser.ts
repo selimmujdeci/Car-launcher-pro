@@ -47,6 +47,7 @@ export type CommandType =
   | 'navigate_address'
   | 'navigate_place'
   | 'stop_navigation'
+  | 'go_home_screen'
   | 'find_nearby_gas'
   | 'find_nearby_parking'
   | 'find_nearby_restaurant'
@@ -176,7 +177,8 @@ const PATTERNS: CommandPattern[] = [
     label: 'Eve Git', example: 'eve git',
     keywords: [
       // Temel
-      'eve git', 'eve dön', 'eve gidelim', 'eve götür', 'anasayfa', 'ana sayfa', 'home', 'evime git', 'eve al beni',
+      // 'ana sayfa'/'anasayfa' YOK: bu EKRAN demektir, eve rota DEĞİL (go_home_screen).
+      'eve git', 'eve dön', 'eve gidelim', 'eve götür', 'home', 'evime git', 'eve al beni',
       // Argo / günlük
       'kapağı eve at', 'eve uçur', 'eve ulaştır', 'beni eve bırak', 'eve bas', 'eve fırlat',
       'eve çek', 'eve al', 'gidelim eve', 'haydi eve', 'eve gitsek',
@@ -184,7 +186,7 @@ const PATTERNS: CommandPattern[] = [
       'ev konumuna git', 'ev adresime git', 'evime gidelim', 'home konumuna git',
       'evime dön', 'eve nasıl giderim', 'ev adresimi aç', 'home\'a git',
     ],
-    tokens: ['eve', 'home', 'anasayfa', 'evime', 'ev'],
+    tokens: ['eve', 'home', 'evime', 'ev'],
   },
   {
     type: 'navigate_work', priority: 'critical',
@@ -571,6 +573,18 @@ const PATTERNS: CommandPattern[] = [
       'kaydet bu şarkıyı', 'beğendim ekle', 'şarkıyı kaydet',
     ],
     tokens: ['favori', 'favorilere', 'ekle', 'kaydet'],
+  },
+  {
+    type: 'go_home_screen', priority: 'high',
+    feedback: 'Ana ekrana dönüyorum',
+    label: 'Ana Ekrana Dön', example: 'ana ekrana dön',
+    // Açık panel/tam ekran harita kapanır; aktif rota BOZULMAZ.
+    keywords: [
+      'ana ekrana dön', 'ana ekrana git', 'ana ekranı aç', 'ana ekran', 'ana sayfaya dön',
+      'ana sayfaya git', 'ana sayfa', 'anasayfa', 'ana menü', 'ana menüye dön',
+      'başa dön', 'her şeyi kapat', 'ekranı kapat geri dön',
+    ],
+    tokens: [],
   },
   {
     type: 'stop_navigation', priority: 'high',
@@ -1020,7 +1034,7 @@ const FAST_PATH_TYPES: ReadonlySet<CommandType> = new Set<CommandType>([
      serbest adres (`navigate_address`/`navigate_place`) BİLİNÇLİ olarak YOK. */
   'navigate_home', 'navigate_work',
   /* Aktif oturumu kapatma — parametresiz; oturum yoksa yürütücü dürüstçe söyler. */
-  'stop_navigation',
+  'stop_navigation', 'go_home_screen',
   /* Mesaj okuma — parametresiz; içerik YEREL veridir (bildirim servisi).
      SAHA 2026-09-24: "Mavi, mesajı oku" beyne (Gemini Live) gidiyor, model
      mesajlara erişemediği için "okumaya yetkim yok" deyip turu kapatıyordu. */

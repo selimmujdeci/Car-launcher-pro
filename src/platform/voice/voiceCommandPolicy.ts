@@ -83,7 +83,10 @@ const RESULT_ACK_COMMAND_TYPES: ReadonlySet<ParsedCommand['type']> = new Set<Par
   /* Ev/İş ve rota iptali: "Eve gidiyoruz" adres KAYITSIZKEN de konuşuluyor,
    * ardından "Ev adresi kayıtlı değil" geliyordu (smoke 2026-09-25). Ses
    * yalnız gerçek sonuçtan (adres var mı · rota aktif mi) üretilir. */
-  'navigate_home', 'navigate_work', 'stop_navigation',
+  'navigate_home', 'navigate_work', 'stop_navigation', 'go_home_screen',
+  /* Parça atlama: "Önceki şarkı" yürütmeden ÖNCE konuşuluyor, gerçek sonuç
+   * ("Listenin başındayız" · "değiştiremedim") susuyordu (saha 2026-09-25). */
+  'music_next', 'music_prev',
 ]);
 
 /** Sesi YALNIZ yürütme sonucundan gelen komut mu (parser metni konuşulmaz). */

@@ -14,7 +14,7 @@
 
 import { bridge, type CommandResult }   from './bridge';
 import { VOICE_SETTINGS } from './settingsVoice';
-import { fromAIResponse, stopNavigationResult, type AppIntent } from './intentEngine';
+import { fromAIResponse, stopNavigationResult, goHomeScreenResult, type AppIntent } from './intentEngine';
 import type { AIVoiceResult, VehicleContext } from './aiVoiceService';
 /* MAVI-F5: yürütme SONUCUNU capability gözlem seviyesine çevirir. Bu katman
    yeni bir yürütücü ya da ikinci bir gerçeklik kaynağı KURMAZ — yalnız kanonik
@@ -555,6 +555,8 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<I
          rota BAŞLATIYORDU (smoke 2026-09-25). Yerel yolla AYNI sonuç. */
       case 'STOP_NAVIGATION':
         return stopNavigationResult();
+      case 'GO_HOME_SCREEN':
+        return goHomeScreenResult(ctx.openDrawer ? (t) => ctx.openDrawer?.(t) : undefined);
       case 'NAVIGATE_ADDRESS': {
         const dest = intent.payload.destination;
         if (dest && ctx.navigateToPlace) {

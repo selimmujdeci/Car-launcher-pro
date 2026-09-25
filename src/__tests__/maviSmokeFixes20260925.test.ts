@@ -70,4 +70,12 @@ describe('Mavi smoke 2026-09-25', () => {
     expect(r.status).toBe('failed');
     expect((r.detail ?? '').length).toBeGreaterThan(0);
   });
+
+  it('"ana sayfa" eve ROTA değil, ana ekrana dönüş komutudur', () => {
+    for (const t of ['ana ekrana dön', 'ana sayfa', 'anasayfa', 'ana ekran']) {
+      expect(cmd(t)?.type, t).toBe('go_home_screen');
+      expect(matchDeterministicWholeInput(t)?.type, t).toBe('go_home_screen');
+    }
+    expect(cmd('eve götür')?.type).toBe('navigate_home');
+  });
 });

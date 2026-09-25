@@ -103,6 +103,16 @@ export const CAROS_CAPABILITY_CATALOG: readonly CapabilityOperationDef[] = Objec
     legacyIntent: 'STOP_NAVIGATION', exposedToBrain: true,
   }),
   Object.freeze({
+    capabilityId: 'surface.home', operation: 'open', version: 1,
+    domain: 'surface',
+    description: 'Ana ekrana döner: açık paneli ve tam ekran haritayı kapatır. Aktif rotayı İPTAL ETMEZ.',
+    parameters: Object.freeze({}),
+    safetyClass: 'surface', requiresConfirmation: false, cancellable: false,
+    observationCeiling: 'ACCEPTED',
+    requiredCapabilities: Object.freeze([]),
+    legacyIntent: 'GO_HOME_SCREEN', exposedToBrain: true,
+  }),
+  Object.freeze({
     capabilityId: 'navigation.poi', operation: 'search', version: 1,
     domain: 'navigation',
     description: 'Yakında bir kategori ya da terim için yer arar.',

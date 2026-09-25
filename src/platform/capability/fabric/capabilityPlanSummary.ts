@@ -40,6 +40,7 @@ const ITEM_LABEL: Readonly<Record<string, string>> = Object.freeze({
   'navigation.route#start': 'rotayı',
   'navigation.route#startAddress': 'rotayı',
   'navigation.route#cancel': 'rota iptalini',
+  'surface.home#open': 'ana ekranı',
   'navigation.poi#search': 'aramayı',
   'navigation.poi#findGasStation': 'benzinlik aramasını',
   'navigation.poi#findParking': 'otopark aramasını',
