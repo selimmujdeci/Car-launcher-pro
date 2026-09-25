@@ -15,6 +15,7 @@
  */
 import type { TripRecord } from '../tripLogService';
 import { decodeRouteTrace, haversineMeters, type TripJournalRecord } from './tripJournalModel';
+import { averageSpeedKmh } from './core/averageSpeed';
 
 export type ScoreFn = (maxSpeedKmh: number, harshEvents: number, avgSpeedKmh: number) => number;
 
@@ -44,7 +45,7 @@ export function rebuildTripSummary(j: TripJournalRecord, score: ScoreFn): TripRe
     endTime: j.endedAtMs,
     distanceKm: Math.round((meters / 1000) * 10) / 10,
     durationMin: Math.max(1, Math.round(durationMs / 60_000)),
-    avgSpeedKmh,
+    avgSpeedKmh: averageSpeedKmh(meters, durationMs, speeds.length > 0) ?? avgSpeedKmh,
     maxSpeedKmh,
     fuelConsumptionL: null,
     fuelCostTL: null,

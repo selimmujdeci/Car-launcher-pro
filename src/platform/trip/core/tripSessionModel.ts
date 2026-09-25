@@ -653,6 +653,24 @@ export function advanceTripSession(
  * ════════════════════════════════════════════════════════════════════════ */
 
 /**
+ * Yolculuk ortalama hızının TEK tanımı: gidilen yol / sürüş süresi (ışıkta
+ * bekleme DAHİL, park molası HARİÇ) — ekrandaki yol ve süreyle tutarlı.
+ *
+ * SAHA 2026-09-25: 6,2 km / 15 dk ekranında "42 km/s" yazıyordu; eski değer
+ * hız ÖRNEKLERİNİN ortalamasıydı (örnekler harekette sık gelir, duruşlar
+ * ortalamaya girmez → şişer). Hız kanıtı yoksa ya da süre çok kısaysa
+ * BİLİNMİYOR (`null`) — 0 uydurulmaz.
+ */
+export const AVG_SPEED_MIN_TIME_MS = 60_000;
+
+export function averageSpeedKmh(distanceM: number, drivingMs: number, hasSpeedEvidence: boolean): number | null {
+  if (!hasSpeedEvidence) return null;
+  if (!Number.isFinite(distanceM) || !Number.isFinite(drivingMs)) return null;
+  if (distanceM < 0 || drivingMs < AVG_SPEED_MIN_TIME_MS) return null;
+  return Math.round((distanceM / 1000) / (drivingMs / 3_600_000));
+}
+
+/**
  * Oturumu `monoNow` anına göre yansıt.
  *
  * NEDEN AYRI BİR ADIM: süren mola ve geçen süre ZAMANLA büyür. Bunu ilerletme
@@ -692,7 +710,6 @@ export function projectTripSession(
   const gpsM   = session.sealedGpsDistanceM + (cur ? _ms(cur.gpsDistanceM) : 0);
   const obdM   = session.sealedObdDistanceM + (cur ? _ms(cur.obdDistanceM) : 0);
   const peakKmh = Math.max(session.sealedMaxSpeedKmh, cur ? _ms(cur.maxSpeedKmh) : 0);
-  const spdSum = session.sealedSpeedSum   + (cur ? _ms(cur.speedSum)   : 0);
   const spdCnt = session.sealedSpeedCount + (cur ? _ms(cur.speedCount) : 0);
   const stops  = session.sealedStopCount  + (cur ? _ms(cur.stopCount)  : 0);
   const brake  = session.sealedHarshBrakeCount + (cur ? _ms(cur.harshBrakeCount) : 0);
@@ -751,7 +768,8 @@ export function projectTripSession(
     obdDistanceMeters: obdM,
     /* Hiç hız örneği gelmediyse tepe/ortalama BİLİNMİYOR — 0 DEĞİL. */
     maximumSpeedKmh:  spdCnt > 0 || peakKmh > 0 ? peakKmh : null,
-    averageSpeedKmh:  spdCnt > 0 ? Math.round(spdSum / spdCnt) : null,
+    /* Yol / sürüş süresi (park molaları hariç) — örnek ortalaması şişiyordu (bkz. averageSpeed). */
+    averageSpeedKmh:  averageSpeedKmh(distanceM, elapsedMs - session.sealedBreakMs - currentBreakMs, spdCnt > 0),
     stopCount:        stops,
     harshBrakeCount:  brake,
     harshAccelCount:  accel,

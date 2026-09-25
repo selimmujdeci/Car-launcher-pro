@@ -481,8 +481,9 @@ describe('TripComputer oturum toplamını gösterir', () => {
     const st = selectTrip(NO_TRIP, { tankL: 50 }, p);
     /* Tepe TOPLANMAZ — en büyüğü alınır. */
     expect(st.metrics.maximumSpeedKmh.value).toBe(132);
-    /* Ortalama, segment ortalamalarının ortalaması DEĞİL: (8800+14400)/220. */
-    expect(st.metrics.averageSpeedKmh.value).toBe(Math.round(23_200 / 220));
+    /* Ortalama = oturumun yolu / sürüş süresi (mola HARİÇ) — segment ortalamalarının
+       ortalaması da, hız örneklerinin ortalaması da DEĞİL (saha 2026-09-25). */
+    expect(st.metrics.averageSpeedKmh.value).toBe(75);
   });
 
   it('12 · yakıt ölçülebildiyse segmentler toplanır ve litreye çevrilir', () => {

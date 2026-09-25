@@ -46,6 +46,7 @@ import {
   listJournalIds, readJournal,
 } from './trip/tripJournalStore';
 import { rebuildTripSummary } from './trip/tripRecordRecovery';
+import { averageSpeedKmh } from './trip/core/averageSpeed';
 import { randomToken } from '../utils/randomId';
 
 /* ── Types ───────────────────────────────────────────────── */
@@ -721,7 +722,8 @@ function _endTrip(reason: TripEndReason = 'UNKNOWN'): void {
     endTime:          endedAtMs,
     distanceKm,
     durationMin,
-    avgSpeedKmh:      avgSpeed,
+    /* Gösterilen ortalama = yol / süre (puan hesabı örnek ortalamasıyla aynı kalır). */
+    avgSpeedKmh:      averageSpeedKmh(_active.distanceKm * 1000, durationMs, _active.speedCount > 0) ?? avgSpeed,
     maxSpeedKmh:      Math.round(_active.maxSpeedKmh),
     /* Kanıt yoksa `null` — `...p2` gerçek değer ürettiyse onu EZER. */
     fuelConsumptionL: null,

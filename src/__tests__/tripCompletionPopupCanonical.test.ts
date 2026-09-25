@@ -224,7 +224,9 @@ describe('kart sayıları oturum toplamıdır, son segment değil', () => {
     expect(c).not.toBeNull();
     expect(c!.distanceKm).toBe(300);
     expect(c!.durationMin).toBe(270);              // 10 → 280 dk
-    expect(c!.avgSpeedKmh).toBe(Math.round(23_200 / 220));
+    /* Ortalama = yol / sürüş süresi (29 dk mola HARİÇ): 300 km / 241 dk. Eski
+       beklenti hız örneklerinin ortalamasıydı (105) — şişik değer, saha 2026-09-25. */
+    expect(c!.avgSpeedKmh).toBe(Math.round(300 / (241 / 60)));
     /* Oturum düzeyinde skor/maliyet sahibi yok → satır çıkmaz, sayı uydurulmaz. */
     expect(c!.drivingScore).toBeNull();
     expect(c!.fuelCostTL).toBeNull();

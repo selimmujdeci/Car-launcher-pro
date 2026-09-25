@@ -18,7 +18,7 @@
  * gerekçelendirilir:
  *   mesafe   → GPS haversine payı büyükse MEASURED, OBD Euler ise DERIVED
  *   süre     → MEASURED (monotonik `performance.now()` deltası)
- *   ort. hız → DERIVED (hız örneklerinin ortalaması)
+ *   ort. hız → DERIVED (yol / sürüş süresi — `averageSpeedKmh`, tek tanım)
  *   maks hız → MEASURED (gözlenen tepe)
  *   yakıt    → ölçüm kapıları geçtiyse DERIVED (ölçülen % + YAPILANDIRILMIŞ
  *              depo hacmi), aksi hâlde UNAVAILABLE — ESTIMATED sayı ÜRETİLMEZ
@@ -48,6 +48,7 @@ import {
 } from '../../platform/trip/tripMetricsAccumulator';
 import type { TripRecord, TripState } from '../../platform/tripLogService';
 import type { TripSessionProjection } from '../../platform/trip/core/tripSessionModel';
+import { averageSpeedKmh } from '../../platform/trip/core/averageSpeed';
 
 /** Sayfanın hangi yolculuğu gösterdiği — sekme YOKTUR, durum tek. */
 export type TripView =
@@ -157,8 +158,6 @@ export function fromActiveTrip(a: ActiveTripView, fuel: TripFuelConfig): TripCom
      (`toCanonicalTripSummary` ile aynı hüküm). */
   const distanceSource: MetricSource = a.gpsDistanceKm >= a.obdDistanceKm ? 'MEASURED' : 'DERIVED';
 
-  const avgFromSamples = a.speedCount > 0 ? a.speedSum / a.speedCount : null;
-
   /* ── YAKIT: HÜKÜM KANONİK SAHİBİNDEN GELİR ───────────────────────────
      `evaluateFuelMeasurement` şu kapıları uygular ve hiçbiri burada
      tekrarlanmaz: başlangıç/bitiş okuması, yakıt alma şüphesi, OBD
@@ -183,7 +182,8 @@ export function fromActiveTrip(a: ActiveTripView, fuel: TripFuelConfig): TripCom
     ...EMPTY_TRIP_METRICS,
     distanceKm:      metric(a.liveDistanceKm, distanceSource),
     durationMin:     metric(a.liveDurationMin, 'MEASURED'),
-    averageSpeedKmh: metric(avgFromSamples === null ? null : Math.round(avgFromSamples), 'DERIVED'),
+    /* Yol / süre — ekrandaki mesafe ve süreyle tutarlı (örnek ortalaması şişiyordu). */
+    averageSpeedKmh: metric(averageSpeedKmh(a.liveDistanceKm * 1000, a.liveDurationMin * 60_000, a.speedCount > 0), 'DERIVED'),
     maximumSpeedKmh: metric(a.maxSpeedKmh, 'MEASURED'),
     fuelUsedL,
     estimatedCost,
@@ -384,8 +384,16 @@ export interface TimeComposition {
 export function timeComposition(m: TripMetrics): TimeComposition {
   const mv = has(m.movingTimeMin) ? m.movingTimeMin.value! : 0;
   const id = has(m.idleTimeMin) ? m.idleTimeMin.value! : 0;
-  const un = has(m.unknownTimeMin) ? m.unknownTimeMin.value! : 0;
+  let un = has(m.unknownTimeMin) ? m.unknownTimeMin.value! : 0;
   const measured = has(m.movingTimeMin) || has(m.idleTimeMin) || has(m.unknownTimeMin);
+  /* Süre kovaları yeni hız örneği gelince sınıflanır; son örnekten beri geçen
+     süre henüz hiçbir kovada değildir ama yolculuk süresindedir (saha
+     2026-09-25: 15 dk süre, 8+2+3 = 13 dk kova, oranlar 13'e göre). O süre
+     gerçekten ÖLÇÜLEMEYEN süredir → oraya eklenir; toplam süreyle tutarlı olur. */
+  if (measured && has(m.durationMin)) {
+    const gap = m.durationMin.value! - (mv + id + un);
+    if (gap > 0) un += gap;
+  }
   return { movingMin: mv, idleMin: id, unknownMin: un, totalMin: mv + id + un, measured };
 }
 

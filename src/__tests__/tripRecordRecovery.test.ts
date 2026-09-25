@@ -28,7 +28,7 @@ describe('rebuildTripSummary', () => {
     expect(r.distanceKm).toBe(1);
     expect(r.durationMin).toBe(10);
     expect(r.maxSpeedKmh).toBe(60);
-    expect(r.avgSpeedKmh).toBe(45);          // bilinmeyen hız ortalamaya girmez
+    expect(r.avgSpeedKmh).toBe(6);           // yol / süre: 1 km / 10 dk
     expect(r.harshBrakeCount).toBe(1);
     expect(r.idleMin).toBe(1.5);
     expect(r.drivingScore).toBe(92);         // canlı yolculukla aynı fonksiyon
