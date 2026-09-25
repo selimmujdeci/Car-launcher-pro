@@ -33,7 +33,10 @@ describe('parseApplicationRequest — geçerli girdi', () => {
   });
 
   it('bilinmeyen EK alan sessizce yok sayılır ama çıktıya taşınmaz', () => {
-    const r = parseApplicationRequest(req({ extra: 'should-not-leak', __proto__: 'x' }));
+    /* `__proto__: 'x'` nesne yazımında ÖZELLİK oluşturmaz, prototipi ayarlamaya
+       çalışır (CodeQL invalid-prototype-value) → test o anahtarı HİÇ denemiyordu.
+       Hesaplanmış anahtar gerçek bir `__proto__` özelliği yaratır (JSON.parse gibi). */
+    const r = parseApplicationRequest(req({ extra: 'should-not-leak', ['__proto__']: 'x' }));
     expect(r.ok).toBe(true);
     if (r.ok) {
       expect(Object.keys(r.request).sort()).toEqual(['command', 'id', 'type', 'v']);

@@ -363,8 +363,10 @@ serve(async (req: Request): Promise<Response> => {
     );
   } catch (err) {
     console.error('[consumer-push-notify] Beklenmeyen hata:', err);
+    /* Ayrıntı yalnız sunucu günlüğünde (CodeQL stack-trace-exposure, 2026-09-25):
+       hata metni DB/iç ayrıntı taşıyabilir; istemciye genel kod döner. */
     return new Response(
-      JSON.stringify({ error: String(err) }),
+      JSON.stringify({ error: 'internal_error' }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
     );
   }

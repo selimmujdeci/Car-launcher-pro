@@ -9827,7 +9827,9 @@ describe('P0-NAV-02 · navigasyon temeli kilitleri', () => {
     for (const f of readdirSync(resolve(root, MAPD)).filter((n) => n.endsWith('.tsx'))) {
       const src = stripN(read(join(MAPD, f)));
       expect(src, `${f} içinde ham Tailwind z sınıfı var`)
-        .not.toMatch(/className=(?:"|'|`)[^"'`]*(?:^|\s)z-(?:\[[0-9]+\]|[0-9]+)(?:\s|"|'|`)/);
+        /* `(?:^|\s)` içindeki `^` satır ortasında HİÇ eşleşmezdi (CodeQL unmatchable
+           caret, 2026-09-25) → tırnaktan HEMEN sonra gelen `z-10` kaçıyordu. */
+        .not.toMatch(/className=(?:"|'|`)(?:[^"'`]*\s)?z-(?:\[[0-9]+\]|[0-9]+)(?:\s|"|'|`)/);
       expect(src, `${f} içinde ham zIndex sayısı var`).not.toMatch(/zIndex:\s*[0-9]+/);
     }
   });

@@ -765,10 +765,6 @@ let _lastKnownGpsSpeed      = 0;    // km/h
 // Fix 1: ICE/Diesel Guard zamanlayıcı başlangıcı
 let _iceRpmMissStart: number | null = null;
 
-// Fix 3: ısınma (warm-up) erken çıkış kancası
-let _warmupActive   = false;
-let _warmupResolve: (() => void) | null = null;
-
 // ── Fuel computation config ──────────────────────────────────
 // Set via setObdFuelConfig() whenever the active vehicle profile changes.
 let _fuelTankL        = 0;   // 0 = not configured
@@ -1867,11 +1863,8 @@ function _onRealData(patch: Partial<OBDData>): void {
     _resetEcuRecoveryState('ecu_data_received');
   }
 
-  // Fix 3: ısınma devam ediyorken geçerli çekirdek PID gelirse 2s deadline'ı iptal et
-  if (_warmupActive && _warmupResolve && _hasEcuData(patch)) {
-    _warmupResolve();
-    return; // gate açılana kadar bu paket görmezden gelinir; sonraki paket connected'e geçirir
-  }
+  /* Eski "Fix 3" ısınma kancası (a181e5c2, 2026-06-06'da kaldırıldı) burada ölü
+     kalmıştı: `_warmupResolve` hiç atanmıyordu (CodeQL: invocation of non-function). */
 
   if (!_dataGatePassed) {
     if (_hasEcuData(patch)) {
@@ -3521,9 +3514,6 @@ export function stopOBD(): void {
   _nativeReconnectGuardTimeouts = 0;
   _nativeReconnectLastOutcome = null;
   _nativeReconnectLastDurationMs = null;
-  // Fix 3: ısınma promise'ini çöz ve bayrağı sıfırla (Zero-Leak)
-  if (_warmupResolve) { _warmupResolve(); _warmupResolve = null; }
-  _warmupActive = false;
   // Fix 1: ICE RPM miss sayacı sıfırla
   _iceRpmMissStart = null;
   clearAccumulatedBuffer();
