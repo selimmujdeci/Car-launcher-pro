@@ -157,6 +157,25 @@ const AI_HINT_TOKENS: readonly string[] = [
 ];
 
 /** AI/internet gerektiren bir istek mi? (anahtarsız yönlendirme için sezgi) */
+/**
+ * Net müzik isteği ("Ahmet Kaya'dan müzik çal") beyne GİTMEZ, yerelde çalar.
+ *
+ * SAHA (2026-09-25): yerel ayrıştırıcı sanatçıyı DOĞRU çıkarıyordu
+ * (`play_music_query`, query="Ahmet Kaya", güven 0.93) ama cümle önce beyne
+ * gidiyordu; beyin sorgusuz "müzik aç" önerdi ya da hiçbir şey yapmadan
+ * "müzik başlatıldı" dedi → rastgele/eski müzik çaldı. Hava durumu bypass'ı
+ * ile aynı gerekçe: beyin burada bir şey İYİLEŞTİRMEZ (isim onarımı yerel
+ * yolda zaten var), yalnız bozabilir.
+ *
+ * Bileşik cümle ("eve götür ve X çal") beyinde kalır — plan oradadır.
+ */
+export function isExplicitMusicQueryForLocal(cmd: ParsedCommand | null, utterance: string, minConfidence: number): boolean {
+  if (!cmd || cmd.type !== 'play_music_query' || cmd.confidence < minConfidence) return false;
+  const q = (cmd.extra as { query?: unknown } | undefined)?.query;
+  if (typeof q !== 'string' || q.trim().length < 2) return false;
+  return !CHAIN_SPLIT.test(utterance);
+}
+
 export function looksLikeAiRequest(raw: string): boolean {
   const n = normalizeTr(raw);
   if (n.split(' ').filter((w) => w.length > 1).length < 2) return false; // tek kelime/çöp değil

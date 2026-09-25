@@ -28,7 +28,7 @@ import { resolveActiveGrammar } from './voice/contextGrammarApplier';
    yetkilendirmez, hiçbir durum tutmaz. */
 import {
   isResultAckCommand, isProvisionalFeedback, isConversationEnd, looksLikeAiRequest,
-  dedupeAlts, bestLocalParse, computeResetDelays,
+  dedupeAlts, bestLocalParse, computeResetDelays, isExplicitMusicQueryForLocal,
   AFFIRM_RE, NEGATE_RE, CHAIN_SPLIT, STT_MAX_ALTERNATIVES,
 } from './voice/voiceCommandPolicy';
 import { tryOfflineConversation } from './offlineConversationEngine';
@@ -2072,6 +2072,22 @@ export async function processTextCommand(
   ) {
     _lastCommandTime = now;
     void reportVoiceDiag('voice_route', { route: 'weather_local_bypass' });
+    if (ctx?.isDriving) { dispatchDriving(result.command, ctx, turn); } else { dispatch(result.command, ctx, turn); }
+    completeMaviTurn(turn);
+    return true;
+  }
+
+  // ── 1b0. NET MÜZİK İSTEĞİ BYPASS — "Ahmet Kaya'dan müzik çal" ─────────────
+  // Yerel ayrıştırıcı sanatçı/şarkıyı açıkça çıkardıysa beyne GİTMEZ (saha
+  // 2026-09-25: beyin sorgusuz "müzik aç" önerip rastgele müzik çalıyor ya da
+  // hiçbir şey yapmadan "müzik başlatıldı" diyordu). Aynı yerel yol: ASR isim
+  // onarımı → tur mühürü → dispatch (fallback (a) dalıyla birebir).
+  if (isExplicitMusicQueryForLocal(result.command, trimmed, AUTO_DISPATCH_MIN) && result.command) {
+    _lastCommandTime = now;
+    void reportVoiceDiag('voice_route', { route: 'music_query_local_bypass' });
+    setMaviLatencyRoute('music_query_local_bypass');
+    await _maybeRepairMusicQuery(result.command);
+    if (!continueIfTurnActive(turn, 'action')) return false;
     if (ctx?.isDriving) { dispatchDriving(result.command, ctx, turn); } else { dispatch(result.command, ctx, turn); }
     completeMaviTurn(turn);
     return true;
