@@ -72,7 +72,10 @@ public class CanBusManagerWriteGateTest {
     @After public void tearDown() { mgr.stop(); }
 
     private static void waitUntil(java.util.function.BooleanSupplier cond, long timeoutMs) throws InterruptedException {
-        long deadline = System.currentTimeMillis() + timeoutMs;
+        /* En az 10 sn (2026-09-25): CI'da 2 sn yük altında yetmedi — aynı commit'te
+           bir koşu geçip diğeri "koşul zaman aşımı" ile düştü. Koşul sağlanınca hemen
+           çıkılır; süre yalnız BAŞARISIZLIK anını belirler, testin anlamı değişmez. */
+        long deadline = System.currentTimeMillis() + Math.max(timeoutMs, 10_000);
         while (!cond.getAsBoolean()) {
             if (System.currentTimeMillis() > deadline) throw new AssertionError("koşul zaman aşımı");
             Thread.sleep(10);
