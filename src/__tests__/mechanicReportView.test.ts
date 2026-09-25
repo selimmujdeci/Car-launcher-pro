@@ -53,3 +53,12 @@ describe('buildServiceReportText', () => {
     expect(t).toContain('okunmadı / yok');
   });
 });
+
+describe('ekran özeti', () => {
+  it('🔒 uzun özet ekranda yarıda kesilmez (Mavi sınırı ayrı)', () => {
+    const long = 'Kök neden kanıtlanamadı — kritik mekanik arıza kanıtı yok, ancak bu "sorun yok" demek değildir; bağlantı/kurtarma olayları gözlendi (6 kanıt).';
+    const v = buildMechanicReportView({ generatedAt: NOW, reports: [report({ headline: long })] }, NOW)!;
+    expect(v.displaySummary).toBe(long);
+    expect(v.diagnosis.summary.length).toBeLessThanOrEqual(140);
+  });
+});

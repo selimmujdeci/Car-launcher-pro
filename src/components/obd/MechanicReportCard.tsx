@@ -76,7 +76,7 @@ function MechanicReportCardInner({ dtcCodes, refreshKey }: { dtcCodes: readonly 
         </button>
       </div>
 
-      <div className="text-[13px] font-bold text-[color:var(--oem-ink)] leading-snug">{d.summary}</div>
+      <div className="text-[13px] font-bold text-[color:var(--oem-ink)] leading-snug">{view.displaySummary}</div>
       {d.safetyWarning && (
         <div className="flex items-start gap-2 mt-2 text-[12px] font-bold text-[color:var(--oem-danger)]">
           <ShieldAlert className="w-4 h-4 flex-shrink-0 mt-0.5" /><span>{d.safetyWarning}</span>

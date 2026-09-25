@@ -14,6 +14,10 @@
 import type { MechanicDiagnosis } from './mechanicTypes';
 import { mapMechanicReport, type MechanicReportLike } from './mechanicMapper';
 import { AI_MECHANIC_ID } from '../../aiCore/agents/aiMechanic';
+import { stripControlChars } from '../controlChars';
+
+/** Kart özeti üst sınırı — Mavi bloğunun 140 karakterlik sınırı ekranda cümleyi yarıda kesiyordu. */
+const DISPLAY_SUMMARY_MAX = 320;
 
 /** Bu süreden eski rapor "son değerlendirme" olarak gösterilir, güncel sayılmaz. */
 export const MECHANIC_REPORT_STALE_MS = 10 * 60_000;
@@ -25,6 +29,8 @@ export interface MechanicRunLike {
 
 export interface MechanicReportView {
   readonly diagnosis: MechanicDiagnosis;
+  /** Ekranda gösterilecek TAM özet (Mavi'ye giden `diagnosis.summary` sınırlı kalır). */
+  readonly displaySummary: string;
   readonly generatedAt: number;
   readonly ageMs: number;
   readonly stale: boolean;
@@ -36,8 +42,12 @@ export function buildMechanicReportView(run: MechanicRunLike | null | undefined,
   const report = reports.find((r) => (r as { agentId?: unknown })?.agentId === AI_MECHANIC_ID);
   if (!report) return null;
   const ageMs = Math.max(0, nowMs - run.generatedAt);
+  const diagnosis = mapMechanicReport(report);
+  const rawHeadline = typeof report.headline === 'string'
+    ? stripControlChars(report.headline).replace(/\s+/g, ' ').trim().slice(0, DISPLAY_SUMMARY_MAX) : '';
   return {
-    diagnosis: mapMechanicReport(report),
+    diagnosis,
+    displaySummary: rawHeadline || diagnosis.summary,
     generatedAt: run.generatedAt,
     ageMs,
     stale: ageMs > MECHANIC_REPORT_STALE_MS,
@@ -67,7 +77,7 @@ export function buildServiceReportText(
   const lines: string[] = ['CarOS — Araç Ustası raporu'];
   if (vehicleLabel) lines.push(`Araç: ${vehicleLabel}`);
   lines.push(`Tarih: ${new Date(view.generatedAt).toLocaleString('tr-TR')}${view.stale ? ' (eski değerlendirme)' : ''}`);
-  lines.push(`Özet: ${d.summary}`);
+  lines.push(`Özet: ${view.displaySummary}`);
   lines.push(`Aciliyet: ${d.risk}${d.availability === 'sufficient' ? ` · güven %${d.confidence}` : ''}`);
   lines.push(`Arıza kodları: ${dtcCodes.length > 0 ? dtcCodes.join(', ') : 'okunmadı / yok'}`);
   const causes = d.topCause ? [d.topCause, ...d.otherCauses] : [];
