@@ -88,6 +88,13 @@ function srcLabel(m: Metric): string {
   return SOURCE_LABEL[m.source] ?? 'veri yok';
 }
 
+/** Fiyat kaynağı — kod adı ekranda GÖSTERİLMEZ (saha 2026-09-25: "fiyat: DEFAULT_FALLBACK"). */
+const PRICE_SOURCE_LABEL: Readonly<Record<string, string>> = {
+  USER_DEFINED: 'fiyat: senin girdiğin',
+  DEFAULT_FALLBACK: 'fiyat: varsayılan (ayarlanmadı)',
+  UNAVAILABLE: 'fiyat yok',
+};
+
 /** Ölçülmemiş değerin yeri — sayı DEĞİL. */
 const UNKNOWN_TEXT = '—';
 
@@ -459,7 +466,7 @@ export const TripComputerScreen = memo(function TripComputerScreen(
                 </span>
                 {state.priceSource !== null && (
                   <span data-trip-price-source="" style={{ color: t.txt3 }}>
-                    fiyat: {state.priceSource}
+                    {PRICE_SOURCE_LABEL[state.priceSource] ?? 'fiyat kaynağı bilinmiyor'}
                   </span>
                 )}
               </div>
@@ -478,9 +485,6 @@ export const TripComputerScreen = memo(function TripComputerScreen(
           </svg>
           <span className="tripc-home-title">Ana Sayfa</span>
         </button>
-        <div className="tripc-foot-note" style={{ color: t.txt3 }}>
-          Geliştirme sunumu · verisi akmayan alan soluk 0 ve "veri yok" etiketiyle çizilir
-        </div>
       </footer>
     </div>
   );
@@ -595,8 +599,6 @@ const CSS = `
   font-family:inherit;}
 .tripc-home:active{filter:brightness(0.94);}
 .tripc-home-title{font-size:clamp(13px,1vw,17px);font-weight:700;}
-.tripc-foot-note{flex:1 1 auto;min-width:0;font-size:clamp(9px,0.7vw,11px);text-align:right;
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 
 @media (max-width:1100px){
   .tripc-side{flex-basis:264px;}
@@ -607,7 +609,7 @@ const CSS = `
 @media (max-width:820px){
   .tripc-body{flex-direction:column;}
   .tripc-side{flex:0 0 auto;}
-  .tripc-title,.tripc-clock-date,.tripc-foot-note,.tripc-cell-src{display:none;}
+  .tripc-title,.tripc-clock-date,.tripc-cell-src{display:none;}
 }
 `;
 
