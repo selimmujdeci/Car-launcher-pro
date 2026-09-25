@@ -260,16 +260,20 @@ export function fromSessionProjection(
 
   /* DURUŞ = segment içi rölanti + segmentler arası mola. Kullanıcı için
      ikisi de "hareket etmedim"dir; ÖLÇÜLEMEYEN süre buraya GİRMEZ. */
-  const stoppedMin = msToMin(p.stoppedMs);
+  /* Mola sınırı aşıldıysa yolculuk molanın BAŞINDA bitmiştir: o mola bu
+     yolculuğun süresine/duruşuna/duruş sayısına girmez (saha 2026-09-25:
+     12:27–14:41 yolculuk "4 sa 52 dk, duruş 4 sa 36 dk" görünüyordu). */
+  const endedBreakMs = p.breakExceededSession ? p.currentBreakMs : 0;
+  const stoppedMin = msToMin(p.stoppedMs - endedBreakMs);
   /* Duruş SAYISI: segment içi debounce'lu duruşlar + segmentleri ayıran
      molalar. İkisi ayrı kaynaktır, toplamı kullanıcının gördüğü duruştur. */
-  const stopCount = p.stopCount + p.stopPeriods.length;
+  const stopCount = p.stopCount + p.stopPeriods.length - (p.breakExceededSession ? 1 : 0);
 
   const metrics: TripMetrics = Object.freeze({
     ...EMPTY_TRIP_METRICS,
     distanceKm:      metric(Math.round(p.distanceMeters / 10) / 100, distanceSource),
     /* Süre: yola çıkalı geçen monotonik süre (mola DÂHİL) — oturumun kendisi. */
-    durationMin:     metric(msToMin(p.elapsedMs), 'MEASURED'),
+    durationMin:     metric(msToMin(p.elapsedMs - endedBreakMs), 'MEASURED'),
     averageSpeedKmh: metric(p.averageSpeedKmh, 'DERIVED'),
     maximumSpeedKmh: metric(p.maximumSpeedKmh, 'MEASURED'),
     fuelUsedL,

@@ -58,6 +58,18 @@ describe('yolculuk bilgisayarı — mola sınırı aşıldıysa "süren" denmez'
     expect(st.endedAtMs).toBe(p.breakSinceWallMs);
     expect(p.breakSinceWallMs).toBe(WALL0 + 1 * MIN);   // mola son güncellemeden (1. dk) başlar
   });
+  it('🔒 bitmiş yolculuğun süresi/duruşu mola başında kesilir (şimdiye kadar saymaz)', () => {
+    let s = emptyTripSession();
+    s = advanceTripSession(s, sample(1 * MIN, seg(1 * MIN)));
+    s = advanceTripSession(s, sample(8 * MIN, seg(1 * MIN)));   // 7 dk sürüş
+    s = advanceTripSession(s, sample(9 * MIN, null));           // mola 8. dk'da başlar
+    const p = projectTripSession(s, 9 * MIN + 120 * MIN);       // 2 saat sonra bakılıyor
+    const st = selectTrip({ active: false, current: null, history: [], totalDistanceKm: 0, totalTrips: 0 } as never, { tankL: null }, p);
+    expect(st.view).toBe('last');
+    expect(st.metrics.durationMin.value).toBe(7);
+    expect(st.metrics.idleTimeMin.value).toBe(0);
+    expect(st.metrics.stopCount.value).toBe(0);
+  });
   it('mola kısaysa hâlâ süren yolculuktur', () => {
     let s = emptyTripSession();
     s = advanceTripSession(s, sample(1 * MIN, seg(1 * MIN)));
