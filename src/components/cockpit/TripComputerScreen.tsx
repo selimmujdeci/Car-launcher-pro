@@ -382,7 +382,6 @@ export const TripComputerScreen = memo(function TripComputerScreen(
                 <span data-trip-cell="avgSpeedFoot" data-trip-source={m.averageSpeedKmh.source}>
                   ortalama {fmt(m.averageSpeedKmh)} km/h
                 </span>
-                <span>maksimum {fmt(m.maximumSpeedKmh)} km/h</span>
               </div>
 
               {/* sürüş olayları — ayrı kart değil, hızın altında ince satır */}
@@ -545,9 +544,12 @@ const CSS = `
 .tripc-legend i{display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:6px;}
 
 /* SAĞ sütun */
+/* Kart İÇERİĞİNDEN küçük olamaz (eski 'flex:1 1 0; min-height:0' eşit yükseklik
+   zorluyor, sığmayan yazı kenardan taşıp komşu kartın üstüne biniyordu — saha
+   2026-09-25). Boş alan yine paylaşılır; sığmazsa sütun kayar. */
 .tripc-side{flex:0 0 clamp(300px,27vw,440px);display:flex;flex-direction:column;
-  gap:clamp(8px,1vh,14px);min-height:0;}
-.tripc-card{flex:1 1 0;min-height:0;box-sizing:border-box;border-radius:16px;
+  gap:clamp(8px,1vh,14px);min-height:0;overflow-y:auto;overscroll-behavior:contain;}
+.tripc-card{flex:1 0 auto;box-sizing:border-box;border-radius:16px;
   padding:clamp(9px,1.2vh,16px) clamp(12px,1.1vw,20px);display:flex;flex-direction:column;
   justify-content:center;gap:clamp(5px,0.8vh,10px);}
 
