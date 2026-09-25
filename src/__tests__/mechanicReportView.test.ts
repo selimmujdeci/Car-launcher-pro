@@ -4,7 +4,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  buildMechanicReportView, buildServiceReportText, formatReportAge, MECHANIC_REPORT_STALE_MS,
+  buildMechanicReportView, buildServiceReportText, formatReportAge, MECHANIC_REPORT_STALE_MS, plainEvidence,
 } from '../platform/ai/mechanic/mechanicReportView';
 
 const NOW = Date.parse('2026-09-25T12:00:00Z');
@@ -60,5 +60,17 @@ describe('ekran özeti', () => {
     const v = buildMechanicReportView({ generatedAt: NOW, reports: [report({ headline: long })] }, NOW)!;
     expect(v.displaySummary).toBe(long);
     expect(v.diagnosis.summary.length).toBeLessThanOrEqual(140);
+  });
+});
+
+describe('kanıt satırları kullanıcı dilinde (telefonda görülen metinler)', () => {
+  it.each([
+    ['Handshake sonucu: fail (timeout)', 'OBD adaptörüyle bağlantı kurulamadı (adaptör yanıt vermedi)'],
+    ['Reconnect baskısı 2.00 — bağlantı kararsız (yarı-ömür penceresinde 2+ kopma)', 'OBD bağlantısı son dakikalarda birkaç kez koptu'],
+    ['8 reconnect kaydı (8 timeout) bu oturumda', 'Bu oturumda 8 kez yeniden bağlanma denendi (8 kez yanıt gelmedi)'],
+    ['speed=0km/h (valid, güven 60%)', 'Hız: 0 km/h (ölçüldü)'],
+  ])('%s', (raw, plain) => { expect(plainEvidence(raw)).toBe(plain); });
+  it('🔒 tanınmayan satır değiştirilmez (anlam uydurulmaz)', () => {
+    expect(plainEvidence('Arıza kodu P0217 (kritik)')).toBe('Arıza kodu P0217 (kritik)');
   });
 });

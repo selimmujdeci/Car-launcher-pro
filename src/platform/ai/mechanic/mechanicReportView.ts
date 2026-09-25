@@ -87,9 +87,48 @@ export function buildServiceReportText(
   } else if (d.insufficientDataNote) {
     lines.push(`Not: ${d.insufficientDataNote}`);
   }
-  if (d.evidence.length > 0) { lines.push('Kanıt:'); for (const e of d.evidence) lines.push(`- ${e}`); }
-  if (d.counterEvidence.length > 0) { lines.push('Karşı kanıt:'); for (const e of d.counterEvidence) lines.push(`- ${e}`); }
+  if (d.evidence.length > 0) { lines.push('Kanıt:'); for (const e of d.evidence) lines.push(`- ${plainEvidence(e)}`); }
+  if (d.counterEvidence.length > 0) { lines.push('Karşı kanıt:'); for (const e of d.counterEvidence) lines.push(`- ${plainEvidence(e)}`); }
   if (d.nextSteps.length > 0) { lines.push('Önerilen güvenli kontroller:'); for (const s of d.nextSteps) lines.push(`- ${s}`); }
   lines.push('Bu rapor ölçülen verilerden üretilmiştir; kesin teşhis için usta kontrolü gerekir.');
   return lines.join('\n');
+}
+
+/* ── Kanıt satırlarının kullanıcı dili ───────────────────────────────────────
+ * Kanıt metinleri teşhis/geliştirici katmanında üretilir ("Handshake sonucu:
+ * fail (timeout)", "speed=0km/h (valid, güven 60%)"); CAROS LAB ve Mavi de aynı
+ * metni okur, bu yüzden KAYNAKTA değiştirilmez. Yalnız kullanıcı kartında sade
+ * Türkçeye çevrilir; tanınmayan satır olduğu gibi kalır (anlam UYDURULMAZ). */
+
+const SIGNAL_LABEL: Readonly<Record<string, string>> = {
+  speed: 'Hız', rpm: 'Motor devri', coolantTemp: 'Motor sıcaklığı', engineTemp: 'Motor sıcaklığı',
+  batteryVoltage: 'Akü voltajı', voltage: 'Akü voltajı', fuelLevel: 'Yakıt seviyesi',
+  throttle: 'Gaz pedalı', intakeTemp: 'Emme havası sıcaklığı', engineLoad: 'Motor yükü',
+};
+const SIGNAL_STATE: Readonly<Record<string, string>> = {
+  valid: 'ölçüldü', stale: 'eski ölçüm', suspect: 'şüpheli ölçüm',
+};
+
+export function plainEvidence(text: string): string {
+  let m = /^Handshake sonucu: (\w+)(?: \((.+)\))?/.exec(text);
+  if (m) {
+    const ok = /^(ok|success|connected)$/i.test(m[1]);
+    if (ok) return 'OBD adaptörüyle bağlantı kuruldu';
+    return `OBD adaptörüyle bağlantı kurulamadı${m[2] && /timeout/i.test(m[2]) ? ' (adaptör yanıt vermedi)' : ''}`;
+  }
+  if (/^Handshake bu oturumda çalışmadı/.test(text)) return 'OBD bağlantısı bu oturumda hiç kurulmadı';
+  if (/^Reconnect baskısı [\d.]+ — bağlantı kararsız/.test(text)) return 'OBD bağlantısı son dakikalarda birkaç kez koptu';
+  if (/^Reconnect baskısı [\d.]+ — yakın zamanda bir kopma/.test(text)) return 'OBD bağlantısı yakın zamanda bir kez koptu';
+  if (/^Reconnect baskısı [\d.]+ — sönümlenmiş/.test(text)) return 'Daha önce bir bağlantı kopması olmuş; şu an sorun görünmüyor';
+  m = /^(\d+) reconnect kaydı \((\d+) timeout\)/.exec(text);
+  if (m) return `Bu oturumda ${m[1]} kez yeniden bağlanma denendi${Number(m[2]) > 0 ? ` (${m[2]} kez yanıt gelmedi)` : ''}`;
+  m = /^Bağlantı kalitesi %(\d+)/.exec(text);
+  if (m) return `OBD bağlantı kalitesi %${m[1]}`;
+  m = /^(\w+)=([-\d.]+)(\S*) \((\w+), güven (\d+)%\)$/.exec(text);
+  if (m) {
+    const label = SIGNAL_LABEL[m[1]] ?? m[1];
+    const state = SIGNAL_STATE[m[4]] ?? m[4];
+    return `${label}: ${m[2]}${m[3] ? ` ${m[3]}` : ''} (${state})`;
+  }
+  return text;
 }

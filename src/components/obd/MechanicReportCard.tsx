@@ -10,7 +10,7 @@ import { memo, useCallback, useEffect, useState } from 'react';
 import { Wrench, RefreshCw, Copy, Check, ShieldAlert } from 'lucide-react';
 import { getLastAiMechanicResult } from '../../platform/system/platformCoreAiRuntimeWiring';
 import {
-  buildMechanicReportView, buildServiceReportText, formatReportAge, type MechanicReportView,
+  buildMechanicReportView, buildServiceReportText, formatReportAge, plainEvidence, type MechanicReportView,
 } from '../../platform/ai/mechanic/mechanicReportView';
 import {
   isAiGatewayEnabled, isMaviMechanicEnabled, setMaviMechanicEnabled,
@@ -100,8 +100,8 @@ function MechanicReportCardInner({ dtcCodes, refreshKey }: { dtcCodes: readonly 
         <div className="mt-2 text-[12px] text-[color:var(--oem-ink-3)]">{d.insufficientDataNote}</div>
       ) : null}
 
-      <List title="Neye dayanıyor" items={d.evidence} />
-      <List title="Aksini gösteren" items={d.counterEvidence} />
+      <List title="Neye dayanıyor" items={d.evidence.map(plainEvidence)} />
+      <List title="Aksini gösteren" items={d.counterEvidence.map(plainEvidence)} />
       <List title="Güvenle kontrol edebileceklerin" items={d.nextSteps} />
 
       <div className="flex flex-wrap items-center gap-2 mt-3 pt-3 border-t border-[var(--oem-line)]">
