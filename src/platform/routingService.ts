@@ -1093,6 +1093,10 @@ function _commitRoute(
   } catch { /* kanıt kaydı rota uygulamasını ASLA düşürmez */ }
 
   useRouteStore.setState({
+    /* Eski rotanın HİÇBİR alanı (alternatif, gişe, bekleyen manevra, hata)
+       yeni rotaya taşınmaz — REROUTE'ta store artık istek başında
+       sıfırlanmadığı için sıfırlama burada yapılır. Revizyon aşağıda yazılır. */
+    ...INITIAL,
     trafficSections:          [],   // sağlayıcı vermediyse ESKİ rotanın trafiği taşınmaz
     speedLimitSections:       [],
     ...patch,
@@ -1194,9 +1198,20 @@ export async function fetchRoute(
 
   // Preserve currentStepIndex during loading so UI keeps the active turn instruction.
   // It will be overwritten to 0 once the new route geometry arrives.
-  const { currentStepIndex: _prevStepIdx } = useRouteStore.getState();
-  // ...INITIAL spreads cumulativeDistances: null → önceki Float64Array GC'ye serbest bırakılır.
-  useRouteStore.setState({ ...INITIAL, loading: true, currentStepIndex: _prevStepIdx });
+  const { currentStepIndex: _prevStepIdx, geometry: _prevGeom, steps: _prevSteps } = useRouteStore.getState();
+  /* SAHA 2026-09-25 ("rotadan çıktık, yeni rota çizmedi, rotasız gitti"):
+   * yeniden rotada da store SIFIRLANIYORDU → istek zinciri (TomTom → OSRM →
+   * çevrimdışı, sunucu başı ~7 sn) sürerken adım listesi boştu, ilerleme ve
+   * sapma değerlendirmesi TAMAMEN duruyor, haritada eski çizgi asılı kalıyor,
+   * ekran "kuş uçuşu / doğrulanmadı" diyordu. Artık REROUTE'ta mevcut rota
+   * yeni rota commit edilene kadar KORUNUR (yalnız `loading`); commit tüm
+   * alanları baştan yazar (bkz. `_commitRoute` `...INITIAL`). */
+  if (kind === 'REROUTE' && _prevGeom && _prevGeom.length >= 2 && _prevSteps.length > 0) {
+    useRouteStore.setState({ loading: true });
+  } else {
+    // ...INITIAL spreads cumulativeDistances: null → önceki Float64Array GC'ye serbest bırakılır.
+    useRouteStore.setState({ ...INITIAL, loading: true, currentStepIndex: _prevStepIdx });
+  }
 
   const _validateOne = (c: RouteCandidate): RouteValidationResult => validateRoute({
     candidate: c,
@@ -1271,6 +1286,15 @@ export async function fetchRoute(
   } else {
     const servers = getRoutingServers();
     for (const server of servers) {
+      /* Bayat istek zinciri SÜRDÜRMEZ: yerine yenisi başladıysa sonraki
+         sunucuları denemek yalnız süre yakar ve "istek uçuşta" bayrağını
+         açık tutup yeni rerouteu bekletir (saha 2026-09-25). */
+      if (!isCurrentRequest(reqId)) {
+        recordStaleRejected(reqId);
+        _note('REMOTE_OSRM', 'STALE', server, null);
+        _sealChain();
+        return;
+      }
       const _t0Server = performance.now();
       try {
         const result = server === TOMTOM_ROUTING_SERVER
@@ -1388,6 +1412,12 @@ export async function fetchRoute(
   }
 
   // ── Katman 3: WebWorker A* (offline graph) ───────────────────
+  if (!isCurrentRequest(reqId)) {          // bayat → çevrimdışı hesap da yapılmaz
+    recordStaleRejected(reqId);
+    _note('OFFLINE_GRAPH', 'STALE', 'offline-graph', null);
+    _sealChain();
+    return;
+  }
   const _t0Offline = performance.now();
   const offlineResult = await computeOfflineRoute(fromLat, fromLon, toLat, toLon);
   if (!offlineResult) {
@@ -1470,6 +1500,7 @@ export async function fetchRoute(
   _lastFix  = null;
   _offRoute = markRouteCommitted();
   useRouteStore.setState({
+    ...INITIAL,   // REROUTE'ta korunan eski rotanın alanları düz hatta taşınmaz
     loading: false,
     error:   _offline
       ? 'İnternet yok — düz hat navigasyon aktif.'
@@ -1745,6 +1776,12 @@ function _updateRouteProgressInner(
 
   // Startup guard: navigasyon başından itibaren ilk 3 s GPS stabilize değildir.
   if (_navContextStartMs > 0 && now - _navContextStartMs < 3_000) return;
+
+  /* REROUTING KİLİDİ: makine yalnız commit ile çıkıyordu. İstek bitti ama
+   * rota uygulanmadıysa (bayat/iptal/hata) kilit AÇILMIYOR, sapma bir daha
+   * değerlendirilmiyordu → araç rotasız gidiyordu. Uçuşta istek yoksa makine
+   * temiz başlar; yeni sapma yine çoklu kanıt + throttle ister (fırtına yok). */
+  if (_offRoute.state === 'REROUTING' && !_isFetchingRoute) _offRoute = initialOffRoute();
 
   _offRoute = stepOffRoute(_offRoute, {
     matchState:      fix.state,
