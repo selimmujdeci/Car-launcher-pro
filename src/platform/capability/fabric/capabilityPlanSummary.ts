@@ -39,6 +39,7 @@ import type { CapabilityPlan, PlanItem, PlanResultClass } from './capabilityPlan
 const ITEM_LABEL: Readonly<Record<string, string>> = Object.freeze({
   'navigation.route#start': 'rotayı',
   'navigation.route#startAddress': 'rotayı',
+  'navigation.route#cancel': 'rota iptalini',
   'navigation.poi#search': 'aramayı',
   'navigation.poi#findGasStation': 'benzinlik aramasını',
   'navigation.poi#findParking': 'otopark aramasını',

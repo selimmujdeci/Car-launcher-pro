@@ -13,7 +13,8 @@
  */
 
 import { bridge, type CommandResult }   from './bridge';
-import { fromAIResponse, type AppIntent } from './intentEngine';
+import { VOICE_SETTINGS } from './settingsVoice';
+import { fromAIResponse, stopNavigationResult, type AppIntent } from './intentEngine';
 import type { AIVoiceResult, VehicleContext } from './aiVoiceService';
 /* MAVI-F5: yürütme SONUCUNU capability gözlem seviyesine çevirir. Bu katman
    yeni bir yürütücü ya da ikinci bir gerçeklik kaynağı KURMAZ — yalnız kanonik
@@ -206,6 +207,24 @@ function _speak(text: string, isDriving: boolean, turn: MaviTurnToken | null): v
  */
 function _speakProgress(text: string, isDriving: boolean, turn: MaviTurnToken | null): void {
   speakMaviAnswer(text, { isDriving, tier: 'progress', turn });
+}
+
+/**
+ * Geri okunmuş (APPLIED) ayar için NE değiştiğini söyleyen cümle — genel
+ * "Ayar uygulandı" sürücüye hangi ayarın ne olduğunu anlatmıyordu.
+ */
+function _settingAppliedText(key: string | undefined, action: string | undefined, value: string | undefined): string {
+  const label = VOICE_SETTINGS.find((s) => s.key === key)?.label;
+  if (!label) return 'Ayar uygulandı';
+  const n = Number(value);
+  switch (action) {
+    case 'on':  return `${label} açıldı`;
+    case 'off': return `${label} kapatıldı`;
+    case 'inc': return `${label} artırıldı`;
+    case 'dec': return `${label} azaltıldı`;
+    case 'set': return value && Number.isFinite(n) ? `${label} yüzde ${n} yapıldı` : `${label} ayarlandı`;
+    default:    return `${label} güncellendi`;
+  }
 }
 
 /** Hata durumunda TTS + toast. */
@@ -462,6 +481,8 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<I
    * okunur ve tüm `_speak`/`_speakProgress` çağrılarına taşınır. `null` ise
    * (turn kavramı olmayan çağıran) kapı devre dışıdır → geriye uyumlu. */
   const _turn = ctx.turn ?? null;
+  /* Ev/iş sonucu da turun tek-cevap yuvasından konuşur (beyin cümlesi bastırılır). */
+  const _say = (t: string): void => _speak(t, isDriving, _turn);
 
   // Kara kutu: her dispatch anında son intent'i kaydet
   _lastIntent = intent.type;
@@ -516,7 +537,7 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<I
       case 'OPEN_NAVIGATION': {
         const dest = intent.payload.destination;
         if (isHomeWorkDestination(dest)) {
-          dispatchHomeWorkNavigation(dest);
+          dispatchHomeWorkNavigation(dest, Date.now(), _say);
           break;
         }
         ctx.launch(ctx.defaultNav);
@@ -530,6 +551,10 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<I
        * duyuyordu. Artık iki yol AYRI konuşur. (Rota isteği asenkrondur; port
        * BAĞLIYKEN bile cümle `ACCEPTED` seviyesindedir — doğrulama iddiası
        * taşımaz. Gerçek kanıt bekleyen gözlemle ölçülür.) */
+      /* "navigasyonu iptal et" — kapı yoktu; beyin en yakın yetenek olarak
+         rota BAŞLATIYORDU (smoke 2026-09-25). Yerel yolla AYNI sonuç. */
+      case 'STOP_NAVIGATION':
+        return stopNavigationResult();
       case 'NAVIGATE_ADDRESS': {
         const dest = intent.payload.destination;
         if (dest && ctx.navigateToPlace) {
@@ -880,7 +905,8 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<I
         }
         switch (ev.kind) {
           case 'APPLIED':
-            return intentResult(intent.type, 'succeeded', 'setting_readback', 'Ayar uygulandı');
+            return intentResult(intent.type, 'succeeded', 'setting_readback',
+              _settingAppliedText(intent.payload.settingKey, intent.payload.settingAction, intent.payload.settingValue));
           case 'DELIVERED':
             /* §12.3 `TRANSPORT_ACK` satırı: gönderdim, olduğunu göremiyorum. */
             return intentResult(intent.type, 'started', 'setting_unverified',
@@ -899,9 +925,17 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<I
         break;
       }
       case 'TOGGLE_SLEEP_MODE': {
-        // MainLayout registerCommandHandler tarafından yakalanır
-        _speak('Uyku modu değiştirildi', isDriving, _turn);
-        break;
+        /* Eski yorum ("MainLayout yakalar") beyin yolu için DOĞRU DEĞİLDİ: hiçbir
+           şey değişmeden "değiştirildi" deniyordu (smoke 2026-09-25). Yerel yolla
+           aynı ayar yazılır ve geri okunur. */
+        const before = useStore.getState().settings.sleepMode;
+        useStore.getState().updateSettings({ sleepMode: !before });
+        const after = useStore.getState().settings.sleepMode;
+        if (after === before) {
+          return intentResult(intent.type, 'failed', 'sleep_mode_unchanged', 'Uyku modunu değiştiremedim.');
+        }
+        return intentResult(intent.type, 'succeeded', 'sleep_mode_readback',
+          after ? 'Uyku modu açıldı' : 'Uyku modu kapatıldı');
       }
       case 'SHOW_WEATHER': {
         ctx.openWeather?.();

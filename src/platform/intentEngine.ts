@@ -25,6 +25,14 @@ import { isHomeWorkDestination, dispatchHomeWorkNavigation } from './homeWorkNav
 import type { NearbyPoiCategory } from './nearbyPoiNavigation';
 // MAVI-M3: yürütme sonucu sözleşmesi (saf veri — TTS/UI/store yan etkisi YOK).
 import { intentResult, type IntentExecutionResult } from './intentExecutionResult';
+import { cancelNavigationByVoice } from './navigationService';
+
+/** Sesli navigasyon iptali — yerel ve beyin yolu AYNI sonucu üretir. */
+export function stopNavigationResult(): IntentExecutionResult {
+  return cancelNavigationByVoice() === 'cancelled'
+    ? intentResult('STOP_NAVIGATION', 'succeeded', 'navigation_ended', 'Navigasyonu sonlandırdım.')
+    : intentResult('STOP_NAVIGATION', 'succeeded', 'nothing_active', 'Şu an aktif bir rota yok.');
+}
 
 /* ── Intent types ────────────────────────────────────────── */
 
@@ -39,6 +47,7 @@ export type IntentType =
   /** "biraz yoruldum / mola vereyim" — otoyol dinlenme tesisi.
    *  Eskiden FIND_NEARBY_PARKING'e düşüyordu ve ŞEHİR OTOPARKI öneriyordu. */
   | 'FIND_NEARBY_REST_AREA'
+  | 'STOP_NAVIGATION'     // Aktif navigasyon oturumunu kapat
   | 'OPEN_MUSIC'
   | 'PLAY_MUSIC_SEARCH'
   | 'PLAY_MUSIC_QUERY'
@@ -184,6 +193,7 @@ const CMD_TO_INTENT: Record<CommandType, IntentType> = {
   navigate_work:        'OPEN_NAVIGATION',
   navigate_address:     'NAVIGATE_ADDRESS',
   navigate_place:       'NAVIGATE_PLACE',
+  stop_navigation:      'STOP_NAVIGATION',
   find_nearby_gas:        'FIND_NEARBY_GAS',
   find_nearby_parking:    'FIND_NEARBY_PARKING',
   find_nearby_restaurant: 'UNKNOWN',
@@ -460,6 +470,8 @@ export async function routeIntent(intent: AppIntent, ctx: RouterContext): Promis
       if (appId) ctx.launch(appId);
       break;
     }
+    case 'STOP_NAVIGATION':
+      return stopNavigationResult();
     case 'OPEN_PHONE':
     case 'OPEN_LAST_APP': {
       const appId = intent.payload.targetApp;
@@ -640,7 +652,7 @@ export async function routeIntent(intent: AppIntent, ctx: RouterContext): Promis
 /** All valid intent strings — used to validate AI output before trusting it. */
 const VALID_INTENTS = new Set<IntentType>([
   'SEARCH_POI',
-  'OPEN_NAVIGATION', 'NAVIGATE_ADDRESS', 'NAVIGATE_PLACE',
+  'OPEN_NAVIGATION', 'NAVIGATE_ADDRESS', 'NAVIGATE_PLACE', 'STOP_NAVIGATION',
   'FIND_NEARBY_GAS', 'FIND_NEARBY_PARKING', 'FIND_NEARBY_HOSPITAL', 'FIND_NEARBY_REST_AREA',
   'OPEN_MUSIC', 'PLAY_MUSIC_SEARCH', 'PLAY_MUSIC_QUERY', 'ADD_MUSIC_FAVORITE', 'OPEN_PHONE', 'OPEN_APP', 'OPEN_SCREEN', 'OPEN_SETTINGS',
   'PLAY_MEDIA', 'PAUSE_MEDIA', 'MEDIA_NEXT', 'MEDIA_PREV', 'MEDIA_VIDEO_MODE',

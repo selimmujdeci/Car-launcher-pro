@@ -137,6 +137,16 @@ export const RADIO_KINDS: readonly MusicIntentKind[] = Object.freeze([
   'CONTINUE_LIKE_THIS', 'START_RADIO', 'PLAY_FAVORITES_MIX', 'LONG_DRIVE_MIX',
 ]);
 
+/**
+ * Kendi ayrık kalıplarıyla eşleşen, genel "aç/çal" yakalayıcısına DAYANMAYAN
+ * türler — yerel ses kestirmesi bunları serbest arama sanmamalı.
+ */
+export function isNarrowSafeMusicKind(kind: MusicIntentKind): boolean {
+  return QUEUE_KINDS.includes(kind) || CONTEXTUAL_KINDS.includes(kind)
+    || COLLECTION_KINDS.includes(kind) || PLAYLIST_KINDS.includes(kind)
+    || LYRICS_KINDS.includes(kind) || RADIO_KINDS.includes(kind);
+}
+
 /** Niyetin kanonik yürütücüsü — LAB'da "hangi otorite çalıştırdı" olarak görünür. */
 export type MusicIntentRoute =
   | 'F0_COMMAND_GATEWAY'

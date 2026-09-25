@@ -24,6 +24,17 @@ import { speakEdge, isEdgeTtsAvailable, cancelEdge } from './edgeTtsService';
 import { beginPcmPlayback, cancelPcmPlayback, type PcmPlaybackHandle } from './livePcmTtsService';
 /* MAVI-F0: ilk duyulabilir ses ölçümü (YALNIZ ÖLÇÜM — hiçbir TTS kararını etkilemez). */
 import { markMaviLatency } from './assistant/maviLatencyTrace';
+import { DEVELOPER_FEATURES_ENABLED } from './debug/developerFeatures';
+
+/* Geliştirici derlemesi: söylenen metnin sınırlı kaydı (Mavi smoke testi).
+   Satış derlemesinde ölü kod olarak elenir; davranışı değiştirmez. */
+function _devLogSpeech(kind: string, text: string): void {
+  if (!DEVELOPER_FEATURES_ENABLED || typeof window === 'undefined') return;
+  const w = window as unknown as { __carosSpeech?: Array<{ k: string; t: string; at: number }> };
+  const log = (w.__carosSpeech ??= []);
+  log.push({ k: kind, t: text.slice(0, 300), at: Date.now() });
+  if (log.length > 300) log.splice(0, log.length - 300);
+}
 
 /* ── Platform detection ──────────────────────────────────── */
 
@@ -586,6 +597,7 @@ interface SpeakOptions {
 
 export function ttsSpeak(text: string, opts: SpeakOptions = {}): void {
   if (!text.trim()) return;
+  _devLogSpeech('speak', text);
 
   const now = Date.now();
   if (!opts.force && text === _lastSpokenText && now - _lastSpokenAt < MIN_REPEAT_MS) {
@@ -901,15 +913,17 @@ export function speakLivePcm(onEnd?: () => void): PcmPlaybackHandle | null {
   }, reason);
   if (!handle) { _markSpeakingEnd(); return null; }
   _markTransport('WEBVIEW_AUDIO');   // MAVI-F12: WebView'den çalar → mikrofon açık kalır
+  let _devPcmBytes = 0;
   return {
     get active(): boolean { return handle.active; },
     push: (pcm: ArrayBuffer): void => {
+      _devPcmBytes += pcm.byteLength;
       handle.push(pcm);
       // Akış ortası: emniyet tavanı tazelenir (uzun cevap ortada kesilmesin).
       _refreshSpeakingClock();
       _speakingMaxMs = Math.max(_speakingMaxMs, MAX_SPEAKING_MS);
     },
-    end: (): void => { handle.end(); },
+    end: (): void => { _devLogSpeech('pcm', `${_devPcmBytes} bayt`); handle.end(); },
     cancel: (): void => { handle.cancel(); if (seq === _speakSeq) _markSpeakingEnd(); },
   };
 }
@@ -917,6 +931,7 @@ export function speakLivePcm(onEnd?: () => void): PcmPlaybackHandle | null {
 export function speakAssistant(text: string, onEnd?: () => void): void {
   const t = text?.trim();
   if (!t) return;
+  _devLogSpeech('assistant', t);
   if (typeof window !== 'undefined' && (window as unknown as Record<string, unknown>).__SAFETY_LOCK__) return;
 
   // Premium/asistan cevabı BAŞLARKEN uçuştaki HER kanalı sustur: tarayıcı ara sözü

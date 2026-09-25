@@ -112,6 +112,7 @@ import {
   setMaviLatencyCapability,
   setMaviLatencyPlan,
   setMaviLatencyWorkload,
+  getMaviLatencyEvidence,
 } from './assistant/maviLatencyTrace';
 /* MAVI-F3 · KISMİ TRANSKRİPT AKIŞI. Bu modül HİÇBİR eylem yolu import etmez ve
    `processTextCommand`ı ÇAĞIRAMAZ: kısmi sonuç yalnız artımlı anlama ve endpoint
@@ -619,6 +620,7 @@ export { cancelAssistantDuck } from './voice/voicePerceptionRuntime';
 /* MUSIC F14 · yerel bağlama için AYRICA import edilir (yukarıdaki satır yalnız
    YENİDEN VERİR, bu dosyanın İÇİNDE çağrılabilir bir isim YARATMAZ). */
 import { cancelAssistantDuck as _cancelAssistantDuck } from './voice/voicePerceptionRuntime';
+import { DEVELOPER_FEATURES_ENABLED } from './debug/developerFeatures';
 
 
 /* ── Voice Lifecycle Events (Faz-3 · MAVI3-1 — ADDITIVE gözlemlenebilirlik) ──
@@ -1655,6 +1657,18 @@ async function _warmupBrain(): Promise<void> {
  * ("leyla türk" ← "Leyla Göktürk"). Online + Gemini varsa sorgu hızlı bir
  * onarım çağrısından geçer (≤1.8s); başarısız/zaman aşımında ham sorgu
  * AYNEN kullanılır — komut asla bloklanmaz (fail-soft). */
+/** F9'un ayrık müzik niyeti (sakin şey · sözler · kuyruk…) ya da `null`. Modül yüklenemezse `null` (eski yol). */
+async function _narrowF9MusicIntent(text: string): Promise<Parameters<typeof _answerMusicIntent>[0] | null> {
+  try {
+    const [{ resolveMusicIntent }, { isNarrowSafeMusicKind }] = await Promise.all([
+      import('./media/intent/musicIntentResolver'),
+      import('./media/intent/musicIntent'),
+    ]);
+    const mi = resolveMusicIntent(text);
+    return mi !== null && isNarrowSafeMusicKind(mi.kind) ? mi : null;
+  } catch { return null; }
+}
+
 async function _maybeRepairMusicQuery(cmd: ParsedCommand): Promise<void> {
   try {
     const extra = cmd.extra as Record<string, string> | undefined;
@@ -2037,8 +2051,14 @@ export async function processTextCommand(
     /* Parser aynı metni FARKLI bir tipe çözdüyse hızlı yol AÇILMAZ: iki yerel
      * karar çelişiyorsa hakem sağlayıcıdır (fail-closed — hızlı yol asla
      * parser'ın kararını EZMEZ). */
+    /* "parlaklığı artır": parser aynı niyeti kanıtlı ayar yolundan (set_setting ·
+       brightness) çözer — bu bir çelişki DEĞİLDİR, aynı yön ise yerelde kalır. */
+    const sameBrightness = fast !== null && result.command?.type === 'set_setting'
+      && result.command.extra?.settingKey === 'brightness'
+      && ((fast.type === 'screen_brightness_up' && result.command.extra?.settingAction === 'inc')
+        || (fast.type === 'screen_brightness_down' && result.command.extra?.settingAction === 'dec'));
     const agrees = fast !== null
-      && (result.command === null || result.command.type === fast.type);
+      && (result.command === null || result.command.type === fast.type || sameBrightness);
     if (fast && agrees) {
       _lastCommandTime = now;
       void reportVoiceDiag('voice_route', { route: 'local_fast_path' });
@@ -2082,6 +2102,20 @@ export async function processTextCommand(
   // 2026-09-25: beyin sorgusuz "müzik aç" önerip rastgele müzik çalıyor ya da
   // hiçbir şey yapmadan "müzik başlatıldı" diyordu). Aynı yerel yol: ASR isim
   // onarımı → tur mühürü → dispatch (fallback (a) dalıyla birebir).
+  /* "daha sakin bir şey çal" · "şarkı sözlerini göster": parser bunları serbest
+     aramaya çevirir (smoke 2026-09-25: literal aranıp alakasız video çalıyordu).
+     F9'un ayrık kalıbı tutuyorsa aşağıdaki 1c0 ile AYNI kanonik yürütücüye gider. */
+  if (isExplicitMusicQueryForLocal(result.command, trimmed, AUTO_DISPATCH_MIN)) {
+    const narrow = await _narrowF9MusicIntent(trimmed);
+    if (!continueIfTurnActive(turn, 'action')) return false;
+    if (narrow) {
+      _lastCommandTime = now;
+      void reportVoiceDiag('voice_route', { route: 'music_intent_local_bypass' });
+      setMaviLatencyRoute('music_intent_local_bypass');
+      void _answerMusicIntent(narrow, turn);
+      return true;
+    }
+  }
   if (isExplicitMusicQueryForLocal(result.command, trimmed, AUTO_DISPATCH_MIN) && result.command) {
     _lastCommandTime = now;
     void reportVoiceDiag('voice_route', { route: 'music_query_local_bypass' });
@@ -3244,4 +3278,18 @@ export function useVoiceState(): VoiceState {
     return () => { _stateListeners.delete(setState); };
   }, []);
   return state;
+}
+
+/* ── GELİŞTİRİCİ TEST GİRİŞİ (yalnız CAROS LAB derlemeleri) ──────────────────
+ * Mavi smoke testi (2026-09-25): mikrofon olmadan komutları SESLİ komutla AYNI
+ * yoldan (`processTextCommand`) sürmek için. `DEVELOPER_FEATURES_ENABLED`
+ * derleme zamanında katlanır → satış derlemesinde bu blok ölü kod olarak ELENİR.
+ * Yeni yetki/otorite kurmaz: yalnız mevcut giriş ve durum okuması açılır. */
+if (DEVELOPER_FEATURES_ENABLED && typeof window !== 'undefined') {
+  (window as unknown as { __carosMavi?: unknown }).__carosMavi = Object.freeze({
+    run: (text: string) => { openMaviLatencyTrace(); return processTextCommand(text); },
+    state: () => getVoiceSnapshot(),
+    /* Tur izi (yol · yetenek kararı · hata kodu) — ölçüm şalteri açıksa dolar. */
+    trace: () => getMaviLatencyEvidence(),
+  });
 }

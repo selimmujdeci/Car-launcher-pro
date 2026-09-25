@@ -250,7 +250,7 @@ describe('Saat gün/gece kanonik kaynak kilidi', () => {
 describe('Sesli navigasyon uygulama-içi kilidi', () => {
   it('YAPISAL: commandExecutor OPEN_NAVIGATION harici bridge.launchNavigation kullanmaz', () => {
     const src = read('src/platform/commandExecutor.ts');
-    const block = src.slice(src.indexOf("case 'OPEN_NAVIGATION'"), src.indexOf("case 'OPEN_NAVIGATION'") + 220);
+    const block = src.slice(src.indexOf("case 'OPEN_NAVIGATION'"), src.indexOf("case 'OPEN_NAVIGATION'") + 280);   // ev/iş satırı konuşma portu aldı
     expect(block).toMatch(/ctx\.launch\(/);
     expect(block).not.toMatch(/bridge\.launchNavigation/);
   });

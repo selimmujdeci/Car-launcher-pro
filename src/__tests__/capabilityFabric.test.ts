@@ -453,7 +453,10 @@ describe('MAVI-F5 · F · prompt listesi tek kaynaktan türetilir', () => {
      * eskiden "müziği devam ettir" katalogda YOKTU ve `PAUSE_MEDIA`nın tersi
      * olan işlem beyne kapalıydı. Bilinçli eklemeler AÇIKÇA listelenir ki
      * gözden kaçan bir genişleme sessizce geçemesin. */
-    const ADDED_SINCE_F5 = ['PLAY_MEDIA'];               // MAVI-F7 · media.playback#resume
+    const ADDED_SINCE_F5 = [
+      'PLAY_MEDIA',                                       // MAVI-F7 · media.playback#resume
+      'STOP_NAVIGATION',                                  // navigation.route#cancel — beyin "iptal"i rota başlatmaya çeviriyordu
+    ];
     const LEGACY_ONLY = ['SHOW_WEATHER', 'ENABLE_DRIVING_MODE', 'TOGGLE_SLEEP_MODE', 'REMEMBER', 'FORGET'];
     const derivedSet = new Set([...brainExposedIntents(), ...LEGACY_ONLY]);
     for (const i of ORIGINAL_29) {

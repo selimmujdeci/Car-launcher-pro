@@ -376,7 +376,13 @@ export async function readDTCCodes(): Promise<void> {
         // UI "hata okunamadı" ile "hata yok" arasındaki farkı isStale üzerinden ayırt eder.
         // Native nedeni eklenir — "OBD bağlı değil" / "ELM327 hata yanıtı" ayrımı
         // saha teşhisinde kritik (2026-06-11: metot hiç yoktu, hep generic mesajdı).
-        const detail = err instanceof Error && err.message ? ` — ${err.message}` : '';
+        /* Eklenti `reject("DTC_READ_FAILED", msg)` çağırır → Capacitor'da ilk argüman
+           `message` olur. Makine kodu (BÜYÜK_HARF) sürücüye okunmaz; insan metni seçilir. */
+        const e = err as { message?: unknown; code?: unknown } | null;
+        const human = [e?.code, e?.message].find(
+          (t): t is string => typeof t === 'string' && t.trim() !== '' && !/^[A-Z0-9_]+$/.test(t.trim()),
+        );
+        const detail = human ? ` — ${human}` : '';
         _setState({
           isReading: false,
           lastReadAt: Date.now(),

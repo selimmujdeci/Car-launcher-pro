@@ -93,6 +93,16 @@ export const CAROS_CAPABILITY_CATALOG: readonly CapabilityOperationDef[] = Objec
     legacyIntent: 'NAVIGATE_ADDRESS', exposedToBrain: true,
   }),
   Object.freeze({
+    capabilityId: 'navigation.route', operation: 'cancel', version: 1,
+    domain: 'navigation',
+    description: 'Aktif navigasyonu/rotayı iptal eder. Rota yoksa bunu söyler.',
+    parameters: Object.freeze({}),
+    safetyClass: 'navigation', requiresConfirmation: false, cancellable: false,
+    observationCeiling: 'ACCEPTED',
+    requiredCapabilities: Object.freeze([]),
+    legacyIntent: 'STOP_NAVIGATION', exposedToBrain: true,
+  }),
+  Object.freeze({
     capabilityId: 'navigation.poi', operation: 'search', version: 1,
     domain: 'navigation',
     description: 'Yakında bir kategori ya da terim için yer arar.',

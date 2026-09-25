@@ -349,6 +349,17 @@ export function endNavigation(): void {
 }
 
 /**
+ * Sesli "navigasyonu iptal et": aktif oturum varsa `endNavigation` ile kapatır.
+ * Oturum yoksa HİÇBİR ŞEY yapmaz ve bunu dürüstçe bildirir (sahte "iptal ettim" yok).
+ */
+export function cancelNavigationByVoice(): 'cancelled' | 'nothing_active' {
+  const st = useNavigationStore.getState().status;
+  if (st === NavStatus.IDLE || st === NavStatus.ERROR) return 'nothing_active';
+  endNavigation();
+  return 'cancelled';
+}
+
+/**
  * Hedef seçildi — PREVIEW durumuna gir.
  *
  * `source` (kütük #429): hedefi KİMİN belirlediği. Sahada, aktif yolculuk

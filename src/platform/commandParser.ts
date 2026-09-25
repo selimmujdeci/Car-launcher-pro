@@ -46,6 +46,7 @@ export type CommandType =
   | 'navigate_work'
   | 'navigate_address'
   | 'navigate_place'
+  | 'stop_navigation'
   | 'find_nearby_gas'
   | 'find_nearby_parking'
   | 'find_nearby_restaurant'
@@ -320,6 +321,7 @@ const PATTERNS: CommandPattern[] = [
       'geri git şarkı', 'aynı şarkıyı tekrar çal', 'geri dön şarkı',
       // Uzun
       'önceki şarkıya dön', 'bir önceki parçaya geç', 'şarkıyı geri al',
+      'önceki şarkıya geç', 'önceki parçaya geç', 'önceki şarkıyı çal',
     ],
     tokens: ['onceki', 'previous', 'prev', 'geri', 'back', 'eski'],
   },
@@ -505,6 +507,7 @@ const PATTERNS: CommandPattern[] = [
     label: 'Uyku Modunu Aç/Kapat', example: 'uyku modunu aç',
     keywords: [
       'uyku modunu aç', 'uyku modunu kapat', 'uyku modu', 'sleep mode',
+      'uyku moduna al', 'uyku moduna geç',
       'bekleme modu', 'ekran uyku', 'sistem uyku',
     ],
     tokens: ['uyku', 'sleep', 'bekleme'],
@@ -517,7 +520,8 @@ const PATTERNS: CommandPattern[] = [
       'hızım kaç', 'hız kaç', 'hız nedir', 'ne kadar hızlı', 'hız göster', 'current speed',
       'kaç km gidiyorum', 'hızımı söyle', 'şu an hızım', 'hız limitim ne',
     ],
-    tokens: ['hiz', 'speed', 'kac', 'kmh', 'kilometre'],
+    // 'kac' YOK: "yüz yirmi bölü dört kaç" hız sorusu sanılıyordu (smoke 2026-09-25).
+    tokens: ['hiz', 'speed', 'kmh', 'kilometre'],
   },
   {
     type: 'vehicle_fuel', priority: 'normal',
@@ -567,6 +571,18 @@ const PATTERNS: CommandPattern[] = [
       'kaydet bu şarkıyı', 'beğendim ekle', 'şarkıyı kaydet',
     ],
     tokens: ['favori', 'favorilere', 'ekle', 'kaydet'],
+  },
+  {
+    type: 'stop_navigation', priority: 'high',
+    feedback: 'Navigasyon sonlandırılıyor',
+    label: 'Navigasyonu Bitir', example: 'navigasyonu iptal et',
+    // Yalnız TAM ifadeler: "rota"/"iptal" tek başına başka komutları gasp etmesin.
+    keywords: [
+      'navigasyonu iptal et', 'navigasyonu kapat', 'navigasyonu durdur', 'navigasyonu bitir',
+      'navigasyonu sonlandır', 'rotayı iptal et', 'rotayı kapat', 'rotayı durdur',
+      'rotayı bitir', 'rotayı sonlandır', 'rotayı sil', 'yol tarifini durdur', 'yol tarifini kapat',
+    ],
+    tokens: [],
   },
   {
     type: 'show_traffic', priority: 'normal',
@@ -749,6 +765,7 @@ const PATTERNS: CommandPattern[] = [
     keywords: [
       'arka kamerayı aç', 'arka kamera aç', 'geri kamera aç', 'geri kameraya bak', 'arka kameraya geç', 'reverse kamera',
       'park kamerası', 'geri görüş', 'geri vitese aldım kamerayı aç',
+      'geri görüş kamerasını aç', 'geri görüş kamerası', 'arka kamerayı göster',
     ],
     tokens: ['arka', 'geri', 'kamera', 'camera', 'rear', 'park'],
   },
@@ -1002,6 +1019,8 @@ const FAST_PATH_TYPES: ReadonlySet<CommandType> = new Set<CommandType>([
   /* Sabit hedefli navigasyon — hedef kullanıcı ayarından gelir, metinden DEĞİL;
      serbest adres (`navigate_address`/`navigate_place`) BİLİNÇLİ olarak YOK. */
   'navigate_home', 'navigate_work',
+  /* Aktif oturumu kapatma — parametresiz; oturum yoksa yürütücü dürüstçe söyler. */
+  'stop_navigation',
   /* Mesaj okuma — parametresiz; içerik YEREL veridir (bildirim servisi).
      SAHA 2026-09-24: "Mavi, mesajı oku" beyne (Gemini Live) gidiyor, model
      mesajlara erişemediği için "okumaya yetkim yok" deyip turu kapatıyordu. */
@@ -1179,7 +1198,8 @@ function scorePattern(
   // 3 harfli gerçek token'lar ('hiz') Tier-2 exact/prefix ile zaten yakalanır.
   if (score === 0) {
     for (const tok of inputTokens) {
-      if (tok.length < 4) continue;
+      // Asistanın adı komut değildir: "mavi" ~ "navi" (0.66) → "merhaba mavi" harita sanılıyordu.
+      if (tok.length < 4 || tok === 'mavi') continue;
       for (const pt of pattern.tokens) {
         if (pt.length < 4) continue;
         const dist = levenshtein(tok, pt);

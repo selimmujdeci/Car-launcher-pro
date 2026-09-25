@@ -266,6 +266,8 @@ export async function getMaintenanceSummaryText(): Promise<string> {
   const assessments = await getMaintenanceAssessment();
   const issues = assessments.filter(a => a.status !== 'ok');
 
+  // Hiç kayıt yoksa "güncel" demek uydurma olur (smoke 2026-09-25).
+  if (assessments.length === 0) return 'Kayıtlı bakım bilgisi yok. Bakım tarihlerini eklersen takip edebilirim.';
   if (issues.length === 0) return 'Tüm araç bakımları güncel görünüyor.';
 
   const parts = issues.map((a) => {
