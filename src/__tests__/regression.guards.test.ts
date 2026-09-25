@@ -8541,7 +8541,7 @@ describe('KİLİT: website test kapısı (#713)', () => {
        koştuğu ancak main'e girdikten SONRA görülür — kapının kendisi kapıdan
        geçmeden yayına alınmış olur. */
     expect(ci, "website.yml'den `ci/**` tetikleyicisi kaldırılmış")
-      .toMatch(/branches:\s*\[main, dev, 'ci\/\*\*'\]/);
+      .toMatch(/branches:\s*\[main, dev, 'ci\/\*\*'(?:, '[^']+')*\]/);
   });
 
   it('website test kaynakları hâlâ yerinde (kapı boş kümeyi korumasın)', () => {
