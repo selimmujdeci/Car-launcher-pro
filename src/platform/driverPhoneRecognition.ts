@@ -76,7 +76,8 @@ export function subscribeConnectedBtDevices(fn: () => void): () => void {
   return () => { _listeners.delete(fn); };
 }
 
-function _isMoving(): boolean {
+/** Ölçülen hız (önce OBD, yoksa GPS) hareket eşiğinin üstünde mi; hız bilinmiyorsa false. */
+export function isVehicleMovingNow(): boolean {
   const obd = getObdSpeedFresh();
   if (obd !== null) return obd > MOVING_KMH;
   const gps = getGPSSpeedKmh();
@@ -87,7 +88,7 @@ function _evaluate(candidates: string[]): void {
   const s = useStore.getState().settings;
   const decision = decidePhoneSwitch({
     drivers: s.driverProfiles ?? [], activeId: s.activeDriverProfileId,
-    connected: new Set(_connected.keys()), candidates, moving: _isMoving(),
+    connected: new Set(_connected.keys()), candidates, moving: isVehicleMovingNow(),
   });
   if (decision.action === 'none') return;
   const d = (s.driverProfiles ?? []).find((x) => x.id === decision.driverId);

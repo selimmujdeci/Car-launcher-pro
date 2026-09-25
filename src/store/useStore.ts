@@ -279,6 +279,8 @@ export interface AppSettings {
   /** Sürücü profilleri — araç profillerinden AYRI liste (v17). */
   driverProfiles: DriverProfile[];
   activeDriverProfileId: string | null;
+  /** İlk kurulum sihirbazı tamamlandı/atlandı mı (yeni kurulumda false). */
+  setupCompleted: boolean;
   autoNavOnStart: boolean;
   /** Açılışta, kapanmadan önce ÇALAN ve kullanıcının DURAKLATMADIĞI müziğe devam et (varsayılan kapalı). */
   resumeMusicOnStart: boolean;
@@ -467,6 +469,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   activeVehicleProfileId: null,
   driverProfiles: [],
   activeDriverProfileId: null,
+  setupCompleted: false,
   autoNavOnStart: false,
   resumeMusicOnStart: false,
   speedVolumeLevel: 'OFF',
@@ -591,7 +594,7 @@ export const useStore = create<StoreState>()(
         setItem: (name, value) => safeStorage.setItem(name, value),
         removeItem: (name) => safeStorage.removeItem(name),
       })),
-      version: 17,
+      version: 18,
       migrate: (persistedState: unknown, fromVersion: number) => {
         const ps = (persistedState as { settings?: Partial<AppSettings> }) ?? {};
         const settings: AppSettings = { ...DEFAULT_SETTINGS, ...(ps.settings ?? {}) };
@@ -661,6 +664,10 @@ export const useStore = create<StoreState>()(
               settings.activeVehicleProfileId = settings.vehicleProfiles[0]?.id ?? null;
             }
           }
+        }
+        if (fromVersion < 18) {
+          // v18: ilk kurulum sihirbazı — mevcut kullanıcı zaten kurmuş sayılır.
+          settings.setupCompleted = true;
         }
         return { ...ps, settings };
       },

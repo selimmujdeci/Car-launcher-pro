@@ -29,6 +29,7 @@ import { systemBoot }         from './platform/system/SystemBoot';
 import { onVehicleEvent }     from './platform/vehicleDataLayer/VehicleEventHub';
 import { useRoleStore }       from './platform/roleSystem/RoleStore';
 import { useNavigationOrientationMode } from './platform/navigation/navigationOrientation';
+import { FirstRunSetup } from './components/setup/FirstRunSetup';
 
 const DebugPanel = lazy(() =>
   import('./components/debug/DebugPanel').then((m) => ({ default: m.DebugPanel })),
@@ -211,6 +212,8 @@ function App() {
         </SafetyProvider>
 
         {!storeReverse && <GlobalAlert />}
+        {/* İlk kurulum sihirbazı — yalnız yeni kurulumda; geri viteste ve sürüşte gizli. */}
+        {!storeReverse && <FirstRunSetup />}
         {/* Global "Tanı Gönder" — her ekranda erişilebilir tek tetik (saha veri
             toplama fazı); geri viteste gizli (kamera temiz). */}
         {!storeReverse && <GlobalDiagnosticButton />}
