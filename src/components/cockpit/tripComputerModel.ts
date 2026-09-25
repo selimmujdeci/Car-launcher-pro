@@ -289,10 +289,12 @@ export function fromSessionProjection(
   return Object.freeze({
     /* Oturum sürüyor: hedefe VARILDIYSA tamamlanmış yolculuk gösterilir.
        Depolama segmentinin kapanması bu hükmü VERMEZ. */
-    view: (p.journeyCompleted ? 'last' : 'active') as TripView,
+    /* Mola sınırı aşıldıysa bu yolculuk fiilen bitmiştir (sonraki hareket YENİ
+       oturum açar) — "süren yolculuk" denmez; bitiş = molanın başladığı an. */
+    view: (p.journeyCompleted || p.breakExceededSession ? 'last' : 'active') as TripView,
     metrics,
     startedAtMs: p.startWallMs,
-    endedAtMs: null,
+    endedAtMs: p.breakExceededSession ? p.breakSinceWallMs : null,
     currency: p.priceCurrency,
     priceSource: p.priceSource,
     tankL: fuel.tankL,

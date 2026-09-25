@@ -193,6 +193,13 @@ export interface TripSession {
   readonly completion: TripSessionCompletion;
   /** Son örnekte navigasyon oturumu açık mıydı. */
   readonly routeActive: boolean;
+  /**
+   * Mola BAŞLARKEN rota açık mıydı. 45 dk kuralı buna bakar: dinlenme
+   * tesisindeki mola yolculuğu bölmez, ama molanın ARDINDAN kurulan rota eski
+   * yolculuğu uzatmaz (saha 2026-09-25: 49 dk mola sonrası rota → oturum
+   * 12:27'den 4 saat sürdü).
+   */
+  readonly routeActiveAtBreakStart: boolean;
   /** Oturum açılırken gözlenen varış mührü sırası (sahiplenme sınırı). */
   readonly arrivalSeqAtOpen: number;
   /** Oturum kimliği — `null` = henüz hiç hareket edilmedi. */
@@ -282,6 +289,8 @@ export interface TripSessionProjection {
    * motoru kapatmak). Eşik yalnız niyetin BİLİNMEDİĞİ sürüşlerde işler.
    */
   readonly breakExceededSession: boolean;
+  /** Süren molanın başladığı duvar saati; mola yoksa `null`. */
+  readonly breakSinceWallMs: number | null;
   readonly kind: TripSessionKind;
   readonly completion: TripSessionCompletion;
   /** Navigasyon oturumu şu an açık mı. */
@@ -357,6 +366,7 @@ export function emptyTripSession(): TripSession {
     kind:             'DRIVE_LOG',
     completion:       'OPEN',
     routeActive:      false,
+    routeActiveAtBreakStart: false,
     arrivalSeqAtOpen: 0,
     sessionId:        null,
     startWallMs:      null,
@@ -575,6 +585,7 @@ export function advanceTripSession(
       next = {
         ...next,
         breakSinceMonoMs: startedAt,
+        routeActiveAtBreakStart: session.routeActive,
         stopPeriods: [...periods, { startedMonoMs: startedAt, endedMonoMs: null, durationMs: 0 }],
       };
     }
@@ -611,7 +622,7 @@ export function advanceTripSession(
        ve motorun kapatılması hedefe varmak DEĞİLDİR. Eşik yalnız hedefsiz
        sürüşlerde (sürüş günlüğü) işler; orada da "yolculuk tamamlandı"
        demez — yalnız yeni bir kayıt bloğu açar (bkz. `journeyCompleted`). */
-    if (breakMs >= SESSION_MAX_BREAK_MS && !session.routeActive) {
+    if (breakMs >= SESSION_MAX_BREAK_MS && !session.routeActiveAtBreakStart) {
       return _open(seg, sample);
     }
 
@@ -625,6 +636,7 @@ export function advanceTripSession(
       ...session,
       sealedBreakMs:    session.sealedBreakMs + breakMs,
       breakSinceMonoMs: null,
+      routeActiveAtBreakStart: false,
       stopPeriods:      periods,
       segmentCount:     session.segmentCount + 1,
     };
@@ -685,7 +697,7 @@ export function projectTripSession(
     sessionId: null, state: 'NOT_STARTED', startWallMs: null,
     elapsedMs: 0, movingMs: 0, stoppedMs: 0, unknownMs: 0, distanceMeters: 0,
     startLocation: null, currentLocation: null, stopPeriods: [],
-    segmentCount: 0, currentBreakMs: 0, breakExceededSession: false,
+    segmentCount: 0, currentBreakMs: 0, breakExceededSession: false, breakSinceWallMs: null,
     kind: 'DRIVE_LOG', completion: 'OPEN', routeActive: false,
     journeyCompleted: false,
     gpsDistanceMeters: 0, obdDistanceMeters: 0,
@@ -758,8 +770,12 @@ export function projectTripSession(
     currentBreakMs,
     /* Rota aktifken eşik İŞLEMEZ: bir sonraki hareket yeni oturum AÇMAZ,
        dolayısıyla "bu seyahat fiilen bitti" de denemez. */
-    breakExceededSession: !session.routeActive
+    breakExceededSession: !session.routeActiveAtBreakStart
       && currentBreakMs >= SESSION_MAX_BREAK_MS,
+    /* Molanın başladığı duvar saati — başlangıç duvar saatinden monotonik farkla. */
+    breakSinceWallMs: session.breakSinceMonoMs !== null && session.startWallMs !== null
+      && session.startMonoMs !== null
+      ? session.startWallMs + (session.breakSinceMonoMs - session.startMonoMs) : null,
     kind:             session.kind,
     completion:       session.completion,
     routeActive:      session.routeActive,
