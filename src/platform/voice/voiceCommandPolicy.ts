@@ -80,6 +80,10 @@ const RESULT_ACK_COMMAND_TYPES: ReadonlySet<ParsedCommand['type']> = new Set<Par
    * "Hazırladım" YALNIZ gerçek `prepareWhatsAppMessage` sonucundan gelir;
    * ASLA "gönderdim" (WhatsApp gerçek gönderimi doğrulanamaz — M3 deseni). */
   'send_location_contact',
+  /* Ev/İş ve rota iptali: "Eve gidiyoruz" adres KAYITSIZKEN de konuşuluyor,
+   * ardından "Ev adresi kayıtlı değil" geliyordu (smoke 2026-09-25). Ses
+   * yalnız gerçek sonuçtan (adres var mı · rota aktif mi) üretilir. */
+  'navigate_home', 'navigate_work', 'stop_navigation',
 ]);
 
 /** Sesi YALNIZ yürütme sonucundan gelen komut mu (parser metni konuşulmaz). */

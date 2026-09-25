@@ -4,7 +4,8 @@
  */
 import { describe, it, expect } from 'vitest';
 import { parseCommandFull, matchDeterministicWholeInput } from '../platform/commandParser';
-import { stopNavigationResult } from '../platform/intentEngine';
+import { stopNavigationResult, routeIntent, type AppIntent, type RouterContext } from '../platform/intentEngine';
+import { isResultAckCommand } from '../platform/voice/voiceCommandPolicy';
 import { isNarrowSafeMusicKind } from '../platform/media/intent/musicIntent';
 import { resolveMusicIntent } from '../platform/media/intent/musicIntentResolver';
 
@@ -59,5 +60,14 @@ describe('Mavi smoke 2026-09-25', () => {
       expect(isNarrowSafeMusicKind(mi!.kind), t).toBe(true);
     }
     expect(isNarrowSafeMusicKind(resolveMusicIntent('Ahmet Kaya çal')?.kind ?? 'PLAY_QUERY')).toBe(false);
+  });
+
+  it('ev adresi yokken "eve götür" TEK dürüst sonuç verir (parser metni susar)', async () => {
+    expect(isResultAckCommand('navigate_home')).toBe(true);
+    expect(isResultAckCommand('stop_navigation')).toBe(true);
+    const ctx = { launch: () => {}, openDrawer: () => {}, setTheme: () => {}, playMedia: () => {}, pauseMedia: () => {} } as unknown as RouterContext;
+    const r = await routeIntent({ type: 'OPEN_NAVIGATION', payload: { destination: 'home' } } as AppIntent, ctx);
+    expect(r.status).toBe('failed');
+    expect((r.detail ?? '').length).toBeGreaterThan(0);
   });
 });

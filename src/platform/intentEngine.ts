@@ -463,8 +463,12 @@ export async function routeIntent(intent: AppIntent, ctx: RouterContext): Promis
       // biter. Ev/İş DEĞİLSE (ör. "haritayı aç") davranış AYNEN korunur: ctx.launch(appId).
       const dest = intent.payload.destination;
       if (isHomeWorkDestination(dest)) {
-        dispatchHomeWorkNavigation(dest); // fail-closed: kayıtlı/geçerli değilse startNavigation hiç çağrılmaz
-        break;
+        // fail-closed: kayıtlı/geçerli değilse startNavigation hiç çağrılmaz. Cümle
+        // sonuç zarfıyla TEK kez konuşulur (parser metni bu tiplerde susar).
+        let said = '';
+        const r = dispatchHomeWorkNavigation(dest, Date.now(), (t) => { said = t; });
+        if (r.reason === 'debounced') return intentResult(intent.type, 'started', 'debounced');
+        return intentResult(intent.type, r.ok ? 'started' : 'failed', r.ok ? 'home_work_started' : r.reason, said);
       }
       const appId = intent.payload.targetApp;
       if (appId) ctx.launch(appId);
