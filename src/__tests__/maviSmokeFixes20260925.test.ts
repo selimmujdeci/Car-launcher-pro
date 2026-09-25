@@ -8,6 +8,7 @@ import { stopNavigationResult, routeIntent, type AppIntent, type RouterContext }
 import { isResultAckCommand } from '../platform/voice/voiceCommandPolicy';
 import { isNarrowSafeMusicKind } from '../platform/media/intent/musicIntent';
 import { resolveMusicIntent } from '../platform/media/intent/musicIntentResolver';
+import { isGeminiLiveEnabled, _resetGeminiLiveFlagForTest, GEMINI_LIVE_LOCAL_FLAG } from '../platform/ai/live/geminiLiveFlag';
 
 const cmd = (t: string) => parseCommandFull(t).command;
 
@@ -77,5 +78,19 @@ describe('Mavi smoke 2026-09-25', () => {
       expect(matchDeterministicWholeInput(t)?.type, t).toBe('go_home_screen');
     }
     expect(cmd('eve götür')?.type).toBe('navigate_home');
+  });
+
+  it('tek asistan sesi: Gemini Live varsayılan KAPALI, yalnız bilinçli açılır', () => {
+    localStorage.removeItem(GEMINI_LIVE_LOCAL_FLAG); _resetGeminiLiveFlagForTest();
+    expect(isGeminiLiveEnabled()).toBe(false);
+    localStorage.setItem(GEMINI_LIVE_LOCAL_FLAG, 'true'); _resetGeminiLiveFlagForTest();
+    expect(isGeminiLiveEnabled()).toBe(true);
+    localStorage.removeItem(GEMINI_LIVE_LOCAL_FLAG); _resetGeminiLiveFlagForTest();
+  });
+
+  it('"Kral FM aç" istasyon adını taşır (F9 radyo araması)', () => {
+    expect(cmd('radyodan Kral FM aç')?.type).toBe('open_radio');
+    expect(resolveMusicIntent('radyodan Kral FM aç')?.query).toBe('kral fm');
+    expect(resolveMusicIntent('radyo aç')?.query ?? null).toBeNull();
   });
 });

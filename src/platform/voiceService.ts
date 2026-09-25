@@ -1669,6 +1669,19 @@ async function _narrowF9MusicIntent(text: string): Promise<Parameters<typeof _an
   } catch { return null; }
 }
 
+/** Metinde istasyon adı varsa radyo kaynağına sabitlenmiş arama niyeti; yoksa `null`. */
+async function _radioStationIntent(text: string): Promise<MusicIntent | null> {
+  try {
+    const { resolveMusicIntent } = await import('./media/intent/musicIntentResolver');
+    const mi = resolveMusicIntent(text);
+    if (!mi || mi.kind !== 'PLAY_QUERY' || !mi.query) return null;
+    // "kral fm'i" → "kral fm" (belirtme eki aramayı bozmasın)
+    const query = mi.query.replace(/['’](?:[ıiuü]|y[ıiuü]|n[ıiuü])$/i, '').trim();
+    if (query.length < 2) return null;
+    return { ...mi, query, source: { ...(mi.source ?? { spoken: 'fm' }), providerId: 'radio' } as MusicIntent['source'] };
+  } catch { return null; }
+}
+
 async function _maybeRepairMusicQuery(cmd: ParsedCommand): Promise<void> {
   try {
     const extra = cmd.extra as Record<string, string> | undefined;
@@ -2113,6 +2126,20 @@ export async function processTextCommand(
       void reportVoiceDiag('voice_route', { route: 'music_intent_local_bypass' });
       setMaviLatencyRoute('music_intent_local_bypass');
       void _answerMusicIntent(narrow, turn);
+      return true;
+    }
+  }
+  /* "radyodan Kral FM aç" · "TRT FM aç": parser `open_radio` der ve İSTASYON ADINI
+     atar → yalnız genel müzik kaynağı açılıyordu (saha 2026-09-25). F9 metinde
+     istasyon buluyorsa radyo kaynağında o istasyon aranır; ad yoksa eski yol. */
+  if (result.command?.type === 'open_radio') {
+    const station = await _radioStationIntent(trimmed);
+    if (!continueIfTurnActive(turn, 'action')) return false;
+    if (station) {
+      _lastCommandTime = now;
+      void reportVoiceDiag('voice_route', { route: 'music_intent_local_bypass' });
+      setMaviLatencyRoute('music_intent_local_bypass');
+      void _answerMusicIntent(station, turn);
       return true;
     }
   }
@@ -3291,5 +3318,7 @@ if (DEVELOPER_FEATURES_ENABLED && typeof window !== 'undefined') {
     state: () => getVoiceSnapshot(),
     /* Tur izi (yol · yetenek kararı · hata kodu) — ölçüm şalteri açıksa dolar. */
     trace: () => getMaviLatencyEvidence(),
+    /* Etki özeti (navigasyon · medya · ayar · ekran) — ne SÖYLEDİ değil ne YAPTI. */
+    effects: () => import('./debug/maviEffectProbe').then((m) => m.readMaviEffects()),
   });
 }
