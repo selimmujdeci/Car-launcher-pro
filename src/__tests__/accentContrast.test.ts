@@ -22,3 +22,15 @@ describe('accentContrast', () => {
     expect(accentVerdict('#F2871C', 'linear-gradient(red, blue)')).toBe('UNKNOWN_BACKGROUND');
   });
 });
+
+describe('iki kip birden (gündüz + gece)', () => {
+  it('🔒 paletteki her renk gündüz ve gece zemininde 3:1 geçer', async () => {
+    const { DRIVER_ACCENTS, accentVerdictAllModes } = await import('../platform/theme/accentContrast');
+    for (const c of DRIVER_ACCENTS) expect(accentVerdictAllModes(c, '#F4F6FA')).toBe('OK');
+  });
+  it('🔒 yalnız bir kipte okunan renk reddedilir', async () => {
+    const { accentVerdictAllModes } = await import('../platform/theme/accentContrast');
+    expect(accentVerdictAllModes('#1D4ED8', '#F4F6FA')).toBe('LOW_CONTRAST');  // gece okunmaz
+    expect(accentVerdictAllModes('#F2871C', '#14171F')).toBe('LOW_CONTRAST');  // gündüz okunmaz
+  });
+});

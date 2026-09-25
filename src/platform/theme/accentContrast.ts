@@ -8,10 +8,19 @@
 
 export const MIN_ACCENT_CONTRAST = 3;
 
-/** Araç içinden seçilebilen vurgu renkleri. */
+/**
+ * Araç içinden seçilebilen vurgu renkleri — HEM gündüz HEM gece zemininde 3:1.
+ * Telefon smoke (2026-09-25): eski palet koyu zemine göreydi, gündüz temada
+ * 10 rengin 8'i kapalıydı; açık kalan koyu mavi de gece okunmazdı (aynı renk
+ * iki kipte de kullanılır).
+ */
 export const DRIVER_ACCENTS: readonly string[] = [
-  '#F2871C', '#E0A23C', '#22C55E', '#14B8A6', '#38BDF8', '#5B8DFF', '#A78BFA', '#F472B6', '#EF4444', '#1D4ED8',
+  '#E8590C', '#B7791F', '#2F9E44', '#0D9488', '#1C7ED6', '#4F6BED', '#8B5CF6', '#C026D3', '#DB2777', '#E03131',
 ];
+
+/** Kip referans zeminleri (design-system `--oem-bg` gündüz/gece). */
+export const DAY_BG_REF = '#EEF1F5';
+export const NIGHT_BG_REF = '#14171F';
 
 function parseColor(c: string): [number, number, number] | null {
   const s = c.trim();
@@ -44,4 +53,18 @@ export function accentVerdict(accent: string, background: string | null): Accent
   const r = contrastRatio(accent, background);
   if (r === null) return 'UNKNOWN_BACKGROUND';
   return r >= MIN_ACCENT_CONTRAST ? 'OK' : 'LOW_CONTRAST';
+}
+
+/**
+ * Vurgu rengi gündüz VE gece kullanılır → hem o anki zemine hem iki kip
+ * referansına karşı denetlenir; biri bile 3:1 altındaysa renk uygun değildir.
+ */
+export function accentVerdictAllModes(accent: string, currentBg: string | null): Exclude<AccentVerdict, 'UNKNOWN_BACKGROUND'> {
+  // Referans zeminler her zaman bilinir; o anki zemin okunamazsa (gradyan vb.) yalnız referanslar kullanılır.
+  for (const bg of [DAY_BG_REF, NIGHT_BG_REF, currentBg]) {
+    if (!bg) continue;
+    const r = contrastRatio(accent, bg);
+    if (r !== null && r < MIN_ACCENT_CONTRAST) return 'LOW_CONTRAST';
+  }
+  return 'OK';
 }
