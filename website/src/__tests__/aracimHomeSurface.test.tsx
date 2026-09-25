@@ -22,7 +22,6 @@ import { ALERT_THRESHOLDS } from '@/lib/constants';
 import type { DtcOutcome } from '@/lib/diagnostics/dtcResultContract';
 
 const NOW = Date.parse('2026-09-18T12:00:00.000Z');
-const OK_COMPLETENESS = { stored: 'ok', pending: 'ok', permanent: 'ok' } as const;
 
 function telemetry(over: { ageMs?: number; fuel?: number | null } = {}) {
   const at = new Date(NOW - (over.ageMs ?? 30_000)).toISOString();

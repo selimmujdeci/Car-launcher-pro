@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { sendAndTrack, sendCommand } from '@/lib/commandService';
+import { sendAndTrack } from '@/lib/commandService';
 import { verifyCriticalCommand }     from '@/lib/criticalAuth';
 import type { CommandType, CommandPayload } from '@/lib/commandService';
 import {
