@@ -9,6 +9,7 @@
  */
 
 import { useState, useEffect } from 'react';
+import { randomToken } from '../utils/randomId';
 
 export type ToastType = 'error' | 'warning' | 'info' | 'success';
 
@@ -30,7 +31,7 @@ function _notify(): void {
 }
 
 export function showToast(opts: Omit<AppToast, 'id'>): string {
-  const id   = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  const id   = `${Date.now()}-${randomToken(5)}`;
   const toast: AppToast = { duration: 5000, ...opts, id };
   _toasts.push(toast);
   _notify();

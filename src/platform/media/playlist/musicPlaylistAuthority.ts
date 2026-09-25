@@ -38,6 +38,7 @@ import {
   noteCollectionMutation, notePersistWriteFailure, notePersistLoadRejectedRecord,
   noteUnresolvedLocalLookup, noteProjectionLatency, noteCollectionSize,
 } from './musicPlaylistTelemetry';
+import { randomToken } from '../../../utils/randomId';
 
 const STORAGE_KEY = 'caros.music.f15.playlists.v1';
 
@@ -95,7 +96,7 @@ function genPlaylistId(): string {
     const c = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
     if (c?.randomUUID) return `pl-${c.randomUUID()}`;
   } catch { /* fail-soft */ }
-  return `pl-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
+  return `pl-${Date.now()}-${randomToken(6)}`;
 }
 
 /* ── Sorgu ─────────────────────────────────────────────────────────────── */

@@ -21,6 +21,7 @@ import { useState, useEffect } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { CarLauncher } from './nativePlugin';
 import { speakAssistant, ttsCancel } from './ttsService';
+import { randomToken } from '../utils/randomId';
 
 /* ── Types ───────────────────────────────────────────────── */
 
@@ -273,7 +274,7 @@ function _addNotification(raw: RawNotification): void {
     ? raw.category as NotificationCategory
     : _getCategory(raw.packageName, raw.text);
   const isPriority = _isPriority(category);
-  const id = raw.key || `notif-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const id = raw.key || `notif-${Date.now()}-${randomToken(10)}`;
 
   /* Aynı anahtar = AYNI bildirimin güncellemesi (yeni mesaj, süren görüşme
      sayacı). Listede çoğaltılmaz; yalnız YENİ içerik seslendirilir. */

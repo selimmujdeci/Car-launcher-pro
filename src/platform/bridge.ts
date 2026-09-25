@@ -8,6 +8,7 @@ import { logError } from './crashLogger';
 import { showToast } from './errorBus';
 import { getPhonePackage, getPlatformInfo, PHONE_FALLBACK_PACKAGES } from './headUnitPlatform';
 import { openInApp } from './inAppBrowser';
+import { randomToken } from '../utils/randomId';
 
 /**
  * Arama girişiminin GERÇEK sonucu.
@@ -357,7 +358,7 @@ interface QueuedCommand {
 }
 
 function _cmdId(): string {
-  return `cmd-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+  return `cmd-${Date.now().toString(36)}-${randomToken(5)}`;
 }
 
 class VehicleCommandQueue {

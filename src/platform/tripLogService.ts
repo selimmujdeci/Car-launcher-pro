@@ -44,6 +44,7 @@ import {
   beginJournal, finalizeJournal, recordJournalFix,
   recordJournalStopState, recordJournalEvent, recoverOpenJournal,
 } from './trip/tripJournalStore';
+import { randomToken } from '../utils/randomId';
 
 /* ── Types ───────────────────────────────────────────────── */
 
@@ -267,7 +268,7 @@ function generateTripId(): string {
     return `trip-${crypto.randomUUID()}`;
   }
   _tripSeq += 1;
-  return `trip-${Math.floor(_tripSeq)}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  return `trip-${Math.floor(_tripSeq)}-${Date.now()}-${randomToken(5)}`;
 }
 
 /* ── Persistence ─────────────────────────────────────────── */

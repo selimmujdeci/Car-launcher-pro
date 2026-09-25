@@ -30,6 +30,7 @@ import { runtimeManager }                from '../core/runtime/AdaptiveRuntimeMa
 import { ceilingFor } from './perf/workloadCeilings';
 import { bumpPerf } from './perf/perfCounters';
 import { allowsConnectivity } from './connectivity/connectivityGate';
+import { randomToken, randomUuid } from '../utils/randomId';
 
 /* ── Sabitler ────────────────────────────────────────────────────────────── */
 
@@ -61,9 +62,7 @@ const VALID_HAZARD_TYPES = new Set<string>(
 // Her uygulama oturumunda yeni token. Asla diske yazılmaz.
 // Sunucu tarafında aynı cihazdan gelen spam'i ayırt etmeye yarar (user takip edilemez).
 const _SESSION_TOKEN: string =
-  typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-    ? crypto.randomUUID()
-    : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  randomUuid();
 
 /* ── Throttled kayıt ─────────────────────────────────────────────────────── */
 
@@ -266,7 +265,7 @@ export function addEvent(
   //    (JS'de explicit silme mümkün değil; referansı kesmek yeterli)
 
   const event: CommunityEvent = {
-    id:         `crm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    id:         `crm-${Date.now()}-${randomToken(6)}`,
     type,
     geohash,   // kesin koordinat yok
     confidence: Math.max(0, Math.min(1, confidence)),

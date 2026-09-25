@@ -63,6 +63,7 @@ import {
   _resetDeliveryLedgerForTest,
   type DeliveryState,
 } from './diagnosticDelivery';
+import { randomToken } from '../utils/randomId';
 
 /* ── Sabitler ───────────────────────────────────────────────── */
 
@@ -105,8 +106,7 @@ const MAX_ARRAY_LEN = 20;
 
 /** Oturum kimliği — 8 karakter (17 karakterlik VIN maskesine takılmaz) */
 const BOOT_ID: string = (() => {
-  try { return crypto.randomUUID().slice(0, 8); }
-  catch { return Math.random().toString(36).slice(2, 10); }
+  return randomToken(8);
 })();
 
 /** Bu oturumun (app boot) başlangıç zamanı — errorLedger'da eski/yeni sınırı

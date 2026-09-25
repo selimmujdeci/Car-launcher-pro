@@ -27,6 +27,7 @@ import {
   getQuickAddress, setQuickAddress, clearQuickAddress, subscribeAddressBook,
   type QuickAddressCategory,
 } from './addressBookService';
+import { randomToken } from '../utils/randomId';
 
 export const MAX_DRIVER_PROFILES = 6;
 
@@ -146,7 +147,7 @@ export function addDriver(name: string): DriverProfile | null {
   const color = DRIVER_COLORS.find((c) => !used.has(c)) ?? DRIVER_COLORS[list.length % DRIVER_COLORS.length];
   const now = new Date().toISOString();
   const d: DriverProfile = {
-    id: `drv-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    id: `drv-${Date.now()}-${randomToken(5)}`,
     name: clean, color, createdAt: now, lastUsedAt: now, prefs: captureDriverPrefs(),
   };
   _writeProfiles([..._profiles(), d], d.id);
