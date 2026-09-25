@@ -602,6 +602,16 @@ const CSS = `
 .tripc-home:active{filter:brightness(0.94);}
 .tripc-home-title{font-size:clamp(13px,1vw,17px);font-weight:700;}
 
+/* Alçak ekran (telefon yatay ~406 px): sağ sütun içeriği 359 px, yer 279 px idi →
+   kartlar sıkılaşır, hücre kaynak satırı gizlenir (ölçülmemişlik zaten "—" ile
+   görünür). Telefonda ölçüldü: 359 → 279, kaydırmasız sığar (saha 2026-09-25). */
+@media (max-height:460px){
+  .tripc-side{gap:6px;}
+  .tripc-card{padding:5px 10px;gap:2px;}
+  .tripc-cell-src{display:none;}
+  .tripc-inline{padding-top:4px;margin-top:0;}
+  .tripc-cell-num{font-size:16px;}
+}
 @media (max-width:1100px){
   .tripc-side{flex-basis:264px;}
   .tripc-clock{position:static;transform:none;text-align:right;}
