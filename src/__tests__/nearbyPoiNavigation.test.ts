@@ -866,7 +866,9 @@ describe('addressNavigationEngine.resolveAndNavigate — hospital sentinel', () 
     vi.unstubAllGlobals();
   });
 
-  it('onResult callback: çok sonuçta "multiple" ile çağrılır', async () => {
+  /* ÜRÜN KARARI DEĞİŞTİ (2026-09-25): "en yakın X" çok sonuçta seçim kartı
+     GÖSTERMEZ — sonuçlar mesafeye göre sıralıdır, en yakına rota kurulur. */
+  it('onResult callback: çok sonuçta EN YAKINA rota ("confirmed")', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ elements: [
       { id: 1, lat: 36.95, lon: 34.90, tags: { name: 'Uzak' } },
       { id: 2, lat: 36.805, lon: 34.635, tags: { name: 'Yakın' } },
@@ -876,8 +878,9 @@ describe('addressNavigationEngine.resolveAndNavigate — hospital sentinel', () 
     resolveAndNavigate('__nearby_hospital__', { lat: 36.80, lng: 34.63 }, onResult);
 
     await vi.waitFor(() => {
-      expect(onResult).toHaveBeenCalledWith('multiple');
+      expect(onResult).toHaveBeenCalledWith('confirmed');
     });
+    expect(onResult).not.toHaveBeenCalledWith('multiple');
     vi.unstubAllGlobals();
   });
 });

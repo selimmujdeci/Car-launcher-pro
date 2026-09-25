@@ -573,6 +573,18 @@ export function resolveAndNavigate(
         return;
       }
 
+      /* "EN YAKIN X": sonuçlar kullanıcının konumu etrafında aranır ve mesafeye
+         göre SIRALIDIR (searchNearby) → istenen tam olarak ilk sonuçtur. Seçim
+         kartı gösterilince sürücü "rota başlatılıyor" duyup rota ALMIYORDU
+         (smoke 2026-09-25). Serbest adres aramasında onay kuralı AYNEN kalır. */
+      if (isNearby && !results[0].farFromUser) {
+        _record(destination, 'RESOLVED_AUTO', surface, results, null, hadLoc);
+        _push({ results });
+        _confirmResult(results[0]);
+        onResult?.('confirmed');
+        return;
+      }
+
       // Çok sonuç: kullanıcı seçimi
       _record(destination, 'AWAITING_CHOICE', surface, results, null, hadLoc);
       _push({ phase: 'selecting', results });
