@@ -325,3 +325,88 @@ export async function resolvePipedStream(videoId: string): Promise<string | null
     return muxed?.url ?? null;
   }, undefined, STREAM_PER_INSTANCE_MS);
 }
+
+/* ── BENZER ŞARKILAR (saha 2026-09-25) ───────────────────────────────────────
+ * "Acem Kızı çal" → kuyruk ARAMA SONUÇLARIYDI: aynı şarkının 10 farklı
+ * yorumu; "sonraki" hep yine Acem Kızı çalıyordu. Çalan videonun YouTube
+ * "ilgili" listesi (Piped `relatedStreams` · Invidious `recommendedVideos`)
+ * gerçek benzer şarkılardır. Liste alınamazsa boş döner (çağıran eski kuyruğa
+ * düşer) — benzerlik UYDURULMAZ. */
+
+interface PipedRelatedItem { url?: unknown; title?: string; uploaderName?: string; thumbnail?: unknown; type?: unknown }
+interface InvidiousRecommended { videoId?: string; title?: string; author?: string }
+
+/** `piped://<id>` → `<id>`; YouTube parçası değilse `null`. */
+export function pipedVideoIdOf(t: UnifiedTrack): string | null {
+  const u = t.streamUrl;
+  return typeof u === 'string' && u.startsWith(PIPED_SCHEME) && u.length > PIPED_SCHEME.length
+    ? u.slice(PIPED_SCHEME.length) : null;
+}
+
+/** Çalan videonun ilgili (benzer) videoları. En fazla `timeoutMs` bekler. */
+export async function fetchPipedRelated(videoId: string, timeoutMs = 2500): Promise<UnifiedTrack[]> {
+  if (!videoId) return [];
+  const work = (async (): Promise<UnifiedTrack[]> => {
+    const fromPiped = await _tryInstances('piped', async (base, sig) => {
+      const json = await _getJson(`${base}/streams/${videoId}`, sig) as { relatedStreams?: PipedRelatedItem[] } | null;
+      const arr = (json?.relatedStreams ?? []).filter(
+        (r): r is PipedRelatedItem & { url: string } =>
+          (r.type === undefined || r.type === 'stream') && typeof r.url === 'string' && r.url.includes('/watch?v='));
+      return arr.length ? arr.map((r) => _track(_videoId(r.url), r.title, r.uploaderName,
+        typeof r.thumbnail === 'string' ? r.thumbnail : undefined)) : null;
+    }, undefined, timeoutMs);
+    if (fromPiped) return fromPiped;
+    const fromInv = await _tryInstances('invidious', async (base, sig) => {
+      const json = await _getJson(`${base}/api/v1/videos/${videoId}`, sig) as { recommendedVideos?: InvidiousRecommended[] } | null;
+      const arr = (json?.recommendedVideos ?? []).filter(
+        (v): v is InvidiousRecommended & { videoId: string } => typeof v.videoId === 'string' && v.videoId !== '');
+      return arr.length ? arr.map((v) => _track(v.videoId, v.title, v.author,
+        `https://i.ytimg.com/vi/${v.videoId}/mqdefault.jpg`)) : null;
+    }, undefined, timeoutMs);
+    return fromInv ?? [];
+  })();
+  const timeout = new Promise<UnifiedTrack[]>((r) => setTimeout(() => r([]), timeoutMs + 200));
+  return Promise.race([work, timeout]);
+}
+
+function _songKey(title: string): string {
+  return title.toLocaleLowerCase('tr-TR')
+    .replace(/[([{].*?[)\]}]/g, ' ')
+    .replace(/\b(official|video|audio|lyrics?|klip|canlı|canli|live|hd|4k|cover|remix|sözleri|sozleri)\b/g, ' ')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Başlık aynı şarkının başka yorumu mu? ("Acem Kızı - X" · "Y | Acem Kızı") */
+function _sameSong(a: UnifiedTrack, b: UnifiedTrack): boolean {
+  const strip = (t: UnifiedTrack) => {
+    let k = _songKey(t.title);
+    const who = _songKey(t.subtitle ?? '');
+    if (who.length >= 3) k = k.split(who).join(' ').replace(/\s+/g, ' ').trim();
+    return k;
+  };
+  const ka = strip(a), kb = strip(b);
+  if (ka.length < 3 || kb.length < 3) return false;
+  return ka === kb || kb.includes(ka) || ka.includes(kb);
+}
+
+/**
+ * Sesli arama kuyruğu: çalan parça + benzerleri. Aynı şarkının başka
+ * yorumları ELENİR; ilgili liste yoksa arama sonuçlarının FARKLI şarkıları
+ * kalır (sanatçı araması "Ahmet Kaya çal" böylece bozulmaz).
+ */
+export function buildSimilarQueue(
+  selected: UnifiedTrack, related: readonly UnifiedTrack[], searchResults: readonly UnifiedTrack[], max = 20,
+): UnifiedTrack[] {
+  const out: UnifiedTrack[] = [selected];
+  const seen = new Set([selected.id]);
+  const push = (t: UnifiedTrack) => {
+    if (out.length >= max || seen.has(t.id)) return;
+    if (out.some((o) => _sameSong(o, t))) return;
+    seen.add(t.id); out.push(t);
+  };
+  for (const t of related) push(t);
+  for (const t of searchResults) push(t);
+  return out;
+}

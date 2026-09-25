@@ -501,11 +501,16 @@ export async function playByQuery(query: string, filter: string = 'all'): Promis
       // Sağlayıcı sonucu: kanonik medya katmanı yönlendirir (doğrudan sağlayıcı
       // çağrısı DEĞİL). Kuyruk, kullanıcının göreceği sonuç listesidir.
       const track = unifiedFromSearchResult(outcome.selected);
-      const queue = outcome.snapshot.results
+      const results = outcome.snapshot.results
         .filter((r) => r.provenance.origin === 'PROVIDER')
         .map(unifiedFromSearchResult)
         .filter(_isPlayable);
-      playMedia(track, queue.length > 0 ? queue : [track]);
+      /* Kuyruk = çalan parça + BENZERLERİ; aynı şarkının başka yorumları elenir
+         (saha 2026-09-25: "Acem Kızı" sonrası hep yine Acem Kızı çalıyordu). */
+      const { pipedVideoIdOf, fetchPipedRelated, buildSimilarQueue } = await import('./pipedProvider');
+      const vid = pipedVideoIdOf(track);
+      const related = vid ? (await fetchPipedRelated(vid)).filter(_isPlayable) : [];
+      playMedia(track, buildSimilarQueue(track, related, results));
       return track;
     }
     /* AMBIGUOUS · NO_RESULT · SOURCES_UNAVAILABLE · STALE · REJECTED:
