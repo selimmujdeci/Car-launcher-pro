@@ -482,6 +482,22 @@ export function unifiedFromSearchResult(r: {
  *
  * @returns Çalınan/başlatılan parça; belirsiz veya sonuçsuz durumda `null`.
  */
+/**
+ * Sesli arama kuyruğu = çalan parça + BENZERLERİ; aynı şarkının başka yorumları
+ * elenir (saha 2026-09-25: "Acem Kızı" sonrası hep yine Acem Kızı çalıyordu).
+ * F9 yönlendiricisi ve `playByQuery` AYNI kuralı kullanır.
+ */
+export async function buildVoiceQueue(track: UnifiedTrack, results: readonly UnifiedTrack[]): Promise<UnifiedTrack[]> {
+  try {
+    const { pipedVideoIdOf, fetchPipedRelated, buildSimilarQueue } = await import('./pipedProvider');
+    const vid = pipedVideoIdOf(track);
+    const related = vid ? (await fetchPipedRelated(vid)).filter(_isPlayable) : [];
+    return buildSimilarQueue(track, related, results.filter(_isPlayable));
+  } catch {
+    return [track, ...results.filter((r) => r.id !== track.id)];
+  }
+}
+
 export async function playByQuery(query: string, filter: string = 'all'): Promise<UnifiedTrack | null> {
   const q = query.trim();
   if (!q) return null;
@@ -505,12 +521,7 @@ export async function playByQuery(query: string, filter: string = 'all'): Promis
         .filter((r) => r.provenance.origin === 'PROVIDER')
         .map(unifiedFromSearchResult)
         .filter(_isPlayable);
-      /* Kuyruk = çalan parça + BENZERLERİ; aynı şarkının başka yorumları elenir
-         (saha 2026-09-25: "Acem Kızı" sonrası hep yine Acem Kızı çalıyordu). */
-      const { pipedVideoIdOf, fetchPipedRelated, buildSimilarQueue } = await import('./pipedProvider');
-      const vid = pipedVideoIdOf(track);
-      const related = vid ? (await fetchPipedRelated(vid)).filter(_isPlayable) : [];
-      playMedia(track, buildSimilarQueue(track, related, results));
+      playMedia(track, await buildVoiceQueue(track, results));
       return track;
     }
     /* AMBIGUOUS · NO_RESULT · SOURCES_UNAVAILABLE · STALE · REJECTED:
