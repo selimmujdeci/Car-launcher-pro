@@ -145,7 +145,12 @@ function TripLogViewInner() {
 
 
   return (
-    <div className="flex flex-col gap-4 p-4 pb-6" data-theme-surface="trip" data-editable="trip-log" data-editable-type="card">
+    /* DrawerShell içeriği `overflow:hidden` taşır — kaydırma panelin kendisindedir
+       (DTCPanel/SportModePanel ile aynı sözleşme). Yoksa karne + geçmiş taşınca
+       "Geçmiş Seyahatler"e ulaşılamıyordu (telefon smoke 2026-09-25). */
+    <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden flex flex-col gap-4 p-4 pb-6"
+      style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-y', overscrollBehavior: 'contain' } as React.CSSProperties}
+      data-theme-surface="trip" data-editable="trip-log" data-editable-type="card">
 
       {/* ── Title ──────────────────────────────────────── */}
       <div className="flex items-center justify-between">
