@@ -3,7 +3,7 @@
  *
  * Araç profilinden AYRIDIR (araç = tahrik/OBD/VIN, `vehicleProfileService`).
  * Bir sürücü profili, uygulamanın GERÇEKTEN uygulayabildiği kişisel tercihleri
- * taşır (`DRIVER_PREF_KEYS` + tema + Ev/İş). Koltuk/iklim gibi araca komut
+ * taşır (`DRIVER_PREF_KEYS` + tema + Tema Stüdyo düzeni/vurgu rengi + Ev/İş). Koltuk/iklim gibi araca komut
  * gerektiren tercihler YOKTUR — uygulamanın araca yazma yolu yoktur.
  *
  * Davranış (OEM sürücü hafızası gibi):
@@ -28,6 +28,9 @@ import {
   type QuickAddressCategory,
 } from './addressBookService';
 import { randomToken } from '../utils/randomId';
+import {
+  getAllStoredManifests, replaceStoredManifests, subscribeStoredManifests,
+} from './theme/themeRuntime';
 
 export const MAX_DRIVER_PROFILES = 6;
 
@@ -52,6 +55,7 @@ export function captureDriverPrefs(): DriverPrefs {
     carTheme: useCarTheme.getState().theme,
     home: _quick('home'),
     work: _quick('work'),
+    themeManifests: getAllStoredManifests() as Record<string, unknown>,
   };
 }
 
@@ -87,6 +91,8 @@ function _applyPrefs(p: DriverPrefs): void {
     const t = useCarTheme.getState();
     if (t.theme !== p.carTheme) t.setTheme(p.carTheme as CarTheme);  // setTheme normalize eder
   }
+  // Ekran düzeni + vurgu rengi: temadan SONRA → yeni temanın manifesti uygulanır.
+  if (p.themeManifests !== undefined) replaceStoredManifests(p.themeManifests);
   _applyQuick('home', p.home);
   _applyQuick('work', p.work);
 }
@@ -193,6 +199,7 @@ export function startDriverProfileSync(): () => void {
   }));
   _unsubs.push(useCarTheme.subscribe(_schedule));
   _unsubs.push(subscribeAddressBook(_schedule));
+  _unsubs.push(subscribeStoredManifests(_schedule));
   return stopDriverProfileSync;
 }
 

@@ -49,6 +49,7 @@ import { cacheLRUManager } from '../../core/storage/CacheLRUManager';
 import {
   switchDriver, addDriver, renameDriver, removeDriver, clearActiveDriver, MAX_DRIVER_PROFILES,
 } from '../../platform/driverProfileService';
+import { DriverAccentPicker } from './DriverAccentPicker';
 import { showToast } from '../../platform/errorBus';
 import { playSafetyChime, type AlertToneStyle } from '../../platform/safety/safetyChime';
 import { useLayoutSync } from '../../platform/themeLayoutEngine';
@@ -1282,6 +1283,7 @@ function driverSummary(d: DriverProfile): string[] {
   if (p.companionUserCallsign) out.push(`"${p.companionUserCallsign}" diye seslenir`);
   if (p.home !== undefined) out.push(p.home ? 'Ev kayıtlı' : 'Ev yok');
   if (p.work !== undefined) out.push(p.work ? 'İş kayıtlı' : 'İş yok');
+  if (p.themeManifests && Object.keys(p.themeManifests).length > 0) out.push('Kendi ekran düzeni');
   return out;
 }
 
@@ -1367,6 +1369,7 @@ function ProfilesTabContent() {
                 </span>
               ))}
             </div>
+            <DriverAccentPicker />
             <div className="flex gap-2 mt-4">
               <button type="button" onClick={() => clearActiveDriver()}
                 className="rounded-xl px-4 text-[12px] font-bold active:scale-95 transition-all"

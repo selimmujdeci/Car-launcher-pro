@@ -144,3 +144,30 @@ describe('otomatik hafıza', () => {
     expect(useStore.getState().settings.activeDriverProfileId).toBeNull();
   });
 });
+
+describe('sürücüye özel ekran + vurgu rengi', () => {
+  it('🔒 her sürücünün Tema Stüdyo düzeni/vurgu rengi kendine; geçişte uygulanır', async () => {
+    const { setLocalAccent, getStoredManifest, replaceStoredManifests } = await import('../platform/theme/themeRuntime');
+    replaceStoredManifests({});
+    const a = addDriver('Ayşe')!;
+    startDriverProfileSync();
+    setLocalAccent('expedition', '#22C55E');
+    _flushDriverSyncForTest();
+    const b = addDriver('Mehmet')!;          // Ayşe'nin rengiyle başlar
+    setLocalAccent('expedition', '#A78BFA');
+    _flushDriverSyncForTest();
+    switchDriver(a.id);
+    expect(getStoredManifest('expedition')?.tokens.accentPrimary).toBe('#22C55E');
+    switchDriver(b.id);
+    expect(getStoredManifest('expedition')?.tokens.accentPrimary).toBe('#A78BFA');
+    expect(document.documentElement.style.getPropertyValue('--accent-primary')).toBe('#A78BFA');
+  });
+
+  it('🔒 düzeni kaydedilmemiş (eski) profil mevcut ekranı SİLMEZ', async () => {
+    const { setLocalAccent, getStoredManifest } = await import('../platform/theme/themeRuntime');
+    set({ driverProfiles: [{ id: 'old', name: 'Eski', color: '#fff', createdAt: 'x', lastUsedAt: null, prefs: { volume: 40 } }] });
+    setLocalAccent('expedition', '#38BDF8');
+    switchDriver('old');
+    expect(getStoredManifest('expedition')?.tokens.accentPrimary).toBe('#38BDF8');
+  });
+});

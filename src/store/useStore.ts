@@ -182,6 +182,8 @@ export interface DriverPrefs extends Partial<Pick<AppSettings, DriverPrefKey>> {
   /** Ev / İş — `null` = bu sürücüde kayıtlı değil (uygulanınca SİLİNİR). */
   home?: DriverQuickAddress | null;
   work?: DriverQuickAddress | null;
+  /** Tema Stüdyo özelleştirmeleri + vurgu rengi (tema başına manifest anlık görüntüsü). */
+  themeManifests?: Record<string, unknown>;
 }
 
 export interface DriverProfile {
