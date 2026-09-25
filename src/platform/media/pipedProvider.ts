@@ -346,7 +346,20 @@ export function pipedVideoIdOf(t: UnifiedTrack): string | null {
 /** Çalan videonun ilgili (benzer) videoları. En fazla `timeoutMs` bekler. */
 export async function fetchPipedRelated(videoId: string, timeoutMs = 2500): Promise<UnifiedTrack[]> {
   if (!videoId) return [];
+  const toTracks = (arr: PipedRelatedItem[]): UnifiedTrack[] | null => {
+    const ok = arr.filter((r): r is PipedRelatedItem & { url: string } =>
+      (r.type === undefined || r.type === 'stream') && typeof r.url === 'string' && r.url.includes('/watch?v='));
+    return ok.length ? ok.map((r) => _track(_videoId(r.url), r.title, r.uploaderName,
+      typeof r.thumbnail === 'string' ? r.thumbnail : undefined)) : null;
+  };
   const work = (async (): Promise<UnifiedTrack[]> => {
+    /* 1) YouTube "Mix" (RD<id>) — YouTube'un kendi benzer şarkı radyosu. Ölçüldü
+       2026-09-25: `/streams` bot engeline takılıp 500 verirken bu uç 200 dönüyor. */
+    const fromMix = await _tryInstances('piped', async (base, sig) => {
+      const json = await _getJson(`${base}/playlists/RD${videoId}`, sig) as { relatedStreams?: PipedRelatedItem[] } | null;
+      return toTracks(json?.relatedStreams ?? []);
+    }, undefined, timeoutMs);
+    if (fromMix) return fromMix.filter((t) => t.id !== `youtube-${videoId}`);
     const fromPiped = await _tryInstances('piped', async (base, sig) => {
       const json = await _getJson(`${base}/streams/${videoId}`, sig) as { relatedStreams?: PipedRelatedItem[] } | null;
       const arr = (json?.relatedStreams ?? []).filter(
