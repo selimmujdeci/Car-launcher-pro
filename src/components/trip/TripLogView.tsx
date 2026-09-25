@@ -4,6 +4,7 @@ import {
   TrendingUp, Activity, AlertCircle,
 } from 'lucide-react';
 import { useTripState, deleteTrip, clearAllTrips, type TripRecord } from '../../platform/tripLogService';
+import { EcoReportCard, TripEcoLine } from './EcoReportCard';
 
 /* ── Helpers ─────────────────────────────────────────────── */
 
@@ -24,7 +25,7 @@ function fmtDuration(min: number): string {
 
 /* ── Trip card ───────────────────────────────────────────── */
 
-const TripCard = memo(function TripCard({ trip }: { trip: TripRecord }) {
+const TripCard = memo(function TripCard({ trip, history }: { trip: TripRecord; history: readonly TripRecord[] }) {
   /* Seyahat kartı → oem yüzey/kenarlık */
   return (
     <div className="bg-[var(--oem-surface-2)] border border-[var(--oem-line)] rounded-2xl p-4"
@@ -84,6 +85,9 @@ const TripCard = memo(function TripCard({ trip }: { trip: TripRecord }) {
           </span>
         </div>
       </div>
+
+      {/* Yakıt & CO₂ — yalnız ölçülmüş yakıttan; yoksa nedeni yazılır */}
+      <TripEcoLine trip={trip} history={history} />
     </div>
   );
 });
@@ -212,6 +216,9 @@ function TripLogViewInner() {
         />
       </div>
 
+      {/* ── Yakıt & CO₂ karnesi (haftalık, ölçülmüş yakıttan) ── */}
+      <EcoReportCard history={trip.history} nowMs={Math.floor(Date.now() / 60_000) * 60_000} />
+
       {/* ── History ────────────────────────────────────── */}
       <div>
         <div className="text-slate-500 text-[10px] uppercase tracking-widest mb-3">
@@ -234,7 +241,7 @@ function TripLogViewInner() {
         ) : (
           <div className="flex flex-col gap-3">
             {trip.history.map((t) => (
-              <TripCard key={t.id} trip={t} />
+              <TripCard key={t.id} trip={t} history={trip.history} />
             ))}
           </div>
         )}
