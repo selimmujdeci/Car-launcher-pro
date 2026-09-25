@@ -10,6 +10,7 @@ import { getRouteState } from '../routingService';
 import { getMediaState } from '../mediaService';
 import { useStore } from '../../store/useStore';
 import { getOwnTrail } from '../diagnosticTrailCore';
+import { useCarTheme } from '../../store/useCarTheme';
 
 export function readMaviEffects(): Record<string, unknown> {
   const nav = getNavigationState();
@@ -30,6 +31,7 @@ export function readMaviEffects(): Record<string, unknown> {
     theme: s.theme,
     themePack: s.themePack,
     dayNight: s.dayNightMode,
+    carTheme: useCarTheme.getState().theme,
     sleepMode: s.sleepMode,
     screens: getOwnTrail().filter((e) => e.kind === 'screen').slice(-3).map((e) => `${e.ts}:${e.label}`),
   };

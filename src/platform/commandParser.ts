@@ -801,8 +801,10 @@ const PATTERNS: CommandPattern[] = [
     feedback: 'Ekran kapatılıyor',
     label: 'Ekranı Kapat', example: 'ekranı kapat',
     keywords: [
+      // 'ekranı karart' YOK: karartmak = parlaklık AZALT (screen_brightness_down);
+      // iki tipte birden olunca beyne gidip "gece modu" açılıyordu (smoke 2026-09-25).
       'ekranı kapat', 'ekranı söndür', 'ekranı koy', 'display kapat', 'ekranı kapat tamamen',
-      'ekranı karart', 'ekranı kapat artık', 'monitörü kapat',
+      'ekranı kapat artık', 'monitörü kapat',
     ],
     tokens: ['ekran', 'screen', 'display', 'monitor'],
   },
