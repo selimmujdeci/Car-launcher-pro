@@ -69,6 +69,7 @@ describe('kanıt satırları kullanıcı dilinde (telefonda görülen metinler)'
     ['Reconnect baskısı 2.00 — bağlantı kararsız (yarı-ömür penceresinde 2+ kopma)', 'OBD bağlantısı son dakikalarda birkaç kez koptu'],
     ['8 reconnect kaydı (8 timeout) bu oturumda', 'Bu oturumda 8 kez yeniden bağlanma denendi (8 kez yanıt gelmedi)'],
     ['speed=0km/h (valid, güven 60%)', 'Hız: 0 km/h (ölçüldü)'],
+    ['Zorlanan protokol 6 aktif değil — araç/protokol uyuşmazlığı', 'Ayarlarda seçilen OBD protokolü bu araçla eşleşmedi'],
   ])('%s', (raw, plain) => { expect(plainEvidence(raw)).toBe(plain); });
   it('🔒 tanınmayan satır değiştirilmez (anlam uydurulmaz)', () => {
     expect(plainEvidence('Arıza kodu P0217 (kritik)')).toBe('Arıza kodu P0217 (kritik)');

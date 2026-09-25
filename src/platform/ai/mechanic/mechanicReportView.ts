@@ -117,6 +117,9 @@ export function plainEvidence(text: string): string {
     return `OBD adaptörüyle bağlantı kurulamadı${m[2] && /timeout/i.test(m[2]) ? ' (adaptör yanıt vermedi)' : ''}`;
   }
   if (/^Handshake bu oturumda çalışmadı/.test(text)) return 'OBD bağlantısı bu oturumda hiç kurulmadı';
+  if (/^Zorlanan protokol \S+ aktif değil/.test(text)) return 'Ayarlarda seçilen OBD protokolü bu araçla eşleşmedi';
+  m = /^Aktif protokol: (.+)$/.exec(text);
+  if (m) return `OBD protokolü: ${m[1]}`;
   if (/^Reconnect baskısı [\d.]+ — bağlantı kararsız/.test(text)) return 'OBD bağlantısı son dakikalarda birkaç kez koptu';
   if (/^Reconnect baskısı [\d.]+ — yakın zamanda bir kopma/.test(text)) return 'OBD bağlantısı yakın zamanda bir kez koptu';
   if (/^Reconnect baskısı [\d.]+ — sönümlenmiş/.test(text)) return 'Daha önce bir bağlantı kopması olmuş; şu an sorun görünmüyor';
