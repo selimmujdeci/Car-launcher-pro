@@ -1789,7 +1789,10 @@ export function _applyRouteGeometry(
         minzoom: 10, // çok düşük zoom'da etiket gizlenir — kalabalık önleme
         layout: {
           'text-field':  ['get', 'label'],
-          'text-font':   ['Open Sans Bold', 'Arial Unicode MS Bold'],
+          /* Glyph sunucusu (demotiles) "Open Sans Bold"u VERMEZ (404) → yazı boş,
+             yalnız koyu kutu çiziliyordu (telefon smoke 2026-09-25). Diğer bütün
+             etiketlerle aynı font: "Noto Sans Bold" (200). */
+          'text-font':   ['Noto Sans Bold'],
           'text-size':   ['interpolate', ['linear'], ['zoom'], 10, 10, 15, 14],
           'icon-image':            BADGE_IMAGE_ID,
           'icon-text-fit':         'both',
