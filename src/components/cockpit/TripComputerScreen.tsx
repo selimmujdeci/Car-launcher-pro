@@ -88,25 +88,28 @@ function srcLabel(m: Metric): string {
   return SOURCE_LABEL[m.source] ?? 'veri yok';
 }
 
+/** Ölçülmemiş değerin yeri — sayı DEĞİL. */
+const UNKNOWN_TEXT = '—';
+
 /**
- * Sayı biçimi. Ölçüm yoksa politika gereği 0 yazılır — model null kalmaya
- * devam eder, burada yalnız ÇİZİM kararı verilir.
+ * Sayı biçimi. Ölçüm yoksa "—" (saha 2026-09-25: eski "soluk 0" politikası
+ * "0,00 L · 0,00 TRY"yi "hiç yakmadın" gibi okutuyordu; bilinmeyen sıfır değildir).
  */
 function fmt(m: Metric, digits = 0): string {
-  const v = has(m) ? m.value! : 0;
-  return v.toLocaleString('tr-TR', {
+  if (!has(m)) return UNKNOWN_TEXT;
+  return m.value!.toLocaleString('tr-TR', {
     minimumFractionDigits: digits, maximumFractionDigits: digits,
   });
 }
 
-/** Süre biçimi. Ölçüm yoksa "0 dk". */
+/** Süre biçimi. Ölçüm yoksa "—". */
 function fmtDur(m: Metric): string {
-  return formatDuration(has(m) ? m.value : null) ?? '0 dk';
+  return formatDuration(has(m) ? m.value : null) ?? UNKNOWN_TEXT;
 }
 
-/** Bileşim dakikası. Bileşim hiç ölçülmediyse "0 dk". */
+/** Bileşim dakikası. Bileşim hiç ölçülmediyse "—". */
 function fmtMin(min: number, measured: boolean): string {
-  return (measured ? formatDuration(min) : null) ?? '0 dk';
+  return (measured ? formatDuration(min) : null) ?? UNKNOWN_TEXT;
 }
 
 /** Saat. Saat için 0 anlamsızdır; yokluk boş saat yuvasıyla gösterilir. */

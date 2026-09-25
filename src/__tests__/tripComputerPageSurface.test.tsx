@@ -211,20 +211,21 @@ describe('UNKNOWN sıfır DEĞİLDİR', () => {
     expect(has(fromActiveTrip(activeTrip(), { tankL: 50 }).metrics.fuelUsedL)).toBe(true);
   });
 
-  /* ── GELİŞTİRME SUNUM POLİTİKASI ────────────────────────────────────────
-     Alan ekranda KALIR ve 0 gösterir; ama bu 0 SUNUMDA üretilir. Domain
+  /* ── SUNUM POLİTİKASI (saha 2026-09-25) ─────────────────────────────────
+     Alan ekranda KALIR ama bilinmeyen değer "—" yazar (eski "soluk 0" politikası
+     "0,00 L / 0,00 TRY"yi "hiç yakmadın" gibi okutuyordu). Domain
      `null`/`UNAVAILABLE` kalmalıdır — aşağıdaki iki ring ikisini birlikte
      kilitler, çünkü tehlike tam olarak bu ikisinin birbirine karışmasıdır. */
 
-  it('ekran: veri akmayan alan ekranda KALIR ve 0 gösterir', () => {
+  it('🔒 ekran: veri akmayan alan ekranda KALIR ve "—" gösterir (sahte 0 yok)', () => {
     const s = fromActiveTrip(activeTrip(), { tankL: null });
     renderScreen(s);
-    /* SUNUM: alan kaybolmaz, tire değil 0 yazar. */
+    /* SUNUM: alan kaybolmaz; sayı yerine tire yazar. */
     expect(container.querySelector('[data-trip-cell="fuelUsed"]'),
       'veri yok diye alan ekrandan kaldırıldı').not.toBeNull();
-    expect(valueOf('fuelUsed')).toBe('0,00');
-    expect(valueOf('consumption')).toBe('0,0');
-    expect(valueOf('cost')).toBe('0,00');
+    expect(valueOf('fuelUsed')).toBe('—');
+    expect(valueOf('consumption')).toBe('—');
+    expect(valueOf('cost')).toBe('—');
   });
 
   it('ekrandaki 0 ile GERÇEK 0 domain katmanında BİRLEŞMEZ', () => {
@@ -244,9 +245,9 @@ describe('UNKNOWN sıfır DEĞİLDİR', () => {
     expect(cellSource('maxSpeed')).toBe('MEASURED');
   });
 
-  it('ekran: veri yoksa 0 yazılır ama oransal çizim DOLDURULMAZ', () => {
+  it('ekran: veri yoksa "—" yazılır ve oransal çizim DOLDURULMAZ', () => {
     renderScreen(fromActiveTrip(activeTrip({ speedSum: 0, speedCount: 0 }), { tankL: null }));
-    expect(valueOf('avgSpeed')).toBe('0');
+    expect(valueOf('avgSpeed')).toBe('—');
     expect(heroSource('avgSpeed')).toBe('UNAVAILABLE');
     /* Sayıya 0 yazmak ile çubuğu doldurmak AYNI iddia değildir. */
     expect(container.querySelector('[data-trip-card="speed"] .tripc-band-fill'),
@@ -311,7 +312,7 @@ describe('zaman bileşimi', () => {
     expect(container.querySelector('[data-trip-bar]'), 'bileşim yuvası kaldırıldı').not.toBeNull();
     expect(container.querySelector('[data-trip-bar] .tripc-band-split'),
       'ölçüm yokken sahte bileşim çizildi').toBeNull();
-    expect(valueOf('movingMin'), 'ölçülemeyen hareket süresi 0 dk göstermeli').toBe('0 dk');
+    expect(valueOf('movingMin'), 'ölçülemeyen hareket süresi sayı göstermemeli').toBe('—');
     expect(allText()).toContain('ölçülmedi');
   });
 

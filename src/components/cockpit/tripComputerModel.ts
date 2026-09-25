@@ -29,11 +29,11 @@
  * Ölçülmemiş hiçbir alan için BU KATMANDA sayı üretilmez;
  * `Metric.value === null` ve `Metric.source === 'UNAVAILABLE'` olur.
  *
- * Yolculuk bilgisayarı ekranı, geliştirme döneminde veri akmayan alanı
- * ekranda tutup 0 çizer — fakat bu karar YALNIZ SUNUM KATMANINDADIR
- * (`TripComputerScreen`). Buraya sızmaz: gerçek bir 0 ile veri yokluğu
- * domain'de aynı değere indirgenirse hangi toplama zincirinin çalışmadığı
- * bir daha ayırt edilemez.
+ * Yolculuk bilgisayarı ekranı veri akmayan alanı ekranda tutar ve "—" yazar
+ * (saha 2026-09-25'e kadar soluk 0 çiziyordu) — bu karar YALNIZ SUNUM
+ * KATMANINDADIR (`TripComputerScreen`). Buraya sızmaz: gerçek bir 0 ile veri
+ * yokluğu domain'de aynı değere indirgenirse hangi toplama zincirinin
+ * çalışmadığı bir daha ayırt edilemez.
  */
 
 import {
