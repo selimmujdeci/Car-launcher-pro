@@ -27,7 +27,8 @@ vi.mock('../platform/trip/tripJournalStore', async (orig) => ({
   ...(await orig<object>()),
   listJournalIds: () => journal.ids,
   readJournal: (id: string) => ({
-    schemaVersion: 1, tripId: id, startedAtMs: 5_000, endedAtMs: 5_000 + 600_000, endReason: 'IDLE_WINDOW',
+    schemaVersion: 1, tripId: id, startedAtMs: 5_000, endedAtMs: 5_000 + 600_000,
+    endReason: id.startsWith('atildi') ? 'DISCARDED_TOO_SHORT' : 'IDLE_WINDOW',
     startLocation: null, endLocation: null, startArea: null, endArea: null,
     route: { v: 1, n: 2, lat0: 3690000, lon0: 3487000, dlat: [900], dlon: [0], t0: 0, dt: [60000], spd: [40, 50] },
     stops: [], motionEvidence: { sampleCount: 2, spanMs: 60000, sourceCount: 1 }, events: [],
@@ -74,7 +75,7 @@ describe('seyir defteri açılış sırası', () => {
   it('🔒 silinmiş özetler günlükten BİR KEZ geri gelir; sonra silinen dirilmez', async () => {
     store.hydrated = true;
     store.disk = null;                                        // seyir defteri silinmiş
-    journal.ids = ['j-1', 'eski-1'];
+    journal.ids = ['j-1', 'eski-1', 'atildi-1'];   // canlı serviste atılmış olan geri GELMEZ
     let svc = await import('../platform/tripLogService');
     svc.startTripLog();
     expect(svc.getTripSnapshot().history.map((t) => t.id).sort()).toEqual(['eski-1', 'j-1']);

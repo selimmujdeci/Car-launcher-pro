@@ -1013,8 +1013,13 @@ function _recoverFromJournalOnce(existing: readonly TripRecord[]): TripRecord[] 
     for (const id of listJournalIds()) {
       if (have.has(id) || id === _active?.tripId) continue;
       const j = readJournal(id);
-      const rec = j ? rebuildTripSummary(j, _calcScore) : null;
-      if (rec) out.push(rec);
+      /* Canlı serviste ATILMIŞ yolculuk geri getirilmez (telefon smoke 2026-09-25:
+         park hâlinde GPS oynaması 0 km'lik 6 sahte yolculuk üretti); aynı eşikler. */
+      if (!j || j.endReason === 'DISCARDED_TOO_SHORT') continue;
+      const rec = rebuildTripSummary(j, _calcScore);
+      if (!rec || rec.durationMin < TRIP_DISCARD_MIN_DURATION_MIN
+        || rec.distanceKm < TRIP_DISCARD_MIN_DISTANCE_KM) continue;
+      out.push(rec);
     }
     safeSetRaw(RECOVERY_FLAG_KEY, '1');
     return out;

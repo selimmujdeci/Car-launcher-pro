@@ -406,7 +406,10 @@ export function timeComposition(m: TripMetrics): TimeComposition {
 /** `dk` → "1 sa 42 dk" / "42 dk". Ölçüm yoksa `null`. */
 export function formatDuration(min: number | null): string | null {
   if (min === null || !Number.isFinite(min) || min < 0) return null;
-  const h = Math.floor(min / 60);
-  const m = Math.floor(min % 60);
+  /* EN YAKIN dakikaya: aşağı yuvarlama kayıttaki 1,8 dk duruşu "1 dk" yazıp
+     2 dk'lık yolculukta kovaları eksik gösteriyordu (telefon smoke 2026-09-25). */
+  const total = Math.round(min);
+  const h = Math.floor(total / 60);
+  const m = total % 60;
   return h > 0 ? `${h} sa ${m} dk` : `${m} dk`;
 }

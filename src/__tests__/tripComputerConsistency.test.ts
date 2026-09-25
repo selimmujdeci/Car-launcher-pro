@@ -4,7 +4,7 @@
  * Ekrandaki sayılar birbirini tutmalı.
  */
 import { describe, it, expect } from 'vitest';
-import { fromActiveTrip, timeComposition, type ActiveTripView } from '../components/cockpit/tripComputerModel';
+import { fromActiveTrip, timeComposition, formatDuration, type ActiveTripView } from '../components/cockpit/tripComputerModel';
 
 const field = (over: Partial<ActiveTripView> = {}): ActiveTripView => ({
   startTime: 1, liveDistanceKm: 6.2, liveDurationMin: 15, maxSpeedKmh: 79,
@@ -33,5 +33,10 @@ describe('yolculuk bilgisayarı tutarlılığı', () => {
   it('kovalar süreyi aşmıyorsa değiştirilmez', () => {
     const c = timeComposition(fromActiveTrip(field({ liveDurationMin: 13 }), { tankL: null }).metrics);
     expect(c.unknownMin).toBe(3);
+  });
+  it('🔒 dakikalar en yakına yuvarlanır (1,8 dk "1 dk" değil)', () => {
+    expect(formatDuration(1.8)).toBe('2 dk');
+    expect(formatDuration(59.6)).toBe('1 sa 0 dk');
+    expect(formatDuration(0.4)).toBe('0 dk');
   });
 });
