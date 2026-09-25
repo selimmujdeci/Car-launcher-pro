@@ -8,17 +8,32 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const store = vi.hoisted(() => ({ hydrated: false, disk: null as string | null, writes: [] as string[] }));
+const store = vi.hoisted(() => ({ hydrated: false, disk: null as string | null, writes: [] as string[], other: new Map<string, string>() }));
+const TRIP_KEY = 'car-launcher-trip-log';
 vi.mock('../utils/safeStorage', () => ({
   isSafeStorageHydrated: () => store.hydrated,
   // Önbellek hazır değilken native okuma "yok" döner (dosya içeriği görünmez).
-  safeGetRaw: () => (store.hydrated ? store.disk : null),
-  safeSetRaw: (_k: string, v: string) => { store.writes.push(v); store.disk = v; },
+  safeGetRaw: (k: string) => (!store.hydrated ? null : k === TRIP_KEY ? store.disk : store.other.get(k) ?? null),
+  safeSetRaw: (k: string, v: string) => {
+    if (k === TRIP_KEY) { store.writes.push(v); store.disk = v; } else store.other.set(k, v);
+  },
   safeFlushKey: () => {},
 }));
 vi.mock('../platform/crashLogger', () => ({ logError: vi.fn() }));
 vi.mock('../platform/gpsService', () => ({ onGPSLocation: () => () => {} }));
 vi.mock('../platform/obdService', () => ({ onOBDData: () => () => {} }));
+const journal = vi.hoisted(() => ({ ids: [] as string[] }));
+vi.mock('../platform/trip/tripJournalStore', async (orig) => ({
+  ...(await orig<object>()),
+  listJournalIds: () => journal.ids,
+  readJournal: (id: string) => ({
+    schemaVersion: 1, tripId: id, startedAtMs: 5_000, endedAtMs: 5_000 + 600_000, endReason: 'IDLE_WINDOW',
+    startLocation: null, endLocation: null, startArea: null, endArea: null,
+    route: { v: 1, n: 2, lat0: 3690000, lon0: 3487000, dlat: [900], dlon: [0], t0: 0, dt: [60000], spd: [40, 50] },
+    stops: [], motionEvidence: { sampleCount: 2, spanMs: 60000, sourceCount: 1 }, events: [],
+  }),
+  recoverOpenJournal: () => null,
+}));
 
 const trip = (id: string) => ({ id, startTime: 1, endTime: 2, distanceKm: 5, durationMin: 10 });
 
@@ -28,6 +43,8 @@ describe('seyir defteri açılış sırası', () => {
     store.hydrated = false;
     store.disk = JSON.stringify([trip('eski-1'), trip('eski-2')]);
     store.writes = [];
+    store.other.clear();
+    journal.ids = [];
   });
 
   it('🔒 depo hazır olmadan okunan geçmiş diske YAZILMAZ; hazır olunca yüklenir', async () => {
@@ -52,5 +69,22 @@ describe('seyir defteri açılış sırası', () => {
     expect(svc.clearAllTrips()).toBe(false);
     expect(store.writes).toHaveLength(0);
     expect(JSON.parse(store.disk!)).toHaveLength(2);
+  });
+
+  it('🔒 silinmiş özetler günlükten BİR KEZ geri gelir; sonra silinen dirilmez', async () => {
+    store.hydrated = true;
+    store.disk = null;                                        // seyir defteri silinmiş
+    journal.ids = ['j-1', 'eski-1'];
+    let svc = await import('../platform/tripLogService');
+    svc.startTripLog();
+    expect(svc.getTripSnapshot().history.map((t) => t.id).sort()).toEqual(['eski-1', 'j-1']);
+    expect(svc.getTripSnapshot().history[0].fuelConsumptionL).toBeNull();
+    svc.stopTripLog();
+    svc.deleteTrip('j-1');                                    // kullanıcı siliyor
+    vi.resetModules();                                        // uygulama yeniden açılıyor
+    svc = await import('../platform/tripLogService');
+    svc.startTripLog();
+    expect(svc.getTripSnapshot().history.map((t) => t.id)).not.toContain('j-1');
+    svc.stopTripLog();
   });
 });

@@ -43,7 +43,9 @@ import {
 import {
   beginJournal, finalizeJournal, recordJournalFix,
   recordJournalStopState, recordJournalEvent, recoverOpenJournal,
+  listJournalIds, readJournal,
 } from './trip/tripJournalStore';
+import { rebuildTripSummary } from './trip/tripRecordRecovery';
 import { randomToken } from '../utils/randomId';
 
 /* ── Types ───────────────────────────────────────────────── */
@@ -980,8 +982,46 @@ function _ensureHistoryLoaded(): void {
   _setState({ history: merged, totalDistanceKm: _sumDistance(merged), totalTrips: merged.length });
 }
 
+let _recoveryDone = false;
+
+/** Geçmiş yüklendikten sonra kurtarmayı (bir kez) uygular. */
+function _runRecoveryOnce(): void {
+  if (_recoveryDone || !_historyLoaded) return;
+  _recoveryDone = true;
+  const recovered = _recoverFromJournalOnce(_state.history);
+  if (recovered.length === 0) return;
+  const merged = [..._state.history, ...recovered]
+    .sort((a, b) => b.startTime - a.startTime).slice(0, MAX_STORED_TRIPS);
+  _save(merged);
+  _setState({ history: merged, totalDistanceKm: _sumDistance(merged), totalTrips: merged.length });
+}
+
+/** Kurtarma bir kez çalışır — sonra kullanıcının sildiği yolculuk günlükten geri GELMEZ. */
+const RECOVERY_FLAG_KEY = 'car-launcher-trip-log-recovered-v1';
+
+/**
+ * SAHA 2026-09-25: silinmiş seyir defterini ham yolculuk günlüğünden (aynı
+ * `tripId`) geri kurar. Yalnız özeti OLMAYAN, kapanmış ve izi olan yolculuklar.
+ */
+function _recoverFromJournalOnce(existing: readonly TripRecord[]): TripRecord[] {
+  try {
+    if (safeGetRaw(RECOVERY_FLAG_KEY) === '1') return [];
+    const have = new Set(existing.map((t) => t.id));
+    const out: TripRecord[] = [];
+    for (const id of listJournalIds()) {
+      if (have.has(id) || id === _active?.tripId) continue;
+      const j = readJournal(id);
+      const rec = j ? rebuildTripSummary(j, _calcScore) : null;
+      if (rec) out.push(rec);
+    }
+    safeSetRaw(RECOVERY_FLAG_KEY, '1');
+    return out;
+  } catch { return []; }
+}
+
 export function startTripLog(): void {
   _ensureHistoryLoaded();
+  _runRecoveryOnce();
   if (_started) return;
   _started = true;
 
