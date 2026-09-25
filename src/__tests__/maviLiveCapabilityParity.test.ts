@@ -132,6 +132,8 @@ const liveTurns = (ws: FakeWs) => ws.sent.filter((m) => m.clientContent).map((m)
 
 beforeEach(() => {
   localStorage.clear(); useStore.getState().resetSettings();
+  // Live 2026-09-25'ten beri varsayılan KAPALI (tek ses: Emel) — bu dosya Live davranışını sınar.
+  localStorage.setItem(GEMINI_LIVE_LOCAL_FLAG, 'true');
   _resetCompanionChatForTest(); _resetProviderHealthForTest(); _resetAiHealthForTest(); _resetGeminiLiveFlagForTest();
   vi.unstubAllGlobals();
 });

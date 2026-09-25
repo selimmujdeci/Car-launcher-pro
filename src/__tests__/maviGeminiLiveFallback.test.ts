@@ -202,6 +202,8 @@ async function brain(text: string, ports: ReturnType<typeof makePorts> | null, c
 
 beforeEach(async () => {
   localStorage.clear();
+  // Live 2026-09-25'ten beri varsayılan KAPALI (tek ses: Emel) — bu dosya Live davranışını sınar.
+  localStorage.setItem(GEMINI_LIVE_LOCAL_FLAG, 'true');
   useStore.getState().resetSettings();
   _resetCompanionChatForTest();
   _resetProviderHealthForTest();

@@ -1,12 +1,14 @@
 /**
  * geminiLiveFlag — Gemini Live birincil yol ŞALTERİ.
  *
- * Ürün kararı (2026-09-21): Live VARSAYILAN AÇIK — Mavi'nin birincil online
- * konuşma yolu. Bu dosya yalnız KAPATMA/ZORLAMA kapısıdır:
- *   · yerel `mavi.geminiLive.enabled` = 'false' → kapalı (cihazda hızlı geri alma)
- *   · yerel `mavi.geminiLive.enabled` = 'true'  → açık (uzak kapatmayı ezer)
+ * Ürün kararı DEĞİŞTİ (2026-09-25, kullanıcı): Live VARSAYILAN KAPALI.
+ * Live cevabı kendi sesiyle (Gemini "Sulafat") konuşuyor; geri kalan HER şey
+ * ("Buradayım", onaylar, REST cevapları) Edge "Emel" sesiyle → sürücü iki
+ * farklı asistan duyuyordu ve Live sesini beğenmedi. Tek ses = Emel.
+ *   · yerel `mavi.geminiLive.enabled` = 'true'  → açık (cihazda bilinçli deneme)
+ *   · yerel `mavi.geminiLive.enabled` = 'false' → kapalı
  *   · uzak `mavi_gemini_live_off` = true         → kapalı (filo geri alma)
- *   · aksi hâlde AÇIK.
+ *   · aksi hâlde KAPALI.
  *
  * Kapalıyken zincir BİREBİR eski dizidir (Live adayı hiç kurulmaz); REST/
  * OpenRouter/Claude/offline davranışı değişmez.
@@ -33,9 +35,9 @@ export function isGeminiLiveEnabled(): boolean {
   if (_cached !== null) return _cached;
   const local = readLocal();
   if (local !== null) { _cached = local; return local; }
-  let remoteOff = false;
-  try { remoteOff = getFlag(GEMINI_LIVE_REMOTE_OFF_FLAG) === true; } catch { remoteOff = false; }
-  _cached = !remoteOff;
+  // Uzak kapatma okunur (filo kanıtı için) ama varsayılan zaten KAPALI.
+  try { void getFlag(GEMINI_LIVE_REMOTE_OFF_FLAG); } catch { /* fail-soft */ }
+  _cached = false;
   return _cached;
 }
 
