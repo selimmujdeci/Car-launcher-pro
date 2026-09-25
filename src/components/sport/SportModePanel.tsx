@@ -18,6 +18,7 @@ import {
   type QMState,
 } from '../../platform/performanceService';
 import { useOBDState } from '../../platform/obdService';
+import { RunLabCard } from './RunLabCard';
 
 /* ── Yardımcı ────────────────────────────────────────────── */
 
@@ -349,6 +350,9 @@ export const SportModePanel = memo(function SportModePanel() {
           peakBrakeG={perf.peakBrakeG}
           onReset={resetPeaks}
         />
+
+        {/* Performans 2.0 — 0-100 / 60-100 / 100-0, geçerlilik + rekor kıyası */}
+        <RunLabCard />
 
         {/* 0-100 Test */}
         <TestCard
