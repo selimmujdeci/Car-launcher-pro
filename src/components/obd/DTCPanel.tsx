@@ -24,6 +24,7 @@ import {
 import { buildVehicleVerdict } from '../../platform/obd/verdictEngine';
 import { formatDtcDisplayCode, UDS_DTC_STATE_LABEL } from '../../platform/obd/udsDtc';
 import { explainDtcsWithAi, type DtcExplainItem } from '../../platform/obd/dtcAiExplanation';
+import { MechanicReportCard } from './MechanicReportCard';
 import { logError } from '../../platform/crashLogger';
 import { CarLauncher } from '../../platform/nativePlugin';
 import { useDebugStore } from '../../platform/debug';
@@ -648,6 +649,9 @@ function DTCPanelInner({ active = false }: { active?: boolean }) {
           )}
         </div>
       )}
+
+      {/* Araç Ustası — deterministik AI Usta'nın son değerlendirmesi (yoksa görünmez). */}
+      <MechanicReportCard dtcCodes={dtc.codes.map((c) => c.code)} refreshKey={dtc.lastReadAt ?? 0} />
 
       {/* ── OBD-OS-F1-4: tarama kapsamı rozeti ─────────────────────── */}
       {/* "Temiz" demek yetmez: kullanıcı NE KADARININ tarandığını görmeli. Kısmi taramada
