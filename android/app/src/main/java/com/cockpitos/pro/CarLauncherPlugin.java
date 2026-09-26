@@ -219,6 +219,20 @@ public class CarLauncherPlugin extends Plugin {
             }
         });
 
+        /* Güncelleme sonrası bağlanmamış bildirim dinleyicisi açılışta yeniden bağlanır. */
+        try { ensureNotificationListenerBound(notificationAccessGranted()); } catch (Exception ignored) {}
+
+        /* Telefon Merkezi — arama/mesaj bildirimleri (içerik loglanmaz). */
+        com.cockpitos.pro.notify.NotificationMirror.setSink(new com.cockpitos.pro.notify.NotificationMirror.Sink() {
+            @Override public void posted(JSObject data) { notifyListeners("notification", data); }
+            @Override public void removed(String key) {
+                JSObject o = new JSObject();
+                o.put("key", key);
+                notifyListeners("notificationRemoved", o);
+            }
+            @Override public void listenerLost() { notifyListeners("notificationListenerLost", new JSObject()); }
+        });
+
         // CanBusManager'ı ForegroundService watchdog'a inject et
         CarLauncherForegroundService.setCanBusManager(canBusManager);
         // Kayıtlı CAN ID yapılandırmasını yükle
@@ -243,10 +257,13 @@ public class CarLauncherPlugin extends Plugin {
                     try { name = dev != null ? dev.getName() : ""; } catch (SecurityException ignored) {}
                     event.put("connected", true);
                     event.put("deviceName", name != null ? name : "Araç");
+                    // Adres: sürücüyü telefonundan tanıma (ad çakışabilir, adres çakışmaz).
+                    event.put("deviceAddress", dev != null ? dev.getAddress() : "");
                     notifyListeners("btChanged", event);
                 } else if (android.bluetooth.BluetoothDevice.ACTION_ACL_DISCONNECTED.equals(action)) {
                     event.put("connected", false);
                     event.put("deviceName", "");
+                    event.put("deviceAddress", dev != null ? dev.getAddress() : "");
                     notifyListeners("btChanged", event);
                 }
             }
@@ -467,6 +484,36 @@ public class CarLauncherPlugin extends Plugin {
         ret.put("zones", zones);
         ret.put("readableCount", found);
         ret.put("available", found > 0);
+
+        /* ÜRETİCİ KALİBRELİ TERMAL DURUM (2026-09-06, gerçek cihaz kanıtı).
+         *
+         * Yukarıdaki not K24 head unit içindir: ORADA HAL ölü, bu yüzden sysfs
+         * kullanılır ve o karar KORUNUR. Ama HAL'in ÇALIŞTIĞI cihazlarda
+         * (Redmi 23090RA98I ölçümü: `dumpsys thermalservice` → `HAL Ready: true`,
+         * `Thermal Status: 3`) bu API sysfs'ten DAHA İYİdir: ham die sıcaklığı
+         * değil, üreticinin CİLT sıcaklığını da hesaba katarak kalibre ettiği
+         * hükümdür — eşik tahminine gerek bırakmaz.
+         *
+         * Sahada ölçülen kusur: cihaz SEVERE(3) durumdayken uygulamanın hiçbir
+         * kaynağı bunu görmüyordu (batarya 40 °C < 45 °C eşiği; die 63 °C <
+         * 100 °C eşiği) → kısıtlama HİÇ devreye girmiyor, blur/shadow açık
+         * kalıp ısınmayı besliyordu.
+         *
+         * ZERO-TRUST: değer alınamazsa ya da geçersizse (HAL ölü → Integer.MIN_VALUE
+         * gibi) alan JSON'a KONMAZ → JS tarafı UNAVAILABLE sayar, sahte "serin"
+         * hükmü ÜRETİLMEZ. Yalnız OKUR; hiçbir throttling uygulamaz. */
+        if (android.os.Build.VERSION.SDK_INT >= 29) {
+            try {
+                android.os.PowerManager pm =
+                    (android.os.PowerManager) getContext().getSystemService(Context.POWER_SERVICE);
+                if (pm != null) {
+                    int st = pm.getCurrentThermalStatus();
+                    // Geçerli aralık: NONE(0) … SHUTDOWN(6). Dışındaki her şey = HAL ölü/bilinmiyor.
+                    if (st >= 0 && st <= 6) ret.put("thermalStatus", st);
+                }
+            } catch (Throwable ignored) { /* fail-soft: alan konmaz */ }
+        }
+
         call.resolve(ret);
     }
 
@@ -680,6 +727,7 @@ public class CarLauncherPlugin extends Plugin {
         boolean btOn = btAdapter != null && btAdapter.isEnabled();
         boolean btConnected = false;
         String  btDevice    = "";
+        JSArray btConnectedDevices = new JSArray();   // TÜM bağlı cihazlar (ad + adres)
 
         if (btOn) {
             try {
@@ -694,20 +742,41 @@ public class CarLauncherPlugin extends Plugin {
                         try {
                             Method m = dev.getClass().getMethod("isConnected");
                             if (Boolean.TRUE.equals(m.invoke(dev))) {
-                                btDevice = dev.getName();
+                                if (btDevice.isEmpty()) btDevice = dev.getName();
                                 btConnected = true;
-                                break;
+                                JSObject d = new JSObject();
+                                d.put("name", dev.getName());
+                                d.put("address", dev.getAddress());
+                                btConnectedDevices.put(d);
                             }
                         } catch (Exception ignored) {}
                     }
                 }
             } catch (SecurityException ignored) {
-                btConnected = btOn;
+                /* İzin yokken bağlantı ÖLÇÜLEMEZ — "açık" ≠ "bağlı" (sahte bağlı YOK). */
+                btConnected = false;
             }
         }
         result.put("btConnected", btConnected);
         result.put("btDevice",    btDevice);
+        result.put("btConnectedDevices", btConnectedDevices);
 
+        /*
+         * CONNECTIVITY F7-B (§15) — ACIK ISTISNA: SALT GOSTERGE.
+         *
+         * Burasi "Wi-Fi bagli mi + SSID" GOSTERIR; INTERNET GERCEGI URETMEZ ve
+         * hicbir karar yolu bunu okumaz (tuketici zinciri: deviceApi →
+         * StatusControls / Ayarlar kutucugu / vehicleProfileService ad alani).
+         * "Bu is yapilabilir mi" sorusu YALNIZ TS tarafindaki kanonik
+         * ConnectivityPolicy'ye sorulur; tetherService'in "zaten bagli mi"
+         * kapisi F7-B'de oraya TASINDI.
+         *
+         * Deprecated {@code NetworkInfo} BILEREK korundu: modern karsiligi
+         * (aktif agin NetworkCapabilities'i) yalnizca VARSAYILAN yolu bildirir;
+         * Ethernet aktifken Wi-Fi da bagliysa SSID gostergesi KAYBOLURDU.
+         * Gosterge semantigini bozmamak icin burada buyuk bir native refactor
+         * ACILMADI — kalan deprecated kullanim raporlanmistir.
+         */
         ConnectivityManager cm =
             (ConnectivityManager) getContext().getSystemService(Context.CONNECTIVITY_SERVICE);
         NetworkInfo wifiInfo = cm.getNetworkInfo(ConnectivityManager.TYPE_WIFI);
@@ -2379,6 +2448,171 @@ public class CarLauncherPlugin extends Plugin {
         }, "obd-dtc-clear-detailed").start();
     }
 
+    /* ── Telefon Merkezi · bildirim erişimi + eylemler ───────────────────── */
+
+    /**
+     * Telefon Merkezi · Bağlantı — eşleşmiş TELEFONLAR ve bağlı olup olmadıkları.
+     * {@code getDeviceStatus.btConnected} HERHANGİ bir cihazı (ör. OBD adaptörü)
+     * sayar; burada yalnız Bluetooth sınıfı PHONE olanlar döner. Bağlantı gizli
+     * {@code isConnected()} ile okunur; okunamazsa {@code connected} alanı YOKTUR
+     * (bilinmiyor). MAC adresi döndürülmez.
+     */
+    @PluginMethod
+    public void getBluetoothPhones(PluginCall call) {
+        JSObject ret = new JSObject();
+        BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
+        if (adapter == null) { ret.put("state", "NO_ADAPTER"); call.resolve(ret); return; }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+            && ContextCompat.checkSelfPermission(getContext(), android.Manifest.permission.BLUETOOTH_CONNECT)
+                != PackageManager.PERMISSION_GRANTED) {
+            ret.put("state", "NO_PERMISSION"); call.resolve(ret); return;
+        }
+        try {
+            if (!adapter.isEnabled()) { ret.put("state", "OFF"); call.resolve(ret); return; }
+            JSArray phones = new JSArray();
+            Set<BluetoothDevice> bonded = adapter.getBondedDevices();
+            if (bonded != null) {
+                for (BluetoothDevice dev : bonded) {
+                    android.bluetooth.BluetoothClass cls = dev.getBluetoothClass();
+                    if (cls == null || cls.getMajorDeviceClass() != android.bluetooth.BluetoothClass.Device.Major.PHONE) continue;
+                    JSObject o = new JSObject();
+                    o.put("name", dev.getName() != null ? dev.getName() : "");
+                    try {
+                        Object v = dev.getClass().getMethod("isConnected").invoke(dev);
+                        if (v instanceof Boolean) o.put("connected", v);
+                    } catch (Exception ignored) { /* bilinmiyor → alan yok */ }
+                    phones.put(o);
+                }
+            }
+            ret.put("state", "ON");
+            ret.put("phones", phones);
+        } catch (SecurityException e) {
+            ret.put("state", "NO_PERMISSION");
+        }
+        call.resolve(ret);
+    }
+
+    /** Kullanıcı bu uygulamaya "Bildirim erişimi" verdi mi (ölçülür, varsayılmaz). */
+    @PluginMethod
+    public void getNotificationAccess(PluginCall call) {
+        JSObject ret = new JSObject();
+        boolean granted = notificationAccessGranted();
+        ret.put("granted", granted);
+        ret.put("connected", ensureNotificationListenerBound(granted));
+        call.resolve(ret);
+    }
+
+    private boolean notificationAccessGranted() {
+        return androidx.core.app.NotificationManagerCompat
+            .getEnabledListenerPackages(getContext()).contains(getContext().getPackageName());
+    }
+
+    /**
+     * Erişim onaylı ama dinleyici BAĞLI değilse sistemden yeniden bağlamasını ister.
+     * SAHA 2026-09-23 (MIUI): uygulama güncellemesinden sonra dinleyici onaylı
+     * listede kaldı ama bağlı dinleyicilere dönmedi → arama/mesaj aktarımı
+     * sessizce durdu (elle kapat-aç ile düzeldi). @return şu an bağlı mı.
+     */
+    private boolean ensureNotificationListenerBound(boolean granted) {
+        if (MediaListenerService.instance != null) return true;
+        if (granted) {
+            try {
+                android.service.notification.NotificationListenerService.requestRebind(
+                    new android.content.ComponentName(getContext(), MediaListenerService.class));
+            } catch (Exception ignored) { /* sistem reddetti → bağlı değil kalır */ }
+        }
+        return false;
+    }
+
+    @PluginMethod
+    public void openNotificationAccessSettings(PluginCall call) {
+        try {
+            Intent i = new Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS);
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            getContext().startActivity(i);
+            JSObject ret = new JSObject();
+            ret.put("opened", true);
+            call.resolve(ret);
+        } catch (Exception e) {
+            call.reject("SETTINGS_UNAVAILABLE", e.getMessage());
+        }
+    }
+
+    /** Mesaja yanıt — bildirimin kendi yanıt eylemiyle; yoksa ok:false (sahte gönderim YOK). */
+    @PluginMethod
+    public void replyToNotification(PluginCall call) {
+        call.resolve(com.cockpitos.pro.notify.NotificationMirror.reply(
+            getContext(), call.getString("key"), call.getString("text")));
+    }
+
+    /** Arama eylemi: ANSWER · DECLINE · HANG_UP. */
+    @PluginMethod
+    public void invokeNotificationAction(PluginCall call) {
+        call.resolve(com.cockpitos.pro.notify.NotificationMirror.invoke(
+            getContext(), call.getString("key"), call.getString("kind")));
+    }
+
+    /**
+     * JS dinleyicisi kurulduktan sonra süren/çalan aramaları yeniden aktarır ve
+     * şu an AKTİF arama anahtarlarını döner (JS kaçmış kaldırmaları budar).
+     * Dinleyici bağlı değilse liste BOŞTUR: sinyal yokken görüşme iddia edilmez.
+     */
+    @PluginMethod
+    public void replayActiveCallNotifications(PluginCall call) {
+        MediaListenerService svc = MediaListenerService.instance;
+        JSArray keys = new JSArray();
+        if (svc != null) for (String k : svc.replayActiveCalls()) keys.put(k);
+        JSObject ret = new JSObject();
+        ret.put("replayed", svc != null);
+        ret.put("activeCallKeys", keys);
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void dismissNotification(PluginCall call) {
+        MediaListenerService svc = MediaListenerService.instance;
+        String key = call.getString("key");
+        JSObject ret = new JSObject();
+        if (svc == null || key == null) { ret.put("ok", false); call.resolve(ret); return; }
+        try { svc.cancelNotification(key); ret.put("ok", true); }
+        catch (Exception e) { ret.put("ok", false); }
+        call.resolve(ret);
+    }
+
+    /**
+     * Uretici DTC silme — UDS 0x14, TEK ECU. {@link #clearDtcCodes} ile AYNI kanit
+     * sozlesmesi: ECU'nun olumsuz cevabi resolve ile {@code outcome}'da doner, yalniz
+     * tasima hatasi reject eder. Hedef dogrulamasi manager'dadir (fiziksel CAN disi
+     * hedefe tek bayt GITMEZ); izin karari TS'teki yetki + yazma + uretici kapisindadir.
+     */
+    @PluginMethod
+    public void clearUdsDtcs(PluginCall call) {
+        final String tx = call.getString("tx");
+        final String rx = call.getString("rx");
+        if (!present(tx) || !present(rx)) {
+            call.reject("OBD_BAD_ARGS", "tx ve rx zorunlu");
+            return;
+        }
+        new Thread(() -> {
+            try {
+                com.cockpitos.pro.obd.ElmProtocol.ClearResult r;
+                if (bleObdManager != null && bleObdManager.isConnected())  r = bleObdManager.clearUdsDtcs(tx, rx);
+                else if (obdManager != null && obdManager.isConnected())   r = obdManager.clearUdsDtcs(tx, rx);
+                else throw new java.io.IOException("OBD okuyucu bağlı değil");
+                JSObject ret = new JSObject();
+                ret.put("tx", r.tx);
+                ret.put("outcome", r.outcome);
+                if (r.nrc != null)      ret.put("nrc", r.nrc);
+                if (r.protocol != null) ret.put("protocol", r.protocol);
+                ret.put("elapsedMs", r.elapsedMs);
+                mainHandler.post(() -> call.resolve(ret));
+            } catch (Exception e) {
+                String msg = e.getMessage() != null ? e.getMessage() : "Üretici DTC silinemedi";
+                mainHandler.post(() -> call.reject("UDS_DTC_CLEAR_FAILED", msg));
+            }
+        }, "obd-uds-dtc-clear").start();
+    }
+
     // ── Patch 11A: Mode 07 (bekleyen) / Mode 0A (kalıcı) DTC ─────────────────
 
     /** Aktif transport üzerinden BEKLEYEN DTC okur; hiçbiri bağlı değilse IOException. */
@@ -2936,6 +3170,13 @@ public class CarLauncherPlugin extends Plugin {
         final String payload = call.getString("payload", "");
         final String tx = call.getString("tx"); final String rx = call.getString("rx");
         final boolean targetVerified = call.getBoolean("targetVerified", false);
+        /* P0-OBD-DTC-INIT: adresleme matrisinin BU ECU için ÖLÇTÜĞÜ K-line
+           yeniden-başlatma zorunluluğu (bkz. ElmProtocol#withEcuHeader kök neden
+           yorumu). Beyaz liste: yalnız "FAST"/"SLOW" kabul edilir, başka her şey
+           init YOK sayılır (uydurma bir başlatma komutu ÜRETİLMEZ). */
+        final String initFirstArg = call.getString("initFirst");
+        final String initFirst = ("FAST".equals(initFirstArg) || "SLOW".equals(initFirstArg)
+            || "SC81".equals(initFirstArg)) ? initFirstArg : null;
         // P0-OBD-DIAG-02: "13" (ISO 14230-3 eski nesil readDTC) kabul edilir.
         if (!present(tx) || !present(rx)
             || !("19".equals(service) || "18".equals(service) || "13".equals(service))) {
@@ -2968,16 +3209,16 @@ public class CarLauncherPlugin extends Plugin {
                     ev = tuned.uds; tuning = tuned.tuning;
                 } else if ("13".equals(service)) {
                     ev = bleObdManager != null && bleObdManager.isConnected()
-                        ? bleObdManager.readAdvancedKwp13Dtc(tx, rx)
-                        : obdManager.readAdvancedKwp13Dtc(tx, rx);
+                        ? bleObdManager.readAdvancedKwp13Dtc(tx, rx, initFirst)
+                        : obdManager.readAdvancedKwp13Dtc(tx, rx, initFirst);
                 } else if ("18".equals(service)) {
                     ev = bleObdManager != null && bleObdManager.isConnected()
-                        ? bleObdManager.readAdvancedKwpDtc(tx, rx)
-                        : obdManager.readAdvancedKwpDtc(tx, rx);
+                        ? bleObdManager.readAdvancedKwpDtc(tx, rx, initFirst)
+                        : obdManager.readAdvancedKwpDtc(tx, rx, initFirst);
                 } else {
                     ev = bleObdManager != null && bleObdManager.isConnected()
-                        ? bleObdManager.readAdvancedUdsDtc(tx, rx, sub, payload)
-                        : obdManager.readAdvancedUdsDtc(tx, rx, sub, payload);
+                        ? bleObdManager.readAdvancedUdsDtc(tx, rx, sub, payload, initFirst)
+                        : obdManager.readAdvancedUdsDtc(tx, rx, sub, payload, initFirst);
                 }
                 ret.put("raw", ev.data == null ? "" : ev.data);
                 ret.put("kind", ev.kind); if (ev.nrc != null) ret.put("nrc", ev.nrc);
@@ -3189,8 +3430,14 @@ public class CarLauncherPlugin extends Plugin {
     /** P0-OBD-FINAL-01: ECU-basina DTC + HAM yanit + olculen sonuc (aktif transport). */
     private com.cockpitos.pro.obd.ElmProtocol.DtcClassResult readDtcClassFromEcuActive(
             String tx, String rx, String mode) throws Exception {
-        if (bleObdManager != null && bleObdManager.isConnected()) return bleObdManager.readDtcClassFromEcu(tx, rx, mode);
-        if (obdManager    != null && obdManager.isConnected())    return obdManager.readDtcClassFromEcu(tx, rx, mode);
+        return readDtcClassFromEcuActive(tx, rx, mode, null);
+    }
+
+    /** P0-OBD-DTC-INIT/2: matrisin ÖLÇTÜĞÜ K-line yeniden başlatmayı standart moda da taşır. */
+    private com.cockpitos.pro.obd.ElmProtocol.DtcClassResult readDtcClassFromEcuActive(
+            String tx, String rx, String mode, String init) throws Exception {
+        if (bleObdManager != null && bleObdManager.isConnected()) return bleObdManager.readDtcClassFromEcu(tx, rx, mode, init);
+        if (obdManager    != null && obdManager.isConnected())    return obdManager.readDtcClassFromEcu(tx, rx, mode, init);
         throw new java.io.IOException("OBD okuyucu bağlı değil");
     }
 
@@ -3213,6 +3460,11 @@ public class CarLauncherPlugin extends Plugin {
         final String tx   = call.getString("tx");
         final String rx   = call.getString("rx");
         final String mode = call.getString("mode", "03");
+        /* P0-OBD-DTC-INIT/2: beyaz liste — yalnız "FAST"/"SLOW"; başka her şey
+           init YOK sayılır (uydurma başlatma komutu hatta ÇIKMAZ). */
+        final String initArg = call.getString("initFirst");
+        final String initFirst = ("FAST".equals(initArg) || "SLOW".equals(initArg)
+            || "SC81".equals(initArg)) ? initArg : null;
         if (!present(tx) || !present(rx)) {
             call.reject("OBD_BAD_ARGS", "tx ve rx zorunlu");
             return;
@@ -3220,7 +3472,7 @@ public class CarLauncherPlugin extends Plugin {
         new Thread(() -> {
             try {
                 com.cockpitos.pro.obd.ElmProtocol.DtcClassResult r =
-                        readDtcClassFromEcuActive(tx, rx, mode);
+                        readDtcClassFromEcuActive(tx, rx, mode, initFirst);
                 JSObject ret = new JSObject();
                 org.json.JSONArray arr = new org.json.JSONArray();
                 for (String c : r.codes) arr.put(c);
@@ -5900,6 +6152,34 @@ public class CarLauncherPlugin extends Plugin {
             r.put("totalRamMb",      totalRamMb);
             r.put("isLowRamDevice",  am.isLowRamDevice());
 
+            /* ── HYBRID-F0 · GERÇEK KAYNAK KANITI (yalnız ÖLÇÜM — karar BURADA VERİLMEZ) ──
+             * `deviceCapabilities.ts` (JS) TEK tier otoritesi kalır; bu alanlar yalnız onun
+             * `navigator.deviceMemory` gibi güvenilmez WebView tahminleri yerine kullanacağı
+             * GERÇEK native girdidir. Her ölçüm ayrı try/catch: birinin başarısızlığı diğer
+             * alanları ya da genel profili DÜŞÜRMEZ (fail-soft) — okunamayan alan JS'e hiç
+             * gitmez (JSObject'te yok) → orada `undefined` = "bilinmiyor", sahte 0 ÜRETİLMEZ. */
+            try {
+                r.put("availMemMb", mi.availMem / (1024L * 1024L));
+            } catch (Exception ignored) { /* alan eksik kalır → JS'te unknown */ }
+
+            try {
+                r.put("cpuCoreCount", Runtime.getRuntime().availableProcessors());
+            } catch (Exception ignored) { /* alan eksik kalır → JS'te unknown */ }
+
+            try {
+                String[] abis = Build.SUPPORTED_ABIS;
+                if (abis != null && abis.length > 0) {
+                    JSArray abiArr = new JSArray();
+                    for (String abi : abis) abiArr.put(abi);
+                    r.put("supportedAbis", abiArr);
+                }
+            } catch (Exception ignored) { /* alan eksik kalır → JS'te unknown */ }
+
+            try {
+                long usableBytes = getContext().getFilesDir().getUsableSpace();
+                r.put("usableStorageMb", usableBytes / (1024L * 1024L));
+            } catch (Exception ignored) { /* alan eksik kalır → JS'te unknown */ }
+
             DisplayMetrics dm = getContext().getResources().getDisplayMetrics();
             r.put("screenWidth",  dm.widthPixels);
             r.put("screenHeight", dm.heightPixels);
@@ -6812,44 +7092,14 @@ public class CarLauncherPlugin extends Plugin {
             com.cockpitos.pro.can.McuCommandFactory.alarmOff(), "stopAlarm");
     }
 
-    // ── H-4 Native Command Queue API ─────────────────────────────────────
-
-    /**
-     * CommandService.java'nın WebView yokken biriktirdiği bekleyen komut
-     * ID'lerini döner. JS tarafı açılınca bu ID'lerle Supabase'den komut detayını
-     * çeker ve commandListener üzerinden işler.
-     * returns: { commands: JSON string of QueuedNativeCommand[] }
-     */
-    @PluginMethod
-    public void getQueuedNativeCommands(PluginCall call) {
-        String json = CommandService.getQueuedCommands(getContext());
-        JSObject res = new JSObject();
-        res.put("commands", json);
-        call.resolve(res);
-    }
-
-    /**
-     * CommandService.java'nın offline çalıştırdığı MCU komutlarının
-     * sonuç listesini döner. JS tarafı bu sonuçları Supabase'e PATCH eder.
-     * returns: { results: JSON string of NativeCommandResult[] }
-     */
-    @PluginMethod
-    public void getNativeCommandResults(PluginCall call) {
-        String json = CommandService.getCommandResults(getContext());
-        JSObject res = new JSObject();
-        res.put("results", json);
-        call.resolve(res);
-    }
-
-    /**
-     * Komut kuyruğunu ve sonuç listesini temizler.
-     * JS tarafı drainNativeCommandQueue() tamamladıktan sonra çağırır.
-     */
-    @PluginMethod
-    public void clearNativeCommandQueue(PluginCall call) {
-        CommandService.clearAll(getContext());
-        call.resolve();
-    }
+    // ── H-4 Native Command Queue API — MRI F-02'de KALDIRILDI ────────────
+    //
+    // `getQueuedNativeCommands` / `getNativeCommandResults` /
+    // `clearNativeCommandQueue` köprüleri, CommandService'in native fiziksel
+    // yürütücüsünün SharedPreferences kuyruğunu okuyordu. O yürütücü (ve
+    // dolayısıyla kuyruğun TEK üreticisi) F-02'de kaldırıldı; JS tarafında da
+    // tüketici kalmadı (`nativeCommandBridge.drainNativeCommandQueue`).
+    // Komut durumunun tek yazarı kanonik `update_command_status` RPC'sidir.
 
     // ── Command Service Durum API ─────────────────────────────────────────
 
@@ -7182,6 +7432,209 @@ public class CarLauncherPlugin extends Plugin {
             call.resolve();
         } catch (Exception e) {
             call.reject("Silme hatası: " + e.getMessage());
+        }
+    }
+
+    /* ══════════════════════════════════════════════════════════════════════
+     * LOCAL PIN OTORİTESİ (Wave 12B) — VALET/GEOFENCE KORUMASI
+     *
+     * NE KORUR: aktif valet/geofence korumasının ARAÇ BAŞINDAKİ yetkisiz kişi
+     * tarafından kapatılmasını/değiştirilmesini. Aracı kullanmayı ENGELLEMEZ.
+     * Uzak komut PIN'i (verify_and_send_critical_command / migration 083)
+     * AYRI DOMAINDİR ve buradan etkilenmez.
+     *
+     * NEDEN `setPinHash(hash)` DEĞİL: eski sözleşmede hash'i JS üretiyordu →
+     * güven sınırı yanlış yerdeydi (JS istediği doğrulayıcıyı yazabilirdi) ve
+     * 4 haneli PIN için düz SHA-256 çevrimdışı kırılır. Burada JS yalnız ham
+     * kullanıcı girdisini taşır; TÜRETME ve KARŞILAŞTIRMA native'dedir.
+     * Doğrulayıcı JS'e HİÇBİR ZAMAN dönmez. Ham PIN saklanmaz, loglanmaz.
+     *
+     * DEPOLAMA: mevcut `getSecurePrefs()` (Android Keystore destekli
+     * EncryptedSharedPreferences). İKİNCİ bir secure-storage sistemi KURULMADI.
+     *
+     * TÜRETME: PBKDF2WithHmacSHA256 (JDK standardı) + rastgele 16B salt.
+     * Kendi kripto algoritmamız YOKTUR.
+     *
+     * KİLİT: sayaç ve bitiş damgası kalıcıdır → uygulama/süreç yeniden başlatma
+     * kilidi SIFIRLAMAZ. Saat ileri alınarak duvar-saati kilidi atlatılabilir;
+     * bu yüzden `elapsedRealtime` damgası da tutulur (yeniden başlatmada sıfırlanır
+     * ama sayaç kalıcı olduğu için bir sonraki hatalı deneme anında yeniden kilitler).
+     * ══════════════════════════════════════════════════════════════════════ */
+
+    private static final String PIN_VERIFIER      = "local_pin_verifier_v1";
+    private static final String PIN_ATTEMPTS      = "local_pin_attempts_v1";
+    private static final String PIN_UNTIL_WALL    = "local_pin_until_wall_v1";
+    private static final String PIN_UNTIL_ELAPSED = "local_pin_until_elapsed_v1";
+    private static final int    PIN_MAX_ATTEMPTS  = 5;
+    private static final long   PIN_LOCKOUT_MS    = 30_000L;
+    private static final int    PIN_KDF_ITERATIONS = 120_000;
+
+    private static boolean pinFormatOk(String pin) {
+        return pin != null && pin.matches("\\d{4,6}");
+    }
+
+    /** PBKDF2-SHA256 → base64. Ham PIN burada kalır, hiçbir yere yazılmaz. */
+    private static String derivePinVerifier(String pin, byte[] salt) throws Exception {
+        javax.crypto.spec.PBEKeySpec spec = new javax.crypto.spec.PBEKeySpec(
+            pin.toCharArray(), salt, PIN_KDF_ITERATIONS, 256);
+        try {
+            byte[] bits = javax.crypto.SecretKeyFactory
+                .getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).getEncoded();
+            return android.util.Base64.encodeToString(bits, android.util.Base64.NO_WRAP);
+        } finally {
+            spec.clearPassword();
+        }
+    }
+
+    /** Sabit zamanlı karşılaştırma — erken çıkış YOK. */
+    private static boolean pinConstantTimeEquals(String a, String b) {
+        if (a == null || b == null || a.length() != b.length()) return false;
+        int diff = 0;
+        for (int i = 0; i < a.length(); i++) diff |= a.charAt(i) ^ b.charAt(i);
+        return diff == 0;
+    }
+
+    /** Kalan kilit süresi (saniye); 0 → kilitli değil. */
+    private int pinLockRemainingSec(SharedPreferences p) {
+        if (p.getInt(PIN_ATTEMPTS, 0) < PIN_MAX_ATTEMPTS) return 0;
+        long nowWall    = System.currentTimeMillis();
+        long nowElapsed = android.os.SystemClock.elapsedRealtime();
+        long remWall    = p.getLong(PIN_UNTIL_WALL, 0L)    - nowWall;
+        long remElapsed = p.getLong(PIN_UNTIL_ELAPSED, 0L) - nowElapsed;
+        long rem = Math.max(remWall, remElapsed);   // biri bile kilitliyse KİLİTLİ
+        if (rem <= 0) return 0;
+        if (rem > PIN_LOCKOUT_MS) rem = PIN_LOCKOUT_MS;  // saat geri alınmış → tavanla
+        return (int) Math.ceil(rem / 1000.0);
+    }
+
+    private void pinRegisterFailure(SharedPreferences p) {
+        int attempts = p.getInt(PIN_ATTEMPTS, 0) + 1;
+        SharedPreferences.Editor e = p.edit().putInt(PIN_ATTEMPTS, attempts);
+        if (attempts >= PIN_MAX_ATTEMPTS) {
+            e.putLong(PIN_UNTIL_WALL,    System.currentTimeMillis() + PIN_LOCKOUT_MS)
+             .putLong(PIN_UNTIL_ELAPSED, android.os.SystemClock.elapsedRealtime() + PIN_LOCKOUT_MS);
+        }
+        e.apply();
+    }
+
+    private void pinResetAttempts(SharedPreferences p) {
+        p.edit().putInt(PIN_ATTEMPTS, 0)
+                .putLong(PIN_UNTIL_WALL, 0L)
+                .putLong(PIN_UNTIL_ELAPSED, 0L).apply();
+    }
+
+    private static JSObject pinResult(String status) {
+        JSObject o = new JSObject();
+        o.put("status", status);
+        return o;
+    }
+
+    /** Doğrulayıcı kurulu mu + kilit durumu. Doğrulayıcı DEĞERİ dönmez. */
+    @PluginMethod
+    public void localPinStatus(PluginCall call) {
+        try {
+            SharedPreferences p = getSecurePrefs();
+            int rem = pinLockRemainingSec(p);
+            JSObject o = new JSObject();
+            o.put("configured",     p.getString(PIN_VERIFIER, null) != null);
+            o.put("locked",         rem > 0);
+            o.put("remainingSec",   rem);
+            o.put("failedAttempts", p.getInt(PIN_ATTEMPTS, 0));
+            call.resolve(o);
+        } catch (Exception e) {
+            call.reject("localPinStatus hatası");   // FAIL-CLOSED: çağıran DENY eder
+        }
+    }
+
+    /** İLK kurulum. PIN zaten varsa ALREADY_SET — değişiklik changeLocalPin ile. */
+    @PluginMethod
+    public void setLocalPin(PluginCall call) {
+        String pin = call.getString("pin", "");
+        if (!pinFormatOk(pin)) { call.resolve(pinResult("INVALID")); return; }
+        try {
+            SharedPreferences p = getSecurePrefs();
+            if (p.getString(PIN_VERIFIER, null) != null) {
+                call.resolve(pinResult("ALREADY_SET")); return;
+            }
+            byte[] salt = new byte[16];
+            new java.security.SecureRandom().nextBytes(salt);
+            String stored = android.util.Base64.encodeToString(salt, android.util.Base64.NO_WRAP)
+                          + ":" + derivePinVerifier(pin, salt);
+            p.edit().putString(PIN_VERIFIER, stored).apply();
+            pinResetAttempts(p);
+            call.resolve(pinResult("OK"));
+        } catch (Exception e) {
+            call.reject("setLocalPin hatası");
+        }
+    }
+
+    /** Ortak doğrulama — sonuç durumu döner, sayaç/kilit burada işlenir. */
+    private String pinVerifyInternal(SharedPreferences p, String pin) throws Exception {
+        String stored = p.getString(PIN_VERIFIER, null);
+        if (stored == null) return "NOT_SET";
+        if (pinLockRemainingSec(p) > 0) return "LOCKED";
+        if (!pinFormatOk(pin)) { pinRegisterFailure(p); return "WRONG"; }
+
+        int sep = stored.indexOf(':');
+        if (sep <= 0) return "NOT_SET";   // bozuk kayıt → kurulu sayılmaz (fail-closed)
+        byte[] salt = android.util.Base64.decode(stored.substring(0, sep), android.util.Base64.NO_WRAP);
+        String candidate = derivePinVerifier(pin, salt);
+
+        if (pinConstantTimeEquals(candidate, stored.substring(sep + 1))) {
+            pinResetAttempts(p);
+            return "OK";
+        }
+        pinRegisterFailure(p);
+        return pinLockRemainingSec(p) > 0 ? "LOCKED" : "WRONG";
+    }
+
+    @PluginMethod
+    public void verifyLocalPin(PluginCall call) {
+        try {
+            SharedPreferences p = getSecurePrefs();
+            String status = pinVerifyInternal(p, call.getString("pin", ""));
+            JSObject o = pinResult(status);
+            o.put("remainingSec", pinLockRemainingSec(p));
+            call.resolve(o);
+        } catch (Exception e) {
+            call.reject("verifyLocalPin hatası");
+        }
+    }
+
+    /** PIN değiştirme — MEVCUT PIN kanıtı ZORUNLU (atomik: doğrula + yaz). */
+    @PluginMethod
+    public void changeLocalPin(PluginCall call) {
+        String next = call.getString("next", "");
+        if (!pinFormatOk(next)) { call.resolve(pinResult("INVALID")); return; }
+        try {
+            SharedPreferences p = getSecurePrefs();
+            String verdict = pinVerifyInternal(p, call.getString("current", ""));
+            if (!"OK".equals(verdict)) { call.resolve(pinResult(verdict)); return; }
+
+            byte[] salt = new byte[16];
+            new java.security.SecureRandom().nextBytes(salt);
+            p.edit().putString(PIN_VERIFIER,
+                android.util.Base64.encodeToString(salt, android.util.Base64.NO_WRAP)
+                + ":" + derivePinVerifier(next, salt)).apply();
+            pinResetAttempts(p);
+            call.resolve(pinResult("OK"));
+        } catch (Exception e) {
+            call.reject("changeLocalPin hatası");
+        }
+    }
+
+    /** PIN kaldırma — MEVCUT PIN kanıtı ZORUNLU (kanıtsız kaldırma = bypass). */
+    @PluginMethod
+    public void clearLocalPin(PluginCall call) {
+        try {
+            SharedPreferences p = getSecurePrefs();
+            String verdict = pinVerifyInternal(p, call.getString("current", ""));
+            if (!"OK".equals(verdict)) { call.resolve(pinResult(verdict)); return; }
+            p.edit().remove(PIN_VERIFIER).apply();
+            pinResetAttempts(p);
+            call.resolve(pinResult("OK"));
+        } catch (Exception e) {
+            call.reject("clearLocalPin hatası");
         }
     }
 

@@ -64,11 +64,36 @@ export interface ManufacturerDidProfileSyncResult {
  * çünkü profilsizken _watchedDids() boş döner, ama unloadProfile önceki profili de temizler).
  */
 export function syncManufacturerDidProfile(id: ManufacturerDidProfileId): ManufacturerDidProfileSyncResult {
+  _selectedId = id;
   if (id === 'none') {
     unloadProfile();
     return { ok: true };
   }
-  const profile = MANUFACTURER_DID_PROFILES[id];
+  const base = MANUFACTURER_DID_PROFILES[id];
+  // Otomatik öğrenilen (didLearning — saha korelasyonuyla KANITLI) DID'ler seçili profile
+  // EKLENİR; aynı DID profilde varsa profil kazanır. Gösterim yolu TEKTİR (loadProfile).
+  const profile: VehicleDidProfile = _learned.dids.length === 0 ? base : {
+    ...base,
+    ecus: [...base.ecus, ..._learned.ecus.filter((e) => !base.ecus.some((b) => b.id === e.id))],
+    dids: [...base.dids, ..._learned.dids.filter((d) => !base.dids.some((b) => b.did === d.did))],
+  };
   const result = loadProfile(profile);
   return result.ok ? { ok: true } : { ok: false, errors: result.errors };
+}
+
+/* ── Öğrenilen DID katmanı (didLearningEngine → buraya) ─────────────────── */
+let _selectedId: ManufacturerDidProfileId | null = null;
+let _learned: { ecus: VehicleDidProfile['ecus']; dids: VehicleDidProfile['dids'] } = { ecus: [], dids: [] };
+
+/**
+ * Kanıtlı öğrenilmiş DID'leri günceller ve seçili profili yeniden yükler. Kullanıcı
+ * marka verisini KAPATTIYSA ('none') hiçbir şey yüklenmez — tercih ezilmez.
+ */
+export function setLearnedDidOverlay(fragment: { ecus: VehicleDidProfile['ecus']; dids: VehicleDidProfile['dids'] }): void {
+  _learned = { ecus: [...fragment.ecus], dids: [...fragment.dids] };
+  if (_selectedId !== null && _selectedId !== 'none') syncManufacturerDidProfile(_selectedId);
+}
+
+export function getLearnedDidOverlay(): { ecus: VehicleDidProfile['ecus']; dids: VehicleDidProfile['dids'] } {
+  return _learned;
 }

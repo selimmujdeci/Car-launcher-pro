@@ -60,11 +60,20 @@ vi.mock('../platform/canSnapshotService', () => ({
 }));
 vi.mock('../platform/safety/SafetyBrain', () => ({ isFeatureEnabled: vi.fn(() => true), recordFault: vi.fn(), recordFeatureRecovered: vi.fn() }));
 vi.mock('../platform/obdStorage', () => ({
+  /* a8697aed (yakit PID kaliciligi) `obdService`e ARAC KAPSAMLI bitmap
+     okuma/yazmayi ekledi; bu mock yuzeyi guncellenmemisti -> uretim
+     `loadObdSupportedPidBitmapFor is not a function` ile dusuyor ve
+     baglanti 'error' oluyordu. `null` = KAYITLI KANIT YOK (uydurma
+     bitmap DEGIL); kayit fonksiyonu yalniz cagrilmis mi diye izlenir. */
+  loadObdSupportedPidBitmapFor: vi.fn(() => null),
+  saveObdSupportedPidBitmapFor: vi.fn(),
+  loadVerifiedObdAddresses: vi.fn(() => new Set<string>()),
+
   loadObdAddress: vi.fn(() => null), saveObdAddress: vi.fn(), clearObdAddress: vi.fn(),
   loadObdTransport: vi.fn(() => 'classic'), saveObdTransport: vi.fn(),
   loadObdTransportVerified: vi.fn(() => true), saveObdTransportVerified: vi.fn(), clearObdTransport: vi.fn(),
   loadObdProfileId: vi.fn(() => null), saveObdProfileId: vi.fn(),
-  loadObdProtocol: vi.fn(() => M.protocol), saveObdProtocol: vi.fn(), clearObdProtocol: vi.fn(),
+  loadObdProtocol: vi.fn(() => M.protocol), saveObdProtocol: vi.fn(), clearObdProtocol: vi.fn(), saveObdSupportedPidBitmap: vi.fn(),
   loadObdFuelCalib: vi.fn(() => 1), saveObdFuelCalib: vi.fn(),
   isValidTcpAddress: vi.fn(() => false), markObdAddressVerified: vi.fn(),
 }));
@@ -74,7 +83,8 @@ vi.mock('../platform/obdSanitizer', () => ({
   sanitizeNativeOBDPacket: vi.fn((d: Record<string, unknown>) => ({ patch: d, nextRpm: null })),
 }));
 
-import { startOBD, stopOBD, getOBDStatusSnapshot, getOBDDataSnapshot } from '../platform/obdService';
+import { startOBD, stopOBD, getOBDStatusSnapshot, getOBDDataSnapshot, getObdSessionEpoch } from '../platform/obdService';
+import { noteDiagnosticLinkActivity } from '../platform/obd/obdEpochReader';
 import { _resetObdDiagEmitterForTest } from '../platform/obdDiagEmitter';
 import {
   getRecoveryLevel, getRecoveryCooldownMs, isCanRecoveryApplicable,
@@ -347,6 +357,45 @@ describe('KWP (proto 5) — native ATPC davranışı BOZULMAZ', () => {
     await establish();
     await silentEcuFor(60_000);
     expect(M.recoverCalls).toHaveLength(0);
+  });
+});
+
+/* ══ TANI TRAFİĞİ POLL'U AÇ BIRAKIR (saha 2026-09-22) ═════════════════════ */
+
+describe('tanı taraması sırasında poll açlığı — link KOPARILMAZ, kurtarma ÇALIŞMAZ', () => {
+  /** Canlı veri HİÇ gelmiyor (native tur bitmiyor) ama tanı yanıtları geliyor. */
+  async function diagOnlyFor(ms: number, epoch: () => number): Promise<void> {
+    const step = 3_000;
+    for (let t = 0; t < ms; t += step) {
+      await vi.advanceTimersByTimeAsync(step);
+      noteDiagnosticLinkActivity(epoch());
+    }
+  }
+
+  it('🔒 SAHA: tanı yanıtı akarken sağlıklı hat "öldü" sayılmaz; veri yine BAYAT görünür', async () => {
+    await establish();
+    feed({ batteryVoltage: 14.2 });            // motor çalışıyor → kurtarma kapısı AÇIK olurdu
+    const connectsBefore = M.connectCalls;
+
+    await diagOnlyFor(45_000, getObdSessionEpoch);
+
+    expect(M.connectCalls).toBe(connectsBefore);                        // teardown/reconnect YOK
+    expect(getOBDDataSnapshot().transportConnected).toBe(true);
+    expect(getOBDStatusSnapshot().connectionState).toBe('connected');
+    expect(M.recoverCalls).toHaveLength(0);                             // ATPC/ATWS YOK
+    expect(getOBDDataSnapshot().dataFresh).toBe(false);                 // bayat → bayat (dürüst)
+  });
+
+  it('KONTROL: tanı yanıtı yoksa gerçek kopma HÂLÂ yakalanır', async () => {
+    await establish();
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(getOBDDataSnapshot().transportConnected).toBe(false);
+  });
+
+  it('KONTROL: BAŞKA oturumun yanıtı canlılık kanıtı SAYILMAZ', async () => {
+    await establish();
+    await diagOnlyFor(30_000, () => getObdSessionEpoch() - 1);
+    expect(getOBDDataSnapshot().transportConnected).toBe(false);
   });
 });
 

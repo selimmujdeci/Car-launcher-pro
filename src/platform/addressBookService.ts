@@ -258,6 +258,11 @@ export function useAddressBook() {
   return useAddressBookStore();
 }
 
+/** Adres defteri değişimine abone ol (sürücü profili otomatik hafızası). Dönen fn aboneliği söker. */
+export function subscribeAddressBook(fn: () => void): () => void {
+  return useAddressBookStore.subscribe(fn);
+}
+
 /* ══════════════════════════════════════════════════════════════════════════
  * Ev / İş hızlı-hedef API'si (NAVIGATION-P0-1)
  *

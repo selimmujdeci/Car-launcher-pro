@@ -86,6 +86,8 @@ export interface WakeWordState {
 /* ── Legacy uyandırma kelimeleri ("hey car" sistemi) ─────── */
 
 const DEFAULT_WAKE_WORD = 'hey car';
+/** Ayarlar › Asistan › "Hey Araba ile uyandır" sözü. */
+export const HEY_ARABA_PHRASE = 'hey araba';
 
 const LEGACY_WAKE_PATTERNS = [
   'hey car',
@@ -1029,6 +1031,12 @@ function _applyWakeFromSettings(s: AppSettings): void {
    * Wake sözleri yine asistan ADINDAN türer; ad/kişilik ayarları presence'tan
    * bağımsız okunur (`resolveCompanionIdentity` zaten yalnız ad/mod/cümle alır). */
   const companionWake = s.companionWakeWordEnabled ?? false;
+  /* "Hey Araba" anahtarı (settings.wakeWordEnabled) — saha 2026-09-24: eski yol
+     İngilizce "hey car" sözünü Türkçe grammar'a veriyordu (sözlükte yok →
+     pratikte hiç tetiklenmiyordu) ve ayar ekranı "Hey Araba" diyordu. Artık
+     "hey araba" asistan adına EK söz olarak (ya da tek başına) companion yolundan
+     dinlenir: TR-normalize eşleşme + selamlama, tek dinleme oturumu. */
+  const heyAraba = s.wakeWordEnabled === true;
   if (companionWake) {
     // Wake sözleri asistan ADINDAN türer ("Mavi"/"Hey Mavi"/özel cümle).
     const identity = resolveCompanionIdentity({
@@ -1040,13 +1048,14 @@ function _applyWakeFromSettings(s: AppSettings): void {
     // ÖZEL mod (kullanıcının yazdığı serbest cümle) sözlük-dışı olabilir →
     // grammar yerine serbest tanıma + fonetik fuzzy + öğretilen örnekler.
     const isCustom = identity.wakeMode === 'custom';
-    enableWakeWord(resolveWakeWords(identity), {
+    const words = resolveWakeWords(identity);
+    enableWakeWord(heyAraba ? [...words, HEY_ARABA_PHRASE] : words, {
       companion: true,
       custom: isCustom,
       enrollment: isCustom ? identity.wakeEnrollment : [],
     });
-  } else if (s.wakeWordEnabled) {
-    enableWakeWord(s.wakeWord ?? DEFAULT_WAKE_WORD);   // eski "hey car" sistemi
+  } else if (heyAraba) {
+    enableWakeWord([HEY_ARABA_PHRASE], { companion: true });
   } else {
     disableWakeWord();
   }

@@ -13,6 +13,8 @@
  */
 import { create } from 'zustand';
 import { isNative } from './bridge';
+import { getConnectivitySnapshot } from './connectivity/connectivityAuthority';
+import { allowsConnectivity } from './connectivity/connectivityGate';
 import { DEFAULT_FUEL_L_PER_100KM } from './vehicleAssumptions';
 import {
   parseRouteDurations, remainingRouteDurationS,
@@ -69,6 +71,11 @@ import {
   judgeProgress, recordProgressJudgement, resetProgressLedger,
 } from './navigation/core/routeProgressLedger';
 import { maneuverToTr } from './navigation/core/maneuverSemanticsModel';
+import {
+  TOMTOM_ROUTING_SERVER, fetchTomTomRoutes, type TomTomRoute, type RouteTrafficSection,
+  type RouteSpeedLimitSection, fetchTomTomBetterRoute, betterRouteSaving,
+} from './routing/tomtomRouting';
+export type { RouteTrafficSection, RouteSpeedLimitSection } from './routing/tomtomRouting';
 import {
   recordNavTickCost, resetNavTickCost,
 } from './navigation/core/navTickCostModel';
@@ -146,6 +153,10 @@ interface RouteState {
    * null = yığın manevrası yok.
    */
   pendingManeuver:          RouteStep | null;
+  /** Rota üzerindeki trafik bölümleri (yalnız TomTom verir; diğer sağlayıcılarda boş). */
+  trafficSections:          readonly RouteTrafficSection[];
+  /** Rota üzerindeki hız sınırı bölümleri (yalnız TomTom verir; diğerlerinde boş). */
+  speedLimitSections:       readonly RouteSpeedLimitSection[];
   /**
    * Manevra noktalarının geometri çapaları — yol-boyu mesafenin O(1) kaynağı.
    * Rota kurulunca bir kez hesaplanır. Boş dizi = çözülmedi (kuş uçuşuna düşülür).
@@ -199,6 +210,8 @@ const INITIAL: RouteState = {
   serverUsed: null,
   cumulativeDistances: null,
   pendingManeuver: null,
+  trafficSections: [],
+  speedLimitSections: [],
   maneuverAnchors: [],
   distanceToNextTurnSource: 'UNKNOWN',
   validation: null,
@@ -366,7 +379,109 @@ function getRoutingServers(): string[] {
     'https://routing.openstreetmap.de/routed-car/route/v1/driving',
     'https://osrm.route.at/route/v1/driving',
   ];
-  return custom ? [custom, ...defaults] : defaults;
+  const osrm = custom ? [custom, ...defaults] : defaults;
+  /* TomTom (trafikli rota) YALNIZ anahtar varsa ve EN ÖNDE denenir; hata/zaman
+     aşımında aynı döngü OSRM'e geçer. Ücretli → satışta anahtarı silmek yeter. */
+  return _tomtomRoutingKey() && Date.now() >= _tomtomSkipUntil ? [TOMTOM_ROUTING_SERVER, ...osrm] : osrm;
+}
+
+/* TomTom devre kesici: hata (403/kota/zaman aşımı) sonrası TomTom bir süre
+   ATLANIR — yoksa her yeniden rota denemesi (2,5–6 sn) önce TomTom'a gidip
+   ücretli kotayı/gecikmeyi boşa harcardı. 5 → 10 → 20 → 30 dk (tavan). */
+export const TOMTOM_ROUTING_BACKOFF_MS = 5 * 60_000;
+const TOMTOM_ROUTING_BACKOFF_MAX_MS = 30 * 60_000;
+let _tomtomSkipUntil = 0;
+let _tomtomFailures = 0;
+
+/** @internal testler için. */
+export function _resetTomTomRoutingBreakerForTest(): void {
+  _tomtomSkipUntil = 0; _tomtomFailures = 0;
+  _betterLastCheckMs = 0; _betterInFlight = false;
+}
+
+/* ── DAHA HIZLI ROTA (Google "daha hızlı rota bulundu") ─────────────────────
+ * Sürüşte en fazla `BETTER_ROUTE_CHECK_MS`de bir, kalan rota REFERANS verilerek
+ * TomTom'a (güncel trafikle) daha iyi rota sorulur. Kazanç anlamlıysa
+ * (`betterRouteSaving`) rota aracın konumundan yeniden kurulur ve sürücüye
+ * kazanç söylenir. Yeni zamanlayıcı YOK — ilerleme tick'inde süre kontrolü.
+ * Maliyet: sürüş saatinde en fazla 6 istek; kısa yolda (<10 km kaldı) hiç. */
+export const BETTER_ROUTE_CHECK_MS = 10 * 60_000;
+export const BETTER_ROUTE_MIN_REMAINING_M = 10_000;
+let _betterLastCheckMs = 0;
+let _betterInFlight = false;
+
+function _maybeCheckBetterRoute(now: number, fix: MapMatchFix, geometry: [number, number][] | null): void {
+  if (_betterInFlight || _isFetchingRoute || !_rerouteCtx) return;
+  if (now - _betterLastCheckMs < BETTER_ROUTE_CHECK_MS) return;
+  const key = _tomtomRoutingKey();
+  if (!key || Date.now() < _tomtomSkipUntil) return;
+  if (fix.state !== 'MATCHED' || fix.snappedLat == null || fix.snappedLon == null) return;
+  if (fix.alongRemainingM == null || fix.alongRemainingM < BETTER_ROUTE_MIN_REMAINING_M) return;
+  if (!geometry || fix.segIdx < 0 || fix.segIdx + 1 >= geometry.length) return;
+
+  _betterLastCheckMs = now;
+  _betterInFlight = true;
+  const rev = useRouteStore.getState().routeRevision;
+  const from = { lat: fix.snappedLat, lon: fix.snappedLon };
+  const to = { ..._rerouteCtx };
+  const remaining: [number, number][] = [[from.lon, from.lat], ...geometry.slice(fix.segIdx + 1)];
+  void fetchTomTomBetterRoute(key, remaining, _currentHeadingDeg(), HEADERS_TIMEOUT_MS + BODY_TIMEOUT_MS)
+    .then(async ({ referenceS, bestAlternativeS }) => {
+      if (bestAlternativeS === null) return;
+      const saving = betterRouteSaving(referenceS, bestAlternativeS);
+      // Bu arada rota değiştiyse (reroute / yeni hedef) eski öneri UYGULANMAZ.
+      if (saving === null || useRouteStore.getState().routeRevision !== rev || _isFetchingRoute) return;
+      await fetchRoute(from.lat, from.lon, to.toLat, to.toLon, 'REROUTE');
+      const st = useRouteStore.getState();
+      if (st.routeRevision !== rev && st.serverUsed === TOMTOM_ROUTING_SERVER) {
+        const min = Math.max(1, Math.round(saving / 60));
+        try { speakNavigation(`Daha hızlı bir rota bulundu, yaklaşık ${min} dakika kazanç.`); } catch { /* TTS yok */ }
+      }
+    })
+    .catch(() => { /* öneri başarısız — mevcut rota aynen sürer */ })
+    .finally(() => { _betterInFlight = false; });
+}
+
+function _tomtomRoutingKey(): string | null {
+  const k = import.meta.env['VITE_TOMTOM_API_KEY'] as string | undefined;
+  return k && k.trim() ? k.trim() : null;
+}
+
+/** TomTom rotalarını `_tryServer` ile AYNI sonuç biçimine çevirir. */
+async function _tryTomTom(
+  fromLon: number, fromLat: number, toLon: number, toLat: number,
+  headingDeg?: number | null,
+): Promise<Awaited<ReturnType<typeof _tryServer>>> {
+  const key = _tomtomRoutingKey();
+  if (!key) throw new Error('TOMTOM_NO_KEY');
+  let routes: TomTomRoute[];
+  try {
+    routes = await fetchTomTomRoutes(key, fromLat, fromLon, toLat, toLon, headingDeg,
+      HEADERS_TIMEOUT_MS + BODY_TIMEOUT_MS);
+  } catch (e) {
+    _tomtomFailures++;
+    _tomtomSkipUntil = Date.now()
+      + Math.min(TOMTOM_ROUTING_BACKOFF_MAX_MS, TOMTOM_ROUTING_BACKOFF_MS * 2 ** (_tomtomFailures - 1));
+    throw e;
+  }
+  _tomtomFailures = 0;
+  const [main, ...alts] = routes;
+  const toSteps = (r: TomTomRoute): RouteStep[] => r.steps.map((st) => _toRouteStep(st as OsrmStep));
+  return {
+    steps:        toSteps(main),
+    altSteps:     alts.map(toSteps),
+    geometry:     main.geometry,
+    alternatives: alts.map((r) => r.geometry),
+    altDistances: alts.map((r) => r.distance),
+    altDurations: alts.map((r) => r.duration),
+    altHasToll:   alts.map((r) => r.hasToll),
+    distance:     main.distance,
+    duration:     main.duration,
+    hasToll:      main.hasToll,
+    annotationDurations: routes.map((r) => r.annotationDurations),
+    trafficSections: routes.map((r) => r.trafficSections),
+    speedLimitSections: routes.map((r) => r.speedLimitSections),
+  };
 }
 
 /* ── OSRM maneuver → Türkçe ──────────────────────────────────── */
@@ -404,6 +519,8 @@ interface OsrmStep {
   duration: number;
   name: string;
   ref?: string;
+  /** OSRM `destinations` — tabeladaki yön ("O-4: Ankara, İzmit"); çoğu adımda YOK. */
+  destinations?: string;
   maneuver: { type: string; modifier?: string; exit?: number };
   geometry: { coordinates: [number, number][] };
   intersections?: Array<{ classes?: string[]; lanes?: OsrmLane[] }>;
@@ -435,11 +552,30 @@ function extractLanes(st: OsrmStep): RouteLane[] | null {
   return null;
 }
 
+/** Tabela yönü taşıyan manevralar — çıkış/giriş rampası ve yol ayrımı. */
+const _SIGNPOST_TYPES = new Set(['off ramp', 'on ramp', 'fork']);
+
+/**
+ * Talimattaki yer etiketi. Rampa/ayrımda TABELA YÖNÜ yol adından değerlidir
+ * (sürücü tabelayı okur: "Ankara, İzmit yönü"); OSRM vermezse ad → yol numarası.
+ * Hiçbiri yoksa boş — uydurulmaz.
+ */
+export function stepPlaceLabel(st: Pick<OsrmStep, 'name' | 'ref' | 'destinations' | 'maneuver'>): string {
+  const name = (st.name ?? '').trim();
+  const ref = (st.ref ?? '').trim();
+  const dest = (st.destinations ?? '').trim();
+  if (dest && _SIGNPOST_TYPES.has(st.maneuver.type)) {
+    const towards = (dest.includes(':') ? dest.slice(dest.indexOf(':') + 1) : dest).trim();
+    if (towards) return `${towards} yönü`;
+  }
+  return name || ref;
+}
+
 /** OSRM adımını dahili `RouteStep`e çevirir — tek dönüşüm noktası. */
 function _toRouteStep(st: OsrmStep): RouteStep {
   const exit = typeof st.maneuver.exit === 'number' ? st.maneuver.exit : null;
   return {
-    instruction:      toTR(st.maneuver.type, st.maneuver.modifier ?? 'straight', st.name ?? '', exit),
+    instruction:      toTR(st.maneuver.type, st.maneuver.modifier ?? 'straight', stepPlaceLabel(st), exit),
     streetName:       st.name ?? '',
     distance:         st.distance,
     duration:         st.duration,
@@ -534,7 +670,10 @@ async function _tryServer(
   headingDeg?: number | null,
 ): Promise<{ steps: RouteStep[]; altSteps: RouteStep[][]; geometry: [number, number][]; alternatives: [number, number][][]; altDistances: number[]; altDurations: number[]; altHasToll: boolean[]; distance: number; duration: number; hasToll: boolean;
   /** Ana + alternatif rotaların OSRM segment süreleri (sn). `null` = sağlayıcı göndermedi. */
-  annotationDurations: (number[] | null)[] }> {
+  annotationDurations: (number[] | null)[];
+  /** Ana + alternatif rotaların trafik bölümleri (yalnız TomTom). */
+  trafficSections?: RouteTrafficSection[][];
+  speedLimitSections?: RouteSpeedLimitSection[][] }> {
   // Coordinate validation
   if (!Number.isFinite(fromLat) || Math.abs(fromLat) > 90)  throw new Error(`INVALID_COORDS: origin lat=${fromLat}`);
   if (!Number.isFinite(fromLon) || Math.abs(fromLon) > 180) throw new Error(`INVALID_COORDS: origin lon=${fromLon}`);
@@ -797,6 +936,9 @@ interface _StoredRoute {
   hasToll:   boolean;
   /** Bu adayın OSRM segment süreleri — alternatif seçilince süre modeli KAYBOLMAZ. */
   annotationDurations: number[] | null;
+  /** Adayın trafik bölümleri (TomTom); yoksa boş. */
+  trafficSections?: readonly RouteTrafficSection[];
+  speedLimitSections?: readonly RouteSpeedLimitSection[];
 }
 let _allRoutes: _StoredRoute[] = [];
 
@@ -858,6 +1000,8 @@ export function selectAltRoute(index: number): void {
     totalDurationSeconds: picked.durationS,
     steps:                picked.steps,
     hasToll:              picked.hasToll,
+    trafficSections:      picked.trafficSections ?? [],
+    speedLimitSections:   picked.speedLimitSections ?? [],
     selectedAltIndex:     index,
     currentStepIndex:     0,
     distanceToNextTurnMeters: 0,
@@ -949,6 +1093,12 @@ function _commitRoute(
   } catch { /* kanıt kaydı rota uygulamasını ASLA düşürmez */ }
 
   useRouteStore.setState({
+    /* Eski rotanın HİÇBİR alanı (alternatif, gişe, bekleyen manevra, hata)
+       yeni rotaya taşınmaz — REROUTE'ta store artık istek başında
+       sıfırlanmadığı için sıfırlama burada yapılır. Revizyon aşağıda yazılır. */
+    ...INITIAL,
+    trafficSections:          [],   // sağlayıcı vermediyse ESKİ rotanın trafiği taşınmaz
+    speedLimitSections:       [],
     ...patch,
     geometry,
     cumulativeDistances:      cum,
@@ -967,6 +1117,7 @@ function _commitRoute(
   });
   recordRouteSource(sourceKind, providerLabel);
   recordCommit(reqId, performance.now(), providerLabel);
+  _betterLastCheckMs = performance.now();   // yeni rota → ilk denetim 10 dk sonra
   return true;
 }
 
@@ -1047,9 +1198,20 @@ export async function fetchRoute(
 
   // Preserve currentStepIndex during loading so UI keeps the active turn instruction.
   // It will be overwritten to 0 once the new route geometry arrives.
-  const { currentStepIndex: _prevStepIdx } = useRouteStore.getState();
-  // ...INITIAL spreads cumulativeDistances: null → önceki Float64Array GC'ye serbest bırakılır.
-  useRouteStore.setState({ ...INITIAL, loading: true, currentStepIndex: _prevStepIdx });
+  const { currentStepIndex: _prevStepIdx, geometry: _prevGeom, steps: _prevSteps } = useRouteStore.getState();
+  /* SAHA 2026-09-25 ("rotadan çıktık, yeni rota çizmedi, rotasız gitti"):
+   * yeniden rotada da store SIFIRLANIYORDU → istek zinciri (TomTom → OSRM →
+   * çevrimdışı, sunucu başı ~7 sn) sürerken adım listesi boştu, ilerleme ve
+   * sapma değerlendirmesi TAMAMEN duruyor, haritada eski çizgi asılı kalıyor,
+   * ekran "kuş uçuşu / doğrulanmadı" diyordu. Artık REROUTE'ta mevcut rota
+   * yeni rota commit edilene kadar KORUNUR (yalnız `loading`); commit tüm
+   * alanları baştan yazar (bkz. `_commitRoute` `...INITIAL`). */
+  if (kind === 'REROUTE' && _prevGeom && _prevGeom.length >= 2 && _prevSteps.length > 0) {
+    useRouteStore.setState({ loading: true });
+  } else {
+    // ...INITIAL spreads cumulativeDistances: null → önceki Float64Array GC'ye serbest bırakılır.
+    useRouteStore.setState({ ...INITIAL, loading: true, currentStepIndex: _prevStepIdx });
+  }
 
   const _validateOne = (c: RouteCandidate): RouteValidationResult => validateRoute({
     candidate: c,
@@ -1108,20 +1270,36 @@ export async function fetchRoute(
   }
 
   // ── Katman 1-2: Uzak OSRM (Fail-Fast) ──────────────────────────────────────
-  // navigator.onLine=false → uzak sunucu denemesi yapmadan offline katmana geç.
+  // Kanonik bağlantı kapısı → uzak sunucu denemesi yapmadan offline katmana geç.
   // İlk OSRM isteği HEADERS_TIMEOUT_MS içinde yanıt vermezse → tüm sunucular kesilir,
   // anında Katman 3'e (A* Worker) düşülür. Kullanıcı "Hesaplanıyor..." ekranında beklemez.
-  if (!navigator.onLine) {
+  //
+  // F7-B: rota İSTEĞİ küçük ve tekrar denenebilir → `LIGHTWEIGHT_INTERNET`.
+  // `UNKNOWN`/`DEGRADED`da AYNEN denenir (davranış korunur); `CAPTIVE` ve
+  // `LOCAL_ONLY` artık boşuna denenmez. KATMAN 0/3/4 (native daemon, A* worker,
+  // düz hat) bu kapıdan BAĞIMSIZDIR — offline rota çekirdeği internete BAĞLANMAZ.
+  if (!allowsConnectivity('LIGHTWEIGHT_INTERNET')) {
     /* Çevrimdışı: uzak sağlayıcılar DENENMEDİ. "0 rota döndü" DEMEK DEĞİLDİR —
        bu ayrım olmadan hüküm katmanı yok yere "veri boşluğu" sanar. */
     _note('REMOTE_OSRM', 'SKIPPED_OFFLINE', null, null);
-    console.warn('[ROUTE] Fail-Fast: navigator.onLine=false → offline katmana geç');
+    console.warn(`[ROUTE] Fail-Fast: ${getConnectivitySnapshot().state} → offline katmana geç`);
   } else {
     const servers = getRoutingServers();
     for (const server of servers) {
+      /* Bayat istek zinciri SÜRDÜRMEZ: yerine yenisi başladıysa sonraki
+         sunucuları denemek yalnız süre yakar ve "istek uçuşta" bayrağını
+         açık tutup yeni rerouteu bekletir (saha 2026-09-25). */
+      if (!isCurrentRequest(reqId)) {
+        recordStaleRejected(reqId);
+        _note('REMOTE_OSRM', 'STALE', server, null);
+        _sealChain();
+        return;
+      }
       const _t0Server = performance.now();
       try {
-        const result = await _tryServer(server, fromLon, fromLat, toLon, toLat, headingDeg);
+        const result = server === TOMTOM_ROUTING_SERVER
+          ? await _tryTomTom(fromLon, fromLat, toLon, toLat, headingDeg)
+          : await _tryServer(server, fromLon, fromLat, toLon, toLat, headingDeg);
         recordResponse(reqId, performance.now(), server);
 
         // ── ROTA DOĞRULUK KAPISI ────────────────────────────────────────────
@@ -1178,11 +1356,15 @@ export async function fetchRoute(
         _allRoutes = [
           { geometry: picked.candidate.geometry as [number, number][], distanceM: picked.candidate.distanceM,
             durationS: picked.candidate.durationS, steps: picked.candidate.steps as RouteStep[], hasToll: pickedToll,
-            annotationDurations: result.annotationDurations[picked.index] ?? null },
+            annotationDurations: result.annotationDurations[picked.index] ?? null,
+            trafficSections: result.trafficSections?.[picked.index] ?? [],
+            speedLimitSections: result.speedLimitSections?.[picked.index] ?? [] },
           ...others.map((c, i) => ({
             geometry: c.geometry as [number, number][], distanceM: c.distanceM,
             durationS: c.durationS, steps: c.steps as RouteStep[], hasToll: otherToll[i] ?? false,
             annotationDurations: result.annotationDurations[otherIdx[i]] ?? null,
+            trafficSections: result.trafficSections?.[otherIdx[i]] ?? [],
+            speedLimitSections: result.speedLimitSections?.[otherIdx[i]] ?? [],
           })),
         ];
 
@@ -1195,6 +1377,8 @@ export async function fetchRoute(
           altRealIndices:   others.map((_, i) => i + 1),
           selectedAltIndex: 0,
           hasToll:          pickedToll,
+          trafficSections:  result.trafficSections?.[picked.index] ?? [],
+          speedLimitSections: result.speedLimitSections?.[picked.index] ?? [],
           steps:            picked.candidate.steps as RouteStep[],
           totalDistanceMeters:  picked.candidate.distanceM,
           totalDurationSeconds: picked.candidate.durationS,
@@ -1228,6 +1412,12 @@ export async function fetchRoute(
   }
 
   // ── Katman 3: WebWorker A* (offline graph) ───────────────────
+  if (!isCurrentRequest(reqId)) {          // bayat → çevrimdışı hesap da yapılmaz
+    recordStaleRejected(reqId);
+    _note('OFFLINE_GRAPH', 'STALE', 'offline-graph', null);
+    _sealChain();
+    return;
+  }
   const _t0Offline = performance.now();
   const offlineResult = await computeOfflineRoute(fromLat, fromLon, toLat, toLon);
   if (!offlineResult) {
@@ -1274,8 +1464,8 @@ export async function fetchRoute(
   }
 
   // ── Katman 4: Düz hat — NAVİGASYON ROTASI DEĞİLDİR ───────────
-  // NAV-2: DÜRÜST TEŞHİS — bu katmana iki AYRI sebeple düşülür: (1) navigator.onLine=false
-  // (gerçekten internet yok), (2) internet AÇIK ama tüm rota sunucuları hata/timeout verdi
+  // NAV-2: DÜRÜST TEŞHİS — bu katmana iki AYRI sebeple düşülür: (1) kanonik kapı
+  // kapalı (gerçekten kullanılabilir internet yolu yok), (2) internet AÇIK ama tüm rota sunucuları hata/timeout verdi
   // (sunucu tarafı). Eskiden ikisinde de "internet yok" deniyordu → yanlış teşhis. Artık ayrık.
   //
   // Doğrulama kapısı burada UYGULANMAZ: düz hat bir rota adayı değil, açıkça
@@ -1287,7 +1477,7 @@ export async function fetchRoute(
     _sealChain();
     return;
   }
-  const _offline = typeof navigator !== 'undefined' && !navigator.onLine;
+  const _offline = !allowsConnectivity('LIGHTWEIGHT_INTERNET');
   console.warn(`[ROUTE] All OSRM layers failed — straight-line fallback (offline=${_offline})`);
   speakNavigation(_offline
     ? 'İnternet bağlantısı yok. Düz hat navigasyon aktif.'
@@ -1310,6 +1500,7 @@ export async function fetchRoute(
   _lastFix  = null;
   _offRoute = markRouteCommitted();
   useRouteStore.setState({
+    ...INITIAL,   // REROUTE'ta korunan eski rotanın alanları düz hatta taşınmaz
     loading: false,
     error:   _offline
       ? 'İnternet yok — düz hat navigasyon aktif.'
@@ -1559,6 +1750,11 @@ function _updateRouteProgressInner(
     remainingRouteDurationSeconds: remainingDurS,
   });
 
+  // ── 4c) DAHA HIZLI ROTA (yalnız gerçek GPS; DR konumu öneri üretmez) ───────
+  if (opts?.allowReroute !== false) {
+    try { _maybeCheckBetterRoute(now, fix, geometry); } catch { /* fail-soft */ }
+  }
+
   // ── 5) SAPMA DEĞERLENDİRMESİ ──────────────────────────────────────────────
   // Kütük #402: bu erken çıkışlar da artık ADLANDIRILIR — "sapma vardı ama
   // hiçbir şey olmadı" durumu üründe sessiz kalamaz.
@@ -1580,6 +1776,12 @@ function _updateRouteProgressInner(
 
   // Startup guard: navigasyon başından itibaren ilk 3 s GPS stabilize değildir.
   if (_navContextStartMs > 0 && now - _navContextStartMs < 3_000) return;
+
+  /* REROUTING KİLİDİ: makine yalnız commit ile çıkıyordu. İstek bitti ama
+   * rota uygulanmadıysa (bayat/iptal/hata) kilit AÇILMIYOR, sapma bir daha
+   * değerlendirilmiyordu → araç rotasız gidiyordu. Uçuşta istek yoksa makine
+   * temiz başlar; yeni sapma yine çoklu kanıt + throttle ister (fırtına yok). */
+  if (_offRoute.state === 'REROUTING' && !_isFetchingRoute) _offRoute = initialOffRoute();
 
   _offRoute = stepOffRoute(_offRoute, {
     matchState:      fix.state,
@@ -1743,8 +1945,8 @@ export async function fetchRouteLeg(
     } catch { /* fail-soft: sonraki katman */ }
   }
 
-  // Katman 1-2: Uzak OSRM — yalnız çevrimiçiyse; her sunucu fail-soft, store yazMAZ.
-  if (typeof navigator === 'undefined' || navigator.onLine) {
+  // Katman 1-2: Uzak OSRM — yalnız kanonik kapı açıksa; her sunucu fail-soft, store yazMAZ.
+  if (allowsConnectivity('LIGHTWEIGHT_INTERNET')) {
     for (const server of getRoutingServers()) {
       try {
         const r = await _tryServer(server, fromLon, fromLat, toLon, toLat, _currentHeadingDeg());

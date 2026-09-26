@@ -22,7 +22,7 @@ import {
   getGeofenceState,
 } from '../../platform/geofenceService';
 import { pushZoneToCloud } from '../../platform/security/geofenceService';
-import { setupPin, clearPin, getLockoutState } from '../../platform/pinService';
+import { setupPin, clearPin, verifyPin, getLockoutState } from '../../platform/pinService';
 import { useGPSLocation } from '../../platform/gpsService';
 import { useOBDState } from '../../platform/obdService';
 import {
@@ -40,8 +40,9 @@ const PinPad = memo(function PinPad({
   onCancel,
   title,
 }: {
-  mode: 'set' | 'verify';
-  onSuccess: () => void;
+  /** 'confirm': mevcut PIN'i DOĞRULAR ve yukarı taşır (kaldırma/kapatma akışı). */
+  mode: 'set' | 'verify' | 'confirm';
+  onSuccess: (pin: string) => void;
   onCancel?: () => void;
   title?: string;
 }) {
@@ -68,12 +69,19 @@ const PinPad = memo(function PinPad({
     if (next.length === 4) {
       setBusy(true);
       if (mode === 'set') {
-        await setupPin(next);
-        onSuccess();
+        const res = await setupPin(next);
+        if (res.status !== 'OK') {
+          setError(true);
+          setTimeout(() => { setError(false); setPin(''); setBusy(false); }, 800);
+          return;
+        }
+        onSuccess(next);
       } else {
-        const ok = await unlockPin(next);
+        /* 'confirm' kaldırma/kapatma akışıdır: burada yalnız MEVCUT PIN
+           kanıtlanır (deneme sayacı otoritede işler); yetkiyi çağıran kullanır. */
+        const ok = mode === 'confirm' ? await verifyPin(next) : await unlockPin(next);
         if (ok) {
-          onSuccess();
+          onSuccess(next);
         } else {
           const ls = getLockoutState();
           setLocked(ls.locked);
@@ -236,6 +244,8 @@ export const SecuritySuite = memo(function SecuritySuite() {
 
   const [activeTab, setActiveTab] = useState<'geofence' | 'vale' | 'pin' | 'sentry'>('geofence');
   const [showPinPad, setShowPinPad]  = useState(false);
+  /** Kilidi KALDIRMA akışı — mevcut PIN kanıtı bekleniyor. */
+  const [disablingPin, setDisablingPin] = useState(false);
   const [settingPin, setSettingPin]  = useState(false);
 
   useEffect(() => {
@@ -272,10 +282,13 @@ export const SecuritySuite = memo(function SecuritySuite() {
     setValeMode(!geo.valeModeActive);
   }, [geo.valeModeActive]);
 
-  const handleTogglePin = useCallback(async () => {
+  const handleTogglePin = useCallback(() => {
     if (geo.pinLockEnabled) {
-      await clearPin();
-      setPinLock(false);
+      /* KİLİDİ KALDIRMAK korumayı kaldırmaktır → MEVCUT PIN kanıtı ZORUNLU.
+         (Wave 12 bypass'i: burada doğrudan clearPin() çağrılıyordu.) */
+      setSettingPin(false);
+      setDisablingPin(true);
+      setShowPinPad(true);
     } else {
       setSettingPin(true);
       setShowPinPad(true);
@@ -285,10 +298,18 @@ export const SecuritySuite = memo(function SecuritySuite() {
   // PIN ayarla — PinPad setupPin'i çağırır, burada sadece kilidi etkinleştir
   const handlePinSet = useCallback(() => {
     if (!settingPin) return;
-    setPinLock(true);
+    void setPinLock(true);
     setShowPinPad(false);
     setSettingPin(false);
   }, [settingPin]);
+
+  /** Kilidi kaldır — PinPad mevcut PIN'i kanıtladı, kanıt yetkilendirmeye taşınır. */
+  const handlePinDisable = useCallback(async (proof: string) => {
+    const gate = await setPinLock(false, proof);   // servis kapısı: kanıtlı kapatma
+    if (gate === 'ALLOWED') await clearPin(proof); // doğrulayıcıyı da kaldır
+    setShowPinPad(false);
+    setDisablingPin(false);
+  }, []);
 
   const handleToggleSentry = useCallback(() => {
     if (sentry.status !== 'idle') {
@@ -351,10 +372,18 @@ export const SecuritySuite = memo(function SecuritySuite() {
       {showPinPad && (
         <div className="absolute inset-0 z-50 glass-card border-none !shadow-none/95 backdrop-blur-sm flex items-center justify-center">
           <PinPad
-            mode={settingPin ? 'set' : 'verify'}
-            title={settingPin ? 'Yeni PIN Oluştur' : 'PIN Gir'}
-            onSuccess={settingPin ? handlePinSet : () => setShowPinPad(false)}
-            onCancel={() => { setShowPinPad(false); setSettingPin(false); }}
+            mode={settingPin ? 'set' : disablingPin ? 'confirm' : 'verify'}
+            title={
+              settingPin   ? 'Yeni PIN Oluştur'
+              : disablingPin ? 'Kilidi Kaldırmak İçin Mevcut PIN'
+              : 'PIN Gir'
+            }
+            onSuccess={
+              settingPin   ? handlePinSet
+              : disablingPin ? handlePinDisable
+              : () => setShowPinPad(false)
+            }
+            onCancel={() => { setShowPinPad(false); setSettingPin(false); setDisablingPin(false); }}
           />
         </div>
       )}

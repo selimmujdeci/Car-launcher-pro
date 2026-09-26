@@ -2,7 +2,10 @@ import { useEffect } from 'react';
 import { initFcmService }           from '../platform/fcmService';
 import { initConnectivityService }  from '../platform/connectivityService';
 import { startVehicleDetection, stopVehicleDetection } from '../platform/vehicleProfileService';
+import { startDriverProfileSync } from '../platform/driverProfileService';
+import { startDriverPhoneRecognition } from '../platform/driverPhoneRecognition';
 import { startTrafficService, stopTrafficService, updateTrafficLocation } from '../platform/trafficService';
+import { useOverspeedWarning } from '../platform/navigation/overspeedWarningRuntime';
 import { initializeContacts } from '../platform/contactsService';
 import { startMediaHub } from '../platform/mediaService';
 import {
@@ -10,7 +13,11 @@ import {
 } from '../platform/autoBrightnessService';
 import { startTripLog, stopTripLog } from '../platform/tripLogService';
 import { startTripMeter, stopTripMeter } from '../platform/trip/tripMeterService';
-import { startTripSession, stopTripSession } from '../platform/trip/tripSessionService';
+import {
+  startTripSession, stopTripSession, setTripSessionVehicle,
+} from '../platform/trip/tripSessionService';
+import { registerNavIntentReader } from '../platform/trip/navIntentPort';
+import { getNavigationState, getNavArrivalMark } from '../platform/navigationService';
 import { startLocationContext, stopLocationContext } from '../platform/location/locationContextService';
 import {
   startTunnelNightRuntime, stopTunnelNightRuntime,
@@ -127,6 +134,10 @@ export function useLayoutServices({
       profile?.avgConsumptionL100 ?? 8.0, // varsayılan: 8 L/100 km
       profile?.obdDeviceAddress,          // Fix 3: bilinen MAC → scan atla
     );
+    /* ARAÇ İZOLASYONU: seyahat oturumunun kalıcı kaydı araca bağlıdır —
+       A aracının açık yolculuğu B seçilince B'ye TAŞINMAZ. İkinci bir araç
+       otoritesi kurulmaz; kimlik buradaki TEK aktif profilden gelir. */
+    setTripSessionVehicle(profile?.id ?? null);
   }, [storeSettings.activeVehicleProfileId, storeSettings.vehicleProfiles]);
 
   // Wake word artık SystemBoot Wave 4'teki startWakeWordService() tarafından
@@ -298,6 +309,14 @@ export function useLayoutServices({
     return () => { stopVehicleDetection(); };
   }, []);
 
+  // Sürücü profili otomatik hafızası — etkin sürücünün tercih değişikliklerini kaydeder
+  useEffect(() => startDriverProfileSync(), []);
+  // Sürücüyü telefonundan tanıma — bağlı telefon → o sürücünün profili
+  useEffect(() => startDriverPhoneRecognition(), []);
+
+  // Hız sınırı aşımı — TEK SEFERLİK sesli uyarı (hangi ekranda olunursa olunsun).
+  useOverspeedWarning();
+
   // Traffic service startup (bir kez) + ilk konum ile başlat
   useEffect(() => {
     startTrafficService(location?.latitude, location?.longitude);
@@ -361,6 +380,15 @@ export function useLayoutServices({
     });
     startTripLog();
     startTripMeter();
+    /* NAVİGASYON NİYETİ KÖPRÜSÜ — burası KOMPOZİSYON KÖKÜdür: navigasyonu da
+       yolculuğu da yalnız bu katman birlikte bilir. Oturum katmanı
+       navigasyonu import ETMEZ (ikinci mesafe/ETA sahibi doğmasın), yalnız
+       ince kapıdan NİYETİ okur: hedef var mı ve varış mührü ilerledi mi.
+       Kayıt oturumdan ÖNCE yapılır ki ilk örnek bile niyeti görsün. */
+    registerNavIntentReader(() => ({
+      routeActive: getNavigationState().isNavigating === true,
+      arrivalSeq:  getNavArrivalMark().seq,
+    }));
     /* Oturum katmanı tripLog'un YAYININA abone olur → tripLog'dan SONRA
        başlar, ondan ÖNCE durur (abonelik sahipsiz kalmasın). */
     startTripSession();
@@ -380,6 +408,8 @@ export function useLayoutServices({
       stopTunnelNightRuntime();
       stopLocationContext();
       stopTripSession();
+      /* Kapıyı da sök: durdurulmuş oturum bayat niyet okumasın. */
+      registerNavIntentReader(null);
       stopTripLog();
       stopTripMeter();
       stopNotificationService();

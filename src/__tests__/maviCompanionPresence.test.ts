@@ -277,6 +277,9 @@ describe('MAVI F1 · yapısal kilitler', () => {
   const providerSrc = readFileSync(
     resolve(process.cwd(), 'src/platform/companion/companionChatProvider.ts'), 'utf8',
   );
+  const knowledgeSrc = readFileSync(
+    resolve(process.cwd(), 'src/platform/companion/companionBrainKnowledge.ts'), 'utf8',
+  );
 
   it('sağlayıcıda `companionEnabled` ERKEN-RETURN kapısı YOKTUR', () => {
     // Bu desen geri gelirse presence yeniden bir beyin şalterine döner.
@@ -295,9 +298,15 @@ describe('MAVI F1 · yapısal kilitler', () => {
         const t = l.trim();
         return !t.startsWith('*') && !t.startsWith('//') && !t.startsWith('/*');
       });
-    expect(codeHits).toHaveLength(2);
+    /* 2026-09-21: modelin gördüğü ayar açıklaması REST+Live TEK KAYNAĞI
+       `companionBrainKnowledge`e taşındı → sağlayıcıda YALNIZ presence çözücü kalır. */
+    expect(codeHits).toHaveLength(1);
     expect(codeHits.some((l) => l.includes('=== true'))).toBe(true);           // presence çözücü
-    expect(codeHits.some((l) => l.includes('SET_SETTING'))).toBe(true);        // prompt açıklaması
+    const knowledgeHits = knowledgeSrc.split('\n')
+      .filter((l) => l.includes('companionEnabled'))
+      .filter((l) => { const t = l.trim(); return !t.startsWith('*') && !t.startsWith('//') && !t.startsWith('/*'); });
+    expect(knowledgeHits).toHaveLength(1);
+    expect(knowledgeHits[0]).toContain('SET_SETTING');                          // prompt açıklaması
   });
 
   it('PROAKTİFLİK hâlâ presence\'a bağlıdır (companionEngine kapısı DURUYOR)', () => {

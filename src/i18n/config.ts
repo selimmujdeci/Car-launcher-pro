@@ -59,19 +59,27 @@ const resources = {
         "settings_saving": "Kaydediliyor…",
         "settings_no_results": "Sonuç bulunamadı",
         "settings_location_unavailable": "Konum alınamadı",
-        "nearby_hospital_starting": "En yakın hastane için rota başlatılıyor.",
+        "nearby_hospital_starting": "En yakın hastaneyi arıyorum.",
         "nearby_hospital_none": "Yakınında uygun bir hastane bulunamadı.",
         "nearby_hospital_error": "Hastane araması şu anda tamamlanamadı. Lütfen tekrar dene.",
         "nearby_gps_unavailable": "Konumun alınamadığı için yakındaki hastaneler aranamadı.",
-        "nearby_gas_starting": "En yakın benzinlik için rota başlatılıyor.",
+        "nearby_gas_starting": "En yakın benzinliği arıyorum.",
+        "nearby_route_starting": "Buldum, rota başlatılıyor.",
         "nearby_gas_none": "Yakınında uygun bir benzinlik bulunamadı.",
         "nearby_gas_error": "Benzinlik araması şu anda tamamlanamadı. Lütfen tekrar dene.",
-        "nearby_parking_starting": "En yakın otopark için rota başlatılıyor.",
+        "nearby_parking_starting": "En yakın otoparkı arıyorum.",
         "nearby_parking_none": "Yakınında uygun bir otopark bulunamadı.",
         "nearby_parking_error": "Otopark araması şu anda tamamlanamadı. Lütfen tekrar dene.",
-        "nearby_rest_area_starting": "En yakın dinlenme tesisi için rota başlatılıyor.",
+        "nearby_rest_area_starting": "En yakın dinlenme tesisini arıyorum.",
         "nearby_rest_area_none": "Yakınında bilinen bir dinlenme tesisi bulunamadı.",
         "nearby_rest_area_error": "Dinlenme tesisi araması şu anda tamamlanamadı. Lütfen tekrar dene."
+      },
+      "phoneLink": {
+        "connectionPriority": {
+          "title": "CarOS Bağlantı Önceliği",
+          "description": "Etkinleştirildiğinde, CarOS Phone Link kullanılırken diğer telefon bağlantı sistemlerinin CarOS ile çakışmasını önler. Phone Link kapatıldığında diğer bağlantılar normal şekilde kullanılabilir.",
+          "notice": "Bluetooth, Wi-Fi veya mobil bağlantılarınızı izniniz olmadan açmaz."
+        }
       }
     }
   },
@@ -136,6 +144,7 @@ const resources = {
         "nearby_hospital_error": "The hospital search could not be completed right now. Please try again.",
         "nearby_gps_unavailable": "Nearby hospitals could not be searched because your location is unavailable.",
         "nearby_gas_starting": "Starting navigation to the nearest gas station.",
+        "nearby_route_starting": "Found it, starting navigation.",
         "nearby_gas_none": "No suitable gas station was found nearby.",
         "nearby_gas_error": "The gas station search could not be completed right now. Please try again.",
         "nearby_parking_starting": "Starting navigation to the nearest parking.",
@@ -144,6 +153,13 @@ const resources = {
         "nearby_rest_area_starting": "Starting navigation to the nearest rest area.",
         "nearby_rest_area_none": "No known rest area was found nearby.",
         "nearby_rest_area_error": "The rest area search could not be completed right now. Please try again."
+      },
+      "phoneLink": {
+        "connectionPriority": {
+          "title": "CarOS Connection Priority",
+          "description": "When enabled, CarOS prevents other phone connection systems from conflicting with CarOS while Phone Link is in use. When Phone Link is turned off, other connections can be used normally.",
+          "notice": "It does not turn on your Bluetooth, Wi-Fi or mobile connections without your permission."
+        }
       }
     }
   }

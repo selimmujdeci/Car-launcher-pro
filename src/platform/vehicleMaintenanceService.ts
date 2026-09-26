@@ -9,13 +9,22 @@
  */
 
 import { sensitiveKeyStore } from './sensitiveKeyStore';
-import { useUnifiedVehicleStore as useVehicleStore } from './vehicleDataLayer/UnifiedVehicleStore';
+import { readVehicleOdometerKmOrNull } from './obd/vehicleOdometerEvidence';
 import { addSystemNotification } from './notificationService';
 import { speakAlert } from './ttsService';
 
 /* ── Tipler ──────────────────────────────────────────────── */
 
-export type MaintenanceStatus = 'ok' | 'warning' | 'critical';
+/**
+ * Bakım hükmü.
+ *
+ * ── F4 · `unknown` EKLENDİ ───────────────────────────────────────────────
+ * Eskiden yalnız üç değer vardı ve kilometre bilinmediğinde durum **`ok`**
+ * yazılıyordu. Bu, "değerlendiremiyorum"u "sorun yok"a çeviriyordu —
+ * kanıtsız bir güven beyanı. Artık bilinmeyen kendi adıyla taşınır ve
+ * hiçbir koşulda `ok`/`warning`/`critical` üretmez.
+ */
+export type MaintenanceStatus = 'ok' | 'warning' | 'critical' | 'unknown';
 
 export interface MaintenanceAssessment {
   id: 'inspection' | 'oil_change' | 'insurance';
@@ -127,15 +136,55 @@ export async function getMaintenanceData() {
 }
 
 /**
+ * ARAÇ KİLOMETRESİ KANITI — bugün YOKTUR (F4 ölçümü, 2026-09-18).
+ *
+ * ── ÖLÇÜLEN KUSUR ────────────────────────────────────────────────────────
+ * Bu servis `useVehicleStore.odometer`i "aracın kilometresi" sanıyordu.
+ * Değildir: o alan VehicleCompute'un GPS/DR tick'lerinden İNTEGRE ETTİĞİ
+ * **uygulama içi mesafe sayacıdır** ve HAL sınırında tam bu karışıklığı
+ * önlemek için `trip_distance` adına taşınmıştır (halAdapter T7).
+ *
+ * Kullanıcının girdiği `oilChangeKm` ise GERÇEK araç kilometresidir
+ * (ör. 92.000). İkisini çıkarmak — `92000 - 0.5` — anlamsız bir sayı üretir
+ * ve ekranda "91.999 km kaldı" diye görünürdü. Eski kod bunu yalnız
+ * `currentKm === 0` iken engelliyordu; araç 1 km gider gitmez yalan başlıyordu.
+ *
+ * ── KANIT ZİNCİRİ (üçü de ölçüldü) ───────────────────────────────────────
+ *   · ECU odometre PID'i okunmuyor (OBD katmanında karşılığı YOK)
+ *   · `CarLauncher.persistOdometer` Java tarafında TANIMSIZ → `?.()` ile
+ *     5 saniyede bir SESSİZ NO-OP; `getPersistedOdometer` de yok
+ *   · production `vehicles` tablosunda 1083 aracın **tamamında**
+ *     `odometer_km = 0` (tek farklı değer) — hiç yazılmamış
+ *
+ * ── F4.2 · KANONİK KAPI BAĞLANDI ─────────────────────────────────────────
+ * Artık tek kanıt kapısı `vehicleOdometerEvidence`tir: yüklü araç profilinde
+ * `vehicle_odometer` rollü bir DID varsa ve ondan birim/aralık/ölçüm-anı
+ * doğrulanmış bir okuma geldiyse sayı döner; aksi hâlde `null`.
+ *
+ * Desteklenen araç yoksa davranış DEĞİŞMEZ (F4'teki `unknown` korunur) —
+ * yani bu bağlama hiçbir araçta sahte kilometre AÇMAZ.
+ */
+function readVehicleOdometerKm(): number | null {
+  try {
+    return readVehicleOdometerKmOrNull();
+  } catch {
+    /* Kanıt katmanı okunamıyorsa bakım hükmü bilinmez kalır — fail-closed. */
+    return null;
+  }
+}
+
+/**
  * Tüm bakım kalemlerini analiz eder, statüleri ve randevu önerilerini belirler.
  * AI ve UI bu fonksiyondan beslenir.
  *
- * Sensor Resiliency: currentKm, useVehicleStore.odometer — Tek Gerçeklik Kaynağı.
- * Sıfır değer durumunda kalan km hesabı sıfırlanır yerine null guard ile yönetilir.
+ * İKİ EKSEN AYRIDIR (§15): tarih tabanlı kalemler (muayene · sigorta)
+ * kullanıcının girdiği GERÇEK tarihlerden hesaplanabilir ve çalışmaya devam
+ * eder; kilometre tabanlı kalem (yağ) araç kilometresi kanıtı olmadığı için
+ * `unknown`dır. Birinin bilinmemesi ötekini susturmaz.
  */
 export async function getMaintenanceAssessment(): Promise<MaintenanceAssessment[]> {
   const data = await getMaintenanceData();
-  const currentKm = useVehicleStore.getState().odometer ?? 0;
+  const currentKm = readVehicleOdometerKm();
   const assessments: MaintenanceAssessment[] = [];
 
   // 1. Muayene
@@ -152,20 +201,31 @@ export async function getMaintenanceAssessment(): Promise<MaintenanceAssessment[
     });
   }
 
-  // 2. Yağ Bakımı — currentKm sıfırsa "bilinmiyor" durumu (sensor henüz beslenmedi)
+  /* 2. Yağ Bakımı — KİLOMETRE TABANLI.
+     Araç kilometresi kanıtı yoksa hüküm `unknown`dır: ne "sorun yok" ne
+     "gecikti" denebilir. Kullanıcının girdiği hedef km KORUNUR ve gösterilir;
+     eksik olan tek şey ARACIN ŞU ANKİ km'sidir. */
   if (data.oilChangeKm) {
-    const kmLeft = data.oilChangeKm - currentKm;
-    const status = currentKm > 0 ? getStatusByKm(kmLeft) : 'ok';
-    assessments.push({
-      id: 'oil_change',
-      label: 'Yağ Değişimi',
-      status,
-      kmsLeft: currentKm > 0 ? kmLeft : undefined,
-      message: currentKm === 0
-        ? 'Sayaç bekleniyor (henüz seyahat yok)'
-        : kmLeft < 0 ? 'Bakım km\'si dolmuş' : `${kmLeft} km kaldı`,
-      appointmentSuggestion: appointmentByStatus('oil_change', status),
-    });
+    if (currentKm === null) {
+      assessments.push({
+        id: 'oil_change',
+        label: 'Yağ Değişimi',
+        status: 'unknown',
+        /* `kmsLeft` KONMAZ — uydurma kalan km yok. */
+        message: 'Aracın güncel kilometresi bilinmiyor',
+      });
+    } else {
+      const kmLeft = data.oilChangeKm - currentKm;
+      const status = getStatusByKm(kmLeft);
+      assessments.push({
+        id: 'oil_change',
+        label: 'Yağ Değişimi',
+        status,
+        kmsLeft: kmLeft,
+        message: kmLeft < 0 ? 'Bakım km\'si dolmuş' : `${kmLeft} km kaldı`,
+        appointmentSuggestion: appointmentByStatus('oil_change', status),
+      });
+    }
   }
 
   // 3. Sigorta
@@ -206,6 +266,8 @@ export async function getMaintenanceSummaryText(): Promise<string> {
   const assessments = await getMaintenanceAssessment();
   const issues = assessments.filter(a => a.status !== 'ok');
 
+  // Hiç kayıt yoksa "güncel" demek uydurma olur (smoke 2026-09-25).
+  if (assessments.length === 0) return 'Kayıtlı bakım bilgisi yok. Bakım tarihlerini eklersen takip edebilirim.';
   if (issues.length === 0) return 'Tüm araç bakımları güncel görünüyor.';
 
   const parts = issues.map((a) => {

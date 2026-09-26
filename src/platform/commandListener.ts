@@ -20,6 +20,20 @@ import { callVehicleRpc, updateRemoteCommandStatus } from './vehicleIdentityServ
 import { executeMcuCommand, checkCrossChannelNonceReplay } from './nativeCommandBridge';
 import { executeReadDtc, executeReadVoltage, executeClearDtc } from './remoteDiagnosticCommands';
 import { applySpeedAlertConfig, getSpeedAlertConfig } from './speedAlertRuntime';
+/* MRI F-03 — hareket güvenliği TEK karar fonksiyonundan (Mavi ile aynı). */
+import {
+  judgeMotionSafety, motionVerdictUserMessage, MOTION_STOPPED_MAX_KMH,
+  type MotionPolicy, type MotionSafetyVerdict, type MotionState,
+} from './action/motionSafetyPolicy';
+import { VEHICLE_ACTIONS } from './action/maviActionAuthority';
+import type { IntentType } from './intentEngine';
+import { resolveMaviVehicleContext } from './assistant/maviVehicleContext';
+/* `maviVehicleSnapshotSource` (obdService/UnifiedVehicleStore grafı) KASITLI olarak
+   tembel yüklenir: statik import bu modülün yükleme grafını ~15 s büyütüyordu
+   (ölçüldü, vitest transform). Üretimde o modüller SystemBoot ile zaten yüklüdür
+   → dinamik import anında çözülür; ikinci kaynak/otorite kurulmaz. */
+/* MRI N-7 — komut geçerliliği sunucu saatiyle (yerel duvar saatine mahkûm değil). */
+import { getServerNowMs } from './serverClock';
 /* ARCH-05 — uzak kanalın ayar uygulama kapısı (bkz. `security/enforcement`). */
 import { authorizeSettingApply } from './security/enforcement';
 import { logInfo }                                 from './debug';
@@ -74,9 +88,6 @@ const RECONNECT_DELAY   = 3_000;   // ms — bağlantı kopunca bekleme
  * girmez. Push-to-Wake (FCM) çalıştığında bu yol yalnız güvence kaplamasıdır.
  */
 const PENDING_POLL_MS   = 15_000;
-const PUSH_EDGE_FN_URL  = (import.meta.env.VITE_SUPABASE_URL as string | undefined)
-  ? `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/push-notify`
-  : null;
 
 // ── Tipler ────────────────────────────────────────────────────────────────────
 
@@ -107,9 +118,11 @@ interface VehicleCommand {
 }
 
 // ── Tehlikeli komut koruması ──────────────────────────────────────────────────
-
-const DANGEROUS_WHILE_MOVING: CommandType[] = ['lock', 'unlock'];
-const SPEED_THRESHOLD_KMH = 5;
+// MRI F-03: hangi komutun hareket kapısına tabi olduğu artık burada değil,
+// `maviActionAuthority.VEHICLE_ACTIONS.motionPolicy`de tanımlıdır (bkz.
+// `remoteCommandMotionPolicy`). Eşik de tek yerde: `MOTION_STOPPED_MAX_KMH`
+// (Mavi ile aynı 3 km/h; eski 5 km/h ayrı bir hüküm üretiyordu).
+const SPEED_THRESHOLD_KMH = MOTION_STOPPED_MAX_KMH;
 
 // Fiziksel (MCU/CAN) komutlar — yalnız E2E ile gelmelidir (CommandService.java MCU_COMMANDS ile birebir).
 const MCU_COMMANDS: CommandType[] = ['lock', 'unlock', 'horn', 'alarm_on', 'alarm_off', 'lights_on'];
@@ -151,16 +164,22 @@ export function updateCurrentSpeed(speedKmh: number, atMs: number = Date.now()):
   currentSpeedAtMs = atMs;
 }
 
-/** Sürüş güvenliği kapısının üç hükmü — "bilinmiyor" ayrı bir sonuçtur. */
+/** Füzyon hız KANITININ üç sınıfı — "bilinmiyor" ayrı bir sonuçtur. */
 export type MovingGateVerdict = 'ALLOW' | 'BLOCK' | 'SPEED_UNKNOWN';
 
 /**
- * Kapı hükmü — SAF (girdiler dışarıdan; `Date.now` · global durum YOK).
+ * Füzyon hız kanıtı sınıflandırıcısı — SAF (girdiler dışarıdan; `Date.now` ·
+ * global durum YOK).
  *
- * `SPEED_UNKNOWN` bilinçli olarak `BLOCK` DEĞİLDİR: kapalı otoparkta (GPS yok,
- * kontak kapalı → OBD yok) kullanıcının aracını uzaktan açamaması ürünü kırardı.
- * Ama bu kabul **kanıtsızdır** ve öyle sayılır: ayrı sayaçla defterlenir ve
- * CAROS LAB'da görünür — "güvenlik kapısı çalışıyor" iddiası ÜRETİLMEZ.
+ * MRI F-03 (2026-09-19): bu fonksiyon ARTIK İCRA KAPISI DEĞİLDİR. Eskiden
+ * `SPEED_UNKNOWN` (hız yok/bayat) tehlikeli komutu **icra ettiriyordu**
+ * ("kapalı otoparkta açamamak ürünü kırar" gerekçesiyle) — Mavi ise aynı
+ * eylemi aynı durumda reddediyordu. Karar artık TEK yerde,
+ * `action/motionSafetyPolicy.judgeMotionSafety`, ve `unknown` → BLOCK'tur.
+ * Burası yalnız "taze füzyon hızı hareket kanıtı üretiyor mu?" sorusuna
+ * cevap verir (`BLOCK` = hareket kanıtı; `ALLOW`/`SPEED_UNKNOWN` = kanıt
+ * değil — "duruyor" DEMEZ, çünkü GPS/füzyon durma kanıtı üretemez, bkz.
+ * `assistant/maviVehicleContext` anayasa §4). CAROS LAB bu sınıfı gösterir.
  */
 export function judgeMovingGate(
   isDangerous: boolean,
@@ -175,14 +194,54 @@ export function judgeMovingGate(
   return speedKmh > thresholdKmh ? 'BLOCK' : 'ALLOW';
 }
 
-function movingGateVerdict(type: CommandType, nowMs: number): MovingGateVerdict {
-  return judgeMovingGate(
-    DANGEROUS_WHILE_MOVING.includes(type),
-    currentSpeedKmh,
+/**
+ * Uzak komut tipi → kanonik eylem politikası. Tablo `maviActionAuthority.VEHICLE_ACTIONS`
+ * (tek tanım yeri); burada ikinci bir politika tablosu KURULMAZ. Eşleşmeyen tip
+ * (teşhis/ayar/rota) araç-hareket kapısına tabi değildir (`'any'`).
+ */
+const REMOTE_TYPE_TO_INTENT: Readonly<Partial<Record<CommandType, IntentType>>> = Object.freeze({
+  lock:      'HARDWARE_LOCK',
+  unlock:    'HARDWARE_UNLOCK',
+  horn:      'HARDWARE_HORN',
+  lights_on: 'HARDWARE_FLASH',
+  alarm_on:  'HARDWARE_ALARM_ON',
+  alarm_off: 'HARDWARE_ALARM_OFF',
+});
+
+export function remoteCommandMotionPolicy(type: CommandType): MotionPolicy {
+  const intent = REMOTE_TYPE_TO_INTENT[type];
+  return intent ? (VEHICLE_ACTIONS[intent]?.motionPolicy ?? 'requires_stopped') : 'any';
+}
+
+/**
+ * MRI F-03 — uzak komutun hareket kararı KANONİK kaynaktan:
+ *   kanıt  = `resolveMaviVehicleContext(captureMaviVehicleSnapshot())` (OBD tek
+ *            "duruyor" kaynağı · GPS yalnız "hareket" · yoksa `unknown`)
+ *          + taze füzyon hızı (`judgeMovingGate` → yalnız HAREKET kanıtı)
+ *   karar  = `judgeMotionSafety(policy, kanıt)` — Mavi ile AYNI fonksiyon.
+ */
+async function motionSafetyForCommand(type: CommandType, nowMs: number): Promise<MotionSafetyVerdict> {
+  const policy = remoteCommandMotionPolicy(type);
+  if (policy === 'any') return judgeMotionSafety('any', null);
+
+  let ctx: { motionState?: MotionState; speedKmh: number | null; isDriving: boolean } | null = null;
+  try {
+    const { captureMaviVehicleSnapshot } = await import('./assistant/maviVehicleSnapshotSource');
+    ctx = resolveMaviVehicleContext(captureMaviVehicleSnapshot(), nowMs);
+  } catch {
+    ctx = null;   // kanıt kaynağı düştü → unknown (fail-closed), aşağıda BLOCK
+  }
+  const fusedMovingProof = judgeMovingGate(
+    true, currentSpeedKmh,
     currentSpeedKmh === null ? null : nowMs - currentSpeedAtMs,
-    SPEED_MAX_AGE_MS,
-    SPEED_THRESHOLD_KMH,
-  );
+    SPEED_MAX_AGE_MS, MOTION_STOPPED_MAX_KMH,
+  ) === 'BLOCK';
+
+  return judgeMotionSafety(policy, {
+    motionState: ctx?.motionState,
+    speedKmh:    ctx?.speedKmh ?? null,
+    isDriving:   ctx?.isDriving === true || fusedMovingProof,
+  });
 }
 
 /** Hız kapısının salt-okunur durumu (CAROS LAB). Ölçüm yoksa `null` alanlar. */
@@ -350,15 +409,23 @@ async function executeCommand(cmd: VehicleCommand): Promise<ExecResult> {
       return { outcome: 'crypto_failed' };
     }
     try {
+      /* MRI N-7: tazelik referansı SUNUCU saati (yoklama `Date` başlığı) ve zarf,
+         satırın sunucu-yazımlı `created_at`'ine bağlanır. Head-unit saati sapmış
+         olsa da 5 dk'lık ürün vaadi içindeki meşru komut artık "Stale" düşmez. */
+      const createdAtMs = Date.parse(cmd.created_at);
       payload = await decryptE2EPayload(payload, privKey, {
         crossChannelNonceCheck: checkCrossChannelNonceReplay,
+        validity: {
+          serverNowMs:    getServerNowMs(),
+          rowCreatedAtMs: Number.isFinite(createdAtMs) ? createdAtMs : null,
+        },
       });
       e2eVerified = true;
     } catch (err) {
       // Zero-Plaintext: hata mesajını logla, komutu ASLA icra etme
       const reason = err instanceof Error ? err.message : 'Decryption Error';
       console.error(`[CmdListener] E2E deşifreleme başarısız: ${reason}`);
-      return { outcome: 'crypto_failed' };
+      return { outcome: 'crypto_failed', reason };
     }
 
   // ── Legacy PBKDF2 deşifreleme — geriye dönük uyumluluk ──────────────────────
@@ -380,17 +447,20 @@ async function executeCommand(cmd: VehicleCommand): Promise<ExecResult> {
     }
   }
 
-  const gate = movingGateVerdict(cmd.type, Date.now());
-  if (gate === 'BLOCK') {
-    bump('movingBlocked');
-    console.warn(`[CmdListener] ${cmd.type} sürüş sırasında reddedildi (${currentSpeedKmh} km/h)`);
-    return { outcome: 'rejected' };
-  }
-  if (gate === 'SPEED_UNKNOWN') {
-    /* Tehlikeli komut TAZE hız kanıtı OLMADAN geçiyor. Reddedilmez (bkz.
-       `judgeMovingGate`), ama sessizce "güvenli" de sayılmaz — sayılır. */
-    bump('movingUnverified');
-    console.warn(`[CmdListener] ${cmd.type} taze hız ölçümü olmadan kabul edildi.`);
+  /* MRI F-03 — Mavi ile AYNI karar: `requires_stopped` eylem yalnız DOĞRULANMIŞ
+     "duruyor" kanıtıyla geçer. Hareket kanıtı → `vehicle_moving`; kanıt yok /
+     bayat / çelişkili → `motion_unverified`. İkisi de RED'dir; ikincisi ayrı
+     sayılır ki "kapı korudu" ile "kanıt yoktu" LAB'da ayrışsın. */
+  const motion = await motionSafetyForCommand(cmd.type, Date.now());
+  if (!motion.allow) {
+    if (motion.reason === 'vehicle_moving') {
+      bump('movingBlocked');
+      console.warn(`[CmdListener] ${cmd.type} sürüş sırasında reddedildi (hareket kanıtı)`);
+    } else {
+      bump('movingUnverified');
+      console.warn(`[CmdListener] ${cmd.type} hareket durumu doğrulanamadığı için reddedildi`);
+    }
+    return { outcome: 'rejected', reason: motionVerdictUserMessage(motion.reason) };
   }
 
   try {
@@ -653,30 +723,46 @@ async function updateCommandStatus(
 // ── Retry increment (RPC üzerinden — atomik) ─────────────────────────────────
 
 async function incrementRetry(commandId: string, errorReason: string): Promise<void> {
-  const supabase = await getSupabase();
-  if (!supabase) return;
-  // increment_command_retry RPC: retry_count artırır, max 3'te failed'a çeker
-  await supabase.rpc('increment_command_retry', {
+  /* MRI F-06 (083): kimliksiz `increment_command_retry(uuid,text)` istemciye
+     KAPATILDI — herkes herhangi bir komutu `failed`a çekebiliyordu. Yeni imza
+     api_key kimliği ister ve yalnız KENDİ aracının komutunu ilerletir;
+     `update_command_status` ile aynı tek kapı (`callVehicleRpc` → p_api_key). */
+  await callVehicleRpc('increment_command_retry', {
     p_command_id: commandId,
     p_error:      errorReason,
   });
 }
 
-// ── Push bildirim — Edge Function tetikle ────────────────────────────────────
+// ── İnsana bildirim (tüketici push) — ARAÇTAN GÖNDERİLMEZ ───────────────────
+//
+// MRI F-08: burası eskiden `functions/v1/push-notify`e (ARAÇ UYANDIRMA slug'ı,
+// FCM) `command_completed` / `command_failed` / `speed_alert` atıyordu — yani
+// insana bildirim olayını araç-wake otoritesine, üstelik Authorization'sız
+// (her zaman 401). Doğru otorite `consumer-push-notify` (Web Push,
+// `push_subscriptions`) service_role ister; araç (anon + api_key) onu
+// ÇAĞIRAMAZ ve çağırmamalıdır: tüketici bildiriminin üreticisi SUNUCUDUR
+// (`consumer-notify-scan`). Komut sonucu / hız uyarısı için sunucu üreticisi
+// HENÜZ BAĞLI DEĞİL → CODE READY / NOT WIRED. Sahte bir ağ çağrısı yerine
+// olay yalnız yerel kanıt olarak sayılır; komut akışı hiçbir koşulda
+// bundan etkilenmez (push ≠ komut gerçeği).
 
-async function triggerPushNotify(
+let _consumerNotifyDropped = 0;
+let _consumerNotifyWarned  = false;
+
+/** Test/teşhis: sunucu üreticisi bağlanana dek düşen tüketici olayı sayısı. */
+export function getConsumerNotifyDroppedCount(): number { return _consumerNotifyDropped; }
+
+function triggerPushNotify(
   event:     string,
   vehicleId: string,
-  payload:   Record<string, unknown>,
-): Promise<void> {
-  if (!PUSH_EDGE_FN_URL) return;
-  try {
-    await fetch(PUSH_EDGE_FN_URL, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ event, vehicleId, payload }),
-    });
-  } catch { /* fire-and-forget — bildirim hatası ana akışı etkilemez */ }
+  _payload:  Record<string, unknown>,
+): void {
+  _consumerNotifyDropped++;
+  if (!_consumerNotifyWarned) {
+    _consumerNotifyWarned = true;
+    /* Sır/PII yok: yalnız olay adı ve araç kimliği. */
+    console.warn(`[CommandListener] CONSUMER_PUSH_REQUESTED ${event}@${vehicleId} → NOT_WIRED (araç tüketici push otoritesi değildir; sunucu üreticisi bekleniyor)`);
+  }
 }
 
 /**
@@ -769,29 +855,61 @@ export class CommandListener {
     // Reconnect'te bekleyen + retry-eligible komutları işle
     await this.processPendingCommands();
 
-    this.channel = supabase
-      .channel(`vehicle-cmds:${this.vehicleId}`)
-      .on(
-        'postgres_changes',
-        {
-          event:  'INSERT',
-          schema: 'public',
-          table:  'vehicle_commands',
-          filter: `vehicle_id=eq.${this.vehicleId}`,
-        },
-        ({ new: row }: { new: Record<string, unknown> }) => {
-          if (!this._alive) return;
-          void this.handleCommand(row as unknown as VehicleCommand);
-        },
-      )
-      .subscribe((status: string) => {
-        if (!this._alive) return;
-        if (status === 'CHANNEL_ERROR' || status === 'CLOSED') {
-          this.scheduleReconnect();
-        }
-      });
-
+    /* ── YOKLAMA REALTIME'DAN ÖNCE VE BAĞIMSIZ (2026-09-12 saha kusuru) ──────
+       `startPolling()` eskiden realtime aboneliğinden SONRA çağrılıyordu.
+       Aynı topic'li bir kanal hâlâ istemcide kayıtlıysa (reconnect'te bu
+       instance'ın eski kanalı, ya da eski instance'ın `removeChannel`i
+       'ok' dönmediği için teardown edilmemiş kanalı) realtime-js
+       `channel(topic)` MEVCUT kanalı geri verir ve `.on()` "cannot add
+       postgres_changes callbacks after subscribe()" FIRLATIR → `connect()`
+       burada ölür, `startPolling()` HİÇ çağrılmaz. Gerçek cihazda ölçüldü:
+       istisna boot'ta bir kez atılmış, 15 sn'lik yoklama hiç kurulmamış,
+       head-unit komutları TTL dolana dek `pending` kalmış (telemetri çalışırken).
+       Yoklama ASIL yol olduğundan (bkz. `PENDING_POLL_MS`) realtime'ın hiçbir
+       hatası onu engelleyemez. */
     this.startPolling();
+
+    /* Eski/takılı kanalı YENİDEN KULLANMA: aynı topic kayıtlıysa önce sök.
+       `removeChannel` 'ok' dönmezse kanal kayıtlı kalır; o durumda abonelik
+       kurulamaz ama yoklama zaten çalışıyor — realtime yalnız hızlandırıcıdır. */
+    const topic = `vehicle-cmds:${this.vehicleId}`;
+    const stale = supabase.getChannels().find((c) => c.topic === `realtime:${topic}`);
+    if (stale) {
+      this.channel = null;
+      try { await supabase.removeChannel(stale); } catch { /* aşağıda yeniden denenir */ }
+      if (!this._alive) return;
+    }
+
+    try {
+      this.channel = supabase
+        .channel(topic)
+        .on(
+          'postgres_changes',
+          {
+            event:  'INSERT',
+            schema: 'public',
+            table:  'vehicle_commands',
+            filter: `vehicle_id=eq.${this.vehicleId}`,
+          },
+          ({ new: row }: { new: Record<string, unknown> }) => {
+            if (!this._alive) return;
+            void this.handleCommand(row as unknown as VehicleCommand);
+          },
+        )
+        .subscribe((status: string) => {
+          if (!this._alive) return;
+          if (status === 'CHANNEL_ERROR' || status === 'CLOSED') {
+            this.scheduleReconnect();
+          }
+        });
+    } catch {
+      /* Realtime kurulamadı (ör. takılı kanal sökülemedi) — yoklama sürüyor.
+         Burada reconnect KURULMAZ: sökülemeyen kanal her 3 sn'de aynı hatayı
+         verip RPC'yi döverdi. Realtime yalnız hızlandırıcıdır; komut yolu
+         yoklamadır. Sessiz ölüm YOK: istisna artık `connect()`i kesmiyor. */
+      this.channel = null;
+      logInfo('[CmdListener] Realtime aboneliği kurulamadı; yoklama ile devam');
+    }
   }
 
   /**
@@ -936,9 +1054,13 @@ export class CommandListener {
   // ── Komut işleyici ──────────────────────────────────────────────────────────
 
   private async handleCommand(cmd: VehicleCommand): Promise<void> {
-    // 1. TTL kontrolü
+    // 1. TTL kontrolü — MRI N-7: referans SUNUCU saati (yoklama `Date` başlığı).
+    //    Sunucu zaten `ttl > now()` süzer; burası yalnız yoklama→icra arasındaki
+    //    gecikme için ikinci kapıdır ve head-unit saati sapmışsa yanlış "TTL
+    //    aşıldı" ÜRETMEZ. Gözlem yoksa yerel saate düşer (eski davranış).
     bump('received');
-    if (cmd.ttl && new Date(cmd.ttl) < new Date()) {
+    const ttlRefMs = getServerNowMs() ?? Date.now();
+    if (cmd.ttl && Date.parse(cmd.ttl) < ttlRefMs) {
       bump('ttlExpired');
       _evidence.lastType = cmd.type; _evidence.lastOutcome = 'ttl_expired';
       _evidence.lastAt = Date.now();
@@ -992,8 +1114,12 @@ export class CommandListener {
     }
 
     if (outcome === 'crypto_failed') {
-      // E2E deşifreleme hatası — retry yok, komut kalıcı olarak geçersiz
-      await updateCommandStatus(cmd.id, 'failed', 'Decryption Error: komut reddedildi');
+      // E2E deşifreleme/geçerlilik hatası — retry yok, komut kalıcı olarak geçersiz.
+      // Gerçek neden (Stale/Replay/row) telefona taşınır; anahtar/sır içermez.
+      await updateCommandStatus(
+        cmd.id, 'failed',
+        reason ? `Doğrulama reddi: ${reason}` : 'Decryption Error: komut reddedildi',
+      );
       return;
     }
 

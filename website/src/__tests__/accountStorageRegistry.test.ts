@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
   AccountCleanupCoordinator,
   CleanupLedger,
@@ -252,7 +252,11 @@ describe('account-scoped storage registry', () => {
     expect(registry.listStorageDescriptors()).toHaveLength(
       PRODUCTION_STORAGE_DESCRIPTOR_COUNT,
     );
-    expect(PRODUCTION_STORAGE_DESCRIPTOR_COUNT).toBe(18);
+    // 'active-vehicle-preference' (caros_active_vehicle_id) — çoklu araçlı
+    // Kumanda seçimi için hesap-kapsamlı persistence hint'i.
+    // 'critical-pin-enrolled-hint' (d2960fe6, 2026-09-20) — PIN sunucuya taşındı;
+    // yalnız UX ipucu, çıkışta/hesap değişiminde/güvenlik sıfırlamasında silinir.
+    expect(PRODUCTION_STORAGE_DESCRIPTOR_COUNT).toBe(20);
   });
 });
 
@@ -412,11 +416,47 @@ describe('known storage scan and verify-empty', () => {
     })).resolves.toMatchObject({ ok: true, state: 'COMPLETED' });
   });
 
-  it('confirms current service worker is cache-stateless by source contract', async () => {
+  /**
+   * F5 · SÖZLEŞME DARALTILDI — ZAYIFLATILMADI.
+   *
+   * ── ÖNCEKİ SÖZLEŞME ─────────────────────────────────────────────────────
+   * "SW `caches` API'sine HİÇ dokunmaz." Amacı tekti: hesap kapsamlı veri,
+   * hesap temizliğinin ULAŞAMAYACAĞI bir Cache Storage'da saklanamasın.
+   *
+   * ── NEDEN DEĞİŞTİ ───────────────────────────────────────────────────────
+   * F5'te ölçüldü: `sw.js`te `fetch` dinleyicisi YOKTU, yani kurulu "Arabam
+   * Cebimde" çevrimdışı açıldığında kullanıcı ürünü değil tarayıcının ağ hata
+   * sayfasını görüyordu. Çevrimdışı kabuk için Cache Storage'ın tek bir dar
+   * kullanımı gerekti.
+   *
+   * ── AMAÇ AYNEN KORUNUR, ÖLÇÜM DAHA KESKİN ───────────────────────────────
+   * Artık "cache yok" değil, "cache'e HESAP VERİSİ GİREMEZ" kanıtlanır:
+   *   1. Hiçbir YANIT önbelleğe yazılmaz — `put(` kaynakta YASAKTIR. Yanıt
+   *      yazılamıyorsa araç/oturum/API verisi Cache Storage'a hiç giremez.
+   *   2. Önbelleğe giren TEK küme sabit `SHELL_ASSETS` listesidir.
+   *   3. O liste yalnız statik, hesaptan BAĞIMSIZ dosyalardan oluşur.
+   *
+   * Bu üçü birlikte, eski sözleşmenin koruduğu şeyi (hesap verisi önbellekte
+   * yaşayamaz) daha dar bir yüzeyle garanti eder.
+   */
+  it('service worker cache-i yalnız hesaptan bağımsız statik kabuktur', async () => {
     const { join } = await import('node:path');
     const source = await import('node:fs/promises').then(({ readFile }) =>
       readFile(join(process.cwd(), 'public', 'sw.js'), 'utf8'));
-    expect(source).toContain('Zero-Leak: no caches');
-    expect(source).not.toMatch(/\bcaches\.(open|match|delete)\s*\(/);
+
+    /* 1 · Hiçbir yanıt önbelleğe YAZILMAZ. */
+    expect(source).not.toMatch(/\.put\s*\(/);
+    expect(source).toContain('yalnız statik kabuk önbelleklenir');
+
+    /* 2 · Önbelleğe giren küme TEK ve SABİTtir. */
+    const addAllCalls = source.match(/addAll\s*\(([^)]*)\)/g) ?? [];
+    expect(addAllCalls).toEqual(['addAll(SHELL_ASSETS)']);
+
+    /* 3 · Sabit liste yalnız statik, hesaptan bağımsız dosyalar içerir. */
+    const shell = /const SHELL_ASSETS = \[([^\]]*)\];/.exec(source)?.[1] ?? '';
+    const entries = shell.split(',').map((e) => e.trim()).filter(Boolean);
+    expect(entries).toEqual(['OFFLINE_URL', 'ICON_URL']);
+    expect(source).toContain("const OFFLINE_URL = '/offline.html';");
+    expect(source).toContain("const ICON_URL  = '/icons/icon-192.svg';");
   });
 });

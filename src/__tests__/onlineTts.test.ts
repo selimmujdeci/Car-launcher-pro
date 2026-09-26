@@ -38,3 +38,22 @@ describe('onlineTtsService — WAV header + mime parse', () => {
     expect(Array.from(wav.slice(44))).toEqual([1, 2, 3, 4]); // PCM payload aynen
   });
 });
+
+/**
+ * MAVI VOICE PROFILE (2026-09-22): Gemini TTS yedeği ile Gemini Live AYNI sesi
+ * kullanır ve o ses TEK sabitten (`maviVoiceProfile`) gelir. Dosyada ikinci bir
+ * ses literal'i geri gelirse Live ile TTS yedeği yeniden ayrışır (çift karakter).
+ */
+describe('onlineTtsService — Mavi ses kimliği tek kaynaktan', () => {
+  it('TTS_VOICE literal değil, MAVI_VOICE_PROFILE.geminiVoice', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const src = readFileSync(join(process.cwd(), 'src', 'platform', 'onlineTtsService.ts'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/.*$/gm, '$1');
+    expect(src).toContain('const TTS_VOICE = MAVI_VOICE_PROFILE.geminiVoice');
+    expect(src).not.toMatch(/voiceName:\s*'[A-Za-z]+'/);
+    const { MAVI_VOICE_PROFILE } = await import('../platform/assistant/maviVoiceProfile');
+    expect(MAVI_VOICE_PROFILE.geminiVoice.length).toBeGreaterThan(0);
+    expect(MAVI_VOICE_PROFILE.language).toBe('tr-TR');
+  });
+});

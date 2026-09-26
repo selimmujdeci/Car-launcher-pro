@@ -59,6 +59,8 @@ public final class CarosMediaEventLog {
     public static final String EV_SOURCE_SWITCH_DONE    = "source_switch_completed";
     public static final String EV_SOURCE_SWITCH_FAILED  = "source_switch_failed";
     public static final String EV_STALE_CALLBACK        = "stale_callback_rejected";
+    public static final String EV_ERROR_SKIP            = "error_item_skipped";
+    public static final String EV_ERROR_SKIP_HALTED     = "error_skip_halted";
 
     private static final class Entry {
         final long   seq;

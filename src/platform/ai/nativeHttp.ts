@@ -102,3 +102,33 @@ export async function aiPostJson(
     json:   () => resp.json() as Promise<unknown>,
   };
 }
+
+/**
+ * Genel JSON GET — `aiPostJson` ile AYNI yol seçimi: native'de CapacitorHttp
+ * (CORS yok, User-Agent ayarlanabilir), tarayıcıda `fetch` (User-Agent yasak
+ * başlıktır; tarayıcı kendi değerini gönderir). Native hata fetch'e DÜŞMEZ.
+ */
+export async function httpGetJson(
+  url:       string,
+  headers:   Record<string, string>,
+  timeoutMs: number,
+  signal?:   AbortSignal,
+): Promise<AiHttpResponse> {
+  const native = _nativeHttp();
+  if (native) {
+    const res = await native.request({
+      url, method: 'GET', headers, data: undefined,
+      connectTimeout: timeoutMs, readTimeout: timeoutMs,
+    });
+    const data = res.data;
+    return {
+      ok:     res.status >= 200 && res.status < 300,
+      status: res.status,
+      json:   async () => (typeof data === 'string' ? JSON.parse(data) as unknown : data),
+    };
+  }
+  const { 'User-Agent': _ua, ...browserHeaders } = headers;
+  void _ua;
+  const resp = await fetch(url, { method: 'GET', headers: browserHeaders, signal });
+  return { ok: resp.ok, status: resp.status, json: () => resp.json() as Promise<unknown> };
+}

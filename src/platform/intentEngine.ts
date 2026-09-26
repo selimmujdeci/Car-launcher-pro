@@ -20,11 +20,30 @@
  */
 import type { ParsedCommand, CommandType } from './commandParser';
 import { resolveAppByName } from './appRegistry';
-import { resolveScreen } from './screenRegistry';
+import { resolveScreen, getScreenById } from './screenRegistry';
 import { isHomeWorkDestination, dispatchHomeWorkNavigation } from './homeWorkNavigation';
 import type { NearbyPoiCategory } from './nearbyPoiNavigation';
 // MAVI-M3: yürütme sonucu sözleşmesi (saf veri — TTS/UI/store yan etkisi YOK).
 import { intentResult, type IntentExecutionResult } from './intentExecutionResult';
+import { cancelNavigationByVoice } from './navigationService';
+import { describeSettingResult } from './settingsVoice';
+import { openDrawer } from './drawerBus';
+import { setFullMapView } from './mapViewBus';
+
+/** "Ana ekrana dön" — mevcut iki veri yolu (çekmece + harita görünümü) kapatılır.
+ *  Navigasyon oturumuna DOKUNMAZ: rota sürerken ana ekran mini haritayı gösterir. */
+export function goHomeScreenResult(openDrawerPort?: (t: 'none') => void): IntentExecutionResult {
+  (openDrawerPort ?? openDrawer)('none');
+  setFullMapView(false);
+  return intentResult('GO_HOME_SCREEN', 'succeeded', 'home_screen', 'Ana ekrandayız.');
+}
+
+/** Sesli navigasyon iptali — yerel ve beyin yolu AYNI sonucu üretir. */
+export function stopNavigationResult(): IntentExecutionResult {
+  return cancelNavigationByVoice() === 'cancelled'
+    ? intentResult('STOP_NAVIGATION', 'succeeded', 'navigation_ended', 'Navigasyonu sonlandırdım.')
+    : intentResult('STOP_NAVIGATION', 'succeeded', 'nothing_active', 'Şu an aktif bir rota yok.');
+}
 
 /* ── Intent types ────────────────────────────────────────── */
 
@@ -39,6 +58,8 @@ export type IntentType =
   /** "biraz yoruldum / mola vereyim" — otoyol dinlenme tesisi.
    *  Eskiden FIND_NEARBY_PARKING'e düşüyordu ve ŞEHİR OTOPARKI öneriyordu. */
   | 'FIND_NEARBY_REST_AREA'
+  | 'STOP_NAVIGATION'     // Aktif navigasyon oturumunu kapat
+  | 'GO_HOME_SCREEN'      // Açık panel + tam ekran harita kapanır (rota korunur)
   | 'OPEN_MUSIC'
   | 'PLAY_MUSIC_SEARCH'
   | 'PLAY_MUSIC_QUERY'
@@ -184,6 +205,9 @@ const CMD_TO_INTENT: Record<CommandType, IntentType> = {
   navigate_work:        'OPEN_NAVIGATION',
   navigate_address:     'NAVIGATE_ADDRESS',
   navigate_place:       'NAVIGATE_PLACE',
+  stop_navigation:      'STOP_NAVIGATION',
+  go_home_screen:       'GO_HOME_SCREEN',
+  open_screen:          'OPEN_SCREEN',
   find_nearby_gas:        'FIND_NEARBY_GAS',
   find_nearby_parking:    'FIND_NEARBY_PARKING',
   find_nearby_restaurant: 'UNKNOWN',
@@ -249,6 +273,9 @@ const CMD_TO_INTENT: Record<CommandType, IntentType> = {
   delete_location:  'UNKNOWN',
   share_location:   'UNKNOWN',
   send_location_contact: 'UNKNOWN',
+  // Bilgi sorgusu — voiceInfoService yanıtlar (vehicle_speed gibi).
+  read_message:          'UNKNOWN',
+  reply_message:         'UNKNOWN',
 };
 
 /**
@@ -286,6 +313,10 @@ export function toIntent(cmd: ParsedCommand, ctx: IntentContext): AppIntent {
       break;
     case 'open_maps':
       payload.targetApp = ctx.defaultNav;
+      break;
+    case 'open_screen':
+      payload.screen       = cmd.extra?.['screen'];
+      payload.screenAction = cmd.extra?.['action'] === 'close' ? 'close' : 'open';
       break;
     case 'open_radio':
       // Radyo isteği → aktif müzik kaynağını aç (radyo entegrasyonu yoksa fallback)
@@ -450,13 +481,21 @@ export async function routeIntent(intent: AppIntent, ctx: RouterContext): Promis
       // biter. Ev/İş DEĞİLSE (ör. "haritayı aç") davranış AYNEN korunur: ctx.launch(appId).
       const dest = intent.payload.destination;
       if (isHomeWorkDestination(dest)) {
-        dispatchHomeWorkNavigation(dest); // fail-closed: kayıtlı/geçerli değilse startNavigation hiç çağrılmaz
-        break;
+        // fail-closed: kayıtlı/geçerli değilse startNavigation hiç çağrılmaz. Cümle
+        // sonuç zarfıyla TEK kez konuşulur (parser metni bu tiplerde susar).
+        let said = '';
+        const r = dispatchHomeWorkNavigation(dest, Date.now(), (t) => { said = t; });
+        if (r.reason === 'debounced') return intentResult(intent.type, 'started', 'debounced');
+        return intentResult(intent.type, r.ok ? 'started' : 'failed', r.ok ? 'home_work_started' : r.reason, said);
       }
       const appId = intent.payload.targetApp;
       if (appId) ctx.launch(appId);
       break;
     }
+    case 'STOP_NAVIGATION':
+      return stopNavigationResult();
+    case 'GO_HOME_SCREEN':
+      return goHomeScreenResult(ctx.openDrawer);
     case 'OPEN_PHONE':
     case 'OPEN_LAST_APP': {
       const appId = intent.payload.targetApp;
@@ -471,12 +510,15 @@ export async function routeIntent(intent: AppIntent, ctx: RouterContext): Promis
     }
     case 'OPEN_SCREEN': {
       // İç ekran/panel aç-kapat (trafik, klima, arıza kodları, Gemini QR…).
-      const screen = intent.payload.screen ? resolveScreen(intent.payload.screen) : null;
-      if (screen) {
-        if (intent.payload.screenAction === 'close') (screen.close ?? (() => {}))();
-        else screen.open();
-      }
-      break;
+      const key = intent.payload.screen ?? '';
+      const screen = key ? (getScreenById(key) ?? resolveScreen(key)) : null;
+      if (!screen) return intentResult(intent.type, 'failed', 'screen_not_found', key ? `${key} ekranını bulamadım` : 'Hangi ekranı açayım?');
+      const closing = intent.payload.screenAction === 'close';
+      const opened = closing ? ((screen.close ?? (() => {}))(), true) : screen.open() !== false;
+      // Tek dürüst cümle (open_screen sonuç-temelli): sahip reddettiyse "açıldı" denmez.
+      return opened
+        ? intentResult(intent.type, 'succeeded', closing ? 'screen_closed' : 'screen_opened', `${screen.label} ${closing ? 'kapatıldı' : 'açıldı'}`)
+        : intentResult(intent.type, 'failed', 'screen_refused', `${screen.label} şu an açılamıyor`);
     }
     case 'NAVIGATE_ADDRESS':
     case 'NAVIGATE_PLACE': {
@@ -560,14 +602,19 @@ export async function routeIntent(intent: AppIntent, ctx: RouterContext): Promis
     case 'CYCLE_THEME':
       ctx.cycleTheme?.();
       break;
-    case 'SET_SETTING':
-      ctx.applySetting?.(
+    case 'SET_SETTING': {
+      const ev = ctx.applySetting?.(
         intent.payload.settingKey ?? '',
         intent.payload.settingAction ?? '',
         intent.payload.settingValue,
         intent.payload.settingKind,
-      );
-      break;
+      ) ?? null;
+      /* Yerel hat da KANITTAN konuşur (parser metni bu tipte susar): zaten
+         %100'deyken "Parlaklık artırılıyor" deniyordu (smoke 2026-09-26). */
+      const r = describeSettingResult(intent.payload.settingKey, intent.payload.settingAction,
+        intent.payload.settingValue, ev);
+      return intentResult(intent.type, r.status, 'setting_result', r.text);
+    }
     case 'SET_MUSIC':
       if (intent.payload.targetApp) ctx.launch(intent.payload.targetApp);
       break;
@@ -637,7 +684,7 @@ export async function routeIntent(intent: AppIntent, ctx: RouterContext): Promis
 /** All valid intent strings — used to validate AI output before trusting it. */
 const VALID_INTENTS = new Set<IntentType>([
   'SEARCH_POI',
-  'OPEN_NAVIGATION', 'NAVIGATE_ADDRESS', 'NAVIGATE_PLACE',
+  'OPEN_NAVIGATION', 'NAVIGATE_ADDRESS', 'NAVIGATE_PLACE', 'STOP_NAVIGATION', 'GO_HOME_SCREEN',
   'FIND_NEARBY_GAS', 'FIND_NEARBY_PARKING', 'FIND_NEARBY_HOSPITAL', 'FIND_NEARBY_REST_AREA',
   'OPEN_MUSIC', 'PLAY_MUSIC_SEARCH', 'PLAY_MUSIC_QUERY', 'ADD_MUSIC_FAVORITE', 'OPEN_PHONE', 'OPEN_APP', 'OPEN_SCREEN', 'OPEN_SETTINGS',
   'PLAY_MEDIA', 'PAUSE_MEDIA', 'MEDIA_NEXT', 'MEDIA_PREV', 'MEDIA_VIDEO_MODE',

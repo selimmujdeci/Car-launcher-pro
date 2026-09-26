@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createServer } from 'node:http';
-import { RTG4_MAGIC, parseRoutingGraph } from '../platform/navigation/map/graph/rtg2Reader';
+import { RTG4_MAGIC } from '../platform/navigation/map/graph/rtg2Reader';
+import { parseRoutingGraph } from '../platform/navigation/map/graph/rtg2Parse';
 import {
   _resetRegionalDataForTest, acquireRegionalPackages, getRegionalDataSnapshot,
   readInstalledRegionalArtifact, validateDistributionManifest, verifyRegionalPackagesLocal,

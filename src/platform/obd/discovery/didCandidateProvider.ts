@@ -27,7 +27,10 @@ export interface DidCandidate {
   name: string | null;
   hasKnownDecoder: boolean;
   compiledDef: CompiledDidDef | null;
-  source: 'profile' | 'auto_did_cache' | 'repository_recall';
+  /** `oem_catalog`: OEM DISCOVERY FAZ 1 — `oem/oemSignalCatalog.oemSignalToDidCandidate`
+   *  üretir. `gatherDidCandidates` bu kaynağı ÜRETMEZ (OEM planlaması ayrı otoritededir);
+   *  tip birliği tarayıcının TEK aday sözleşmesini korumak içindir. */
+  source: 'profile' | 'auto_did_cache' | 'repository_recall' | 'oem_catalog';
 }
 
 /** autoDidDiscovery.AutoDidRecord ile UYUMLU minimal şekil (döngüsel import yok — yerel tip). */

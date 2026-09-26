@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Arabam Cebimde — Çevrimdışı</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100dvh; display: flex; align-items: center; justify-content: center;
+    padding: 24px 16px; background: #060d1a; color: #e8eefc;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 22rem; text-align: center; }
+  .mark {
+    width: 56px; height: 56px; margin: 0 auto 18px; border-radius: 16px;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(59,130,246,0.15); border: 1px solid rgba(59,130,246,0.3);
+  }
+  h1 { font-size: 1.15rem; font-weight: 800; margin: 0 0 10px; }
+  p { font-size: 0.875rem; line-height: 1.55; margin: 0 0 12px; color: rgba(232,238,252,0.62); }
+  .note { font-size: 0.78rem; color: rgba(232,238,252,0.42); }
+  button {
+    margin-top: 18px; width: 100%; min-height: 48px; border-radius: 12px; cursor: pointer;
+    font-size: 0.875rem; font-weight: 600; color: #93c5fd;
+    background: rgba(59,130,246,0.14); border: 1px solid rgba(59,130,246,0.3);
+  }
+</style>
+</head>
+<body>
+<main>
+  <div class="mark" aria-hidden="true">
+    <svg width="26" height="26" viewBox="0 0 18 18" fill="none">
+      <path d="M2 11L4.5 6Q5.5 4 7 4H11Q12.5 4 13.5 6L16 11V13.5Q16 15 14.5 15H3.5Q2 15 2 13.5Z"
+        stroke="#3b82f6" stroke-width="1.5" stroke-linejoin="round"/>
+      <circle cx="5.5" cy="15" r="1.8" stroke="#3b82f6" stroke-width="1.5"/>
+      <circle cx="12.5" cy="15" r="1.8" stroke="#3b82f6" stroke-width="1.5"/>
+    </svg>
+  </div>
+  <h1>İnternet bağlantısı yok</h1>
+  <p>
+    Arabam Cebimde açıldı, ancak aracınızın durumunu gösteremiyoruz.
+  </p>
+  <p class="note">
+    Aracınızın son durumu burada <strong>saklanmaz</strong>: eski bir ölçümü
+    güncelmiş gibi göstermemek için bağlantı gelene kadar hiçbir araç verisi
+    gösterilmez.
+  </p>
+  <button type="button" onclick="location.replace('/kumanda')">Tekrar Dene</button>
+</main>
+</body>
+</html>

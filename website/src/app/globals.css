@@ -459,3 +459,14 @@
     display: block !important;
   }
 }
+
+/* ── ÜRÜN SINIRI: kurulu Arabam Cebimde uygulaması ────────────────────────
+   Kullanıcı uygulamayı telefonuna kurduğunda yalnız tüketici deneyimini
+   görmelidir. Filo paneline giden çapraz bağlantılar standalone modda
+   gizlenir; tarayıcıda açıldığında (aynı sayfa web olarak gezilirken)
+   görünmeye devam eder — filo müşterisi web üzerinden panele geçebilsin. */
+@media (display-mode: standalone) {
+  .hide-in-standalone {
+    display: none !important;
+  }
+}

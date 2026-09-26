@@ -1,0 +1,91 @@
+/* Yalnız cockpit sunumu; uygulamanın tema/token otoritesini değiştirmez. */
+svg.caros-cockpit-screen {
+  display: block;
+  font-family: 'Inter', 'Segoe UI', sans-serif;
+  font-variant-numeric: tabular-nums;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.caros-cockpit-screen .caros-cockpit-eyebrow {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 2px;
+}
+
+.caros-cockpit-screen .caros-cockpit-numeral {
+  font-feature-settings: 'tnum' 1, 'ss01' 1;
+}
+
+.caros-cockpit-screen .caros-cockpit-label {
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.3px;
+}
+
+.caros-cockpit-screen .caros-cockpit-copy {
+  display: block;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-family: inherit;
+  letter-spacing: normal;
+}
+
+.caros-cockpit-screen .caros-cockpit-art {
+  display: block;
+  /* Genel `img { height: auto }` 16:9 kapağı 64×36'ya indiriyordu (cihazda ölçüldü). */
+  width: 64px;
+  height: 64px;
+  border-radius: 12px;
+  object-fit: cover;
+}
+
+.caros-cockpit-screen .caros-cockpit-controls {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  height: 64px;
+  padding: 0 4px;
+}
+
+.caros-cockpit-screen .caros-cockpit-transport {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  flex: 0 0 56px;
+  padding: 0;
+  margin: 0;
+  border: 1px solid transparent;
+  border-radius: 50%;
+  box-shadow: none;
+  transition: transform 0.12s ease, opacity 0.12s ease;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.caros-cockpit-screen .caros-cockpit-transport:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.caros-cockpit-screen .caros-cockpit-transport:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.caros-cockpit-screen .caros-cockpit-transport[data-primary='true']:not(:disabled) {
+  box-shadow: 0 6px 18px -6px currentColor;
+}
+
+.caros-cockpit-screen .caros-cockpit-transport:active:not(:disabled) {
+  opacity: 0.8;
+  transform: scale(0.94);
+}

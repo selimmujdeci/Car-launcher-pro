@@ -1,19 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { AUTH_CLEANUP_MARKER_COOKIE } from '@/security/accountCleanup/authCleanupMarker';
+import { safeNextPath } from '@/lib/safeRedirect';
 
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url);
-  if (request.cookies.has(AUTH_CLEANUP_MARKER_COOKIE)) {
-    return NextResponse.redirect(new URL('/login?security=cleanup', origin));
-  }
 
   const code      = searchParams.get('code');
   const tokenHash = searchParams.get('token_hash');
   const type      = searchParams.get('type') as 'recovery' | 'signup' | 'email' | null;
-  const requestedNext = searchParams.get('next') ?? '/dashboard';
-  const next = requestedNext.startsWith('/') && !requestedNext.startsWith('//')
-    ? requestedNext
-    : '/dashboard';
+  /* Yalnız kendi kökümüze dönen göreli yol kabul edilir (open redirect yok). */
+  const next = safeNextPath(searchParams.get('next'));
+  /* F1 · Arabam Cebimde kullanıcısı filo panelinin `/login` sayfasına
+     düşürülmez; kendi yüzeyine döner. Güvenlik kararı DEĞİŞMEZ — oturum yine
+     kurulmaz, yalnız kullanıcı doğru ürüne geri gider. */
+  const isPwaFlow = next === '/kumanda' || next.startsWith('/kumanda/') ||
+    next.startsWith('/kumanda?');
+
+  if (request.cookies.has(AUTH_CLEANUP_MARKER_COOKIE)) {
+    return NextResponse.redirect(new URL(
+      isPwaFlow ? '/kumanda?auth_error=security_cleanup' : '/login?security=cleanup',
+      origin,
+    ));
+  }
 
   // token_hash (recovery / magic-link) → client-side'a ilet, server cookie gerektirmez
   if (tokenHash && type) {
@@ -37,13 +45,14 @@ export async function GET(request: NextRequest) {
   }
 
   // Hash fragment (#access_token=...) server-side okunamaz — client'a bırak
+  const failureTarget = isPwaFlow ? '/kumanda?auth_error=auth' : '/login?error=auth';
   return new NextResponse(
     `<!doctype html><html><head><meta charset="utf-8"></head><body><script>
       var h = window.location.hash;
       if (h && h.includes('access_token')) {
         window.location.replace('/auth/hash-callback' + h);
       } else {
-        window.location.replace('/login?error=auth');
+        window.location.replace(${JSON.stringify(failureTarget)});
       }
     </script></body></html>`,
     { headers: { 'content-type': 'text/html; charset=utf-8' } }

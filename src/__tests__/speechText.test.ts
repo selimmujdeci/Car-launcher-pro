@@ -4,6 +4,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { normalizeForSpeech, numberToTurkish } from '../platform/speechText';
+import { segmentSpeech } from '../platform/speechSegment';
 
 describe('numberToTurkish', () => {
   const cases: [number, string][] = [
@@ -103,5 +104,26 @@ describe('normalizeForSpeech — güvenlik/dayanıklılık', () => {
   it('güvenlik mesajı anlamı korunur', () => {
     expect(normalizeForSpeech('Dikkat! Kaza, 300 metre ileride.'))
       .toBe('Dikkat! Kaza, üç yüz metre ileride.');
+  });
+});
+
+/* Smoke 2026-09-24: "0482. Sokak" → "dört yüz seksen iki." + duraklama + "Sokak". */
+describe('normalizeForSpeech — numaralı sokak/cadde', () => {
+  it('🔒 sokak numarasındaki nokta cümle sonu olmaz (segmentleyici bölmez)', () => {
+    expect(normalizeForSpeech('Şimdi sola dönün, 0482. Sokak'))
+      .toBe('Şimdi sola dönün, dört yüz seksen iki Sokak');
+    expect(normalizeForSpeech('25135. Sokak')).toBe('yirmi beş bin yüz otuz beş Sokak');
+    expect(normalizeForSpeech('5. Cadde ve 1203. Sk.')).toBe('beş Cadde ve bin iki yüz üç Sk.');
+    expect(normalizeForSpeech('2. Çıkmazı')).toBe('iki Çıkmazı');
+    expect(segmentSpeech(normalizeForSpeech('0482. Sokak')).map((x) => x.text))
+      .toEqual(['dört yüz seksen iki Sokak']);
+  });
+
+  it('🔒 cümle sonundaki sayı ve adres sözcüğü olmayan "N." DOKUNULMAZ', () => {
+    expect(normalizeForSpeech('Hız sınırı 50. Dikkatli sürün.'))
+      .toBe('Hız sınırı elli. Dikkatli sürün.');
+    expect(normalizeForSpeech('Hız sınırı 50. Yol çalışması var.'))
+      .toBe('Hız sınırı elli. Yol çalışması var.');
+    expect(normalizeForSpeech('3. Sokaklar')).toBe('üç. Sokaklar');
   });
 });

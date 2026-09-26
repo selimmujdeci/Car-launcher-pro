@@ -19,6 +19,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 vi.mock('../utils/safeStorage', () => ({
+  isSafeStorageHydrated: () => true,
   safeGetRaw: vi.fn(() => null),
   safeSetRaw: vi.fn(),
   safeFlushKey: vi.fn(),
@@ -50,8 +51,6 @@ function activeSegment(over: {
     lastPerfMs: over.startPerfMs,
     lastSpeed: 8,
     harshEvents: 0,
-    harshBrakeEvents: 0,
-    harshAccelEvents: 0,
     lastGPSLat: 36.9,
     lastGPSLng: 34.6,
     lastGPSTs: over.startPerfMs,

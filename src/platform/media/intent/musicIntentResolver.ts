@@ -300,10 +300,17 @@ export function resolveMusicIntent(utterance: string): MusicIntent | null {
   const isPlayish = has(n, 'cal', ' ac', 'ac ', 'oynat', 'dinle', 'baslat', 'muzik');
   if (!isPlayish) return null;
 
-  const query = stripPlayVerbs(stripSource(n))
+  const hadMusicWord = /\b(muzik|muzigi|sarki|sarkiyi|parca|parcayi)\b/.test(n);
+  let query = stripPlayVerbs(stripSource(n))
     .replace(/\b(muzik|muzigi|sarki|sarkiyi|parca|parcayi|album|albumu|sanatci)\b/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+  /* "Ahmet Kaya'dan müzik çal" → "ahmet kaya": ablatif ek aranmaz. Apostroflu
+     ek her zaman; apostrofsuz ek yalnız müzik kelimesi varsa silinir (ASR
+     apostrofu düşürür: "kayadan müzik") — eski parser (`cleanQuery`) ile aynı kural. */
+  query = query.replace(/'(?:dan|den|tan|ten)$/, '');
+  if (hadMusicWord) query = query.replace(/(?:dan|den|tan|ten)$/, '');
+  query = query.trim();
 
   /* Sorgu metni yoksa bu "genel müzik aç" isteğidir: yeni arama YAPILMAZ,
      kanonik devam yolu kullanılır (rastgele bir şey çalmak bir tercih değildir). */

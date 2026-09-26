@@ -48,7 +48,7 @@ function _providerFlag(fn: (() => boolean) | undefined): boolean | null {
 
 /**
  * Anlık bağlam. `online` çağırandan gelir çünkü mevcut çevrimiçi kapısı
- * (`navigator.onLine`) `voiceService`teki TEK karar noktasıdır — burada ikinci
+ * (kanonik `ConnectivityPolicy`) `voiceService`teki TEK karar noktasıdır — burada ikinci
  * bir ağ hükmü ÜRETİLMEZ.
  */
 export function readGrammarContext(online: boolean, nowMs: number = Date.now()): GrammarContextSnapshot {

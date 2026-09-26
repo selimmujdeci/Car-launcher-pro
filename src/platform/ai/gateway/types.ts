@@ -256,7 +256,7 @@ export interface AiApiKeySource {
   getApiKey(): Promise<string>;
 }
 
-/** Ağ durumu portu — `navigator.onLine` gateway'e GÖMÜLÜ değildir (test edilebilirlik). */
+/** Ağ durumu portu — bağlantı gerçeği gateway'e GÖMÜLÜ değildir (test edilebilirlik). */
 export interface AiNetworkStatus {
   isOnline(): boolean;
 }

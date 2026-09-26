@@ -124,6 +124,25 @@ export interface TripMetricsAccumulator {
   readonly refuelSuspected: boolean;
   /** OBD bağlantısı trip içinde koptu mu — yakıt sürekliliği kırılır. */
   readonly obdContinuityBroken: boolean;
+  /**
+   * GEÇERLİ yakıt okuması sayısı (F3.1).
+   *
+   * ── NEDEN EKLENDİ (production ölçümü, 2026-09-18) ────────────────────
+   * 157 yolculuğun **149'u** `NO_START` ile reddedilmişti. Ama `NO_START`
+   * iki BAMBAŞKA gerçeği aynı kefeye koyuyordu:
+   *   · OBD hiç akmadı (yakıt hakkında hiçbir şey bilmiyoruz), ya da
+   *   · OBD aktı ama yakıt seviyesi hiç gözlenmedi.
+   * İkisi farklı sorulara işaret eder ve farklı yerlerde çözülür. Ayrımı
+   * yapamadan gerçek araç testi de cevap veremezdi. Bu sayaç reddin
+   * gerekçesini ölçülebilir kılar — yeni bir otorite KURMAZ ve aracın
+   * yeteneği hakkında HÜKÜM VERMEZ (bkz. `FUEL_LEVEL_UNOBSERVED`).
+   */
+  readonly fuelSampleCount: number;
+  /** Yakıt taşımayan OBD örneği sayısı — gözlem penceresinin paydası. */
+  readonly obdSampleWithoutFuelCount: number;
+  /** İlk/son OBD örneğinin anı — gözlem penceresinin uzunluğu için. */
+  readonly firstObdPerfMs: number | null;
+  readonly lastObdPerfMs: number | null;
 
   /* ── Sert manevralar ── */
   readonly harshBrakeCount: number;
@@ -153,6 +172,8 @@ export function createAccumulator(): TripMetricsAccumulator {
     maxRpm: null, maxEngineTempC: null,
     fuelAtStartPct: null, fuelAtEndPct: null,
     refuelSuspected: false, obdContinuityBroken: false,
+    fuelSampleCount: 0, obdSampleWithoutFuelCount: 0,
+    firstObdPerfMs: null, lastObdPerfMs: null,
     harshBrakeCount: 0, harshAccelCount: 0, lastHarshPerfMs: null,
     speedSampleCount: 0, obdSampleCount: 0, gpsSampleCount: 0,
     dataGapCount: 0, totalGapMs: 0,
@@ -331,6 +352,15 @@ export function applySample(
 
     /* ── 6. YAKIT İZLEME ──────────────────────────────────────────── */
     const fuel = obdValue(s.fuelPercent, 'fuelPercent');
+    /* Sayaçlar KARARI DEĞİŞTİRMEZ — yalnız reddin gerekçesini ölçülebilir
+       kılar. Sentinel (`-1`) ve aralık dışı değer burada da geçersizdir. */
+    out = {
+      ...(fuel !== null
+        ? { ...out, fuelSampleCount: out.fuelSampleCount + 1 }
+        : { ...out, obdSampleWithoutFuelCount: out.obdSampleWithoutFuelCount + 1 }),
+      firstObdPerfMs: out.firstObdPerfMs ?? now,
+      lastObdPerfMs: now,
+    };
     if (fuel !== null) {
       if (out.fuelAtStartPct === null) {
         out = { ...out, fuelAtStartPct: fuel, fuelAtEndPct: fuel };
@@ -375,7 +405,38 @@ export type FuelVerdict =
   | { measured: true; usedPercent: number }
   | { measured: false; reason: FuelRejectReason };
 
+/**
+ * "Araç yakıtı hiç bildirmiyor" diyebilmek için gereken GÖZLEM PENCERESİ.
+ *
+ * ── NEDEN TEK ÖRNEK YETMEZ ───────────────────────────────────────────────
+ * Yakıt seviyesi (0x2F) native tarafta `VERY_SLOW_EVERY_N_CYCLES`
+ * kademesindedir ve **20 sn'de bir gelmesi TAMAMEN NORMALDİR**
+ * (`obdHealthModel` ölçülmüş notu). Bir ya da birkaç çerçevede yakıt
+ * görmemek, aracın o sinyali vermediğini KANITLAMAZ — yalnızca o turda
+ * sıranın yakıta gelmediğini gösterir.
+ *
+ * Pencere üç kaçırılmış kadansı kapsar (repo'daki `STALE_MISSED_POLLS`
+ * toleransıyla aynı fikir). Altında kalan gözlem "yetenek yok" DEMEZ,
+ * dürüstçe `NO_START` kalır. Bu sayı bir internet sabiti değil, bu deponun
+ * kendi ölçülmüş kadansından türer.
+ */
+export const NO_FUEL_OBSERVATION_WINDOW_MS = 60_000;
+
 export type FuelRejectReason =
+  /**
+   * OBD aktı ama yakıt seviyesi bu yolculukta HİÇ GÖZLENMEDİ.
+   *
+   * ── F3.2 · İSİM DÜZELTİLDİ ───────────────────────────────────────────
+   * F3.1'de bu gerekçe "NO_FUEL_CAPABILITY" diye adlandırılmıştı. Yanlıştı:
+   * bir örnek gözlememek, aracın o YETENEĞE SAHİP OLMADIĞINI kanıtlamaz.
+   * Beş ayrı gerçek vardır ve karıştırılamaz:
+   *     ECU PID DESTEĞİ ≠ GEÇERLİ ÖRNEK GÖZLENDİ ≠ GÜVENİLİR TRIP ÖLÇÜMÜ
+   *     ≠ DEPO KAPASİTESİ VAR ≠ LİTRE HESAPLANABİLİR
+   * Yetenek hükmünün kanonik sahibi `extendedPidService.isPidSupported`tir
+   * (handshake destek haritası; `true`/`false`/`null`). Bu saf modül onu
+   * IMPORT ETMEZ ve yerine geçmez — yalnız KENDİ gözlemini bildirir.
+   */
+  | 'FUEL_LEVEL_UNOBSERVED'
   | 'NO_START'          // başlangıç okuması yok
   | 'NO_END'            // bitiş okuması yok
   | 'REFUEL_SUSPECTED'  // trip içinde yakıt arttı
@@ -394,7 +455,22 @@ export function evaluateFuelMeasurement(
   acc: TripMetricsAccumulator,
   distanceKm: number | null,
 ): FuelVerdict {
-  if (acc.fuelAtStartPct === null) return { measured: false, reason: 'NO_START' };
+  if (acc.fuelAtStartPct === null) {
+    /* ── F3.1 · REDDİN GERÇEK GEREKÇESİ ────────────────────────────────
+       OBD gerçekten aktı (örnek var) ama hiçbirinde geçerli yakıt seviyesi
+       YOKSA, bu bizim kaçırmamız değil ARACIN/adaptörün o sinyali hiç
+       vermemesidir. İkisini `NO_START` altında birleştirmek, düzeltilemez
+       bir yetenek gerçeğini düzeltilebilir bir kusur gibi göstermekti.
+       Karar DEĞİŞMEZ (ikisi de ölçüm sayılmaz); değişen tek şey GEREKÇE. */
+    if (
+      acc.fuelSampleCount === 0 &&
+      acc.firstObdPerfMs !== null && acc.lastObdPerfMs !== null &&
+      acc.lastObdPerfMs - acc.firstObdPerfMs >= NO_FUEL_OBSERVATION_WINDOW_MS
+    ) {
+      return { measured: false, reason: 'FUEL_LEVEL_UNOBSERVED' };
+    }
+    return { measured: false, reason: 'NO_START' };
+  }
   if (acc.fuelAtEndPct === null) return { measured: false, reason: 'NO_END' };
   if (acc.refuelSuspected) return { measured: false, reason: 'REFUEL_SUSPECTED' };
   if (acc.obdContinuityBroken) return { measured: false, reason: 'CONTINUITY_BROKEN' };

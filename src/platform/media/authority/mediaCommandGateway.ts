@@ -36,7 +36,7 @@ import {
   applyDuck, EMPTY_DUCK_STATE, effectiveDuckLevel, isDuckReason, releaseDuck,
   activeReasons, type DuckReason, type DuckState,
 } from './duckPolicy';
-import { computeEffectiveVolume, percentToUnit } from './volumePolicy';
+import { computeEffectiveVolume, percentToUnit, sanitizeVolumeInputs } from './volumePolicy';
 import * as native from './nativeAuthorityBridge';
 import {
   recordDuplicateBackend, recordHandover, recordTruth,
@@ -58,6 +58,8 @@ let _muted = false;
  * bir seam'dir (`setSourceNormalization`) ve kullanıcı sesine DOKUNMAZ.
  */
 let _sourceNormalization = 1;
+/** Hıza bağlı ses telafisi (≤ 1) — TEK yazar `speedVolumeRuntime`. */
+let _speedCompensation = 1;
 let _coordinator: SourceCoordinator | null = null;
 /** Native duck token'ları: JS token → native token eşlemesi. */
 const _nativeDuckTokens = new Map<number, number>();
@@ -592,6 +594,7 @@ export function getEffectiveVolume(): number {
     userVolume: _userVolume,
     duckLevel: effectiveDuckLevel(_duck),
     sourceNormalization: _sourceNormalization,
+    speedCompensation: _speedCompensation,
     muted: _muted,
   });
 }
@@ -617,6 +620,21 @@ export async function setSourceNormalization(factor: number): Promise<boolean> {
 }
 
 export function getSourceNormalization(): number { return _sourceNormalization; }
+
+/**
+ * Hıza bağlı ses telafisini ayarlar (SVC). TEK YAZAR: `speedVolumeRuntime`.
+ * Yalnız KISAR; kullanıcı sesi ve duck DEĞİŞMEZ (duck'ı native uygular).
+ * @returns değer gerçekten değiştiyse `true`.
+ */
+export async function setSpeedCompensation(factor: number): Promise<boolean> {
+  const next = sanitizeVolumeInputs({ speedCompensation: factor }).speedCompensation;
+  if (Math.abs(next - _speedCompensation) < 1e-6) return false;
+  _speedCompensation = next;
+  await applyVolume();
+  return true;
+}
+
+export function getSpeedCompensation(): number { return _speedCompensation; }
 
 /**
  * MUSIC F20 · Parça sınırı geçiş politikasını native'e yazar.
@@ -663,6 +681,7 @@ function nativeUserVolume(): number {
     userVolume: _userVolume,
     duckLevel: 1,
     sourceNormalization: _sourceNormalization,
+    speedCompensation: _speedCompensation,
     muted: _muted,
   });
 }
@@ -728,6 +747,7 @@ export function __resetGatewayForTest(adapters?: Map<SourceClass, BackendAdapter
   _userVolume = 1;
   _muted = false;
   _sourceNormalization = 1;
+  _speedCompensation = 1;
   _sessionSeq = 0;
   _sessionId = 'media-session-0';
   _recentCommandIds.length = 0;

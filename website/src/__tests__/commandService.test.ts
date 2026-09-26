@@ -47,9 +47,10 @@ const cleanupPolicy = vi.hoisted(() => ({
 vi.mock('../lib/supabase', () => ({
   supabaseBrowser:      mocks.supabase,
   isSupabaseConfigured: true,
-  /* PWA oturumu tek giriş noktasından alınır (#giriş-yok kararı): burada
-     oturum HAZIR varsayılır — bu dosyanın kilitleri RLS ve TTL davranışıdır,
-     oturumun nasıl elde edildiği `supabase.ts`in konusudur. */
+  /* `sendCommand` komutu kullanıcı JWT'siyle gönderir; oturum jetonunu bu
+     tek yerden okur. Oturum VAR senaryosu varsayılandır — bu dosyanın
+     kilitleri RLS ve TTL davranışıdır, oturumun nasıl elde edildiği
+     `supabase.ts`in konusudur. */
   ensurePwaSession:     mocks.ensurePwaSession,
 }));
 

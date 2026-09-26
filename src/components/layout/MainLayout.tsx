@@ -46,6 +46,7 @@ import { AddressNavCard } from '../common/AddressNavCard';
 import { useDayNightManager } from '../../hooks/useDayNightManager';
 import { VehicleReminderModal } from '../modals/VehicleReminderModal';
 import { IncomingCallOverlay } from '../common/IncomingCallOverlay';
+import { PhoneLinkNavProposalOverlay } from '../common/PhoneLinkNavProposalOverlay';
 import FieldTestBadge from '../common/FieldTestBadge';
 import { setRemoteCommandContext } from '../../platform/vehicleDataLayer';
 import { useUnifiedVehicleStore } from '../../platform/vehicleDataLayer/UnifiedVehicleStore';
@@ -55,9 +56,6 @@ import { bridge } from '../../platform/bridge';
 import { useSystemStore } from '../../store/useSystemStore';
 import { TripSummaryBanner }  from '../trip/TripSummaryBanner';
 import { TheaterOverlay }     from '../theater/TheaterOverlay';
-import { MiniPlayer }         from '../media/MiniPlayer';
-import { useMusicViewModel }  from '../media/MusicViewModel';
-import { musicSurfaceVisibilityModel } from '../media/musicSurfaceVisibilityModel';
 
 /* ── Persistence ─────────────────────────────────────────── */
 
@@ -360,12 +358,18 @@ export default function MainLayout() {
   // subscribe) yeniden hesaplanır — config mode ile senkron yazılır.
   const blurEnabled    = runtimeManager.getConfig().enableBlur;
   const isTheaterActive = useSystemStore((s) => s.isTheaterModeActive);
-  const music = useMusicViewModel();
-  const showMiniPlayer = musicSurfaceVisibilityModel(music, {
-    drawerOpen: drawer !== 'none',
-    nowPlayingOpen: drawer === 'music',
-    criticalSurfaceOpen: isTheaterActive || splitOpen || rearCamOpen,
-  });
+  /* ── ÜRÜN KARARI 2026-09-05 · KOKPİTTE İKİNCİ MÜZİK ÇUBUĞU YOK ───────────
+   * Kullanıcı gerçek cihazda ana ekranın altındaki geniş MiniPlayer'ın
+   * KALDIRILMASINI istedi: *"sağ üstte mevcut Music Widget kartı zaten
+   * yeterli"*. O kart (`NewHomeLayout.MusicCard`) aynı kanonik gerçeği okur
+   * (`useMediaState`) ve tam transportu (`previous`/`togglePlayPause`/`next`)
+   * kanonik kapıdan sürer — yani ikinci çubuk BİLGİ ya da DENETİM eklemiyordu,
+   * yalnız dock'un üstünde yer kaplıyordu.
+   *
+   * Sonuç: kokpit kabuğunda ikincil oynatıcı yüzeyi ÇİZİLMEZ. `MiniPlayer`
+   * bileşeni ve onu şart koşan görünürlük modeli SİLİNDİ — ölçüldü: başka
+   * hiçbir render yeri yoktu, ikisi de ölü koda dönüşüyordu.
+   * Kilit: `musicHomeSurface.test.ts`. */
 
   // Mali-400 GPU guard: anasayfa TAMAMEN opak bir overlay ile kapandığında alttaki
   // MiniMapWidget'ın canlı MapLibre WebGL context'ini serbest bırak (sürekli çizim
@@ -495,12 +499,20 @@ export default function MainLayout() {
         />
       )}
 
-      {/* F1 persistent surface: map/navigation remains usable; full drawers and critical
-          camera/theater surfaces are suppressed by the single visibility policy. */}
-      {showMiniPlayer && <MiniPlayer onOpenNowPlaying={() => setDrawer('music')} />}
+      {/* ── KOKPİT İKİNCİL OYNATICI ÇUBUĞU KALDIRILDI (2026-09-05) ──────────
+       * `showMiniPlayer` kanonik politikadan gelir ve `HOME_SHELL` için her
+       * zaman `false`tur; bu yüzden burada çizilecek bir yüzey KALMADI ve
+       * `MiniPlayer` bileşeni ölü kod olarak SİLİNDİ (ölçüldü: başka hiçbir
+       * render yeri yoktu). Müzik denetimi kokpitte sağ üstteki Müzik
+       * kartındadır; tam ekran Müzik yüzeyi Now Playing'i taşır.
+       * Politika değişkeni BİLEREK duruyor: kabuk kendi tahminini yapmaz,
+       * kararı tek otoriteden okur (kilit: `musicHomeSurface.test.ts`). */}
 
       {/* Gelen arama overlay */}
       <IncomingCallOverlay />
+
+      {/* Phone Link F8.1 — telefondan gelen hedef önerisi onay kartı */}
+      <PhoneLinkNavProposalOverlay />
 
       {/* Theater Mode — araç dururken medya odaklı tam ekran (z-9990) */}
       <TheaterOverlay />

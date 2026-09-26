@@ -1,6 +1,12 @@
+import { useNotificationStore } from '@/store/notificationStore';
 import { usePinDialogStore } from '@/store/pinDialogStore';
 import { useVehicleStore } from '@/store/vehicleStore';
+import { peekRealtimeRuntime, stopRealtimeRuntime } from '@/lib/realtime/realtimeSyncRuntime';
 import { CleanupParticipantRegistry } from './cleanupParticipantRegistry';
+import {
+  DevicePushRevokeParticipant,
+  productionDevicePushAdapter,
+} from './devicePushCleanupParticipants';
 import {
   AccountScopedStorageVerificationParticipant,
   BrowserStorageAdapter,
@@ -55,6 +61,15 @@ export function createVehicleCleanupComposition(
       useVehicleStore.getState().clearVehicleAuthority();
       usePinDialogStore.getState().clearAuthority();
       clearRegisteredCommandAuthority();
+      /* ── ÖLÇÜLEN KUSUR (production, 2026-09-18) ──────────────────────
+         Depo kaydında `PURGE_ON_LOGOUT` işaretli oldukları hâlde bu iki
+         bellek bağlamını temizleyen kimse YOKTU; çıkış doğrulaması
+         `account-scoped-storage-verification:REGISTRY_INVALID` ile
+         düşüyordu (kullanıcının telefonunda ölçüldü). İkisi de ÖNCEKİ
+         hesabın verisidir: bildirimler araç bağlamı/derin bağlantı
+         taşır, realtime aboneliği hesap kuşağına bağlıdır. */
+      useNotificationStore.getState().clearAuthority();
+      stopRealtimeRuntime();
     },
     verifyVehicleAuthorityEmpty: () =>
       useVehicleStore.getState().isVehicleAuthorityEmpty() &&
@@ -92,6 +107,12 @@ export function createVehicleCleanupComposition(
       offlineAuthority.pairing,
     ),
   );
+  /* DEVICE_AND_PUSH_REVOKE fazı katılımcısız kalırsa koordinatör o faza
+     gelince `MISSING_PHASE_PARTICIPANT` ile DURUR ve çıkış hiçbir zaman
+     tamamlanamaz (production'da ölçüldü). */
+  participantRegistry.register(
+    new DevicePushRevokeParticipant(productionDevicePushAdapter),
+  );
   participantRegistry.register(
     new ServerSessionVerificationParticipant(serverSessionAdapter),
   );
@@ -101,12 +122,29 @@ export function createVehicleCleanupComposition(
       [
         new BrowserStorageAdapter('LOCAL_STORAGE', getStorage),
       ],
+      /* KAYITLI HER `CUSTOM` TANIM İÇİN DOĞRULAYICI ZORUNLUDUR.
+         `verifyAccountScopedStorageEmpty`, `GLOBAL_DEVICE` ve
+         `SECURITY_SYSTEM` dışındaki her CUSTOM tanım için doğrulayıcı arar;
+         biri eksikse `REGISTRY_INVALID` döner ve ÇIKIŞ TAMAMLANAMAZ.
+         Üçü eksikti (notification · realtime · mavi) — production'da
+         ölçüldü. */
       {
         'vehicle-zustand-store': () =>
           useVehicleStore.getState().isVehicleAuthorityEmpty(),
         'command-tracker-state': verifyRegisteredCommandAuthorityEmpty,
         'fleet-queue-singleton':
           offlineAuthority.queue.verifyEmpty,
+        'notification-zustand-store': () =>
+          useNotificationStore.getState().isAuthorityEmpty(),
+        /* Runtime yoksa aktif abonelik ve hesap kuşağı bağlamı da yoktur. */
+        'realtime-subscription-context': () => peekRealtimeRuntime() === null,
+        /* Tanımın kendi açıklaması: "Required registry slot; no current
+           persistent mobile Mavi store found." Mobil yüzeyde Mavi deposu
+           YOKTUR (kaynak taramasıyla doğrulandı: yalnız filo/dashboard
+           yüzeyinde geçer), bu yüzden doğrulanacak bir durum da yoktur.
+           Mobil Mavi deposu eklenirse bu doğrulayıcı GERÇEK kontrole
+           bağlanmalıdır. */
+        'mavi-context-future-adapter': () => true,
       },
     ),
   );

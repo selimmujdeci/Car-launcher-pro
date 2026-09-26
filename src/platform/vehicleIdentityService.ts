@@ -13,8 +13,10 @@
 
 import { Capacitor }              from '@capacitor/core';
 import { sensitiveKeyStore }      from './sensitiveKeyStore';
-import { connectivityService }    from './connectivityService';
+import { connectivityService, VEHICLE_API_KEY_SLOT, setQueueVehicleApiKeyResolver } from './connectivityService';
 import { CarLauncher }            from './nativePlugin';
+/* MRI N-7: sunucu `Date` başlığı gözlemi — komut geçerliliği yerel saate mahkûm kalmasın. */
+import { observeServerDate }      from './serverClock';
 
 const SK_DEVICE_ID  = 'veh_device_id'  as const;
 const SK_API_KEY    = 'veh_api_key'    as const;
@@ -40,6 +42,9 @@ export interface LinkingCodeInfo {
 
 let _identity: VehicleIdentity | null = null;
 let _apiKey:   string | null = null;
+/* Kuyruk gövdesindeki anahtar yer tutucusunu GÖNDERİM anında güvenli depodan çözer
+   (kuyrukta sır tutulmaz — connectivityService VEHICLE_API_KEY_SLOT). */
+setQueueVehicleApiKeyResolver(async () => _apiKey ?? (await sensitiveKeyStore.get(SK_API_KEY)));
 
 /* ── Internal helpers ───────────────────────────────────────── */
 
@@ -78,10 +83,14 @@ function _uuid(): string {
   });
 }
 
-function _mockCode(): LinkingCodeInfo {
-  const code = String(Math.floor(Math.random() * 1_000_000)).padStart(6, '0');
-  return { code, expiresAt: Date.now() + 60_000 };
-}
+/* ESKİ `_mockCode()` KALDIRILDI (2026-09-25, CodeQL js/insecure-randomness
+   incelemesi): sunucuya ulaşılamayınca `Math.random` ile 6 haneli SAHTE kod
+   üretip ekrana basıyordu — sunucuda olmayan kod telefona girilince eşleşme
+   sessizce düşüyordu (§8: sahte başarı). Artık dürüst hata fırlatılır;
+   MobileLinkWidget hatayı zaten gösterir. */
+const ERR_LINK_NOT_CONFIGURED = 'Sunucu yapılandırılmamış — eşleşme kodu alınamıyor';
+const ERR_LINK_OFFLINE = 'Sunucuya ulaşılamadı — eşleşme kodu alınamadı. İnternet bağlantısını kontrol edip tekrar deneyin.';
+const ERR_LINK_NOT_REGISTERED = 'Araç henüz sunucuya kayıtlı değil — önce eşleşme kodu oluşturun';
 
 async function _rpc(fn: string, body: Record<string, unknown>): Promise<unknown> {
   if (!RPC_BASE || !SUPABASE_ANON_KEY) throw new Error('Supabase not configured');
@@ -222,6 +231,7 @@ export function _resetDeviceIdentityStateForTest(): void {
   _weakRandomUsed = false;
   _identity = null;
   _apiKey = null;
+  _persistedPushToken = null;
 }
 
 /* ── Public API ─────────────────────────────────────────────── */
@@ -261,7 +271,7 @@ export async function getVehicleIdentity(): Promise<VehicleIdentity | null> {
 export async function registerVehicle(name = 'Araç'): Promise<LinkingCodeInfo> {
   const deviceId = await _getOrCreateDeviceId();
 
-  if (!RPC_BASE) return _mockCode();
+  if (!RPC_BASE) throw new Error(ERR_LINK_NOT_CONFIGURED);
 
   try {
     const data = await _rpc('register_vehicle', { p_device_id: deviceId, p_name: name }) as {
@@ -299,8 +309,8 @@ export async function registerVehicle(name = 'Araç'): Promise<LinkingCodeInfo> 
             : 0,
     };
   } catch {
-    // Sunucu ulaşılamıyor veya RPC hatası → çevrimdışı mod, mock kod göster
-    return _mockCode();
+    // Sunucu ulaşılamıyor veya RPC hatası → SAHTE kod YOK, dürüst hata
+    throw new Error(ERR_LINK_OFFLINE);
   }
 }
 
@@ -309,10 +319,10 @@ export async function registerVehicle(name = 'Araç'): Promise<LinkingCodeInfo> 
  * Authenticated by the stored api_key — no user JWT required.
  */
 export async function refreshLinkingCode(): Promise<LinkingCodeInfo> {
-  if (!RPC_BASE) return _mockCode();
+  if (!RPC_BASE) throw new Error(ERR_LINK_NOT_CONFIGURED);
 
   const apiKey = _apiKey ?? (await sensitiveKeyStore.get(SK_API_KEY));
-  if (!apiKey) return _mockCode();
+  if (!apiKey) throw new Error(ERR_LINK_NOT_REGISTERED);
 
   try {
     const data = await _rpc('refresh_linking_code', { p_api_key: apiKey }) as {
@@ -324,7 +334,7 @@ export async function refreshLinkingCode(): Promise<LinkingCodeInfo> {
       expiresAt: new Date(data.expires_at).getTime(),
     };
   } catch {
-    return _mockCode();
+    throw new Error(ERR_LINK_OFFLINE);
   }
 }
 
@@ -369,7 +379,7 @@ export async function updateRemoteCommandStatus(
 
   // Durum → timestamp eşlemesi
   const body: Record<string, unknown> = {
-    p_api_key:    apiKey,
+    p_api_key:    VEHICLE_API_KEY_SLOT,   // gerçek anahtar gönderimde çözülür (kuyrukta sır yok)
     p_command_id: commandId,
     p_status:     status,
   };
@@ -517,7 +527,7 @@ export async function pushVehicleEvent(
     `${RPC_BASE}/push_vehicle_event`,
     'POST',
     { 'Content-Type': 'application/json', apikey: SUPABASE_ANON_KEY },
-    { p_api_key: apiKey, p_type: type, p_payload: payload },
+    { p_api_key: VEHICLE_API_KEY_SLOT, p_type: type, p_payload: payload },
     priority,
     'telemetry',
     reportId,
@@ -552,11 +562,119 @@ export async function callVehicleRpc(
       headers: { 'Content-Type': 'application/json', apikey: SUPABASE_ANON_KEY },
       body: JSON.stringify({ p_api_key: apiKey, ...args }),
     });
+    /* Sunucu saati gözlemi: yanıt (hata olsa bile) sunucudan geldiyse `Date`
+       başlığı sunucu-yazımlıdır. Sır içermez; offset dışında hiçbir şey saklanmaz. */
+    try { observeServerDate(res.headers.get('date'), `rpc:${fn}`); } catch { /* gözlem opsiyonel */ }
     if (!res.ok) return null;
     return await res.json();
   } catch {
     /* Ağ hatası — gizli anahtar İÇEREBİLECEĞİ için hata nesnesi LOGLANMAZ. */
     return null;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * CİHAZ FCM TOKEN KAYDI — PROD-1A1
+ *
+ * ── ÖLÇÜLEN KUSUR ────────────────────────────────────────────────────────
+ * Token kaydı tabandaki `register_push_token(p_vehicle_id, …)`e gidiyordu; o
+ * RPC `auth.uid()` ister. Head unit Supabase'e OTURUMSUZ bağlanır → her çağrı
+ * `{ok:false,'Yetkisiz.'}` döner. HTTP 200 olduğu için istemci bunu başarı
+ * sandı ve production'da `vehicle_push_tokens` **0 satır** kaldı.
+ *
+ * ── DOĞRU KİMLİK ─────────────────────────────────────────────────────────
+ * Araç FCM token'ı KULLANICI oturumunun değil ARAÇ CİHAZININ kanıtıdır.
+ * Bu yüzden kayıt, aracın zaten sahip olduğu `api_key` ile —
+ * `pushVehicleEvent` / `refresh_linking_code` ile AYNI `callVehicleRpc`
+ * taşıyıcısı üzerinden — yapılır. Yeni anahtar deposu, yeni kimlik kavramı YOK.
+ *
+ * ── "HTTP 200" ≠ "KAYDEDİLDİ" ────────────────────────────────────────────
+ * Sonuç üç kaynaktan ayrı ayrı okunur: taşıyıcı hatası (`null`), sunucunun
+ * reddi (`ok !== true`) ve gerçek kalıcılık (`ok === true`). Çağıran yalnız
+ * üçüncüsünde başarı İDDİA EDEBİLİR.
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+/** Cihaz kimliğiyle token kaydının SONUCU — "denendi" değil, "oldu mu". */
+export type DevicePushTokenResult =
+  | { ok: true }
+  | { ok: false; reason: 'NO_BACKEND' | 'NO_API_KEY' | 'RPC_FAILED' | 'REJECTED' };
+
+/** Cihaz kimlikli token kaydı RPC'si (migration 082). */
+const DEVICE_PUSH_TOKEN_RPC = 'register_vehicle_push_token';
+
+/**
+ * Yeniden deneme aralıkları.
+ *
+ * NEDEN VAR: token boot'un çok erken bir anında gelebilir — `api_key` henüz
+ * yazılmamış ya da ağ henüz ayakta değil olabilir. Token bir daha DEĞİŞMEZSE
+ * o cihaz aksi hâlde o açılış boyunca kayıtsız kalırdı.
+ * NEDEN KÜÇÜK: her açılışta `PushNotifications.register()` aynı token'ı
+ * yeniden teslim eder — yani kalıcı kurtarma zaten AÇILIŞ düzeyindedir.
+ * Bu yüzden burada yeni bir zamanlayıcı/kuyruk KURULMAZ.
+ */
+const DEVICE_PUSH_TOKEN_RETRY_MS: readonly number[] = [5_000, 20_000];
+
+/** Bu oturumda kalıcılığı KANITLANMIŞ token — gereksiz tekrar çağrıyı keser. */
+let _persistedPushToken: string | null = null;
+
+/**
+ * TEK deneme: aracın FCM token'ını cihaz kimliğiyle kaydeder.
+ *
+ * Başarısızlık sebebi KATEGORİ olarak döner; token ve api_key DEĞERLERİ
+ * ne döndürülür ne loglanır.
+ */
+export async function registerDevicePushToken(
+  token:    string,
+  platform: string,
+): Promise<DevicePushTokenResult> {
+  if (!RPC_BASE || !SUPABASE_ANON_KEY) return { ok: false, reason: 'NO_BACKEND' };
+
+  /* Anahtar yoksa "kaydedilemedi" denir — sessizce başarı SAYILMAZ. */
+  const apiKey = _apiKey ?? (await sensitiveKeyStore.get(SK_API_KEY));
+  if (!apiKey) return { ok: false, reason: 'NO_API_KEY' };
+
+  const data = await callVehicleRpc(DEVICE_PUSH_TOKEN_RPC, {
+    p_fcm_token: token,
+    p_platform:  platform,
+  });
+
+  /* Taşıyıcı düştü (ağ / 4xx / 5xx). Geçersiz api_key de BURAYA düşer:
+     RPC istisna atar, PostgREST 4xx verir. "Hata atmadı" varsayımı YOK. */
+  if (data === null || typeof data !== 'object') return { ok: false, reason: 'RPC_FAILED' };
+
+  /* Sunucu 200 döndü ama kalıcılığı ONAYLAMADI. */
+  if ((data as { ok?: unknown }).ok !== true) return { ok: false, reason: 'REJECTED' };
+
+  return { ok: true };
+}
+
+/**
+ * Token kaydını KANITLANANA kadar sınırlı sayıda dener.
+ *
+ * · Aynı token bu oturumda zaten kaydedildiyse ağa HİÇ çıkılmaz (pushService
+ *   ve fcmService aynı token'ı ayrı ayrı teslim eder — çift çağrı gereksizdir;
+ *   RPC zaten idempotenttir, bu yalnız israfı keser).
+ * · `REJECTED` KALICI bir karardır (bozuk token/platform) → tekrar denenmez.
+ * · Ağ/anahtar kaynaklı geçici hatalarda kısa aralıklarla tekrar denenir.
+ */
+export async function ensureDevicePushTokenRegistered(
+  token:    string,
+  platform: string,
+  opts?: { retryDelaysMs?: readonly number[] },
+): Promise<DevicePushTokenResult> {
+  if (!token) return { ok: false, reason: 'REJECTED' };
+  if (_persistedPushToken === token) return { ok: true };
+
+  const delays = opts?.retryDelaysMs ?? DEVICE_PUSH_TOKEN_RETRY_MS;
+
+  for (let i = 0; ; i++) {
+    const result = await registerDevicePushToken(token, platform);
+    if (result.ok) {
+      _persistedPushToken = token;
+      return result;
+    }
+    if (result.reason === 'REJECTED' || i >= delays.length) return result;
+    await new Promise<void>((resolve) => setTimeout(resolve, delays[i]));
   }
 }
 

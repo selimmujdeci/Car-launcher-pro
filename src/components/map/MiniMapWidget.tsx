@@ -1,4 +1,9 @@
 import { bindMapUserInteraction } from '../../platform/map/bindMapUserInteraction';
+import { CurveAdvisoryBadge } from './CurveAdvisoryBadge';
+import { useCurveAdvisory } from '../../platform/navigation/curveAdvisoryRuntime';
+import { isOverspeed } from '../../platform/navigation/core/overspeedModel';
+import { isEffectiveLimitDisplayable } from '../../platform/navigation/core/vehicleAwareSpeedLimitAuthority';
+import { syncRouteTrafficOverlay } from '../../platform/map/routeTrafficOverlay';
 import { useCallback, useEffect, useRef, useState, memo } from 'react';
 import type { Map as MapLibreMap } from 'maplibre-gl';
 
@@ -47,6 +52,7 @@ import {
   getRenderedMotion, useMarkerMotionSampleTick,
 } from '../../platform/navigation/navMarkerMotionRuntime';
 import { SpeedLimitCard } from './SpeedLimitCard';
+import { ManeuverArrow } from './hud/ManeuverArrow';
 import {
   canDriveCamera,
   notifyUserPanStart,
@@ -113,6 +119,8 @@ export const MiniMapWidget = memo(function MiniMapWidget({
   // uygulanmış son konumu izleyerek; park halinde hareket eşik altındaysa kamera/marker
   // işini TAMAMEN atlarız (GL render burst'ü kesilir). Sürüşte davranış değişmez.
   const wasDrivingRef = useRef(false);
+  /** Kamerayı çizim döngüsü mü sürüyor (canlı navigasyon) — konum efekti o zaman sürmez. */
+  const motionCameraRef = useRef(false);
   // ── Compass TALEBİ (saha fix 2026-07-11) ────────────────────────────────
   // Mini harita heading'i YALNIZ sürüş dalında kullanır (setDrivingView rotasyonu +
   // marker yönü). Park/dur dalında kuzey-yukarı statiktir → compass İSTEMEZ.
@@ -244,6 +252,7 @@ export const MiniMapWidget = memo(function MiniMapWidget({
    * ile BİREBİR AYNIDIR — konum çıpası, sınıflandırma ve araç tavanı orada
    * tek yerde toplanmıştır (ikinci motor YOK). */
   const speedLimit = useEffectiveSpeedLimit();
+  const curveAdvisory = useCurveAdvisory();
 
   /* Navigasyon aktifliğini otoriteye bildir (otomatik dönüş gecikmesini seçer). */
   useEffect(() => {
@@ -270,18 +279,47 @@ export const MiniMapWidget = memo(function MiniMapWidget({
 
     let rafId = 0;
     let lastDrawMs = 0;
+    let lastCamMs = 0;
     let sentLat = NaN, sentLng = NaN, sentBear = NaN;
 
     const draw = (now: number) => {
       rafId = requestAnimationFrame(draw);
-      if (!wasDrivingRef.current) { cancelAnimationFrame(rafId); rafId = 0; return; }
+      if (!wasDrivingRef.current) {
+        cancelAnimationFrame(rafId); rafId = 0; motionCameraRef.current = false; return;
+      }
+      /* KAMERA DA BU DÖNGÜDEN (saha 2026-09-24, telefonda ölçüldü): canlı
+         navigasyonda kamera yalnız GPS fix'inde (1 Hz) sürülüyordu; `easeTo`
+         ~320 ms'de bitip kalan ~680 ms bekliyordu → kareler %68 DURUYORDU
+         ("takıla takıla"). Artık tam ekranla aynı kadansla (150 ms), işaretin
+         çizildiği AYNI konumdan sürülür. Navigasyon dışında hareket modeli
+         beslenmez → kamera eskisi gibi konum efektinden (fix başına). */
+      motionCameraRef.current = navLiveRef.current;
+      const camDue = navLiveRef.current && now - lastCamMs >= 150;
       // ~16 fps: tek nokta `setData` ucuzdur ama düşük-uç GPU'da her kare pahalıdır.
-      if (now - lastDrawMs < 60) return;
+      if (now - lastDrawMs < 60 && !camDue) return;
 
       const m = getRenderedMotion(now);
       if (m.lat === null || m.lon === null) return;
       // Bayat konumda hareket UYDURULMAZ — model zaten donduruyor, burada da çizme.
       if (m.state === 'STALE') return;
+
+      const mp = mapRef.current;
+      if (camDue) lastCamMs = now;
+      if (camDue && mp && canDriveCamera()) {
+        const _rs = getRouteState();
+        const _turnDist = _rs.steps.length && _rs.distanceToNextTurnSource === 'ALONG_ROUTE'
+          ? _rs.distanceToNextTurnMeters : undefined;
+        const _routeBearing = resolveRouteForwardBearing(
+          m.lat, m.lon, _rs.steps, _rs.currentStepIndex,
+        ) ?? undefined;
+        try {
+          setDrivingView(
+            mp, m.lat, m.lon, headingRef.current ?? 0, lastEffKmhRef.current,
+            containerRef.current?.offsetHeight ?? 400, _turnDist, undefined, undefined, _routeBearing,
+          );
+        } catch { /* stil hazır değil */ }
+      }
+      if (now - lastDrawMs < 60) return;
 
       const bear = m.bearingDeg ?? sentBear;
       const movedM = Number.isNaN(sentLat)
@@ -298,6 +336,9 @@ export const MiniMapWidget = memo(function MiniMapWidget({
       sentLat = m.lat; sentLng = m.lon; sentBear = bear ?? 0;
     };
 
+    /* Bayrak SENKRON kurulur: efekt her örnekte yeniden kurulur ve aynı commit'te
+       sonra koşan konum efekti kamerayı bir kez de ham fix'le sürmesin. */
+    motionCameraRef.current = navLiveRef.current;
     rafId = requestAnimationFrame(draw);
     return () => { if (rafId) cancelAnimationFrame(rafId); };
     // `motionTick` yeni örnek geldiğinde döngüyü tazeler (duruştan sonra yeniden açar).
@@ -843,8 +884,9 @@ export const MiniMapWidget = memo(function MiniMapWidget({
        * davranışı gösteriyordu. Artık AYNI politika, AYNI argümanlar.
        *
        * Marker konumu burada değil, paylaşılan motion runtime'ından RAF ile
-       * çizilir (aşağıdaki `motion` effect'i) → 2 Hz zıplama biter. */
-      if (_cameraOwned) {
+       * çizilir (aşağıdaki `motion` effect'i) → 2 Hz zıplama biter.
+       * Canlı navigasyonda kamerayı da o döngü sürer (`motionCameraRef`). */
+      if (_cameraOwned && !motionCameraRef.current) {
         const containerH = containerRef.current?.offsetHeight ?? 400;
         const _rs = getRouteState();
         const _turnDist = _rs.steps.length && _rs.distanceToNextTurnSource === 'ALONG_ROUTE'
@@ -862,7 +904,7 @@ export const MiniMapWidget = memo(function MiniMapWidget({
           mapRef.current, latitude, longitude, hdg, _effKmh, containerH,
           _turnDist, undefined, undefined, _routeBearing,
         );
-      } else {
+      } else if (!_cameraOwned) {
         // Kamera kullanıcıda — marker yine de güncel kalsın (araç nerede görünsün).
         updateUserMarker(latitude, longitude, hdg);
       }
@@ -928,6 +970,7 @@ export const MiniMapWidget = memo(function MiniMapWidget({
             [prog.lon, prog.lat],
             ...geom.slice(prog.segIdx + 1),
           ]);
+          syncRouteTrafficOverlay(mapRef.current, geom, getRouteState().trafficSections, prog);
         } catch { /* stil yeniden yükleniyor olabilir — sonraki fix'te tekrar */ }
       }
     }
@@ -949,23 +992,236 @@ export const MiniMapWidget = memo(function MiniMapWidget({
    * Katmanların anlamsal olarak yeniden derecelendirilmesi (rozet →
    * `--z-map-chip` gibi) ayrı bir tasarım kararıdır ve bilinçli olarak bu
    * turun DIŞINDADIR. */
+  /* ── AKTİF NAVİGASYON BİLGİSİ (SESSION CONTINUITY P0) ──────────────────────
+   *  Tam ekran kapatıldığında oturum yaşamaya devam eder; kullanıcı ana ekranda
+   *  rotayı, kalan mesafeyi, ETA'yı ve sıradaki manevrayı görür. DÜRÜSTLÜK: yalnız
+   *  kanıtı olan alan yazılır — manevra metni yoksa satır hiç render edilmez, ölçü
+   *  yoksa "—" gösterilir. Şerit bilgisi / dönel kavşak çıkışı burada HİÇ üretilmez.
+   *
+   *  YER (saha 2026-09-24, kullanıcı başlıktaki boş alanı gösterdi): başlık
+   *  görünürken bilgi BAŞLIK SATIRINDA durur — haritanın sol altını örten kart
+   *  kalkar. Başlık gizliyse (bölünmüş ekran) harita üstünde şerit olarak kalır. */
+  const navInfo = (() => {
+    if (!isNavigating) return null;
+    /* Adım semantiği (NavigationHUD ile AYNI, off-by-one 2026-07-05): steps[i]
+       az önce GEÇİLEN manevradır; mesafe steps[i+1]'e sayılır. Sahada
+       (2026-09-24, sahte sürüş) mini harita "şimdi sola dönün" okunurken hâlâ
+       geçilmiş "sağa dönün"ü gösteriyordu. Tek adım kaldıysa kendisi. */
+    const step = route.steps[route.currentStepIndex + 1] ?? route.steps[route.currentStepIndex];
+    // Manevra metni: talimat → yoksa cadde adı → yoksa satır YOK.
+    const maneuver = step?.instruction?.trim() || step?.streetName?.trim() || null;
+    // Manevraya mesafe: yalnız yöntemi bilinen ölçü gösterilir.
+    const turnM = (route.distanceToNextTurnSource !== 'UNKNOWN' &&
+                   Number.isFinite(route.distanceToNextTurnMeters) &&
+                   route.distanceToNextTurnMeters > 0)
+      ? route.distanceToNextTurnMeters : null;
+    // Kalan mesafe: canlı ilerleme → yoksa rotanın toplam mesafesi (ikisi de
+    // ölçülmüş değerdir; uydurma yok). İkisi de yoksa "—".
+    const remainM = (distanceMeters != null && Number.isFinite(distanceMeters) && distanceMeters > 10)
+      ? distanceMeters
+      : (route.totalDistanceMeters > 0 ? route.totalDistanceMeters : null);
+    /* ── ETA — TEK KARAR OTORİTESİ (P0-NAV-14) ───────────────────────
+     * ÖLÇÜLEN KUSUR: burada yalnız "sayı var mı ve sonlu mu" soruluyordu.
+     * Motor "bu ETA'ya GÜVENME" dediğinde (bayat süre revizyonu · düz hat
+     * · yetersiz rota verisi) tam ekran HUD `—` basarken mini harita AYNI
+     * anda bir süre gösteriyordu → iki yüzey ayrışıyordu. Bu, bu deponun
+     * tekrar eden saha kusurudur (#332 · #547 · P0-NAV-06/1 · P0-NAV-07).
+     * Karar artık `decideEtaDisplay` ile TEK yerde; sıfır/negatif/geçersiz
+     * denetimi de o kuralın İÇİNDEDİR (kapı zayıflamadı, tek otoriteye
+     * bağlandı). Güvenilmiyorsa `—` yazılır — uydurma süre YOK. */
+    const etaDec = decideEtaDisplay(etaSeconds, readEtaStateSafe());
+    const etaTxt = (etaDec.showNumber && etaDec.seconds !== null)
+      ? formatEta(etaDec.seconds) : '—';
+    const phase =
+      navStatus === NavStatus.REROUTING ? 'YENİDEN HESAPLANIYOR' :
+      navStatus === NavStatus.ARRIVED   ? 'VARDINIZ'             :
+      navStatus === NavStatus.ROUTING   ? 'ROTA HESAPLANIYOR'    :
+      navStatus === NavStatus.PREVIEW   ? 'ÖNİZLEME'             : null;
+
+    /* Hedef adı: adresin ilk parçası ("Tarsus Şelalesi, Çağlayan Mah." → "Tarsus Şelalesi"). */
+    const destName = destination?.name?.split(',')[0]?.trim() || null;
+    /* Sonraki manevra — yalnız sağlayıcının verdiği adım varsa (uydurma levha YOK). */
+    const next = route.steps[route.currentStepIndex + 2] ?? null;
+    const nextText = next ? (next.instruction?.trim() || next.streetName?.trim() || null) : null;
+    /* GERİ YÜKLENEN ÖNERİ (saha 2026-09-24): `restoreNavigationAsync` açılışta son
+       hedefi bilerek yalnız PREVIEW kurar (eski rehberlik diriltilmez); rotayı
+       FullMapView ister. Ana ekranda rota hiç gelmediği için mini harita sonsuza
+       dek "ÖNİZLEME — · —" gösteriyordu. Hedef adı + "dokun" yazılır; dokunuş tam
+       ekranı açar (rota orada, kullanıcı eylemiyle istenir). */
+    const proposal = navStatus === NavStatus.PREVIEW && !navRouteVisible;
+    return {
+      proposal,
+      maneuver: proposal ? null : maneuver, turnM, remainM, etaTxt,
+      title: proposal ? (destName ?? 'ÖNİZLEME') : (phase ?? destName ?? 'NAVİGASYON'),
+      step: step ?? null, next, nextText,
+    };
+  })();
+
+  const endNavButton = (
+    <button
+      onClick={endNavigation}
+      className="w-9 h-9 rounded-xl bg-black/5 border border-black/15 flex items-center justify-center text-primary active:scale-90 transition-all flex-shrink-0"
+      title="Navigasyonu sonlandır"
+      aria-label="Navigasyonu sonlandır"
+    >
+      <X className="w-4 h-4" />
+    </button>
+  );
+
+  /* Başlık içi bilgi — tek bakışta: dönüş mesafesi en büyük öğe. */
+  const navHeader = navInfo?.proposal ? (
+    <div className="flex items-center gap-3 min-w-0 flex-1">
+      <button
+        onClick={onFullScreenClick}
+        className="flex flex-col items-start gap-1 min-w-0 flex-1 text-left"
+        style={{ background: 'transparent', border: 'none', minHeight: 0, minWidth: 0 }}
+        aria-label="Rotayı tam ekranda aç"
+      >
+        <div className="flex items-center gap-2 min-w-0 max-w-full">
+          <Navigation2 className="w-3.5 h-3.5 text-[#E0A23C] flex-shrink-0" />
+          <span className="text-[14px] leading-tight font-black text-[#C8862A] truncate">{navInfo.title}</span>
+          <span className="text-[9px] font-black tracking-wider uppercase px-1.5 py-px rounded bg-amber-500/15 text-amber-600 flex-shrink-0">ÖNİZLEME</span>
+        </div>
+        <span className="text-[12px] leading-tight font-bold text-primary opacity-60 truncate max-w-full">
+          Rotayı görmek için dokunun
+        </span>
+      </button>
+      {endNavButton}
+    </div>
+  ) : navInfo && (
+    <div className="flex items-center gap-3 min-w-0 flex-1">
+      <div className="flex flex-col gap-1 min-w-0 flex-1">
+        {navInfo.maneuver && (
+          <div className="flex items-baseline gap-2 min-w-0">
+            {navInfo.turnM !== null && (
+              <span className="text-[22px] leading-none font-black tabular-nums text-primary flex-shrink-0">
+                {formatDistance(navInfo.turnM)}
+              </span>
+            )}
+            <span className="text-[14px] leading-tight font-bold text-primary opacity-80 truncate">{navInfo.maneuver}</span>
+          </div>
+        )}
+        <div className="flex items-center gap-2 min-w-0">
+          <Navigation2 className="w-3.5 h-3.5 text-[#E0A23C] flex-shrink-0" />
+          <span className="text-[13px] leading-tight font-black text-[#C8862A] truncate">{navInfo.title}</span>
+          {isOfflineResult && (
+            <span className="text-[9px] font-black tracking-wider uppercase px-1 py-px rounded bg-amber-500/15 text-amber-600 flex-shrink-0">
+              ÇEVRİMDIŞI
+            </span>
+          )}
+          <span className="text-[14px] leading-none font-black tabular-nums text-primary flex-shrink-0 ml-1">
+            {navInfo.remainM !== null ? formatDistance(navInfo.remainM) : '—'}
+          </span>
+          <span className="opacity-30 text-[12px] flex-shrink-0">•</span>
+          <span className="text-[14px] leading-none font-black tabular-nums text-[#C8862A] flex-shrink-0">{navInfo.etaTxt}</span>
+        </div>
+      </div>
+      {/* ARDINDAN levhası — başlığın boş kalan kısmında; dar kartta (head unit)
+          yer yoksa gizlenir, ana bilgi kısalmaz. */}
+      {navInfo.next && (
+        <div className="hidden @[620px]:flex items-center gap-2 flex-shrink min-w-0 max-w-[40%] pl-3"
+          style={{ borderLeft: '1px solid var(--oem-line, rgba(127,127,127,0.25))' }}>
+          <span className="text-[10px] font-black tracking-[0.15em] uppercase opacity-50 flex-shrink-0">Ardından</span>
+          <div className="w-9 h-9 rounded-lg bg-[#E0A23C]/15 text-[#E0A23C] flex items-center justify-center flex-shrink-0">
+            <ManeuverArrow mod={navInfo.next.maneuverModifier} type={navInfo.next.maneuverType} size="sm" />
+          </div>
+          {navInfo.nextText && (
+            <span className="text-[13px] leading-tight font-bold text-primary opacity-75 truncate">{navInfo.nextText}</span>
+          )}
+        </div>
+      )}
+      {endNavButton}
+    </div>
+  );
+
+  /* Harita üstü şerit — yalnız başlık gizliyken. */
+  const navStrip = navInfo && (
+            <div className="absolute bottom-2 left-2 z-[var(--z-map-label)] max-w-[62%] pointer-events-auto">
+              <div
+                className="flex items-start gap-2 pl-3 pr-1.5 py-2 rounded-2xl bg-black/75 backdrop-blur-xl shadow-lg"
+                style={{ border: '1px solid rgba(224,162,60,0.45)', minWidth: 190 }}
+              >
+                <div className="flex flex-col gap-1 min-w-0 flex-1">
+                  {/* Sıradaki manevra — kanıt yoksa satır YOK */}
+                  {navInfo.maneuver && (
+                    <div className="flex items-baseline gap-2 min-w-0">
+                      {navInfo.turnM !== null && (
+                        <span className="text-[20px] leading-none font-black tabular-nums text-white flex-shrink-0">
+                          {formatDistance(navInfo.turnM)}
+                        </span>
+                      )}
+                      <span className="text-[13px] leading-tight font-bold text-white/85 truncate">{navInfo.maneuver}</span>
+                    </div>
+                  )}
+
+                  {/* Hedef (ya da oturum aşaması) */}
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <Navigation2 className="w-3.5 h-3.5 text-[#E0A23C] flex-shrink-0" />
+                    <span className="text-[12px] leading-tight font-black text-[#E0A23C] truncate">
+                      {navInfo.title}
+                    </span>
+                    {isOfflineResult && (
+                      <span className="text-[9px] font-black tracking-wider uppercase px-1 py-px rounded bg-amber-500/15 text-amber-400 flex-shrink-0">
+                        ÇEVRİMDIŞI
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Kalan mesafe · ETA */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-[14px] leading-none font-black tabular-nums text-white">
+                      {navInfo.remainM !== null ? formatDistance(navInfo.remainM) : '—'}
+                    </span>
+                    <span className="text-white/30 text-[12px]">•</span>
+                    <span className="text-[14px] leading-none font-black tabular-nums text-[#E0A23C]">{navInfo.etaTxt}</span>
+                  </div>
+                </div>
+
+                <button
+                  onClick={endNavigation}
+                  className="w-9 h-9 rounded-xl bg-white/10 border border-white/20 flex items-center justify-center text-white/80 active:scale-90 transition-all flex-shrink-0"
+                  title="Navigasyonu sonlandır"
+                  aria-label="Navigasyonu sonlandır"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+  );
+
   return (
-    <div className="w-full h-full min-h-0 min-w-0 glass-card flex flex-col overflow-hidden relative border-none !shadow-none">
+    /* `data-theme-surface="nav"`: gündüz saatlerinde açılan güneş modunun "her
+       düğmeye 52 px + 2 px siyah çerçeve" kuralı tam ekranda olduğu gibi burada da
+       geri çekilir (index.css HARİTA YÜZEYİ muafiyeti). Saha 2026-09-24: mini
+       haritada 20 px'lik "×" 52 px siyah kutuya, yuvarlak "ortala" kareye dönüyordu. */
+    <div data-no-page-swipe data-theme-surface="nav"
+      className="w-full h-full min-h-0 min-w-0 glass-card flex flex-col overflow-hidden relative border-none !shadow-none">
       {/* Ambient glow */}
       <div className="absolute -top-12 -left-12 w-32 h-32 bg-[#E0A23C]/[0.05] rounded-full blur-[40px] pointer-events-none" />
 
       {/* Header — hideHeader=true ise tamamen gizlenir, harita tüm alanı kaplar */}
       {!hideHeader && (
-        <div className="flex-shrink-0 flex items-center justify-between px-5 pt-5 pb-2 relative z-[var(--z-map-label)]">
+        <div className="@container flex-shrink-0 flex items-center justify-between px-5 pt-5 pb-2 relative z-[var(--z-map-label)]">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-[#E0A23C] border-2 border-[#E0A23C] flex items-center justify-center flex-shrink-0 shadow-lg shadow-[#E0A23C]/20">
-              <div className={`w-2.5 h-2.5 rounded-full ${location ? 'bg-emerald-300 animate-pulse shadow-[0_0_10px_rgba(110,231,183,0.8)]' : 'bg-white opacity-40'}`} />
-            </div>
-            <div className="flex flex-col leading-none">
-              <span className="text-[#E0A23C] font-black text-[10px] tracking-[0.2em] uppercase mb-0.5">NAVİGASYON</span>
-              <span className="text-primary text-[14px] font-black tracking-tight">MİNİ HARİTA</span>
-            </div>
+            {navInfo?.step ? (
+              /* Manevra levhası — tam ekran HUD ile AYNI ok grafiği (ManeuverArrow). */
+              <div className="w-12 h-12 rounded-xl bg-[#E0A23C] flex items-center justify-center flex-shrink-0 shadow-lg shadow-[#E0A23C]/25 text-white"
+                data-testid="mini-maneuver-sign">
+                <ManeuverArrow mod={navInfo.step.maneuverModifier} type={navInfo.step.maneuverType} size="md" />
+              </div>
+            ) : (
+              <div className="w-9 h-9 rounded-xl bg-[#E0A23C] border-2 border-[#E0A23C] flex items-center justify-center flex-shrink-0 shadow-lg shadow-[#E0A23C]/20">
+                <div className={`w-2.5 h-2.5 rounded-full ${location ? 'bg-emerald-300 animate-pulse shadow-[0_0_10px_rgba(110,231,183,0.8)]' : 'bg-white opacity-40'}`} />
+              </div>
+            )}
+            {!navHeader && (
+              <div className="flex flex-col leading-none">
+                <span className="text-[#E0A23C] font-black text-[10px] tracking-[0.2em] uppercase mb-0.5">NAVİGASYON</span>
+                <span className="text-primary text-[14px] font-black tracking-tight">MİNİ HARİTA</span>
+              </div>
+            )}
           </div>
+          {navHeader && <div className="flex-1 min-w-0 flex items-center pl-3 pr-3">{navHeader}</div>}
           {onFullScreenClick && (
             <button
               onClick={onFullScreenClick}
@@ -1121,8 +1377,11 @@ export const MiniMapWidget = memo(function MiniMapWidget({
          *  Konum: sağ üst, kaynak rozetinin ALTINDA; sağ alttaki hız
          *  göstergesiyle ve tema kartının +/- düğmeleriyle çakışmaz.
          *  Animasyon YOK — sürüşte dikkat dağıtmaz.                            */}
-        <div className="absolute z-[var(--z-map-label)] pointer-events-none" style={{ top: 34, right: 8 }}>
-          <SpeedLimitCard limit={speedLimit} size="mini" />
+        <div className="absolute z-[var(--z-map-label)] pointer-events-none flex flex-col items-center gap-1" style={{ top: 34, right: 8 }}>
+          <SpeedLimitCard limit={speedLimit} size="mini"
+            overSpeed={isEffectiveLimitDisplayable(speedLimit) && isOverspeed(displaySpeedKmh, speedLimit.effectiveLimitKmh)} />
+          {/* Öndeki viraj önerisi — hız levhasının ALTINDA, yalnız varsa. */}
+          <CurveAdvisoryBadge advisory={curveAdvisory} speedKmh={displaySpeedKmh} size="mini" />
         </div>
 
         {/* ── ARACI ORTALA — KANONİK KAMERA OTORİTESİNDEN ─────────────────────
@@ -1157,89 +1416,9 @@ export const MiniMapWidget = memo(function MiniMapWidget({
          *  görür. DÜRÜSTLÜK: yalnız kanıtı olan alan yazılır — manevra metni
          *  yoksa satır hiç render edilmez, ölçü yoksa "—" gösterilir. Şerit
          *  bilgisi / dönel kavşak çıkışı burada HİÇ üretilmez.                 */}
-        {isNavigating && (() => {
-          const step = route.steps[route.currentStepIndex];
-          // Manevra metni: talimat → yoksa cadde adı → yoksa satır YOK.
-          const maneuver = step?.instruction?.trim() || step?.streetName?.trim() || null;
-          // Manevraya mesafe: yalnız yöntemi bilinen ölçü gösterilir.
-          const turnM = (route.distanceToNextTurnSource !== 'UNKNOWN' &&
-                         Number.isFinite(route.distanceToNextTurnMeters) &&
-                         route.distanceToNextTurnMeters > 0)
-            ? route.distanceToNextTurnMeters : null;
-          // Kalan mesafe: canlı ilerleme → yoksa rotanın toplam mesafesi (ikisi de
-          // ölçülmüş değerdir; uydurma yok). İkisi de yoksa "—".
-          const remainM = (distanceMeters != null && Number.isFinite(distanceMeters) && distanceMeters > 10)
-            ? distanceMeters
-            : (route.totalDistanceMeters > 0 ? route.totalDistanceMeters : null);
-          /* ── ETA — TEK KARAR OTORİTESİ (P0-NAV-14) ───────────────────────
-           * ÖLÇÜLEN KUSUR: burada yalnız "sayı var mı ve sonlu mu" soruluyordu.
-           * Motor "bu ETA'ya GÜVENME" dediğinde (bayat süre revizyonu · düz hat
-           * · yetersiz rota verisi) tam ekran HUD `—` basarken mini harita AYNI
-           * anda bir süre gösteriyordu → iki yüzey ayrışıyordu. Bu, bu deponun
-           * tekrar eden saha kusurudur (#332 · #547 · P0-NAV-06/1 · P0-NAV-07).
-           * Karar artık `decideEtaDisplay` ile TEK yerde; sıfır/negatif/geçersiz
-           * denetimi de o kuralın İÇİNDEDİR (kapı zayıflamadı, tek otoriteye
-           * bağlandı). Güvenilmiyorsa `—` yazılır — uydurma süre YOK. */
-          const etaDec = decideEtaDisplay(etaSeconds, readEtaStateSafe());
-          const etaTxt = (etaDec.showNumber && etaDec.seconds !== null)
-            ? formatEta(etaDec.seconds) : '—';
-          const phase =
-            navStatus === NavStatus.REROUTING ? 'YENİDEN HESAPLANIYOR' :
-            navStatus === NavStatus.ARRIVED   ? 'VARDINIZ'             :
-            navStatus === NavStatus.ROUTING   ? 'ROTA HESAPLANIYOR'    :
-            navStatus === NavStatus.PREVIEW   ? 'ÖNİZLEME'             : null;
-
-          return (
-            <div className="absolute bottom-2 left-2 z-[var(--z-map-label)] max-w-[68%] pointer-events-auto">
-              <div
-                className="flex flex-col gap-1 px-2.5 py-1.5 rounded-xl bg-black/65 backdrop-blur-xl shadow-lg"
-                style={{ border: '1px solid rgba(224,162,60,0.35)' }}
-              >
-                {/* Başlık satırı — hedef + sonlandır */}
-                <div className="flex items-center gap-1.5">
-                  <Navigation2 className="w-3 h-3 text-[#E0A23C] flex-shrink-0" />
-                  <span className="text-[9px] font-black tracking-widest uppercase text-[#E0A23C] truncate">
-                    {phase ?? (destination?.name ?? 'NAVİGASYON')}
-                  </span>
-                  {isOfflineResult && (
-                    <span className="text-[7px] font-black tracking-wider uppercase px-1 py-px rounded bg-amber-500/15 text-amber-400 flex-shrink-0">
-                      ÇEVRİMDIŞI
-                    </span>
-                  )}
-                  <button
-                    onClick={endNavigation}
-                    className="ml-auto w-5 h-5 rounded-md bg-white/10 border border-white/20 flex items-center justify-center text-white/70 active:scale-90 transition-all flex-shrink-0"
-                    title="Navigasyonu sonlandır"
-                    aria-label="Navigasyonu sonlandır"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </div>
-
-                {/* Sıradaki manevra — kanıt yoksa satır YOK */}
-                {maneuver && (
-                  <div className="flex items-baseline gap-1.5">
-                    {turnM !== null && (
-                      <span className="text-[10px] font-black tabular-nums text-white flex-shrink-0">
-                        {formatDistance(turnM)}
-                      </span>
-                    )}
-                    <span className="text-[9px] font-bold text-white/70 truncate">{maneuver}</span>
-                  </div>
-                )}
-
-                {/* Kalan mesafe · ETA */}
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-black tabular-nums text-white">
-                    {remainM !== null ? formatDistance(remainM) : '—'}
-                  </span>
-                  <span className="text-white/20 text-[9px]">•</span>
-                  <span className="text-[10px] font-black tabular-nums text-[#E0A23C]">{etaTxt}</span>
-                </div>
-              </div>
-            </div>
-          );
-        })()}
+        {/* ── AKTİF NAVİGASYON ŞERİDİ — yalnız başlık GİZLİYKEN (bölünmüş ekran).
+         *  Başlık varken aynı bilgi başlık satırındadır; harita alanı boş kalır. */}
+        {hideHeader && navStrip}
 
         {tileError && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-[var(--z-map-alert)]">

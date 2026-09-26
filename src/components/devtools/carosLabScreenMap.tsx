@@ -34,6 +34,8 @@ const LiveDataScreen = lazyWithRetry(() =>
   import('./screens/LiveDataScreen').then((m) => ({ default: m.LiveDataScreen })));
 const PidDidExplorerScreen = lazyWithRetry(() =>
   import('./screens/PidDidExplorerScreen').then((m) => ({ default: m.PidDidExplorerScreen })));
+const DidLearningScreen = lazyWithRetry(() =>
+  import('./screens/DidLearningScreen').then((m) => ({ default: m.DidLearningScreen })));
 const RawObdTrafficScreen = lazyWithRetry(() =>
   import('./screens/RawObdTrafficScreen').then((m) => ({ default: m.RawObdTrafficScreen })));
 const CanMonitorScreen = lazyWithRetry(() =>
@@ -190,6 +192,7 @@ export function renderAvailableTool(id: CarosLabToolId): ReactElement | null {
   switch (id) {
     case 'live-data':          return <LiveDataScreen />;
     case 'pid-did-explorer':   return <PidDidExplorerScreen />;
+    case 'did-learning':       return <DidLearningScreen />;
     case 'raw-obd-traffic':    return <RawObdTrafficScreen />;
     case 'can-monitor':        return <CanMonitorScreen />;
     case 'session-inspector':  return <SessionInspectorScreen />;

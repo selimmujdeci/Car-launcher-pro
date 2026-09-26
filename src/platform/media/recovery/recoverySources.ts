@@ -13,6 +13,7 @@
 
 import { useUnifiedVehicleStore } from '../../vehicleDataLayer/UnifiedVehicleStore';
 import { getListeningSession } from '../session/listeningSession';
+import { allowsConnectivity } from '../../connectivity/connectivityGate';
 import { getDesiredQueue } from '../session/playQueue';
 import { getMusicCanonicalSnapshot } from '../authority/musicCanonicalSnapshot';
 import type { IgnitionEvidence } from './recoveryModel';
@@ -55,12 +56,14 @@ export function readIgnitionEvidence(): IgnitionEvidence {
   }, 'UNKNOWN');
 }
 
-/** Ağ erişimi — ölçülemiyorsa `false` (fail-closed: çevrimdışı varsayılır). */
+/**
+ * Ağ erişimi — otomatik DEVAM kararının girdisi; ölçülemiyorsa `false`
+ * (fail-closed). F7-B: kanonik politika okunur. Bu YALNIZ "ağ gerektiren
+ * kuyruğu kendiliğinden sürdürelim mi" sorusudur — MEVCUT/yerel çalma buna
+ * BAĞLI DEĞİLDİR ve kanonik medya otoritesi burada DEĞİŞMEZ.
+ */
 export function readOnline(): boolean {
-  return safe<boolean>(
-    () => (typeof navigator === 'undefined' ? false : navigator.onLine === true),
-    false,
-  );
+  return safe<boolean>(() => allowsConnectivity('LIGHTWEIGHT_INTERNET'), false);
 }
 
 /** Kullanıcı AÇIKÇA duraklattı mı — niyet korunur. */

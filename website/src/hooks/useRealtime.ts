@@ -32,8 +32,37 @@ import { attachRealtimeSyncRuntime } from '@/lib/realtime/attachRealtimeSyncRunt
  * sorunu ve "aynı küme, farklı sıra" kaynaklı gereksiz reconnect OLMAZ.
  * Küme değişince motor TEK kapıdan (`syncVehicleIds`) yeniden abone olur.
  */
-export function useRealtime(): void {
+export interface RealtimeOptions {
+  /**
+   * FİLO uyarı kuralları çalıştırılsın mı (varsayılan: evet).
+   *
+   * ── ÖLÇÜLEN KUSUR (F5, 2026-09-18) ──────────────────────────────────────
+   * `NotificationEngine` bir FİLO motorudur: 90 km/s hız limiti, İstanbul
+   * geofence'i, motor sıcaklığı ve yakıt eşikleri. Bu hook tüketici ürünü
+   * (`/kumanda`) tarafından da çağrıldığı için, kendi özel aracını kullanan
+   * bir kişi filo şoförü gibi değerlendiriliyor ve her telemetri
+   * güncellemesinde `notificationStore`a uyarı yazılıyordu.
+   *
+   * Üstelik bu uyarılar tüketici yüzeyinde HİÇ GÖSTERİLMİYOR:
+   * `notificationStore`u yalnız filo yüzeyleri okuyor (Topbar · Sidebar ·
+   * BottomNav · /dashboard/notifications). Yani üretilen her olay saf
+   * GÜRÜLTÜYDÜ — kullanıcıya hiç ulaşmayan, yanlış ürünün kuralıyla verilmiş
+   * hükümler.
+   *
+   * Bu bayrak YENİ BİR OTORİTE DEĞİLDİR: mevcut motorun hangi üründe
+   * koşacağını çağıran yüzey BEYAN EDER. Eşikler, severity ve olay
+   * sözleşmesi DEĞİŞMEDİ.
+   */
+  readonly fleetAlerts?: boolean;
+}
+
+export function useRealtime(options: RealtimeOptions = {}): void {
   const engineRef = useRef<BaseRealtimeEngine | null>(null);
+
+  /* Bayrak ref'te tutulur: bağlanma efekti `[]` bağımlılıklıdır ve yeniden
+     kurulmamalıdır; ama karar HER olayda güncel değerden okunur. */
+  const fleetAlertsRef = useRef(options.fleetAlerts !== false);
+  fleetAlertsRef.current = options.fleetAlerts !== false;
 
   /* TEK OTORİTE: aktif araç kümesi. Primitive (string) döndüğü için Zustand'ın
      varsayılan `Object.is` karşılaştırması yeterlidir; özel equality gerekmez. */
@@ -88,7 +117,8 @@ export function useRealtime(): void {
     /** Asıl bağlanma — runtime başlatıldıktan SONRA çağrılır. */
     function baglan(): () => void {
     const cleanupGeneration = captureCleanupGeneration();
-    const notifEngine  = new NotificationEngine();
+    /* Motor YALNIZ filo ürününde kurulur; tüketici yüzeyinde hiç yaratılmaz. */
+    const notifEngine  = fleetAlertsRef.current ? new NotificationEngine() : null;
     const vehicleState = useVehicleStore.getState();
 
     /* Yerel okuma KAPIDAN ÖNCE yapılır: eşleşmiş aracın ekranda görünmesi
@@ -114,8 +144,11 @@ export function useRealtime(): void {
         // FAIL-CLOSED: bilinmeyen araç olayı UYGULANMAZ ve araç OLUŞTURULMAZ.
         if (!existing) return;
         state.applyUpdate(update);
-        const events = notifEngine.process(update, existing);
-        if (events.length > 0) useNotificationStore.getState().addNotifications(events);
+        /* Telemetri HER ZAMAN uygulanır; uyarı ÜRETİMİ ürüne bağlıdır. */
+        if (notifEngine && fleetAlertsRef.current) {
+          const events = notifEngine.process(update, existing);
+          if (events.length > 0) useNotificationStore.getState().addNotifications(events);
+        }
       },
       onConnectionChange: (status) => {
         if (!isCleanupGenerationCurrent(cleanupGeneration)) return;

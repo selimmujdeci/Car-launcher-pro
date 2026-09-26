@@ -34,6 +34,7 @@
  */
 
 import type { PlaceCategoryDef } from './placeQueryModel';
+import { allowsConnectivity } from '../connectivity/connectivityGate';
 
 /** Overpass ortak uç noktası — `streetSearchService` ile AYNI. */
 const OVERPASS = 'https://overpass-api.de/api/interpreter';
@@ -285,7 +286,8 @@ async function _fetchOnce(
  * Sözleşme (çağıranlar buna güvenir):
  *  · THROW ETMEZ — ağ · HTTP · 429 · HTML yanıt · JSON parse · abort → `[]`.
  *  · Konum geçersizse ağa HİÇ çıkılmaz → `[]`.
- *  · `navigator.onLine === false` iken ağa HİÇ çıkılmaz → `[]`.
+ *  · F7 — kanonik `ConnectivityAuthority` bu işe izin vermiyorsa ağa HİÇ
+ *    çıkılmaz → `[]`.
  *  · 429 sonrası `OVERPASS_COOLDOWN_MS` boyunca ağa çıkılmaz → `[]`.
  *  · Aynı kategori+hücre için sonuç `CACHE_TTL_MS` önbelleklenir.
  *  · Adsız kayıtlar ATILIR (uydurma ad YASAK).
@@ -297,11 +299,12 @@ export async function searchCategoryNearby(
   radiusM: number = category.radiusM,
 ): Promise<OverpassPlace[]> {
   if (!_validCoord(lat, lng)) return [];
-  /* YALNIZ AÇIKÇA `false` çevrimdışıdır. `!navigator.onLine` yazılsaydı, bayrağı
-     TANIMLAMAYAN çalışma zamanlarında (ölçüldü: Node 24 `navigator.onLine`
-     === undefined) katman sessizce KAPANIRDI — "bilmiyoruz" ≠ "internet yok".
-     Yanlış tarafa düşmek bedava değil: hata zaten `[]`e indirgeniyor. */
-  if (typeof navigator !== 'undefined' && navigator.onLine === false) return [];
+  /* F7 — kanonik bağlantı kapısı (küçük, tekrar denenebilir POI araması).
+     "Bilmiyoruz" ≠ "internet yok" ayrımı ARTIK otoritenin kendisindedir:
+     `UNKNOWN` durumunda bu sınıf DENENİR, yalnız offline/captive/local-only
+     iken atlanır. Eski açık-çevrimdışı kontrolünün koruduğu
+     davranış böylece KORUNUR ve captive portal'da boşa istek de gitmez. */
+  if (!allowsConnectivity('LIGHTWEIGHT_INTERNET')) return [];
 
   const now = Date.now();
   if (now < _cooldownUntil) return [];

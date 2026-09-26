@@ -155,8 +155,13 @@ describe('Beyin şeması (companionChatProvider) — QUERY_SENSOR', () => {
   });
 
   it('YAPISAL: system prompt "sensör değeri uydurma" kuralını içerir', () => {
-    expect(src).toMatch(/SENSÖR DEĞERİ UYDURMA/);
-    expect(src).toMatch(/QUERY_SENSOR/);
+    /* Regression fix 2026-09-21: prompt bilgisi REST ve Live için TEK KAYNAK olan
+       `companionBrainKnowledge`e taşındı; kural orada, sağlayıcı onu tüketir. */
+    const knowledge = read('src/platform/companion/companionBrainKnowledge.ts');
+    expect(knowledge).toMatch(/SENSÖR DEĞERİ UYDURMA/);
+    expect(knowledge).toMatch(/QUERY_SENSOR/);
+    expect(src).toMatch(/buildBrainCapabilityKnowledge\('rest_json'/);
+    expect(src).toMatch(/buildBrainCapabilityKnowledge\('live_tool'/);
   });
 });
 

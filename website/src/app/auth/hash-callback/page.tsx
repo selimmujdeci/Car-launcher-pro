@@ -13,30 +13,32 @@ import {
   canonicalSetSession,
 } from
   '@/security/accountCleanup/canonicalAuthMutations';
+import { resolveAuthFailureRedirect } from '@/lib/pwaAuth';
+import { safeNextPath } from '@/lib/safeRedirect';
 
 export default function HashCallbackPage() {
   const router = useRouter();
 
   useEffect(() => {
     const code = new URLSearchParams(window.location.search).get('code');
-    const requestedNext =
-      new URLSearchParams(window.location.search).get('next') ?? '/dashboard';
-    const next = requestedNext.startsWith('/') &&
-      !requestedNext.startsWith('//')
-      ? requestedNext
-      : '/dashboard';
+    const next = safeNextPath(new URLSearchParams(window.location.search).get('next'));
     if (code) {
       const supabase = getSupabaseBrowserClient();
-      if (!supabase) { router.replace('/login?error=auth'); return; }
+      if (!supabase) {
+        router.replace(resolveAuthFailureRedirect(next, 'auth'));
+        return;
+      }
       const operation = beginAuthSessionOperation();
       if (!operation) {
-        router.replace('/login?error=security_cleanup');
+        router.replace(resolveAuthFailureRedirect(next, 'security_cleanup'));
         return;
       }
       canonicalExchangeCodeForSession(supabase, code)
         .then(({ error }) => {
           if (!canApplyAuthSessionOperation(operation)) return;
-          router.replace(error ? '/login?error=expired' : next);
+          router.replace(
+            error ? resolveAuthFailureRedirect(next, 'expired') : next,
+          );
         })
         .finally(() => finishAuthSessionOperation(operation));
       return;
@@ -51,7 +53,10 @@ export default function HashCallbackPage() {
 
     if (type === 'recovery' && accessToken && refreshToken) {
       const supabase = getSupabaseBrowserClient();
-      if (!supabase) { router.replace('/login?error=auth'); return; }
+      if (!supabase) {
+        router.replace(resolveAuthFailureRedirect(next, 'auth'));
+        return;
+      }
       const operation = beginAuthSessionOperation();
       if (!operation) {
         router.replace('/login?error=security_cleanup');
@@ -72,7 +77,7 @@ export default function HashCallbackPage() {
         })
         .finally(() => finishAuthSessionOperation(operation));
     } else {
-      router.replace('/login?error=auth');
+      router.replace(resolveAuthFailureRedirect(next, 'auth'));
     }
   }, [router]);
 

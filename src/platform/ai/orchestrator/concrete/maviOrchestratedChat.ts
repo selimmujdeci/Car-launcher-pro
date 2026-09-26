@@ -15,6 +15,7 @@
  */
 
 import { getDefaultAiGateway, getDefaultProviderRegistryEntries } from '../../gateway/concrete/defaultAiGateway';
+import { allowsConnectivity } from '../../../connectivity/connectivityGate';
 import { buildChatMessages, type GatewayChatOutcome, type GatewayChatParams } from '../../gateway/gatewayChatBridge';
 import { getAllCredentialInfo } from '../../credentials/apiCredentialManager';
 import { isAiNetHealthy } from '../../../aiHealth';
@@ -463,7 +464,7 @@ export async function askOrchestratedChat(params: OrchestratedChatParams): Promi
     task,
     providers,
     context: {
-      online:               typeof navigator === 'undefined' ? true : navigator.onLine !== false,
+      online:               allowsConnectivity('CLOUD_INTERACTIVE'),
       availableProviderIds: availableIds,
       health:               getProviderHealthMap(availableIds, nowMs),
       nowMs,

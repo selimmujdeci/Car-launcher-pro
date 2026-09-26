@@ -1,5 +1,6 @@
 import type { StyleSpecification, LayerSpecification, FilterSpecification } from 'maplibre-gl';
 import type { MapSource } from './mapSourceTypes';
+import { allowsConnectivity } from './connectivity/connectivityGate';
 /* #552 — kimlikler `_mapState`'ten DEĞİL, döngüsüz `_mapIds`'ten alınır.
  * `_mapState` bu dosyadan `RASTER_PAINT_*` aldığı için eski import bir döngü
  * kuruyordu ve paletler `shieldImage: undefined` ile donuyordu. */
@@ -349,14 +350,17 @@ export const NIGHT_PALETTE: VectorPalette = {
      (zemine karşı 1,24→1,32 ve 1,25→1,36). Ton merdivenine DOKUNULMADI. */
   tertiaryCasing:  '#111620',
   minorCasing:     '#0e131b',
-  /* Gövdeyle (`minor`) BİREBİR aynı ton + katman tanımında AYNI genişlik
-     ifadesi → gece ekranda tek piksel farkı YOK (kasa gövdenin altında
-     tamamen kaybolur, kasıtlı no-op).
-     ⚠️ df9f506b (rota en parlak öğe olmalı) gece yol merdivenini karartırken
-     bu tokeni GERİDE BIRAKMIŞTI: gövde '#5c6575'e inerken kasa '#e9edf2'
-     (eski, neredeyse beyaz) kalmıştı → "hiçbir yol rotadan parlak olamaz"
-     kuralının altını oyan, gövde kenarından sızabilen açık bir kontur.
-     Token gövdeyle yeniden eşitlendi. */
+  /* Gece DEĞİŞMEZ: gövdeyle (`minor`) BİREBİR aynı ton + katman tanımında AYNI
+     genişlik ifadesi kullanılır → gece ekranda tek piksel farkı YOK (kasa
+     gövdenin altında tamamen kaybolur, kasıtlı no-op).
+
+     ── ÖLÇÜLEN DESENKRONİZASYON (df9f506b, 2026-09-09 21:36) ──────────────
+     O tur `minor`'ı '#e9edf2' → '#5c6575' yaptı ama BU tokeni unuttu. Sonuç:
+     gece servis yolunun altında GÖVDEDEN ÇOK DAHA PARLAK bir kasa kaldı;
+     gövde `line-opacity` ile harmanlandığı için ekranda yıkanmış/parlayan bir
+     servis yolu olarak görünür — tam da "no-op" denilen şeyin tersi.
+     Bu token `minor` ile AYNI KALMAK ZORUNDADIR; kilidi
+     `mapDayLocalRoadReadability` tutar (gece kasa == gövde). */
   serviceCasing:   '#5c6575',
   /* ── GECE YOLLARI BEYAZ (2026-09-05 akşamı · GERÇEK CİHAZ KARARI) ────────
    * Kullanıcı gece navigasyon ekran görüntüsüyle: *"yolları tam beyaz yap"*.
@@ -968,12 +972,12 @@ function roadWidth(
  * Bu yüzden çevrimiçi vektör yalnız KULLANILABİLİR olduğunda seçilir.
  *
  * İki kapı vardır:
- *   1. `navigator.onLine === false` → açılışta hiç denenmez.
+ *   1. Kanonik bağlantı kapısı kapalı → açılışta hiç denenmez.
  *   2. Karo hataları eşiği aşıldıysa (`blockOnlineVector()`) → oturum boyunca
- *      denenmez. Bu ikincisi ŞART: aksi hâlde raster'a düşen fallback yeniden
- *      `getMapStyle()` çağırır, o yine vektör döner ve **sonsuz döngü** olur.
- *      "Bağlı ama internet yok" durumunu `navigator.onLine` yakalayamaz;
- *      gerçek kanıt karo hatasıdır.
+ *      denenmez. Bu ikincisi ŞART KALIR: kanonik otorite "yol var" dese bile
+ *      SUNUCU tarafı bozuk olabilir (§27: izin ≠ başarı garantisi). Aksi hâlde
+ *      raster'a düşen fallback yeniden `getMapStyle()` çağırır, o yine vektör
+ *      döner ve **sonsuz döngü** olur.
  */
 let _onlineVectorBlocked = false;
 
@@ -987,9 +991,8 @@ export function isOnlineVectorBlocked(): boolean { return _onlineVectorBlocked; 
 
 function onlineVectorUsable(): boolean {
   if (_onlineVectorBlocked) return false;
-  // `navigator.onLine` yalnız KESİN çevrimdışıyı bildirir; true olması
-  // internet garantisi DEĞİLDİR — o yüzden tek dayanak değil, ilk kapıdır.
-  if (typeof navigator !== 'undefined' && navigator.onLine === false) return false;
+  /* F7-B: kanonik kapı ilk süzgeçtir; karo hatası ikinci ve KESİN kanıttır. */
+  if (!allowsConnectivity('LIGHTWEIGHT_INTERNET')) return false;
   return true;
 }
 

@@ -1,41 +1,45 @@
-import { hashPin } from './commandService';
+import { CRITICAL_PIN_ENROLLED_KEY } from './commandService';
 import { usePinDialogStore } from '@/store/pinDialogStore';
 
-const PIN_HASH_KEY = 'caros_critical_pin_hash';
+/**
+ * Kritik komut öncesi PIN diyaloğu.
+ *
+ * MRI N-2/N-3 (083): PIN artık SUNUCUDA doğrulanır. Bu dosya eskiden
+ * SHA-256(PIN)'i localStorage'da tutup yerelde karşılaştırıyor ve hash'i
+ * sunucuya gönderiyordu — sunucuda PIN hiç kayıtlı değildi, karar telefondaydı.
+ * Artık:
+ *   · burada yalnız PIN SORULUR ve biçimi denetlenir; hash üretilmez, saklanmaz;
+ *   · ham PIN `sendCommand({ pin })` → `verify_and_send_critical_command`a gider;
+ *   · sunucuda PIN yoksa `commandService` onu `set_vehicle_pin` ile kaydeder.
+ * localStorage'daki tek şey UX ipucudur ("belirleyin" mi "girin" mi) — güvenlik
+ * otoritesi değildir; yanlışsa sunucu düzeltir (pin_not_set / Yanlış PIN).
+ */
 
-/** Saklanan PIN hash'ini getirir. */
-function getStoredPinHash(): string | null {
-  try { return localStorage.getItem(PIN_HASH_KEY); } catch { return null; }
-}
+const LEGACY_PIN_HASH_KEY = 'caros_critical_pin_hash';
 
-/** PIN hash'ini saklar. */
-async function storePinHash(pin: string): Promise<void> {
-  const h = await hashPin(pin);
-  try { localStorage.setItem(PIN_HASH_KEY, h); } catch { /* quota */ }
+function hasEnrollmentHint(): boolean {
+  try {
+    if (localStorage.getItem(CRITICAL_PIN_ENROLLED_KEY)) return true;
+    /* Eski PWA'nın yerel hash'i: kullanıcı bir PIN seçmişti. Hash artık
+       anlamsız (sunucu bilmiyor) → sil; ipucu olarak "girin" göster; sunucu
+       `pin_not_set` derse commandService girilen PIN'i kaydeder. */
+    if (localStorage.getItem(LEGACY_PIN_HASH_KEY)) {
+      localStorage.removeItem(LEGACY_PIN_HASH_KEY);
+      return true;
+    }
+  } catch { /* storage yok */ }
+  return false;
 }
 
 /**
- * Kritik komut öncesi PIN doğrulaması.
- * - İlk kullanımda PIN belirlettir.
- * - Sonraki kullanımlarda PIN sor, hash'i karşılaştır.
- * - Doğruysa pinHash döner (sendCommand'a iletilecek), yanlışsa null.
+ * PIN'i sorar; 4–8 rakamsa ham PIN'i döner, aksi hâlde null.
+ * Doğrulama YAPMAZ — otorite sunucudur.
  */
 export async function verifyCriticalCommand(): Promise<string | null> {
   const { show } = usePinDialogStore.getState();
-  const stored = getStoredPinHash();
-
-  // İlk kullanım: PIN belirle
-  if (!stored) {
-    const pin = await show('Kritik komutlar için 4 haneli PIN belirleyin');
-    if (!pin || !/^\d{4}$/.test(pin)) return null;
-    await storePinHash(pin);
-    return hashPin(pin);
-  }
-
-  // Sonraki kullanım: PIN doğrula
-  const pin = await show('PIN girin');
-  if (!pin) return null;
-  const entered = await hashPin(pin);
-  if (entered !== stored) return null;
-  return entered;
+  const pin = await show(hasEnrollmentHint()
+    ? 'PIN girin'
+    : 'Kritik komutlar için 4 haneli PIN belirleyin');
+  if (!pin || !/^\d{4,8}$/.test(pin)) return null;
+  return pin;
 }

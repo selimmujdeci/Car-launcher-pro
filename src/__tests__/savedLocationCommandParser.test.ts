@@ -287,3 +287,62 @@ describe('savedLocationCommandParser — "X olan kişiye" tanımlayıcı alıcı
     expect(r?.recipient).toBe('Ahmet');
   });
 });
+
+describe('saha 2026-09-24 — sesli dökümdeki doğal cümleler', () => {
+  it('🔒 "yolla / at / ilet" de gönder sayılır; çok kelimeli alıcı korunur', async () => {
+    const { tryParseSavedLocationCommand: p } = await import('../platform/savedLocationCommandParser');
+    expect(p('şu anki konumumu Mehmet abiye yolla')).toMatchObject({ verb: 'send', isCurrentLocation: true, recipient: 'Mehmet abiye' });
+    expect(p('konumumu anneme whatsapptan at')).toMatchObject({ verb: 'send', isCurrentLocation: true, recipient: 'anne' });
+    expect(p('konumumu ayşeye ilet')).toMatchObject({ verb: 'send', recipient: 'ayşeye' });
+    expect(p('şelale konumunu ahmete gönder')).toMatchObject({ verb: 'send', name: 'şelale', isCurrentLocation: false });
+  });
+
+  it('🔒 konum öznesi YOKSA gönder/at yakalanmaz', async () => {
+    const { tryParseSavedLocationCommand: p } = await import('../platform/savedLocationCommandParser');
+    expect(p('ahmete mesaj gönder')).toBeNull();
+    expect(p('topu at')).toBeNull();
+  });
+
+  it('🔒 "konumumu paylaş" ŞU ANKİ konumdur (kayıt aranmaz); isimli paylaşım değişmedi', async () => {
+    const { tryParseSavedLocationCommand: p } = await import('../platform/savedLocationCommandParser');
+    expect(p('konumumu paylaş')).toMatchObject({ verb: 'share', name: null, isCurrentLocation: true });
+    expect(p('bulunduğum konumu paylaş')).toMatchObject({ verb: 'share', isCurrentLocation: true });
+    expect(p('şelale konumunu paylaş')).toMatchObject({ verb: 'share', name: 'şelale' });
+  });
+
+  it('🔒 alıcı adayları: önce söylenen, sonra hal eki soyulmuş', async () => {
+    const { recipientCandidates: c } = await import('../platform/savedLocationCommandParser');
+    expect(c('ahmete')).toEqual(['ahmete', 'ahmet']);
+    expect(c('Mehmet abiye')).toEqual(['Mehmet abiye', 'Mehmet abi']);
+    expect(c('ayşeye')).toEqual(['ayşeye', 'ayşe']);
+    expect(c('kardeşime')[1]).toBe('kardeş');
+    expect(c('Ahmet')).toEqual(['Ahmet']);
+  });
+
+  it('"bulunduğum konumu şelale olarak kaydet" → ad şelale', async () => {
+    const { tryParseSavedLocationCommand: p } = await import('../platform/savedLocationCommandParser');
+    expect(p('bulunduğum konumu şelale olarak kaydet')).toMatchObject({ verb: 'save', name: 'şelale' });
+  });
+});
+
+describe('saha 2026-09-24 — "şu anki konumu ev olarak kayıt et"', () => {
+  it.each([
+    ['şu anki konumu ev olarak kayıt et', 'ev'],
+    ['şu an ki konumu ev olarak kayıt et', 'ev'],
+    ['şu an ki konumumu ev olarak kaydet', 'ev'],
+    ['şu anda bulunduğum konumu ev olarak kaydet', 'ev'],
+    ['şu an ki konumu kaydet ev', 'ev'],
+    ['şu anki konumu kaydet ev olarak', 'ev'],
+    ['konumu kaydet adı ev', 'ev'],
+    ['şimdiki konumu şelale diye kaydet', 'şelale'],
+  ])('🔒 "%s" → ad "%s"', async (q, name) => {
+    const { tryParseSavedLocationCommand: p } = await import('../platform/savedLocationCommandParser');
+    expect(p(q)).toMatchObject({ verb: 'save', name });
+  });
+
+  it('isimsiz kaydet hâlâ isimsiz (varsayılan ad servisin kuralı)', async () => {
+    const { tryParseSavedLocationCommand: p } = await import('../platform/savedLocationCommandParser');
+    expect(p('burayı kaydet')).toMatchObject({ verb: 'save', name: null });
+    expect(p('konumumu kaydet')).toMatchObject({ verb: 'save', name: null });
+  });
+});

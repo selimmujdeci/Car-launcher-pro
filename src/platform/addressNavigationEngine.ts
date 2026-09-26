@@ -11,6 +11,7 @@
 
 import { useState, useEffect } from 'react';
 import { geocodeAddress, searchNearby, readGeocodeTrace, type GeoResult } from './geocodingService';
+import { allowsConnectivity, observedInternetReachability } from './connectivity/connectivityGate';
 import { startNavigation } from './navigationService';
 import { logError } from './crashLogger';
 import { searchOffline, saveSearchQuery } from './offlineSearchService';
@@ -186,7 +187,7 @@ function _record(
     providerMs:          trace?.providerMs ?? null,
     fastFailHit:         trace?.fastFailHit ?? null,
     hadLocation:         trace?.hadLocation ?? hadLocation,
-    online:              trace?.online ?? (typeof navigator === 'undefined' ? null : navigator.onLine),
+    online:              trace?.online ?? observedInternetReachability(),
     fallbackQueryUsable: trace?.fallbackQueryUsable ?? null,
     biasDroppedCount:    trace?.biasDroppedCount ?? null,
     /* P0-NAV-08 — sağlayıcı düzeyi kanıt İZDEN gelir; bu katman kendi
@@ -391,8 +392,8 @@ export function resolveAndNavigate(
   const surface: AddressSearchSurface = isNearby ? 'NEARBY_SHORTCUT' : 'VOICE_ADDRESS';
   const hadLoc  = location != null;
 
-  // ── Offline-first lookup: internet yoksa önbellek + IndexedDB ────
-  if (!isNearby && !navigator.onLine) {
+  // ── Offline-first lookup: kullanılabilir internet yolu yoksa önbellek + IndexedDB ────
+  if (!isNearby && !allowsConnectivity('LIGHTWEIGHT_INTERNET')) {
     Promise.all([
       searchOffline(destination, 3),
       Promise.resolve(_searchGeoCache(destination)),
@@ -569,6 +570,18 @@ export function resolveAndNavigate(
         _record(destination, 'AWAITING_CHOICE', surface, results, null, hadLoc);
         _push({ phase: 'selecting', results });
         onResult?.('multiple');
+        return;
+      }
+
+      /* "EN YAKIN X": sonuçlar kullanıcının konumu etrafında aranır ve mesafeye
+         göre SIRALIDIR (searchNearby) → istenen tam olarak ilk sonuçtur. Seçim
+         kartı gösterilince sürücü "rota başlatılıyor" duyup rota ALMIYORDU
+         (smoke 2026-09-25). Serbest adres aramasında onay kuralı AYNEN kalır. */
+      if (isNearby && !results[0].farFromUser) {
+        _record(destination, 'RESOLVED_AUTO', surface, results, null, hadLoc);
+        _push({ results });
+        _confirmResult(results[0]);
+        onResult?.('confirmed');
         return;
       }
 

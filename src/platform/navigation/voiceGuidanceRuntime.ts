@@ -27,10 +27,11 @@ import { speakNavigation } from '../ttsService';
 import {
   recordAnnouncementTiming, recordMissedGuidance, resetGuidanceAudit,
 } from './core/voiceGuidanceAudit';
+import { decideTrafficAhead, type TrafficAheadInput } from './core/trafficAheadModel';
 import {
   decideGuidance, maneuverId,
   type GuidanceStage, type GuidanceDecisionInput,
-  finalTierMetres, FAR_TIER_M, NEAR_TIER_M,
+  finalTierMetres, farTierMetres, nearTierMetres,
 } from './core/voiceGuidanceModel';
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -138,6 +139,11 @@ export interface VoiceGuidanceTickInput {
   readonly distanceM: number;
   readonly distanceSource: GuidanceDecisionInput['distanceSource'];
   readonly speedKmh: number;
+  /** Sıradaki adım varış mı (bkz. `GuidanceDecisionInput.isArrival`). */
+  readonly isArrival?: boolean;
+  /** Hemen ardından gelen yakın manevra (bkz. `GuidanceDecisionInput.thenInstruction`). */
+  readonly thenInstruction?: string | null;
+  readonly thenIsArrival?: boolean;
 }
 
 /** Anons gerçekten yapıldığında çağrılır (test/gözlem için enjekte edilebilir). */
@@ -202,6 +208,9 @@ export function noteVoiceGuidanceTick(
     speedKmh: input.speedKmh,
     instruction: input.instruction,
     spokenBits: bits,
+    isArrival: input.isArrival,
+    thenInstruction: input.thenInstruction,
+    thenIsArrival: input.thenIsArrival,
   });
 
   if (!decision) {
@@ -226,8 +235,8 @@ export function noteVoiceGuidanceTick(
   recordAnnouncementTiming(
     id, decision.stage, input.distanceM,
     decision.stage === 'IMMINENT' ? finalTierMetres(input.speedKmh)
-      : decision.stage === 'NEAR' ? NEAR_TIER_M
-      : FAR_TIER_M,
+      : decision.stage === 'NEAR' ? nearTierMetres(input.speedKmh)
+      : farTierMetres(input.speedKmh),
     Date.now(),
   );
 
@@ -245,7 +254,51 @@ export function noteVoiceGuidanceTick(
  * (maske boş başlar ama araç zaten manevraya yakınsa yalnız SON kademe söylenir —
  * `decideGuidance` yakın kademede uzaktakileri de kapatır).
  */
+/* ── Öndeki trafik uyarısı (TomTom rota bölümleri) ────────────────────────
+ * Karar saf modelde (`decideTrafficAhead`); burada yalnız "bu rotada hangi
+ * bölüm söylendi" defteri tutulur. Anahtar oturum + rota revizyonudur →
+ * reroute sonrası yeni rotanın olayları yeniden değerlendirilir. */
+let _trafficRouteKey = '';
+let _trafficAnnounced = new Set<number>();
+
+export interface TrafficAheadTickInput {
+  readonly sessionId: number;
+  readonly routeRevision: number;
+  readonly isRerouting: boolean;
+  readonly sections: TrafficAheadInput['sections'];
+  readonly cumulativeDistances: TrafficAheadInput['cumulativeDistances'];
+  readonly vehicleAlongRemainingM: number | null;
+  readonly speedKmh: number;
+  /** Sıradaki manevraya kalan mesafe — manevra anonsu yakınsa trafik ERTELENİR. */
+  readonly distanceToNextTurnM: number | null;
+}
+
+/** Trafik uyarısı söylendiyse metnini döndürür. */
+export function noteTrafficAheadTick(
+  input: TrafficAheadTickInput, speak: SpeakFn = speakNavigation,
+): string | null {
+  const key = `${input.sessionId}:${input.routeRevision}`;
+  if (key !== _trafficRouteKey) { _trafficRouteKey = key; _trafficAnnounced = new Set(); }
+  if (input.isRerouting || input.sections.length === 0) return null;
+  // Dönüş anonsu kapıdaysa (≤300 m) trafik ertelenir — bir sonraki tick yeniden bakar.
+  if (input.distanceToNextTurnM !== null && input.distanceToNextTurnM > 0 && input.distanceToNextTurnM <= 300) return null;
+  const d = decideTrafficAhead({
+    sections: input.sections,
+    cumulativeDistances: input.cumulativeDistances,
+    vehicleAlongRemainingM: input.vehicleAlongRemainingM,
+    speedKmh: input.speedKmh,
+    announcedStarts: _trafficAnnounced,
+  });
+  if (!d) return null;
+  _trafficAnnounced.add(d.startIdx);
+  const text = d.text.charAt(0).toUpperCase() + d.text.slice(1);
+  try { speak(text); } catch { /* TTS yoksa sessiz */ }
+  return text;
+}
+
 export function resetVoiceGuidance(_reason = 'sıfırlandı'): void {
+  _trafficRouteKey = '';
+  _trafficAnnounced = new Set();
   _spoken = new Map();
   _routeKey = '';
   _state = 'IDLE';

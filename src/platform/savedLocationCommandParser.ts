@@ -56,6 +56,31 @@ function stripDativeSuffix(sRaw: string): string {
 }
 
 /**
+ * Alıcı adı için rehberde SIRAYLA denenecek adaylar (SAF). Sesli komutun
+ * yazıya dökümünde kesme işareti olmaz: "ahmete", "mehmet abiye" (tek token
+ * "abiye"), "ayşeye", "kardeşime". İlk aday söylenenin KENDİSİdir (ek
+ * yoksa ya da ad zaten öyleyse yanlış soyma riski olmasın); sonra yönelme
+ * ("-e/-a/-ye/-ya") ve 1. tekil iyelik+yönelme ("-ime/-ıma/-ume/-üme/-me/-ma")
+ * soyulmuş biçimler. Çağıran, EŞLEŞEN İLK adayı kullanır.
+ * Saha 2026-09-24: "bulunduğum konumu ahmete gönder" → rehberde "ahmete"
+ * aranıyor, kişi bulunamıyordu.
+ */
+export function recipientCandidates(tokenRaw: string): string[] {
+  const raw = clean(tokenRaw);
+  if (!raw) return [];
+  const out: string[] = [raw];
+  const lower = raw.toLocaleLowerCase('tr-TR');
+  const push = (n: number): void => {
+    if (n >= 2 && n < raw.length) { const c = clean(raw.slice(0, n)); if (c && !out.includes(c)) out.push(c); }
+  };
+  const poss = /(?:ım|im|um|üm)(?:a|e)$/.exec(lower) ?? /(?<=[aeıioöuü])m(?:a|e)$/.exec(lower);
+  if (poss) push(lower.length - poss[0].length);
+  const dat = /(?<=[aeıioöuü])y(?:a|e)$/.exec(lower) ?? /(?<=[^aeıioöuü])(?:a|e)$/.exec(lower);
+  if (dat) push(lower.length - dat[0].length);
+  return out;
+}
+
+/**
  * "Şu anki konumu" ifade eden ÖZNE kelimeleri — hem KAYDET fiilinin konum
  * kaydı olduğunu göstermek (fiil tek başına müzik favorisi de olabilir: "bu
  * şarkıyı kaydet") hem de GÖNDER fiilinde "şu anki konum" ile "kayıtlı X
@@ -79,7 +104,9 @@ const CURRENT_LOCATION_BARE_RE = new RegExp(`^(${CURRENT_LOCATION_WORDS})$`);
  * KISALTIR, dolayısıyla döngü sonludur.
  */
 const SAVE_NAME_PREFIX_RE =
-  /^(şu\s+anki|şu\s+an|şuanki|şuan|mevcut|bulunduğumuz|bulunduğum|buradaki|buray[ıi]|burasını|burası|buraya|burada|burda|şuray[ıi]|şurası|konumumuzu|konumumu|konumu|yerimizi|yerimi|yeri|bu)\s+/i;
+  /* Saha 2026-09-24: sesli döküm "şu anki"yi "şu an ki" diye AYIRIYOR; "şu anda",
+     "şimdiki" de doğal. Uzun biçimler kısalardan ÖNCE denenir. */
+  /^(şu\s+an\s+ki|şu\s+anki|şu\s+anda|şuanda|şu\s+an|şuan\s+ki|şuanki|şuan|şimdiki|mevcut|bulunduğumuz|bulunduğum|buradaki|buray[ıi]|burasını|burası|buraya|burada|burda|şuray[ıi]|şurası|konumumuzu|konumumu|konumu|yerimizi|yerimi|yeri|bu)\s+/i;
 
 function stripLocationPrefixes(s: string): string {
   let out = clean(s);
@@ -95,6 +122,7 @@ export type SavedLocationVerb = 'save' | 'rename' | 'delete' | 'share' | 'send';
 
 export interface ParsedSavedLocationCommand {
   readonly verb: SavedLocationVerb;
+  /* share + isCurrentLocation=true: "konumumu paylaş" — kayıt değil, canlı GPS. */
   /** save: null olabilir (fallback isim kullanılır). rename/delete/share: hedef kaydın adı.
    *  send + isCurrentLocation=true: null (GPS kullanılır). send + isCurrentLocation=false: kayıtlı konum adı. */
   readonly name: string | null;
@@ -201,6 +229,17 @@ export function tryParseSavedLocationCommand(rawText: string): ParsedSavedLocati
           name = cand.length > 0 ? cand : null;
         }
       }
+      /* İsim FİİLDEN SONRA da söylenir: "şu anki konumu kaydet ev" · "kaydet ev
+         olarak" · "kaydet, adı ev" (saha 2026-09-24: isim boş kalıyor, kayıt
+         "Konum N" adını alıyordu). */
+      if (name === null) {
+        const after = /(?:kaydet|kay[ıi]t\s+et)\s*[,:]?\s+(?:ad[ıi]\s+)?(.+?)(?:\s+(?:olarak|diye|ad[ıi]yla|olsun))?\s*$/.exec(lower);
+        if (after) {
+          const st = lower.indexOf(after[1], after.index);
+          const cand = st >= 0 ? stripLocationPrefixes(raw.slice(st, st + after[1].length)) : '';
+          name = cand.length > 0 ? cand : null;
+        }
+      }
       return {
         verb: 'save', name,
         feedback: name ? `${name} olarak kaydediliyor` : 'Konum kaydediliyor',
@@ -222,6 +261,12 @@ export function tryParseSavedLocationCommand(rawText: string): ParsedSavedLocati
     const m = /^(.+?)(?:'[a-zçğıöşü]*)?\s+konumunu\s+paylaş\s*$/.exec(lower)
       ?? /^(.+?)\s+paylaş\s*$/.exec(lower);
     if (m && m[1].trim().length > 0) {
+      /* "konumumu paylaş" / "bulunduğum konumu paylaş" → ŞU ANKİ konum
+         (eskiden "konumumu" adında KAYIT aranıyor, bulunamıyordu). */
+      const bare = stripLocationPrefixes(clean(raw.slice(0, m[1].length))).toLocaleLowerCase('tr-TR');
+      if (bare === '' || CURRENT_LOCATION_BARE_RE.test(bare)) {
+        return { verb: 'share', name: null, isCurrentLocation: true, feedback: 'Konum paylaşılıyor' };
+      }
       const nameRaw = stripApostropheSuffix(raw.slice(0, m[1].length));
       if (nameRaw) return { verb: 'share', name: nameRaw, feedback: `${nameRaw} paylaşılıyor` };
     }
@@ -259,10 +304,13 @@ export function tryParseSavedLocationCommand(rawText: string): ParsedSavedLocati
    * KORUNUR — davranış değişmez.
    */
   {
+    /* Fiil: gönder · yolla · at · ilet (saha 2026-09-24: "konumumu Mehmet
+       abiye yolla" haritayı açıyordu). Konum öznesi şartı aşağıda aynen
+       geçerli olduğundan "at" genel bir fiili yanlışlıkla yakalamaz. */
     const relClauseM =
-      /^(.+?)\s+(\S+?)\s+olan\s+kişi(?:ye|sine)\s+(?:whatsap+['’]?(?:tan|dan)?\s+)?gönder\s*$/.exec(lower);
+      /^(.+?)\s+(\S+?)\s+olan\s+kişi(?:ye|sine)\s+(?:whatsap+['’]?(?:tan|dan)?\s+)?(?:gönder|yolla|at|ilet)\s*$/.exec(lower);
     const m = relClauseM
-      ?? /^(.+?)\s+(\S+?)\s+(?:whatsap+['’]?(?:tan|dan)?\s+)?gönder\s*$/.exec(lower);
+      ?? /^(.+?)\s+(\S+?)\s+(?:whatsap+['’]?(?:tan|dan)?\s+)?(?:gönder|yolla|at|ilet)\s*$/.exec(lower);
     if (m) {
       const locPhraseRaw = clean(raw.slice(0, m[1].length));
       const recTokenLower = m[2];
@@ -279,6 +327,20 @@ export function tryParseSavedLocationCommand(rawText: string): ParsedSavedLocati
           return {
             verb: 'send', name: null, recipient: recipientRaw, isCurrentLocation: true,
             feedback: `Konum ${recipientRaw} için WhatsApp'ta hazırlanıyor`,
+          };
+        }
+
+        /* Çok kelimeli alıcı: "şu anki konumumu Mehmet abiye yolla" — konum
+           öznesinden SONRA kalan kelimeler alıcının parçasıdır ("Mehmet" + "abiye").
+           Yalnız cümlede konum öznesi varken ve kalan kısım "X konumu" değilken. */
+        const locLower = locPhraseRaw.toLocaleLowerCase('tr-TR');
+        if (strippedLocRaw && SAVE_SUBJECT_RE.test(locLower)
+            && !/\skonumu(?:nu)?$/.test(strippedLocLower) && !/^konumu(?:nu)?$/.test(strippedLocLower)) {
+          const tokenRaw = recStart >= 0 ? clean(raw.slice(recStart, recStart + recTokenLower.length)) : recipientRaw;
+          const multi = `${strippedLocRaw} ${tokenRaw}`;
+          return {
+            verb: 'send', name: null, recipient: multi, isCurrentLocation: true,
+            feedback: `Konum ${multi} için WhatsApp'ta hazırlanıyor`,
           };
         }
 

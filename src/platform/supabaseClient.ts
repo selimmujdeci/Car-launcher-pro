@@ -7,7 +7,8 @@
  */
 
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { connectivityService } from './connectivityService';
+import { connectivityService, VEHICLE_API_KEY_SLOT } from './connectivityService';
+import { allowsConnectivity } from './connectivity/connectivityGate';
 import { sensitiveKeyStore }   from './sensitiveKeyStore';
 
 const SUPABASE_URL      = import.meta.env.VITE_SUPABASE_URL      as string | undefined;
@@ -19,7 +20,17 @@ export function getSupabaseClient(): SupabaseClient | null {
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return null;
   if (!_instance) {
     _instance = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-      auth: { persistSession: false, autoRefreshToken: false },
+      /**
+       * WAVE 16 · `detectSessionInUrl` AÇIKÇA KAPALI.
+       *
+       * Belirtilmediğinde SDK varsayılanı `true`dur: client yaratılırken
+       * `window.location.href` ayrıştırılır ve `#access_token=...` varsa
+       * oturum kurulur. Bu client hiçbir zaman bir auth callback'i
+       * karşılamaz (kurtarmanın tek sahibi RoleStore.handleRecoveryUrl'dir),
+       * bu yüzden varsayılan yalnız sessiz bir ikinci otorite üretirdi.
+       * Kilit: `src/__tests__/urlSessionAuthorityW16.test.ts`
+       */
+      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
       global: {
         headers: {
           // Capacitor runs on https://localhost — tell Supabase to allow it
@@ -97,7 +108,10 @@ export async function callProcessIntent(
   context: Record<string, unknown> = {},
 ): Promise<Record<string, unknown> | null> {
   const supabase = getSupabaseClient();
-  if (!supabase || !navigator.onLine) return null;
+  /* F7-B: kanonik kapı. Eski kapı `navigator.onLine` idi; `CLOUD_INTERACTIVE`
+     `UNKNOWN`/`DEGRADED`da AYNEN dener (davranış korunur), `CAPTIVE`de ise artık
+     denemez — giriş portalı isteği zaten anlamsız bir yanıt döndürür. */
+  if (!supabase || !allowsConnectivity('CLOUD_INTERACTIVE')) return null;
 
   try {
     const { data, error } = await supabase.functions.invoke('process_intent', {
@@ -166,7 +180,7 @@ export async function insertVehicleEvent(
       `${SUPABASE_URL}/rest/v1/rpc/push_vehicle_event`,
       'POST',
       { 'Content-Type': 'application/json', apikey: SUPABASE_ANON_KEY },
-      { p_api_key: apiKey, p_type: type, p_payload: { vehicle_id: vehicleId, ...metadata } },
+      { p_api_key: VEHICLE_API_KEY_SLOT, p_type: type, p_payload: { vehicle_id: vehicleId, ...metadata } },   // anahtar gönderimde çözülür
       'normal',
       `veh_event_${type}_${Date.now()}`,
     );

@@ -17,7 +17,10 @@
  *     bu ekran o sınırı SESSİZCE gizlemez, gerçek toplamı gösterir.
  */
 import { memo, useEffect, useState, useCallback, useMemo, useRef } from 'react';
-import { Music2, Search, Play, Pause, Loader2, AlertCircle, ChevronUp } from 'lucide-react';
+import {
+  Music2, Search, Play, Pause, Loader2, AlertCircle, ChevronUp, ChevronLeft, ChevronRight,
+  Disc3, User, Folder, Tag, Shuffle,
+} from 'lucide-react';
 import {
   useLocalMusic,
   loadMusicTracks,
@@ -28,7 +31,12 @@ import { fmtTime } from '../../platform/mediaService';
 import { resolveMusicRef, searchMusicLibrary, useMusicLibrary, type MusicTrack } from '../../platform/media/musicIndex';
 import { reportArtworkLoadFailure, resolveArtwork } from '../../platform/media/artworkCache';
 import { startLibraryListening } from '../../platform/media/session/listeningSessionRuntime';
+import { setShuffle } from '../../platform/media/authority/mediaCommandGateway';
 import type { DrivingMode } from './nowPlayingModel';
+import {
+  availableBrowseTabs, buildBrowseDetail, buildBrowseList, selectionStartingAt, BROWSE_TAB_LABEL, BROWSE_TAB_UNIT,
+  type BrowseRow, type BrowseTab,
+} from './libraryBrowseModel';
 
 /* ── Yardımcı: saniye formatı ────────────────────────────── */
 function fmtMs(ms: number): string {
@@ -114,6 +122,38 @@ export const LocalMusicBrowser = memo(function LocalMusicBrowser({ drivingMode =
   const { tracks, currentIndex, playing, loading, error } = useLocalMusic();
   const library = useMusicLibrary();
   const [query, setQuery] = useState('');
+  const [tab, setTab] = useState<BrowseTab>('TRACKS');
+  const [detailRow, setDetailRow] = useState<BrowseRow | null>(null);
+  const tabs = useMemo(() => availableBrowseTabs(library, drivingMode), [library, drivingMode]);
+  const collection = useMemo(
+    () => (tab === 'TRACKS' ? null : buildBrowseList(library, tab, query, drivingMode)),
+    [library, tab, query, drivingMode],
+  );
+  const detail = useMemo(() => (detailRow ? buildBrowseDetail(library, detailRow) : null), [library, detailRow]);
+
+  /* Sürüşe geçince gizlenen sekmede (Klasörler) kalınmaz; detayın parçaları
+     erişilemez olduysa (USB çıkarıldı) listeye dönülür — boş detay gösterilmez. */
+  useEffect(() => {
+    if (!tabs.includes(tab)) { setTab('TRACKS'); setDetailRow(null); }
+  }, [tabs, tab]);
+  useEffect(() => {
+    if (detailRow && !detail) setDetailRow(null);
+  }, [detailRow, detail]);
+
+  const openTab = useCallback((next: BrowseTab) => { setTab(next); setDetailRow(null); setQuery(''); }, []);
+
+  /* Çal = kanonik sırayla (karıştırma kapatılır) · Karıştır = rastgele parçadan
+     başlar, sonra karıştırma açılır. İkisi de F3 kanonik giriş yolundan geçer. */
+  const playDetail = useCallback((shuffle: boolean) => {
+    if (!detail) return;
+    if (shuffle) {
+      const start = detail.tracks[Math.floor(Math.random() * detail.tracks.length)];
+      if (!start) return;
+      void startLibraryListening(selectionStartingAt(detail.selection, start.id)).then(() => setShuffle(true));
+    } else {
+      void setShuffle(false).then(() => startLibraryListening(detail.selection));
+    }
+  }, [detail]);
 
   useEffect(() => {
     void initLocalMusic();
@@ -201,6 +241,9 @@ export const LocalMusicBrowser = memo(function LocalMusicBrowser({ drivingMode =
   }
 
   const currentTrack = currentIndex >= 0 ? tracks[currentIndex] : null;
+  const tabIcon = (t: BrowseTab) => (t === 'ALBUMS' ? Disc3 : t === 'ARTISTS' ? User : t === 'FOLDERS' ? Folder : t === 'GENRES' ? Tag : Music2);
+  const placeholder = tab === 'TRACKS' ? 'Parça veya sanatçı ara…' : `${BROWSE_TAB_LABEL[tab]} içinde ara…`;
+  const DetailIcon = tabIcon(tab);
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
@@ -235,6 +278,90 @@ export const LocalMusicBrowser = memo(function LocalMusicBrowser({ drivingMode =
         </div>
       )}
 
+      {detail && detailRow ? (
+        <div className="flex-1 flex flex-col overflow-hidden" data-testid="library-detail">
+          <div className="flex-shrink-0 px-4 pt-2 pb-3">
+            <button
+              onClick={() => setDetailRow(null)}
+              aria-label={`Geri — ${BROWSE_TAB_LABEL[tab]}`}
+              className="flex items-center gap-1 text-xs font-black uppercase tracking-widest active:scale-95 transition-all"
+              style={{ minHeight: MIN_TOUCH_TARGET_PX, color: 'var(--oem-amber, #e0a23c)' }}
+            >
+              <ChevronLeft className="w-4 h-4" aria-hidden /> {BROWSE_TAB_LABEL[tab]}
+            </button>
+            <div className="flex items-center gap-4">
+              <AlbumArtImg
+                uri={detail.artworkIdentity ?? undefined}
+                className="w-20 h-20 rounded-2xl glass-card overflow-hidden flex items-center justify-center flex-shrink-0"
+                fallback={<DetailIcon className="w-8 h-8" aria-hidden style={{ color: 'var(--oem-amber, #e0a23c)' }} />}
+              />
+              <div className="flex-1 min-w-0">
+                <div className="text-lg font-black truncate" style={{ color: 'var(--oem-ink)' }}>{detail.title}</div>
+                <div className="text-xs truncate mt-0.5" style={{ color: 'var(--oem-ink-2)' }}>{detail.subtitle}</div>
+                <div className="flex gap-2 mt-2.5">
+                  <button
+                    onClick={() => playDetail(false)}
+                    data-testid="library-detail-play"
+                    className="flex items-center gap-1.5 rounded-xl px-4 text-xs font-black uppercase tracking-widest active:scale-95 transition-all"
+                    style={{ minHeight: MIN_TOUCH_TARGET_PX, background: 'var(--oem-amber, #e0a23c)', color: '#111' }}
+                  >
+                    <Play className="w-4 h-4" fill="currentColor" aria-hidden /> Çal
+                  </button>
+                  <button
+                    onClick={() => playDetail(true)}
+                    data-testid="library-detail-shuffle"
+                    className="flex items-center gap-1.5 rounded-xl glass-card px-4 text-xs font-black uppercase tracking-widest active:scale-95 transition-all"
+                    style={{ minHeight: MIN_TOUCH_TARGET_PX, color: 'var(--oem-amber, #e0a23c)' }}
+                  >
+                    <Shuffle className="w-4 h-4" aria-hidden /> Karıştır
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto scrollbar-none px-4 pb-4">
+            <div className="flex flex-col gap-1">
+              {detail.tracks.map((track, i) => {
+                const isActive = currentTrack?.id === track.id;
+                return (
+                  <button
+                    key={track.id}
+                    onClick={() => void startLibraryListening(selectionStartingAt(detail.selection, track.id))}
+                    aria-label={`${track.title ?? 'Parça'}${track.artist ? ` — ${track.artist}` : ''}`}
+                    className="flex items-center gap-3 px-3 rounded-2xl text-left transition-all active:scale-[0.98]"
+                    style={{
+                      minHeight: MIN_TOUCH_TARGET_PX,
+                      background: isActive ? 'var(--oem-accent-soft, rgba(224,162,60,0.15))' : 'rgba(255,255,255,0.02)',
+                      border: `1px solid ${isActive ? 'var(--oem-line-warm, rgba(224,162,60,0.35))' : 'var(--oem-line, rgba(255,255,255,0.06))'}`,
+                    }}
+                  >
+                    <div className="w-7 flex-shrink-0 text-center text-xs font-black tabular-nums"
+                      style={{ color: isActive ? 'var(--oem-amber, #e0a23c)' : 'var(--oem-ink-3)' }}>
+                      {isActive && playing
+                        ? <Pause className="w-4 h-4 mx-auto" fill="currentColor" aria-hidden />
+                        : (tab === 'ALBUMS' && track.trackNumber ? track.trackNumber : i + 1)}
+                    </div>
+                    <div className="flex-1 min-w-0 py-2">
+                      <div className="text-sm font-black truncate"
+                        style={{ color: isActive ? 'var(--oem-amber, #e0a23c)' : 'var(--oem-ink)' }}>
+                        {track.title ?? 'Adsız parça'}
+                      </div>
+                      {tab !== 'ALBUMS' && (
+                        <div className="text-[11px] truncate mt-0.5 font-medium" style={{ color: 'var(--oem-ink-2)' }}>
+                          {[track.artist, track.album].filter(Boolean).join(' · ')}
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex-shrink-0 text-[11px] font-black tabular-nums" style={{ color: 'var(--oem-ink-3)' }}>
+                      {fmtMs(track.durationMs ?? 0)}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      ) : (<>
       {/* Arama */}
       <div className="flex-shrink-0 px-4 pt-3 pb-2">
         <div className="flex items-center gap-2.5 glass-card rounded-xl px-3 border"
@@ -244,23 +371,88 @@ export const LocalMusicBrowser = memo(function LocalMusicBrowser({ drivingMode =
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Parça veya sanatçı ara…"
+            placeholder={placeholder}
             aria-label="Cihaz müziğinde ara"
             className="flex-1 bg-transparent text-sm outline-none font-medium"
             style={{ color: 'var(--oem-ink)' }}
           />
         </div>
+        {/* Gezinme sekmeleri — sürüşte Klasörler yok (dikkat politikası). */}
+        <div className="flex gap-1.5 mt-2.5 overflow-x-auto scrollbar-none" role="tablist" aria-label="Kütüphane görünümü">
+          {tabs.map((t) => {
+            const Icon = tabIcon(t);
+            const active = t === tab;
+            return (
+              <button
+                key={t}
+                role="tab"
+                aria-selected={active}
+                data-testid={`library-tab-${t}`}
+                onClick={() => openTab(t)}
+                className="flex items-center gap-1.5 rounded-xl px-3 text-[11px] font-black uppercase tracking-widest whitespace-nowrap active:scale-95 transition-all"
+                style={{
+                  minHeight: MIN_TOUCH_TARGET_PX - 8,
+                  background: active ? 'var(--oem-amber, #e0a23c)' : 'rgba(255,255,255,0.04)',
+                  color: active ? '#111' : 'var(--oem-ink-2)',
+                  border: `1px solid ${active ? 'transparent' : 'var(--oem-line, rgba(255,255,255,0.08))'}`,
+                }}
+              >
+                <Icon className="w-3.5 h-3.5" aria-hidden /> {BROWSE_TAB_LABEL[t]}
+              </button>
+            );
+          })}
+        </div>
         {/* F12 · gerçek toplam GİZLENMEZ: kanonik sınır (F2) sessizce
             "kütüphanede bu kadar var" sanısı UYANDIRMAZ. */}
         <div className="text-[10px] font-bold uppercase tracking-widest mt-2 px-0.5" style={{ color: 'var(--oem-ink-3)' }}>
-          {isTruncated
-            ? `İlk ${filtered.length} / ${availableTotal} parça — daraltmak için ara`
-            : `${filtered.length} parça`}
+          {collection
+            ? (collection.truncated
+              ? `İlk ${collection.rows.length} / ${collection.total} — daraltmak için ara`
+              : `${collection.total} ${BROWSE_TAB_UNIT[tab]}`)
+            : isTruncated
+              ? `İlk ${filtered.length} / ${availableTotal} parça — daraltmak için ara`
+              : `${filtered.length} parça`}
         </div>
       </div>
 
       {/* Liste */}
       <div className="flex-1 overflow-y-auto scrollbar-none px-4 pb-4">
+        {collection ? (
+          collection.rows.length === 0 ? (
+            <div className="text-sm text-center mt-8" style={{ color: 'var(--oem-ink-3)' }}>
+              {query ? 'Aramayla eşleşen sonuç yok.' : `Kütüphanede ${BROWSE_TAB_UNIT[tab]} bilgisi yok.`}
+            </div>
+          ) : (
+            <div className="flex flex-col gap-1">
+              {collection.rows.map((row) => (
+                <button
+                  key={row.id}
+                  onClick={() => setDetailRow(row)}
+                  aria-label={`${row.title} — ${row.trackCount} parça`}
+                  className="flex items-center gap-3 p-2.5 rounded-2xl text-left transition-all active:scale-[0.98]"
+                  style={{ minHeight: MIN_TOUCH_TARGET_PX + 8, background: 'rgba(255,255,255,0.02)', border: '1px solid var(--oem-line, rgba(255,255,255,0.06))' }}
+                >
+                  <AlbumArtImg
+                    uri={tab === 'ALBUMS' ? (row.artworkIdentity ?? undefined) : undefined}
+                    className="w-11 h-11 rounded-xl overflow-hidden flex-shrink-0"
+                    fallback={
+                      <div className="w-full h-full flex items-center justify-center" style={{ background: 'rgba(255,255,255,0.05)' }}>
+                        <DetailIcon className="w-5 h-5" aria-hidden style={{ color: 'var(--oem-ink-3)' }} />
+                      </div>
+                    }
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-black truncate" style={{ color: 'var(--oem-ink)' }}>{row.title}</div>
+                    <div className="text-[11px] truncate mt-0.5 font-medium" style={{ color: 'var(--oem-ink-2)' }}>
+                      {[row.subtitle, `${row.trackCount} parça`].filter(Boolean).join(' · ')}
+                    </div>
+                  </div>
+                  <ChevronRight className="w-4 h-4 flex-shrink-0" aria-hidden style={{ color: 'var(--oem-ink-3)' }} />
+                </button>
+              ))}
+            </div>
+          )
+        ) : (
         <div className="flex flex-col gap-1">
           {filtered.map((track) => {
             const realIdx = tracks.findIndex((t) => t.id === track.id);
@@ -308,8 +500,7 @@ export const LocalMusicBrowser = memo(function LocalMusicBrowser({ drivingMode =
                     {track.title}
                   </div>
                   <div className="text-[11px] truncate mt-0.5 font-medium" style={{ color: 'var(--oem-ink-2)' }}>
-                    {track.artist}
-                    {track.album ? ` · ${track.album}` : ''}
+                    {[track.artist, track.album].filter(Boolean).join(' · ')}
                   </div>
                 </div>
 
@@ -321,7 +512,9 @@ export const LocalMusicBrowser = memo(function LocalMusicBrowser({ drivingMode =
             );
           })}
         </div>
+        )}
       </div>
+      </>)}
     </div>
   );
 });

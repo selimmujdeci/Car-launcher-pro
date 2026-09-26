@@ -14,7 +14,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { readFileSync } from 'fs';
+import { readFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
 import { stripComments } from './helpers';
 
@@ -115,6 +115,11 @@ describe('MUSIC YOUTUBE FIELD FIX — gerçek IFrame kanıtı olmadan COMMIT olm
     });
 
     const pending = coord.switchTo('YOUTUBE' as never, YT_REQUEST as never);
+    // `switchTo` zinciri Promise microtask'inde başlar. Sahte saati, adapter
+    // `playYouTube`a gerçekten ulaşmadan ilerletmek interval'i henüz kurulmamış
+    // bir zaman aralığında tüketip testi sıraya/CPU hızına duyarlı yapıyordu.
+    for (let i = 0; i < 20 && yt.playCalls.length === 0; i++) await Promise.resolve();
+    expect(yt.playCalls).toHaveLength(1);
     // Kanıt GECİKMELİ gelir (gerçek autoplay/ağ gecikmesi benzetimi).
     await vi.advanceTimersByTimeAsync(50);
     yt.state = 'BUFFERING';
@@ -238,53 +243,39 @@ describe('MUSIC YOUTUBE FIELD FIX — gerçek IFrame kanıtı olmadan COMMIT olm
  * 8-12 · MINIPLAYER / DOCKBAR ÇAKIŞMASI
  * ════════════════════════════════════════════════════════════════════════ */
 
-describe('MUSIC MINIPLAYER FIELD FIX — dock ile ÇAKIŞMAZ, ikinci otorite KURULMAZ', () => {
-  // Yorum-güvenli okuma: bu turun kendi bugfix yorumları eski hatayı (`bottom: 12`,
-  // "ResizeObserver") ANLATIR — kilit KODA bakmalı, yorum cümlesine değil.
-  const miniPlayer = readCode('src/components/media/MiniPlayer.tsx');
+describe('MUSIC KOKPİT YÜZEYİ — ikinci oynatıcı çubuğu YOK (2026-09-05 ürün kararı)', () => {
+  /* ── KİLİTLER YENİDEN HEDEFLENDİ, SİLİNMEDİ ────────────────────────────
+   * 8-12 numaralı eski kilitler `MiniPlayer.tsx`i tarıyordu: dock ile
+   * çakışmasın (`--lp-dock-h` çapası), ikinci ölçüm/görünürlük otoritesi
+   * kurmasın, z-index'i rastgele yükselmesin. Kullanıcı 2026-09-05'te
+   * kokpitteki geniş MiniPlayer'ın TAMAMEN kaldırılmasını istedi ve bileşen
+   * silindi → o kilitler artık OLMAYAN bir dosyayı tarayacaktı.
+   *
+   * CLAUDE.md: *"kör guard = düşen guard"*. Bu yüzden kilitler kaldırılmadı,
+   * korudukları GERÇEĞE yeniden bağlandı: dock erişilebilir kalmalı, kokpitte
+   * ikinci bir müzik çubuğu doğmamalı ve `--lp-dock-h` tek yayıncılı kalmalı. */
   const mainLayout = readCode('src/components/layout/MainLayout.tsx');
   const dockBar = readCode('src/components/layout/DockBar.tsx');
 
-  it('8 · MiniPlayer artık ham piksel DEĞİL, dock\'un GERÇEK yüksekliğine çapalı', () => {
-    expect(miniPlayer, 'ham piksel bottom geri gelmiş — dock çakışması riski')
-      .not.toMatch(/bottom:\s*12\b/);
-    expect(miniPlayer, 'MiniPlayer --lp-dock-h kanonik çapasını kullanmıyor')
-      .toContain("bottom: 'calc(var(--lp-dock-h");
+  it('8 · kokpit kabuğu ikincil oynatıcı çubuğu RENDER ETMEZ', () => {
+    expect(mainLayout, 'MiniPlayer kokpite geri gelmiş').not.toMatch(/<MiniPlayer\b/);
+    expect(mainLayout, 'MiniPlayer importu geri gelmiş').not.toMatch(/from '\.\.\/media\/MiniPlayer'/);
   });
 
-  it('9 · Kanonik `--lp-dock-h` deseni tek yayıncıdan (DockBar) beslenir — MiniPlayer ikinci yayıncı KURMAZ', () => {
+  it('9 · `--lp-dock-h` TEK yayıncıdan (DockBar) beslenir', () => {
     expect(dockBar, 'DockBar kendi yüksekliğini artık yayınlamıyor').toMatch(/--lp-dock-h/);
-    expect(miniPlayer, 'MiniPlayer kendi --lp-dock-h değerini YAZIYOR — ikinci otorite')
+    expect(mainLayout, 'kabuk ikinci bir --lp-dock-h yayıncısı kurmuş')
       .not.toMatch(/setProperty\(\s*['"]--lp-dock-h/);
-    expect(miniPlayer, 'MiniPlayer\'da ResizeObserver kurulmuş — ikinci ölçüm otoritesi')
-      .not.toContain('ResizeObserver');
   });
 
-  it('10 · Full Music/Now Playing açıkken görünürlük TEK otoriteden (musicSurfaceVisibilityModel) gelir', () => {
-    expect(mainLayout, 'MiniPlayer görünürlüğü kanonik modelden ayrılmış')
-      .toContain('musicSurfaceVisibilityModel');
-    // MiniPlayer bileşeni kendi başına Now Playing/drawer durumunu OKUMAZ —
-    // parent zaten `showMiniPlayer` ile şart koşuyor (çift render otoritesi yok).
-    expect(miniPlayer, 'MiniPlayer kendi drawer/nowPlaying durumunu okumuş — ikinci görünürlük otoritesi')
-      .not.toMatch(/drawerOpen|nowPlayingOpen/);
+  it('10 · silinen bileşen gerçekten YOK (kilit boş kümeyi ölçmüyor)', () => {
+    expect(existsSync(resolve(process.cwd(), 'src/components/media/MiniPlayer.tsx')),
+      'MiniPlayer.tsx geri gelmiş — kokpit yüzey kararı ihlal edildi').toBe(false);
   });
 
-  it('11 · MiniPlayer içinde YENİ bir component-local görünürlük state\'i YOK', () => {
-    expect(miniPlayer, 'useState ile ikinci görünürlük durumu eklenmiş').not.toContain('useState');
-    // Tek erken-çıkış kapısı: canonical view model alanı (ikinci otorite değil,
-    // parent'ın zaten kullandığı AYNI alan).
-    expect(miniPlayer).toContain('if (!music.hasListeningContext) return null;');
-  });
-
-  it('12 · Dock her durumda erişilebilir kalır — MiniPlayer z-index\'i rastgele YÜKSELTİLMEMİŞ', () => {
-    const miniZ = miniPlayer.match(/z-\[(\d+)\]/)?.[1];
+  it('11 · DockBar z-index sözleşmesi DEĞİŞMEDİ (dock her durumda erişilebilir)', () => {
     const dockZ = dockBar.match(/zIndex:\s*(\d+)/)?.[1];
-    expect(miniZ, 'MiniPlayer z-index kilidi bulunamadı').toBeDefined();
     expect(dockZ, 'DockBar z-index kilidi bulunamadı').toBeDefined();
-    // Dock kendi fixed katmanında sabit kalır; MiniPlayer üstte ama dock ALANININ
-    // DIŞINA (bottom offset ile) taşındığı için görsel örtüşme YOKTUR — z-index
-    // ilişkisi bu turda DEĞİŞMEDİ (rastgele eskalasyon yok).
-    expect(miniZ).toBe('900');
     expect(dockZ).toBe('100');
   });
 });
@@ -312,7 +303,9 @@ describe('MUSIC VIDEO POLICY FIELD FIX — hareket video açmayı REDDEDEMEZ', (
     // bağımlılık dizisine sahiptir — drivingMode ORAYA sızmamış olmalı.
     const effectStart = mediaScreen.indexOf('if (!isYouTube) return;');
     expect(effectStart, 'video görünürlük efekti kilit metninde bulunamadı — kaynak değişmiş').toBeGreaterThan(0);
-    const effectEnd = mediaScreen.indexOf('}, [isYouTube, videoMode]);', effectStart);
+    /* 2026-09-05: `videoAvailable` eklendi — bir tercih DEĞİL, gerçek bir KANIT
+       (gömme reddi/ses yedeği). `drivingMode` yine YOK. */
+    const effectEnd = mediaScreen.indexOf('}, [isYouTube, videoMode, videoAvailable]);', effectStart);
     expect(effectEnd, 'efektin bağımlılık dizisi bulunamadı — kaynak değişmiş').toBeGreaterThan(effectStart);
     const effectBlock = mediaScreen.slice(effectStart, effectEnd + 40);
     expect(effectBlock, 'video görünürlük efekti drivingMode\'a bağlanmış').not.toContain('drivingMode');

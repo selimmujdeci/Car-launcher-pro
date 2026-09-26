@@ -14,7 +14,7 @@
  */
 
 import { bridge } from './bridge';
-import { getWifiState } from './wifiService';
+import { allowsConnectivity } from './connectivity/connectivityGate';
 
 /**
  * Android Wireless Settings ekranını açar.
@@ -25,9 +25,13 @@ export function openHotspotSettings(): void {
 }
 
 /**
- * Zaten internete bağlı mı? (Wi-Fi veya başka bir kaynak)
+ * Zaten internete bağlı mı? (Wi-Fi, Ethernet veya başka bir kaynak)
  * Bağlıysa hotspot prompt göstermeye gerek yok.
+ *
+ * F7-B (§22): eski hâli Wi-Fi BAĞLANTISINI internet sanıyordu — Ethernet'le
+ * çevrimiçi bir head unit'te gereksiz hotspot istemi çıkarır, captive portala
+ * takılı bir Wi-Fi'de ise "bağlısın" derdi. Karar artık kanonik politikanındır.
  */
 export function isAlreadyConnected(): boolean {
-  return getWifiState().connected;
+  return allowsConnectivity('LIGHTWEIGHT_INTERNET');
 }

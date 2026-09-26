@@ -1,8 +1,8 @@
 import { memo, useState, lazy, Suspense, useEffect, useMemo, useRef, createContext, useContext } from 'react';
 import {
   Navigation, Music2, Mic, Wind, Settings, Car, Bell,
-  Plus, Minus, SkipBack, SkipForward, Play, Pause, MoreVertical,
-  ChevronRight, Maximize2, CornerUpRight,
+  SkipBack, SkipForward, Play, Pause, MoreVertical,
+  ChevronRight,
    Fuel,
   Phone, Cloud, AlertTriangle, Camera, Route, ShieldAlert, Shield, Tv2, Zap, LayoutGrid,
   FlaskConical,
@@ -31,7 +31,6 @@ import { StatusControls } from '../common/StatusControls';
 import { openMusicDrawer } from '../../platform/mediaUi';
 import { MiniMapWidget } from '../map/MiniMapWidget';
 import { TripMeterRow } from '../trip/TripMeterRow';
-import { useNavSummary } from '../../hooks/useNavSummary';
 import { type AppItem } from '../../data/apps';
 import type { SmartSnapshot } from '../../platform/smartEngine';
 import { MagicContextCard } from '../common/MagicContextCard';
@@ -186,7 +185,7 @@ function Label({ children }: { children: React.ReactNode }) {
 const Header = memo(function Header() {
   const p = usePal();
   const use24Hour = useStore(s => s.settings.use24Hour);
-  const { time } = useClock(use24Hour, false);
+  const { time, date } = useClock(use24Hour, false);
   /* P0-OBD-03: doğrudan CAN alanı okuması KALDIRILDI. `canAmbientTemp` CAN'ı
      olmayan (aftermarket ELM327'li) araçta kalıcı null'dır ve başlık sonsuza
      dek '—' gösteriyordu — oysa PID 0x46 okunuyordu. Otorite tek yerde:
@@ -196,32 +195,36 @@ const Header = memo(function Header() {
   // Living theme — bağlantı durumu (online yeşil nabız / offline soluk).
   const online = useLivingThemeState().conn === 'online';
   return (
-    <div data-editable="expedition.header" data-editable-type="header" className="flex items-center justify-between flex-shrink-0" style={{ height: 50, padding: '0 16px' }}>
+    <div data-editable="expedition.header" data-editable-type="header" className="relative flex items-center justify-between flex-shrink-0" style={{ height: 50, padding: '0 16px' }}>
       <div className="flex items-center" style={{ gap: 12 }}>
         <img src={emblemUrl} alt="CarOS" style={{ width: 38, height: 38, objectFit: 'contain', filter: p.night ? 'drop-shadow(0 2px 4px rgba(0,0,0,.55))' : 'none' }} />
         <div style={{ fontWeight: 800, fontSize: 20, letterSpacing: '0.22em', color: p.ink2 }}>CAR<b style={{ color: p.ink }}>OS</b></div>
       </div>
+      {/* Saat + tarih başlığın ORTASINDA (saha 2026-09-24, kullanıcı): hız plakasının
+          üstünü kaplıyordu, "km görünmüyor" — hız göstergesi kartın altından taşıyordu. */}
+      <div className="absolute" style={{ left: '50%', top: '50%', transform: 'translate(-50%,-50%)', textAlign: 'center', pointerEvents: 'none' }}>
+        <div style={{ fontWeight: 700, fontSize: 26, lineHeight: 1, color: p.ink, fontVariantNumeric: 'tabular-nums', letterSpacing: '0.01em' }}>{time}</div>
+        <div style={{ marginTop: 2, fontSize: 11, fontWeight: 600, color: p.ink2 }}>{date}</div>
+      </div>
       <div data-header-status className="flex items-center" style={{ gap: 16, color: p.ink2 }}>
-        <button onClick={() => openDrawer('notifications')} className="ex-btn relative" style={{ background: 'none', border: 'none', cursor: 'pointer', color: p.ink2, display: 'flex' }}>
+        {/* `caros-status-item`: güneş modunun "2px siyah çerçeve + 52px" düğme kuralından
+            muaf (Tesla/Horizon zili ile aynı) — yoksa zil boş siyah kutu görünüyordu. */}
+        <button onClick={() => openDrawer('notifications')} aria-label={n.unreadCount > 0 ? `Bildirimler: ${n.unreadCount} okunmamış` : 'Bildirimler'} className="caros-status-item ex-btn relative" style={{ background: 'none', border: 'none', cursor: 'pointer', color: p.ink2, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <Bell className="w-[18px] h-[18px]" />
           {n.unreadCount > 0 && <span style={{ position: 'absolute', top: -4, right: -5, minWidth: 14, height: 14, background: p.accent, color: '#1a0f02', fontSize: 8, fontWeight: 900, borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 2px' }}>{n.unreadCount > 9 ? '9+' : n.unreadCount}</span>}
         </button>
         <span className={online ? 'lt-pulse' : undefined} aria-label={online ? 'Çevrimiçi' : 'Çevrimdışı'}
           style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, background: online ? '#34d399' : 'currentColor', opacity: online ? 1 : 0.4 }} />
-        <StatusControls palette={{ ink: p.ink, ink2: p.ink2, accent: p.accent, line: p.hairline }} size={17} />
+        <StatusControls palette={{ ink: p.ink, ink2: p.ink2, accent: p.accent, surface: p.plateRaised, line: p.edge }} size={17} />
         <span style={{ fontWeight: 700, fontSize: 17, color: p.ink, fontVariantNumeric: 'tabular-nums' }}>{ambient != null ? `${Math.round(ambient)}°C` : '—'}</span>
-        <span style={{ width: 1, height: 18, background: p.hairline }} />
-        <span style={{ fontWeight: 700, fontSize: 17, color: p.ink, fontVariantNumeric: 'tabular-nums' }}>{time}</span>
       </div>
     </div>
   );
 });
 
-/* ─── SPEED PLATE (saat + gösterge + D/4WD) ──────────────────────── */
+/* ─── SPEED PLATE (gösterge + gövde sinyalleri; saat başlıkta) ────── */
 const SpeedPlate = memo(function SpeedPlate() {
   const p = usePal();
-  const use24Hour = useStore(s => s.settings.use24Hour);
-  const { time, date } = useClock(use24Hour, false);
   /* SAHA 2026-08-12: ham değer YUVARLANMADAN basılıyordu. GPS kaynaklı hız
      `loc.speed * 3.6` ile üretilir → ONDALIKLIDIR ("67.154"); 88 px'lik rakamla
      6+ karakter plakayı taşırıp ekranın dışına çıkıyordu. OBD (`010D`) tam sayı
@@ -235,11 +238,7 @@ const SpeedPlate = memo(function SpeedPlate() {
   const offset = useMemo(() => 471 - Math.min(speed / 200, 1) * 471, [speed]);
   return (
     <Plate editId="expedition.speed" editType="gauge" style={{ padding: '22px 20px', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-      <div>
-        <div style={{ fontWeight: 700, fontSize: 52, lineHeight: 0.95, color: p.ink, fontVariantNumeric: 'tabular-nums', letterSpacing: '0.01em' }}>{time}</div>
-        <div style={{ marginTop: 5, color: p.ink2, fontSize: 15, fontWeight: 500 }}>{date}</div>
-      </div>
-      <div style={{ flex: 1, display: 'grid', placeItems: 'center', position: 'relative', marginTop: 6, minHeight: 0 }}>
+      <div style={{ flex: 1, display: 'grid', placeItems: 'center', position: 'relative', minHeight: 0 }}>
         <div style={RING_BOX}>
           <svg viewBox="0 0 232 232" width="100%" height="100%" style={{ transform: 'rotate(135deg)' }}>
             <circle cx="116" cy="116" r="100" fill="none" stroke={p.plateSunk} strokeWidth="16" strokeLinecap="round" strokeDasharray="471 628" />
@@ -253,7 +252,10 @@ const SpeedPlate = memo(function SpeedPlate() {
       </div>
       {/* Gerçek araç gövde sinyalleri (CAN) — kapı/elfreni/sinyal/dörtlü/far/gerivites.
           Sahte "D / 4WD" kaldırıldı: bu araçta vites verisi CAN'da yok (yanıltıcıydı). */}
-      <div className="flex-shrink-0" style={{ marginTop: 6 }}>
+      {/* `hide-compact` — uygulamanın ekran sınıfı sistemi (LayoutContext →
+          theme-layouts.css). COMPACT'ta plaka ~107 px kalıyor, sinyaller 79 px
+          alıp hız halkasının ALTINA giriyordu (saha 2026-09-24, ölçüldü). */}
+      <div className="hide-compact flex-shrink-0" style={{ marginTop: 6 }}>
         <VehicleTellTales />
       </div>
     </Plate>
@@ -306,11 +308,9 @@ const RangePlate = memo(function RangePlate() {
   );
 });
 
-/* ─── MAP PLATE (canlı harita + expedition overlay) ──────────────── */
+/* ─── MAP PLATE (canlı harita) ──────────────── */
 const MapPlate = memo(function MapPlate({ onOpenMap, fullMapOpen }: { onOpenMap: () => void; fullMapOpen?: boolean }) {
   const p = usePal();
-  const navSummary = useNavSummary();
-  const chip: React.CSSProperties = { background: p.night ? 'rgba(16,12,7,0.82)' : 'rgba(250,244,232,0.9)', border: `1px solid ${p.edge}`, borderRadius: 13 };
   // minHeight 200: grid çökse bile harita konteyneri asla 0px olamaz —
   // MiniMapWidget 0 boyutta init'i bekletir (MiniMapWidget.tsx tryInit)
   return (
@@ -321,32 +321,13 @@ const MapPlate = memo(function MapPlate({ onOpenMap, fullMapOpen }: { onOpenMap:
           : <MiniMapWidget onFullScreenClick={onOpenMap} />}
         <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, pointerEvents: 'none', borderRadius: 20, boxShadow: p.night ? 'inset 0 0 90px rgba(0,0,0,.65), inset 0 2px 0 rgba(176,134,76,.30)' : 'inset 0 0 60px rgba(0,0,0,.4), inset 0 2px 0 rgba(255,255,255,.6)' }} />
       </div>
-      <div className="absolute flex items-start justify-between" style={{ top: 14, left: 14, right: 14, pointerEvents: 'none' }}>
-        {/* Rota özeti — GERÇEK navigasyon durumundan. Sabit sahte yol adı + mesafe
-            YAZILIYDI; hiçbir kaynağa bağlı değildi (saha 2026-08-02). Rota yoksa
-            chip HİÇ gösterilmez — sahte hedef/mesafe ÜRETİLMEZ. */}
-        {navSummary ? (
-          <div style={{ ...chip, padding: '9px 13px', pointerEvents: 'auto' }}>
-            <div className="flex items-center" style={{ gap: 12 }}>
-              <div className="flex items-center justify-center" style={{ width: 36, height: 36, borderRadius: 11, background: p.accent, boxShadow: `0 6px 16px ${p.accentGlow}` }}><CornerUpRight className="w-5 h-5" style={{ color: '#fff' }} /></div>
-              <div>
-                <div style={{ fontSize: 21, fontWeight: 800, color: p.inkCritical, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{navSummary.mesafe} <span style={{ fontSize: 12, fontWeight: 600, color: p.ink2 }}>km</span></div>
-                <div style={{ fontSize: 12, fontWeight: 500, color: p.ink2, marginTop: 2 }}>{navSummary.hedef}</div>
-              </div>
-            </div>
-          </div>
-        ) : <div />}
-        <div className="flex items-center" style={{ gap: 8, pointerEvents: 'auto' }}>
-          <div className="flex items-center" style={{ gap: 6, padding: '6px 10px', borderRadius: 999, ...chip }}>
-            <span style={{ width: 6, height: 6, borderRadius: '50%', background: p.accent, animation: 'exPulse 2s infinite' }} />
-            <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '0.1em', textTransform: 'uppercase', color: p.accent }}>Online</span>
-          </div>
-          <div className="flex items-center justify-center" style={{ width: 34, height: 34, ...chip }}><Maximize2 className="w-4 h-4" style={{ color: p.ink2 }} /></div>
-        </div>
-      </div>
-      <div className="absolute flex flex-col" style={{ right: 14, top: '50%', transform: 'translateY(-50%)', gap: 8 }} onClick={e => e.stopPropagation()}>
-        {[Plus, Minus].map((Ic, i) => <button key={i} className="ex-btn flex items-center justify-center" style={{ width: 34, height: 34, ...chip, cursor: 'pointer' }}><Ic className="w-4 h-4" style={{ color: p.ink2 }} /></button>)}
-      </div>
+      {/* ── TEMA KATMANI KALDIRILDI (saha 2026-09-24, telefonda ölçüldü) ────────
+       * Mini haritanın kendi başlığı, tam ekran düğmesi, kaynak rozeti, hız
+       * levhası ve navigasyon şeridi zaten var; bu kart üstüne İKİNCİ bir katman
+       * çiziyordu: rota çipi başlığın %70’ini, "+" düğmesi hız levhasını %100
+       * örtüyordu; "Online" SABİT metindi (bağlantıya bağlı değil), +/-
+       * düğmelerinin işlevi YOKTU, çip gerçek manevradan bağımsız hep "sağa dön"
+       * oku gösteriyordu. Kullanıcı: "Mini haritada her şey düzensiz". */}
       {/* Kütük #382/#431 — SAHTE ETA ŞERİDİ KALDIRILDI (saha 2026-08-05).
        * Burada "23 dk · 19:56 · 18 km · EV kullanımı" SABİT değerleri vardı ve
        * rota iptal edilir edilmez geri geliyordu (`shot_18`). Hiçbiri ölçüme
@@ -688,7 +669,7 @@ const DockScrollZone = memo(function DockScrollZone({ children }: { children: Re
     if (drag.current.moved) { e.stopPropagation(); e.preventDefault(); drag.current.moved = false; }
   };
   return (
-    <div ref={ref} className="ex-dock-scroll"
+    <div ref={ref} className="ex-dock-scroll" data-no-page-swipe
       onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerLeave={onPointerUp} onClickCapture={onClickCapture}
       style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'stretch', overflowX: 'auto', overflowY: 'hidden', scrollSnapType: 'x proximity', scrollbarWidth: 'none', msOverflowStyle: 'none', cursor: 'grab', touchAction: 'pan-x', WebkitOverflowScrolling: 'touch', overscrollBehaviorX: 'contain' }}>
       {children}
@@ -710,7 +691,7 @@ const ExpeditionDock = memo(function ExpeditionDock({ onOpenMap, onOpenApps, onO
   // kaydırınca diğerleri gelir. Ortadaki pusula ve metal şerit aynen korunur.
   return (
     <div style={{ position: 'relative', flex: '0 0 auto', height: 124 }}>
-      <div data-editable="expedition.dock" data-editable-type="dock" style={{ ...plateStyle(p), position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, display: 'flex', alignItems: 'stretch', overflow: 'hidden' }}>
+      <div data-editable="expedition.dock" data-editable-type="dock" data-no-page-swipe style={{ ...plateStyle(p), position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, display: 'flex', alignItems: 'stretch', overflow: 'hidden' }}>
         <Rivets />
         {/* Sol grup — kaydırılabilir */}
         <DockScrollZone>

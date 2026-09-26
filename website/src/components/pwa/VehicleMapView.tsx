@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import type { LiveVehicle } from '@/types/realtime';
+/* Konum tazeliği KANONİK otoriteden okunur — bu bileşen hüküm üretmez. */
+import { ageLabel } from '@/lib/fleet/vehicleTelemetryFreshness';
 
 /* ── Parking spot storage ─────────────────────────────────────────────────── */
 
@@ -459,13 +461,28 @@ export default function VehicleMapView({ vehicle }: Props) {
 
         {/* Distance badge */}
         {mode === 'vehicle' && vehicle?.lat && distVeh && (
-          <div className="flex items-center justify-between px-3 py-2 rounded-xl"
+          <div className="px-3 py-2 rounded-xl"
             style={{ background: 'rgba(52,211,153,0.08)', border: '1px solid rgba(52,211,153,0.2)' }}>
-            <div className="flex items-center gap-2">
-              <span className={`w-2 h-2 rounded-full ${vehicle.status === 'online' ? 'bg-emerald-400' : 'bg-white/20'}`}/>
-              <span className="text-xs font-bold text-white/80">{vehicle.name} · {vehicle.plate}</span>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className={`w-2 h-2 rounded-full shrink-0 ${vehicle.status === 'online' ? 'bg-emerald-400' : 'bg-white/20'}`}/>
+                <span className="text-xs font-bold text-white/80 truncate">{vehicle.name} · {vehicle.plate}</span>
+              </div>
+              <span className="text-xs font-black text-emerald-400 shrink-0">{distVeh} uzakta</span>
             </div>
-            <span className="text-xs font-black text-emerald-400">{distVeh} uzakta</span>
+            {/* ── KONUM TAZELİĞİ (V1 dürüstlük kapanışı) ────────────────────
+                ÖLÇÜLEN KUSUR: pin ve "x km uzakta" tazelik BELİRTİLMEDEN
+                gösteriliyordu. Günler önce alınmış bir konum, ekranda
+                "araç şu anda burada" gibi okunuyordu (STALE ≠ LIVE).
+                Hüküm ÜRETİLMEZ: kanonik `vehicleTelemetryFreshness`
+                (`locationIsLive` · `locationAgeMs`) OKUNUR — Aracım
+                ekranının `HomeLocation`ı ile BİREBİR aynı kaynak ve aynı
+                dil. Yaş bilinmiyorsa "Bilinmiyor" denir, "şimdi" DENMEZ. */}
+            <p className="text-[10px] mt-1 truncate"
+              style={{ color: vehicle.telemetry?.locationIsLive ? 'rgba(52,211,153,0.7)' : 'rgba(255,255,255,0.35)' }}>
+              {vehicle.telemetry?.locationIsLive ? 'Aracın güncel konumu' : 'Aracın son bilinen konumu'}
+              {' · '}{ageLabel(vehicle.telemetry?.locationAgeMs ?? null)}
+            </p>
           </div>
         )}
 

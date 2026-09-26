@@ -36,9 +36,10 @@
  * Görünüm artık yalnız ÇİZER. Timer sahipliği TEK yerdedir: bu modül.
  */
 
-import { onGPSLocation, noteDeadReckoningState } from '../gpsService';
+import { onGPSLocation, noteDeadReckoningState, getLocationEvidence } from '../gpsService';
+import type { GPSLocation } from '../gpsService';
 import { GPS_FIX_STALE_MS } from '../freshnessPolicy';
-import { getRouteState, updateRouteProgress } from '../routingService';
+import { getRouteState, updateRouteProgress, getNavigationCoreSnapshot } from '../routingService';
 import {
   NavStatus,
   getNavigationState,
@@ -53,7 +54,7 @@ import {
 } from '../../utils/interpolation';
 import { advanceAlongRoute } from './core/routeProjectionModel';
 import {
-  noteVoiceGuidanceTick, resetVoiceGuidance,
+  noteVoiceGuidanceTick, resetVoiceGuidance, noteTrafficAheadTick,
 } from './voiceGuidanceRuntime';
 import {
   noteMotionSample, resetMarkerMotion, registerMotionFeeder,
@@ -63,6 +64,8 @@ import {
   noteEgoHeadingFix, tickEgoHorizon,
 } from './navEgoHorizonBridge';
 import { logError } from '../crashLogger';
+import { noteCurveTick, resetCurveAdvisory } from './curveAdvisoryRuntime';
+import { speedLimitOnRouteAt } from '../routing/tomtomRouting';
 
 /* ── Gözlem sayaçları (CAROS LAB · salt-okunur, koordinat TAŞIMAZ) ─────────── */
 
@@ -168,6 +171,12 @@ let _drProjectionMode: DrProjectionMode = 'HEADING_FALLBACK';
 let _drConsumedRouteM: number | null = null;
 /** Ulaşılan segment indeksi — `null` = ölçüm yok. */
 let _drProjectionSegIdx: number | null = null;
+/** Bu DR penceresinde BİRİKTİRİLEN tahmini yol (m) — her tick `v × Δt` eklenir.
+ *  Eskiden "şu anki hız × fix'ten beri geçen TÜM süre" idi: 40 sn yavaş gidip
+ *  hızlanınca geçmiş süre de yeni hızla çarpılıyor, işaret yüzlerce metre sıçrıyordu. */
+let _drAdvanceM = 0;
+/** Son DR tick'inin zamanı — `null` = pencere yeni açıldı. */
+let _drLastTickMs: number | null = null;
 
 /** GPS tazelendiğinde / oturum bittiğinde çapa ve gözlem alanları unutulur. */
 function _clearDrProjection(): void {
@@ -175,6 +184,8 @@ function _clearDrProjection(): void {
   _drProjectionMode = 'HEADING_FALLBACK';
   _drConsumedRouteM = null;
   _drProjectionSegIdx = null;
+  _drAdvanceM = 0;
+  _drLastTickMs = null;
 }
 
 /** Salt-okunur çalışma görüntüsü — CAROS LAB gözlem yüzeyi için. */
@@ -238,92 +249,96 @@ export function startNavigationSessionRuntime(): () => void {
      demektir (kilit). */
   _releaseMotionFeeder = registerMotionFeeder();
 
-  _unsub = onGPSLocation((loc) => {
-    if (!loc) { _skippedNoFix++; return; }
-
-    let status: string;
-    let hasDestination: boolean;
-    try {
-      const nav = getNavigationState();
-      status = nav.status;
-      hasDestination = !!nav.destination;
-    } catch (e) {
-      _errorCount++; _lastErrorAtMs = _now();
-      logError('NavSessionRuntime:state', e);
-      return;
-    }
-    _lastObservedStatus = status;
-
-    // İlerleme YALNIZ canlı rota varken anlamlıdır — PREVIEW/ROUTING'de rota
-    // henüz sürülmüyor. Bu kapı, motorun eski (görünüm içi) hâliyle BİREBİR aynı.
-    if (status !== NavStatus.ACTIVE && status !== NavStatus.REROUTING) {
-      _skippedInactive++;
-      _onNavigationInactive();
-      return;
-    }
-    if (!hasDestination) { _skippedInactive++; _onNavigationInactive(); return; }
-
-    try {
-      /* Son GEÇERLİ fix kaydı — DR bu noktadan ileri projeksiyon yapar.
-         Eskiden bu tampon `FullMapView.navPointsRef` idi ve bileşenle ölüyordu. */
-      _lastFix = {
-        lat: loc.latitude, lng: loc.longitude,
-        heading: Number.isFinite(loc.heading ?? NaN) ? (loc.heading as number) : 0,
-        ts: _now(),
-        speedMs: Number.isFinite(loc.speed ?? NaN) ? (loc.speed as number) : null,
-      };
-      _setDrState('GPS_FRESH');
-      _drConfidence = 1;
-
-      /* İşaret hareketi TEK runtime'dan beslenir — görünümler kendi ara değer
-         motorunu KURMAZ. Mini harita eskiden marker'ı doğrudan bu geri çağrıda
-         çiziyordu (2 Hz → zıplama); artık ikisi de paylaşılan konumu okur. */
-      noteMotionSample({
-        lat: loc.latitude, lon: loc.longitude,
-        headingDeg: Number.isFinite(loc.heading ?? NaN) ? (loc.heading as number) : null,
-        speedKmh: useUnifiedVehicleStore.getState().speed ?? 0,
-        accuracyM: Number.isFinite(loc.accuracy ?? NaN) ? (loc.accuracy as number) : null,
-        tsMs: _lastFix.ts,
-        matched: false,
-      });
-
-      // Geometri TEK otoriteden okunur (routingService store'u). Eskiden görünüm
-      // içindeki `routeGeometryRef` kopyasından okunuyordu — bileşenle ölen kopya.
-      const geometry = getRouteState().geometry;
-      updateRouteProgress(loc.latitude, loc.longitude);
-      updateNavigationProgress(
-        loc.latitude,
-        loc.longitude,
-        loc.heading ?? 0,
-        geometry && geometry.length >= 2 ? geometry : undefined,
-      );
-      _tickCount++;
-      _lastTickAtMs = _now();
-      _feedVoiceGuidance(status);
-      /* F3/C1: GNSS yönü jiro İŞARETİNİN tek kanıtıdır (yalnız GERÇEK fix'te —
-         DR projeksiyonu bir gözlem DEĞİLDİR ve işaret öğretemez). */
-      noteEgoHeadingFix(
-        Number.isFinite(loc.heading ?? NaN) ? (loc.heading as number) : null,
-        Number.isFinite(loc.speed ?? NaN) ? (loc.speed as number) : null,
-      );
-      /* F3/C2: ego → rota niyeti → ufuk. Fail-soft: köprüdeki hata rota
-         ilerlemesini ASLA düşürmez (köprü kendi içinde yutar).
-         Jiro aboneliği TALEP-GÜDÜMLÜDÜR: yalnız navigasyon SÜRERKEN tutulur
-         (idempotent). Uygulama ömrü boyunca açık bırakmak, navigasyon kapalıyken
-         de 60 Hz sensör beslemesi demek olurdu — `compassDemand` deseniyle aynı
-         gerekçe. Bırakma `_onNavigationInactive()` ve `stop()` yollarındadır. */
-      acquireEgoHorizonSession();
-      tickEgoHorizon();
-      _ensureDrTimer();
-    } catch (e) {
-      // Fail-soft: ilerleme hesabındaki bir hata navigasyonu ÖLDÜRMEZ; bir
-      // sonraki fix'te yeniden denenir. Hata sayacı LAB'da görünür.
-      _errorCount++; _lastErrorAtMs = _now();
-      logError('NavSessionRuntime:tick', e);
-    }
-  });
+  _unsub = onGPSLocation(_onFix);
 
   return stopNavigationSessionRuntime;
+}
+
+/** Gerçek GPS fix'i — `onGPSLocation`dan ve aynı-fix tekrarında `_drTick`ten. */
+function _onFix(loc: GPSLocation | null): void {
+  if (!loc) { _skippedNoFix++; return; }
+
+  let status: string;
+  let hasDestination: boolean;
+  try {
+    const nav = getNavigationState();
+    status = nav.status;
+    hasDestination = !!nav.destination;
+  } catch (e) {
+    _errorCount++; _lastErrorAtMs = _now();
+    logError('NavSessionRuntime:state', e);
+    return;
+  }
+  _lastObservedStatus = status;
+
+  // İlerleme YALNIZ canlı rota varken anlamlıdır — PREVIEW/ROUTING'de rota
+  // henüz sürülmüyor. Bu kapı, motorun eski (görünüm içi) hâliyle BİREBİR aynı.
+  if (status !== NavStatus.ACTIVE && status !== NavStatus.REROUTING) {
+    _skippedInactive++;
+    _onNavigationInactive();
+    return;
+  }
+  if (!hasDestination) { _skippedInactive++; _onNavigationInactive(); return; }
+
+  try {
+    /* Son GEÇERLİ fix kaydı — DR bu noktadan ileri projeksiyon yapar.
+       Eskiden bu tampon `FullMapView.navPointsRef` idi ve bileşenle ölüyordu. */
+    _lastFix = {
+      lat: loc.latitude, lng: loc.longitude,
+      heading: Number.isFinite(loc.heading ?? NaN) ? (loc.heading as number) : 0,
+      ts: _now(),
+      speedMs: Number.isFinite(loc.speed ?? NaN) ? (loc.speed as number) : null,
+    };
+    _setDrState('GPS_FRESH');
+    _drConfidence = 1;
+
+    /* İşaret hareketi TEK runtime'dan beslenir — görünümler kendi ara değer
+       motorunu KURMAZ. Mini harita eskiden marker'ı doğrudan bu geri çağrıda
+       çiziyordu (2 Hz → zıplama); artık ikisi de paylaşılan konumu okur. */
+    noteMotionSample({
+      lat: loc.latitude, lon: loc.longitude,
+      headingDeg: Number.isFinite(loc.heading ?? NaN) ? (loc.heading as number) : null,
+      speedKmh: useUnifiedVehicleStore.getState().speed ?? 0,
+      accuracyM: Number.isFinite(loc.accuracy ?? NaN) ? (loc.accuracy as number) : null,
+      tsMs: _lastFix.ts,
+      matched: false,
+    });
+
+    // Geometri TEK otoriteden okunur (routingService store'u). Eskiden görünüm
+    // içindeki `routeGeometryRef` kopyasından okunuyordu — bileşenle ölen kopya.
+    const geometry = getRouteState().geometry;
+    updateRouteProgress(loc.latitude, loc.longitude);
+    updateNavigationProgress(
+      loc.latitude,
+      loc.longitude,
+      loc.heading ?? 0,
+      geometry && geometry.length >= 2 ? geometry : undefined,
+    );
+    _tickCount++;
+    _lastTickAtMs = _now();
+    _feedVoiceGuidance(status);
+    _feedCurveAdvisory();
+    /* F3/C1: GNSS yönü jiro İŞARETİNİN tek kanıtıdır (yalnız GERÇEK fix'te —
+       DR projeksiyonu bir gözlem DEĞİLDİR ve işaret öğretemez). */
+    noteEgoHeadingFix(
+      Number.isFinite(loc.heading ?? NaN) ? (loc.heading as number) : null,
+      Number.isFinite(loc.speed ?? NaN) ? (loc.speed as number) : null,
+    );
+    /* F3/C2: ego → rota niyeti → ufuk. Fail-soft: köprüdeki hata rota
+       ilerlemesini ASLA düşürmez (köprü kendi içinde yutar).
+       Jiro aboneliği TALEP-GÜDÜMLÜDÜR: yalnız navigasyon SÜRERKEN tutulur
+       (idempotent). Uygulama ömrü boyunca açık bırakmak, navigasyon kapalıyken
+       de 60 Hz sensör beslemesi demek olurdu — `compassDemand` deseniyle aynı
+       gerekçe. Bırakma `_onNavigationInactive()` ve `stop()` yollarındadır. */
+    acquireEgoHorizonSession();
+    tickEgoHorizon();
+    _ensureDrTimer();
+  } catch (e) {
+    // Fail-soft: ilerleme hesabındaki bir hata navigasyonu ÖLDÜRMEZ; bir
+    // sonraki fix'te yeniden denenir. Hata sayacı LAB'da görünür.
+    _errorCount++; _lastErrorAtMs = _now();
+    logError('NavSessionRuntime:tick', e);
+  }
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -339,9 +354,22 @@ export function startNavigationSessionRuntime(): () => void {
 function _feedVoiceGuidance(status: string): void {
   try {
     const rs = getRouteState();
+    const speedKmh = useUnifiedVehicleStore.getState().speed ?? 0;
+    /* Öndeki trafik olayı (TomTom rota bölümleri) — manevradan BAĞIMSIZ. */
+    try {
+      noteTrafficAheadTick({
+        sessionId: getNavSessionId(),
+        routeRevision: rs.routeRevision,
+        isRerouting: status === NavStatus.REROUTING,
+        sections: rs.trafficSections ?? [],
+        cumulativeDistances: rs.cumulativeDistances,
+        vehicleAlongRemainingM: getNavigationCoreSnapshot().fix?.alongRemainingM ?? null,
+        speedKmh,
+        distanceToNextTurnM: rs.distanceToNextTurnSource === 'UNKNOWN' ? null : rs.distanceToNextTurnMeters,
+      });
+    } catch { /* trafik uyarısı yönlendirmeyi ASLA bozmaz */ }
     const nextStep = rs.steps[rs.currentStepIndex + 1];
     if (!nextStep) return;   // sıradaki manevra yok → söylenecek bir şey yok
-    const speedKmh = useUnifiedVehicleStore.getState().speed ?? 0;
     noteVoiceGuidanceTick(
       {
         navActive: true,
@@ -353,6 +381,11 @@ function _feedVoiceGuidance(status: string): void {
         distanceM: rs.distanceToNextTurnMeters,
         distanceSource: rs.distanceToNextTurnSource,
         speedKmh,
+        isArrival: nextStep.maneuverType === 'arrive',
+        /* routingService'in yakın-manevra yığını (MANEUVER_STACK_THRESHOLD_M) —
+           ekranda zaten birlikte gösterilen ikinci manevra sese de eklenir. */
+        thenInstruction: rs.pendingManeuver?.instruction ?? null,
+        thenIsArrival: rs.pendingManeuver?.maneuverType === 'arrive',
       },
       undefined,
       () => markFirstNewInstruction(_now()),
@@ -361,6 +394,34 @@ function _feedVoiceGuidance(status: string): void {
     // Sesli yönlendirme hatası ilerlemeyi ASLA bozmaz.
     _errorCount++; _lastErrorAtMs = _now();
     logError('NavSessionRuntime:voice', e);
+  }
+}
+
+/**
+ * Öndeki viraj önerisi — YALNIZ gerçek GPS tick'inden (DR tahmini viraj
+ * anonsu üretmez). Girdi tek otoritelerden: rota geometrisi/mesafeleri ve
+ * manevra çapaları (routingService), aracın rota konumu (matchToRoute),
+ * rota hız sınırı (TomTom bölümü; yoksa null).
+ */
+function _feedCurveAdvisory(): void {
+  try {
+    const rs = getRouteState();
+    const fix = getNavigationCoreSnapshot().fix;
+    const along = fix && (fix.state === 'MATCHED' || fix.state === 'MATCH_UNCERTAIN') ? fix.alongRemainingM : null;
+    noteCurveTick({
+      sessionId: getNavSessionId(),
+      routeRevision: rs.routeRevision,
+      geometry: rs.geometry,
+      cumulativeDistances: rs.cumulativeDistances,
+      vehicleAlongRemainingM: along,
+      maneuverAlongRemainingM: rs.maneuverAnchors
+        .map((m) => m.alongRemainingM).filter((x): x is number => typeof x === 'number'),
+      limitKmh: fix && fix.segIdx >= 0 ? speedLimitOnRouteAt(rs.speedLimitSections ?? [], fix.segIdx) : null,
+      speedKmh: useUnifiedVehicleStore.getState().speed,
+    });
+  } catch (e) {
+    _errorCount++; _lastErrorAtMs = _now();
+    logError('NavSessionRuntime:curve', e);
   }
 }
 
@@ -373,6 +434,7 @@ function _onNavigationInactive(): void {
   _drConfidence = 0;
   _clearDrProjection();
   resetVoiceGuidance('navigasyon aktif değil');
+  resetCurveAdvisory();
   resetMarkerMotion();
   /* Zero-Leak + güç: navigasyon bitince jiro aboneliği DÜŞER ve ego/ufuk
      durumu sıfırlanır (bayat oturum kanıtı yeni oturuma taşınmaz). */
@@ -382,6 +444,19 @@ function _onNavigationInactive(): void {
 /* ══════════════════════════════════════════════════════════════════════════
  * Ölü hesaplama (DR) — GPS fix YOKKEN ilerlemeyi sürdürür
  * ════════════════════════════════════════════════════════════════════════ */
+
+/** Kanonik fix, son işlenenden en az bu kadar yeniyse AYNI konum yeniden işlenir. */
+const SAME_FIX_MIN_GAP_MS = 500;
+
+/** Son KABUL EDİLEN fix'in yaşı (kanonik: `getLocationEvidence`); okunamazsa `null`. */
+function _canonicalFixAgeMs(): number | null {
+  try {
+    const age = getLocationEvidence().fixAgeMs;
+    return typeof age === 'number' && Number.isFinite(age) ? age : null;
+  } catch {
+    return null;   // kanıt yok → eski davranış (fail-soft)
+  }
+}
 
 /** DR zamanlayıcısını kurar (idempotent — çift timer = çift ilerleme olurdu). */
 function _ensureDrTimer(): void {
@@ -414,6 +489,20 @@ function _drTick(): void {
 
     const now = _now();
     const ageMs = now - fix.ts;
+
+    /* AYNI FIX TEKRARI (duran araç, smoke 2026-09-24): `onGPSLocation` yalnız
+       konum DEĞİŞİNCE çağrılır; araç durunca fix'ler birebir aynı gelir ve geri
+       çağrı susar. Varış tetikleyicileri ardışık fix + duruş süresi saydığından
+       hedefte duran araçta navigasyon BİTMİYOR, 5 sn sonra GPS de "bayat"
+       sayılıyordu. #553 dersi: canlılık "değer değişti mi"den değil "fix geldi
+       mi"den okunur — kanonik fix son işlenenden yeniyse AYNI konum bir fix
+       olarak işlenir. Yeni zamanlayıcı yok; bu 1 Hz tick kullanılır. */
+    const canonAgeMs = _canonicalFixAgeMs();
+    if (canonAgeMs !== null && canonAgeMs <= GPS_STALE_MS && ageMs - canonAgeMs >= SAME_FIX_MIN_GAP_MS) {
+      const loc = useUnifiedVehicleStore.getState().location;
+      if (loc && loc.latitude === fix.lat && loc.longitude === fix.lng) { _onFix(loc); return; }
+    }
+
     if (ageMs <= GPS_STALE_MS) {
       _setDrState('GPS_FRESH'); _drConfidence = 1;
       /* GPS geri geldi → çapa unutulur; bir sonraki kayıpta TAZE çapa alınır.
@@ -430,10 +519,20 @@ function _drTick(): void {
     /* Hız: ARACIN kendi doğrulanmış hızı > son geçerli GPS hızı.
        `UnifiedVehicleStore.speed` zaten `obdService.getObdSpeedFresh()` tazelik
        kapısından geçmiştir (store sözleşmesi) — bayat OBD hızı buraya ULAŞMAZ.
-       İkisi de yoksa projeksiyon YAPILMAZ (sahte ilerleme yasak). */
-    const vehicleKmh = useUnifiedVehicleStore.getState().speed ?? 0;
-    const speedKmh = resolveDrSpeed(vehicleKmh, fix.speedMs);
+       İkisi de yoksa projeksiyon YAPILMAZ (sahte ilerleme yasak).
+       Araç hızı BİLİNİYORSA 0 da GERÇEKTİR: tünelde trafikte duran araç son GPS
+       hızıyla (ör. 90 km/s) ilerletilmez. GPS hızına yalnız araç hızı `null`
+       (bilinmiyor) iken düşülür. */
+    const vehicleKmh = useUnifiedVehicleStore.getState().speed;
+    const speedKmh = (vehicleKmh != null && Number.isFinite(vehicleKmh))
+      ? Math.max(0, vehicleKmh)
+      : resolveDrSpeed(0, fix.speedMs);
+    /* Birikimli ilerleme: ilk DR tick'i fix'ten beri geçen süreyi, sonrakiler
+       yalnız kendi aralığını ekler. Durulan süre (hız < 1) mesafe EKLEMEZ. */
+    const dtSec = (_drLastTickMs === null ? ageMs : now - _drLastTickMs) / 1000;
+    _drLastTickMs = now;
     if (!(speedKmh >= 1)) { _setDrState('DR_EXPIRED'); return; }
+    _drAdvanceM += (speedKmh / 3.6) * Math.max(0, dtSec);
 
     const geometry = getRouteState().geometry;
 
@@ -447,9 +546,9 @@ function _drTick(): void {
       if (p) _drAnchor = { lat: p.lat, lon: p.lon, segIdx: p.segIdx };
     }
 
-    /* Kat edilmesi TAHMİN edilen yol-boyu mesafe — mevcut mutlak sözleşme:
-       "son gerçek fix'ten bu yana v × Δt", 60 sn tavanıyla. */
-    const advanceM = (speedKmh / 3.6) * Math.min(ageSec, DR_MAX_DT_SEC);
+    /* Kat edilmesi TAHMİN edilen yol-boyu mesafe — çapadan MUTLAK, ama mesafe
+       tick tick BİRİKTİRİLİR (∫v·dt). Pencere DR_MAX_DT_SEC'te zaten kapanır. */
+    const advanceM = _drAdvanceM;
 
     const along = _drAnchor
       ? advanceAlongRoute(geometry, _drAnchor.segIdx, _drAnchor.lat, _drAnchor.lon, advanceM)
@@ -469,8 +568,11 @@ function _drTick(): void {
     } else {
       /* FAIL-CLOSED: rota çapası yok / geometri bozuk-boş → BUGÜNKÜ heading
          projeksiyonu AYNEN. Rota uydurulmaz. */
+      /* projectDeadReckon "hız × fix'ten beri süre" ister; biriken mesafeyi
+         aynen üretmesi için eşdeğer ortalama hız verilir (ageSec < DR_MAX_DT_SEC). */
       const hp = projectDeadReckon(
-        { lat: fix.lat, lng: fix.lng, heading: fix.heading, ts: fix.ts }, speedKmh, now,
+        { lat: fix.lat, lng: fix.lng, heading: fix.heading, ts: fix.ts },
+        ageSec > 0 ? (advanceM / ageSec) * 3.6 : 0, now,
       );
       lat = hp.lat;
       lng = hp.lng;
@@ -483,8 +585,11 @@ function _drTick(): void {
        sahte reroute internet yokken gerçek rotayı düz-çizgiyle değiştirirdi.
        Bu sözleşme eski (görünüm-içi) hâliyle BİREBİR aynıdır. */
     updateRouteProgress(lat, lng, { allowReroute: false });
+    /* positionEstimated: DR konumu VARIŞ kararı veremez — tahmin rota sonuna
+       dayanınca kalan mesafe 0 olur ve tünelde sahte "varıldı" + oturum kapanması
+       üretiyordu. Varış yalnız gerçek GPS ölçümüyle ilan edilir. */
     updateNavigationProgress(lat, lng, fix.heading,
-      geometry && geometry.length >= 2 ? geometry : undefined);
+      geometry && geometry.length >= 2 ? geometry : undefined, { positionEstimated: true });
 
     /* DR konumu da işaret hareketini besler → tünelde mini haritada da araç
        akıcı ilerler. Doğruluk `null`: DR bir ÖLÇÜM değil PROJEKSİYONdur. */
@@ -497,7 +602,7 @@ function _drTick(): void {
       matched: false,
     });
 
-    _drDistanceM = (speedKmh / 3.6) * Math.min(ageSec, DR_MAX_DT_SEC);
+    _drDistanceM = advanceM;
     _setDrState('DR_ACTIVE');
     _drTickCount++;
     _feedVoiceGuidance(nav.status);

@@ -108,6 +108,26 @@ data class CompanionView(
     val reconnectAttempt: Int = 0,
     val foregroundServiceRunning: Boolean = false,
     val trustedPeerKnown: Boolean = false,
+    /* ── F8.1 — Destination Push ─────────────────────────────────────────
+     * `lastDestinationStatus` CarOS'un uygulama-mesajı ACK'inde döndürdüğü
+     * SABİT durum metnidir (`PENDING_USER_APPROVAL`/`ACCEPTED`/`REJECTED_BY_USER`/
+     * `EXPIRED`/...) — ham hata/istisna metni DEĞİL, TS tarafıyla BİREBİR aynı
+     * sözleşme. Koordinat/etiket BURADA TUTULMAZ (yalnız gönderim ekranının
+     * kendi input state'inde yaşar, controller'a YAZILMAZ). */
+    val destinationSending: Boolean = false,
+    val lastDestinationRequestId: String? = null,
+    val lastDestinationStatus: String? = null,
+    /* ── F9 — Mavi Assistant Bridge ───────────────────────────────────────
+     * `lastAssistantStatus` CarOS'un uygulama-mesajı ACK'inde döndürdüğü
+     * SABİT durum metnidir (`RECEIVED`/`ACCEPTED`/`ACTION_NOT_PERMITTED`/
+     * `NO_ANSWER`/...). `lastAssistantResponse` YALNIZ `ACCEPTED` ACK'inin
+     * `result.text` alanından gelir — CarOS'un ürettiği GERÇEK cevaptır,
+     * bu ekran KENDİ metnini UYDURMAZ. Soru metni BURADA TUTULMAZ (yalnız
+     * gönderim ekranının kendi input state'inde yaşar). */
+    val assistantSending: Boolean = false,
+    val lastAssistantRequestId: String? = null,
+    val lastAssistantStatus: String? = null,
+    val lastAssistantResponse: String? = null,
 ) {
     /** Kullanıcıya gösterilecek hata metni — teknik kod DEĞİL. */
     fun userMessage(): String = errorCode?.userMessage() ?: state.detail

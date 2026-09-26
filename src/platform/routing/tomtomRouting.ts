@@ -1,0 +1,450 @@
+/**
+ * tomtomRouting — TomTom Routing API (Calculate Route v1) istemcisi ve çözücüsü.
+ *
+ * NEDEN: herkese açık OSRM sunucuları trafiği bilmez (ETA hep trafiksiz) ve
+ * ticari kullanıma uygun değildir. TomTom `traffic=true` ile canlı trafiğe göre
+ * rota ve süre verir.
+ *
+ * ÇIKARILABİLİRLİK (kullanıcı kararı 2026-09-24): TomTom ücretlidir; satışta
+ * kaldırılabilir. Bu modül YALNIZ `VITE_TOMTOM_API_KEY` tanımlıyken devreye
+ * girer; anahtar yoksa routingService bugünkü OSRM zincirini aynen kullanır.
+ * Kaldırmak için anahtarı silmek yeter (kod da tek dosya + tek çağrı yeridir).
+ *
+ * TEK DÖNÜŞÜM NOKTASI KORUNUR: TomTom talimatları, routingService'in zaten
+ * anladığı OSRM adım biçimine (tip/değiştirici/ad/ref/tabela/geometri) çevrilir;
+ * Türkçe cümle, tabela yönü ve manevra çapaları mevcut kodla üretilir.
+ *
+ * DÜRÜSTLÜK:
+ *  · Segment süreleri TomTom'un talimat noktalarındaki GERÇEK (trafikli)
+ *    kümülatif sürelerinden türetilir: iki talimat arası süre, aradaki
+ *    segmentlere mesafe oranıyla dağıtılır. Sabit hız UYDURULMAZ.
+ *  · Ücretli yol TomTom `TOLL` bölümünden okunur (sezgisel değil).
+ *  · Şerit verisi TomTom `LANES` bölümünden gelir ve YALNIZ bölümün bittiği
+ *    manevra noktasına bağlanır; bölüm yoksa şerit paneli çıkmaz.
+ */
+
+export const TOMTOM_ROUTING_SERVER = 'tomtom:routing';
+
+/** routingService `OsrmStep` ile YAPISAL olarak uyumlu adım. */
+export interface TomTomOsrmStep {
+  distance: number;
+  duration: number;
+  name: string;
+  ref?: string;
+  destinations?: string;
+  maneuver: { type: string; modifier?: string; exit?: number };
+  geometry: { coordinates: [number, number][] };
+  /** OSRM `intersections[].lanes` biçiminde GERÇEK şerit (TomTom LANES). */
+  intersections?: Array<{ lanes: Array<{ valid: boolean; active: boolean; indications: string[] }> }>;
+}
+
+/** Rota üzerindeki trafik/olay bölümü (TomTom TRAFFIC). Nokta indeksleri rota geometrisine göredir. */
+export interface RouteTrafficSection {
+  readonly startIdx: number;
+  readonly endIdx: number;
+  readonly level: 'moderate' | 'heavy' | 'standstill';
+  readonly kind: 'JAM' | 'ROAD_WORK' | 'ROAD_CLOSURE' | 'OTHER';
+  /** TomTom'un bildirdiği gecikme (sn); yoksa `null`. */
+  readonly delayS: number | null;
+}
+
+/** Rota üzerindeki yasal hız sınırı bölümü (TomTom SPEED_LIMIT). */
+export interface RouteSpeedLimitSection {
+  readonly startIdx: number;
+  readonly endIdx: number;
+  readonly kmh: number;
+}
+
+export interface TomTomRoute {
+  geometry: [number, number][];            // [lon, lat]
+  distance: number;                         // m
+  duration: number;                         // sn (trafik dahil)
+  trafficDelayS: number;
+  hasToll: boolean;
+  steps: TomTomOsrmStep[];
+  /** geometry.length − 1 uzunlukta segment süreleri; türetilemezse null. */
+  annotationDurations: number[] | null;
+  /** Rota üzerindeki trafik bölümleri (boş = TomTom bildirmedi). */
+  trafficSections: RouteTrafficSection[];
+  /** Rota üzerindeki hız sınırı bölümleri (boş = TomTom bildirmedi). */
+  speedLimitSections: RouteSpeedLimitSection[];
+}
+
+/**
+ * TomTom TRAFFIC bölümü → seviye. `magnitudeOfDelay`: 1 küçük · 2 orta · 3 büyük ·
+ * 4 tanımsız (kapalı yol). Kapalı yol en koyu; 0/bilinmeyen gecikme "yavaş".
+ */
+export function trafficSectionLevel(
+  category: string | undefined, magnitude: number | undefined,
+): RouteTrafficSection['level'] {
+  if (category === 'ROAD_CLOSURE' || magnitude === 4 || magnitude === 3) return 'standstill';
+  if (magnitude === 2) return 'heavy';
+  return 'moderate';
+}
+
+interface TtInstruction {
+  routeOffsetInMeters?: number;
+  travelTimeInSeconds?: number;
+  pointIndex?: number;
+  maneuver?: string;
+  street?: string;
+  roadNumbers?: string[];
+  signpostText?: string;
+  roundaboutExitNumber?: number;
+  turnAngleInDecimalDegrees?: number;
+}
+
+/** Rota tanımına katkısı olmayan bilgi talimatları — adım ÜRETMEZ. */
+const _INFO_ONLY = new Set(['FOLLOW', 'WAYPOINT_REACHED', 'WAYPOINT_LEFT', 'WAYPOINT_RIGHT', 'WAYPOINT_AHEAD']);
+
+function _side(angle: number | undefined, fallback: 'left' | 'right' | null): 'left' | 'right' | null {
+  if (typeof angle === 'number' && Number.isFinite(angle) && angle !== 0) return angle > 0 ? 'right' : 'left';
+  return fallback;
+}
+
+/**
+ * TomTom manevra kodu → OSRM tip/değiştirici. Tanınmayan kod UYDURULMAZ:
+ * tip olarak aynen taşınır ve Türkçe katman onu nötr "Devam edin" yapar.
+ */
+export function tomtomManeuverToOsrm(
+  maneuver: string, angle?: number,
+): { type: string; modifier: string } {
+  const m = maneuver.toUpperCase();
+  switch (m) {
+    case 'DEPART':        return { type: 'depart', modifier: 'straight' };
+    case 'ARRIVE':        return { type: 'arrive', modifier: 'straight' };
+    case 'ARRIVE_LEFT':   return { type: 'arrive', modifier: 'left' };
+    case 'ARRIVE_RIGHT':  return { type: 'arrive', modifier: 'right' };
+    case 'STRAIGHT':      return { type: 'continue', modifier: 'straight' };
+    case 'KEEP_LEFT':     return { type: 'fork', modifier: 'slight left' };
+    case 'KEEP_RIGHT':    return { type: 'fork', modifier: 'slight right' };
+    case 'BEAR_LEFT':     return { type: 'turn', modifier: 'slight left' };
+    case 'BEAR_RIGHT':    return { type: 'turn', modifier: 'slight right' };
+    case 'TURN_LEFT':     return { type: 'turn', modifier: 'left' };
+    case 'TURN_RIGHT':    return { type: 'turn', modifier: 'right' };
+    case 'SHARP_LEFT':    return { type: 'turn', modifier: 'sharp left' };
+    case 'SHARP_RIGHT':   return { type: 'turn', modifier: 'sharp right' };
+    case 'MAKE_UTURN':
+    case 'TRY_MAKE_UTURN': return { type: 'turn', modifier: 'uturn' };
+    case 'ROUNDABOUT_CROSS': return { type: 'roundabout', modifier: 'straight' };
+    case 'ROUNDABOUT_LEFT':  return { type: 'roundabout', modifier: 'left' };
+    case 'ROUNDABOUT_RIGHT': return { type: 'roundabout', modifier: 'right' };
+    /* Dönel kavşakta tam tur = geri dönüş → "U dönüşü yapın". */
+    case 'ROUNDABOUT_BACK':  return { type: 'roundabout', modifier: 'uturn' };
+    case 'MOTORWAY_EXIT_LEFT':  return { type: 'off ramp', modifier: 'slight left' };
+    case 'MOTORWAY_EXIT_RIGHT': return { type: 'off ramp', modifier: 'slight right' };
+    case 'TAKE_EXIT': {
+      const s = _side(angle, null);
+      return { type: 'off ramp', modifier: s ? `slight ${s}` : 'straight' };
+    }
+    case 'ENTRANCE_RAMP': {
+      const s = _side(angle, null);
+      return { type: 'on ramp', modifier: s ? `slight ${s}` : 'straight' };
+    }
+    case 'ENTER_MOTORWAY':
+    case 'ENTER_FREEWAY':
+    case 'ENTER_HIGHWAY': {
+      const s = _side(angle, null);
+      return { type: 'merge', modifier: s ? `slight ${s}` : 'straight' };
+    }
+    case 'SWITCH_PARALLEL_ROAD':
+    case 'SWITCH_MAIN_ROAD':  return { type: 'continue', modifier: 'straight' };
+    case 'TAKE_FERRY':        return { type: 'notification', modifier: 'straight' };
+    default:                  return { type: m.toLowerCase(), modifier: 'straight' };
+  }
+}
+
+function _hav(a: [number, number], b: [number, number]): number {
+  const R = 6_371_000, toR = Math.PI / 180;
+  const dLat = (b[1] - a[1]) * toR, dLon = (b[0] - a[0]) * toR;
+  const s = Math.sin(dLat / 2) ** 2 + Math.cos(a[1] * toR) * Math.cos(b[1] * toR) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(s)));
+}
+
+/**
+ * Talimat noktalarındaki kümülatif süreleri segmentlere dağıtır.
+ * Düğümler (pointIndex, t) kesin monoton değilse ya da geometriyi
+ * kapsamıyorsa `null` (fail-closed → ETA modeli yedeğe düşer).
+ */
+export function segmentDurationsFromKnots(
+  geometry: readonly [number, number][],
+  knots: readonly { idx: number; t: number }[],
+): number[] | null {
+  const n = geometry.length - 1;
+  if (n < 1 || knots.length < 2) return null;
+  if (knots[0].idx !== 0 || knots[knots.length - 1].idx !== n) return null;
+  const out = new Array<number>(n).fill(0);
+  for (let k = 0; k + 1 < knots.length; k++) {
+    const a = knots[k], b = knots[k + 1];
+    if (!(b.idx >= a.idx) || !(b.t >= a.t)) return null;
+    const dt = b.t - a.t;
+    if (b.idx === a.idx) { if (dt > 0) return null; continue; }
+    let len = 0;
+    for (let i = a.idx; i < b.idx; i++) len += _hav(geometry[i], geometry[i + 1]);
+    for (let i = a.idx; i < b.idx; i++) {
+      out[i] = len > 0 ? dt * (_hav(geometry[i], geometry[i + 1]) / len) : dt / (b.idx - a.idx);
+    }
+  }
+  return out;
+}
+
+const _LANE_DIR: Readonly<Record<string, string>> = {
+  STRAIGHT: 'straight', SLIGHT_RIGHT: 'slight right', RIGHT: 'right', SHARP_RIGHT: 'sharp right',
+  SLIGHT_LEFT: 'slight left', LEFT: 'left', SHARP_LEFT: 'sharp left', U_TURN: 'uturn',
+};
+
+interface TtLaneSection {
+  sectionType?: string; startPointIndex?: number; endPointIndex?: number;
+  simpleCategory?: string; magnitudeOfDelay?: number; delayInSeconds?: number;
+  maxSpeedLimitInKmh?: number;
+  lanes?: Array<{ directions?: string[]; follow?: string }>;
+}
+
+/**
+ * TomTom LANES bölümü → OSRM şerit dizisi. `follow` olan şerit rotanın
+ * önerdiği şerittir (valid+active); olmayan için izin bilgisi TomTom'da YOK →
+ * `valid:false` (izin UYDURULMAZ). Yön tanınmazsa 'none' (UI nötr çizer).
+ */
+export function tomtomLanesToOsrm(
+  sec: TtLaneSection,
+): Array<{ valid: boolean; active: boolean; indications: string[] }> | null {
+  const lanes = sec.lanes;
+  if (!Array.isArray(lanes) || lanes.length === 0) return null;
+  return lanes.map((l) => {
+    const follow = typeof l.follow === 'string' && l.follow.length > 0;
+    const ind = (l.directions ?? []).map((d) => _LANE_DIR[d] ?? 'none');
+    return { valid: follow, active: follow, indications: ind.length ? ind : ['none'] };
+  });
+}
+
+/** Tek TomTom rotasını çözer; kullanılamazsa `null`. */
+export function parseTomTomRoute(raw: unknown): TomTomRoute | null {
+  const r = raw as {
+    summary?: { lengthInMeters?: number; travelTimeInSeconds?: number; trafficDelayInSeconds?: number };
+    legs?: Array<{ points?: Array<{ latitude?: number; longitude?: number }> }>;
+    sections?: Array<TtLaneSection & { sectionType?: string }>;
+    guidance?: { instructions?: TtInstruction[] };
+  } | null;
+  if (!r || !r.summary || !Array.isArray(r.legs)) return null;
+  const distance = r.summary.lengthInMeters;
+  const duration = r.summary.travelTimeInSeconds;
+  if (typeof distance !== 'number' || typeof duration !== 'number') return null;
+
+  const geometry: [number, number][] = [];
+  for (const leg of r.legs) {
+    for (const p of leg.points ?? []) {
+      if (typeof p.latitude !== 'number' || typeof p.longitude !== 'number') return null;
+      geometry.push([p.longitude, p.latitude]);
+    }
+  }
+  if (geometry.length < 2) return null;
+  const last = geometry.length - 1;
+
+  const ins = (r.guidance?.instructions ?? []).filter((i) =>
+    typeof i.pointIndex === 'number' && i.pointIndex >= 0 && i.pointIndex <= last && typeof i.maneuver === 'string');
+
+  const knots = ins
+    .filter((i) => typeof i.travelTimeInSeconds === 'number')
+    .map((i) => ({ idx: i.pointIndex as number, t: i.travelTimeInSeconds as number }));
+  const annotationDurations = segmentDurationsFromKnots(geometry, knots);
+
+  const man = ins.filter((i) => !_INFO_ONLY.has((i.maneuver as string).toUpperCase()));
+  // Şerit bölümü manevra kavşağında BİTER → aynı noktadaki manevraya bağlanır.
+  const lanesAt = new Map<number, ReturnType<typeof tomtomLanesToOsrm>>();
+  for (const sec of r.sections ?? []) {
+    if (sec.sectionType !== 'LANES' || typeof sec.endPointIndex !== 'number') continue;
+    const l = tomtomLanesToOsrm(sec);
+    if (l) lanesAt.set(sec.endPointIndex, l);
+  }
+  const steps: TomTomOsrmStep[] = man.map((i, k) => {
+    const next = man[k + 1];
+    const from = i.pointIndex as number;
+    const to = next ? (next.pointIndex as number) : from;
+    const { type, modifier } = tomtomManeuverToOsrm(i.maneuver as string, i.turnAngleInDecimalDegrees);
+    const refs = (i.roadNumbers ?? []).filter((x) => typeof x === 'string' && x.trim());
+    return {
+      distance: next ? Math.max(0, (next.routeOffsetInMeters ?? 0) - (i.routeOffsetInMeters ?? 0)) : 0,
+      duration: next ? Math.max(0, (next.travelTimeInSeconds ?? 0) - (i.travelTimeInSeconds ?? 0)) : 0,
+      name: (i.street ?? '').trim(),
+      ...(refs.length ? { ref: refs.join(', ') } : {}),
+      ...(i.signpostText ? { destinations: i.signpostText } : {}),
+      maneuver: {
+        type, modifier,
+        ...(typeof i.roundaboutExitNumber === 'number' ? { exit: i.roundaboutExitNumber } : {}),
+      },
+      geometry: { coordinates: geometry.slice(from, to + 1) },
+      ...(lanesAt.get(from) ? { intersections: [{ lanes: lanesAt.get(from)! }] } : {}),
+    };
+  });
+  if (steps.length === 0) return null;
+
+  const trafficSections: RouteTrafficSection[] = [];
+  for (const sec of r.sections ?? []) {
+    if (sec.sectionType !== 'TRAFFIC') continue;
+    const a = sec.startPointIndex, b = sec.endPointIndex;
+    if (typeof a !== 'number' || typeof b !== 'number' || a < 0 || b > last || b <= a) continue;
+    const cat = sec.simpleCategory;
+    trafficSections.push({
+      startIdx: a, endIdx: b,
+      level: trafficSectionLevel(cat, sec.magnitudeOfDelay),
+      kind: cat === 'JAM' || cat === 'ROAD_WORK' || cat === 'ROAD_CLOSURE' ? cat : 'OTHER',
+      delayS: typeof sec.delayInSeconds === 'number' ? sec.delayInSeconds : null,
+    });
+  }
+
+  const speedLimitSections: RouteSpeedLimitSection[] = [];
+  for (const sec of r.sections ?? []) {
+    if (sec.sectionType !== 'SPEED_LIMIT') continue;
+    const a = sec.startPointIndex, b = sec.endPointIndex, v = sec.maxSpeedLimitInKmh;
+    if (typeof a !== 'number' || typeof b !== 'number' || a < 0 || b > last || b <= a) continue;
+    if (typeof v !== 'number' || !Number.isFinite(v) || v <= 0 || v > 200) continue;
+    speedLimitSections.push({ startIdx: a, endIdx: b, kmh: v });
+  }
+
+  return {
+    geometry, distance, duration, trafficSections, speedLimitSections,
+    trafficDelayS: r.summary.trafficDelayInSeconds ?? 0,
+    hasToll: (r.sections ?? []).some((s) => s.sectionType === 'TOLL'),
+    steps,
+    annotationDurations,
+  };
+}
+
+/** Calculate Route isteği URL'i. Anahtar kodlanır; yön yalnız biliniyorsa gönderilir. */
+export function tomtomRouteUrl(
+  key: string,
+  fromLat: number, fromLon: number, toLat: number, toLon: number,
+  headingDeg?: number | null,
+): string {
+  const q = new URLSearchParams({
+    key, traffic: 'true', travelMode: 'car', routeType: 'fastest',
+    maxAlternatives: '2', instructionsType: 'coded', language: 'tr-TR',
+  });
+  q.append('sectionType', 'toll');
+  q.append('sectionType', 'lanes');
+  q.append('sectionType', 'traffic');
+  q.append('sectionType', 'speedLimit');
+  if (headingDeg != null && Number.isFinite(headingDeg)) {
+    q.set('vehicleHeading', String(((Math.round(headingDeg) % 360) + 360) % 360));
+  }
+  const pts = `${fromLat.toFixed(6)},${fromLon.toFixed(6)}:${toLat.toFixed(6)},${toLon.toFixed(6)}`;
+  return `https://api.tomtom.com/routing/1/calculateRoute/${pts}/json?${q.toString()}`;
+}
+
+/**
+ * Rotaları getirir. HTTP/ağ/zaman aşımı hatası FIRLATILIR (çağıran sonraki
+ * sağlayıcıya geçer); zaman aşımı `TOMTOM_TIMEOUT` olarak işaretlenir —
+ * OSRM'in `HEADERS_TIMEOUT` sinyaliyle KARIŞMAZ.
+ */
+export async function fetchTomTomRoutes(
+  key: string,
+  fromLat: number, fromLon: number, toLat: number, toLon: number,
+  headingDeg: number | null | undefined,
+  timeoutMs: number,
+  fetchImpl: typeof fetch = fetch,
+): Promise<TomTomRoute[]> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    let res: Response;
+    try {
+      res = await fetchImpl(tomtomRouteUrl(key, fromLat, fromLon, toLat, toLon, headingDeg), { signal: ctrl.signal });
+    } catch (e) {
+      throw ctrl.signal.aborted ? new Error('TOMTOM_TIMEOUT') : (e as Error);
+    }
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json() as { routes?: unknown[] };
+    const routes = (data.routes ?? []).map(parseTomTomRoute).filter((x): x is TomTomRoute => x !== null);
+    if (routes.length === 0) throw new Error('NO_ROUTES');
+    return routes;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Araç `segIdx` segmentindeyken geçerli rota hız sınırı; bölüm yoksa `null`
+ * (uydurulmaz). Segment [segIdx, segIdx+1] bölüm aralığının İÇİNDE olmalı.
+ */
+export function speedLimitOnRouteAt(
+  sections: readonly RouteSpeedLimitSection[], segIdx: number,
+): number | null {
+  if (!Number.isInteger(segIdx) || segIdx < 0) return null;
+  for (const s of sections) if (segIdx >= s.startIdx && segIdx < s.endIdx) return s.kmh;
+  return null;
+}
+
+/* ── Daha hızlı rota denetimi (TomTom `alternativeType=betterRoute`) ──────── */
+
+/** Referans rotanın en fazla bu kadar noktası gönderilir (istek gövdesi sınırlı). */
+export const BETTER_ROUTE_MAX_POINTS = 150;
+/** En az bu kadar kazanç (sn) — altı "daha hızlı rota" diye önerilmez. */
+export const BETTER_ROUTE_MIN_SAVING_S = 180;
+/** …ve kalan sürenin en az bu oranı (kısa yolda 3 dk gürültü sayılmaz). */
+export const BETTER_ROUTE_MIN_SAVING_RATIO = 0.1;
+
+/** Rota noktalarını ilk/son korunarak en fazla `max` noktaya seyreltir. */
+export function samplePolyline(g: readonly [number, number][], max = BETTER_ROUTE_MAX_POINTS): [number, number][] {
+  if (g.length <= max) return g.slice() as [number, number][];
+  const step = (g.length - 1) / (max - 1);
+  const out: [number, number][] = [];
+  for (let i = 0; i < max; i++) out.push(g[Math.round(i * step)] as [number, number]);
+  return out;
+}
+
+/** Kazanç anlamlıysa saniye cinsinden döndürür; değilse `null`. SAF. */
+export function betterRouteSaving(referenceS: number, candidateS: number): number | null {
+  if (!Number.isFinite(referenceS) || !Number.isFinite(candidateS) || referenceS <= 0) return null;
+  const saving = referenceS - candidateS;
+  if (saving < BETTER_ROUTE_MIN_SAVING_S) return null;
+  if (saving < referenceS * BETTER_ROUTE_MIN_SAVING_RATIO) return null;
+  return saving;
+}
+
+/**
+ * Mevcut rotanın KALAN kısmını referans verip TomTom'a güncel trafikle daha iyi
+ * rota var mı diye sorar. Dönen: referansın GÜNCEL süresi + (varsa) en iyi
+ * alternatifin süresi. Hata FIRLATILIR (çağıran sessizce yutar).
+ */
+export async function fetchTomTomBetterRoute(
+  key: string,
+  remaining: readonly [number, number][],   // [lon, lat], ilk nokta = aracın konumu
+  headingDeg: number | null | undefined,
+  timeoutMs: number,
+  fetchImpl: typeof fetch = fetch,
+): Promise<{ referenceS: number; bestAlternativeS: number | null }> {
+  if (remaining.length < 2) throw new Error('NO_REFERENCE');
+  const pts = samplePolyline(remaining);
+  const a = pts[0]!, b = pts[pts.length - 1]!;
+  const q = new URLSearchParams({
+    key, traffic: 'true', travelMode: 'car', routeType: 'fastest',
+    maxAlternatives: '1', alternativeType: 'betterRoute', minDeviationTime: '0',
+  });
+  if (headingDeg != null && Number.isFinite(headingDeg)) {
+    q.set('vehicleHeading', String(((Math.round(headingDeg) % 360) + 360) % 360));
+  }
+  const url = `https://api.tomtom.com/routing/1/calculateRoute/${a[1].toFixed(6)},${a[0].toFixed(6)}:`
+    + `${b[1].toFixed(6)},${b[0].toFixed(6)}/json?${q.toString()}`;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    let res: Response;
+    try {
+      res = await fetchImpl(url, {
+        method: 'POST', signal: ctrl.signal,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ supportingPoints: pts.map(([lon, lat]) => ({ latitude: lat, longitude: lon })) }),
+      });
+    } catch (e) {
+      throw ctrl.signal.aborted ? new Error('TOMTOM_TIMEOUT') : (e as Error);
+    }
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json() as { routes?: Array<{ summary?: { travelTimeInSeconds?: number } }> };
+    const ref = data.routes?.[0]?.summary?.travelTimeInSeconds;
+    if (typeof ref !== 'number') throw new Error('NO_ROUTES');
+    const alt = data.routes?.[1]?.summary?.travelTimeInSeconds;
+    return { referenceS: ref, bestAlternativeS: typeof alt === 'number' ? alt : null };
+  } finally {
+    clearTimeout(timer);
+  }
+}

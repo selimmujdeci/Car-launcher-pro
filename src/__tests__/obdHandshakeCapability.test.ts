@@ -23,6 +23,8 @@ import {
   parseSupportedPIDs,
   buildHandshakeResult,
   classifyHandshakeResponse,
+  extractSupportedPidBitmap,
+  parseCalibrationId,
   type RawHandshake,
 } from '../core/val/OBDHandshake';
 import { getPidListForVehicle, refinePidList } from '../platform/obdPidConfig';
@@ -91,6 +93,31 @@ describe('W5-OBD-PR1 · Capability-güdümlü poll listesi (item 2/3/4)', () => 
     const r = buildHandshakeResult({ raw09: '', raw0100: RAW_0100 }); // 0120 yok → 2F bilinmiyor
     const pids = refinePidList(base, r.supportedPids, r.readBlocks);
     expect(pids).not.toContain('0x2F');
+  });
+
+  // PID 0x0B (MAP) — byte B'nin bit5'i (offset0 + PID11): 0x1F → 0x3F (RAW_0100'ün
+  // AYNI RPM/hız/coolant desteğini korur, yalnız 0x0B'yi de destekli işaretler).
+  const RAW_0100_WITH_MAP = '41 00 BE 3F B8 13';
+
+  it('MAP (0x0B) bitmap kanıtıyla oto-aktive olur — ICE tabanında YOK (item 4/MAP)', () => {
+    expect(base).not.toContain('0x0B'); // taban ICE listede MAP YOK (statik)
+    const r = buildHandshakeResult({ raw09: '', raw0100: RAW_0100_WITH_MAP });
+    const pids = refinePidList(base, r.supportedPids, r.readBlocks);
+    expect(pids).toContain('0x0B'); // kanıtlı destekli → eklendi
+    expect(pids).toContain('0x0C'); // mevcut RPM desteği regresyonsuz korunur
+  });
+
+  it('MAP (0x0B) desteklenmiyorsa eklenmez (varsayım yok)', () => {
+    const r = buildHandshakeResult({ raw09: '', raw0100: RAW_0100 }); // orijinal fixture: 0x0B set değil
+    const pids = refinePidList(base, r.supportedPids, r.readBlocks);
+    expect(pids).not.toContain('0x0B');
+  });
+
+  it('DIESEL tabanında MAP zaten statik var — kanıt yokken KORUNUR (regresyon)', () => {
+    const dieselBase = getPidListForVehicle('diesel');
+    expect(dieselBase).toContain('0x0B');
+    const same = refinePidList(dieselBase, new Set(), new Set());
+    expect(same).toContain('0x0B');
   });
 });
 
@@ -168,5 +195,55 @@ describe('W5-OBD-PR1 · Regresyon güvencesi (item 10)', () => {
     // Blok 0x00 okunmadı → tüm ICE tabanı korunur, üstüne 2F eklenir
     for (const p of base) expect(pids).toContain(p);
     expect(pids).toContain('0x2F');
+  });
+});
+
+describe('W5-OBD-PR2 · Kalıcı yetenek otoritesi — bitmap hex türetme', () => {
+  it('tek bloklu kanıttan tam bitmap hex üretir (İKİNCİ decoder DEĞİL)', () => {
+    const bitmap = extractSupportedPidBitmap({ raw09: '', raw0100: RAW_0100 });
+    expect(bitmap).toBe('BE1FB813');
+  });
+
+  it('çok-bloklu kanıtı SIRALI birleştirir', () => {
+    const bitmap = extractSupportedPidBitmap({ raw09: '', raw0100: RAW_0100, raw0120: RAW_0120 });
+    expect(bitmap).toBe('BE1FB81300020000');
+  });
+
+  it('kanıt yoksa boş string döner (çağıran bunu "değişiklik yok" saymalı)', () => {
+    expect(extractSupportedPidBitmap({ raw09: '', raw0100: '' })).toBe('');
+    expect(extractSupportedPidBitmap({ raw09: '', raw0100: 'NO DATA' })).toBe('');
+  });
+
+  it('0120 okunamazsa (NO DATA) yalnız 0100 kanıtı taşınır — sonraki blok EKLENMEZ', () => {
+    // Devam biti SET (0100 byte D bit0=1) ama 0120 sustu → zincir orada kırıldı.
+    const bitmap = extractSupportedPidBitmap({ raw09: '', raw0100: RAW_0100, raw0120: 'NO DATA' });
+    expect(bitmap).toBe('BE1FB813'); // yalnız 1 blok (4 bayt = 8 hex hane)
+  });
+});
+
+describe('W5-OBD-PR3 · Mode 09 PID 04 — Kalibrasyon Kimliği (CAL ID)', () => {
+  it('tek bloklu gerçek-benzeri CAL ID doğru ayrıştırılır', () => {
+    // "1037524791013000" → ASCII hex: 31 30 33 37 35 32 34 37 39 31 30 31 33 30 30 30
+    const raw = '49 04 01 31 30 33 37 35 32 34 37 39 31 30 31 33 30 30 30';
+    expect(parseCalibrationId(raw)).toBe('1037524791013000');
+  });
+
+  it('bitişik (ATS0) hex akışında da AYNI sonucu üretir', () => {
+    const raw = '49040131303337353234373931303133303030';
+    expect(parseCalibrationId(raw)).toBe('1037524791013000');
+  });
+
+  it('desteklenmiyorsa null döner, throw etmez', () => {
+    expect(parseCalibrationId('NO DATA')).toBeNull();
+    expect(parseCalibrationId('7F 09 12')).toBeNull();
+    expect(parseCalibrationId('')).toBeNull();
+    expect(parseCalibrationId(null)).toBeNull();
+    expect(parseCalibrationId(undefined)).toBeNull();
+  });
+
+  it('sondaki NUL/boşluk dolgusu kırpılır, sabit uzunluk ZORUNLU DEĞİL', () => {
+    // 16 baytlık blok, "ABC" + 13× 0x00 dolgu — CAL ID üreticiye göre kısa olabilir.
+    const raw = '49 04 01 41 42 43 00 00 00 00 00 00 00 00 00 00 00 00 00';
+    expect(parseCalibrationId(raw)).toBe('ABC');
   });
 });

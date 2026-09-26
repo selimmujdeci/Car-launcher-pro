@@ -52,6 +52,12 @@ export interface GatewayChatParams {
   readonly onToken?:     (token: string) => void;
   /** Barge-in/iptal sinyali. */
   readonly signal?:      AbortSignal;
+  /**
+   * Dış zincir belirli bir provider'ı sahipleniyorsa gateway'in kendi fallback
+   * zincirini kapatır. Mavi'nin nihai provider sırası OpenRouter adımında bunu
+   * kullanır; böylece gateway içeride yeniden Gemini'ye dönmez.
+   */
+  readonly providerId?:  string;
 }
 
 /**
@@ -85,7 +91,7 @@ export function buildChatMessages(
 }
 
 export async function askGatewayChat(params: GatewayChatParams): Promise<GatewayChatOutcome> {
-  const { gateway, system, user, history, timeoutMs, maxTokens, temperature, onToken, signal } = params;
+  const { gateway, system, user, history, timeoutMs, maxTokens, temperature, onToken, signal, providerId } = params;
 
   const messages = buildChatMessages(system, user, history);
 
@@ -93,6 +99,7 @@ export async function askGatewayChat(params: GatewayChatParams): Promise<Gateway
     const result = await gateway.generateResponse(
       {
         messages,
+        ...(providerId  !== undefined ? { providerId }  : {}),
         ...(timeoutMs   !== undefined ? { timeoutMs }   : {}),
         ...(maxTokens   !== undefined ? { maxTokens }   : {}),
         ...(temperature !== undefined ? { temperature } : {}),

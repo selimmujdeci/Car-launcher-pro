@@ -226,6 +226,7 @@ export const DockBar = memo(function DockBar({
     <div
       ref={dockRef}
       data-dock="main"
+      data-no-page-swipe
       style={{
         position: 'fixed',
         bottom: 0,
@@ -244,6 +245,7 @@ export const DockBar = memo(function DockBar({
       {/* Scrollable items row */}
       <div
         ref={scrollRef}
+        data-no-page-swipe
         style={{
           display: 'flex',
           flexWrap: 'nowrap',

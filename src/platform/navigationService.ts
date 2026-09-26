@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { Address } from './addressBookService';
+import { allowsConnectivity } from './connectivity/connectivityGate';
 import { sensitiveKeyStore } from './sensitiveKeyStore';
 import {
   setRerouteContext,
@@ -12,6 +13,7 @@ import {
   clearAltRoutes,
   clearRoute,
   fetchRoute,
+  getNavigationCoreSnapshot,
 } from './routingService';
 import { useUnifiedVehicleStore } from './vehicleDataLayer/UnifiedVehicleStore';
 import { speakNavigation } from './ttsService';
@@ -26,6 +28,9 @@ import { setNavigationGpsPower } from './navigation/navGpsPowerBridge';
    döngü riski yok. Yön formülünü ikinci kez yazmamak için oradan alınır. */
 import { bearingBetween } from './cameraEngine';
 import { roadBearingAheadDeg } from './navigation/core/geo';
+import {
+  EMPTY_GLIDE, glideAlongAt, pointAtAlongRemaining, pushGlideSample, type GlideState,
+} from './navigation/core/routeGlideModel';
 import { safeSetRawImmediate, safeGetRaw, safeRemoveRaw } from '../utils/safeStorage';
 import {
   judgeDestinationChange, recordDestinationChange,
@@ -147,6 +152,11 @@ const useNavigationStore = create<NavigationStore>((set) => ({
     destination,
     isOfflineResult: isOffline,
     errorMessage: undefined,
+    /* Yeni hedefte ESKİ hedefin ETA/mesafesi GÖSTERİLMEZ (sürüşte hedef
+       değişince stop çağrılmıyor ve bu değerler taşınıyordu). */
+    etaSeconds: undefined,
+    distanceMeters: undefined,
+    distanceSource: undefined,
   }),
 
   updateDistance: (distance, source) => set({ distanceMeters: distance, distanceSource: source }),
@@ -183,6 +193,41 @@ export const ARRIVAL_THRESHOLD_M = 20;
 
 // 5 s ARRIVED → IDLE timer
 let _arrivedTimer: ReturnType<typeof setTimeout> | null = null;
+
+/* ── VARIŞ MÜHRÜ (gözlemlenebilir iz — YENİ OTORİTE DEĞİL) ────────────────
+ *
+ * NEDEN VAR: `ARRIVED` yalnız 5 saniye yaşar, sonra `stopNavigation()` her
+ * izi siler. Varışı 5 sn'den seyrek örnekleyen bir okuyucu (seyahat oturumu
+ * `tripLogService` yayınıyla ~5 sn'de bir uyanır) hedefe VARILDIĞINI hiç
+ * göremez ve "iptal edildi" ile "varıldı" ayırt edilemezdi.
+ *
+ * Mühür varış KARARINI ÜRETMEZ — kararı `transitionToArrived` verir, burası
+ * yalnız o kararın KALICI izini tutar. `seq` monotonik artar: okuyucu kendi
+ * açılışındaki değeri saklayıp "benden sonra varış oldu mu" sorusunu saat
+ * karşılaştırmadan cevaplar. İptal (`stopNavigation`) mührü SİLMEZ; çünkü
+ * silinen mühür "varış olmadı" anlamına gelir ve bu bir uydurmadır. */
+export interface NavArrivalMark {
+  /** Monotonik artan varış sırası — 0 = hiç varış gözlenmedi. */
+  readonly seq: number;
+  /** Varışın gerçekleştiği navigasyon oturumu (`getNavSessionId`). */
+  readonly navSessionId: number;
+  /** Varılan hedefin kimliği; bilinmiyorsa `null` (UYDURULMAZ). */
+  readonly destinationId: string | null;
+}
+
+let _arrivalMark: NavArrivalMark = Object.freeze({
+  seq: 0, navSessionId: -1, destinationId: null,
+});
+
+/** Son varış mührü — salt okuma projeksiyonu. `seq === 0` → hiç varış yok. */
+export function getNavArrivalMark(): NavArrivalMark {
+  return _arrivalMark;
+}
+
+/** @internal testler için — mührü sıfırlar. */
+export function _resetNavArrivalMarkForTest(): void {
+  _arrivalMark = Object.freeze({ seq: 0, navSessionId: -1, destinationId: null });
+}
 let _unregisterReroutingCb: (() => void) | null = null;
 
 /** Hedefe varış — ARRIVED durumuna geç ve 5 s sonra IDLE'a dön. */
@@ -193,6 +238,12 @@ function transitionToArrived(): void {
   if (!_navigationStarted) return;
 
   clearRerouteContext(); // artık sapma tespiti yapma
+  /* Varış MÜHÜRLENİR: `ARRIVED` 5 sn sonra silinir, bu iz KALIR (bkz. mühür). */
+  _arrivalMark = Object.freeze({
+    seq: _arrivalMark.seq + 1,
+    navSessionId: _sessionId,
+    destinationId: useNavigationStore.getState().destination?.id ?? null,
+  });
   useNavigationStore.getState()._setStatus(NavStatus.ARRIVED);
 
   if (_arrivedTimer) clearTimeout(_arrivedTimer);
@@ -298,6 +349,17 @@ export function endNavigation(): void {
 }
 
 /**
+ * Sesli "navigasyonu iptal et": aktif oturum varsa `endNavigation` ile kapatır.
+ * Oturum yoksa HİÇBİR ŞEY yapmaz ve bunu dürüstçe bildirir (sahte "iptal ettim" yok).
+ */
+export function cancelNavigationByVoice(): 'cancelled' | 'nothing_active' {
+  const st = useNavigationStore.getState().status;
+  if (st === NavStatus.IDLE || st === NavStatus.ERROR) return 'nothing_active';
+  endNavigation();
+  return 'cancelled';
+}
+
+/**
  * Hedef seçildi — PREVIEW durumuna gir.
  *
  * `source` (kütük #429): hedefi KİMİN belirlediği. Sahada, aktif yolculuk
@@ -377,6 +439,8 @@ export function startNavigation(
   // Yeni hedef → yeni oturum; önceki oturumun istek sahipliği düşer.
   _sessionId += 1;
   _routeClaim = null;
+  _resetSessionEtaState();
+  _lastPersistedStepIdx = -1;   // eski rotanın adım mührü yeni oturuma taşınmaz
   const op = `nav:${_sessionId}:${destination.id}`;
   _commandEvidence.record({ id: `${op}:request`, kind: 'COMMAND', name: 'navigation.destination.set', source, target: 'navigationService', operationId: op, correlationId: op, sessionId: String(_sessionId), generation: _sessionId, nowMs: Date.now() });
   useNavigationStore.getState().setDestination(destination, isOffline);
@@ -499,11 +563,7 @@ export function stopNavigation(): void {
   useNavigationStore.getState().clearNavigation();
   clearRerouteContext();
   // Per-session izleme state'ini sıfırla — sonraki navigasyon temiz başlar
-  _speedHistory.length    = 0;
-  _stopStartMs            = null;
-  _prevAppliedEtaFactor   = null;   // #551 — yeni oturum çarpanı serbest yakalar
-  _lastEtaUpdateMs        = -ETA_HYSTERESIS_MS;
-  _lastStoredEtaS         = 0;
+  _resetSessionEtaState();
   _lastRouteDistanceM     = Infinity;
   _lastGeoHash            = '';
   _lastClosestSegIdx      = -1;
@@ -518,7 +578,24 @@ export function stopNavigation(): void {
   _lastSnappedLon         = null;
   _lastSnappedSegBearing  = null;
   _lastOffRouteM          = Infinity;
+  _glide = EMPTY_GLIDE; _glideGeom = null; _glideCum = null;
   corridorSync.stop();
+}
+
+/**
+ * Oturum başına ETA izleme durumu. Hem `stopNavigation` hem YENİ oturum
+ * (`startNavigation`) sıfırlar: sürüş sırasında hedef değişince stop ÇAĞRILMAZ
+ * (ACTIVE → PREVIEW → ACTIVE) ve eskiden önceki rotanın hız geçmişi, düzeltme
+ * çarpanı ve son yazılan ETA yeni rotaya taşınıyordu — yeni ETA eskisine 5 sn'den
+ * yakınsa store'a HİÇ yazılmıyor, sıçrama defterine de sahte bir sıçrama düşüyordu.
+ */
+function _resetSessionEtaState(): void {
+  _speedHistory.length    = 0;
+  _stopStartMs            = null;
+  _prevAppliedEtaFactor   = null;   // #551 — yeni oturum çarpanı serbest yakalar
+  _lastEtaUpdateMs        = -ETA_HYSTERESIS_MS;
+  _lastStoredEtaS         = 0;
+  _prevEtaSample          = null;
 }
 
 /**
@@ -647,6 +724,8 @@ let _lastSnappedSegBearing: number | null = null;
 const ARRIVAL_SPEED_GUARD_KMH          = 10;    // varış için maksimum hız eşiği
 const ARRIVAL_MIN_MOVE_M               = 50;    // navigasyon başından bu yana minimum hareket (m)
 const ARRIVAL_CONSECUTIVE_LOW_SPEED_MS = 5_000; // düşük hız için zorunlu sürekli süre (ms)
+const ARRIVAL_PARK_RADIUS_M            = 60;    // park-trigger: rota sonu VE hedefe en fazla (m)
+const ARRIVAL_PARK_DWELL_MS            = 20_000; // park-trigger: kesintisiz düşük hız süresi (ms)
 
 // ── Varış Histerezisi — GPS spike koruması ───────────────────────────────────
 // Tünel çıkışında GPS sıçraması tek tick'te eşik altına düşebilir.
@@ -705,7 +784,9 @@ export function updateNavigationProgress(
   currentLat: number,
   currentLon: number,
   _currentHeading: number,  // API uyumluluğu için korundu; yön hedefe olan bearing'den hesaplanır
-  routeGeometry?: [number, number][]
+  routeGeometry?: [number, number][],
+  /** positionEstimated: konum ÖLÇÜM değil DR tahmini → varış ilan edilmez. */
+  opts?: { positionEstimated?: boolean },
 ): void {
   const state = useNavigationStore.getState();
   if (!state.destination) return;
@@ -736,14 +817,6 @@ export function updateNavigationProgress(
     : calculateDistance(currentLat, currentLon, state.destination.latitude, state.destination.longitude);
   const distanceSource: 'ALONG_ROUTE' | 'STRAIGHT_LINE' = hasRouteGeom ? 'ALONG_ROUTE' : 'STRAIGHT_LINE';
 
-  // ── 500m Yakınlık Uyarısı (TTS) ─────────────────────────────────────────
-  // Hedefe ilk kez 500m altına girildiğinde tek seferlik sesli uyarı.
-  // _proximityAlertFired: session başında sıfırlanır — tekrar tetiklenmez.
-  if (!_proximityAlertFired && distance > 0 && distance < PROXIMITY_ALERT_M) {
-    _proximityAlertFired = true;
-    speakNavigation('Hedefiniz 500 metrede, hazır olun.');
-  }
-
   // ── Başlangıç konumu — ilk GPS tick'inde yakala (session artığı önlenir) ──
   if (_navStartLat === null) {
     _navStartLat = currentLat;
@@ -752,6 +825,23 @@ export function updateNavigationProgress(
     _navStartDistToDest = calculateDistance(
       currentLat, currentLon, state.destination.latitude, state.destination.longitude,
     );
+  }
+
+  // ── 500m Yakınlık Uyarısı (TTS) ─────────────────────────────────────────
+  // Hedefe ilk kez 500m altına girildiğinde tek seferlik sesli uyarı.
+  // _proximityAlertFired: session başında sıfırlanır — tekrar tetiklenmez.
+  //  · Rotanın sesli VARIŞ adımı varsa (≥2 adım) sesli yönlendirme varışı zaten
+  //    söyler → ikinci anons YAPILMAZ (eskiden aynı yerde iki anons oluyordu).
+  //  · Yolculuk 500 m içinden başladıysa "500 metrede" YANLIŞTIR → söylenmez.
+  //  · Mesafe kuş uçuşuysa metre İDDİA EDİLMEZ.
+  if (!_proximityAlertFired && distance > 0 && distance < PROXIMITY_ALERT_M) {
+    _proximityAlertFired = true;
+    const hasSpokenArrival = getRouteState().steps.length >= 2;
+    if (!hasSpokenArrival && _navStartDistToDest > PROXIMITY_ALERT_M) {
+      speakNavigation(distanceSource === 'ALONG_ROUTE'
+        ? 'Hedefiniz 500 metrede, hazır olun.'
+        : 'Hedefinize yaklaşıyorsunuz.');
+    }
   }
 
   // ── Sürekli düşük hız takibi ──────────────────────────────────────────────
@@ -765,9 +855,17 @@ export function updateNavigationProgress(
    *     tetiklenmiyordu.**
    * Aynı hata `routingService.updateRouteProgress` içinde de vardı ve orada
    * düzeltilmişti; navigationService'teki üç kopya GÖZDEN KAÇMIŞTI. */
-  const { speed: _rawArrSpd } = useUnifiedVehicleStore.getState();
-  const speedAtArrival = _rawArrSpd ?? 0;   // km/h
-  if (speedAtArrival >= ARRIVAL_SPEED_GUARD_KMH) {
+  /* Hız BİLİNMİYORSA "duruyor" sayılmaz (CLAUDE.md §8 — missing→zero yasak).
+     Araç hızı (OBD) yoksa GPS hızı kullanılır; ikisi de yoksa düşük-hız süresi
+     BİRİKMEZ → varış yalnız 5 m hard-trigger ile olabilir. OBD'siz araçta
+     eskiden hız hep 0 okunup araç sürekli "duruyor" sayılıyordu. */
+  const { speed: _rawArrSpd, location: _arrLoc } = useUnifiedVehicleStore.getState();
+  const _gpsArrMs = _arrLoc?.speed;
+  const speedAtArrival: number | null =
+    (_rawArrSpd != null && Number.isFinite(_rawArrSpd)) ? _rawArrSpd
+      : (_gpsArrMs != null && Number.isFinite(_gpsArrMs) && _gpsArrMs >= 0) ? _gpsArrMs * 3.6
+        : null;   // km/h
+  if (speedAtArrival === null || speedAtArrival >= ARRIVAL_SPEED_GUARD_KMH) {
     _arrivalLowSpeedStartMs = null; // hız yüksek → süreç sıfırla
   } else if (_arrivalLowSpeedStartMs === null) {
     _arrivalLowSpeedStartMs = performance.now(); // ilk düşük hız anı
@@ -776,7 +874,12 @@ export function updateNavigationProgress(
   // ── Varış Histerezisi: GPS spike koruması ────────────────────────────────
   // Tünel çıkışında GPS sıçraması tek tick'te eşik altına düşebilir.
   // Sayaç her "eşik altı" tick'te artar, eşik üstüne çıkınca sıfırlanır.
-  if (distance < ARRIVAL_THRESHOLD_M) {
+  /* Tahmini (DR) konum varış histerezisini BESLEMEZ ve varış tetiklemez:
+     tahmin rota sonuna dayanınca mesafe 0 olur — araç tünelde/trafikte olabilir. */
+  const _estimated = opts?.positionEstimated === true;
+  if (_estimated) {
+    _arrivalDistanceBelow = 0;
+  } else if (distance < ARRIVAL_THRESHOLD_M) {
     _arrivalDistanceBelow++;
   } else {
     _arrivalDistanceBelow = 0; // eşik üstüne çıktı — sayacı sıfırla (GPS spike resetlendi)
@@ -800,7 +903,7 @@ export function updateNavigationProgress(
       && Number.isFinite(state.destination.latitude)
       && Number.isFinite(state.destination.longitude));
 
-    if (_navigationStarted) {
+    if (_navigationStarted && !_estimated) {
       // Hard-trigger: 5m + HARD_HYSTERESIS ardışık okuma (GPS jitter, yavaş kapanma)
       // Tek GPS spike'ı (1 tick) tetikleme yapmaz — tünel çıkışı koruması.
       const hardTrigger = distance < 5 && _arrivalDistanceBelow >= ARRIVAL_HARD_HYSTERESIS;
@@ -808,13 +911,24 @@ export function updateNavigationProgress(
       const softTrigger = distance < ARRIVAL_THRESHOLD_M
         && _arrivalDistanceBelow >= ARRIVAL_HYSTERESIS_COUNT
         && lowSpeedMs >= ARRIVAL_CONSECUTIVE_LOW_SPEED_MS;
+      /* Park-trigger (analiz 2026-09-24): rota sonu yolun üstündedir; hedefin
+         otoparkı/bahçesi 30–50 m ötede olabilir. Araç rota sonuna VE hedefe
+         yakın bir yerde UZUN süre (20 sn) durduysa varılmıştır — eskiden bu
+         durumda navigasyon hiç bitmiyordu. Kırmızı ışıkta erken bitmesin diye
+         süre soft-trigger'ın 4 katıdır. */
+      const straightToDest = hasValidDest
+        ? calculateDistance(currentLat, currentLon, state.destination.latitude, state.destination.longitude)
+        : Infinity;
+      const parkTrigger = distance < ARRIVAL_PARK_RADIUS_M
+        && straightToDest < ARRIVAL_PARK_RADIUS_M
+        && lowSpeedMs >= ARRIVAL_PARK_DWELL_MS;
       // M3: Kısa yolculukta (hedef <50m) 50m hareket koşulu asla sağlanmaz → varış takılır.
       // Eşiği başlangıç mesafesinin yarısına ölçekle (min 5m); normal yolculukta 50m kalır.
       const minMove = Math.min(ARRIVAL_MIN_MOVE_M, Math.max(_navStartDistToDest * 0.5, 5));
       const allowed = hasValidDest
         && hasValidGeometry
         && movedFromStart >= minMove
-        && (hardTrigger || softTrigger);
+        && (hardTrigger || softTrigger || parkTrigger);
 
       if (allowed) {
         transitionToArrived();
@@ -1047,13 +1161,29 @@ function calculateRouteDistance(
     useNavigationStore.setState({ distanceMeters: undefined });
   }
 
-  // ── Step 1: find closest segment ─────────────────────────────────────
-  // First call after geometry change: full O(N) scan to locate initial position.
-  // All subsequent calls: O(52) window (2-back for GPS noise + 50-forward lookahead).
+  // ── Step 1: TEK EŞLEŞTİRME OTORİTESİ (analiz 2026-09-24) ──────────────
+  // Eskiden burada İKİNCİ, yöne kör bir "en yakın segment" eşleştiricisi
+  // çalışıyordu; manevra/ETA/sapma ise `routingService.matchToRoute`
+  // (yön + ilerleme + belirsizlik farkında) kullanıyordu. Bölünmüş yolda ya da
+  // rota aynı yoldan iki kez geçtiğinde ikisi AYRIŞIYOR: talimat bir yeri, işaret
+  // ve kalan km karşı şeridi gösteriyordu. Artık AYNI örnek için matchToRoute
+  // sonucu kullanılır; yalnız o bir cevap üretemezse (rota dışı / eşleşme yok)
+  // en-yakın-segment taramasına düşülür.
+  const _mf = getNavigationCoreSnapshot().fix;
+  const _useMatch = _mf !== null
+    && _mf.rawLat === lat && _mf.rawLon === lon
+    && getRouteState().geometry === geometry
+    && _mf.segIdx >= 0 && _mf.segIdx < geometry.length - 1
+    && _mf.snappedLat !== null && _mf.snappedLon !== null
+    && _mf.alongRemainingM !== null && Number.isFinite(_mf.alongRemainingM);
+
   let closestSegIdx = _lastClosestSegIdx < 0 ? 0 : _lastClosestSegIdx;
   let minSegDist    = Infinity;
 
-  if (_lastClosestSegIdx < 0) {
+  if (_useMatch) {
+    closestSegIdx = _mf.segIdx;
+    minSegDist    = _mf.lateralM ?? 0;
+  } else if (_lastClosestSegIdx < 0) {
     for (let i = 0; i < geometry.length - 1; i++) {
       const d = pointToSegmentDist(lat, lon,
         geometry[i][1], geometry[i][0], geometry[i + 1][1], geometry[i + 1][0]);
@@ -1085,9 +1215,11 @@ function calculateRouteDistance(
   // ── Step 2: project P onto closest segment → P' ───────────────────────
   const [aLon, aLat] = geometry[closestSegIdx];
   const [bLon, bLat] = geometry[closestSegIdx + 1];
-  const t    = projectOnSegment(lat, lon, aLat, aLon, bLat, bLon);
-  const pLat = aLat + t * (bLat - aLat);
-  const pLon = aLon + t * (bLon - aLon);
+  const t    = _useMatch
+    ? projectOnSegment(_mf.snappedLat as number, _mf.snappedLon as number, aLat, aLon, bLat, bLon)
+    : projectOnSegment(lat, lon, aLat, aLon, bLat, bLon);
+  const pLat = _useMatch ? (_mf.snappedLat as number) : aLat + t * (bLat - aLat);
+  const pLon = _useMatch ? (_mf.snappedLon as number) : aLon + t * (bLon - aLon);
 
   // Visual Snapping: snapped koordinatı ve rota sapma mesafesini kaydet.
   // getSnappedMarkerPosition() bu değerleri dışa açar; FullMapView RAF'ı tüketir.
@@ -1119,9 +1251,17 @@ function calculateRouteDistance(
   // O(1) with precomputed cumDist; O(N) fallback when unavailable (should not occur).
   const partialM  = calculateDistance(pLat, pLon, bLat, bLon);
   const suffixIdx = closestSegIdx + 1;
-  const remaining = (cumDist && cumDist.length === geometry.length)
-    ? partialM + cumDist[suffixIdx]
-    : partialM + _sumRemainingSegments(geometry, suffixIdx);
+  const remaining = _useMatch
+    ? (_mf.alongRemainingM as number)
+    : (cumDist && cumDist.length === geometry.length)
+      ? partialM + cumDist[suffixIdx]
+      : partialM + _sumRemainingSegments(geometry, suffixIdx);
+
+  /* Akıcı çizim örneği (routeGlideModel) — yalnız ekran; karar girdisi DEĞİL. */
+  if (cumDist && cumDist.length === geometry.length && Number.isFinite(remaining)) {
+    if (_glideGeom !== geometry) { _glide = EMPTY_GLIDE; _glideGeom = geometry; _glideCum = cumDist; }
+    _glide = pushGlideSample(_glide, { alongRemainingM: remaining, ts: performance.now() });
+  }
 
   // Soft clamp: allow up to CLAMP_SLACK_M upward correction per tick (DR recovery),
   // while still rejecting large GPS spikes (> 50 m sudden jump).
@@ -1234,6 +1374,24 @@ export function getSnappedMarkerPosition(): { lat: number; lon: number } | null 
   if (_lastSnappedLat === null || _lastSnappedLon === null) return null;
   if (_lastOffRouteM > SNAP_VISUAL_THRESHOLD_M) return null;
   return { lat: _lastSnappedLat, lon: _lastSnappedLon };
+}
+
+let _glide: GlideState = EMPTY_GLIDE;
+let _glideGeom: [number, number][] | null = null;
+let _glideCum: Float64Array | null = null;
+
+/**
+ * `getSnappedMarkerPosition()`in AKICI hâli — GPS örnekleri arasında rota
+ * boyunca ilerletilmiş konum (routeGlideModel). AYNI güven kapısı; kapı
+ * kapalıysa ya da örnek yoksa `null` (çağıran oturtulmuş/ham konuma düşer).
+ * Yalnız çizim içindir (saha 2026-09-24: "takıla takıla gidiyor").
+ */
+export function getGlidingMarkerPosition(nowMs: number): { lat: number; lon: number } | null {
+  if (getSnappedMarkerPosition() === null) return null;
+  if (!_glideGeom || !_glideCum || getRouteState().geometry !== _glideGeom) return null;
+  const along = glideAlongAt(_glide, nowMs);
+  if (along === null) return null;
+  return pointAtAlongRemaining(_glideGeom, _glideCum, along);
 }
 
 /**
@@ -1398,8 +1556,8 @@ async function addToHistory(address: Address): Promise<void> {
  * Başarısız olursa false döner (ağ yok / adres bulunamadı).
  */
 export async function navigateToAddress(text: string): Promise<boolean> {
-  // 1. Network Check
-  if (!navigator.onLine) {
+  // 1. Kanonik bağlantı kapısı (F7-B) — çevrimdışı eşleşme yolu KORUNUR.
+  if (!allowsConnectivity('LIGHTWEIGHT_INTERNET')) {
     const offlineMatch = await searchOffline(text);
     if (offlineMatch) {
       startNavigation(offlineMatch, true, 'USER_SEARCH');

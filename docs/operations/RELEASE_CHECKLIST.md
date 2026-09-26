@@ -45,6 +45,31 @@ derlenmiş çıktı `developerFeaturesEnabled:!1` üretir ve `shouldRenderCarosL
 `!0===t` şartını korur (kapı çalışma zamanında KAPALI).
 **5. ve 6. maddeler CİHAZDA DOĞRULANMAMIŞTIR** (bkz. `docs/DEVICE_VALIDATION_LEDGER.md` #117).
 
+### 1.1 🔴 Supabase Redirect URL — admin şifre kurtarma (W-17)
+
+Admin kurtarma callback'i artık **tek kullanımlık nonce + PKCE** ile cihaza
+bağlanır. Kod, e-postanın döneceği adresi şu biçimde üretir:
+
+```
+carospro://auth/recovery?state=<128-bit hex>
+```
+
+`state` her istekte **değişir**. Bu nedenle projenin Supabase **Authentication →
+URL Configuration → Redirect URLs** listesi bu biçimi kabul etmelidir. Sabit
+`carospro://auth/recovery` girdisi değişken query'yi kapsamıyorsa kurtarma
+**çalışmaz** (fail-closed: oturum açılmaz, güvenlik açığı oluşmaz).
+
+Doğru girdi biçimi (düz girdi mi, joker mi) **projenin kendi panosunda
+doğrulanmalıdır** — bu repoda kanıtı yoktur ve buraya tahmini bir joker sözdizimi
+YAZILMAMIŞTIR. Ayrıca kurtarma e-postası `?code=` taşıyan PKCE yönlendirmesi
+üretmelidir; `#access_token=` veya çıplak `token_hash` biçimleri artık
+**reddedilir**.
+
+Doğrulama (gerçek cihaz, `docs/DEVICE_VALIDATION_LEDGER.md`'ye işlenecek):
+kurtarma başlat → e-posta bağlantısı → soğuk açılış → doğru nonce ile başarı →
+aynı bağlantı ikinci kez **DENY** → yanlış nonce **DENY** → çıkış sonrası eski
+bağlantı **DENY**.
+
 ---
 
 ## 2. ⚠️ Bilinen sınır — kapı kapalı ama kod hâlâ pakette

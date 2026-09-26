@@ -15,7 +15,7 @@
  *   süren iş      → `maviSpeech` semantik ACK bayrağı (F2 — ara söz DEĞİL)
  *   proaktif      → `proactivePolicyEngine.isProactiveDeliveryInFlight()` (F9)
  *   erteleme      → `maviWorkload.peekDeferredResponse()` (F8)
- *   yetenek kaybı → `navigator.onLine` + `aiHealth` + sağlayıcı soğuması
+ *   yetenek kaybı → kanonik `ConnectivityPolicy` + `aiHealth` + sağlayıcı soğuması
  *
  * **UI OTORİTE DEĞİLDİR:** bu hook hiçbir kaynağa YAZMAZ ve hiçbir eşiği
  * YENİDEN HESAPLAMAZ; yalnız okur ve saf modele verir.
@@ -23,6 +23,8 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useVoiceState } from '../platform/voiceService';
+import { subscribeConnectivity } from '../platform/connectivity/connectivityAuthority';
+import { allowsConnectivity } from '../platform/connectivity/connectivityGate';
 import { useWakeWordState } from '../platform/wakeWordService';
 import {
   currentMaviWorkload, peekDeferredResponse,
@@ -58,19 +60,15 @@ function _deriveDegraded(online: boolean): MaviDegradedClass {
 }
 
 function useOnlineStatus(): boolean {
+  /* F7-B: tarayıcının `online`/`offline` olayları DİNLENMEZ — o ipucu otorite
+     değildir ve kanonik otorite onu zaten kanıt olarak yutar. UI burada yalnız
+     salt-okur TÜKETİCİdir (§24): durum ÜRETMEZ, geçiş SÜRMEZ, timer AÇMAZ. */
   const [online, setOnline] = useState<boolean>(
-    typeof navigator !== 'undefined' ? navigator.onLine : true,
+    () => allowsConnectivity('LIGHTWEIGHT_INTERNET'),
   );
-  useEffect(() => {
-    const on = () => setOnline(true);
-    const off = () => setOnline(false);
-    window.addEventListener('online', on);
-    window.addEventListener('offline', off);
-    return () => {
-      window.removeEventListener('online', on);
-      window.removeEventListener('offline', off);
-    };
-  }, []);
+  useEffect(() => subscribeConnectivity(() => {
+    setOnline(allowsConnectivity('LIGHTWEIGHT_INTERNET'));
+  }), []);
   return online;
 }
 

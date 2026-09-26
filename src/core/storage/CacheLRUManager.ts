@@ -15,6 +15,7 @@
 import maplibregl from 'maplibre-gl';
 import { useDebugStore } from '../../platform/debug/debugStore';
 import { DEVELOPER_FEATURES_ENABLED } from '../../platform/debug/developerFeatures';
+import { useStore } from '../../store/useStore';
 
 /* ── Sabitler ─────────────────────────────────────────────────────────────── */
 
@@ -164,6 +165,13 @@ class CacheLRUManager {
 
     // Cache miss → ağdan indir
     this._misses++;
+    /* Kullanıcı "Yalnız çevrimdışı" seçtiyse ağ KULLANILMAZ (mobil veri harcanmaz).
+       Fırlatmak MapLibre'nin karoyu `errored` saymasını sağlar — boş/sahte karo
+       ÜRETİLMEZ, önbellekteki alan çizilmeye devam eder (saha 2026-09-24: eski
+       "Offline Map HUD" anahtarı haritayı hiç etkilemiyordu). */
+    if (useStore.getState().settings.mapOfflineOnly === true) {
+      throw new Error('Tile offline-only (önbellekte yok)');
+    }
     const res = await fetch(url, {
       signal,
       headers: { 'User-Agent': 'CarosPro/1.0 TileCache' },

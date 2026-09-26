@@ -39,7 +39,9 @@ import org.json.JSONObject;
         @Permission(alias = "btConnect", strings = { Manifest.permission.BLUETOOTH_CONNECT }),
     }
 )
-public class PhoneHubLinkPlugin extends Plugin {
+public class PhoneHubLinkPlugin extends Plugin implements
+        PhoneHubLinkController.ApplicationMessageListener,
+        PhoneHubLinkController.LinkStateListener {
 
     private PhoneHubLinkController controller() {
         String version = "?";
@@ -50,6 +52,83 @@ public class PhoneHubLinkPlugin extends Plugin {
             /* Sürüm okunamazsa "?" kalır — sahte bir sürüm UYDURULMAZ. */
         }
         return PhoneHubLinkController.get(getContext(), version);
+    }
+
+    /* ══════════════════════════════════════════════════════════════════════
+     * F2 — uygulama mesajı köprüsü (native → JS TEK giriş noktası)
+     * ════════════════════════════════════════════════════════════════════ */
+
+    /** Eklenti yaşam döngüsüne bağlanır — kayıt burada, ayrılma {@link #handleOnDestroy}de. */
+    @Override
+    protected void handleOnStart() {
+        super.handleOnStart();
+        controller().setApplicationMessageListener(this);
+        /* F4.1 — yaşam döngüsü köprüsü de AYNI noktada bağlanır. */
+        controller().setLinkStateListener(this);
+    }
+
+    /**
+     * Zero-leak (F2 kapı 20): eklenti yok edildiğinde dinleyici SÖKÜLÜR —
+     * bundan sonra native tarafta gelen hiçbir mesaj bu örneğe ULAŞMAZ.
+     */
+    @Override
+    protected void handleOnDestroy() {
+        controller().setApplicationMessageListener(null);
+        /* Zero-leak: her iki dinleyici de SÖKÜLÜR. */
+        controller().setLinkStateListener(null);
+        super.handleOnDestroy();
+    }
+
+    /**
+     * {@link PhoneHubLinkController.ApplicationMessageListener} — native
+     * ESTABLISHED oturumdan gelen kanıtı (fingerprint + nesil) opak yükle
+     * birlikte JS'e İLETİR. Hiçbir ayrıştırma/karar BURADA verilmez.
+     */
+    @Override
+    public void onApplicationMessage(String peerFingerprintRef, long sessionEpoch, String payloadUtf8) {
+        JSObject data = new JSObject();
+        data.put("fingerprint", peerFingerprintRef);
+        data.put("sessionEpoch", sessionEpoch);
+        data.put("payload", payloadUtf8);
+        notifyListeners("applicationMessage", data);
+    }
+
+    /**
+     * {@link PhoneHubLinkController.LinkStateListener} — F4.1 kanonik yaşam
+     * döngüsü geçişi. Hiçbir karar BURADA verilmez; olay olduğu gibi taşınır.
+     *
+     * Yük SABİT alanlıdır ve kripto materyali, eşleşme kodu, ham anahtar,
+     * hata kodu, exception mesajı veya stack trace TAŞIMAZ.
+     */
+    @Override
+    public void onLinkStateChanged(String state, long sessionEpoch, String fingerprint, String reason) {
+        JSObject data = new JSObject();
+        data.put("protocolVersion", 1);
+        data.put("state", state);
+        /* Oturum yokken uydurma nesil ÜRETİLMEZ — null taşınır. */
+        data.put("sessionEpoch", sessionEpoch < 0 ? null : sessionEpoch);
+        data.put("deviceFingerprint", fingerprint);
+        data.put("reason", reason);
+        notifyListeners("linkState", data);
+    }
+
+    /**
+     * TS ingress'inin karar verdiği ACK/REJECTED yanıtını (veya ileride başka
+     * bir uygulama mesajını) mevcut şifreli oturumdan gönderir. Bu metot da
+     * yetki KARARI VERMEZ — yalnız zaten üretilmiş baytı taşır.
+     */
+    @PluginMethod
+    public void sendApplicationMessage(PluginCall call) {
+        String payload = call.getString("payload");
+        JSObject ret = new JSObject();
+        if (payload == null) {
+            ret.put("sent", false);
+            call.resolve(ret);
+            return;
+        }
+        boolean sent = controller().sendApplicationMessage(payload);
+        ret.put("sent", sent);
+        call.resolve(ret);
     }
 
     /* ══════════════════════════════════════════════════════════════════════

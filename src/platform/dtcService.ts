@@ -15,8 +15,16 @@ import { vdkDtcClassFn, isReplayActive } from './obd/vdkTransport';
 import { resolveFunctionalDtcSource } from './obd/functionalDtcSource';
 import { recordFunctionalDtcEvidence } from './obd/functionalDtcEvidence';
 import { logError } from './crashLogger';
-import { getOBDDataSnapshot, getObdSessionEpoch } from './obdService';
-import { evaluateDtcClearGate, type WriteGateDecision } from './obd/writeGate';
+import { getHandshakeDiagnostics, getOBDDataSnapshot, getObdSessionEpoch, getObdSpeedFresh } from './obdService';
+import {
+  evaluateDtcClearGate, WRITE_GATE_STOPPED_SPEED_KMH,
+  type WriteGateDecision, type WriteGateDenyReason,
+} from './obd/writeGate';
+import { evaluateManufacturerClearGate, MANUFACTURER_CLEAR_DENY_LABEL } from './obd/manufacturerClearGate';
+import {
+  classifyUdsDtcState, formatDtcDisplayCode, parseUdsDtcResponse, validateUdsDtcResponse,
+  type UdsDtc,
+} from './obd/udsDtc';
 /* ARCH-05 — CLEAR_DTC ürün yaptırımı. Write gate FİZİKSEL önkoşulu (hız ·
    tazelik · bağlantı), authorization ise ÇAĞIRANIN YETKİSİNİ denetler; ikisi
    AYRI sorulardır ve biri diğerinin yerine GEÇMEZ. */
@@ -42,7 +50,7 @@ import {
 } from './obd/dtcClearModel';
 import { recordDtcClearAttempt, type DtcClearRereadClass } from './obd/dtcClearEvidence';
 import {
-  beginDtcScanRound, recordDtcObservation, recordDtcServiceScan,
+  beginDtcScanRound, getDtcAuthoritySnapshot, recordDtcObservation, recordDtcServiceScan,
   DTC_CLASS_OF_SERVICE_CANON, type DtcScanOutcome, type DtcSourceService,
 } from './obd/dtcAuthority';
 import { getDiagnosticAdmission } from './obd/diagnosticAdmission';
@@ -368,7 +376,13 @@ export async function readDTCCodes(): Promise<void> {
         // UI "hata okunamadı" ile "hata yok" arasındaki farkı isStale üzerinden ayırt eder.
         // Native nedeni eklenir — "OBD bağlı değil" / "ELM327 hata yanıtı" ayrımı
         // saha teşhisinde kritik (2026-06-11: metot hiç yoktu, hep generic mesajdı).
-        const detail = err instanceof Error && err.message ? ` — ${err.message}` : '';
+        /* Eklenti `reject("DTC_READ_FAILED", msg)` çağırır → Capacitor'da ilk argüman
+           `message` olur. Makine kodu (BÜYÜK_HARF) sürücüye okunmaz; insan metni seçilir. */
+        const e = err as { message?: unknown; code?: unknown } | null;
+        const human = [e?.code, e?.message].find(
+          (t): t is string => typeof t === 'string' && t.trim() !== '' && !/^[A-Z0-9_]+$/.test(t.trim()),
+        );
+        const detail = human ? ` — ${human}` : '';
         _setState({
           isReading: false,
           lastReadAt: Date.now(),
@@ -461,10 +475,36 @@ export function getClearableDtcSnapshot(): {
     if (c.status === 'permanent') continue;
     byKey.set(`${c.code}|${c.status}`, c);
   }
+
+  /* Fiziksel ECU taraması da AYNI kanonik DTC defterine yazar. Mode 04 yalnız
+     standart emisyon hafızasını temizlediği için burada sadece 03/CONFIRMED ve
+     07/PENDING kabul edilir; UDS/KWP üretici kodları ile 0A permanent bilinçli
+     olarak dışarıda kalır. Oturum bilinmiyorsa fiziksel gözlem taşınmaz. */
+  let physicalScanRan = false;
+  try {
+    const authority = getDtcAuthoritySnapshot();
+    const sameProvenSession = epoch >= 0 && authority.sessionEpoch === epoch;
+    if (sameProvenSession) {
+      physicalScanRan = authority.scans.some((s) => s.ecuKey !== null || s.txHeader !== null);
+      for (const o of authority.observations) {
+        if (o.provenance !== 'physical_ecu') continue;
+        const status: DTCStatus | null =
+          o.sourceService === '03' && o.dtcClass === 'CONFIRMED' ? 'stored'
+            : o.sourceService === '07' && o.dtcClass === 'PENDING' ? 'pending'
+              : null;
+        if (status === null) continue;
+        const code = lookupDtc(o.dtcCode);
+        const key = `${code.code}|${status}`;
+        if (!byKey.has(key)) {
+          byKey.set(key, { ...code, status, ecuLabel: o.ecuKey, sessionEpoch: o.sessionEpoch });
+        }
+      }
+    }
+  } catch { /* Kanonik defter okunamazsa mevcut fonksiyonel envanter korunur. */ }
   return {
     codes: [...byKey.values()],
     count: byKey.size,
-    scanRan: _lastScan !== null || _state.lastReadAt !== null,
+    scanRan: _lastScan !== null || _state.lastReadAt !== null || physicalScanRan,
   };
 }
 
@@ -589,12 +629,14 @@ export async function clearDTCCodes(opts: ClearDtcOptions): Promise<DtcClearResu
 
   // ── WRITE GATE (fail-closed) ────────────────────────────────────────────
   const obd = getOBDDataSnapshot();
+  let freshSpeedKmh: number | null = null;
+  try { freshSpeedKmh = getObdSpeedFresh(); } catch { freshSpeedKmh = null; }
   const decision = evaluateDtcClearGate({
     connectionState: obd.connectionState,
-    speedKmh:        obd.speed,
+    /* Tazelik kararı OBD owner'ına aittir. null = hiç ölçülmedi VEYA bayat;
+       ikisi de yazma için "hız bilinmiyor"dur ve fail-closed reddedilir. */
+    speedKmh:        freshSpeedKmh ?? Number.NaN,
     rpm:             obd.rpm,
-    lastSeenMs:      obd.lastSeenMs,
-    nowMs:           Date.now(),
     confirmed:       opts.confirmed,
   });
   // Web/demo modunda gerçek araç yoktur (native yazma da yapılmaz) → kapı yalnız
@@ -772,6 +814,246 @@ export async function clearDTCCodes(opts: ClearDtcOptions): Promise<DtcClearResu
 function isClearCommandOutcome(v: unknown): v is DtcClearCommandOutcome {
   return v === 'POSITIVE' || v === 'NEGATIVE' || v === 'NO_DATA' || v === 'NO_RESPONSE'
       || v === 'BUS_ERROR' || v === 'UNSUPPORTED' || v === 'UNKNOWN' || v === 'TRANSPORT_ERROR';
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   ÜRETİCİ DTC SİLME — UDS 0x14, TEK ECU
+   ══════════════════════════════════════════════════════════════════════════
+   Mode 04 yalnız standart emisyon hafızasını siler; UDS 0x19 ile okunan üretici
+   kodları (ör. şanzıman U1225/U1226) ancak kodu OKUYAN ECU'ya fiziksel adresle
+   gönderilen 0x14 ile silinir. `clearDTCCodes` ile AYNI zincir: yazma kapısı →
+   yetki → (taze ön okuma) → üretici kapısı → TOCTOU → komut → yeniden okuma → hüküm. */
+
+/**
+ * UDS 0x14 yolunun SAHA doğrulaması — YALNIZ UDS 0x19 kaynağı × CAN protokolü.
+ *
+ * AÇIK — saha kanıtı 2026-09-23 (kütük #1330): gerçek araçta şanzıman ECU'suna
+ * (fiziksel 7E1, CAN protokol 6, V-LINK ELM327) 0x14 → pozitif yanıt → 19-02
+ * yeniden okumasında kod yok; bağımsız tam taramada U1225/U1226 GÖRÜNMEDİ
+ * (üretici kod sayısı 67 → 65). Yazma kapısı · yetki · iki adımlı onay ·
+ * fiziksel başlık · TOCTOU · yeniden-okuma hükmü AYNEN geçerlidir.
+ * K-line/KWP yolu bundan bağımsız olarak kapalı kalır (CAN dışı protokol).
+ */
+let _udsCanClearFieldVerified = true;
+
+/** Ürün bu yolu açık sayıyor mu — UI düğmeyi yalnız o zaman gösterir. */
+export function isUdsClearPathFieldVerified(): boolean { return _udsCanClearFieldVerified; }
+
+/** Test kancası — üretim yolunda ÇAĞRILMAZ. */
+export function _setUdsClearFieldVerifiedForTest(v: boolean): void { _udsCanClearFieldVerified = v; }
+const CAN_PROTOCOL_DIGITS: ReadonlySet<string> = new Set(['6', '7', '8', '9', 'A', 'B', 'C']);
+
+export interface ClearManufacturerDtcOptions {
+  /** Kodu OKUYAN ECU'nun fiziksel başlıkları (tarama sonucundan). */
+  readonly txHeader: string;
+  readonly rxHeader: string;
+  /** İki aşamalı UI onayı verildi mi. */
+  readonly confirmed: boolean;
+  readonly principal?: SecurityPrincipalClass;
+  readonly channel?: ChannelEvidence;
+  readonly operationId?: string;
+}
+
+export interface ManufacturerDtcClearResult {
+  /** Komut ECU'ya GÖNDERİLDİ mi (kapılar geçildi). */
+  readonly allowed: boolean;
+  /** Kullanıcıya söylenecek DÜRÜST cümle. */
+  readonly userMessage: string;
+  /** Ölçülen silme raporu; kapı reddettiyse `null` (tek bayt gitmedi). */
+  readonly clear: DtcClearReport | null;
+}
+
+/**
+ * UDS kaydını silme hükmü sınıfına çevirir. "Test tamamlanmadı" ve etkin olmayan
+ * arşiv ARIZA DEĞİLDİR (`null`): silme sonrası ECU kayıtları tam bu durumla yeniden
+ * raporlar — onları "kalan kod" saymak başarılı silmeyi "silinemedi" gösterirdi.
+ */
+function _udsFaultObservation(d: UdsDtc): ClearObservedCode | null {
+  const state = classifyUdsDtcState(d.status);
+  const code = formatDtcDisplayCode(d.code, d.failureType);
+  if (state === 'ACTIVE' || state === 'CONFIRMED_INACTIVE') return { code, status: 'stored' };
+  if (state === 'PENDING') return { code, status: 'pending' };
+  return null;
+}
+
+/** Tek ECU'nun UDS 19-02 okuması → arıza kayıtları; okunamazsa `null` (sahte "temiz" YOK). */
+async function _readUdsFaultsOf(tx: string, rx: string): Promise<ClearObservedCode[] | null> {
+  if (!CarLauncher.readUdsDtcs) return null;
+  const r = await CarLauncher.readUdsDtcs({ tx, rx, statusMask: 'FF' });
+  if (!r.supported || !validateUdsDtcResponse(r.raw).valid) return null;
+  return parseUdsDtcResponse(r.raw)
+    .map(_udsFaultObservation)
+    .filter((c): c is ClearObservedCode => c !== null);
+}
+
+/**
+ * Tek ECU'nun ÜRETİCİ DTC hafızasını siler (UDS 0x14). "Komut gönderildi" ASLA
+ * "silindi" DEĞİLDİR: hüküm silme SONRASI 19-02 yeniden okumasından çıkar.
+ */
+export async function clearManufacturerDtcs(opts: ClearManufacturerDtcOptions): Promise<ManufacturerDtcClearResult> {
+  let sessionEpoch = -1;
+  try { sessionEpoch = getObdSessionEpoch(); } catch { sessionEpoch = -1; }
+  const tx = opts.txHeader.replace(/[^0-9A-Fa-f]/g, '').toUpperCase();
+  const rx = opts.rxHeader.replace(/[^0-9A-Fa-f]/g, '').toUpperCase();
+
+  const principalClass: SecurityPrincipalClass = opts.principal ?? 'LOCAL_UI';
+  const operationId = opts.operationId ?? `dtc.clear.uds:${tx}:${sessionEpoch}:${Date.now()}`;
+  const authorization = authorizeOperation({
+    principalClass, capability: 'CLEAR_DTC', operationId,
+    targetRef: `dtc:ecu:${tx}`, channel: opts.channel,
+    nativePermission: typeof CarLauncher.clearUdsDtcs === 'function',
+  });
+
+  const denied = (
+    userMessage: string, gateDenyReason: WriteGateDenyReason | null,
+    denyDetail: string | null, before: readonly string[] = [],
+  ): ManufacturerDtcClearResult => {
+    recordDtcClearAttempt({
+      tx: null, raw: null, commandOutcome: null, nrc: null, protocol: null,
+      scope: 'physical_ecu', target: tx, elapsedMs: null,
+      gateAllowed: false, gateDenyReason, denyDetail,
+      before, reread: [], rereadCompleteness: null,
+      verdict: 'DENIED', removed: [], remaining: [], returned: [], permanentRemaining: [],
+      sessionEpoch, error: null,
+    });
+    return { allowed: false, userMessage, clear: null };
+  };
+
+  if (!Capacitor.isNativePlatform()) {
+    return { allowed: false, userMessage: 'Gerçek araç bağlı değil — üretici hafızası silinmedi.', clear: null };
+  }
+
+  // ── WRITE GATE (fail-closed) — Mode 04 ile AYNI fiziksel önkoşul ──────────
+  const obd = getOBDDataSnapshot();
+  let freshSpeedKmh: number | null = null;
+  try { freshSpeedKmh = getObdSpeedFresh(); } catch { freshSpeedKmh = null; }
+  const decision = evaluateDtcClearGate({
+    connectionState: obd.connectionState,
+    speedKmh:        freshSpeedKmh ?? Number.NaN,
+    rpm:             obd.rpm,
+    confirmed:       opts.confirmed,
+  });
+  if (!decision.allowed) return denied(decision.userMessage, decision.reason, null);
+
+  // ── ARCH-05 YETKİ — yan etkiden ÖNCE ─────────────────────────────────────
+  if (!authorization.allowed) {
+    return denied('Bu işlem için yetki yok — üretici hafızası silinmedi.', 'not_authorized', null);
+  }
+
+  // ── TAZE ÖN OKUMA — adres, oturum ve silinecek kod BU AN ölçülür ─────────
+  let before: ClearObservedCode[] | null = null;
+  try { before = await _readUdsFaultsOf(tx, rx); } catch (e) {
+    logError('DTC:UdsClearPreReadFailed', e);
+    before = null;
+  }
+  const beforeLabels = (before ?? []).map((c) => `${c.code}/${c.status}`);
+
+  let protocolActive: string | null = null;
+  try { protocolActive = getHandshakeDiagnostics().protocolActive ?? null; } catch { protocolActive = null; }
+  let currentEpoch = -1;
+  try { currentEpoch = getObdSessionEpoch(); } catch { currentEpoch = -1; }
+  const proto = (protocolActive ?? '').trim().toUpperCase();
+
+  const gate = evaluateManufacturerClearGate({
+    target: {
+      txHeader: tx, rxHeader: rx,
+      /* Ön okuma BU oturumda cevap aldıysa adres ÖLÇÜLEREK kanıtlandı. */
+      addressability: before !== null ? 'PROVEN' : 'NOT_ADDRESSABLE',
+      sourceService: '19',
+      observedCodeCount: before?.length ?? 0,
+      sessionEpoch,
+    },
+    currentSessionEpoch: currentEpoch,
+    protocolActive,
+    bridgeAvailable: typeof CarLauncher.clearUdsDtcs === 'function',
+    vehicleStopped: freshSpeedKmh === null ? null : freshSpeedKmh < WRITE_GATE_STOPPED_SPEED_KMH,
+    userConfirmed: opts.confirmed,
+    clearPathFieldVerified: _udsCanClearFieldVerified && CAN_PROTOCOL_DIGITS.has(proto),
+  });
+  if (!gate.allowed || gate.resolvedTarget === null) {
+    const nothing = gate.denyReasons.length === 1 && gate.denyReasons[0] === 'NO_OBSERVED_CODE';
+    return denied(
+      nothing ? 'Bu ECU’da silinecek arıza kaydı yok — “test tamamlanmadı” kayıtları arıza değildir.'
+        : `Üretici hafızası silinmedi: ${gate.denyReasons.map((r) => MANUFACTURER_CLEAR_DENY_LABEL[r]).join(' · ')}`,
+      null, gate.reason, beforeLabels,
+    );
+  }
+
+  // ── TOCTOU — yan etkiden HEMEN önce ──────────────────────────────────────
+  if (!revalidateAuthorization(authorization, opts.channel)) {
+    return denied('Yetki bağlamı değişti — üretici hafızası silinmedi.', 'not_authorized', null, beforeLabels);
+  }
+
+  let commandOutcome: DtcClearCommandOutcome = 'UNKNOWN';
+  let nrc: string | null = null;
+  let protocol: string | null = null;
+  let elapsedMs: number | null = null;
+  let transportError: string | null = null;
+  try {
+    if (!CarLauncher.clearUdsDtcs) throw new Error('native silme köprüsü yok');
+    const r = await CarLauncher.clearUdsDtcs({ tx: gate.resolvedTarget, rx });
+    nrc       = typeof r.nrc === 'string' ? r.nrc : null;
+    protocol  = typeof r.protocol === 'string' ? r.protocol : null;
+    elapsedMs = typeof r.elapsedMs === 'number' ? r.elapsedMs : null;
+    commandOutcome = isClearCommandOutcome(r.outcome) ? r.outcome : 'UNKNOWN';
+  } catch (e) {
+    logError('DTC:UdsClearFailed', e);
+    transportError = e instanceof Error ? e.message : String(e);
+    commandOutcome = 'TRANSPORT_ERROR';
+  }
+
+  // ── SİLME SONRASI YENİDEN OKUMA — hükmün ZORUNLU kanıtı ──────────────────
+  let after: ClearObservedCode[] | null = null;
+  if (commandOutcome === 'POSITIVE') {
+    try { after = await _readUdsFaultsOf(tx, rx); } catch (e) {
+      logError('DTC:UdsClearRereadFailed', e);
+      after = null;
+    }
+  }
+  /* 19-02 FF tüm status bitlerini tek okumada kapsar; UDS'te "kalıcı" (0A) yoktur. */
+  const afterCompleteness: DtcScanCompleteness | null = after === null ? null
+    : { stored: 'ok', pending: 'ok', permanent: 'unsupported' };
+
+  const verdictResult = evaluateClearVerdict({
+    outcome: commandOutcome, before: before ?? [], after, afterCompleteness,
+  });
+  const verdict = verdictResult.verdict;
+  const success = isClearSuccessVerdict(verdict);
+  let userMessage = DTC_CLEAR_VERDICT_MESSAGE[verdict];
+  if (verdict === 'COMMAND_FAILED') {
+    const detail = commandOutcome === 'NEGATIVE' ? describeClearNrc(nrc)
+      : commandOutcome === 'TRANSPORT_ERROR' ? transportError : null;
+    userMessage = `${userMessage} (${DTC_CLEAR_OUTCOME_LABEL[commandOutcome]}${detail ? ` — ${detail}` : ''})`;
+  }
+
+  recordDtcClearAttempt({
+    tx: '14FFFFFF', raw: null, commandOutcome, nrc, protocol,
+    scope: 'physical_ecu', target: tx, elapsedMs,
+    gateAllowed: true, gateDenyReason: null,
+    before: beforeLabels,
+    reread: after === null ? [] : [{ service: '19', codes: after.map((c) => c.code), outcome: 'ok' }],
+    rereadCompleteness: afterCompleteness,
+    verdict,
+    removed: verdictResult.removed,
+    remaining: verdictResult.remaining,
+    returned: verdictResult.returned,
+    permanentRemaining: verdictResult.permanentRemaining,
+    sessionEpoch,
+    error: transportError,
+  });
+
+  return {
+    allowed: true,
+    userMessage,
+    clear: {
+      verdict, commandOutcome, userMessage, success,
+      removed: verdictResult.removed,
+      remaining: verdictResult.remaining,
+      returned: verdictResult.returned,
+      permanentRemaining: verdictResult.permanentRemaining,
+      rereadRan: after !== null,
+    },
+  };
 }
 
 /**

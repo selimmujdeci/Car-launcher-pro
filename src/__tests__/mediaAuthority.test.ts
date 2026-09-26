@@ -499,8 +499,13 @@ describe('KİLİT — ses tek deterministik formül', () => {
     expect(percentToUnit(NaN)).toBe(0);
   });
 
-  it('hız telafisi BU PAKETTE kapalıdır (girdi ne olursa olsun 1)', () => {
-    expect(sanitizeVolumeInputs({ speedCompensation: 0.2 }).speedCompensation).toBe(1);
+  it('hız telafisi yalnız KISAR, 0.5 tabanının altına inemez, geçersiz değer NÖTRdür', () => {
+    /* Paket A'da kapalıydı; SVC artık bu alanı besliyor (speedVolumeRuntime). */
+    expect(sanitizeVolumeInputs({ speedCompensation: 0.8 }).speedCompensation).toBe(0.8);
+    expect(sanitizeVolumeInputs({ speedCompensation: 1.4 }).speedCompensation).toBe(1);   // yükseltmez
+    expect(sanitizeVolumeInputs({ speedCompensation: 0.2 }).speedCompensation).toBe(0.5); // taban
+    expect(sanitizeVolumeInputs({ speedCompensation: NaN }).speedCompensation).toBe(1);   // asla 0
+    expect(sanitizeVolumeInputs({}).speedCompensation).toBe(1);
   });
 
   it('sistem ses adımı sınırlar içinde kalır', () => {

@@ -52,6 +52,7 @@ describe('OSRM response parse', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   it('should parse OSRM response when available', async () => {
@@ -78,6 +79,8 @@ describe('OSRM response parse', () => {
   });
 
   it('should parse OSRM response when online', async () => {
+    // OSRM ayrıştırma testi — TomTom katmanı (anahtar varsa önce denenir) devre dışı.
+    vi.stubEnv('VITE_TOMTOM_API_KEY', '');
     // Mock online state
     Object.defineProperty(navigator, 'onLine', { value: true, writable: true, configurable: true });
 
@@ -195,6 +198,24 @@ describe('Navigation Logic & State Machine', () => {
     activateNavigation();
     state = getNavigationState();
     expect(state.status).toBe(NavStatus.ACTIVE);
+  });
+
+  it('🔒 DR tahmini konum VARIŞ ilan etmez; gerçek GPS eder', () => {
+    const dest = { id: 'dr1', name: 'DR Dest', latitude: 41.0, longitude: 29.0, type: 'history' as const };
+    const routeGeometry: [number, number][] = [[29.001, 41.001], [29.0, 41.0]];
+    startNavigation(dest);
+    activateNavigation();
+    updateNavigationProgress(41.001, 29.001, 0, routeGeometry);
+    // Tünel: tahmin rota sonuna dayandı → kalan mesafe 0, ama konum ÖLÇÜM değil.
+    for (let i = 0; i < 5; i++) {
+      updateNavigationProgress(41.0, 29.0, 0, routeGeometry, { positionEstimated: true });
+    }
+    expect(getNavigationState().status).toBe(NavStatus.ACTIVE);
+    // GPS geri geldi, araç gerçekten hedefte.
+    updateNavigationProgress(41.0, 29.0, 0, routeGeometry);
+    updateNavigationProgress(41.0, 29.0, 0, routeGeometry);
+    expect(getNavigationState().status).toBe(NavStatus.ARRIVED);
+    stopNavigation();
   });
 
   it('should transition to ARRIVED when close to destination', () => {

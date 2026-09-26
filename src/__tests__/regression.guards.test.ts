@@ -48,6 +48,7 @@ import ttsServiceSrc from '../platform/ttsService.ts?raw';
 
 /* MAVI-F5 · Capability Fabric — kontrollü giriş kapısı; ikinci yürütücü/otorite YOK. */
 import { brainIntentAllowlist } from '../platform/capability/fabric/carosCapabilityCatalog';
+import { brainExampleLines, brainDecisionLines } from '../platform/companion/companionBrainKnowledge';
 import capabilityFabricSrc from '../platform/capability/fabric/capabilityFabric.ts?raw';
 import capabilityContractSrc from '../platform/capability/fabric/capabilityContract.ts?raw';
 import capabilityResolverSrc from '../platform/capability/fabric/capabilityResolver.ts?raw';
@@ -249,7 +250,7 @@ describe('Saat gün/gece kanonik kaynak kilidi', () => {
 describe('Sesli navigasyon uygulama-içi kilidi', () => {
   it('YAPISAL: commandExecutor OPEN_NAVIGATION harici bridge.launchNavigation kullanmaz', () => {
     const src = read('src/platform/commandExecutor.ts');
-    const block = src.slice(src.indexOf("case 'OPEN_NAVIGATION'"), src.indexOf("case 'OPEN_NAVIGATION'") + 220);
+    const block = src.slice(src.indexOf("case 'OPEN_NAVIGATION'"), src.indexOf("case 'OPEN_NAVIGATION'") + 280);   // ev/iş satırı konuşma portu aldı
     expect(block).toMatch(/ctx\.launch\(/);
     expect(block).not.toMatch(/bridge\.launchNavigation/);
   });
@@ -796,31 +797,28 @@ describe('Grounding hatası beyin devre kesicisini tetiklemez kilidi', () => {
     expect(ttsSrc, 'ttsCancel konuşma bayrağını temizlemiyor — kesilen cevap sonrası pencere gereksiz uzar').toMatch(/_markSpeakingEnd\(\); \/\/ konuşma kesildi/);
   });
 
-  it('YAPISAL: 429 pencereleri SAĞLAYICI-BAZLI — Groq/Haiku 429\'u Gemini\'yi kilitlemez', () => {
-    // SAHA 2026-07-04: tek paylaşılan _rateLimitedUntil vardı — Groq/Haiku 429'u
-    // Gemini'yi de 60sn susturuyordu (çapraz kirlenme → sahte offline).
-    // _rateLimitedUntil'a atama yalnız GEMİNİ yollarında ve retryDelay ile olmalı.
+  it('YAPISAL: 429 pencereleri SAĞLAYICI-BAZLI — Claude/OpenRouter 429\'u Gemini\'yi kilitlemez', () => {
+    // SAHA 2026-07-04: tek paylaşılan _rateLimitedUntil vardı — yedek sağlayıcının
+    // 429'u Gemini'yi de 60sn susturuyordu (çapraz kirlenme → sahte offline).
     /* MAVI-F13/3: pencereler `companionProviderHealth` defterine taşındı. Bu
        kilit ARTIK ÇAĞRI YERLERİNİ korur; defterin KENDİ davranışını
        voiceRuntimeSeparation `F13/3-8` kilitler. Her 429 KENDİ sağlayıcısını
-       adlandırmalı ve Gemini retryDelay'i taşımaya devam etmeli. */
+       adlandırmalı ve Gemini retryDelay'i taşımaya devam etmeli.
+       2f22f4b2 (2026-09-21): Groq beyin zincirinden ÇIKARILDI (yalnız STT'de
+       kalır); zincir LIVE → REST → OPENROUTER → CLAUDE → OFFLINE. Kilit artık
+       Groq dalını değil, mevcut yedek dalı (Claude/Haiku) denetler. */
     const geminiAssigns = [...src.matchAll(/noteProviderRateLimited\('gemini'([^)]*)\)/g)];
     expect(geminiAssigns.length, 'Gemini 429 ataması bulunamadı').toBeGreaterThanOrEqual(2);
     for (const m of geminiAssigns) {
       expect(m[1], 'Gemini 429 penceresi Google retryDelay değerini kullanmalı (cooldownFromGemini429) — sabit 60sn asistanı gereksiz uzun offline bırakır').toContain('cooldownFromGemini429');
     }
-    expect(src, 'Groq 429 KENDİ penceresini kurmalı').toMatch(/noteProviderRateLimited\('groq'\)/);
     expect(src, 'Haiku 429 KENDİ penceresini kurmalı').toMatch(/noteProviderRateLimited\('haiku'\)/);
-    /* Çapraz kirlenme yasağı — SAHA 2026-07-04: Groq/Haiku dalları GEMINI
-       penceresini kuramaz. */
-    const GROQ_FN  = src.match(/async function askCompanionBrainGroq\([\s\S]*?\n\}/);
+    expect(src, 'Groq beyin zincirine geri sızmış (2f22f4b2: yalnız STT)').not.toMatch(/askCompanionBrainGroq\(/);
+    /* Çapraz kirlenme yasağı — SAHA 2026-07-04: yedek dal GEMINI penceresini kuramaz. */
     const HAIKU_FN = src.match(/async function askCompanionBrainHaiku\([\s\S]*?\n\}/);
-    expect(GROQ_FN,  'askCompanionBrainGroq bulunamadı — kilit körleşti').toBeTruthy();
     expect(HAIKU_FN, 'askCompanionBrainHaiku bulunamadı — kilit körleşti').toBeTruthy();
-    for (const [name, fn] of [['Groq', GROQ_FN!], ['Haiku', HAIKU_FN!]] as const) {
-      expect(fn[0], `${name} 429'u GEMINI penceresini kuruyor (çapraz kirlenme geri geldi)`)
-        .not.toMatch(/noteProviderRateLimited\('gemini'/);
-    }
+    expect(HAIKU_FN![0], 'Haiku 429\'u GEMINI penceresini kuruyor (çapraz kirlenme geri geldi)')
+      .not.toMatch(/noteProviderRateLimited\('gemini'/);
   });
 
   it('YAPISAL: tüm adaylar kota soğumasındayken DÜRÜST kota cevabı (sahte offline yasak)', () => {
@@ -1163,13 +1161,14 @@ describe('Sesli asistan — hava/trafik dürüstlüğü + hibrit beyin zinciri k
     expect(src).toMatch(/build:\s*\(drv\)\s*=>\s*buildWeather\(drv\)/);
   });
 
-  it('YAPISAL: CompanionChatOpts.chain (Gemini→Groq→Haiku) + tryCompanionBrain\'de Gemini soğuma/hata → sıradaki aday kilidi', () => {
+  it('YAPISAL: CompanionChatOpts.chain (Gemini→OpenRouter→Haiku) + tryCompanionBrain\'de Gemini soğuma/hata → sıradaki aday kilidi', () => {
     const src = read('src/platform/companion/companionChatProvider.ts');
-    expect(src).toMatch(/chain\?:\s*ReadonlyArray<\{\s*provider:\s*'gemini'\s*\|\s*'groq'\s*\|\s*'haiku';\s*apiKey:\s*string\s*\}>/);
-    // Gemini adayı KENDİ _rateLimitedUntil soğumasındaysa ATLANIR (sıradaki aday
-    // denenir) — bu davranış (429 soğumasında asistan aptallaşmasın) bir daha
-    // sessizce kaldırılmamalı. SAHA 2026-07-04: atlama artık skippedByCooldown
-    // işaretler (dürüst kota cevabı) — pencereler sağlayıcı-bazlı.
+    /* 2f22f4b2: zincir tipi Groq'suz — Gemini | OpenRouter | Haiku. */
+    expect(src).toMatch(/chain\?:\s*ReadonlyArray<\{\s*provider:\s*'gemini'\s*\|\s*'openrouter'\s*\|\s*'haiku';\s*apiKey:\s*string\s*\}>/);
+    // Gemini adayı KENDİ soğumasındaysa ATLANIR (sıradaki aday denenir) — bu
+    // davranış (429 soğumasında asistan aptallaşmasın) bir daha sessizce
+    // kaldırılmamalı. SAHA 2026-07-04: atlama artık skippedByCooldown işaretler
+    // (dürüst kota cevabı) — pencereler sağlayıcı-bazlı.
     /* MAVI-F13/3: soğuma sorgusu `companionProviderHealth.isProviderCoolingDown`
        kapısına taşındı. Kilit korunur: soğumadaki aday ATLANIR ve atlama
        `skippedByCooldown` ile İŞARETLENİR (dürüst kota cevabı sessizce
@@ -1177,27 +1176,35 @@ describe('Sesli asistan — hava/trafik dürüstlüğü + hibrit beyin zinciri k
        SAHA 2026-09-11: `gateway` bu kapıdan MUAFTI ("kendi devre kesicisi var"),
        ama o kesici kredi/kimlik arızasını kapsamıyordu → kredisi bitmiş hat her
        turun başında yeniden denenip ölçülen 0,45 sn gecikme ekliyordu. Kapı artık
-       TÜM adaylar için aynı; muafiyetin geri gelmemesi de kilitlenir. */
-    expect(src).toMatch(/if \(isProviderCoolingDown\(cand\.provider\)\) \{/);
+       TÜM adaylar için aynı; muafiyetin geri gelmemesi de kilitlenir.
+       2f22f4b2: aday → sağlık defteri adı `_healthProvider(cand)` ile eşlenir. */
+    expect(src).toMatch(/if \(isProviderCoolingDown\(_healthProvider\(cand\)\)\) \{/);
     expect(src, 'gateway soğuma kapısından yeniden muaf tutulmuş — 402 her turda tekrar denenir')
-      .not.toMatch(/cand\.provider !== 'gateway' && isProviderCoolingDown/);
+      .not.toMatch(/cand\.provider !== '(gateway|openrouter)' && isProviderCoolingDown/);
     expect(src, 'soğumada atlanan aday işaretlenmiyor — dürüst kota cevabı düşer')
       .toMatch(/skippedByCooldown = true; continue;/);
-    expect(src).toMatch(/askCompanionBrainHaiku/); // hibrit zincirin son halkası
+    expect(src).toMatch(/askCompanionBrainHaiku/); // hibrit zincirin son online halkası
   });
 
-  it('YAPISAL: voiceService zincir SIRA SABİT — Gemini → Groq → Haiku (birincil Gemini; SAHA geri-alma)', () => {
+  it('YAPISAL: voiceService zincir SIRA SABİT — Gemini → OpenRouter → Haiku (birincil Gemini; SAHA geri-alma)', () => {
     const src = read('src/platform/voiceService.ts');
-    // Gemini = arama motoru anahtarı; Groq/Haiku yedekteyken web kararını buna devreder.
+    // Gemini = arama motoru anahtarı; OpenRouter/Claude yedekteyken web kararını buna devreder.
     expect(src).toMatch(/searchKey = resolvedGemini;/);
     // SABİT sıra: Gemini önce (birincil — güvenilir sohbet/komut + yerleşik google_search).
-    // "Groq birincil" denemesi geri alındı; bu sıra bir daha sessizce ters çevrilmemeli.
+    // "Groq birincil" denemesi geri alındı; 2f22f4b2 ile Groq beyin zincirinden
+    // tamamen ÇIKTI (yalnız STT). Sıra bir daha sessizce ters çevrilmemeli.
     expect(src).toMatch(/if \(resolvedGemini\) chain\.push\(\{ provider: 'gemini', apiKey: resolvedGemini \}\);/);
-    expect(src).toMatch(/if \(resolvedGroq\)\s+chain\.push\(\{ provider: 'groq',\s+apiKey: resolvedGroq \}\);/);
+    expect(src).toMatch(/if \(hasOpenRouter\)\s+chain\.push\(\{ provider: 'openrouter', apiKey: '' \}\);/);
     expect(src).toMatch(/if \(resolvedHaiku\)\s+chain\.push\(\{ provider: 'haiku',\s+apiKey: resolvedHaiku \}\);/);
-    // Gemini push, Groq push'tan ÖNCE gelmeli (birincil sıra korunsun)
-    expect(src.indexOf("provider: 'gemini', apiKey: resolvedGemini")).toBeLessThan(src.indexOf("provider: 'groq',   apiKey: resolvedGroq"));
-    // searchKey yine beyne iletilir (Groq/Haiku YEDEKTEyken web kararını Gemini'ye devreder)
+    expect(src, 'Groq beyin zincirine geri sızmış (2f22f4b2: yalnız STT)').not.toMatch(/provider: 'groq'/);
+    // Gemini push, OpenRouter push'tan, o da Haiku push'tan ÖNCE gelmeli (birincil sıra korunsun)
+    const iGem = src.indexOf("provider: 'gemini', apiKey: resolvedGemini");
+    const iOr  = src.indexOf("provider: 'openrouter', apiKey: ''");
+    const iHk  = src.indexOf("provider: 'haiku',  apiKey: resolvedHaiku");
+    expect(iGem).toBeGreaterThan(-1); expect(iOr).toBeGreaterThan(-1); expect(iHk).toBeGreaterThan(-1);
+    expect(iGem).toBeLessThan(iOr);
+    expect(iOr).toBeLessThan(iHk);
+    // searchKey yine beyne iletilir (yedek sağlayıcı web kararını Gemini'ye devreder)
     expect(src).toMatch(/searchKey,\s*\n\s*chain,/);
     expect(src).toMatch(/const aiUsable = chain\.length > 0 && hasNet;/);
   });
@@ -1272,20 +1279,29 @@ describe('Sesli asistan — hava/trafik dürüstlüğü + hibrit beyin zinciri k
        → no-op). MAVI-F13/4: alan çıkarımı `companionBrainParser`de. */
     const brainParserSrc = read('src/platform/companion/companionBrainParser.ts');
     expect(brainParserSrc).toMatch(/settingKey:\s+typeof obj\.settingKey/);
-    // SAHTE ONAY YASAĞI prompt'ta olmalı — bir daha sessizce kaldırılmasın
-    expect(brain).toMatch(/SAHTE ONAY YASAK/);
+    // SAHTE ONAY YASAĞI prompt'ta olmalı — bir daha sessizce kaldırılmasın.
+    // 2026-09-21: prompt bilgisi REST+Live için TEK KAYNAK `companionBrainKnowledge`de;
+    // sağlayıcı onu her iki yüzey için tüketir.
+    const knowledge = read('src/platform/companion/companionBrainKnowledge.ts');
+    expect(knowledge).toMatch(/SAHTE ONAY YASAK/);
+    expect(brain).toMatch(/buildBrainCapabilityKnowledge\('rest_json'/);
+    expect(brain).toMatch(/buildBrainCapabilityKnowledge\('live_tool'/);
     // Köprü SET_SETTING alanlarını payload'a yazmalı (executeAIResult → applyVoiceSetting)
     const engine = read('src/platform/intentEngine.ts');
     expect(engine).toMatch(/intentType === 'SET_SETTING'/);
     expect(engine).toMatch(/payload\.settingKey\s+= result\.settingKey/);
   });
 
-  it('YAPISAL: Groq/Haiku (yedekteyken) web kararı Gemini aramasına (searchKey) devredilir — Tavily\'den ÖNCE', () => {
+  it('YAPISAL: Haiku (yedekteyken) web kararı Gemini aramasına (searchKey) devredilir — Tavily\'den ÖNCE', () => {
     const src = read('src/platform/companion/companionChatProvider.ts');
     // searchKey opsiyonu + "önce Gemini google_search, yoksa Tavily" sırası
     expect(src).toMatch(/searchKey\?:\s*string/);
-    // hem Groq hem Haiku dalında hasGeminiSearch → askGroundedGemini(parsed.query, searchKey
-    expect((src.match(/await askGroundedGemini\(parsed\.query, searchKey as string/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    /* 2f22f4b2: Groq dalı yok; Haiku dalı hasGeminiSearch → askGroundedGemini(parsed.query, searchKey.
+       OpenRouter (gateway) hattı web YETENEĞİ taşımaz ve turu KAPATMAZ (SAHA 2026-09-11):
+       arama yapabilen sıradaki adaya düşer. */
+    expect((src.match(/await askGroundedGemini\(parsed\.query, searchKey as string/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect(src, 'gateway web kararında turu kapatan "canlı bilgilere bakamıyorum" cevabı geri gelmiş')
+      .not.toMatch(/return \{ result: \{ kind: 'chat', response: GATEWAY_NO_LIVE_INFO_REPLY/);
   });
 
   it('YAPISAL: "hava durumu" yerel bypass — beyne (Gemini/Groq/Haiku) GİTMEDEN yerelde cevaplanır', () => {
@@ -2088,18 +2104,17 @@ describe('ENGINE_OVERHEAT zinciri kilidi (motor aşırı ısınma histerezisi)',
   });
 
   // Saha 2026-07-07: app arka plan/uykudan dönünce birikmiş GPS tek tick'te işlenip
-  // hız spike'ı (≥DRIVE_ON_KMH) üretiyordu → sahte DRIVING_STARTED/STOPPED → park
-  // halde sahte "Yolculuk Tamamlandı" banner. Cihazda tekrar-üretildi (HOME→dönüş).
-  // Resume-guard: foreground dönüşünden RESUME_TRIP_GRACE_MS içinde biten trip'te
-  // banner bastırılır. Bu kilit fix'in sessizce geri alınmasını engeller.
-  it('YAPISAL: SystemOrchestrator resume-guard sahte yolculuk banner\'ını bastırır', () => {
-    expect(systemOrchestratorSrc, "visibilitychange dinleyicisi kaldırılmış — resume anı izlenmiyor")
-      .toMatch(/addEventListener\(\s*'visibilitychange'\s*,\s*_onOrchVisibility\s*\)/);
-    expect(systemOrchestratorSrc, "RESUME_TRIP_GRACE_MS guard kaldırılmış — resume artefaktı trip banner'ı yine açılır")
-      .toMatch(/Date\.now\(\)\s*-\s*_lastResumeAt\s*<\s*RESUME_TRIP_GRACE_MS/);
-    // Zero-leak: dinleyici teardown'da sökülmeli
-    expect(systemOrchestratorSrc, "visibilitychange dinleyicisi cleanup'ta sökülmüyor — zero-leak ihlali")
-      .toMatch(/removeEventListener\(\s*'visibilitychange'\s*,\s*_onOrchVisibility\s*\)/);
+  // hız spike'ı üretiyordu → sahte DRIVING_STARTED/STOPPED → park halde sahte
+  // "Yolculuk Tamamlandı" banner. Eski çözüm resume-guard idi (visibilitychange +
+  // RESUME_TRIP_GRACE_MS). 2026-09-21: tetikleyicinin kendisi değişti — kart artık
+  // depolama segmenti mührüne DEĞİL, seyahat oturumunun kanonik hükmüne bağlı
+  // (JOURNEY + DESTINATION_REACHED). Resume artefaktı / GPS gürültüsü navigasyon
+  // varış mührü ÜRETEMEZ; bu kilit yeni kuralın geri alınmasını engeller.
+  it('YAPISAL: SystemOrchestrator "yolculuk tamamlandı" kartını yalnız kanonik oturum hükmüyle açar', () => {
+    expect(systemOrchestratorSrc, "kanonik seçici kaldırılmış — kart segment mührüne geri dönebilir")
+      .toContain('selectJourneyCompletionCard(readTripSessionOrNull())');
+    expect(systemOrchestratorSrc, "depolama segmenti kapanışı yeniden tetikleyici olmuş")
+      .not.toMatch(/history\[0\]|lastCompletedTripId|_pendingTripSummary/);
   });
 });
 
@@ -2787,7 +2802,15 @@ describe('Ana ekran harita kartı sahte rota GÖSTERMEZ', () => {
     expect(/>\s*2\.4\s*</.test(src), 'sabit 2.4 km mesafesi geri geldi').toBe(false);
   });
 
-  it.each(LAYOUTS)('🔒 %s: rota özeti GERÇEK navigasyon otoritesinden okunur', (_ad, src) => {
+  /* ExpeditionLayout 2026-09-24'te KENDİ rota çipini bıraktı: mini haritanın
+     nav şeridinin üstüne ikinci katman çizip başlığı/hız levhasını örtüyordu.
+     Rota özeti orada yalnız mini haritanın şeridindedir (aynı otorite). */
+  it('🔒 ExpeditionLayout: mini haritanın üstüne İKİNCİ rota özeti çizmez', () => {
+    expect(expeditionLayoutSrc).not.toContain('useNavSummary');
+    expect(expeditionLayoutSrc).not.toContain('navSummary');
+  });
+
+  it.each(LAYOUTS.filter(([ad]) => ad !== 'ExpeditionLayout'))('🔒 %s: rota özeti GERÇEK navigasyon otoritesinden okunur', (_ad, src) => {
     expect(src).toContain("from '../../hooks/useNavSummary'");
     expect(src).toContain('useNavSummary()');
     // Kanıt yoksa chip HİÇ çizilmez — sahte hedef üretilmez.
@@ -3484,9 +3507,17 @@ describe('Adres sağlayıcı katmanı (BYOK)', () => {
 
   it('🔒 anahtar YOKKEN premium yol hiç çağrılmaz (davranış birebir eski)', async () => {
     const mod = await import('../platform/geocodingProviders');
-    // Depoda anahtar yok → boş dizi; çağıran ücretsiz zincire devam eder.
-    await expect(mod.premiumGeocode('Adana')).resolves.toEqual([]);
-    await expect(mod.premiumGeocode('')).resolves.toEqual([]);
+    // Derlemedeki TomTom anahtarı da YOK sayılır (geliştirme istisnası) → gerçekten "anahtar yok".
+    vi.stubEnv('VITE_TOMTOM_API_KEY', '');
+    mod.invalidateGeocodeProviderCache();
+    try {
+      // Depoda anahtar yok → boş dizi; çağıran ücretsiz zincire devam eder.
+      await expect(mod.premiumGeocode('Adana')).resolves.toEqual([]);
+      await expect(mod.premiumGeocode('')).resolves.toEqual([]);
+    } finally {
+      vi.unstubAllEnvs();
+      mod.invalidateGeocodeProviderCache();
+    }
   });
 
   it('🔒 durum özeti anahtar DEĞERİNİ taşımaz (yalnız VAR/YOK)', async () => {
@@ -4008,7 +4039,8 @@ describe('Hız limiti levhası uydurmaz', () => {
        gidebilirim"i "ne kadar gidiyorum"dan ÖNCE okur. Aşım sinyali korundu. */
     const speed = read('src/components/map/hud/DrivingSpeed.tsx');
     expect(speed).toContain('overSpeed={overSpeed}');
-    expect(speed).toContain('const overSpeed = hasLimit && speedKmh > (limitKmh as number) + OVER_SPEED_TOLERANCE_KMH');
+    // Aşım kuralı tek yerde (overspeedModel) — mini harita/kokpit/ses AYNI eşik.
+    expect(speed).toContain('const overSpeed = hasLimit && isOverspeed(speedKmh, limitKmh)');
     /* Levha JSX'te hız kutusundan ÖNCE gelir → soldadır. */
     const iSign = speed.indexOf('<SpeedLimitCard');
     const iVal  = speed.indexOf('driving-speed-value');
@@ -4574,8 +4606,11 @@ describe('NAV-CORE-P0 kilitleri', () => {
       return out;
     };
     const hits = walk('src').filter((f) => read(f).includes('export function parseRoutingGraph'));
+    /* #1218: ayrıştırıcı `rtg2Parse.ts`e TAŞINDI (BigInt sözdizimi legacy
+       startup chunk'ına sızıyordu). Kilit KALDIRILMADI — tek-sahip iddiası
+       yeni sahibi gösterir; ikinci bir parser hâlâ yasaktır. */
     expect(hits, 'ikinci RTG2 parser').toEqual(
-      ['src/platform/navigation/map/graph/rtg2Reader.ts']);
+      ['src/platform/navigation/map/graph/rtg2Parse.ts']);
   });
 
   it('🔒 NAV v3 F4: worker binary ayrıştırma SAHİBİ DEĞİL (A* sahibi KALDI)', () => {
@@ -4607,8 +4642,15 @@ describe('NAV-CORE-P0 kilitleri', () => {
       'ikinci via-way otomatı').toEqual(['src/platform/navigation/map/graph/rtg2Reader.ts']);
     expect(files.filter((f) => read(f).includes('export function buildViaWayIndex')),
       'ikinci via-way indeks kurucusu').toEqual(['src/platform/navigation/map/graph/rtg2Reader.ts']);
-    /* Yuva/zincir iç yapısına okuyucu DIŞINDA dokunan olmamalı. */
-    const outsiders = files.filter((f) => f !== 'src/platform/navigation/map/graph/rtg2Reader.ts'
+    /* Yuva/zincir iç yapısına okuyucu DIŞINDA dokunan olmamalı.
+       #1218: okuyucu İKİ dosyaya bölündü (`rtg2Reader` saf/statik ·
+       `rtg2Parse` BigInt taşıyan ayrıştırıcı). İkisi TEK mantıksal
+       okuyucudur; kilit gevşetilmedi, sahibi iki dosyayla ifade edildi. */
+    const READER_PAIR = [
+      'src/platform/navigation/map/graph/rtg2Reader.ts',
+      'src/platform/navigation/map/graph/rtg2Parse.ts',
+    ];
+    const outsiders = files.filter((f) => !READER_PAIR.includes(f)
       && stripSrc(read(f)).includes('slotsByEdge'));
     expect(outsiders, 'via-way iç yapısı okuyucu dışına sızdı').toEqual([]);
   });
@@ -4719,7 +4761,7 @@ describe('NAV-CORE-P0 kilitleri', () => {
   });
 
   it('🔒 NAV v3 F4: BOZUK/kısa graf ASLA başarı gibi sunulamaz', async () => {
-    const { parseRoutingGraph } = await import('../platform/navigation/map/graph/rtg2Reader');
+    const { parseRoutingGraph } = await import('../platform/navigation/map/graph/rtg2Parse');
     /* Başlıksız çöp + kesilmiş tablo: ikisi de fail-closed. */
     expect(parseRoutingGraph(new ArrayBuffer(4)).view).toBeNull();
     expect(parseRoutingGraph(new ArrayBuffer(64)).view).toBeNull();
@@ -4950,8 +4992,8 @@ describe('Tam ekranı kapatmak navigasyonu SONLANDIRMAZ', () => {
 
   it('🔒 Navigation ilerleme motoru yalnız SystemBoot named lifecycle kaydındadır', () => {
     const boot = read('src/platform/system/SystemBoot.ts');
-    expect(boot).toContain("this._regNamed('NavigationSessionRuntime', startNavigationSessionRuntime());");
-    expect(boot).not.toContain('this._reg(startNavigationSessionRuntime());');
+    expect(boot).toContain("this._regNamed(gen, 'NavigationSessionRuntime', startNavigationSessionRuntime());");
+    expect(boot).not.toContain('this._reg(gen, startNavigationSessionRuntime());');
     // Görünümler motoru başlatmaz/durdurmaz.
     for (const src of [fullMapViewSrc, miniMapSrc]) {
       expect(src).not.toContain('startNavigationSessionRuntime');
@@ -5021,7 +5063,8 @@ describe('Uydurma ETA barı aktif rotayla çelişemez', () => {
     expect(hook).toContain('if (!isNavigating || !destination) return null;');
     for (const name of LAYOUTS) {
       const src = read(`src/components/themes/${name}.tsx`);
-      expect(src).toContain('useNavSummary()');
+      // Expedition kendi çipini çizmez (yukarıdaki kilit) — özet mini haritada.
+      if (name !== 'ExpeditionLayout') expect(src).toContain('useNavSummary()');
       // Eskiden buradaydı: sabit "Sahil Yolu Cd." / "2.4 km"
       expect(src).not.toContain('Sahil Yolu');
     }
@@ -7494,18 +7537,27 @@ describe('#555 · blackbox örnekleyicisi birikmez', () => {
  * Sonuç: `window.onerror` ve `unhandledrejection` hiç yakalanmıyor, olay halka
  * tamponu hiç dolmuyordu → sahada çöken APK'dan geriye tanı verisi kalmıyordu.
  * Bedeli: post-mortem imkânsız. Bu kilit bağlantının sessizce kopmasını engeller. */
-describe('E-34 · panik yakalayıcı SystemBoot\'a bağlı kalır', () => {
-  it('🔒 SystemBoot initPanicHandler\'ı IMPORT eder', () => {
+/* ── KANIT SEVİYESİ (MRI F-10, 2026-09-20) ─────────────────────────────────
+ * DİKKAT: bu küme KAYNAK-YAPISAL'dır. `SystemBoot.ts` metnini okur; boot'u
+ * ÇALIŞTIRMAZ. Yani "panic handler üretimde gerçekten kuruluyor" İDDİA
+ * EDİLEMEZ — kanıtlanan şey, çağrının kaynakta doğru sırada DURMASIDIR.
+ * Gerçek kanıt için `systemBoot.boot()` davranışsal koşumu gerekir (F-10
+ * backlog: SystemBoot wave-1 lifecycle davranış testi). Test adları bu
+ * kanıt seviyesini yansıtacak şekilde düzeltildi — "çağrılır" yerine
+ * "kaynakta ... durur".
+ * ───────────────────────────────────────────────────────────────────────── */
+describe('E-34 · panik yakalayıcı SystemBoot KAYNAĞINDA bağlı kalır (yapısal nöbet)', () => {
+  it('🔒 KAYNAK: SystemBoot initPanicHandler\'ı IMPORT eder', () => {
     expect(systemBootSrc, 'panic handler importu düşmüş — hook\'lar hiç kurulmaz')
       .toMatch(/import \{ initPanicHandler \}\s+from '\.\/SystemPanicHandler'/);
   });
 
-  it('🔒 Wave 1\'de ÇAĞRILIR ve cleanup kaydedilir', () => {
+  it('🔒 KAYNAK: Wave 1 gövdesinde çağrı + cleanup kaydı DURUYOR', () => {
     expect(systemBootSrc, 'initPanicHandler çağrısı düşmüş — E-34 geri geldi')
-      .toMatch(/this\._reg\(initPanicHandler\(\)\)/);
+      .toMatch(/this\._reg\(gen, initPanicHandler\(\)\)/);
   });
 
-  it('🔒 çağrı Wave 1\'in EN BAŞINDA kalır (boot hataları da yakalansın)', () => {
+  it('🔒 KAYNAK: çağrı Wave 1\'in EN BAŞINDA kalır (boot hataları da yakalansın)', () => {
     const w1 = systemBootSrc.indexOf('_wave1(): Promise<void>');
     const panic = systemBootSrc.indexOf('initPanicHandler()', w1);
     const bus = systemBootSrc.indexOf('startPlatformCoreEventBusWiring()', w1);
@@ -7514,9 +7566,9 @@ describe('E-34 · panik yakalayıcı SystemBoot\'a bağlı kalır', () => {
       .toBeLessThan(bus);
   });
 
-  it('🔒 fail-soft: panic kurulumu boot\'u DÜŞÜRMEZ', () => {
+  it('🔒 KAYNAK: fail-soft sarmalayıcı duruyor (panic kurulumu boot\'u düşürmesin)', () => {
     expect(systemBootSrc, 'try/catch kaldırılmış — panic handler hatası tüm boot\'u düşürür')
-      .toMatch(/this\._reg\(initPanicHandler\(\)\);[\s\S]{0,120}?catch \(e\) \{[\s\S]{0,120}?SystemBoot:panicHandler/);
+      .toMatch(/this\._reg\(gen, initPanicHandler\(\)\);[\s\S]{0,120}?catch \(e\) \{[\s\S]{0,120}?SystemBoot:panicHandler/);
   });
 });
 
@@ -7569,9 +7621,38 @@ describe('E-05 · yakıt varsayımı tek otoriteden gelir', () => {
       .not.toMatch(/L_PER_100KM = 7\.5/);
   });
 
-  it('🔒 yolculuk kaydı politikadan okur', () => {
-    expect(tripLogServiceSrc, 'tripLogService yerel sabite dönmüş')
-      .toMatch(/const FUEL_L_PER_100KM\s+= DEFAULT_FUEL_L_PER_100KM;/);
+  /**
+   * F3.2 · BU KİLİT ZAYIFLATILMADI, GÜÇLENDİRİLDİ.
+   *
+   * E-05'in amacı "yolculuk kaydı KENDİ yakıt sabitini türetmesin"di ve
+   * kilit bunu sabitin TEK OTORİTEDEN okunmasıyla sağlıyordu. F3.2'de
+   * ölçüldü ki asıl kusur daha derindi: sabit, doğru otoriteden okunsa bile
+   * KALICI ölçüm alanına (`fuel_used_l`) yazılıyordu — production'daki
+   * 157 satırın 157'si bu formüle uyuyor, 99'unda değer sahte `0`.
+   *
+   * Artık yolculuk kaydı yakıt sabitini HİÇ kullanmıyor: kanıt yoksa alan
+   * `null` kalıyor. Kilit de bunu sınıyor — "tek otoriteden oku" yerine
+   * "bu dosyada yakıt tüketimi sabiti HİÇ OLMASIN".
+   */
+  it('🔒 yolculuk kaydı yakıt sabiti KULLANMAZ (uydurma litre geri gelmez)', () => {
+    expect(tripLogServiceSrc, 'tripLogService yakıt sabitini geri getirmiş')
+      .not.toMatch(/FUEL_L_PER_100KM\s*=/);
+    expect(tripLogServiceSrc, 'yolculuk kaydına yakıt varsayımı sızmış')
+      .not.toMatch(/DEFAULT_FUEL_L_PER_100KM/);
+    expect(tripLogServiceSrc, 'yerel yakıt fiyatı sabiti geri gelmiş')
+      .not.toMatch(/FUEL_PRICE_TL_PER_L\s*=/);
+    /* Mesafeden litre türeten formülün KENDİSİ de geri gelmemeli — sabit
+       ister isimle ister SATIR İÇİ yazılsın. (İlk yazımda yalnız isimli
+       sabit sınanıyordu; `* 8.5 *` yazan bir mutasyon kilitten SIZDI.
+       Kilit mutasyonla sınandı ve bu satır o boşluğu kapatıyor.) */
+    expect(tripLogServiceSrc, 'mesafeden litre türetme formülü geri gelmiş')
+      .not.toMatch(/distanceKm\s*\/\s*100\s*\)\s*\*/);
+    /* Kod içinde çıplak 8.5 de olmamalı; yalnız açıklama metninde geçebilir. */
+    const kod = tripLogServiceSrc
+      .replace(/\/\*[\s\S]*?\*\//g, '')   // blok yorumlar
+      .replace(/\/\/[^\n]*/g, '');        // satır yorumları
+    expect(kod, 'tripLogService koduna çıplak 8.5 sabiti sızmış')
+      .not.toMatch(/\b8\.5\b/);
   });
 
   it('🔒 beyan edilen değer korunur (8.5)', () => {
@@ -8072,44 +8153,49 @@ describe('#647 Uzak komut yolu — cihaz kimligi (api_key) kilidi', () => {
    * YAZABILIYORDU. Tek gecerli kapi, `api_key_hash` dogrulayan SECURITY DEFINER
    * RPC'leridir (069 okuma, 070 yazma). Bu kilitler tabloya donusu engeller. */
 
-  it('YAPISAL: bekleyen komutlar RPC ile okunur, tablo DOGRUDAN sorgulanmaz', () => {
-    expect(commandListenerSrc, 'fetch_pending_vehicle_commands cagrisi kaldirilmis — arac kendi komutunu 0 satir gorur')
-      .toMatch(/callVehicleRpc\(\s*'fetch_pending_vehicle_commands'/);
+  /* ── KANIT SEVİYESİ (MRI F-10, 2026-09-20) ───────────────────────────────
+   * Bu kümenin DAVRANIŞ iddiaları — "RPC ile okunur", "durum RPC ile yazılır",
+   * "yoklama asıl taşıyıcıdır", "kalıcı dinleyici boşta-kapatmayla ölmez" —
+   * artık GERÇEK `CommandListener` çalıştırılarak kanıtlanıyor:
+   *     src/__tests__/remoteCommandAuthorityBehaviorF10.test.ts
+   *
+   * Buradaki kırılgan YAPISAL regex'ler (startPolling gövdesi, stopCommandListener
+   * imzası, `let _permanent`) kaldırıldı: bir yeniden düzenleme onları düşürürdü
+   * (yanlış kırmızı) ya da metin dururken davranış bozulabilirdi (yanlış yeşil).
+   *
+   * GERİDE KALAN yalnız YASAK SEMBOL nöbetidir: ucuz, kırılgan olmayan ve
+   * davranış testinin göremeyeceği bir şeyi koruyan ikincil savunma — yanlış
+   * yolun kaynağa GERİ EKLENMESİ. Birincil kanıt davranış testidir.
+   * ─────────────────────────────────────────────────────────────────────── */
+
+  it('YASAK SEMBOL: komut tablosuna DOGRUDAN erisim kaynaga geri eklenmemis', () => {
+    /* Davranis kanitli: remoteCommandAuthorityBehaviorF10 ①. Bu nobet, yolun
+       kaynakta yeniden belirmesini (ornegin yeni bir yardimci icinde) yakalar. */
     expect(commandListenerSrc, 'vehicle_commands tablosu DOGRUDAN sorgulaniyor — anon ayricaligi YOK, sessizce bos doner')
       .not.toMatch(/\.from\(\s*'vehicle_commands'\s*\)/);
-  });
-
-  it('YAPISAL: komut durumu api_key RPC ile yazilir (REST PATCH ve error_reason YOK)', () => {
-    expect(commandListenerSrc, 'updateRemoteCommandStatus baglantisi kopmus — durum yazma yolu tabloya geri donmus olabilir')
-      .toMatch(/updateRemoteCommandStatus\(/);
     expect(commandListenerSrc, 'REST PATCH ile vehicle_commands guncelleniyor — anon ayricaligi YOK, istek RLS-e bile varmaz')
       .not.toMatch(/rest\/v1\/vehicle_commands/);
+  });
+
+  it('YASAK SEMBOL: `error_reason` bir DB guncelleme alani gibi kullanilmiyor', () => {
     /* `error_reason` push bildirim GOVDESINDE mesrudur (kolon degil). Yasak
-       olan, onu bir DB GUNCELLEME alani gibi kullanmaktir. */
+       olan, onu bir DB GUNCELLEME alani gibi kullanmaktir — semada BOYLE BIR
+       KOLON YOK (42703). Davranis testi bunu goremez: sahte RPC her alani kabul
+       eder, gercek sema reddeder. Bu yuzden kaynak nobeti burada DOGRU aractir. */
     expect(commandListenerSrc, 'error_reason DB guncelleme alani gibi yaziliyor — semada BOYLE BIR KOLON YOK (42703)')
       .not.toMatch(/updates\.error_reason|p_error_reason/);
     expect(commandListenerSrc, 'VehicleCommand arayuzu error_reason tasiyor — semadaki gercek ad error_message')
       .not.toMatch(/error_reason\?:/);
   });
 
-  it('YAPISAL: Realtime tek tasiyici DEGIL — periyodik yoklama var', () => {
-    /* Realtime `postgres_changes` olaylari da RLS'e tabidir -> anon istemci
-       komut INSERT'unu HIC gormez. Yoklama "yedek" degil ASIL yoldur. */
+  it('YAPISAL: periyodik yoklama sabiti kaynakta duruyor (asil tasiyici)', () => {
+    /* Yoklamanin GERCEKTEN kuruldugu, tur tur komut cektigi ve sokulusde
+       temizlendigi davranissal olarak kilitli:
+       remoteCommandAuthorityBehaviorF10.test.ts ③b (sahte zamanla ileri sarim).
+       Burada yalnizca sabitin varligi nobet tutulur — periyodun kendisi
+       urun karari oldugu icin sessizce kaldirilmamali. */
     expect(commandListenerSrc, 'PENDING_POLL_MS kaldirilmis — anon istemcide Realtime olay uretmez, komut hic ulasmaz')
       .toMatch(/const PENDING_POLL_MS/);
-    expect(commandListenerSrc, 'poll timer kurulmuyor — startPolling/setInterval kaldirilmis')
-      .toMatch(/startPolling\(\): void \{[\s\S]{0,400}setInterval\(/);
-    expect(commandListenerSrc, 'poll timer disconnect() icinde temizlenmiyor — zero-leak ihlali')
-      .toMatch(/disconnect\(\): void \{[\s\S]{0,300}clearInterval\(this\.pollTimer\)/);
-  });
-
-  it('YAPISAL: kalici dinleyici bosta-kapatmayla oldurulemez (tek sahiplik)', () => {
-    expect(commandListenerSrc, '_permanent sahiplik bayragi kaldirilmis — fcmService bosta sayaci pushService dinleyicisini kapatir')
-      .toMatch(/let _permanent = false/);
-    expect(commandListenerSrc, 'stopCommandListener force kapisi kaldirilmis — kalici dinleyici sessizce olur')
-      .toMatch(/export function stopCommandListener\(force = false\)[\s\S]{0,200}if \(_permanent && !force\) return;/);
-    expect(fcmServiceSrc, 'fcmService canli dinleyiciyi yeniden kuruyor — baglanti ve dedup kumesi sifirlanir')
-      .toMatch(/if \(isCommandListenerActive\(\)\)\s*\{[\s\S]{0,200}triggerPendingPoll\(\);/);
   });
 });
 
@@ -8313,8 +8399,8 @@ describe('REGRESYON: arka plan güç politikası', () => {
     /* LIFO kapanış: kapı ONDAN ÖNCE sökülür → kapanırken kısma bırakılmaz. */
     expect(systemBootSrc, 'BackgroundPowerGate boot zincirinden çıkarılmış — politika hiç çalışmaz')
       .toMatch(/startBackgroundPowerGate\(\)/);
-    const wakeIdx = systemBootSrc.indexOf('this._reg(startWakeWordService())');
-    const gateIdx = systemBootSrc.indexOf('this._reg(startBackgroundPowerGate())');
+    const wakeIdx = systemBootSrc.indexOf('this._reg(gen, startWakeWordService())');
+    const gateIdx = systemBootSrc.indexOf('this._reg(gen, startBackgroundPowerGate())');
     expect(wakeIdx, 'WakeWordService kaydı bulunamadı').toBeGreaterThan(-1);
     expect(gateIdx, 'BackgroundPowerGate kaydı bulunamadı').toBeGreaterThan(-1);
     expect(gateIdx, 'kapı wake servisinden ÖNCE kaydedilmiş — LIFO kapanışta wake ölüyken kısma bırakılır')
@@ -8455,7 +8541,7 @@ describe('KİLİT: website test kapısı (#713)', () => {
        koştuğu ancak main'e girdikten SONRA görülür — kapının kendisi kapıdan
        geçmeden yayına alınmış olur. */
     expect(ci, "website.yml'den `ci/**` tetikleyicisi kaldırılmış")
-      .toMatch(/branches:\s*\[main, dev, 'ci\/\*\*'\]/);
+      .toMatch(/branches:\s*\[main, dev, 'ci\/\*\*'(?:, '[^']+')*\]/);
   });
 
   it('website test kaynakları hâlâ yerinde (kapı boş kümeyi korumasın)', () => {
@@ -9741,7 +9827,9 @@ describe('P0-NAV-02 · navigasyon temeli kilitleri', () => {
     for (const f of readdirSync(resolve(root, MAPD)).filter((n) => n.endsWith('.tsx'))) {
       const src = stripN(read(join(MAPD, f)));
       expect(src, `${f} içinde ham Tailwind z sınıfı var`)
-        .not.toMatch(/className=(?:"|'|`)[^"'`]*(?:^|\s)z-(?:\[[0-9]+\]|[0-9]+)(?:\s|"|'|`)/);
+        /* `(?:^|\s)` içindeki `^` satır ortasında HİÇ eşleşmezdi (CodeQL unmatchable
+           caret, 2026-09-25) → tırnaktan HEMEN sonra gelen `z-10` kaçıyordu. */
+        .not.toMatch(/className=(?:"|'|`)(?:[^"'`]*\s)?z-(?:\[[0-9]+\]|[0-9]+)(?:\s|"|'|`)/);
       expect(src, `${f} içinde ham zIndex sayısı var`).not.toMatch(/zIndex:\s*[0-9]+/);
     }
   });
@@ -10852,15 +10940,21 @@ describe('🔒 KİLİT · MAVI-F2 yapay ara söz yasağı (I11)', () => {
   });
 
   it('🔒 LLM prompt\'undaki `feedback` örnekleri filler ÖĞRETMİYOR', () => {
-    const fbs = [...companionChatProviderSrc.matchAll(/"feedback":"([^"]+)"/g)].map((m) => m[1]);
+    /* 2026-09-21: örnekler REST+Live TEK KAYNAĞI `companionBrainKnowledge`den
+       GERÇEK render ile okunur (kaynak regex'i yerine üretilen prompt satırları). */
+    const rendered = brainExampleLines('rest_json', true).join('\n');
+    const fbs = [...rendered.matchAll(/"feedback":"([^"]+)"/g)].map((m) => m[1]);
     expect(fbs.length, 'prompt örneği bulunamadı — kilit körleşti').toBeGreaterThan(5);
     for (const fb of fbs) {
       expect(fb, `prompt örneği filler öğretiyor: ${fb}`)
         .not.toMatch(/^(Bakıyorum|Bakayım|Düşünüyorum|Kontrol ediyorum|Bir saniye)\.*$/i);
     }
-    // Gecikme örtme yasağı prompt'ta AÇIKÇA durur; sahte onay yasağını EZMEZ.
-    expect(companionChatProviderSrc).toContain('GECİKME ÖRTME YASAK');
-    expect(companionChatProviderSrc).toContain('SAHTE ONAY YASAK');
+    // Gecikme örtme yasağı prompt'ta AÇIKÇA durur; sahte onay yasağını EZMEZ (her iki yüzey).
+    for (const surface of ['rest_json', 'live_tool'] as const) {
+      const decision = brainDecisionLines(surface, [...brainIntentAllowlist()]).join('\n');
+      expect(decision).toContain('GECİKME ÖRTME YASAK');
+      expect(decision).toContain('SAHTE ONAY YASAK');
+    }
   });
 
   it('🔒 ACK politikası SAF kalır ve kalıplar ÇAPALI', () => {
@@ -13127,7 +13221,7 @@ describe('🔒 KİLİT · P0-VDK-B7 — sessiz adres eleme merdiveni', () => {
     const boot = read('src/platform/system/SystemBoot.ts');
     for (const name of ['music-intelligence', 'music-loudness', 'music-transition']) {
       expect(boot, `${name} cleanup kaydı yok (zero-leak ihlali)`)
-        .toContain(`_regNamed('${name}'`);
+        .toContain(`_regNamed(gen, '${name}'`);
     }
   });
 
@@ -13357,7 +13451,7 @@ describe('🔒 BOOT-RESILIENCE-1 · beklenmeyen restart tespiti thermalWatchdog 
   it('SystemBoot Wave 1 kararı çağırır ve tek-seferlik downgrade dışında bir şey YAPMAZ', () => {
     const boot = read('src/platform/system/SystemBoot.ts');
     expect(boot, 'evaluateBootResilience Wave 1\'de çağrılmıyor').toContain('evaluateBootResilience(Date.now())');
-    expect(boot, 'heartbeat başlatıcı LIFO cleanup\'a kaydedilmemiş').toContain("this._regNamed('BootResilienceGuard', startBootHeartbeat())");
+    expect(boot, 'heartbeat başlatıcı LIFO cleanup\'a kaydedilmemiş').toContain("this._regNamed(gen, 'BootResilienceGuard', startBootHeartbeat())");
     /* Paylaşılan tavan (setPowerCeiling) İCAT EDİLMEDİ — mevcut çok-çağıranlı
        setMode kullanılıyor, thermal ile aynı slotu ele geçirmiyor. */
     expect(boot, 'boot-resilience yeni bir paylaşılan tavan kurmuş — thermal ile çakışabilir')

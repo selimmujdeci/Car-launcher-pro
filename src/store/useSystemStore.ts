@@ -8,7 +8,7 @@
  */
 
 import { create } from 'zustand';
-import type { TripRecord } from '../platform/tripLogService';
+import type { JourneyCompletionCard } from '../platform/trip/tripSessionAccess';
 
 /* ── Alert tipi ──────────────────────────────────────────── */
 
@@ -42,9 +42,12 @@ interface SystemState {
 
   /* Trip özeti */
   showTripSummary:   boolean;
-  lastCompletedTrip: TripRecord | null;
+  lastCompletedTrip: JourneyCompletionCard | null;
   /**
-   * "Yolculuk tamamlandı" kartının GÖSTERİLDİĞİ tripId.
+   * "Yolculuk tamamlandı" kartının GÖSTERİLDİĞİ kimlik — artık SEYAHAT
+   * OTURUMU kimliğidir (`sessionId`), depolama segmenti (`tripId`) değil:
+   * kart yalnız kanonik JOURNEY + DESTINATION_REACHED'te açılır ve oturum
+   * başına TEK ATIŞ yapar (bkz. `selectJourneyCompletionCard`).
    *
    * ── ÖLÇÜLEN KUSUR ─────────────────────────────────────────────────
    * Kart, `active → pasif` GEÇİŞİNE bağlıydı ve o an `history[0]`ı
@@ -72,7 +75,7 @@ interface SystemState {
   addAlert:            (data: Omit<SystemAlert, 'id' | 'suppressed'>) => void;
   suppressNonCritical: () => void;
   unsuppressAll:       () => void;
-  setTripSummary:      (trip: TripRecord) => void;
+  setTripSummary:      (trip: JourneyCompletionCard) => void;
 
   /* ── UI bileşenlerinin çağırabileceği aksiyonlar ── */
   dismissAlert:     (id: number) => void;

@@ -772,7 +772,7 @@ describe('commandExecutor.executeIntent — FIND_NEARBY_HOSPITAL', () => {
 describe('nearby POI i18n anahtarları', () => {
   it('TR hastane metinleri tanımlı', () => {
     i18n.changeLanguage('tr');
-    expect(i18n.t('navigation.nearby_hospital_starting')).toBe('En yakın hastane için rota başlatılıyor.');
+    expect(i18n.t('navigation.nearby_hospital_starting')).toBe('En yakın hastaneyi arıyorum.');
     expect(i18n.t('navigation.nearby_hospital_none')).toBe('Yakınında uygun bir hastane bulunamadı.');
     expect(i18n.t('navigation.nearby_hospital_error')).toContain('tamamlanamadı');
     expect(i18n.t('navigation.nearby_gps_unavailable')).toContain('hastaneler aranamadı');
@@ -786,7 +786,7 @@ describe('nearby POI i18n anahtarları', () => {
   });
   it('TR benzinlik metinleri tanımlı (NAVIGATION-P1-1)', () => {
     i18n.changeLanguage('tr');
-    expect(i18n.t('navigation.nearby_gas_starting')).toBe('En yakın benzinlik için rota başlatılıyor.');
+    expect(i18n.t('navigation.nearby_gas_starting')).toBe('En yakın benzinliği arıyorum.');
     expect(i18n.t('navigation.nearby_gas_none')).toBe('Yakınında uygun bir benzinlik bulunamadı.');
     expect(i18n.t('navigation.nearby_gas_error')).toContain('tamamlanamadı');
   });
@@ -798,7 +798,7 @@ describe('nearby POI i18n anahtarları', () => {
   });
   it('TR otopark metinleri tanımlı (NAVIGATION-P1-2)', () => {
     i18n.changeLanguage('tr');
-    expect(i18n.t('navigation.nearby_parking_starting')).toBe('En yakın otopark için rota başlatılıyor.');
+    expect(i18n.t('navigation.nearby_parking_starting')).toBe('En yakın otoparkı arıyorum.');
     expect(i18n.t('navigation.nearby_parking_none')).toBe('Yakınında uygun bir otopark bulunamadı.');
     expect(i18n.t('navigation.nearby_parking_error')).toContain('tamamlanamadı');
   });
@@ -866,7 +866,9 @@ describe('addressNavigationEngine.resolveAndNavigate — hospital sentinel', () 
     vi.unstubAllGlobals();
   });
 
-  it('onResult callback: çok sonuçta "multiple" ile çağrılır', async () => {
+  /* ÜRÜN KARARI DEĞİŞTİ (2026-09-25): "en yakın X" çok sonuçta seçim kartı
+     GÖSTERMEZ — sonuçlar mesafeye göre sıralıdır, en yakına rota kurulur. */
+  it('onResult callback: çok sonuçta EN YAKINA rota ("confirmed")', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ elements: [
       { id: 1, lat: 36.95, lon: 34.90, tags: { name: 'Uzak' } },
       { id: 2, lat: 36.805, lon: 34.635, tags: { name: 'Yakın' } },
@@ -876,8 +878,9 @@ describe('addressNavigationEngine.resolveAndNavigate — hospital sentinel', () 
     resolveAndNavigate('__nearby_hospital__', { lat: 36.80, lng: 34.63 }, onResult);
 
     await vi.waitFor(() => {
-      expect(onResult).toHaveBeenCalledWith('multiple');
+      expect(onResult).toHaveBeenCalledWith('confirmed');
     });
+    expect(onResult).not.toHaveBeenCalledWith('multiple');
     vi.unstubAllGlobals();
   });
 });

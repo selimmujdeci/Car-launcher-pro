@@ -20,11 +20,16 @@ import { foldTr } from './core/turkishFold';
 /* NAV v3 · F4 — `RTG2` ayrıştırma artık BURADA DEĞİL: tek kanonik okuyucuda.
    Worker graf YÜRÜTME (A*) sahibidir; graf OKUMA sahibi değildir. */
 import {
-  parseRoutingGraph, edgeAccessRole, edgeRoadClass, turnIsAllowed, viaWayStep,
+  edgeAccessRole, edgeRoadClass, turnIsAllowed, viaWayStep,
   remapViaWayMask, RTG3_VIA_WAY_MASK_ABSENT,
   type RoutingGraphView,
 }
   from './map/graph/rtg2Reader';
+/* #1218: ayrıştırıcı BigInt sözdizimi taşır. BURADA statik import GÜVENLİDİR —
+   bu bir MODÜL worker'ıdır ve `supportsModuleWorker` ile Chrome 80+'a kapılıdır
+   (compat kapısı da bu worker'ı bilinçli olarak hariç tutar). Eski WebView bu
+   dosyayı hiç yüklemez. */
+import { parseRoutingGraph } from './map/graph/rtg2Parse';
 import { REGION_WINDOW_NO_LOCAL, distanceToBoxM, type RegionWindowIdentity }
   from './map/graph/turkeyGraphManifest';
 import { altLowerBoundM } from './map/graph/altLowerBound';

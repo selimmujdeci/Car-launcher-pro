@@ -18,8 +18,14 @@
  *    modül yok/kaynak yok → `null` (unknown). "Dosya/export var" TEK BAŞINA available DEĞİL.
  *  - **AI provider config (BYOK)** (gemini/groq/claude/cloud): configured + network usable
  *    → `available`; configured ama kullanılamaz → `degraded`; configured değil → `unavailable`.
- *  - **Kaynak YOK:** `ai.grok` (xAI entegrasyonu yok → provider HİÇ ÜRETİLMEZ),
- *    `ai.local_model` (gerçek yerel LLM yok → probe yoksa unknown, modelLoaded=false → unavailable).
+ *  - **Kaynak YOK:** `ai.grok` (xAI entegrasyonu yok → provider HİÇ ÜRETİLMEZ).
+ *  - **`ai.local_model`** (HYBRID-F2): İKİ AYRI SORU birbirine KARIŞTIRILMAZ —
+ *    (1) DEVICE ELIGIBILITY: `localModelEligibility.decideLocalModelEligibility()`
+ *    SONUCU (F1, TEK otorite — burada YENİDEN HESAPLANMAZ), (2) RUNTIME AVAILABILITY:
+ *    gerçek runtime kurulu mu + model belleğe yüklü mü. `eligible` OLMAK `available`
+ *    OLMAK için YETMEZ: probe yoksa unknown; eligibility `unknown`/`ineligible` İSE,
+ *    runtime kurulu DEĞİLSE, ya da model yüklü DEĞİLSE → HER KOŞULDA `unavailable`
+ *    (fail-closed — sahte `available` YASAK).
  *
  * NE YAPMAZ (bilinçli — bu PR yalnız provider FOUNDATION'ıdır):
  *  - Ağır modülleri IMPORT ETMEZ (yalnız TYPE import) → import YAN ETKİSİZDİR. Modül/config/
@@ -30,7 +36,12 @@
  *  - GLOBAL SINGLETON üretmez; provider'lar yalnız fabrika çağrılınca oluşur.
  *
  * PERFORMANS/MALİ-400: fabrika probe ÇAĞIRMAZ (yan etkisiz); okuma yalnız `read()`'te,
- * bounded (tek navigator/probe okuması); low-tier'da AĞIR provider (local_model) OLUŞTURULMAZ.
+ * bounded (tek navigator/probe okuması). `ai.local_model` artık TIER'DAN BAĞIMSIZ
+ * oluşturulur (probe verilmişse) — tier zaten F1 eligibility'nin İLK adımıdır (`deviceTier
+ * !== 'high' → ineligible`), bu bilgiyi burada TEKRARLAMAK ikinci bir tier kuralı
+ * doğururdu (CLAUDE.md §6 TEK OTORİTE). Bu fazda gerçek üretim wiring'i (`platformCore
+ * CapabilityWiring.ts`) `localModel` probe'unu HİÇ GEÇMEZ → cihazda pratik ek yük YOK;
+ * probe DI edildiğinde (test/gelecekteki wiring) ağırlığı probe'un KENDİ sorumluluğudur.
  * FAIL-SOFT: her `read()` kendi probe'unu try/catch ile sarar → ASLA throw etmez, hata→null.
  * GİZLİLİK: sonuçlar yalnız sabit literal reason/details taşır (VIN/MAC/koordinat/anahtar YOK).
  */
@@ -38,6 +49,9 @@
 import type { CapabilityDomain, CapabilitySource } from '../capabilityRegistry';
 import type { CapabilityProvider, CapabilityProviderResult, CapabilityRefreshPolicy } from '../capabilityProviderAdapter';
 import type { DeviceTier } from '../../deviceCapabilities';
+import type {
+  LocalModelEligibility, LocalModelIneligibilityReason, LocalModelUnknownReason,
+} from '../../ai/local/localModelEligibility';
 
 /* ══════════════════════════════════════════════════════════════════════════
  * Enjekte kanıt tipleri (DI — wiring PR gerçek prob'ları geçirir)
@@ -65,8 +79,27 @@ export interface ModuleRuntimeEvidence {
   readonly runtimeReady?: boolean;
 }
 
-/** Yerel LLM model kanıtı. */
+/**
+ * Yerel LLM model kanıtı — HYBRID-F2.
+ *
+ * İKİ AYRI SORU: DEVICE ELIGIBILITY (bu cihaz YAPISAL OLARAK uygun mu — F1'in
+ * cevapladığı soru) ile RUNTIME AVAILABILITY (gerçek runtime şu an ÇALIŞIYOR mu +
+ * model belleğe YÜKLÜ mü) birbirinden BAĞIMSIZDIR. `eligible` bir cihazın runtime
+ * KURULMASINA izin verir; `available` OLMASI için runtime GERÇEKTEN kurulu VE model
+ * GERÇEKTEN yüklü olmalıdır. Bu fazda (F2) ikinci grup HİÇBİR ZAMAN true DEĞİLDİR
+ * (runtime/model henüz yok) — provider bu yüzden HER KOŞULDA `unavailable` üretir.
+ */
 export interface LocalModelEvidence {
+  /**
+   * `localModelEligibility.decideLocalModelEligibility()` SONUCU. Provider bu
+   * DEĞERİ YENİDEN HESAPLAMAZ — tek otorite F1'dedir, burada yalnız TÜKETİLİR.
+   */
+  readonly eligibilityStatus: LocalModelEligibility['status'];
+  /** `eligibilityStatus` `'eligible'` DEĞİLSE sebep (F1'in tipli sebep birliğinden). */
+  readonly eligibilityReason?: LocalModelIneligibilityReason | LocalModelUnknownReason;
+  /** Gerçek yerel LLM runtime'ı (JNI/llama.cpp vb.) KURULU ve ÇALIŞIYOR mu. Bu fazda daima `false`. */
+  readonly runtimeAvailable: boolean;
+  /** Model dosyası belleğe YÜKLENMİŞ mi. Bu fazda daima `false`. */
   readonly modelLoaded: boolean;
 }
 
@@ -161,6 +194,32 @@ function _moduleResult(e: ModuleRuntimeEvidence | null, source: CapabilitySource
   return null;                                                    // modül yok → unknown
 }
 
+/**
+ * `ai.local_model` → DEVICE ELIGIBILITY (F1) ile RUNTIME AVAILABILITY'yi SIRAYLA,
+ * FAIL-CLOSED değerlendirir. Kararı YENİDEN VERMEZ — yalnız üç bağımsız kanıtı
+ * (eligibility/runtime/model) TÜKETİR. `eligible ≠ available`: cihaz uygun olsa
+ * BİLE runtime kurulu değilse ya da model yüklü değilse sonuç `unavailable` kalır.
+ */
+function _localModelResult(e: LocalModelEvidence | null): CapabilityProviderResult | null {
+  if (!e || typeof e !== 'object') return null;                   // kaynak yok → unknown
+
+  // 1) DEVICE ELIGIBILITY — 'unknown' ve 'ineligible' AYNI SONUCA (unavailable) gider;
+  //    unknown ASLA available'a dönüşmez (F1'in fail-closed sözleşmesi burada da geçerlidir).
+  if (e.eligibilityStatus !== 'eligible') {
+    return _unavailable(e.eligibilityReason ? `not_eligible_${e.eligibilityReason}` : 'not_eligible');
+  }
+  // 2) RUNTIME AVAILABILITY — eligible olmak YETMEZ, runtime GERÇEKTEN kurulu olmalı.
+  if (e.runtimeAvailable !== true) {
+    return _unavailable('runtime_not_installed');
+  }
+  // 3) Model belleğe yüklü mü.
+  if (e.modelLoaded !== true) {
+    return _unavailable('model_not_loaded');
+  }
+  // 4) Üç kanıt da gerçek → available. (Bu fazda BURAYA HİÇ ULAŞILMAZ — runtime/model yok.)
+  return _liveAvailable('local_model_loaded', 'runtime', 0.7);
+}
+
 /* ══════════════════════════════════════════════════════════════════════════
  * navigator erişimi (yalnız read()'te; fabrika okumaz)
  * ════════════════════════════════════════════════════════════════════════ */
@@ -223,7 +282,6 @@ export function createRuntimeCapabilityProviders(
 ): CapabilityProvider[] {
   const env = deps.env;
   const probes = deps.probes ?? {};
-  const tier: DeviceTier | undefined = env?.deviceTier;
   const out: CapabilityProvider[] = [];
   const push = (s: ProviderSpec) => {
     if (out.length < MAX_RUNTIME_CAPABILITY_PROVIDERS) out.push(_makeProvider(s));
@@ -355,15 +413,16 @@ export function createRuntimeCapabilityProviders(
 
   // ai.grok — xAI entegrasyonu YOK → provider HİÇ ÜRETİLMEZ (dürüst boşluk → Registry unknown kalır).
 
-  // ai.local_model — gerçek yerel LLM yok; yalnız yüksek tier'da VE probe verilmişse üret (Mali-400/low AĞIR provider yok).
-  if (probes.localModel && tier === 'high') {
+  /* ai.local_model — HYBRID-F2: probe verilmişse TIER'DAN BAĞIMSIZ oluşturulur (diğer
+   * probe-tabanlı provider'larla AYNI desen). Tier kuralı BURADA TEKRARLANMAZ: F1
+   * eligibility zaten 'deviceTier !== high → ineligible' der (§ dosya başlığı) — ikinci
+   * bir tier kapısı TEK OTORİTE ilkesini ihlal ederdi. `capabilityRegistry.ts`'teki
+   * `deviceTierMinimum: 'high'` kilidi AYRICA ve BAĞIMSIZ olarak korunur (savunma
+   * derinliği); bu satır o kilide DOKUNMAZ. */
+  if (probes.localModel) {
     push({
       id: 'ai.local_model', domain: 'ai', source: 'runtime', refreshPolicy: 'on_refresh',
-      read: () => {
-        const e = probes.localModel!();
-        if (!e || typeof e !== 'object') return null;
-        return e.modelLoaded ? _liveAvailable('local_model_loaded', 'runtime', 0.7) : _unavailable('local_model_not_loaded');
-      },
+      read: () => _localModelResult(probes.localModel!()),
     });
   }
 

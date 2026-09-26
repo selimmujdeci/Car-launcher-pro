@@ -1,0 +1,4315 @@
+{
+  "version": 8,
+  "name": "Vector (Automotive Night)",
+  "glyphs": "glyph-cache://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
+  "sources": {
+    "omv": {
+      "type": "vector",
+      "url": "https://tiles.openfreemap.org/planet",
+      "minzoom": 0,
+      "maxzoom": 14,
+      "attribution": "© OpenMapTiles © OpenStreetMap katkıcıları"
+    }
+  },
+  "layers": [
+    {
+      "id": "background",
+      "type": "background",
+      "paint": {
+        "background-color": "#222c3c"
+      }
+    },
+    {
+      "id": "landcover-wood",
+      "type": "fill",
+      "source": "omv",
+      "source-layer": "landcover",
+      "minzoom": 5,
+      "filter": [
+        "in",
+        [
+          "get",
+          "class"
+        ],
+        [
+          "literal",
+          [
+            "wood",
+            "forest"
+          ]
+        ]
+      ],
+      "paint": {
+        "fill-color": "#2b4732",
+        "fill-opacity": 0.9
+      }
+    },
+    {
+      "id": "landcover-farmland",
+      "type": "fill",
+      "source": "omv",
+      "source-layer": "landcover",
+      "minzoom": 10,
+      "filter": [
+        "in",
+        [
+          "get",
+          "class"
+        ],
+        [
+          "literal",
+          [
+            "farmland"
+          ]
+        ]
+      ],
+      "paint": {
+        "fill-color": "#3c3f31",
+        "fill-opacity": 0.75
+      }
+    },
+    {
+      "id": "landcover-grass",
+      "type": "fill",
+      "source": "omv",
+      "source-layer": "landcover",
+      "minzoom": 10,
+      "filter": [
+        "in",
+        [
+          "get",
+          "class"
+        ],
+        [
+          "literal",
+          [
+            "grass",
+            "meadow",
+            "heath",
+            "scrub"
+          ]
+        ]
+      ],
+      "paint": {
+        "fill-color": "#36543f",
+        "fill-opacity": 0.8
+      }
+    },
+    {
+      "id": "landuse-park",
+      "type": "fill",
+      "source": "omv",
+      "source-layer": "park",
+      "minzoom": 5,
+      "paint": {
+        "fill-color": "#36543f",
+        "fill-opacity": 0.85
+      }
+    },
+    {
+      "id": "landuse-residential",
+      "type": "fill",
+      "source": "omv",
+      "source-layer": "landuse",
+      "minzoom": 11,
+      "filter": [
+        "in",
+        [
+          "get",
+          "class"
+        ],
+        [
+          "literal",
+          [
+            "residential"
+          ]
+        ]
+      ],
+      "paint": {
+        "fill-color": "#333b4d"
+      }
+    },
+    {
+      "id": "landuse-urban",
+      "type": "fill",
+      "source": "omv",
+      "source-layer": "landuse",
+      "minzoom": 11,
+      "filter": [
+        "in",
+        [
+          "get",
+          "class"
+        ],
+        [
+          "literal",
+          [
+            "industrial",
+            "commercial",
+            "retail",
+            "quarry",
+            "garages",
+            "railway",
+            "military",
+            "bus_station",
+            "school",
+            "university",
+            "hospital"
+          ]
+        ]
+      ],
+      "paint": {
+        "fill-color": "#3a4052"
+      }
+    },
+    {
+      "id": "landuse-green",
+      "type": "fill",
+      "source": "omv",
+      "source-layer": "landuse",
+      "minzoom": 12,
+      "filter": [
+        "in",
+        [
+          "get",
+          "class"
+        ],
+        [
+          "literal",
+          [
+            "cemetery",
+            "pitch",
+            "playground",
+            "theme_park",
+            "stadium",
+            "track",
+            "golf"
+          ]
+        ]
+      ],
+      "paint": {
+        "fill-color": "#36543f",
+        "fill-opacity": 0.7
+      }
+    },
+    {
+      "id": "water-fill",
+      "type": "fill",
+      "source": "omv",
+      "source-layer": "water",
+      "filter": [
+        "!=",
+        [
+          "get",
+          "class"
+        ],
+        "swimming_pool"
+      ],
+      "paint": {
+        "fill-color": "#245e85"
+      }
+    },
+    {
+      "id": "water-pool",
+      "type": "fill",
+      "source": "omv",
+      "source-layer": "water",
+      "minzoom": 16,
+      "filter": [
+        "==",
+        [
+          "get",
+          "class"
+        ],
+        "swimming_pool"
+      ],
+      "paint": {
+        "fill-color": "#245e85",
+        "fill-opacity": 0.75
+      }
+    },
+    {
+      "id": "waterway",
+      "type": "line",
+      "source": "omv",
+      "source-layer": "waterway",
+      "minzoom": 8,
+      "filter": [
+        "in",
+        [
+          "get",
+          "class"
+        ],
+        [
+          "literal",
+          [
+            "river",
+            "canal"
+          ]
+        ]
+      ],
+      "layout": {
+        "line-cap": "round",
+        "line-join": "round"
+      },
+      "paint": {
+        "line-color": "#245e85",
+        "line-width": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          8,
+          0.6,
+          12,
+          1.6,
+          16,
+          4
+        ]
+      }
+    },
+    {
+      "id": "waterway-stream",
+      "type": "line",
+      "source": "omv",
+      "source-layer": "waterway",
+      "minzoom": 13,
+      "filter": [
+        "in",
+        [
+          "get",
+          "class"
+        ],
+        [
+          "literal",
+          [
+            "stream",
+            "ditch",
+            "drain"
+          ]
+        ]
+      ],
+      "layout": {
+        "line-cap": "round",
+        "line-join": "round"
+      },
+      "paint": {
+        "line-color": "#245e85",
+        "line-opacity": 0.75,
+        "line-width": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          13,
+          0.5,
+          17,
+          2
+        ]
+      }
+    },
+    {
+      "id": "boundary",
+      "type": "line",
+      "source": "omv",
+      "source-layer": "boundary",
+      "minzoom": 3,
+      "filter": [
+        "<=",
+        [
+          "coalesce",
+          [
+            "get",
+            "admin_level"
+          ],
+          99
+        ],
+        4
+      ],
+      "layout": {
+        "line-cap": "butt",
+        "line-join": "round"
+      },
+      "paint": {
+        "line-color": "#485369",
+        "line-opacity": 0.55,
+        "line-dasharray": [
+          3,
+          2
+        ],
+        "line-width": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          3,
+          0.5,
+          8,
+          1.2,
+          12,
+          1.6
+        ]
+      }
+    },
+    {
+      "id": "aeroway",
+      "type": "line",
+      "source": "omv",
+      "source-layer": "aeroway",
+      "minzoom": 11,
+      "filter": [
+        "in",
+        [
+          "get",
+          "class"
+        ],
+        [
+          "literal",
+          [
+            "runway",
+            "taxiway"
+          ]
+        ]
+      ],
+      "layout": {
+        "line-cap": "butt"
+      },
+      "paint": {
+        "line-color": "#3a4052",
+        "line-width": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          11,
+          [
+            "case",
+            [
+              "==",
+              [
+                "get",
+                "class"
+              ],
+              "runway"
+            ],
+            2,
+            0.6
+          ],
+          14,
+          [
+            "case",
+            [
+              "==",
+              [
+                "get",
+                "class"
+              ],
+              "runway"
+            ],
+            7,
+            2
+          ],
+          17,
+          [
+            "case",
+            [
+              "==",
+              [
+                "get",
+                "class"
+              ],
+              "runway"
+            ],
+            20,
+            6
+          ]
+        ]
+      }
+    },
+    {
+      "id": "railway",
+      "type": "line",
+      "source": "omv",
+      "source-layer": "transportation",
+      "minzoom": 11,
+      "filter": [
+        "in",
+        [
+          "get",
+          "class"
+        ],
+        [
+          "literal",
+          [
+            "rail",
+            "transit"
+          ]
+        ]
+      ],
+      "layout": {
+        "line-cap": "butt",
+        "line-join": "round"
+      },
+      "paint": {
+        "line-color": "#5a6274",
+        "line-opacity": 0.8,
+        "line-dasharray": [
+          2.5,
+          2
+        ],
+        "line-width": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          11,
+          0.6,
+          14,
+          1.4,
+          17,
+          2.6
+        ]
+      }
+    },
+    {
+      "id": "building",
+      "type": "fill",
+      "source": "omv",
+      "source-layer": "building",
+      "minzoom": 14,
+      "paint": {
+        "fill-color": "#39445c",
+        "fill-outline-color": "#485369"
+      }
+    },
+    {
+      "id": "building-3d",
+      "type": "fill-extrusion",
+      "source": "omv",
+      "source-layer": "building",
+      "minzoom": 16,
+      "filter": [
+        "!=",
+        [
+          "get",
+          "hide_3d"
+        ],
+        true
+      ],
+      "paint": {
+        "fill-extrusion-color": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "coalesce",
+            [
+              "get",
+              "render_height"
+            ],
+            [
+              "get",
+              "height"
+            ],
+            5
+          ],
+          0,
+          "#39445c",
+          20,
+          "#485369",
+          60,
+          "#57647e"
+        ],
+        "fill-extrusion-opacity": 0.78,
+        "fill-extrusion-height": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          16,
+          0,
+          16.4,
+          [
+            "coalesce",
+            [
+              "get",
+              "render_height"
+            ],
+            [
+              "get",
+              "height"
+            ],
+            10
+          ]
+        ],
+        "fill-extrusion-base": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          16,
+          0,
+          16.4,
+          [
+            "coalesce",
+            [
+              "get",
+              "render_min_height"
+            ],
+            [
+              "get",
+              "min_height"
+            ],
+            0
+          ]
+        ],
+        "fill-extrusion-vertical-gradient": true
+      }
+    },
+    {
+      "id": "road-tunnel-casing",
+      "type": "line",
+      "source": "omv",
+      "source-layer": "transportation",
+      "filter": [
+        "==",
+        [
+          "get",
+          "brunnel"
+        ],
+        "tunnel"
+      ],
+      "layout": {
+        "line-cap": "butt",
+        "line-join": "round"
+      },
+      "paint": {
+        "line-color": "#0e131b",
+        "line-width": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          8,
+          [
+            "case",
+            [
+              "in",
+              [
+                "get",
+                "class"
+              ],
+              [
+                "literal",
+                [
+                  "motorway",
+                  "trunk"
+                ]
+              ]
+            ],
+            4.6,
+            [
+              "in",
+              [
+                "get",
+                "class"
+              ],
+              [
+                "literal",
+                [
+                  "primary",
+                  "secondary"
+                ]
+              ]
+            ],
+            2.875,
+            1.38
+          ],
+          14,
+          [
+            "case",
+            [
+              "in",
+              [
+                "get",
+                "class"
+              ],
+              [
+                "literal",
+                [
+                  "motorway",
+                  "trunk"
+                ]
+              ]
+            ],
+            13.799999999999999,
+            [
+              "in",
+              [
+                "get",
+                "class"
+              ],
+              [
+                "literal",
+                [
+                  "primary",
+                  "secondary"
+                ]
+              ]
+            ],
+            10.35,
+            5.75
+          ],
+          18,
+          [
+            "case",
+            [
+              "in",
+              [
+                "get",
+                "class"
+              ],
+              [
+                "literal",
+                [
+                  "motorway",
+                  "trunk"
+                ]
+              ]
+            ],
+            23,
+            [
+              "in",
+              [
+                "get",
+                "class"
+              ],
+              [
+                "literal",
+                [
+                  "primary",
+                  "secondary"
+                ]
+              ]
+            ],
+            17.25,
+            10.35
+          ]
+        ],
+        "line-dasharray": [
+          2.4,
+          1.6
+        ],
+        "line-opacity": 0.42
+      }
+    },
+    {
+      "id": "road-tunnel",
+      "type": "line",
+      "source": "omv",
+      "source-layer": "transportation",
+      "filter": [
+        "==",
+        [
+          "get",
+          "brunnel"
+        ],
+        "tunnel"
+      ],
+      "layout": {
+        "line-cap": "butt",
+        "line-join": "round"
+      },
+      "paint": {
+        "line-color": "#222c3c",
+        "line-width": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          8,
+          [
+            "case",
+            [
+              "in",
+              [
+                "get",
+                "class"
+              ],
+              [
+                "literal",
+                [
+                  "motorway",
+                  "trunk"
+                ]
+              ]
+            ],
+            3.28,
+            [
+              "in",
+              [
+                "get",
+                "class"
+              ],
+              [
+                "literal",
+                [
+                  "primary",
+                  "secondary"
+                ]
+              ]
+            ],
+            2.05,
+            0.9839999999999999
+          ],
+          14,
+          [
+            "case",
+            [
+              "in",
+              [
+                "get",
+                "class"
+              ],
+              [
+                "literal",
+                [
+                  "motorway",
+                  "trunk"
+                ]
+              ]
+            ],
+            9.84,
+            [
+              "in",
+              [
+                "get",
+                "class"
+              ],
+              [
+                "literal",
+                [
+                  "primary",
+                  "secondary"
+                ]
+              ]
+            ],
+            7.38,
+            4.1
+          ],
+          18,
+          [
+            "case",
+            [
+              "in",
+              [
+                "get",
+                "class"
+              ],
+              [
+                "literal",
+                [
+                  "motorway",
+                  "trunk"
+                ]
+              ]
+            ],
+            16.4,
+            [
+              "in",
+              [
+                "get",
+                "class"
+              ],
+              [
+                "literal",
+                [
+                  "primary",
+                  "secondary"
+                ]
+              ]
+            ],
+            12.299999999999999,
+            7.38
+          ]
+        ],
+        "line-opacity": 0.6599999999999999
+      }
+    },
+    {
+      "id": "road-minor-casing",
+      "type": "line",
+      "source": "omv",
+      "source-layer": "transportation",
+      "filter": [
+        "all",
+        [
+          "in",
+          [
+            "get",
+            "class"
+          ],
+          [
+            "literal",
+            [
+              "minor",
+              "service",
+              "track"
+            ]
+          ]
+        ],
+        [
+          "!",
+          [
+            "in",
+            [
+              "get",
+              "brunnel"
+            ],
+            [
+              "literal",
+              [
+                "bridge",
+                "tunnel"
+              ]
+            ]
+          ]
+        ]
+      ],
+      "minzoom": 14,
+      "layout": {
+        "line-cap": "round",
+        "line-join": "round"
+      },
+      "paint": {
+        "line-color": "#0e131b",
+        "line-width": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          14,
+          [
+            "case",
+            [
+              "==",
+              [
+                "get",
+                "ramp"
+              ],
+              1
+            ],
+            1.43,
+            2.6
+          ],
+          16,
+          [
+            "case",
+            [
+              "==",
+              [
+                "get",
+                "ramp"
+              ],
+              1
+            ],
+            2.53,
+            4.6
+          ],
+          18,
+          [
+            "case",
+            [
+              "==",
+              [
+                "get",
+                "ramp"
+              ],
+              1
+            ],
+            4.95,
+            9
+          ]
+        ]
+      }
+    },
+    {
+      "id": "road-tertiary-casing",
+      "type": "line",
+      "source": "omv",
+      "source-layer": "transportation",
+      "filter": [
+        "all",
+        [
+          "in",
+          [
+            "get",
+            "class"
+          ],
+          [
+            "literal",
+            [
+              "tertiary"
+            ]
+          ]
+        ],
+        [
+          "!",
+          [
+            "in",
+            [
+              "get",
+              "brunnel"
+            ],
+            [
+              "literal",
+              [
+                "bridge",
+                "tunnel"
+              ]
+            ]
+          ]
+        ]
+      ],
+      "minzoom": 12,
+      "layout": {
+        "line-cap": "round",
+        "line-join": "round"
+      },
+      "paint": {
+        "line-color": "#111620",
+        "line-width": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          12,
+          [
+            "case",
+            [
+              "==",
+              [
+                "get",
+                "ramp"
+              ],
+              1
+            ],
+            0.66,
+            1.2
+          ],
+          14,
+          [
+            "case",
+            [
+              "==",
+              [
+                "get",
+                "ramp"
+              ],
+              1
+            ],
+            1.98,
+            3.6
+          ],
+          18,
+          [
+            "case",
+            [
+              "==",
+              [
+                "get",
+                "ramp"
+              ],
+              1
+            ],
+            5.28,
+            9.6
+          ]
+        ]
+      }
+    },
+    {
+      "id": "road-secondary-casing",
+      "type": "line",
+      "source": "omv",
+      "source-layer": "transportation",
+      "filter": [
+        "all",
+        [
+          "in",
+          [
+            "get",
+            "class"
+          ],
+          [
+            "literal",
+            [
+              "secondary"
+            ]
+          ]
+        ],
+        [
+          "!",
+          [
+            "in",
+            [
+              "get",
+              "brunnel"
+            ],
+            [
+              "literal",
+              [
+                "bridge",
+                "tunnel"
+              ]
+            ]
+          ]
+        ]
+      ],
+      "minzoom": 9,
+      "layout": {
+        "line-cap": "round",
+        "line-join": "round"
+      },
+      "paint": {
+        "line-color": "#161c26",
+        "line-width": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          9,
+          [
+            "case",
+            [
+              "==",
+              [
+                "get",
+                "ramp"
+              ],
+              1
+            ],
+            0.83,
+            1.5
+          ],
+          12,
+          [
+            "case",
+            [
+              "==",
+              [
+                "get",
+                "ramp"
+              ],
+              1
+            ],
+            1.82,
+            3.3
+          ],
+          14,
+          [
+            "case",
+            [
+              "==",
+              [
+                "get",
+                "ramp"
+              ],
+              1
+            ],
+            2.86,
+            5.2
+          ],
+          18,
+          [
+            "case",
+            [
+              "==",
+              [
+                "get",
+                "ramp"
+              ],
+              1
+            ],
+            7.15,
+            13
+          ]
+        ]
+      }
+    },
+    {
+      "id": "road-primary-casing",
+      "type": "line",
+      "source": "omv",
+      "source-layer": "transportation",
+      "filter": [
+        "all",
+        [
+          "in",
+          [
+            "get",
+            "class"
+          ],
+          [
+            "literal",
+            [
+              "primary"
+            ]
+          ]
+        ],
+        [
+          "!",
+          [
+            "in",
+            [
+              "get",
+              "brunnel"
+            ],
+            [
+              "literal",
+              [
+                "bridge",
+                "tunnel"
+              ]
+            ]
+          ]
+        ]
+      ],
+      "minzoom": 8,
+      "layout": {
+        "line-cap": "round",
+        "line-join": "round"
+      },
+      "paint": {
+        "line-color": "#181e29",
+        "line-width": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          8,
+          [
+            "case",
+            [
+              "==",
+              [
+                "get",
+                "ramp"
+              ],
+              1
+            ],
+            1.21,
+            2.2
+          ],
+          14,
+          [
+            "case",
+            [
+              "==",
+              [
+                "get",
+                "ramp"
+              ],
+              1
+            ],
+            4.62,
+            8.4
+          ],
+          18,
+          [
+            "case",
+            [
+              "==",
+              [
+                "get",
+                "ramp"
+              ],
+              1
+            ],
+            9.9,
+            18
+          ]
+        ]
+      }
+    },
+    {
+      "id": "road-motorway-casing",
+      "type": "line",
+      "source": "omv",
+      "source-layer": "transportation",
+      "filter": [
+        "all",
+        [
+          "in",
+          [
+            "get",
+            "class"
+          ],
+          [
+            "literal",
+            [
+              "motorway",
+              "trunk"
+            ]
+          ]
+        ],
+        [
+          "!",
+          [
+            "in",
+            [
+              "get",
+              "brunnel"
+            ],
+            [
+              "literal",
+              [
+                "bridge",
+                "tunnel"
+              ]
+            ]
+          ]
+        ]
+      ],
+      "minzoom": 5,
+      "layout": {
+        "line-cap": "round",
+        "line-join": "round"
+      },
+      "paint": {
+        "line-color": "#1a212c",
+        "line-width": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          5,
+          [
+            "case",
+            [
+              "==",
+              [
+                "get",
+                "ramp"
+              ],
+              1
+            ],
+            1.32,
+            2.4
+          ],
+          10,
+          [
+            "case",
+            [
+              "==",
+              [
+                "get",
+                "ramp"
+              ],
+              1
+            ],
+            2.75,
+            5
+          ],
+          14,
+          [
+            "case",
+            [
+              "==",
+              [
+                "get",
+                "ramp"
+              ],
+              1
+            ],
+            6.33,
+            11.5
+          ],
+          18,
+          [
+            "case",
+            [
+              "==",
+              [
+                "get",
+                "ramp"
+              ],
+              1
+            ],
+            13.2,
+            24
+          ]
+        ]
+      }
+    },
+    {
+      "id": "road-path",
+      "type": "line",
+      "source": "omv",
+      "source-layer": "transportation",
+      "filter": [
+        "all",
+        [
+          "in",
+          [
+            "get",
+            "class"
+          ],
+          [
+            "literal",
+            [
+              "path"
+            ]
+          ]
+        ],
+        [
+          "!",
+          [
+            "in",
+            [
+              "get",
+              "brunnel"
+            ],
+            [
+              "literal",
+              [
+                "bridge",
+                "tunnel"
+              ]
+            ]
+          ]
+        ]
+      ],
+      "minzoom": 16,
+      "layout": {
+        "line-cap": "butt",
+        "line-join": "round"
+      },
+      "paint": {
+        "line-color": "#5f6673",
+        "line-opacity": 0.7,
+        "line-dasharray": [
+          1.6,
+          1.6
+        ],
+        "line-width": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          16,
+          0.8,
+          19,
+          2
+        ]
+      }
+    },
+    {
+      "id": "road-service",
+      "type": "line",
+      "source": "omv",
+      "source-layer": "transportation",
+      "filter": [
+        "all",
+        [
+          "in",
+          [
+            "get",
+            "class"
+          ],
+          [
+            "literal",
+            [
+              "service",
+              "track",
+              "busway"
+            ]
+          ]
+        ],
+        [
+          "!",
+          [
+            "in",
+            [
+              "get",
+              "brunnel"
+            ],
+            [
+              "literal",
+              [
+                "bridge",
+                "tunnel"
+              ]
+            ]
+          ]
+        ]
+      ],
+      "minzoom": 15,
+      "layout": {
+        "line-cap": "round",
+        "line-join": "round"
+      },
+      "paint": {
+        "line-color": "#e9edf2",
+        "line-opacity": 0.85,
+        "line-width": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          15,
+          0.65,
+          18,
+          2.45
+        ]
+      }
+    },
+    {
+      "id": "road-minor",
+      "type": "line",
+      "source": "omv",
+      "source-layer": "transportation",
+      "filter": [
+        "all",
+        [
+          "in",
+          [
+            "get",
+            "class"
+          ],
+          [
+            "literal",
+            [
+              "minor"
+            ]
+          ]
+        ],
+        [
+          "!",
+          [
+            "in",
+            [
+              "get",
+              "brunnel"
+            ],
+            [
+              "literal",
+              [
+                "bridge",
+                "tunnel"
+              ]
+            ]
+          ]
+        ]
+      ],
+      "minzoom": 13,
+      "layout": {
+        "line-cap": "round",
+        "line-join": "round"
+      },
+      "paint": {
+        "line-color": "#e9edf2",
+        "line-width": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          13,
+          [
+            "case",
+            [
+              "==",
+              [
+                "get",
+                "ramp"
+              ],
+              1
+            ],
+            0.36,
+            0.65
+          ],
+          14,
+          [
+            "case",
+            [
+              "==",
+              [
+                "get",
+                "ramp"
+              ],
+              1
+            ],
+            0.87,
+            1.58
+          ],
+          16,
+          [
+            "case",
+            [
+              "==",
+              [
+                "get",
+                "ramp"
+              ],
+              1
+            ],
+            1.58,
+            2.88
+          ],
+          18,
+          [
+            "case",
+            [
+              "==",
+              [
+                "get",
+                "ramp"
+              ],
+              1
+            ],
+            2.93,
+            5.33
+          ]
+        ]
+      }
+    },
+    {
+      "id": "road-tertiary",
+      "type": "line",
+      "source": "omv",
+      "source-layer": "transportation",
+      "filter": [
+        "all",
+        [
+          "in",
+          [
+            "get",
+            "class"
+          ],
+          [
+            "literal",
+            [
+              "tertiary"
+            ]
+          ]
+        ],
+        [
+          "!",
+          [
+            "in",
+            [
+              "get",
+              "brunnel"
+            ],
+            [
+              "literal",
+              [
+                "bridge",
+                "tunnel"
+              ]
+            ]
+          ]
+        ]
+      ],
+      "minzoom": 12,
+      "layout": {
+        "line-cap": "round",
+        "line-join": "round"
+      },
+      "paint": {
+        "line-color": "#ecf0f5",
+        "line-width": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          11,
+          [
+            "case",
+            [
+              "==",
+              [
+                "get",
+                "ramp"
+              ],
+              1
+            ],
+            0.23,
+            0.42
+          ],
+          13,
+          [
+            "case",
+            [
+              "==",
+              [
+                "get",
+                "ramp"
+              ],
+              1
+            ],
+            0.69,
+            1.26
+          ],
+          14,
+          [
+            "case",
+            [
+              "==",
+              [
+                "get",
+                "ramp"
+              ],
+              1
+            ],
+            1.39,
+            2.52
+          ],
+          18,
+          [
+            "case",
+            [
+              "==",
+              [
+                "get",
+                "ramp"
+              ],
+              1
+            ],
+            4.06,
+            7.39
+          ]
+        ]
+      }
+    },
+    {
+      "id": "road-secondary",
+      "type": "line",
+      "source": "omv",
+      "source-layer": "transportation",
+      "filter": [
+        "all",
+        [
+          "in",
+          [
+            "get",
+            "class"
+          ],
+          [
+            "literal",
+            [
+              "secondary"
+            ]
+          ]
+        ],
+        [
+          "!",
+          [
+            "in",
+            [
+              "get",
+              "brunnel"
+            ],
+            [
+              "literal",
+              [
+                "bridge",
+                "tunnel"
+              ]
+            ]
+          ]
+        ]
+      ],
+      "minzoom": 9,
+      "layout": {
+        "line-cap": "round",
+        "line-join": "round"
+      },
+      "paint": {
+        "line-color": "#f2f5f8",
+        "line-width": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          9,
+          [
+            "case",
+            [
+              "==",
+              [
+                "get",
+                "ramp"
+              ],
+              1
+            ],
+            0.44,
+            0.8
+          ],
+          12,
+          [
+            "case",
+            [
+              "==",
+              [
+                "get",
+                "ramp"
+              ],
+              1
+            ],
+            1.21,
+            2.2
+          ],
+          14,
+          [
+            "case",
+            [
+              "==",
+              [
+                "get",
+                "ramp"
+              ],
+              1
+            ],
+            2.31,
+            4.2
+          ],
+          18,
+          [
+            "case",
+            [
+              "==",
+              [
+                "get",
+                "ramp"
+              ],
+              1
+            ],
+            5.78,
+            10.5
+          ]
+        ]
+      }
+    },
+    {
+      "id": "road-primary",
+      "type": "line",
+      "source": "omv",
+      "source-layer": "transportation",
+      "filter": [
+        "all",
+        [
+          "in",
+          [
+            "get",
+            "class"
+          ],
+          [
+            "literal",
+            [
+              "primary"
+            ]
+          ]
+        ],
+        [
+          "!",
+          [
+            "in",
+            [
+              "get",
+              "brunnel"
+            ],
+            [
+              "literal",
+              [
+                "bridge",
+                "tunnel"
+              ]
+            ]
+          ]
+        ]
+      ],
+      "minzoom": 7,
+      "layout": {
+        "line-cap": "round",
+        "line-join": "round"
+      },
+      "paint": {
+        "line-color": "#f9fbfc",
+        "line-width": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          7,
+          [
+            "case",
+            [
+              "==",
+              [
+                "get",
+                "ramp"
+              ],
+              1
+            ],
+            0.5,
+            0.9
+          ],
+          12,
+          [
+            "case",
+            [
+              "==",
+              [
+                "get",
+                "ramp"
+              ],
+              1
+            ],
+            1.76,
+            3.2
+          ],
+          14,
+          [
+            "case",
+            [
+              "==",
+              [
+                "get",
+                "ramp"
+              ],
+              1
+            ],
+            3.52,
+            6.4
+          ],
+          18,
+          [
+            "case",
+            [
+              "==",
+              [
+                "get",
+                "ramp"
+              ],
+              1
+            ],
+            8.25,
+            15
+          ]
+        ]
+      }
+    },
+    {
+      "id": "road-motorway",
+      "type": "line",
+      "source": "omv",
+      "source-layer": "transportation",
+      "filter": [
+        "all",
+        [
+          "in",
+          [
+            "get",
+            "class"
+          ],
+          [
+            "literal",
+            [
+              "motorway",
+              "trunk"
+            ]
+          ]
+        ],
+        [
+          "!",
+          [
+            "in",
+            [
+              "get",
+              "brunnel"
+            ],
+            [
+              "literal",
+              [
+                "bridge",
+                "tunnel"
+              ]
+            ]
+          ]
+        ]
+      ],
+      "minzoom": 4,
+      "layout": {
+        "line-cap": "round",
+        "line-join": "round"
+      },
+      "paint": {
+        "line-color": "#ffffff",
+        "line-width": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          4,
+          [
+            "case",
+            [
+              "==",
+              [
+                "get",
+                "ramp"
+              ],
+              1
+            ],
+            0.44,
+            0.8
+          ],
+          10,
+          [
+            "case",
+            [
+              "==",
+              [
+                "get",
+                "ramp"
+              ],
+              1
+            ],
+            1.65,
+            3
+          ],
+          14,
+          [
+            "case",
+            [
+              "==",
+              [
+                "get",
+                "ramp"
+              ],
+              1
+            ],
+            4.95,
+            9
+          ],
+          18,
+          [
+            "case",
+            [
+              "==",
+              [
+                "get",
+                "ramp"
+              ],
+              1
+            ],
+            11,
+            20
+          ]
+        ]
+      }
+    },
+    {
+      "id": "road-bridge-casing",
+      "type": "line",
+      "source": "omv",
+      "source-layer": "transportation",
+      "filter": [
+        "==",
+        [
+          "get",
+          "brunnel"
+        ],
+        "bridge"
+      ],
+      "layout": {
+        "line-cap": "butt",
+        "line-join": "round"
+      },
+      "paint": {
+        "line-color": "#0b0e14",
+        "line-width": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          8,
+          [
+            "case",
+            [
+              "in",
+              [
+                "get",
+                "class"
+              ],
+              [
+                "literal",
+                [
+                  "motorway",
+                  "trunk"
+                ]
+              ]
+            ],
+            5.68,
+            [
+              "in",
+              [
+                "get",
+                "class"
+              ],
+              [
+                "literal",
+                [
+                  "primary",
+                  "secondary"
+                ]
+              ]
+            ],
+            3.55,
+            1.704
+          ],
+          14,
+          [
+            "case",
+            [
+              "in",
+              [
+                "get",
+                "class"
+              ],
+              [
+                "literal",
+                [
+                  "motorway",
+                  "trunk"
+                ]
+              ]
+            ],
+            17.04,
+            [
+              "in",
+              [
+                "get",
+                "class"
+              ],
+              [
+                "literal",
+                [
+                  "primary",
+                  "secondary"
+                ]
+              ]
+            ],
+            12.78,
+            7.1
+          ],
+          18,
+          [
+            "case",
+            [
+              "in",
+              [
+                "get",
+                "class"
+              ],
+              [
+                "literal",
+                [
+                  "motorway",
+                  "trunk"
+                ]
+              ]
+            ],
+            28.4,
+            [
+              "in",
+              [
+                "get",
+                "class"
+              ],
+              [
+                "literal",
+                [
+                  "primary",
+                  "secondary"
+                ]
+              ]
+            ],
+            21.299999999999997,
+            12.78
+          ]
+        ]
+      }
+    },
+    {
+      "id": "road-bridge",
+      "type": "line",
+      "source": "omv",
+      "source-layer": "transportation",
+      "filter": [
+        "==",
+        [
+          "get",
+          "brunnel"
+        ],
+        "bridge"
+      ],
+      "layout": {
+        "line-cap": "butt",
+        "line-join": "round"
+      },
+      "paint": {
+        "line-color": [
+          "case",
+          [
+            "in",
+            [
+              "get",
+              "class"
+            ],
+            [
+              "literal",
+              [
+                "motorway",
+                "trunk"
+              ]
+            ]
+          ],
+          "#ffffff",
+          [
+            "==",
+            [
+              "get",
+              "class"
+            ],
+            "primary"
+          ],
+          "#f9fbfc",
+          [
+            "in",
+            [
+              "get",
+              "class"
+            ],
+            [
+              "literal",
+              [
+                "secondary",
+                "tertiary"
+              ]
+            ]
+          ],
+          "#f2f5f8",
+          "#e9edf2"
+        ],
+        "line-width": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          8,
+          [
+            "case",
+            [
+              "in",
+              [
+                "get",
+                "class"
+              ],
+              [
+                "literal",
+                [
+                  "motorway",
+                  "trunk"
+                ]
+              ]
+            ],
+            4,
+            [
+              "in",
+              [
+                "get",
+                "class"
+              ],
+              [
+                "literal",
+                [
+                  "primary",
+                  "secondary"
+                ]
+              ]
+            ],
+            2.5,
+            1.2
+          ],
+          14,
+          [
+            "case",
+            [
+              "in",
+              [
+                "get",
+                "class"
+              ],
+              [
+                "literal",
+                [
+                  "motorway",
+                  "trunk"
+                ]
+              ]
+            ],
+            12,
+            [
+              "in",
+              [
+                "get",
+                "class"
+              ],
+              [
+                "literal",
+                [
+                  "primary",
+                  "secondary"
+                ]
+              ]
+            ],
+            9,
+            5
+          ],
+          18,
+          [
+            "case",
+            [
+              "in",
+              [
+                "get",
+                "class"
+              ],
+              [
+                "literal",
+                [
+                  "motorway",
+                  "trunk"
+                ]
+              ]
+            ],
+            20,
+            [
+              "in",
+              [
+                "get",
+                "class"
+              ],
+              [
+                "literal",
+                [
+                  "primary",
+                  "secondary"
+                ]
+              ]
+            ],
+            15,
+            9
+          ]
+        ]
+      }
+    },
+    {
+      "id": "poi-gas",
+      "type": "circle",
+      "source": "omv",
+      "source-layer": "poi",
+      "minzoom": 15,
+      "filter": [
+        "all",
+        [
+          "in",
+          [
+            "get",
+            "class"
+          ],
+          [
+            "literal",
+            [
+              "fuel"
+            ]
+          ]
+        ],
+        [
+          "<=",
+          [
+            "coalesce",
+            [
+              "get",
+              "rank"
+            ],
+            99
+          ],
+          15
+        ]
+      ],
+      "paint": {
+        "circle-color": "#d9a44a",
+        "circle-radius": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          14,
+          3,
+          17,
+          5
+        ],
+        "circle-opacity": 0.6,
+        "circle-stroke-color": "#0a0e16",
+        "circle-stroke-width": 0.8
+      }
+    },
+    {
+      "id": "poi-hospital",
+      "type": "circle",
+      "source": "omv",
+      "source-layer": "poi",
+      "minzoom": 15,
+      "filter": [
+        "all",
+        [
+          "in",
+          [
+            "get",
+            "class"
+          ],
+          [
+            "literal",
+            [
+              "hospital"
+            ]
+          ]
+        ],
+        [
+          "<=",
+          [
+            "coalesce",
+            [
+              "get",
+              "rank"
+            ],
+            99
+          ],
+          25
+        ]
+      ],
+      "paint": {
+        "circle-color": "#d2726c",
+        "circle-radius": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          14,
+          3,
+          17,
+          5
+        ],
+        "circle-opacity": 0.6,
+        "circle-stroke-color": "#0a0e16",
+        "circle-stroke-width": 0.8
+      }
+    },
+    {
+      "id": "poi-police",
+      "type": "circle",
+      "source": "omv",
+      "source-layer": "poi",
+      "minzoom": 15,
+      "filter": [
+        "all",
+        [
+          "in",
+          [
+            "get",
+            "class"
+          ],
+          [
+            "literal",
+            [
+              "police",
+              "fire_station"
+            ]
+          ]
+        ],
+        [
+          "<=",
+          [
+            "coalesce",
+            [
+              "get",
+              "rank"
+            ],
+            99
+          ],
+          25
+        ]
+      ],
+      "paint": {
+        "circle-color": "#8f8aa6",
+        "circle-radius": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          15,
+          2.6,
+          17,
+          4
+        ],
+        "circle-opacity": 0.45,
+        "circle-stroke-color": "#0a0e16",
+        "circle-stroke-width": 0.8
+      }
+    },
+    {
+      "id": "poi-parking",
+      "type": "circle",
+      "source": "omv",
+      "source-layer": "poi",
+      "minzoom": 16,
+      "filter": [
+        "all",
+        [
+          "in",
+          [
+            "get",
+            "class"
+          ],
+          [
+            "literal",
+            [
+              "parking"
+            ]
+          ]
+        ],
+        [
+          "<=",
+          [
+            "coalesce",
+            [
+              "get",
+              "rank"
+            ],
+            99
+          ],
+          12
+        ]
+      ],
+      "paint": {
+        "circle-color": "#7c9dc0",
+        "circle-radius": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          16,
+          2.6,
+          18,
+          4
+        ],
+        "circle-opacity": 0.45,
+        "circle-stroke-color": "#0a0e16",
+        "circle-stroke-width": 0.8
+      }
+    },
+    {
+      "id": "place-suburb",
+      "type": "symbol",
+      "source": "omv",
+      "source-layer": "place",
+      "minzoom": 13,
+      "filter": [
+        "all",
+        [
+          "in",
+          [
+            "get",
+            "class"
+          ],
+          [
+            "literal",
+            [
+              "suburb",
+              "quarter",
+              "neighbourhood"
+            ]
+          ]
+        ],
+        [
+          "<=",
+          [
+            "coalesce",
+            [
+              "get",
+              "rank"
+            ],
+            99
+          ],
+          30
+        ]
+      ],
+      "layout": {
+        "text-field": [
+          "coalesce",
+          [
+            "get",
+            "name:tr"
+          ],
+          [
+            "get",
+            "name"
+          ]
+        ],
+        "text-font": [
+          "Noto Sans Regular"
+        ],
+        "text-size": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          13,
+          10,
+          16,
+          12.5
+        ],
+        "text-letter-spacing": 0.05,
+        "text-padding": 8,
+        "text-transform": "uppercase",
+        "symbol-sort-key": [
+          "coalesce",
+          [
+            "get",
+            "rank"
+          ],
+          99
+        ]
+      },
+      "paint": {
+        "text-color": "#e2eaf5",
+        "text-opacity": 0.8,
+        "text-halo-color": "#060c14",
+        "text-halo-width": 1.4
+      }
+    },
+    {
+      "id": "road-label",
+      "type": "symbol",
+      "source": "omv",
+      "source-layer": "transportation_name",
+      "minzoom": 16,
+      "filter": [
+        "all",
+        [
+          "in",
+          [
+            "get",
+            "class"
+          ],
+          [
+            "literal",
+            [
+              "minor",
+              "tertiary",
+              "service"
+            ]
+          ]
+        ],
+        [
+          "!=",
+          [
+            "get",
+            "subclass"
+          ],
+          "junction"
+        ]
+      ],
+      "layout": {
+        "text-field": [
+          "let",
+          "n",
+          [
+            "to-string",
+            [
+              "coalesce",
+              [
+                "get",
+                "name:tr"
+              ],
+              [
+                "get",
+                "name"
+              ]
+            ]
+          ],
+          [
+            "case",
+            [
+              "==",
+              [
+                "slice",
+                [
+                  "var",
+                  "n"
+                ],
+                [
+                  "max",
+                  0,
+                  [
+                    "-",
+                    [
+                      "length",
+                      [
+                        "var",
+                        "n"
+                      ]
+                    ],
+                    8
+                  ]
+                ]
+              ],
+              " Caddesi"
+            ],
+            [
+              "concat",
+              [
+                "slice",
+                [
+                  "var",
+                  "n"
+                ],
+                0,
+                [
+                  "max",
+                  0,
+                  [
+                    "-",
+                    [
+                      "length",
+                      [
+                        "var",
+                        "n"
+                      ]
+                    ],
+                    8
+                  ]
+                ]
+              ],
+              " Cd."
+            ],
+            [
+              "==",
+              [
+                "slice",
+                [
+                  "var",
+                  "n"
+                ],
+                [
+                  "max",
+                  0,
+                  [
+                    "-",
+                    [
+                      "length",
+                      [
+                        "var",
+                        "n"
+                      ]
+                    ],
+                    6
+                  ]
+                ]
+              ],
+              " Cadde"
+            ],
+            [
+              "concat",
+              [
+                "slice",
+                [
+                  "var",
+                  "n"
+                ],
+                0,
+                [
+                  "max",
+                  0,
+                  [
+                    "-",
+                    [
+                      "length",
+                      [
+                        "var",
+                        "n"
+                      ]
+                    ],
+                    6
+                  ]
+                ]
+              ],
+              " Cd."
+            ],
+            [
+              "==",
+              [
+                "slice",
+                [
+                  "var",
+                  "n"
+                ],
+                [
+                  "max",
+                  0,
+                  [
+                    "-",
+                    [
+                      "length",
+                      [
+                        "var",
+                        "n"
+                      ]
+                    ],
+                    7
+                  ]
+                ]
+              ],
+              " Sokağı"
+            ],
+            [
+              "concat",
+              [
+                "slice",
+                [
+                  "var",
+                  "n"
+                ],
+                0,
+                [
+                  "max",
+                  0,
+                  [
+                    "-",
+                    [
+                      "length",
+                      [
+                        "var",
+                        "n"
+                      ]
+                    ],
+                    7
+                  ]
+                ]
+              ],
+              " Sk."
+            ],
+            [
+              "==",
+              [
+                "slice",
+                [
+                  "var",
+                  "n"
+                ],
+                [
+                  "max",
+                  0,
+                  [
+                    "-",
+                    [
+                      "length",
+                      [
+                        "var",
+                        "n"
+                      ]
+                    ],
+                    6
+                  ]
+                ]
+              ],
+              " Sokak"
+            ],
+            [
+              "concat",
+              [
+                "slice",
+                [
+                  "var",
+                  "n"
+                ],
+                0,
+                [
+                  "max",
+                  0,
+                  [
+                    "-",
+                    [
+                      "length",
+                      [
+                        "var",
+                        "n"
+                      ]
+                    ],
+                    6
+                  ]
+                ]
+              ],
+              " Sk."
+            ],
+            [
+              "==",
+              [
+                "slice",
+                [
+                  "var",
+                  "n"
+                ],
+                [
+                  "max",
+                  0,
+                  [
+                    "-",
+                    [
+                      "length",
+                      [
+                        "var",
+                        "n"
+                      ]
+                    ],
+                    8
+                  ]
+                ]
+              ],
+              " Bulvarı"
+            ],
+            [
+              "concat",
+              [
+                "slice",
+                [
+                  "var",
+                  "n"
+                ],
+                0,
+                [
+                  "max",
+                  0,
+                  [
+                    "-",
+                    [
+                      "length",
+                      [
+                        "var",
+                        "n"
+                      ]
+                    ],
+                    8
+                  ]
+                ]
+              ],
+              " Bul."
+            ],
+            [
+              "==",
+              [
+                "slice",
+                [
+                  "var",
+                  "n"
+                ],
+                [
+                  "max",
+                  0,
+                  [
+                    "-",
+                    [
+                      "length",
+                      [
+                        "var",
+                        "n"
+                      ]
+                    ],
+                    7
+                  ]
+                ]
+              ],
+              " Bulvar"
+            ],
+            [
+              "concat",
+              [
+                "slice",
+                [
+                  "var",
+                  "n"
+                ],
+                0,
+                [
+                  "max",
+                  0,
+                  [
+                    "-",
+                    [
+                      "length",
+                      [
+                        "var",
+                        "n"
+                      ]
+                    ],
+                    7
+                  ]
+                ]
+              ],
+              " Bul."
+            ],
+            [
+              "==",
+              [
+                "slice",
+                [
+                  "var",
+                  "n"
+                ],
+                [
+                  "max",
+                  0,
+                  [
+                    "-",
+                    [
+                      "length",
+                      [
+                        "var",
+                        "n"
+                      ]
+                    ],
+                    10
+                  ]
+                ]
+              ],
+              " Mahallesi"
+            ],
+            [
+              "concat",
+              [
+                "slice",
+                [
+                  "var",
+                  "n"
+                ],
+                0,
+                [
+                  "max",
+                  0,
+                  [
+                    "-",
+                    [
+                      "length",
+                      [
+                        "var",
+                        "n"
+                      ]
+                    ],
+                    10
+                  ]
+                ]
+              ],
+              " Mah."
+            ],
+            [
+              "==",
+              [
+                "slice",
+                [
+                  "var",
+                  "n"
+                ],
+                [
+                  "max",
+                  0,
+                  [
+                    "-",
+                    [
+                      "length",
+                      [
+                        "var",
+                        "n"
+                      ]
+                    ],
+                    8
+                  ]
+                ]
+              ],
+              " Meydanı"
+            ],
+            [
+              "concat",
+              [
+                "slice",
+                [
+                  "var",
+                  "n"
+                ],
+                0,
+                [
+                  "max",
+                  0,
+                  [
+                    "-",
+                    [
+                      "length",
+                      [
+                        "var",
+                        "n"
+                      ]
+                    ],
+                    8
+                  ]
+                ]
+              ],
+              " Mey."
+            ],
+            [
+              "==",
+              [
+                "slice",
+                [
+                  "var",
+                  "n"
+                ],
+                [
+                  "max",
+                  0,
+                  [
+                    "-",
+                    [
+                      "length",
+                      [
+                        "var",
+                        "n"
+                      ]
+                    ],
+                    8
+                  ]
+                ]
+              ],
+              " Köprüsü"
+            ],
+            [
+              "concat",
+              [
+                "slice",
+                [
+                  "var",
+                  "n"
+                ],
+                0,
+                [
+                  "max",
+                  0,
+                  [
+                    "-",
+                    [
+                      "length",
+                      [
+                        "var",
+                        "n"
+                      ]
+                    ],
+                    8
+                  ]
+                ]
+              ],
+              " Köp."
+            ],
+            [
+              "==",
+              [
+                "slice",
+                [
+                  "var",
+                  "n"
+                ],
+                [
+                  "max",
+                  0,
+                  [
+                    "-",
+                    [
+                      "length",
+                      [
+                        "var",
+                        "n"
+                      ]
+                    ],
+                    8
+                  ]
+                ]
+              ],
+              " Otoyolu"
+            ],
+            [
+              "concat",
+              [
+                "slice",
+                [
+                  "var",
+                  "n"
+                ],
+                0,
+                [
+                  "max",
+                  0,
+                  [
+                    "-",
+                    [
+                      "length",
+                      [
+                        "var",
+                        "n"
+                      ]
+                    ],
+                    8
+                  ]
+                ]
+              ],
+              " Oto."
+            ],
+            [
+              "var",
+              "n"
+            ]
+          ]
+        ],
+        "text-font": [
+          "Noto Sans Regular"
+        ],
+        "text-size": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          15,
+          10,
+          17,
+          12
+        ],
+        "symbol-placement": "line",
+        "text-max-angle": 30,
+        "text-padding": 6,
+        "symbol-sort-key": [
+          "match",
+          [
+            "get",
+            "class"
+          ],
+          "tertiary",
+          1,
+          "minor",
+          2,
+          "service",
+          3,
+          4
+        ],
+        "symbol-spacing": 460,
+        "text-letter-spacing": 0.01
+      },
+      "paint": {
+        "text-color": "#e6eaf0",
+        "text-opacity": 0.85,
+        "text-halo-color": "#0a0e16",
+        "text-halo-width": 1.3,
+        "text-halo-blur": 0.4
+      }
+    },
+    {
+      "id": "place-village",
+      "type": "symbol",
+      "source": "omv",
+      "source-layer": "place",
+      "minzoom": 12,
+      "filter": [
+        "all",
+        [
+          "in",
+          [
+            "get",
+            "class"
+          ],
+          [
+            "literal",
+            [
+              "village",
+              "hamlet"
+            ]
+          ]
+        ],
+        [
+          "<=",
+          [
+            "coalesce",
+            [
+              "get",
+              "rank"
+            ],
+            99
+          ],
+          20
+        ]
+      ],
+      "layout": {
+        "text-field": [
+          "coalesce",
+          [
+            "get",
+            "name:tr"
+          ],
+          [
+            "get",
+            "name"
+          ]
+        ],
+        "text-font": [
+          "Noto Sans Regular"
+        ],
+        "text-size": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          12,
+          10.5,
+          16,
+          13
+        ],
+        "text-padding": 10,
+        "text-letter-spacing": 0.02,
+        "symbol-sort-key": [
+          "coalesce",
+          [
+            "get",
+            "rank"
+          ],
+          99
+        ]
+      },
+      "paint": {
+        "text-color": "#e2eaf5",
+        "text-halo-color": "#060c14",
+        "text-halo-width": 1.6
+      }
+    },
+    {
+      "id": "water-label",
+      "type": "symbol",
+      "source": "omv",
+      "source-layer": "water_name",
+      "minzoom": 11,
+      "layout": {
+        "text-field": [
+          "coalesce",
+          [
+            "get",
+            "name:tr"
+          ],
+          [
+            "get",
+            "name"
+          ]
+        ],
+        "text-font": [
+          "Noto Sans Regular"
+        ],
+        "text-size": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          11,
+          10,
+          15,
+          13
+        ],
+        "text-padding": 10,
+        "text-letter-spacing": 0.08
+      },
+      "paint": {
+        "text-color": "#8fb8d8",
+        "text-halo-color": "#0a0e16",
+        "text-halo-width": 1.2
+      }
+    },
+    {
+      "id": "road-label-major",
+      "type": "symbol",
+      "source": "omv",
+      "source-layer": "transportation_name",
+      "minzoom": 12,
+      "filter": [
+        "all",
+        [
+          "in",
+          [
+            "get",
+            "class"
+          ],
+          [
+            "literal",
+            [
+              "motorway",
+              "trunk",
+              "primary",
+              "secondary"
+            ]
+          ]
+        ],
+        [
+          "!=",
+          [
+            "get",
+            "subclass"
+          ],
+          "junction"
+        ]
+      ],
+      "layout": {
+        "text-field": [
+          "let",
+          "n",
+          [
+            "to-string",
+            [
+              "coalesce",
+              [
+                "get",
+                "name:tr"
+              ],
+              [
+                "get",
+                "name"
+              ]
+            ]
+          ],
+          [
+            "case",
+            [
+              "==",
+              [
+                "slice",
+                [
+                  "var",
+                  "n"
+                ],
+                [
+                  "max",
+                  0,
+                  [
+                    "-",
+                    [
+                      "length",
+                      [
+                        "var",
+                        "n"
+                      ]
+                    ],
+                    8
+                  ]
+                ]
+              ],
+              " Caddesi"
+            ],
+            [
+              "concat",
+              [
+                "slice",
+                [
+                  "var",
+                  "n"
+                ],
+                0,
+                [
+                  "max",
+                  0,
+                  [
+                    "-",
+                    [
+                      "length",
+                      [
+                        "var",
+                        "n"
+                      ]
+                    ],
+                    8
+                  ]
+                ]
+              ],
+              " Cd."
+            ],
+            [
+              "==",
+              [
+                "slice",
+                [
+                  "var",
+                  "n"
+                ],
+                [
+                  "max",
+                  0,
+                  [
+                    "-",
+                    [
+                      "length",
+                      [
+                        "var",
+                        "n"
+                      ]
+                    ],
+                    6
+                  ]
+                ]
+              ],
+              " Cadde"
+            ],
+            [
+              "concat",
+              [
+                "slice",
+                [
+                  "var",
+                  "n"
+                ],
+                0,
+                [
+                  "max",
+                  0,
+                  [
+                    "-",
+                    [
+                      "length",
+                      [
+                        "var",
+                        "n"
+                      ]
+                    ],
+                    6
+                  ]
+                ]
+              ],
+              " Cd."
+            ],
+            [
+              "==",
+              [
+                "slice",
+                [
+                  "var",
+                  "n"
+                ],
+                [
+                  "max",
+                  0,
+                  [
+                    "-",
+                    [
+                      "length",
+                      [
+                        "var",
+                        "n"
+                      ]
+                    ],
+                    7
+                  ]
+                ]
+              ],
+              " Sokağı"
+            ],
+            [
+              "concat",
+              [
+                "slice",
+                [
+                  "var",
+                  "n"
+                ],
+                0,
+                [
+                  "max",
+                  0,
+                  [
+                    "-",
+                    [
+                      "length",
+                      [
+                        "var",
+                        "n"
+                      ]
+                    ],
+                    7
+                  ]
+                ]
+              ],
+              " Sk."
+            ],
+            [
+              "==",
+              [
+                "slice",
+                [
+                  "var",
+                  "n"
+                ],
+                [
+                  "max",
+                  0,
+                  [
+                    "-",
+                    [
+                      "length",
+                      [
+                        "var",
+                        "n"
+                      ]
+                    ],
+                    6
+                  ]
+                ]
+              ],
+              " Sokak"
+            ],
+            [
+              "concat",
+              [
+                "slice",
+                [
+                  "var",
+                  "n"
+                ],
+                0,
+                [
+                  "max",
+                  0,
+                  [
+                    "-",
+                    [
+                      "length",
+                      [
+                        "var",
+                        "n"
+                      ]
+                    ],
+                    6
+                  ]
+                ]
+              ],
+              " Sk."
+            ],
+            [
+              "==",
+              [
+                "slice",
+                [
+                  "var",
+                  "n"
+                ],
+                [
+                  "max",
+                  0,
+                  [
+                    "-",
+                    [
+                      "length",
+                      [
+                        "var",
+                        "n"
+                      ]
+                    ],
+                    8
+                  ]
+                ]
+              ],
+              " Bulvarı"
+            ],
+            [
+              "concat",
+              [
+                "slice",
+                [
+                  "var",
+                  "n"
+                ],
+                0,
+                [
+                  "max",
+                  0,
+                  [
+                    "-",
+                    [
+                      "length",
+                      [
+                        "var",
+                        "n"
+                      ]
+                    ],
+                    8
+                  ]
+                ]
+              ],
+              " Bul."
+            ],
+            [
+              "==",
+              [
+                "slice",
+                [
+                  "var",
+                  "n"
+                ],
+                [
+                  "max",
+                  0,
+                  [
+                    "-",
+                    [
+                      "length",
+                      [
+                        "var",
+                        "n"
+                      ]
+                    ],
+                    7
+                  ]
+                ]
+              ],
+              " Bulvar"
+            ],
+            [
+              "concat",
+              [
+                "slice",
+                [
+                  "var",
+                  "n"
+                ],
+                0,
+                [
+                  "max",
+                  0,
+                  [
+                    "-",
+                    [
+                      "length",
+                      [
+                        "var",
+                        "n"
+                      ]
+                    ],
+                    7
+                  ]
+                ]
+              ],
+              " Bul."
+            ],
+            [
+              "==",
+              [
+                "slice",
+                [
+                  "var",
+                  "n"
+                ],
+                [
+                  "max",
+                  0,
+                  [
+                    "-",
+                    [
+                      "length",
+                      [
+                        "var",
+                        "n"
+                      ]
+                    ],
+                    10
+                  ]
+                ]
+              ],
+              " Mahallesi"
+            ],
+            [
+              "concat",
+              [
+                "slice",
+                [
+                  "var",
+                  "n"
+                ],
+                0,
+                [
+                  "max",
+                  0,
+                  [
+                    "-",
+                    [
+                      "length",
+                      [
+                        "var",
+                        "n"
+                      ]
+                    ],
+                    10
+                  ]
+                ]
+              ],
+              " Mah."
+            ],
+            [
+              "==",
+              [
+                "slice",
+                [
+                  "var",
+                  "n"
+                ],
+                [
+                  "max",
+                  0,
+                  [
+                    "-",
+                    [
+                      "length",
+                      [
+                        "var",
+                        "n"
+                      ]
+                    ],
+                    8
+                  ]
+                ]
+              ],
+              " Meydanı"
+            ],
+            [
+              "concat",
+              [
+                "slice",
+                [
+                  "var",
+                  "n"
+                ],
+                0,
+                [
+                  "max",
+                  0,
+                  [
+                    "-",
+                    [
+                      "length",
+                      [
+                        "var",
+                        "n"
+                      ]
+                    ],
+                    8
+                  ]
+                ]
+              ],
+              " Mey."
+            ],
+            [
+              "==",
+              [
+                "slice",
+                [
+                  "var",
+                  "n"
+                ],
+                [
+                  "max",
+                  0,
+                  [
+                    "-",
+                    [
+                      "length",
+                      [
+                        "var",
+                        "n"
+                      ]
+                    ],
+                    8
+                  ]
+                ]
+              ],
+              " Köprüsü"
+            ],
+            [
+              "concat",
+              [
+                "slice",
+                [
+                  "var",
+                  "n"
+                ],
+                0,
+                [
+                  "max",
+                  0,
+                  [
+                    "-",
+                    [
+                      "length",
+                      [
+                        "var",
+                        "n"
+                      ]
+                    ],
+                    8
+                  ]
+                ]
+              ],
+              " Köp."
+            ],
+            [
+              "==",
+              [
+                "slice",
+                [
+                  "var",
+                  "n"
+                ],
+                [
+                  "max",
+                  0,
+                  [
+                    "-",
+                    [
+                      "length",
+                      [
+                        "var",
+                        "n"
+                      ]
+                    ],
+                    8
+                  ]
+                ]
+              ],
+              " Otoyolu"
+            ],
+            [
+              "concat",
+              [
+                "slice",
+                [
+                  "var",
+                  "n"
+                ],
+                0,
+                [
+                  "max",
+                  0,
+                  [
+                    "-",
+                    [
+                      "length",
+                      [
+                        "var",
+                        "n"
+                      ]
+                    ],
+                    8
+                  ]
+                ]
+              ],
+              " Oto."
+            ],
+            [
+              "var",
+              "n"
+            ]
+          ]
+        ],
+        "text-font": [
+          "Noto Sans Regular"
+        ],
+        "text-size": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          12,
+          11,
+          16,
+          13.5
+        ],
+        "symbol-placement": "line",
+        "text-max-angle": 30,
+        "text-padding": 5,
+        "symbol-spacing": 420,
+        "text-letter-spacing": 0.02,
+        "symbol-sort-key": [
+          "match",
+          [
+            "get",
+            "class"
+          ],
+          "motorway",
+          1,
+          "trunk",
+          2,
+          "primary",
+          3,
+          4
+        ]
+      },
+      "paint": {
+        "text-color": "#e6eaf0",
+        "text-halo-color": "#0a0e16",
+        "text-halo-width": 1.7,
+        "text-halo-blur": 0.4
+      }
+    },
+    {
+      "id": "place-town",
+      "type": "symbol",
+      "source": "omv",
+      "source-layer": "place",
+      "minzoom": 9,
+      "filter": [
+        "all",
+        [
+          "in",
+          [
+            "get",
+            "class"
+          ],
+          [
+            "literal",
+            [
+              "town"
+            ]
+          ]
+        ],
+        [
+          "<=",
+          [
+            "coalesce",
+            [
+              "get",
+              "rank"
+            ],
+            99
+          ],
+          22
+        ]
+      ],
+      "layout": {
+        "text-field": [
+          "coalesce",
+          [
+            "get",
+            "name:tr"
+          ],
+          [
+            "get",
+            "name"
+          ]
+        ],
+        "text-font": [
+          "Noto Sans Regular"
+        ],
+        "text-size": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          9,
+          11.5,
+          14,
+          15
+        ],
+        "text-padding": 12,
+        "text-letter-spacing": 0.03,
+        "symbol-sort-key": [
+          "coalesce",
+          [
+            "get",
+            "rank"
+          ],
+          99
+        ]
+      },
+      "paint": {
+        "text-color": "#e2eaf5",
+        "text-halo-color": "#060c14",
+        "text-halo-width": 1.9,
+        "text-halo-blur": 0.4
+      }
+    },
+    {
+      "id": "road-shield",
+      "type": "symbol",
+      "source": "omv",
+      "source-layer": "transportation_name",
+      "minzoom": 9,
+      "filter": [
+        "all",
+        [
+          "has",
+          "ref"
+        ],
+        [
+          "in",
+          [
+            "get",
+            "class"
+          ],
+          [
+            "literal",
+            [
+              "motorway",
+              "trunk",
+              "primary"
+            ]
+          ]
+        ],
+        [
+          "!=",
+          [
+            "get",
+            "subclass"
+          ],
+          "junction"
+        ]
+      ],
+      "layout": {
+        "text-field": [
+          "get",
+          "ref"
+        ],
+        "text-font": [
+          "Noto Sans Bold"
+        ],
+        "text-size": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          9,
+          10,
+          14,
+          12.5
+        ],
+        "text-letter-spacing": 0.04,
+        "icon-image": "road-shield-night",
+        "icon-text-fit": "both",
+        "icon-text-fit-padding": [
+          2,
+          5,
+          2,
+          5
+        ],
+        "symbol-placement": "line",
+        "symbol-spacing": 300,
+        "text-padding": 3,
+        "icon-allow-overlap": false,
+        "text-allow-overlap": false,
+        "symbol-sort-key": [
+          "match",
+          [
+            "get",
+            "class"
+          ],
+          "motorway",
+          1,
+          "trunk",
+          2,
+          3
+        ]
+      },
+      "paint": {
+        "text-color": "#ffffff",
+        "text-halo-color": "rgba(0,0,0,0.35)",
+        "text-halo-width": 0.8
+      }
+    },
+    {
+      "id": "place-city",
+      "type": "symbol",
+      "source": "omv",
+      "source-layer": "place",
+      "minzoom": 4,
+      "maxzoom": 15,
+      "filter": [
+        "in",
+        [
+          "get",
+          "class"
+        ],
+        [
+          "literal",
+          [
+            "city"
+          ]
+        ]
+      ],
+      "layout": {
+        "text-field": [
+          "coalesce",
+          [
+            "get",
+            "name:tr"
+          ],
+          [
+            "get",
+            "name"
+          ]
+        ],
+        "text-font": [
+          "Noto Sans Bold"
+        ],
+        "text-size": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          5,
+          12,
+          10,
+          16,
+          14,
+          19
+        ],
+        "text-padding": 14,
+        "text-letter-spacing": 0.05,
+        "symbol-sort-key": [
+          "coalesce",
+          [
+            "get",
+            "rank"
+          ],
+          99
+        ]
+      },
+      "paint": {
+        "text-color": "#ffffff",
+        "text-halo-color": "#060c14",
+        "text-halo-width": 2.2,
+        "text-halo-blur": 0.4
+      }
+    }
+  ]
+}

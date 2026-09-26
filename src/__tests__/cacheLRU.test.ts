@@ -475,3 +475,41 @@ describe('CacheLRUManager — protocol URL dönüşümü', () => {
     );
   });
 });
+
+/* ── "Yalnız çevrimdışı" harita verisi (saha 2026-09-24) ─────────────────────
+ * Eski "Offline Map HUD" anahtarı haritayı hiç etkilemiyordu. Artık ayar bu
+ * yükleyicide uygulanır: önbellekte olmayan karo için AĞA ÇIKILMAZ. */
+describe('CacheLRUManager — yalnız çevrimdışı', () => {
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    _mockCacheStore.clear();
+    (global.fetch as ReturnType<typeof vi.fn>).mockClear();
+  });
+  _afterEach(async () => {
+    const { useStore } = await import('../store/useStore');
+    useStore.getState().updateSettings({ mapOfflineOnly: false });
+  });
+
+  it('🔒 önbellekte yoksa İNDİRMEZ ve hata fırlatır (boş/sahte karo yok)', async () => {
+    await _freshManager();
+    const { useStore } = await import('../store/useStore');
+    useStore.getState().updateSettings({ mapOfflineOnly: true });
+    const handler = _registeredProtocols.get('caros-tile') as (...args: unknown[]) => Promise<unknown>;
+    await expect(handler({ url: 'caros-tile://tile.openstreetmap.org/11/1/1.png' }, new AbortController()))
+      .rejects.toThrow(/offline-only/);
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it('🔒 önbellekteki karo çevrimdışı modda da servis edilir', async () => {
+    await _freshManager();
+    const { useStore } = await import('../store/useStore');
+    const handler = _registeredProtocols.get('caros-tile') as (...args: unknown[]) => Promise<unknown>;
+    const url = 'caros-tile://tile.openstreetmap.org/12/2/2.png';
+    await handler({ url }, new AbortController());           // otomatik modda önbelleğe girer
+    await new Promise((r) => setTimeout(r, 0));
+    (global.fetch as ReturnType<typeof vi.fn>).mockClear();
+    useStore.getState().updateSettings({ mapOfflineOnly: true });
+    await expect(handler({ url }, new AbortController())).resolves.toBeDefined();
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+});

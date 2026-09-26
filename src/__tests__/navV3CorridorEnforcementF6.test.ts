@@ -24,10 +24,8 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-import {
-  parseRoutingGraph, RTG2_MAGIC, RTG_NODE_STRIDE, RTG2_EDGE_STRIDE,
-  type RoutingGraphView,
-} from '../platform/navigation/map/graph/rtg2Reader';
+import { RTG2_MAGIC, RTG_NODE_STRIDE, RTG2_EDGE_STRIDE, type RoutingGraphView } from '../platform/navigation/map/graph/rtg2Reader';
+import { parseRoutingGraph } from '../platform/navigation/map/graph/rtg2Parse';
 import { buildGraphAdjacency, type GraphAdjacency } from '../platform/navigation/map/graph/graphAdjacency';
 import {
   expandBoundedCorridor, corridorLimits, corridorIsScanComplete,

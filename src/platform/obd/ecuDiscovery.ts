@@ -97,14 +97,86 @@ export function parseEcuProbe(raw: string, protocol: string | null = null): Disc
     if (/^(OK|SEARCHING|NODATA|STOPPED|UNABLETOCONNECT|BUSINIT|BUSERROR|CANERROR|\?|>)/.test(compact)) continue;
     if (!/^[0-9A-F]+$/.test(compact)) continue;
 
-    const hit = matchEcuHeader(compact, protocol);
-    if (!hit) continue;
-    if (seen.has(hit.rxHeader)) continue;   // aynı ECU birden çok satırda (çok-frame) → tek kayıt
-    seen.add(hit.rxHeader);
-    out.push(hit);
+    /* Bir ham "satir" BIRDEN COK ECU yaniti tasiyabilir — bkz. splitEcuResponses. */
+    for (const frame of splitEcuResponses(compact, protocol)) {
+      const hit = matchEcuHeader(frame, protocol);
+      if (!hit) continue;
+      if (seen.has(hit.rxHeader)) continue;   // ayni ECU birden cok cercevede -> tek kayit
+      seen.add(hit.rxHeader);
+      out.push(hit);
+    }
   }
 
   return out;
+}
+
+/**
+ * Bir ham satirdaki ARDISIK ECU yanitlarini ayirir.
+ *
+ * -- OLCULEN KOK NEDEN (2026-09-22, gercek arac - V-LINK/ELM327 v2.2 - protokol 6) --
+ * ELM327 init'i ATL0 gonderir (linefeed KAPALI) ve her iki tasima da CR'i atar
+ * (OBDManager.RfcommChannel, BleObdManager.appendRx). Yani satir ayracina gore bolme
+ * GERCEK CIHAZDA HICBIR ZAMAN bolmez: ATH1 + 0100 fonksiyonel probunda yanit veren
+ * TUM ECU'lar TEK dizgede bitisik gelir ve header yalniz dizgenin BASINDA arandigi
+ * icin ILK ECU disindaki hepsi SESSIZCE DUSER:
+ *
+ *   olcum 1: "7E8064100983BA017" + "7E906410088180013"  -> yalniz 7E8 bulundu
+ *   olcum 2: "7E906410088180013" + "7E8064100983BA017"  -> yalniz 7E9 bulundu
+ *
+ * Sira ECU'larin yanit hizina bagli oldugundan kayip NONDETERMINISTIKTIR. Bu aracta
+ * kaybolan ECU sanziman kontrol unitesiydi ve GERCEK onayli arizalar (U1225-86 /
+ * U1226-86) orada yasiyordu — yani "motor disindaki ariza gorunmuyor" sahada bu
+ * satirdan doguyordu.
+ *
+ * -- NEDEN "HER HEADER I ARA" DEGIL ------------------------------------------------
+ * Dizgede gecen her 7Ex kalibini ECU saymak, veri baytlarinin tesadufen header'a
+ * benzedigi yerde UYDURMA ECU uretirdi (kanitsiz bilgi yasagi). Bunun yerine cerceve
+ * UZUNLUGU okunur: header + PCI ile sinir KESIN hesaplanir ve bir sonraki cerceve yine
+ * gercek bir header ile baslamak ZORUNDADIR. Yuruyus tutmazsa dizge TEK parca olarak
+ * doner -> davranis eski haliyle BIREBIR ayni kalir (fail-closed).
+ */
+function splitEcuResponses(compact: string, protocol: string | null): string[] {
+  const frames: string[] = [];
+  let pos = 0;
+
+  while (pos < compact.length) {
+    const rest = compact.slice(pos);
+    const hit = matchEcuHeader(rest, protocol);
+    if (!hit) break;
+    const len = singleFrameLength(rest, hit.rxHeader.length, hit.addressBits);
+    if (len === null || pos + len > compact.length) break;
+    frames.push(compact.slice(pos, pos + len));
+    pos += len;
+  }
+
+  // Yuruyus tamamlanmadiysa kalan (ya da tamami) TEK parca — veri KAYBOLMAZ.
+  if (pos < compact.length) frames.push(compact.slice(pos));
+  return frames;
+}
+
+/**
+ * Tek cercevelik bir ECU yanitinin hex hane uzunlugu; hesaplanamiyorsa null
+ * (cagiran yuruyusu durdurur — TAHMIN YOK).
+ *
+ *  - CAN (11/29-bit, ISO 15765-2): header'dan sonra PCI bayti gelir. Ust yarisi 0 ise
+ *    TEK cercevedir ve alt yarisi veri bayt sayisidir. Cok-cerceveli yanitta (1x)
+ *    sinir bu satirda belirlenemez -> null.
+ *  - KWP/ISO 9141 (3 baytlik header): uzunluk fmt baytinin alt 6 bitindedir.
+ */
+function singleFrameLength(rest: string, headerLen: number, addressBits: number): number | null {
+  if (addressBits === 8) {
+    const fmt = parseInt(rest.slice(0, 2), 16);
+    if (!Number.isFinite(fmt)) return null;
+    const dataBytes = fmt & 0x3f;
+    if (dataBytes === 0) return null;          // uzunluk ayri bayttadir -> yuruyus guvenli degil
+    return headerLen + dataBytes * 2;
+  }
+  const pciByte = parseInt(rest.slice(headerLen, headerLen + 2), 16);
+  if (!Number.isFinite(pciByte)) return null;
+  if ((pciByte & 0xf0) !== 0x00) return null;  // TEK cerceve degil -> sinir bilinmiyor
+  const dataBytes = pciByte & 0x0f;
+  if (dataBytes === 0) return null;
+  return headerLen + 2 + dataBytes * 2;
 }
 
 /**

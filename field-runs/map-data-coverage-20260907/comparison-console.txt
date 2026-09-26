@@ -1,0 +1,495 @@
+{
+  "upstream": {
+    "elements": 6683,
+    "buildings": 340,
+    "buildingRelations": 0,
+    "buildingPoints": 1,
+    "roads": 564,
+    "namedRoads": 138,
+    "unnamedRoads": 426,
+    "roadClasses": {
+      "tertiary": 55,
+      "secondary": 12,
+      "motorway_link": 5,
+      "residential": 433,
+      "unclassified": 1,
+      "secondary_link": 1,
+      "footway": 17,
+      "service": 34,
+      "tertiary_link": 4,
+      "track": 2
+    },
+    "unnamedRoadClasses": {
+      "tertiary": 26,
+      "motorway_link": 2,
+      "secondary": 2,
+      "residential": 337,
+      "unclassified": 1,
+      "secondary_link": 1,
+      "footway": 17,
+      "service": 34,
+      "tertiary_link": 4,
+      "track": 2
+    },
+    "addresses": 3,
+    "interpolation": 0,
+    "buildingAddressAttributes": 11,
+    "places": 3,
+    "overpassBase": {
+      "timestamp_osm_base": "2026-05-06T03:25:00Z",
+      "copyright": "The data included in this document is from www.openstreetmap.org. The data is made available under ODbL."
+    }
+  },
+  "buildings": {
+    "core": 334,
+    "matched": 331,
+    "unmatched": [
+      {
+        "id": 1555045507,
+        "timestamp": "2026-09-04T08:38:35Z",
+        "tags": {
+          "addr:neighbourhood": "Ergenekon Mahallesi",
+          "addr:street": "Kocatepe Caddesi",
+          "building": "apartments",
+          "building:flats": "22",
+          "building:levels": "11",
+          "height": "35",
+          "name": "A blok"
+        },
+        "point": [
+          34.863741250000004,
+          36.9308348
+        ],
+        "tileIds": []
+      },
+      {
+        "id": 1555045508,
+        "timestamp": "2026-09-04T08:38:35Z",
+        "tags": {
+          "addr:neighbourhood": "Ergenekon Mahallesi",
+          "addr:street": "Kocatepe Caddesi",
+          "building": "apartments",
+          "building:flats": "22",
+          "building:levels": "11",
+          "height": "35",
+          "layer": "1",
+          "name": "B blok"
+        },
+        "point": [
+          34.8634658,
+          36.931005400000004
+        ],
+        "tileIds": []
+      },
+      {
+        "id": 1555049311,
+        "timestamp": "2026-09-04T08:57:17Z",
+        "tags": {
+          "amenity": "place_of_worship",
+          "building": "yes",
+          "name": "Kolukırıkoğlu Camii",
+          "religion": "muslim"
+        },
+        "point": [
+          34.8606031,
+          36.9320128
+        ],
+        "tileIds": []
+      }
+    ]
+  },
+  "focal": {
+    "buildings": 11,
+    "tilePolygons": 11,
+    "roads": 40,
+    "namedRoads": 8,
+    "houseNumbers": 0
+  },
+  "names": {
+    "matchedWays": 135,
+    "absentNames": [
+      {
+        "id": 216746881,
+        "timestamp": "2026-09-04T08:41:39Z",
+        "name": "Kocatepe Caddesi",
+        "highway": "residential",
+        "tiles": []
+      },
+      {
+        "id": 216746946,
+        "timestamp": "2026-09-04T08:41:39Z",
+        "name": "Kocatepe Caddesi",
+        "highway": "residential",
+        "tiles": []
+      },
+      {
+        "id": 355750021,
+        "timestamp": "2026-09-04T08:41:39Z",
+        "name": "Kocatepe Caddesi",
+        "highway": "residential",
+        "tiles": []
+      }
+    ],
+    "numberedTileFeatures": 100,
+    "examples": [
+      {
+        "id": 114471408,
+        "timestamp": "2026-01-01T19:35:58Z",
+        "name": "Gazipaşa Bulvarı",
+        "highway": "secondary",
+        "tiles": [
+          {
+            "id": 1144714080,
+            "class": "secondary",
+            "name": "Gazipaşa Bulvarı"
+          }
+        ]
+      },
+      {
+        "id": 114471418,
+        "timestamp": "2016-09-09T10:37:00Z",
+        "name": "Gazipaşa Bulvarı",
+        "highway": "secondary",
+        "tiles": [
+          {
+            "id": 1144714080,
+            "class": "secondary",
+            "name": "Gazipaşa Bulvarı"
+          }
+        ]
+      },
+      {
+        "id": 216760862,
+        "timestamp": "2022-11-10T11:59:53Z",
+        "name": "0443. Sokak",
+        "highway": "residential",
+        "tiles": [
+          {
+            "id": 2167608622,
+            "class": "minor",
+            "name": "0443. Sokak"
+          }
+        ]
+      },
+      {
+        "id": 216760935,
+        "timestamp": "2022-11-10T09:35:09Z",
+        "name": "0469. Sokak",
+        "highway": "residential",
+        "tiles": [
+          {
+            "id": 2167609352,
+            "class": "minor",
+            "name": "0469. Sokak"
+          }
+        ]
+      },
+      {
+        "id": 355750035,
+        "timestamp": "2016-09-05T16:49:33Z",
+        "name": "Gazipaşa Bulvarı",
+        "highway": "secondary",
+        "tiles": [
+          {
+            "id": 1144714080,
+            "class": "secondary",
+            "name": "Gazipaşa Bulvarı"
+          }
+        ]
+      },
+      {
+        "id": 440736005,
+        "timestamp": "2022-11-14T11:39:31Z",
+        "name": "Gazipaşa Bulvarı",
+        "highway": "secondary",
+        "tiles": [
+          {
+            "id": 1144714080,
+            "class": "secondary",
+            "name": "Gazipaşa Bulvarı"
+          }
+        ]
+      },
+      {
+        "id": 1111979543,
+        "timestamp": "2022-11-10T11:06:46Z",
+        "name": "Gazipaşa Bulvarı",
+        "highway": "secondary",
+        "tiles": [
+          {
+            "id": 1144714080,
+            "class": "secondary",
+            "name": "Gazipaşa Bulvarı"
+          }
+        ]
+      },
+      {
+        "id": 1111979544,
+        "timestamp": "2022-11-10T09:35:09Z",
+        "name": "Gazipaşa Bulvarı",
+        "highway": "secondary",
+        "tiles": [
+          {
+            "id": 1144714080,
+            "class": "secondary",
+            "name": "Gazipaşa Bulvarı"
+          }
+        ]
+      },
+      {
+        "id": 1111979545,
+        "timestamp": "2022-11-10T11:06:46Z",
+        "name": "Gazipaşa Bulvarı",
+        "highway": "secondary",
+        "tiles": [
+          {
+            "id": 1144714080,
+            "class": "secondary",
+            "name": "Gazipaşa Bulvarı"
+          }
+        ]
+      },
+      {
+        "id": 1111979546,
+        "timestamp": "2022-11-10T09:35:09Z",
+        "name": "Gazipaşa Bulvarı",
+        "highway": "secondary",
+        "tiles": [
+          {
+            "id": 1144714080,
+            "class": "secondary",
+            "name": "Gazipaşa Bulvarı"
+          }
+        ]
+      }
+    ]
+  },
+  "style": {
+    "day": [
+      {
+        "zoom": 14,
+        "layers": [
+          {
+            "id": "building",
+            "minzoom": 14,
+            "maxzoom": null,
+            "visibility": "visible",
+            "accepted": 11,
+            "zoomEligible": true
+          },
+          {
+            "id": "building-3d",
+            "minzoom": 16,
+            "maxzoom": null,
+            "visibility": "visible",
+            "accepted": 11,
+            "zoomEligible": false
+          },
+          {
+            "id": "road-label",
+            "minzoom": 16,
+            "maxzoom": null,
+            "visibility": "visible",
+            "accepted": 112,
+            "zoomEligible": false
+          },
+          {
+            "id": "road-label-major",
+            "minzoom": 12,
+            "maxzoom": null,
+            "visibility": "visible",
+            "accepted": 3,
+            "zoomEligible": true
+          }
+        ]
+      },
+      {
+        "zoom": 15,
+        "layers": [
+          {
+            "id": "building",
+            "minzoom": 14,
+            "maxzoom": null,
+            "visibility": "visible",
+            "accepted": 11,
+            "zoomEligible": true
+          },
+          {
+            "id": "building-3d",
+            "minzoom": 16,
+            "maxzoom": null,
+            "visibility": "visible",
+            "accepted": 11,
+            "zoomEligible": false
+          },
+          {
+            "id": "road-label",
+            "minzoom": 16,
+            "maxzoom": null,
+            "visibility": "visible",
+            "accepted": 112,
+            "zoomEligible": false
+          },
+          {
+            "id": "road-label-major",
+            "minzoom": 12,
+            "maxzoom": null,
+            "visibility": "visible",
+            "accepted": 3,
+            "zoomEligible": true
+          }
+        ]
+      },
+      {
+        "zoom": 16,
+        "layers": [
+          {
+            "id": "building",
+            "minzoom": 14,
+            "maxzoom": null,
+            "visibility": "visible",
+            "accepted": 11,
+            "zoomEligible": true
+          },
+          {
+            "id": "building-3d",
+            "minzoom": 16,
+            "maxzoom": null,
+            "visibility": "visible",
+            "accepted": 11,
+            "zoomEligible": true
+          },
+          {
+            "id": "road-label",
+            "minzoom": 16,
+            "maxzoom": null,
+            "visibility": "visible",
+            "accepted": 112,
+            "zoomEligible": true
+          },
+          {
+            "id": "road-label-major",
+            "minzoom": 12,
+            "maxzoom": null,
+            "visibility": "visible",
+            "accepted": 3,
+            "zoomEligible": true
+          }
+        ]
+      }
+    ],
+    "night": [
+      {
+        "zoom": 14,
+        "layers": [
+          {
+            "id": "building",
+            "minzoom": 14,
+            "maxzoom": null,
+            "visibility": "visible",
+            "accepted": 11,
+            "zoomEligible": true
+          },
+          {
+            "id": "building-3d",
+            "minzoom": 16,
+            "maxzoom": null,
+            "visibility": "visible",
+            "accepted": 11,
+            "zoomEligible": false
+          },
+          {
+            "id": "road-label",
+            "minzoom": 16,
+            "maxzoom": null,
+            "visibility": "visible",
+            "accepted": 112,
+            "zoomEligible": false
+          },
+          {
+            "id": "road-label-major",
+            "minzoom": 12,
+            "maxzoom": null,
+            "visibility": "visible",
+            "accepted": 3,
+            "zoomEligible": true
+          }
+        ]
+      },
+      {
+        "zoom": 15,
+        "layers": [
+          {
+            "id": "building",
+            "minzoom": 14,
+            "maxzoom": null,
+            "visibility": "visible",
+            "accepted": 11,
+            "zoomEligible": true
+          },
+          {
+            "id": "building-3d",
+            "minzoom": 16,
+            "maxzoom": null,
+            "visibility": "visible",
+            "accepted": 11,
+            "zoomEligible": false
+          },
+          {
+            "id": "road-label",
+            "minzoom": 16,
+            "maxzoom": null,
+            "visibility": "visible",
+            "accepted": 112,
+            "zoomEligible": false
+          },
+          {
+            "id": "road-label-major",
+            "minzoom": 12,
+            "maxzoom": null,
+            "visibility": "visible",
+            "accepted": 3,
+            "zoomEligible": true
+          }
+        ]
+      },
+      {
+        "zoom": 16,
+        "layers": [
+          {
+            "id": "building",
+            "minzoom": 14,
+            "maxzoom": null,
+            "visibility": "visible",
+            "accepted": 11,
+            "zoomEligible": true
+          },
+          {
+            "id": "building-3d",
+            "minzoom": 16,
+            "maxzoom": null,
+            "visibility": "visible",
+            "accepted": 11,
+            "zoomEligible": true
+          },
+          {
+            "id": "road-label",
+            "minzoom": 16,
+            "maxzoom": null,
+            "visibility": "visible",
+            "accepted": 112,
+            "zoomEligible": true
+          },
+          {
+            "id": "road-label-major",
+            "minzoom": 12,
+            "maxzoom": null,
+            "visibility": "visible",
+            "accepted": 3,
+            "zoomEligible": true
+          }
+        ]
+      }
+    ]
+  }
+}

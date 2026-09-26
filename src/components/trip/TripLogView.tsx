@@ -4,6 +4,7 @@ import {
   TrendingUp, Activity, AlertCircle,
 } from 'lucide-react';
 import { useTripState, deleteTrip, clearAllTrips, type TripRecord } from '../../platform/tripLogService';
+import { EcoReportCard, TripEcoLine } from './EcoReportCard';
 
 /* ── Helpers ─────────────────────────────────────────────── */
 
@@ -24,7 +25,7 @@ function fmtDuration(min: number): string {
 
 /* ── Trip card ───────────────────────────────────────────── */
 
-const TripCard = memo(function TripCard({ trip }: { trip: TripRecord }) {
+const TripCard = memo(function TripCard({ trip, history }: { trip: TripRecord; history: readonly TripRecord[] }) {
   /* Seyahat kartı → oem yüzey/kenarlık */
   return (
     <div className="bg-[var(--oem-surface-2)] border border-[var(--oem-line)] rounded-2xl p-4"
@@ -52,7 +53,12 @@ const TripCard = memo(function TripCard({ trip }: { trip: TripRecord }) {
         <Stat icon={Route} color="blue" value={String(trip.distanceKm)} unit="km" label="Mesafe" />
         <Stat icon={Clock} color="purple" value={fmtDuration(trip.durationMin)} unit="" label="Süre" />
         <Stat icon={Zap} color="emerald" value={String(trip.avgSpeedKmh)} unit="km/h" label="Ort. Hız" />
-        <Stat icon={Fuel} color="amber" value={`${trip.fuelCostTL}₺`} unit="" label="Yakıt" />
+        {/* F3.2: maliyet bilinmiyorsa SAYI BASILMAZ — em-dash bir sayı
+            iddiası değildir. (Eskiden sabit 8,5 L/100km × sabit fiyatla
+            üretilmiş bir tutar gösteriliyordu.) */}
+        <Stat icon={Fuel} color="amber"
+          value={trip.fuelCostTL !== null ? `${trip.fuelCostTL}₺` : '—'}
+          unit="" label="Yakıt" />
       </div>
 
       {/* Sub-stats bölme çizgisi → oem-line */}
@@ -61,7 +67,9 @@ const TripCard = memo(function TripCard({ trip }: { trip: TripRecord }) {
           Maks <span className="text-slate-400 font-bold">{trip.maxSpeedKmh} km/h</span>
         </div>
         <div className="text-[11px] text-slate-600">
-          Yakıt <span className="text-slate-400 font-bold">{trip.fuelConsumptionL} L</span>
+          Yakıt <span className="text-slate-400 font-bold">
+            {trip.fuelConsumptionL !== null ? `${trip.fuelConsumptionL} L` : '—'}
+          </span>
         </div>
         <div className="ml-auto flex items-center gap-1.5">
           <span className="text-[10px] text-slate-600 uppercase tracking-wide">Sürüş</span>
@@ -77,6 +85,9 @@ const TripCard = memo(function TripCard({ trip }: { trip: TripRecord }) {
           </span>
         </div>
       </div>
+
+      {/* Yakıt & CO₂ — yalnız ölçülmüş yakıttan; yoksa nedeni yazılır */}
+      <TripEcoLine trip={trip} history={history} />
     </div>
   );
 });
@@ -134,7 +145,12 @@ function TripLogViewInner() {
 
 
   return (
-    <div className="flex flex-col gap-4 p-4 pb-6" data-theme-surface="trip" data-editable="trip-log" data-editable-type="card">
+    /* DrawerShell içeriği `overflow:hidden` taşır — kaydırma panelin kendisindedir
+       (DTCPanel/SportModePanel ile aynı sözleşme). Yoksa karne + geçmiş taşınca
+       "Geçmiş Seyahatler"e ulaşılamıyordu (telefon smoke 2026-09-25). */
+    <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden flex flex-col gap-4 p-4 pb-6"
+      style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-y', overscrollBehavior: 'contain' } as React.CSSProperties}
+      data-theme-surface="trip" data-editable="trip-log" data-editable-type="card">
 
       {/* ── Title ──────────────────────────────────────── */}
       <div className="flex items-center justify-between">
@@ -205,6 +221,9 @@ function TripLogViewInner() {
         />
       </div>
 
+      {/* ── Yakıt & CO₂ karnesi (haftalık, ölçülmüş yakıttan) ── */}
+      <EcoReportCard history={trip.history} nowMs={Math.floor(Date.now() / 60_000) * 60_000} />
+
       {/* ── History ────────────────────────────────────── */}
       <div>
         <div className="text-slate-500 text-[10px] uppercase tracking-widest mb-3">
@@ -227,7 +246,7 @@ function TripLogViewInner() {
         ) : (
           <div className="flex flex-col gap-3">
             {trip.history.map((t) => (
-              <TripCard key={t.id} trip={t} />
+              <TripCard key={t.id} trip={t} history={trip.history} />
             ))}
           </div>
         )}

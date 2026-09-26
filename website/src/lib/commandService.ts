@@ -26,14 +26,13 @@ export function isCriticalCommand(type: CommandType): boolean {
   return CRITICAL_COMMANDS.includes(type);
 }
 
-// ── SHA-256 hash (PIN plaintext asla sunucuya gitmez) ─────────────────────────
-export async function hashPin(pin: string): Promise<string> {
-  const data   = new TextEncoder().encode(pin);
-  const digest = await crypto.subtle.digest('SHA-256', data);
-  return Array.from(new Uint8Array(digest))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-}
+/* ── PIN: SUNUCU DOĞRULAR (MRI N-2/N-3, migration 083) ───────────────────────
+   Eski model: istemci SHA-256(PIN) üretip `p_pin_hash` gönderiyor, sunucu hash'i
+   hash'le karşılaştırıyordu (pass-the-hash) — üstelik PIN yalnız localStorage'da
+   olduğu için sunucuda hiç kayıtlı değildi ve `critical_auth_verified: true`
+   istemci iddiası trigger'ı geçiyordu. Artık ham PIN TLS içinde
+   `verify_and_send_critical_command(p_pin)`e gider; sunucu bcrypt doğrular,
+   komutu AYNI transaction'da yaratır. İstemci hiçbir güvenlik kararı yazmaz. */
 
 // ── Tipler ────────────────────────────────────────────────────────────────────
 
@@ -73,15 +72,34 @@ export interface CommandPayload {
 export interface SendResult {
   ok:         boolean;
   commandId?: string;
-  queued?:    boolean;  // true: araç offline, komut sıraya alındı
+  /**
+   * true: araç çevrimdışı; komut satırı `COMMAND_TTL_MS` boyunca sunucuda bekler.
+   * Araç bu süre içinde yoklama yaparsa komutu alır; süre dolarsa sunucu satırı
+   * bir daha VERMEZ (`fetch_pending_vehicle_commands` `ttl > now()`), telefon
+   * `EXPIRED` görür. Araç tarafı da aynı 5 dk'yı kabul eder (MRI N-7:
+   * `src/platform/commandCrypto.COMMAND_VALIDITY_WINDOW_MS`).
+   */
+  queued?:    boolean;
   error?:     string;
   code?:      'ACCOUNT_CLEANUP_LOCKDOWN' | 'SECURITY_RUNTIME_UNAVAILABLE';
 }
 
+/**
+ * Komutun ürünce vaat edilen geçerlilik süresi — `vehicle_commands.ttl`.
+ * Araç tarafındaki kripto kabul penceresiyle (`COMMAND_VALIDITY_WINDOW_MS`)
+ * BİREBİR aynı olmak ZORUNDADIR; iki sayı ayrışırsa "sıraya alındı" yalan olur.
+ */
+export const COMMAND_TTL_MS = 5 * 60_000;
+export const COMMAND_TTL_MINUTES = COMMAND_TTL_MS / 60_000;
+
 export interface SendCommandOptions {
   requireCriticalAuth?: boolean;
-  /** SHA-256 hex hash of the PIN — required for critical commands if vehicle has a PIN set. */
-  pinHash?: string;
+  /**
+   * Ham PIN (4–8 rakam). Kritik komutlarda ZORUNLU: sunucu doğrular
+   * (`verify_and_send_critical_command`). Sunucuda PIN kayıtlı değilse bu
+   * PIN `set_vehicle_pin` ile kaydedilir ve komut yeniden gönderilir.
+   */
+  pin?: string;
 }
 
 export interface StatusEvent {
@@ -90,29 +108,49 @@ export interface StatusEvent {
   updatedAt: Date;
 }
 
-// ── Push-to-Wake: aracı uyandır ──────────────────────────────────────────────
+// ── Push-to-Wake: aracı uyandır (VEHICLE WAKE otoritesi) ─────────────────────
+//
+// MRI F-08: `push-notify` slug'ı = ARAÇ UYANDIRMA (FCM data-only,
+// `vehicle_push_tokens`). İnsana bildirim (`consumer-push-notify`, Web Push,
+// `push_subscriptions`) BAŞKA bir otoritedir ve tarayıcıdan ÇAĞRILMAZ
+// (service_role gerektirir; üreticisi sunucudur). Bu dosyadaki tek push
+// çağrısı budur ve yalnız wake olayı gönderir.
+//
+// Sözleşme: `{ event: 'new_command', vehicleId }` — komut kimliği, tipi,
+// zarfı, PIN, api_key TAŞINMAZ. Araç uyanınca komutu DB'den kendisi çeker
+// (`fetch_pending_vehicle_commands`); push yalnız hızlandırıcıdır.
+//
+// Başarısızlık semantiği: push düşerse komut `pending` KALIR (DB gerçeği),
+// yoklama/realtime devralır. Push hatası ≠ komut hatası; `sendCommand`
+// sonucu bundan etkilenmez.
 
-const PUSH_FN_URL = process.env.NEXT_PUBLIC_SUPABASE_URL
-  ? `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/push-notify`
-  : null;
+/** Wake ucu — çağrı anında çözülür (ortam testte de kilitlenebilsin). */
+export function vehicleWakeFnUrl(): string | null {
+  const base = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  return base ? `${base}/functions/v1/push-notify` : null;
+}
 
-async function triggerPushWake(vehicleId: string, commandId: string): Promise<void> {
-  if (!PUSH_FN_URL || !supabaseBrowser) return;
+export type VehicleWakeEvent = 'new_command';
+
+/** Wake gövdesi — TAM liste; `payload` alanı bilinçli olarak YOK. */
+export function buildVehicleWakeBody(vehicleId: string): { event: VehicleWakeEvent; vehicleId: string } {
+  return { event: 'new_command', vehicleId };
+}
+
+async function triggerPushWake(vehicleId: string): Promise<void> {
+  const url = vehicleWakeFnUrl();
+  if (!url || !supabaseBrowser) return;
   try {
     const session = (await supabaseBrowser.auth.getSession()).data.session;
-    await fetch(PUSH_FN_URL, {
+    await fetch(url, {
       method:  'POST',
       headers: {
         'Content-Type':  'application/json',
         'Authorization': `Bearer ${session?.access_token ?? ''}`,
       },
-      body: JSON.stringify({
-        event:     'new_command',
-        vehicleId,
-        payload:   { command_id: commandId },
-      }),
+      body: JSON.stringify(buildVehicleWakeBody(vehicleId)),
     });
-  } catch { /* fire-and-forget */ }
+  } catch { /* best-effort wake — komut gerçeği DB'de, yoklama sürer */ }
 }
 
 // ── Araç çevrimiçi mi? (son telemetri OFFLINE_TIMEOUT_MS içinde) ─────────────
@@ -164,16 +202,16 @@ export async function sendCommand(
         : 'ACCOUNT_CLEANUP_LOCKDOWN',
     };
   }
-  /* ── GİRİŞ EKRANI YOK (ürün kararı, 2026-09-12) ──────────────────────────
-     Oturum yoksa GÖRÜNMEZ anonim oturum açılır; kullanıcıya hiçbir şey
-     sorulmaz (bkz. `lib/supabase.ts`).
+  /* ── OTURUM ZORUNLU (F1, 2026-09-17) ────────────────────────────────────
+     `ensurePwaSession` ARTIK oturum AÇMAZ; yalnız var olanı okur. Giriş
+     Google ile yapılır ve PWA kapısı (`app/(pwa)/kumanda`) zaten oturumsuz
+     kullanıcıyı buraya kadar getirmez — bu kontrol ikinci savunma hattıdır.
 
      P0-001A: oturumsuz (api_key) komut yolu KAPATILDI — gerekçe yukarıda.
      Eskiden burada "API anahtarı bulunamadı. Aracı yeniden eşleştirin."
      deniyordu; bu YANLIŞ TEŞHİSTİ — yeniden eşleştirmek anahtar üretmez
      (kanonik rota anahtar döndürmez), kullanıcı sonsuz döngüye giriyordu.
-     Anonim oturum o döngüyü de kapatır: komut kullanıcı JWT'siyle gider,
-     ham anahtar hiçbir yerde dönmez. */
+     Komut kullanıcı JWT'siyle gider; ham anahtar hiçbir yerde dönmez. */
   const token = await ensurePwaSession();
   if (!token) {
     return {
@@ -217,47 +255,109 @@ export async function sendCommand(
   }
 
   const nonce = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  const ttl   = new Date(Date.now() + 5 * 60_000).toISOString();
+  const ttl   = new Date(Date.now() + COMMAND_TTL_MS).toISOString();
 
-  // Kritik komut: PIN hash ile verify_and_send_critical_command RPC
-  if (isCriticalCommand(type) && options.pinHash) {
-    const { data: rpcData, error: rpcErr } = await supabaseBrowser.rpc(
-      'verify_and_send_critical_command',
-      {
-        p_vehicle_id: vehicleId,
-        p_type:       type,
-        p_payload:    finalPayload,
-        p_pin_hash:   options.pinHash,
-        p_nonce:      nonce,
-        p_ttl:        ttl,
-      },
-    );
-    if (rpcErr) return { ok: false, error: rpcErr.message };
-    const res = rpcData as { ok: boolean; command_id?: string; error?: string };
-    if (!res.ok) return { ok: false, error: res.error ?? 'PIN doğrulaması başarısız.' };
-    return { ok: true, commandId: res.command_id, queued: !online };
+  // Kritik komut: TEK KAPI = sunucu tarafı PIN doğrulaması (083). Doğrudan
+  // INSERT kritik komut için yapısal olarak reddedilir (trigger, sunucu kanıtı).
+  if (isCriticalCommand(type)) {
+    if (!options.pin) return { ok: false, error: 'Kritik komut için PIN gerekli.' };
+    const res = await sendCriticalViaServer(vehicleId, type, finalPayload, options.pin, nonce, ttl);
+    if (!res.ok) return res;
+    return { ok: true, commandId: res.commandId, queued: !online };
   }
 
   const { data, error } = await supabaseBrowser
     .from('vehicle_commands')
     .insert({
-      vehicle_id:             vehicleId,
-      created_by:             (await supabaseBrowser.auth.getUser()).data.user?.id,
+      vehicle_id: vehicleId,
+      created_by: (await supabaseBrowser.auth.getUser()).data.user?.id,
       type,
-      payload:                finalPayload,
+      payload:    finalPayload,
       nonce,
       ttl,
-      critical_auth_verified: options.requireCriticalAuth === true,
+      /* `critical_auth_verified` GÖNDERİLMEZ: sunucu yazar (istemci iddiası değil). */
     })
     .select('id')
     .single();
 
   if (error) return { ok: false, error: error.message };
 
-  // Push-to-Wake: aracı sessizce uyandır (fire-and-forget)
-  void triggerPushWake(vehicleId, data.id);
+  // Push-to-Wake: aracı sessizce uyandır (best-effort; komut kimliği gitmez)
+  void triggerPushWake(vehicleId);
 
   return { ok: true, commandId: data.id, queued: !online };
+}
+
+// ── Kritik komut: sunucu PIN kapısı ──────────────────────────────────────────
+
+interface CriticalRpcResult { ok: boolean; command_id?: string; error?: string }
+
+const CRITICAL_ERROR_TEXT: Record<string, string> = {
+  pin_not_set:     'Araç için PIN kayıtlı değil.',
+  pin_locked:      'Çok fazla yanlış PIN — 15 dakika sonra tekrar deneyin.',
+  pin_mismatch:    'Mevcut PIN yanlış.',
+  unauthenticated: 'Oturum gerekli.',
+};
+
+function criticalErrorText(code: string | undefined): string {
+  if (!code) return 'PIN doğrulaması başarısız.';
+  return CRITICAL_ERROR_TEXT[code] ?? code;
+}
+
+/**
+ * Sunucuda PIN doğrula + komutu yarat (tek transaction). Sunucu `pin_not_set`
+ * derse — araçta HİÇ PIN kayıtlı değil (eski PWA PIN'i yalnız telefonda
+ * tutuyordu) — girilen PIN `set_vehicle_pin` ile kaydedilir ve komut BİR KEZ
+ * yeniden denenir. Sahip olmayan eşleşmiş kullanıcı mevcut PIN'i bilmeden
+ * PIN değiştiremez; bu istemcide çözülmez, sunucu reddeder.
+ */
+async function sendCriticalViaServer(
+  vehicleId: string,
+  type:      CommandType,
+  payload:   Record<string, unknown>,
+  pin:       string,
+  nonce:     string,
+  ttl:       string,
+): Promise<{ ok: true; commandId?: string } | { ok: false; error: string }> {
+  if (!supabaseBrowser) return { ok: false, error: 'Supabase yapılandırması eksik.' };
+  const call = async (): Promise<CriticalRpcResult | { rpcError: string }> => {
+    const { data, error } = await supabaseBrowser!.rpc('verify_and_send_critical_command', {
+      p_vehicle_id: vehicleId,
+      p_type:       type,
+      p_payload:    payload,
+      p_pin:        pin,
+      p_nonce:      nonce,
+      p_ttl:        ttl,
+    });
+    if (error) return { rpcError: error.message };
+    return data as CriticalRpcResult;
+  };
+
+  let res = await call();
+  if ('rpcError' in res) return { ok: false, error: res.rpcError };
+
+  if (!res.ok && res.error === 'pin_not_set') {
+    const { data: setData, error: setErr } = await supabaseBrowser.rpc('set_vehicle_pin', {
+      p_vehicle_id: vehicleId,
+      p_pin:        pin,
+    });
+    if (setErr) return { ok: false, error: setErr.message };
+    const setRes = setData as { ok: boolean; error?: string };
+    if (!setRes.ok) return { ok: false, error: criticalErrorText(setRes.error) };
+    markCriticalPinEnrolled();
+    res = await call();
+    if ('rpcError' in res) return { ok: false, error: res.rpcError };
+  }
+
+  if (!res.ok) return { ok: false, error: criticalErrorText(res.error) };
+  markCriticalPinEnrolled();
+  return { ok: true, commandId: res.command_id };
+}
+
+/** Yalnız UX ipucu ("PIN belirleyin" vs "PIN girin") — güvenlik otoritesi DEĞİL. */
+export const CRITICAL_PIN_ENROLLED_KEY = 'caros_critical_pin_enrolled';
+function markCriticalPinEnrolled(): void {
+  try { localStorage.setItem(CRITICAL_PIN_ENROLLED_KEY, '1'); } catch { /* quota */ }
 }
 
 // ── Komut durumunu dinle (Realtime) ───────────────────────────────────────────

@@ -61,8 +61,10 @@ export interface SpeedLimitCardProps {
  * büyük head unit'te ekranı kaplamasını engeller.
  */
 const _DIAMETER = {
-  mini: 'clamp(26px, 6.2vmin, 40px)',
-  full: 'clamp(34px, 8.4vmin, 56px)',
+  /* 26–40 px idi: telefonda taban 26 px'e düşüyor, sürücü bir bakışta
+     okuyamıyordu (saha 2026-09-24). */
+  mini: 'clamp(38px, 8vmin, 50px)',
+  full: 'clamp(44px, 8.4vmin, 60px)',   // taban mini tabanından büyük kalır (hiyerarşi)
 } as const;
 
 /* Viyana Sözleşmesi levha oranları (çapa göre) — Google Maps / AAOS ile aynı. */
@@ -123,8 +125,11 @@ export const SpeedLimitCard = memo(function SpeedLimitCard({
           fontSize: `${_LABEL}em`,
           marginTop: `${_LABEL_GAP}em`,
           letterSpacing: '0.06em',
-          color: 'var(--oem-ink-2, rgba(240,235,224,0.74))',
-          textShadow: '0 1px 3px rgba(0,0,0,0.8)',
+          /* Açık renk yazı gündüz haritasında kayboluyordu → koyu zemin. */
+          color: 'rgba(255,255,255,0.92)',
+          background: 'rgba(0,0,0,0.62)',
+          padding: '0.25em 0.45em',
+          borderRadius: '0.4em',
           whiteSpace: 'nowrap',
         }}
       >

@@ -7,7 +7,7 @@
  * Her iki servis de rate-limit dostu; retry yok, sadece timeout.
  *
  * Fast-Fail Fallback (geocodeAddress):
- *   navigator.onLine === false  → anında offline fallback (<500ms)
+ *   kanonik kapı kapalı         → anında offline fallback (<500ms)
  *   Nominatim > FAST_FAIL_MS    → offline fallback DÖNER, istek İPTAL EDİLMEZ;
  *                                 geç gelen yanıt önbelleğe düşer (bkz. _lateCache)
  *   Nominatim ağ hatası         → offline fallback
@@ -15,6 +15,7 @@
  */
 
 import { searchOffline, searchPOI } from './offlineSearchService';
+import { allowsConnectivity } from './connectivity/connectivityGate';
 import type { POISearchResult }      from './offlineSearchService';
 import { searchStreetByName, extractStreetQuery } from './streetSearchService';
 import { premiumGeocode }            from './geocodingProviders';
@@ -29,6 +30,7 @@ import {
   type SearchProviderAttempt,
   type SearchProviderOutcome,
 } from './geo/searchChainModel';
+import { normalizePlaceQuery, textMatchScore } from './geo/placeQueryModel';
 
 const NOMINATIM          = 'https://nominatim.openstreetmap.org/search';
 const NOMINATIM_REVERSE  = 'https://nominatim.openstreetmap.org/reverse';
@@ -313,6 +315,25 @@ function shortName(displayName: string): string {
   return parts.slice(0, 2).join(', ');
 }
 
+/** Şehir belirtilmemişken adı sorguya uyan aday bu mesafeden uzaksa OSM'de yakını aranır. */
+const LOCAL_NAME_MATCH_KM = 15;
+/** "Adı sorguya uyuyor" eşiği — `textMatchScore`: tam 1 · önek 0,92 · içerme 0,82. */
+const NAME_MATCH_MIN = 0.82;
+
+function _nameScore(query: string, name: string): number {
+  return textMatchScore(normalizePlaceQuery(query), normalizePlaceQuery(name));
+}
+
+/** Adı sorguya uyan adayların en yakını uzaksa o mesafe (km); yakında eşleşme varsa ya da hiç yoksa `null`. */
+function _farNameMatchKm(query: string, results: readonly GeoResult[]): number | null {
+  let nearest = Infinity;
+  for (const r of results) {
+    if (r.distanceKm === undefined || _nameScore(query, r.name) < NAME_MATCH_MIN) continue;
+    nearest = Math.min(nearest, r.distanceKm);
+  }
+  return nearest !== Infinity && nearest > LOCAL_NAME_MATCH_KM ? nearest : null;
+}
+
 function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const R  = 6371;
   const dL = ((lat2 - lat1) * Math.PI) / 180;
@@ -426,7 +447,7 @@ interface NominatimItem {
  * currentLat/Lng verilirse viewbox bias uygulanır.
  *
  * Fast-Fail Timeout (2s):
- *   - navigator.onLine === false → anında _offlineFallback() (rate-limiter atlanır)
+ *   - kanonik kapı kapalı → anında _offlineFallback() (rate-limiter atlanır)
  *   - Nominatim 2s içinde yanıt vermezse → _offlineFallback() DÖNER; istek
  *     iptal EDİLMEZ, geç yanıt önbelleğe yazılır → sonraki arama onu bulur
  *   - Nominatim ağ hatası → _offlineFallback()
@@ -440,7 +461,7 @@ export async function geocodeAddress(
      Ölçüm hiçbir kararı değiştirmez: aşağıdaki akış BİREBİR eskisi gibidir. */
   const t0          = Date.now();
   const hadLocation = currentLat != null && currentLng != null;
-  const online      = typeof navigator === 'undefined' ? true : navigator.onLine;
+  const online      = allowsConnectivity('LIGHTWEIGHT_INTERNET');
   /* Son şans (Overpass) için kullanılabilir bir sokak sorgusu ÜRETİLEBİLİR Mİ.
      Ölçüm 2026-08-11: adlı sokaklarda üretilen regex şehir/mahalle önekini de
      içerdiği için OSM adıyla asla eşleşmiyor — o yüzden "üretildi" ile
@@ -556,8 +577,8 @@ export async function geocodeAddress(
     });
   };
 
-  /* Hızlı yol: ağ bağlantısı yok → rate-limiter atlanır, anında offline */
-  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+  /* Hızlı yol: kullanılabilir internet yolu yok → rate-limiter atlanır, anında offline */
+  if (!online) {
     const off = gate(await _offlineFallback(query, currentLat, currentLng, offlineSink));
     pushOfflineAttempts();
     /* Çevrimiçi sağlayıcılar HİÇ denenmedi — "ulaşıldı, 0 döndü" DEĞİL. */
@@ -590,7 +611,34 @@ export async function geocodeAddress(
     keptCount: premiumRaw.length > 0 ? premium.length : null,
     ms:        Date.now() - _premiumT0,
   });
-  if (premium.length) return done(premium, 'PREMIUM');
+  if (premium.length) {
+    /* ── UZAKTAKİ AD EŞLEŞMESİ → YAKINDA AYNI ADLI YER VAR MI (saha 2026-09-24) ─
+     * Sesli "tarsus şelalesi": TomTom'daki aynı adlı TEK kayıt 32,6 km ötede bir
+     * SPOR TESİSİYDİ (Mezitli) ve seçildi; asıl şelale TomTom'da YOK, OSM'de
+     * 3,7 km'de turistik yer. Harita arama çubuğu iki kaynağı birlikte sıralar,
+     * bu yol TomTom cevap verince OSM'e hiç sormuyordu (P0-NAV-07 ayrışması).
+     * Şehir belirtilmemişken adı sorguya uyan adaylar YALNIZ uzaktaysa OSM'e
+     * bir kez sorulur; yakında aynı adlı yer varsa cevap odur. */
+    const farKm = biasMode === 'PROXIMITY' ? _farNameMatchKm(query, premium) : null;
+    if (farKm !== null) {
+      const nSink = _nomSink();
+      const nom = await _nominatimOnce(query, currentLat, currentLng, nSink);
+      const near = nom === null ? [] : gate(nom).filter((r) =>
+        r.distanceKm !== undefined && r.distanceKm <= LOCAL_NAME_MATCH_KM
+        && _nameScore(query, r.name) >= NAME_MATCH_MIN);
+      attempts.push({
+        provider:  'NOMINATIM',
+        outcome:   nSink.outcome === 'NOT_ATTEMPTED' ? 'TIMEOUT' : nSink.outcome,
+        rawCount:  nSink.rawCount,
+        keptCount: near.length,
+        ms:        nSink.ms,
+      });
+      /* Yol/patika parçası yerine yerin kendisi (ör. turistik yer) tercih edilir. */
+      const pick = near.find((r) => !r.type.startsWith('highway/')) ?? near[0];
+      if (pick) return done([pick], 'NOMINATIM');
+    }
+    return done(premium, 'PREMIUM');
+  }
 
   const firstSink = _nomSink();
   const first = await _nominatimOnce(query, currentLat, currentLng, firstSink);
@@ -904,7 +952,7 @@ export const REVERSE_GEOCODE_TIMEOUT_MS = 3_000;
  *  - BOUNDED — `timeoutMs` toplam bütçedir; Nominatim ToS rate-limit beklemesi de bu
  *    bütçeden harcanır, bütçe biterse istek HİÇ yapılmaz ve null döner (aşım olamaz).
  *  - THROW ETMEZ — ağ · HTTP · JSON parse · abort, hepsi null'a indirgenir.
- *  - Çevrimdışıyken (navigator.onLine === false) ağa HİÇ çıkılmaz → anında null.
+ *  - Çevrimdışıyken (kanonik kapı kapalı) ağa HİÇ çıkılmaz → anında null.
  *  - LOG YOK: URL, koordinat, header ve yanıt gövdesi hiçbir yere yazılmaz (konum PII'dir;
  *    ayrıca diagnostic loglara hassas alan yazma yasağı — CLAUDE.md).
  */
@@ -915,7 +963,7 @@ export async function reverseGeocode(
 ): Promise<string | null> {
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
   if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
-  if (typeof navigator !== 'undefined' && !navigator.onLine) return null;
+  if (!allowsConnectivity('LIGHTWEIGHT_INTERNET')) return null;
 
   const budget = Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : REVERSE_GEOCODE_TIMEOUT_MS;
   const startedAt = Date.now();
@@ -995,7 +1043,7 @@ export async function reverseGeocodeParts(
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
   if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
   if (lat === 0 && lng === 0) return null;              // Null Island sentinel
-  if (typeof navigator !== 'undefined' && !navigator.onLine) return null;
+  if (!allowsConnectivity('LIGHTWEIGHT_INTERNET')) return null;
 
   const budget = Number.isFinite(timeoutMs) && timeoutMs > 0
     ? timeoutMs : REVERSE_GEOCODE_TIMEOUT_MS;

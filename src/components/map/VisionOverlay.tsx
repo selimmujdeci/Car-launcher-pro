@@ -748,7 +748,9 @@ export const VisionOverlay = memo(function VisionOverlay({
 
         {/* Vision status badge — always visible during navigation */}
         {isNavigating && (
-          <div className="absolute top-5 right-[7rem] pointer-events-auto z-[var(--z-map-effect)]">
+          /* right-[7rem] idi → ANA EKRAN düğmesine ~30 px biniyordu (telefon,
+             2026-09-24). Sıra sağdan: ANA EKRAN · harita kaynak rozeti · AR. */
+          <div className="absolute top-5 right-[14.5rem] pointer-events-auto z-[var(--z-map-effect)]">
             <VisionBadge
               visionState={vision.state}
               frame={vision.frame}

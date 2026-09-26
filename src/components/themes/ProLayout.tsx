@@ -163,7 +163,7 @@ const StatusCluster = memo(function StatusCluster() {
           opacity:    online ? 1 : 0.4,
         }}
       />
-      <StatusControls palette={{ ink: p.ink, ink2: p.ink2, accent: p.accent }} size={15} />
+      <StatusControls palette={{ ink: p.ink, ink2: p.ink2, accent: p.accent, surface: p.cardSolid }} size={15} />
       <span style={{ fontSize: 12, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: p.ink }}>
         {device.ready ? `${device.battery}%` : '—'}
       </span>
@@ -696,7 +696,7 @@ const ProDock = memo(function ProDock({ onOpenMap, onVoice, onOpenApps, onOpenSe
   const labelStyle: React.CSSProperties = { fontSize: 12.5, fontWeight: 700, letterSpacing: '0.02em', color: p.ink2, maxWidth: TILE_W - 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
 
   return (
-    <div data-editable="pro.dock" data-editable-type="dock" className="relative w-full" style={{ zIndex: editMode ? 95 : undefined }}>
+    <div data-editable="pro.dock" data-editable-type="dock" data-no-page-swipe className="relative w-full" style={{ zIndex: editMode ? 95 : undefined }}>
       {/* Düzenleme modu — dışarı dokununca çık */}
       {editMode && <div className="fixed inset-0" style={{ zIndex: 90 }} onClick={() => setEditMode(false)} />}
 
@@ -740,6 +740,7 @@ const ProDock = memo(function ProDock({ onOpenMap, onVoice, onOpenApps, onOpenSe
         onPointerUp={onDragEnd}
         onPointerLeave={onDragEnd}
         onClickCapture={onClickCapture}
+        data-no-page-swipe
         className="pro-dock-scroll flex items-center gap-1.5 px-3 py-3.5 rounded-3xl w-full"
         style={{
           background: p.dockBg, border: p.dockBorder,

@@ -593,10 +593,13 @@ html.rt-no-blur * {
 .sunlight-mode svg[stroke] {
   stroke-width: 3 !important;
 }
-.sunlight-mode svg *[stroke] {
+/* Sürüş göstergesi (Digital Cockpit) muaf: kendi gündüz paleti kontrast
+   testinden geçer (≥7:1 / ≥4.5:1); 3 px zorlama taksimat/halka/ayraçları
+   kaba çiziyordu (cihazda ölçüldü 2026-09-23, gündüz saatinde sunlight-mode). */
+.sunlight-mode svg:not(.caros-cockpit-screen) *[stroke] {
   stroke-width: 3 !important;
 }
-.sunlight-mode svg *[fill] {
+.sunlight-mode svg:not(.caros-cockpit-screen) *[fill] {
   stroke-width: 0 !important;
 }
 .sunlight-mode button {
@@ -609,6 +612,10 @@ html.rt-no-blur * {
    kuralı ona uygulanınca yuvarlak saatin etrafında SİYAH DİKDÖRTGEN oluşuyordu
    (tüm temalarda). Saat butonu (aria-label "Saat — Menü") muaf tutulur; border
    sökülür. Diğer butonların güneş-okunabilirlik border'ı KORUNUR. */
+.sunlight-mode .caros-cockpit-screen button.caros-cockpit-transport {
+  border: 1px solid transparent !important;
+  font-weight: inherit !important;
+}
 .sunlight-mode button[aria-label="Saat — Menü"],
 [data-theme="sunlight"] button[aria-label="Saat — Menü"] {
   border: none !important;
@@ -619,6 +626,65 @@ html.rt-no-blur * {
 .sunlight-mode .text-lg { font-size: 21px !important; }
 .sunlight-mode .text-xl { font-size: 24px !important; }
 .sunlight-mode .text-2xl { font-size: 28px !important; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   DURUM ÇUBUĞU ÖĞELERİ (StatusItem · `caros-status-*`)
+   SAHA 2026-09-24: güneş modunun "her düğmeye 2px siyah border + 52px + 3px
+   çizgi" kuralı durum ikonlarını kalın kutulara çeviriyordu (kullanıcı: "çok
+   amatör"). Okunabilirliği öğenin kendi tasarımı sağlar: yüksek kontrast glif
+   + kısa etiket + anlamsal nokta. Bu blok güneş kurallarından SONRA durmalı
+   (eşit özgüllükte sonraki kazanır).
+   ═══════════════════════════════════════════════════════════════════════════ */
+.sunlight-mode button.caros-status-item,
+[data-theme="sunlight"] button.caros-status-item {
+  border: none !important;
+  min-height: 40px !important;
+  min-width: 40px !important;
+}
+.sunlight-mode .caros-status-item svg[stroke],
+.sunlight-mode .caros-status-item svg *[stroke],
+[data-theme="sunlight"] .caros-status-item svg[stroke],
+[data-theme="sunlight"] .caros-status-item svg *[stroke] {
+  stroke-width: 2.25 !important;
+}
+/* Açılır menü satırları (sürücü seçici): güneş modunun düğme kutusu satırları
+   ayrı siyah kutulara çeviriyordu (saha 2026-09-25). Okunabilirlik menünün
+   tema zemini + tema mürekkebi kontrastıyla sağlanır. */
+.sunlight-mode button.caros-menu-row,
+[data-theme="sunlight"] button.caros-menu-row {
+  border: none !important;
+  min-height: 44px !important;
+}
+.caros-menu-row:active { background-color: rgba(127, 127, 127, 0.16) !important; }
+.caros-status-item { transition: background-color 0.15s ease; }
+.caros-status-item:active { background-color: rgba(127, 127, 127, 0.16) !important; }
+
+/* Kopma / bağlanma parlaması — `key` ile takılan öğe animasyonu BİR KEZ oynar
+   ve kendiliğinden söner (JS timer YOK). */
+.caros-status-flash {
+  position: absolute;
+  inset: 0;
+  border-radius: 10px;
+  pointer-events: none;
+  opacity: 0;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .caros-status-flash-drop { animation: caros-status-drop 5s ease-out forwards; }
+  .caros-status-flash-up   { animation: caros-status-up 1.6s ease-out forwards; }
+}
+/* Hareket azaltılmışsa kopma kalıcı ince kırmızı çerçeveyle belli olur. */
+@media (prefers-reduced-motion: reduce) {
+  .caros-status-flash-drop { opacity: 1; box-shadow: inset 0 0 0 2px rgba(239, 68, 68, 0.75); }
+}
+@keyframes caros-status-drop {
+  0%, 20%, 40%, 60% { opacity: 1; box-shadow: inset 0 0 0 2px rgba(239, 68, 68, 0.9); background: rgba(239, 68, 68, 0.14); }
+  10%, 30%, 50%     { opacity: 0.3; box-shadow: inset 0 0 0 2px rgba(239, 68, 68, 0.9); background: rgba(239, 68, 68, 0.14); }
+  100%              { opacity: 0; box-shadow: inset 0 0 0 2px rgba(239, 68, 68, 0.9); }
+}
+@keyframes caros-status-up {
+  0%   { opacity: 1; box-shadow: inset 0 0 0 2px rgba(34, 197, 94, 0.85); background: rgba(34, 197, 94, 0.14); }
+  100% { opacity: 0; box-shadow: inset 0 0 0 2px rgba(34, 197, 94, 0.85); }
+}
 
 /* ═══════════════════════════════════════════════════════════════════════════
    HARİTA YÜZEYİ · GÜNEŞ MODU CHROME MUAFİYETİ (saha bildirimi 2026-09-06)

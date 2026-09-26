@@ -4,20 +4,32 @@
  * Öncelik sırası:
  *   1. HERE Traffic Flow v7 API   (VITE_HERE_API_KEY varsa)
  *   2. TomTom Traffic Flow API    (VITE_TOMTOM_API_KEY varsa)
- *   3. Saat bazlı tahmin          (hiçbir key yoksa, sadece "Tahmini" olarak işaretlenir)
  *
- * Kaynak: trafficSummary.source  →  'here' | 'tomtom' | 'estimated'
+ * ANAHTAR YOKSA VERİ YOKTUR (2026-09-23): eskiden saat tablosundan "tahmini" yoğunluk ve
+ * SABİT LİSTEDEN uydurma yol adları ("Çevre Yolu", "Bulvar") üretilip konumun etrafına
+ * rastgele noktalar olarak çiziliyordu — sahada Tarsus'ta gerçek olmayan "Çevre Yolu ·
+ * doğu · Akıcı" gösterildi. CLAUDE.md §8: sahte veri yerine `summary: null` +
+ * `unavailable` nedeni. TomTom: akış katmanı + bulunulan yol + olaylar (tomtomTraffic).
+ *
+ * Kaynak: trafficSummary.source  →  'here' | 'tomtom'
  */
 
 import { signalWithTimeout } from '../utils/abortCompat';
 import { useState, useEffect } from 'react';
 import { injectOfficialHazard } from './hazardService';
 import type { HazardType } from '../store/useHazardStore';
+import {
+  fetchRoad, fetchIncidents, flowTileUrl,
+  type TrafficRoad, type TrafficIncident,
+} from './traffic/tomtomTraffic';
+
+export type { TrafficRoad, TrafficIncident } from './traffic/tomtomTraffic';
 
 /* ── Tipler ──────────────────────────────────────────────── */
 
 export type TrafficLevel  = 'free' | 'moderate' | 'heavy' | 'standstill';
-export type TrafficSource = 'here' | 'tomtom' | 'estimated';
+export type TrafficSource = 'here' | 'tomtom';
+export type TrafficUnavailable = 'no_key' | 'no_location' | 'fetch_failed';
 
 export interface TrafficSegment {
   label:     string;
@@ -33,6 +45,10 @@ export interface TrafficSummary {
   segments:    TrafficSegment[];
   tileEnabled: boolean;
   source:      TrafficSource;
+  /** Bulunulan yol (TomTom akış) — yoksa null. */
+  road:        TrafficRoad | null;
+  /** Çevredeki olaylar (TomTom) — gecikmeye göre sıralı. */
+  incidents:   TrafficIncident[];
 }
 
 export interface TrafficState {
@@ -41,6 +57,8 @@ export interface TrafficState {
   showLayer:    boolean;
   loading:      boolean;
   error:        string | null;
+  /** Veri neden yok (summary null iken). */
+  unavailable:  TrafficUnavailable | null;
 }
 
 /* ── Env anahtarları ─────────────────────────────────────── */
@@ -104,6 +122,8 @@ async function fetchHereTraffic(lat: number, lng: number): Promise<TrafficSummar
     segments:   segments.slice(0, 4),
     tileEnabled: !!_state.tileLayerUrl,
     source:     'here',
+    road:       null,
+    incidents:  [],
   };
 }
 
@@ -186,103 +206,23 @@ async function fetchHereIncidents(lat: number, lng: number): Promise<number> {
   return injected;
 }
 
-/* ── TomTom Traffic Flow ─────────────────────────────────── */
+/* ── TomTom: akış + olaylar (paralel) ───────────────────── */
 
 async function fetchTomTomTraffic(lat: number, lng: number): Promise<TrafficSummary> {
-  // flowSegmentData: tek nokta için anlık hız
-  const url =
-    `https://api.tomtom.com/traffic/services/4/flowSegmentData/absolute/10/json` +
-    `?key=${TOMTOM_KEY}` +
-    `&point=${lat},${lng}`;
-
-  const res  = await fetch(url, { signal: signalWithTimeout(8000) });
-  if (!res.ok) throw new Error(`TomTom HTTP ${res.status}`);
-  const data  = await res.json() as {
-    flowSegmentData?: {
-      currentSpeed?: number;
-      freeFlowSpeed?: number;
-      currentTravelTime?: number;
-      freeFlowTravelTime?: number;
-      confidence?: number;
-    };
-  };
-  const fd = data.flowSegmentData;
-  if (!fd) throw new Error('TomTom: boş yanıt');
-
-  const current  = fd.currentSpeed    ?? 0;
-  const freeFlow = fd.freeFlowSpeed   ?? 80;
-  const ratio    = freeFlow > 0 ? current / freeFlow : 1;
-
-  const level = speedRatioToLevel(ratio);
-  const delay = Math.max(0, Math.round(
-    ((fd.currentTravelTime ?? 0) - (fd.freeFlowTravelTime ?? 0)) / 60,
-  ));
-
-  const segments: TrafficSegment[] = [
-    { label: 'Anlık güzergah', level, delayMin: delay, direction: '' },
-  ];
-
+  const key = TOMTOM_KEY!;
+  const [roadR, incR] = await Promise.allSettled([fetchRoad(key, lat, lng), fetchIncidents(key, lat, lng)]);
+  const road = roadR.status === 'fulfilled' ? roadR.value : null;
+  const incidents = incR.status === 'fulfilled' ? incR.value : [];
+  if (roadR.status === 'rejected' && incR.status === 'rejected') throw roadR.reason;
   return {
-    level,
-    delayMin:   delay,
+    level:      road ? road.level : 'free',
+    delayMin:   road ? Math.round(road.delaySec / 60) : 0,
     updatedAt:  Date.now(),
-    segments,
+    segments:   [],
     tileEnabled: !!_state.tileLayerUrl,
     source:     'tomtom',
-  };
-}
-
-function speedRatioToLevel(ratio: number): TrafficLevel {
-  if (ratio >= 0.80) return 'free';
-  if (ratio >= 0.55) return 'moderate';
-  if (ratio >= 0.30) return 'heavy';
-  return 'standstill';
-}
-
-/* ── Saat bazlı tahmin (fallback) ────────────────────────── */
-
-const HOURLY_DENSITY: number[] = [
-  0.05, 0.03, 0.02, 0.02, 0.03, 0.10,
-  0.30, 0.75, 0.95, 0.80, 0.55, 0.50,
-  0.60, 0.55, 0.50, 0.55, 0.70, 0.90,
-  0.95, 0.75, 0.50, 0.35, 0.20, 0.10,
-];
-
-const SEGMENT_NAMES = ['Çevre Yolu', 'Bağlantı Yolu', 'Bulvar', 'İstasyon Çevresi', 'Ana Cadde'];
-const DIRECTIONS    = ['kuzey', 'güney', 'doğu', 'batı'];
-
-function densityToLevel(d: number): TrafficLevel {
-  if (d < 0.3)  return 'free';
-  if (d < 0.6)  return 'moderate';
-  if (d < 0.85) return 'heavy';
-  return 'standstill';
-}
-
-function buildEstimatedSummary(lat?: number): TrafficSummary {
-  const hour    = new Date().getHours();
-  const density = HOURLY_DENSITY[hour] ?? 0.3;
-  const level   = densityToLevel(density);
-  const seed    = lat ? Math.abs(Math.round(lat * 1000)) % 100 : 42;
-
-  const segments: TrafficSegment[] = Array.from({ length: 3 }, (_, i) => {
-    const variation = ((seed * (i + 1) * 17) % 30 - 15) / 100;
-    const d = Math.max(0, Math.min(1, density + variation));
-    const lv = densityToLevel(d);
-    return {
-      label:    SEGMENT_NAMES[i % SEGMENT_NAMES.length],
-      level:    lv,
-      delayMin: lv === 'free' ? 0 : lv === 'moderate' ? 3 + i * 2 : lv === 'heavy' ? 8 + i * 3 : 15 + i * 5,
-      direction: DIRECTIONS[(seed + i) % 4],
-    };
-  });
-
-  return {
-    level,
-    delayMin:   segments.reduce((s, x) => s + x.delayMin, 0),
-    updatedAt:  Date.now(),
-    segments,
-    tileEnabled: !!_state.tileLayerUrl,
-    source:     'estimated',
+    road,
+    incidents,
   };
 }
 
@@ -290,10 +230,12 @@ function buildEstimatedSummary(lat?: number): TrafficSummary {
 
 const INITIAL: TrafficState = {
   summary:      null,
-  tileLayerUrl: '',
+  // TomTom anahtarı varsa resmî akış katmanı (yollar trafiğe göre renklenir).
+  tileLayerUrl: TOMTOM_KEY ? flowTileUrl(TOMTOM_KEY) : '',
   showLayer:    false,
   loading:      false,
   error:        null,
+  unavailable:  null,
 };
 
 let _state: TrafficState = { ...INITIAL };
@@ -310,50 +252,127 @@ function push(partial: Partial<TrafficState>): void {
 /* ── Fetch + fallback ────────────────────────────────────── */
 
 async function loadTraffic(lat?: number, lng?: number): Promise<void> {
+  if (!HERE_KEY && !TOMTOM_KEY) { push({ loading: false, summary: null, unavailable: 'no_key' }); return; }
+  if (lat == null || lng == null) { push({ loading: false, summary: null, unavailable: 'no_location' }); return; }
   push({ loading: true, error: null });
 
   // NAV-4: RESMİ OLAYLAR (kaza/yol kapama) — flow'dan BAĞIMSIZ, best-effort. Hazard motoruna
   // enjekte edilir (banner + NAV-3 sesli). Flow başarısız olsa bile olaylar çekilir. Fire-forget.
-  if (HERE_KEY && lat != null && lng != null) {
+  if (HERE_KEY) {
     fetchHereIncidents(lat, lng).catch((e) => console.warn('[Traffic] HERE incidents başarısız:', e));
   }
 
-  // 1. HERE
-  if (HERE_KEY && lat != null && lng != null) {
-    try {
-      const summary = await fetchHereTraffic(lat, lng);
-      push({ loading: false, summary, error: null });
-      return;
-    } catch (e) {
-      console.warn('[Traffic] HERE başarısız:', e);
-    }
-  }
-
-  // 2. TomTom
-  if (TOMTOM_KEY && lat != null && lng != null) {
+  // 1. TomTom (akış + olaylar + katman — en zengin görünüm)
+  if (TOMTOM_KEY) {
     try {
       const summary = await fetchTomTomTraffic(lat, lng);
-      push({ loading: false, summary, error: null });
+      push({ loading: false, summary, error: null, unavailable: null });
       return;
     } catch (e) {
       console.warn('[Traffic] TomTom başarısız:', e);
     }
   }
 
-  // 3. Saat bazlı tahmin
-  push({ loading: false, summary: buildEstimatedSummary(lat), error: null });
+  // 2. HERE
+  if (HERE_KEY) {
+    try {
+      const summary = await fetchHereTraffic(lat, lng);
+      push({ loading: false, summary, error: null, unavailable: null });
+      return;
+    } catch (e) {
+      console.warn('[Traffic] HERE başarısız:', e);
+    }
+  }
+
+  // Veri alınamadı — eski özet SAKLANMAZ (bayat trafik "güncel" gösterilmez).
+  push({ loading: false, summary: null, error: 'Trafik verisi alınamadı', unavailable: 'fetch_failed' });
 }
 
-/* ── Refresh döngüsü ─────────────────────────────────────── */
+/* ── Talep güdümlü yenileme (maliyet + hata düzeltmesi, 2026-09-24) ──────────
+ *
+ * ESKİDEN: servis uygulama açık olduğu SÜRECE çalışıyordu (head unit'te = araç
+ * çalıştığı sürece) ve konum her değiştiğinde, veri 60 sn'den eskiyse yeniden
+ * çekiyordu → sürüşte dakikada 2 TomTom isteği; tek kullanıcı ayda ~2.700 olay
+ * isteği yapıp TomTom'un aylık ücretsiz hakkını (2.500) TEK BAŞINA aşıyordu.
+ * Daha kötüsü: veri alınamazsa (`summary` null) "eski mi?" kontrolü hep EVET
+ * diyordu → internet yokken / 403'te / kota bitince HER GPS tick'inde (≈1 Hz)
+ * yeni istek atılıyordu.
+ *
+ * ŞİMDİ:
+ *  · Veri YALNIZ trafik paneli açıkken çekilir (`acquireTrafficDemand`) — trafik
+ *    verisinin tek tüketicisi odur; navigasyon trafiği TomTom rotasından alır.
+ *  · İki başarılı çekim arası en az `TRAFFIC_REFRESH_MS`.
+ *  · Hata sonrası bekleme katlanır: 1 → 2 → 4 → 8 → 15 dk (tavan).
+ *  · Aynı anda tek istek.
+ *  · HERE resmî olayları (tehlike motoru) — yalnız HERE anahtarı varsa — panel
+ *    kapalıyken de aynı aralık/geri çekilme kurallarıyla sürer (güvenlik verisi).
+ */
+export const TRAFFIC_REFRESH_MS = 3 * 60_000;
+export const TRAFFIC_BACKOFF_BASE_MS = 60_000;
+export const TRAFFIC_BACKOFF_MAX_MS = 15 * 60_000;
+
+let _demand = 0;
+let _inFlight = false;
+let _lastAttemptAt = -Infinity;
+let _failCount = 0;
+
+/** Bir sonraki çekime kadar gereken bekleme (ms). */
+export function trafficNextDelayMs(failCount: number): number {
+  if (failCount <= 0) return TRAFFIC_REFRESH_MS;
+  return Math.min(TRAFFIC_BACKOFF_MAX_MS, TRAFFIC_BACKOFF_BASE_MS * 2 ** (failCount - 1));
+}
+
+function _now(): number { return Date.now(); }
+
+function _due(): boolean {
+  return _now() - _lastAttemptAt >= trafficNextDelayMs(_failCount);
+}
+
+async function _runLoad(): Promise<void> {
+  if (_inFlight) return;
+  const wantsPanel = _demand > 0;
+  if (!wantsPanel) {
+    // Panel kapalı: yalnız HERE güvenlik olayları (varsa); TomTom ÇAĞRILMAZ.
+    if (!HERE_KEY || _currentLat == null || _currentLng == null) return;
+    _inFlight = true;
+    _lastAttemptAt = _now();
+    try { await fetchHereIncidents(_currentLat, _currentLng); _failCount = 0; }
+    catch { _failCount++; }
+    finally { _inFlight = false; }
+    return;
+  }
+  _inFlight = true;
+  _lastAttemptAt = _now();
+  try {
+    await loadTraffic(_currentLat, _currentLng);
+    if (_state.summary && _state.unavailable === null) _failCount = 0;
+    else if (_state.unavailable === 'fetch_failed') _failCount++;
+  } catch {
+    _failCount++;
+  } finally {
+    _inFlight = false;
+  }
+}
+
+function _maybeLoad(): void {
+  if (!HERE_KEY && !TOMTOM_KEY) return;
+  if (!_due()) return;
+  void _runLoad();
+}
 
 function scheduleRefresh(): void {
   if (_refreshTimer) clearTimeout(_refreshTimer);
-  // Gerçek API varsa 5 dk, tahmin ise 10 dk
-  const hasApi = !!(HERE_KEY || TOMTOM_KEY);
+  _refreshTimer = null;
+  // Anahtar yoksa yenileme döngüsü KURULMAZ (üretilecek veri yok).
+  if (!HERE_KEY && !TOMTOM_KEY) return;
+  // Panel kapalı ve HERE yok → zamanlayıcı da yok (boşuna uyanma).
+  if (_demand === 0 && !HERE_KEY) return;
+  const wait = Math.max(1_000, trafficNextDelayMs(_failCount) - (_now() - _lastAttemptAt));
   _refreshTimer = setTimeout(() => {
-    loadTraffic(_currentLat, _currentLng).catch(() => {});
+    _refreshTimer = null;
+    _maybeLoad();
     scheduleRefresh();
-  }, hasApi ? 5 * 60_000 : 10 * 60_000);
+  }, wait);
 }
 
 /* ── Public API ──────────────────────────────────────────── */
@@ -361,16 +380,45 @@ function scheduleRefresh(): void {
 export function startTrafficService(lat?: number, lng?: number): void {
   _currentLat = lat;
   _currentLng = lng;
-  loadTraffic(lat, lng).catch(() => {});
+  // Anahtar yoksa neden kartı hemen hazır olsun (istek YOK).
+  if (!HERE_KEY && !TOMTOM_KEY) { push({ loading: false, summary: null, unavailable: 'no_key' }); return; }
   scheduleRefresh();
 }
 
 export function updateTrafficLocation(lat: number, lng?: number): void {
   _currentLat = lat;
   if (lng != null) _currentLng = lng;
-  if (_state.summary && Date.now() - _state.summary.updatedAt > 60_000) {
-    loadTraffic(lat, _currentLng).catch(() => {});
+  // Konum değişimi TEK BAŞINA istek tetiklemez; yalnız talep varsa ve süre dolduysa.
+  if (_demand > 0) _maybeLoad();
+}
+
+/**
+ * Trafik paneli görünürken çağrılır; dönen fonksiyon talebi bırakır.
+ * Açılışta veri yoksa ya da süre dolduysa hemen çekilir.
+ */
+export function acquireTrafficDemand(): () => void {
+  _demand++;
+  if (_demand === 1) {
+    // Panel açıldı: eski veri 'canlı' sayılmaz → süre dolduysa hemen yenile.
+    _maybeLoad();
+    scheduleRefresh();
   }
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    _demand = Math.max(0, _demand - 1);
+    if (_demand === 0) scheduleRefresh();   // HERE yoksa zamanlayıcı durur
+  };
+}
+
+/** @internal testler için. */
+export function _resetTrafficForTest(): void {
+  if (_refreshTimer) clearTimeout(_refreshTimer);
+  _refreshTimer = null;
+  _demand = 0; _inFlight = false; _lastAttemptAt = -Infinity; _failCount = 0;
+  _currentLat = undefined; _currentLng = undefined;
+  _state = { ...INITIAL };
 }
 
 export function setTrafficTileUrl(url: string): void {
@@ -392,11 +440,12 @@ export function stopTrafficService(): void {
   if (_refreshTimer) { clearTimeout(_refreshTimer); _refreshTimer = null; }
 }
 
+/** Google Maps / TomTom relative renkleriyle uyumlu (yeşil → turuncu → kırmızı → koyu kırmızı). */
 export const TRAFFIC_COLORS: Record<TrafficLevel, string> = {
-  free:       '#22c55e',
-  moderate:   '#f59e0b',
-  heavy:      '#ef4444',
-  standstill: '#7c3aed',
+  free:       '#34A853',
+  moderate:   '#F9A825',
+  heavy:      '#E53935',
+  standstill: '#8E1B1B',
 };
 
 export const TRAFFIC_LABELS: Record<TrafficLevel, string> = {

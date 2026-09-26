@@ -164,13 +164,22 @@ export interface KwpRawSnapshot {
   readonly addressingProbes?: readonly KwpAddressingProbeRawRow[] | null;
 }
 
+/**
+ * Bağlantı kurma türünün KISA etiketi (SAF). Bilinmeyen tür UYDURULMAZ —
+ * ham değer aynen gösterilir (yeni bir tür eklendiğinde LAB satırı sessizce
+ * yanlış etiket basmaz).
+ */
+function _initLabel(kind: string): string {
+  return kind === 'FAST' ? 'ATFI' : kind === 'SLOW' ? 'ATSI' : kind;
+}
+
 /** `kwpAddressingProbe.getKwpAddressingProbes()` satırının YAPISAL izdüşümü. */
 export interface KwpAddressingProbeRawRow {
   readonly rx: string;
   readonly header: string;
   readonly variantId: string;
   readonly physical: boolean;
-  /** Satır K-line başlatma yaptı mı ('FAST'/'SLOW'); yapmadıysa null. */
+  /** Satır bağlantı kurma yaptı mı ('FAST'/'SLOW'/'SC81'); yapmadıysa null. */
   readonly initFirst: string | null;
   /** Başlatma komutunun HAM yanıtı; yoksa null (gerekçesiz düşüş YASAK). */
   readonly initRaw: string | null;
@@ -670,7 +679,7 @@ function _addressingSection(s: KwpRawSnapshot): KwpSection {
   }, answered.length > 0
       ? `VAR — ${answered[0]!.header}`
         + (answered[0]!.initFirst !== null
-            ? ` (${answered[0]!.initFirst === 'FAST' ? 'ATFI' : 'ATSI'} BAŞLATMA GEREKTİ)` : '')
+            ? ` (${_initLabel(answered[0]!.initFirst)} BAŞLATMA GEREKTİ)` : '')
       : 'YOK'));
 
   f.push(control === null
@@ -686,7 +695,7 @@ function _addressingSection(s: KwpRawSnapshot): KwpSection {
     f.push(observed({
       id: `addressingRow:${r.variantId}`,
       label: `${r.physical ? 'fiziksel' : 'KONTROL'} · ${r.header}`
-           + `${r.initFirst !== null ? ` + ${r.initFirst === 'FAST' ? 'ATFI' : 'ATSI'}` : ''}`
+           + `${r.initFirst !== null ? ` + ${_initLabel(r.initFirst)}` : ''}`
            + ` + ${r.request ?? '—'}`,
       source: SRC,
       note: 'ISO 14230-2: format baytının alt 6 biti VERİ UZUNLUĞUDUR. Satırlar tam '

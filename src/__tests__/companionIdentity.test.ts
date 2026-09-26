@@ -282,7 +282,7 @@ describe('useStore — companion ayarları', () => {
     expect(raw).toBeTruthy();
     const parsed = JSON.parse(raw!) as { state: { settings: Record<string, unknown> }; version: number };
     expect(parsed.state.settings.companionAssistantName).toBe('Bulut');
-    expect(parsed.version).toBe(16);
+    expect(parsed.version).toBe(18);   // v18: ilk kurulum sihirbazı (mevcut kullanıcı kurmuş sayılır)
   });
 
   it('companion alanı güncellemesi diğer ayarları bozmaz', () => {
@@ -361,14 +361,28 @@ describe('resolveCompanionIdentity — Driver DNA enjeksiyonu', () => {
   });
 });
 
-/* Gerçek veri kaynağı sözleşmesi: tripLogService sert manevrayı YÖNE göre ayırmalı
-   (Driver DNA'nın hardBrake/rapidAccel girdisi buradan gelir — uydurma sayaç YOK). */
+/* Gerçek veri kaynağı sözleşmesi: sert manevranın YÖNE göre ayrıştırılmasının
+   TEK sahibi kanonik akümülatördür (Driver DNA'nın hardBrake/rapidAccel girdisi
+   ORADAN gelir — ikinci bir sayaç, ikinci bir gerçek demekti). */
 describe('tripLogService — Driver DNA sayaç kaynağı (kaynak sözleşmesi)', () => {
-  it('sert manevra fren/gaz olarak ayrıştırılır ve toplam sayaç korunur', () => {
+  it('yönlü sayım tripLogService içinde TEKRARLANMAZ, toplam sayaç korunur', () => {
     const src = readFileSync(
       join(process.cwd(), 'src', 'platform', 'tripLogService.ts'), 'utf-8');
-    expect(src).toContain('harshBrakeEvents');
-    expect(src).toContain('harshAccelEvents');
+    /* Duplicate GPS-only sayaçlar KALDIRILDI (canlı ekran ile mühürlenen
+       kayıt farklı sayı gösteriyordu). */
+    expect(src).not.toContain('_active.harshBrakeEvents');
+    expect(src).not.toContain('_active.harshAccelEvents');
     expect(src).toContain('_active.harshEvents += 1'); // TOPLAM sayaç KALDIRILMADI
+    /* Kapanışta mühürlenen sayaç kanonik akümülatörden okunur. */
+    expect(src).toContain('harshBrakeCount: acc.harshBrakeCount');
+    expect(src).toContain('harshAccelCount: acc.harshAccelCount');
+  });
+
+  it('Driver DNA stil okuması KANONİK akümülatör sayacından gelir', () => {
+    const src = readFileSync(
+      join(process.cwd(), 'src', 'platform', 'companion', 'companionChatProvider.ts'),
+      'utf-8');
+    expect(src).toContain('trip.metrics.harshBrakeCount');
+    expect(src).toContain('trip.metrics.harshAccelCount');
   });
 });

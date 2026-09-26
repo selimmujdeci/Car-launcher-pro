@@ -57,6 +57,8 @@ export type PaintedArrowVerdict =
       readonly ring: readonly (readonly [number, number])[];
       /** Dönüş yönü — boyama rengi/asimetrisi için, KARAR için değil. */
       readonly turn: 'left' | 'right' | 'straight';
+      /** Gövdenin manevradan geriye uzunluğu (m) — araca yaklaştıkça KISALIR. */
+      readonly approachM: number;
     };
 
 export interface PaintedArrowInput {
@@ -69,13 +71,15 @@ export interface PaintedArrowInput {
   readonly distanceToManeuverM: number | null;
   readonly maneuverType: string;
   readonly maneuverModifier: string;
+  /** Araç hızı (m/s) — gövdenin araç işaretine girmemesi için; null = bilinmiyor. */
+  readonly speedMps?: number | null;
 }
 
 /* ── Politika sabitleri ─────────────────────────────────────────────────────
    Değerler tek yerdedir ve kilitlidir; sahada ayar gerekirse burada değişir. */
 
 /** Politika sürümü — herhangi bir eşik değişince yükselir, LAB'da görünür. */
-export const PAINTED_ARROW_POLICY_VERSION = 'PA-2026.08.08' as const;
+export const PAINTED_ARROW_POLICY_VERSION = 'PA-2026.09.24' as const;
 
 /** Bu mesafenin ötesinde ok çizilmez — erken çizim yanlış kavşağı işaretler. */
 export const ARROW_SHOW_MAX_M = 140;
@@ -83,6 +87,20 @@ export const ARROW_SHOW_MAX_M = 140;
 export const ARROW_HIDE_MIN_M = 15;
 /** Gövde manevra noktasından geriye bu kadar uzanır. */
 export const ARROW_APPROACH_M = 32;
+/* ── ARAÇ İŞARETİ BOŞLUĞU (saha 2026-09-24, telefon) ─────────────────────────
+   Gövde her zaman 32 m geriye uzanıyordu; dönüşe 32 m'den az kalınca kuyruk
+   aracın ARKASINA düşüp ok aracın üstünden geçiyordu. Üstelik ok yalnız GPS
+   fix'inde (1 Hz) güncellenir, araç işareti ise fix'ler arasında rota boyunca
+   ileri KAYAR (routeGlideModel). Gövde, işaretin bir fix aralığında
+   varabileceği yerin ÖNÜNDE biter. */
+/** İşaretin yol boyu yarıçapı + pay (m). */
+export const ARROW_VEHICLE_CLEAR_M = 6;
+/** Bir fix aralığında işaretin ileri kayabileceği süre (s). */
+export const ARROW_GLIDE_LEAD_S = 1.0;
+/** Hız bilinmiyorsa temkinli varsayım (m/s ≈ 50 km/sa). */
+export const ARROW_UNKNOWN_SPEED_MPS = 14;
+/** Gövde bundan kısa kalacaksa ok çizilmez (yalnız baş, anlamsız leke). */
+export const ARROW_MIN_APPROACH_M = 5;
 /** Ok ucu manevra noktasından ileriye bu kadar uzanır. */
 export const ARROW_EXIT_M = 22;
 /** Gövde genişliği (şerit hissi). */
@@ -205,15 +223,21 @@ export function buildPaintedArrow(input: PaintedArrowInput): PaintedArrowVerdict
   if (dist > ARROW_SHOW_MAX_M) return { visible: false, reason: 'TOO_FAR' };
   if (dist < ARROW_HIDE_MIN_M) return { visible: false, reason: 'TOO_CLOSE' };
 
+  /* Gövde aracın ÖNÜNDE biter: kalan mesafeden işaret boşluğu düşülür. */
+  const v = input.speedMps;
+  const speed = v !== null && v !== undefined && Number.isFinite(v) && v >= 0 ? v : ARROW_UNKNOWN_SPEED_MPS;
+  const approachM = Math.min(ARROW_APPROACH_M, dist - ARROW_VEHICLE_CLEAR_M - speed * ARROW_GLIDE_LEAD_S);
+  if (approachM < ARROW_MIN_APPROACH_M) return { visible: false, reason: 'TOO_CLOSE' };
+
   const anchor = geom[idx]!;
   const latRef = anchor[1];
 
   // Yaklaşım kolu (geriye) ve çıkış kolu (ileriye) — ikisi de YOL ÜZERİNDE.
-  const back = walk(geom, idx, ARROW_APPROACH_M, -1, latRef);
+  const back = walk(geom, idx, approachM, -1, latRef);
   const fwd  = walk(geom, idx, ARROW_EXIT_M, 1, latRef);
 
   // Her iki kol da anlamlı uzunlukta olmalı; yoksa ok bir yöne işaret etmez.
-  if (back.walked < ARROW_APPROACH_M * 0.45 || fwd.walked < ARROW_HEAD_LEN_M) {
+  if (back.walked < approachM * 0.45 || fwd.walked < ARROW_HEAD_LEN_M) {
     return { visible: false, reason: 'GEOMETRY_TOO_SHORT' };
   }
 
@@ -272,5 +296,5 @@ export function buildPaintedArrow(input: PaintedArrowInput): PaintedArrowVerdict
   // GeoJSON dış halkası kapalı olmalı.
   ring.push(ring[0]!);
 
-  return { visible: true, reason: 'SHOWN', ring, turn };
+  return { visible: true, reason: 'SHOWN', ring, turn, approachM };
 }

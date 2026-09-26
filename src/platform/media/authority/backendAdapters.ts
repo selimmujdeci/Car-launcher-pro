@@ -111,10 +111,24 @@ export function createNativeAuthorityAdapter(sourceClass: SourceClass): BackendA
 
 /* ── 2) YouTube IFrame ───────────────────────────────────────────────────── */
 
-/** `piped:` şeması ile taşınan video kimliğini çözer. */
+/**
+ * `piped://<id>` şeması ile taşınan video kimliğini çözer.
+ *
+ * ⚠️ SAHA KUSURU 2026-09-05 (gerçek cihaz, CDP ile canlı ölçüldü): eski hâli
+ * yalnız İLK `:`ye kadar kesiyordu — `piped://Vektq96zp00` için `slice(idx+1)`
+ * `//Vektq96zp00` döndürüyordu (şemanın `//`si videoId'in İÇİNE sızıyordu).
+ * Sonuç canlıda gözlendi: `resolvePipedStream` her istekte
+ * `.../streams///Vektq96zp00` (üçlü slash) üretiyordu. IFrame'in
+ * `loadVideoById` çağrısı bu kirli kimliği tolere edip yine de gerçek videoyu
+ * yüklüyordu (asıl "gömme kapalı" hatası ayrı ve gerçekti), ama ses yedeği
+ * (`_tryAudioFallback`) için kritikti: kirli id ile hiçbir piped/invidious
+ * instance'ı doğru kaynağı bulamazdı.
+ * Düzeltme: `:`den sonra kalan TÜM baştaki `/` karakterleri de atılır —
+ * `piped:`, `piped:/`, `piped://` şemalarının hepsini doğru çözer. */
 function extractVideoId(uri: string): string {
   const idx = uri.indexOf(':');
-  return idx >= 0 ? uri.slice(idx + 1) : uri;
+  const rest = idx >= 0 ? uri.slice(idx + 1) : uri;
+  return rest.replace(/^\/+/, '');
 }
 
 /**

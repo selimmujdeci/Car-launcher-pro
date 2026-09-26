@@ -24,7 +24,11 @@ on:
     # dosyadan okunur — yani CI kapısı main'e girmeden, kendi dalında kanıtlanabilir.
     # Bu olmadan yeni bir job'ın gerçekten koştuğu ancak main'e/dev'e girdikten SONRA
     # görülürdü: kapının kendisi kapıdan geçmeden yayına alınırdı.
-    branches: [main, dev, 'ci/**']
+    # `feat/**` (2026-09-25): özellik dalı PR #109'dan sonra 12 gün / 215 commit
+    # HİÇ CI görmedi — silinmiş güvenlik kapısı, eskimiş testler ve sızan API
+    # anahtarı ancak yeni PR açılınca ortaya çıktı. Açık PR varken iş iki kez
+    # koşabilir (push + pull_request); kör kalmaktan ucuzdur.
+    branches: [main, dev, 'ci/**', 'feat/**']
   pull_request:
     branches: [main, dev]
 

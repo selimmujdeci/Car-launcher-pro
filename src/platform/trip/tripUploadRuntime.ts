@@ -21,6 +21,7 @@
 
 import { onTripState, getTripSnapshot, type TripRecord } from '../tripLogService';
 import { callVehicleRpc } from '../vehicleIdentityService';
+import { allowsConnectivity } from '../connectivity/connectivityGate';
 import { safeGetRaw, safeSetRaw } from '../../utils/safeStorage';
 import {
   TripUploadCoordinator,
@@ -192,7 +193,8 @@ class TripUploadRuntime {
     if (rec === null) return;
     if (rec.startArea !== null && rec.endArea !== null) return;
     if (rec.startLocation === null && rec.endLocation === null) return;
-    if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+    /* F7-B: kullanıcı beklemiyor → arka plan senkronu. */
+    if (!allowsConnectivity('BACKGROUND_SYNC')) return;
 
     const { reverseGeocodeParts } = await import('../geocodingService');
 
@@ -335,6 +337,15 @@ class TripUploadRuntime {
     put('speedViolation', s.metrics.speedViolations);
     put('harshBrake', s.metrics.harshBrakeCount);
     put('harshAccel', s.metrics.harshAccelCount);
+    /* ── F3.1 · YÜZDE PROVENANCE'I NEDEN BURADA YOK ────────────────────
+       `p_sources.fuel` LİTREYİ anlatır ve depo kapasitesi bilinmediğinde
+       `ESTIMATED` olur. Yüzde için AYRI bir provenance alanı eklemek ilk
+       bakışta gerekli görünür — ama gerekli DEĞİLDİR ve eklenmedi:
+       `tripLogService` `fuelUsedPercent`i YALNIZ `verdict.measured` dalında
+       yazar, yani sunucudaki `fuel_used_percent` alanının DOLU OLMASI
+       zaten "araçtan ölçüldü" demektir. Alanın varlığı provenance'ın
+       kendisidir; ikinci bir kolon aynı gerçeği ikinci kez saklardı.
+       Bu invariant `tripFuelEvidenceF31` testlerinde kilitlidir. */
     return out;
   }
 

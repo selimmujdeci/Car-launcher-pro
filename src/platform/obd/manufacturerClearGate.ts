@@ -132,7 +132,11 @@ export function evaluateManufacturerClearGate(
   const deny: ManufacturerClearDenyReason[] = [];
 
   const tx = (t.txHeader ?? '').replace(/[^0-9A-Fa-f]/g, '').toUpperCase();
-  if (tx.length < 6) deny.push('NO_TARGET');
+  /* Geçerli fiziksel başlık: 3 hane (11-bit CAN, ör. 7E1) · 6 (KWP) · 8 (29-bit).
+     Eski `< 6` kuralı 11-bit CAN ECU'larını HİÇ hedef saymıyordu. Fonksiyonel
+     yayın (7DF / 18DB…) bir ECU değildir — silme TÜM ECU'lara giderdi. */
+  const functional = tx === '7DF' || (tx.length === 8 && tx.startsWith('18DB'));
+  if (![3, 6, 8].includes(tx.length) || functional) deny.push('NO_TARGET');
   if (t.addressability !== 'PROVEN') deny.push('ADDRESS_NOT_PROVEN');
   if (!MANUFACTURER_SOURCES.has(t.sourceService)) deny.push('UNSUPPORTED_SOURCE');
   if (!(t.observedCodeCount > 0)) deny.push('NO_OBSERVED_CODE');

@@ -51,6 +51,7 @@
 import { create } from 'zustand';
 
 import { runtimeManager, type ScheduledTask } from '../core/runtime/AdaptiveRuntimeManager';
+import { observedInternetReachability } from '../platform/connectivity/connectivityGate';
 import { RuntimeMode } from '../core/runtime/runtimeTypes';
 import { getDeviceTier, type DeviceTier } from '../platform/deviceCapabilities';
 
@@ -609,7 +610,7 @@ export function readLiveSources(now: number, coldRefreshMs: number): AssistantCo
   // ── Ağ ──
   try {
     out.network = {
-      online: typeof navigator !== 'undefined' ? navigator.onLine !== false : undefined,
+      online: observedInternetReachability() ?? undefined,
       ...readConnectionType(),
     };
   } catch { /* navigator yok (SSR/test) */ }

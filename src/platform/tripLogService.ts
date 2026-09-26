@@ -12,11 +12,11 @@
 
 import { useState, useEffect } from 'react';
 import { onOBDData }       from './obdService';
-import { DEFAULT_FUEL_L_PER_100KM } from './vehicleAssumptions';
+
 import { onGPSLocation }   from './gpsService';
 import type { GPSLocation } from './gpsService';
 import type { OBDData }    from './obdTypes';
-import { safeSetRaw, safeGetRaw } from '../utils/safeStorage';
+import { safeSetRaw, safeGetRaw, isSafeStorageHydrated } from '../utils/safeStorage';
 /* ARCH-05 — yıkıcı depolama işlemi `STORAGE_ADMIN` yetkisi ister. Normal ayar
    yazımı bu yetkiyi ASLA vermez (`SETTINGS_WRITE` ≠ `STORAGE_ADMIN`). */
 import { authorizeStorageAdmin } from './security/enforcement';
@@ -43,7 +43,11 @@ import {
 import {
   beginJournal, finalizeJournal, recordJournalFix,
   recordJournalStopState, recordJournalEvent, recoverOpenJournal,
+  listJournalIds, readJournal,
 } from './trip/tripJournalStore';
+import { rebuildTripSummary } from './trip/tripRecordRecovery';
+import { averageSpeedKmh } from './trip/core/averageSpeed';
+import { randomToken } from '../utils/randomId';
 
 /* ── Types ───────────────────────────────────────────────── */
 
@@ -55,8 +59,23 @@ export interface TripRecord {
   durationMin:      number;
   avgSpeedKmh:      number;
   maxSpeedKmh:      number;
-  fuelConsumptionL: number;
-  fuelCostTL:       number;
+  /**
+   * Yolculukta harcanan yakıt (L).
+   *
+   * ── F3.2 · ARTIK `null` OLABİLİR ─────────────────────────────────────
+   * ÖLÇÜLEN KUSUR (production, 2026-09-18): 157 yolculuğun **157'si**
+   * `round(distanceKm/100 × 8.5, 1)` formülüne BİREBİR uyuyordu ve
+   * **99'unda değer `0`** idi. Yani "ne kadar yaktığını bilmiyoruz" bilgisi
+   * veritabanına *uydurulmuş bir sayı* olarak, üstelik çoğunlukla **sahte
+   * sıfır** olarak yazılıyordu. Bugün arayüz bunu ölçüm gibi göstermiyor,
+   * ama KALICI veri yanlıştı: menzil · maliyet · analitik · özet gibi
+   * gelecekteki her tüketici onu gerçek ölçüm sanabilirdi.
+   *
+   * `null` = BİLİNMİYOR. `0` yalnız gerçekten ölçülmüş sıfır olabilir.
+   */
+  fuelConsumptionL: number | null;
+  /** Yolculuk maliyeti (₺). Litre bilinmiyorsa `null` — uydurma maliyet YOK. */
+  fuelCostTL:       number | null;
   drivingScore:     number;
   harshEvents:      number;
 
@@ -138,12 +157,13 @@ interface ActiveTrip {
   lastPerfMs:  number;   // monotonic — for OBD fallback distance calc
   lastSpeed:   number;   // for harsh-event detection
   harshEvents: number;
-  /* Driver DNA (canlı, RAM): sert manevra sayacı YÖNE göre ayrıştırılır.
-     `harshEvents` TOPLAM olarak korunur (drivingScore/TripRecord sözleşmesi
-     DEĞİŞMEZ); aşağıdaki iki alan yalnız aktif yolculukta yaşar ve KALICI
-     TripRecord'a YAZILMAZ — geçmiş kayıt biçimi bozulmasın. */
-  harshBrakeEvents: number;   // hız ani DÜŞTÜ  (sert fren)
-  harshAccelEvents: number;   // hız ani ARTTI  (ani hızlanma)
+  /* YÖNE GÖRE AYRIŞTIRMA BURADA DEĞİL: sert fren / ani hızlanma sayımının
+     TEK kanonik sahibi `metrics` (= `tripMetricsAccumulator`) alanıdır.
+     Burada ayrı `harshBrakeEvents`/`harshAccelEvents` tutulurdu; o sayaçlar
+     yalnız GPS yolundan besleniyor, debounce ve kaynak-süreklilik kapılarını
+     uygulamıyordu — canlı ekranla mühürlenen kayıt farklı sayı gösteriyordu.
+     `harshEvents` TOPLAM sayacı drivingScore/TripRecord sözleşmesi için
+     OLDUĞU GİBİ korunur. */
   // GPS primary distance tracking
   lastGPSLat:  number | null;
   lastGPSLng:  number | null;
@@ -218,8 +238,12 @@ export const TRIP_DISCARD_MIN_DISTANCE_KM  = 0.1;
  * KAYBETTİK — bunu "düzgün kapanış" saymak sahte güven üretirdi.
  */
 const TRIP_SILENCE_END_MS  = 15 * 60_000;
-const FUEL_L_PER_100KM     = DEFAULT_FUEL_L_PER_100KM;  // E-05: tek otorite
-const FUEL_PRICE_TL_PER_L  = 45;
+/* F3.2: `FUEL_L_PER_100KM` ve `FUEL_PRICE_TL_PER_L` sabitleri BU DOSYADAN
+   KALDIRILDI. İkisi de yolculuk kaydına uydurma litre/tutar yazmak için
+   kullanılıyordu; artık kanıt yoksa alan `null` kalıyor. Varsayım otoritesi
+   (`vehicleAssumptions`) yerinde durur ve rota ÖNCESİ tahmin için
+   (`routingService.computeFuelEstimate`) kullanılmaya devam eder — orası
+   bir tahmin yüzeyidir ve öyle etiketlenir; burası ÖLÇÜM kaydıdır. */
 
 // GPS mesafe filtreleri
 const GPS_MIN_ACCURACY_M   = 50;   // 50m'den kötü fix mesafeye eklenmez
@@ -247,7 +271,7 @@ function generateTripId(): string {
     return `trip-${crypto.randomUUID()}`;
   }
   _tripSeq += 1;
-  return `trip-${Math.floor(_tripSeq)}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  return `trip-${Math.floor(_tripSeq)}-${Date.now()}-${randomToken(5)}`;
 }
 
 /* ── Persistence ─────────────────────────────────────────── */
@@ -262,12 +286,23 @@ function _load(): TripRecord[] {
 }
 
 function _save(records: TripRecord[]): void {
+  /* Geçmiş diskten okunmadan YAZILMAZ: okunmamış geçmiş "boş" değil
+     "bilinmiyor"dur; üstüne yazmak eski yolculukları kalıcı siliyordu. */
+  if (!_historyLoaded) return;
   safeSetRaw(STORAGE_KEY, JSON.stringify(records.slice(0, MAX_STORED_TRIPS)));
 }
 
 /* ── Module state ────────────────────────────────────────── */
 
-const _history = _load();
+/* SAHA 2026-09-25 ("seyir defteri kayıt tutuyor, bir süre sonra kendi kendine
+ * siliyor"): bu modül `App`'in statik içe aktarma zincirinde → `main.tsx`'teki
+ * `initSafeStorageAsync()` BEKLENMEDEN değerlendiriliyordu. Native'de bu anahtar
+ * yalnız dosyada durur (kritik değil → localStorage yedeği yok) ve önbellek
+ * boşken okuma `[]` döndü; her açılışta geçmiş boş göründü, ilk biten yolculuk
+ * da dosyanın ÜSTÜNE yazıldı. Artık geçmiş depo hazır olunca yüklenir
+ * (`_ensureHistoryLoaded`), o ana kadar diske yazılmaz. */
+let _historyLoaded = isSafeStorageHydrated();
+const _history = _historyLoaded ? _load() : [];
 
 function _sumDistance(records: TripRecord[]): number {
   return Math.round(records.reduce((s, r) => s + r.distanceKm, 0) * 10) / 10;
@@ -468,8 +503,6 @@ function _startTrip(speedKmh: number, fuelLevel: number, evidence: MotionEvidenc
     lastPerfMs:  perfNow,
     lastSpeed:   speedKmh,
     harshEvents: 0,
-    harshBrakeEvents: 0,
-    harshAccelEvents: 0,
     lastGPSLat:  null,
     lastGPSLng:  null,
     lastGPSTs:   null,
@@ -598,18 +631,22 @@ function _endTrip(reason: TripEndReason = 'UNKNOWN'): void {
         fuelL = litres;
         fuelSource = 'DERIVED';
       } else {
-        /* Depo kapasitesi yok/güvenilmez → litre ÜRETİLMEZ. Yüzde ölçümü
-           saklanır; litre alanı sabit varsayıma DÜŞER (ESTIMATED). */
-        fuelL = Math.round((distanceKm / 100) * FUEL_L_PER_100KM * 10) / 10;
-        fuelSource = 'ESTIMATED';
+        /* ── F3.2 · DEPO KAPASİTESİ YOKSA LİTRE ÜRETİLMEZ ──────────────
+           Eskiden burada `distanceKm/100 × 8.5` yazılıyordu. Bu bir ölçüm
+           DEĞİL, bir varsayımdı — ama kalıcı alana SAYI olarak giriyordu.
+           Yüzde ölçümü KORUNUR (aşağıda), litre `null` kalır. */
+        fuelL = null;
+        fuelSource = 'UNAVAILABLE';
         fuelRejectReason = 'NO_TANK_CAPACITY';
       }
       p2 = { ...p2, fuelUsedPercent: verdict.usedPercent };
     } else {
-      /* Ölçüm kapıları geçilmedi → mevcut 8,5 L/100km SABİTİ kullanılır ama
-         `ESTIMATED` etiketiyle; gerçek ölçüm gibi SUNULMAZ. */
-      fuelL = Math.round((distanceKm / 100) * FUEL_L_PER_100KM * 10) / 10;
-      fuelSource = 'ESTIMATED';
+      /* Ölçüm kapıları geçilmedi → LİTRE DE BİLİNMİYOR.
+         Eski davranış sabiti yazıp `ESTIMATED` etiketlemekti; etiket
+         doğruydu ama VERİ yanlıştı ve 157 satırın 99'unda sahte `0`
+         üretiyordu. Bilinmeyen sayıya çevrilmez. */
+      fuelL = null;
+      fuelSource = 'UNAVAILABLE';
       fuelRejectReason = verdict.reason;
     }
 
@@ -670,8 +707,11 @@ function _endTrip(reason: TripEndReason = 'UNKNOWN'): void {
     p2 = {};
   }
 
-  /* Eski sözleşme: P2 üretilemediyse sabit varsayım kullanılır (DEĞİŞMEDİ). */
-  const legacyFuelL = Math.round((distanceKm / 100) * FUEL_L_PER_100KM * 10) / 10;
+  /* ── F3.2 · ESKİ SABİT TABAN KALDIRILDI ────────────────────────────────
+     Burası P2 metrikleri üretilemediğinde devreye giren "eski sözleşme"
+     tabanıydı ve koşulsuz olarak `distanceKm/100 × 8.5` yazıyordu. P2 zaten
+     fail-soft; metrik üretimi düşerse doğru cevap "yakıt bilinmiyor"dur,
+     bir varsayımı ölçüm alanına yazmak değil. */
 
   const endedAtMs = Date.now();
 
@@ -682,10 +722,12 @@ function _endTrip(reason: TripEndReason = 'UNKNOWN'): void {
     endTime:          endedAtMs,
     distanceKm,
     durationMin,
-    avgSpeedKmh:      avgSpeed,
+    /* Gösterilen ortalama = yol / süre (puan hesabı örnek ortalamasıyla aynı kalır). */
+    avgSpeedKmh:      averageSpeedKmh(_active.distanceKm * 1000, durationMs, _active.speedCount > 0) ?? avgSpeed,
     maxSpeedKmh:      Math.round(_active.maxSpeedKmh),
-    fuelConsumptionL: legacyFuelL,
-    fuelCostTL:       Math.round(legacyFuelL * FUEL_PRICE_TL_PER_L),
+    /* Kanıt yoksa `null` — `...p2` gerçek değer ürettiyse onu EZER. */
+    fuelConsumptionL: null,
+    fuelCostTL:       null,
     drivingScore,
     harshEvents:      _active.harshEvents,
     ...p2,
@@ -705,6 +747,7 @@ function _endTrip(reason: TripEndReason = 'UNKNOWN'): void {
   _active = null;
   if (_liveClock) { clearInterval(_liveClock); _liveClock = null; }
 
+  _ensureHistoryLoaded();
   const newHistory = [record, ..._state.history];
   _save(newHistory);
 
@@ -818,8 +861,10 @@ function _onGPS(loc: GPSLocation | null): void {
     const speedDelta = speedKmh - _active.lastSpeed;
     if (Math.abs(speedDelta) > 15) {
       _active.harshEvents += 1;
-      if (speedDelta < 0) _active.harshBrakeEvents += 1;
-      else                _active.harshAccelEvents += 1;
+      /* YÖNLÜ SAYIM BURADA YAPILMAZ: fren/gaz ayrımının tek sahibi
+         `applySample` (yukarıda `_active.metrics`e verilir) — kayıt da
+         canlı ekran da O sayacı okur. İkinci bir sayaç, ikinci bir gerçek
+         demekti. */
       /* Defterde olay ZAMANI ve ŞİDDETİ durur; KONUM durmaz (§ olay
          koordinat taşımaz — rota izi ayrı ve yalnız yereldir). */
       recordJournalEvent(
@@ -924,7 +969,66 @@ function _onOBD(data: OBDData): void {
 let _gpsUnsub: (() => void) | null = null;
 let _obdUnsub: (() => void) | null = null;
 
+/**
+ * Geçmişi depo hazırsa bir kez yükler; bu arada bellekte biten yolculuklar
+ * korunur ve diskteki geçmişle birleştirilip (kimliğe göre tekilleştirilerek) kaydedilir.
+ */
+function _ensureHistoryLoaded(): void {
+  if (_historyLoaded || !isSafeStorageHydrated()) return;
+  _historyLoaded = true;
+  const disk = _load();
+  const inMemory = _state.history;
+  const ids = new Set(inMemory.map((t) => t.id));
+  const merged = [...inMemory, ...disk.filter((t) => !ids.has(t.id))];
+  if (inMemory.length > 0) _save(merged);
+  _setState({ history: merged, totalDistanceKm: _sumDistance(merged), totalTrips: merged.length });
+}
+
+let _recoveryDone = false;
+
+/** Geçmiş yüklendikten sonra kurtarmayı (bir kez) uygular. */
+function _runRecoveryOnce(): void {
+  if (_recoveryDone || !_historyLoaded) return;
+  _recoveryDone = true;
+  const recovered = _recoverFromJournalOnce(_state.history);
+  if (recovered.length === 0) return;
+  const merged = [..._state.history, ...recovered]
+    .sort((a, b) => b.startTime - a.startTime).slice(0, MAX_STORED_TRIPS);
+  _save(merged);
+  _setState({ history: merged, totalDistanceKm: _sumDistance(merged), totalTrips: merged.length });
+}
+
+/** Kurtarma bir kez çalışır — sonra kullanıcının sildiği yolculuk günlükten geri GELMEZ. */
+const RECOVERY_FLAG_KEY = 'car-launcher-trip-log-recovered-v1';
+
+/**
+ * SAHA 2026-09-25: silinmiş seyir defterini ham yolculuk günlüğünden (aynı
+ * `tripId`) geri kurar. Yalnız özeti OLMAYAN, kapanmış ve izi olan yolculuklar.
+ */
+function _recoverFromJournalOnce(existing: readonly TripRecord[]): TripRecord[] {
+  try {
+    if (safeGetRaw(RECOVERY_FLAG_KEY) === '1') return [];
+    const have = new Set(existing.map((t) => t.id));
+    const out: TripRecord[] = [];
+    for (const id of listJournalIds()) {
+      if (have.has(id) || id === _active?.tripId) continue;
+      const j = readJournal(id);
+      /* Canlı serviste ATILMIŞ yolculuk geri getirilmez (telefon smoke 2026-09-25:
+         park hâlinde GPS oynaması 0 km'lik 6 sahte yolculuk üretti); aynı eşikler. */
+      if (!j || j.endReason === 'DISCARDED_TOO_SHORT') continue;
+      const rec = rebuildTripSummary(j, _calcScore);
+      if (!rec || rec.durationMin < TRIP_DISCARD_MIN_DURATION_MIN
+        || rec.distanceKm < TRIP_DISCARD_MIN_DISTANCE_KM) continue;
+      out.push(rec);
+    }
+    safeSetRaw(RECOVERY_FLAG_KEY, '1');
+    return out;
+  } catch { return []; }
+}
+
 export function startTripLog(): void {
+  _ensureHistoryLoaded();
+  _runRecoveryOnce();
   if (_started) return;
   _started = true;
 
@@ -955,6 +1059,7 @@ export function stopTripLog(): void {
 }
 
 export function deleteTrip(id: string): void {
+  _ensureHistoryLoaded();
   const newHistory = _state.history.filter((t) => t.id !== id);
   _save(newHistory);
   _setState({
@@ -981,6 +1086,8 @@ export function clearAllTrips(principal: SecurityPrincipalClass = 'LOCAL_UI'): b
     operationId: `storage.trips.clear:${Date.now()}`,
   });
   if (!authz.allowed) return false;
+  _ensureHistoryLoaded();
+  if (!_historyLoaded) return false;   // geçmiş okunamadı → silindi iddiası yok
   _save([]);
   _setState({ history: [], totalDistanceKm: 0, totalTrips: 0 });
   return true;
@@ -1059,6 +1166,6 @@ export function getTripJournalGlance(): TripJournalGlance {
 
 export function useTripState(): TripState {
   const [s, setS] = useState<TripState>({ ..._state, history: [..._state.history], current: null });
-  useEffect(() => onTripState(setS), []);
+  useEffect(() => { const off = onTripState(setS); _ensureHistoryLoaded(); return off; }, []);
   return s;
 }

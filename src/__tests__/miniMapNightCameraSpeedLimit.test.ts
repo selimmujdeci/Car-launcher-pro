@@ -364,7 +364,9 @@ describe('C. Hız limiti — yalnız GERÇEK levha', () => {
 describe('C2. 🔒 Mini harita hız limiti bağlantısı (paylaşılan motor)', () => {
   it('🔒 kart YALNIZ gösterilebilir hükümde render edilir', () => {
     // Gizleme kararı paylaşılan kartın içindedir; kart hükmü aynen alır.
-    expect(miniMapSrc).toContain('<SpeedLimitCard limit={speedLimit} size="mini" />');
+    expect(miniMapSrc).toContain('<SpeedLimitCard limit={speedLimit} size="mini"');
+    // Aşımda levha kırmızı — büyük harita / kokpit ile AYNI kural (overspeedModel).
+    expect(miniMapSrc).toContain('isOverspeed(displaySpeedKmh, speedLimit.effectiveLimitKmh)');
     expect(code(speedCardSrc)).toContain('if (!isEffectiveLimitDisplayable(limit)) return null;');
   });
 
@@ -421,10 +423,10 @@ describe('D. Mini harita yerleşimi çakışmaz', () => {
   type Box = { name: string; top?: number; bottom?: number; left?: number; right?: number; w: number; h: number };
   const BOXES: Box[] = [
     { name: 'kaynak rozeti (MapOverlay)', top: 8,  right: 8, w: 76, h: 22 },
-    { name: 'hız limiti levhası',         top: 34, right: 8, w: 38, h: 38 },
-    { name: 'aracı ortala',               top: 8,  left: -1, w: 44, h: 44 },   // left:-1 = yatay ORTA
+    { name: 'hız limiti levhası',         top: 34, right: 8, w: 50, h: 68 },
+    { name: 'aracı ortala',               top: 8,  left: -1, w: 52, h: 52 },   // left:-1 = yatay ORTA
     { name: 'hız göstergesi (MapOverlay)', bottom: 8, right: 8, w: 96, h: 34 },
-    { name: 'nav şeridi',                 bottom: 8, left: 8,  w: 200, h: 62 },
+    { name: 'nav şeridi',                 bottom: 8, left: 8,  w: 240, h: 84 },
     { name: 'son konum rozeti',           top: 8,  left: 8,  w: 92, h: 22 },
   ];
 

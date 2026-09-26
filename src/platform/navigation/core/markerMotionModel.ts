@@ -88,8 +88,11 @@ export interface RenderedMotion {
 
 /** Bu süreden sonra konum bayat sayılır → işaret DONAR. */
 export const MOTION_STALE_MS = 5_000;
-/** Ekstrapolasyon için izin verilen azami süre (ms) — zombi hareket önlenir. */
-export const MOTION_MAX_EXTRAPOLATION_MS = 700;
+/** Ekstrapolasyon için izin verilen azami süre (ms) — zombi hareket önlenir.
+ *  700 ms idi (2 Hz varsayımı). Telefonda fix'ler 1 Hz geliyor (saha 2026-09-24,
+ *  CDP): işaret her saniye ~300 ms durup ~4 m sıçrıyordu. 1,5 sn = bir fix
+ *  aralığı + gecikme payı (`routeGlideModel` ile aynı sınır). */
+export const MOTION_MAX_EXTRAPOLATION_MS = 1_500;
 /** Bu hızın altında ekstrapolasyon YAPILMAZ (duran araç kaymaz). */
 export const MOTION_MIN_EXTRAPOLATION_KMH = 3;
 /** Bu doğruluğun üstünde GPS bozuk sayılır. */

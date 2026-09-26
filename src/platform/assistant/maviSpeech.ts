@@ -42,7 +42,8 @@
  *  · Navigasyon talimatları (`speakNavigation`) ve `speakAlert` hata kanalı.
  */
 
-import { speakFeedback, speakAssistant } from '../ttsService';
+import { speakFeedback, speakAssistant, speakLivePcm } from '../ttsService';
+import type { PcmPlaybackHandle } from '../livePcmTtsService';
 /* `isMaviTurnCurrent` YALNIZ **çağıranın verdiği** yakalanmış token için kullanılır
  * (`MaviSpeechOpts.turn`). Bu modül global aktif turu okuyup KENDİ stale kararını
  * ÜRETMEZ — öyle bir kontrol tanım gereği daima `true` döner (ölü dal dersi). */
@@ -437,6 +438,59 @@ export function releaseMaviAnswerSlot(): void {
   _answered = false;
   _streamActive = false;
   _trace('stream_slot_released', 'stream', getActiveMaviTurn()?.id ?? null);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * GEMINI LIVE · CEVAP SES OLARAK GELİYOR — AYNI TEK-CEVAP SLOTU
+ *
+ * Live turunda cevabın sesi sağlayıcıdan (PCM) gelir; metin yoktur. Slot
+ * disiplini DEĞİŞMEZ: ilk ses parçası gerçekten çalmaya verildiğinde bu tur
+ * `_answered` olur → aynı turda sonradan gelen `speakMaviAnswer(tier=answer)`
+ * (ör. `_dispatchConversation`'ın transkripti seslendirme denemesi) DUPLICATE
+ * olarak BASTIRILIR — voiceService'e ayrı bir "zaten konuşuldu" bayrağı
+ * gerekmez. Ses hiç gelmezse (tool çağrısı turu) slot TUTULMAZ; kanonik
+ * dispatch onayı normal konuşur.
+ *
+ * Tur bayatsa (`isMaviTurnCurrent` false) hiç açılmaz — eski turun Live sesi
+ * yeni turda çalamaz.
+ * ════════════════════════════════════════════════════════════════════════ */
+export function beginMaviAnswerPcm(turn?: MaviTurnToken | null): PcmPlaybackHandle | null {
+  if (turn && !isMaviTurnCurrent(turn)) {
+    _staleLateSpeechSuppressed = _bump(_staleLateSpeechSuppressed);
+    _trace('suppressed_stale_late', 'pcm', turn.id);
+    return null;
+  }
+  const active = getActiveMaviTurn();
+  if (active) {
+    _syncTurn(active.id);
+    if (_answered) {
+      _suppressedDuplicate = _bump(_suppressedDuplicate);
+      _trace('suppressed_duplicate', 'pcm', active.id);
+      return null;
+    }
+  }
+  let inner: PcmPlaybackHandle | null;
+  try { inner = speakLivePcm(); } catch { inner = null; }
+  if (!inner) { _trace('tts_error', 'pcm', active?.id ?? null); return null; }
+  let first = true;
+  const h = inner;
+  return {
+    get active(): boolean { return h.active; },
+    push: (pcm: ArrayBuffer): void => {
+      if (turn && !isMaviTurnCurrent(turn)) { h.cancel(); return; }
+      if (first) {
+        first = false;
+        const now = getActiveMaviTurn();
+        if (now) { _syncTurn(now.id); _answered = true; }   // slot BURADA tüketilir
+        markMaviLatency('tts_request');
+        _spoken = _bump(_spoken);
+        _trace('pcm_first_chunk', 'pcm', now?.id ?? null);
+      }
+      h.push(pcm);
+    },
+    end: (): void => { h.end(); },
+    cancel: (): void => { h.cancel(); },
+  };
 }
 
 /** @internal — testler arası izolasyon. */

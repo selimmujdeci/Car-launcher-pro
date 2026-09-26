@@ -507,3 +507,135 @@ export function buildDiscoveryEvidence(raw: RawHandshake): DiscoveryEvidence {
     finalStopReason === 'CONTINUATION_CLEAR' || finalStopReason === 'MAX_STANDARD_BLOCK';
   return { blocks, finalStopReason, evidenceComplete };
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Kalıcı yetenek otoritesi için bitmap hex — İKİNCİ DECODER DEĞİL
+   ══════════════════════════════════════════════════════════════════════════
+   `buildDiscoveryEvidence`in ZATEN hesapladığı per-blok `bitmapBytes`i sıralı
+   birleştirir. Yalnız TÜRETİR — yeni bir ayrıştırma kuralı YAZMAZ.
+══════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * `RawHandshake`ten kalıcılaştırılabilir TAM bitmap hex string'i üretir
+ * (ör. `"BE1FB813"`). Zincirin durduğu/kırıldığı ilk noktadan SONRASI dahil
+ * edilmez — "bilinmiyor"u "00" gibi göstermek yanlış bir kanıt üretir.
+ *
+ * Kanıt yoksa (`0100` bile okunmadıysa) boş string döner — çağıran bunu
+ * "değişiklik yok" olarak ele almalıdır (mevcut kalıcı kanıt SİLİNMEMELİDİR).
+ */
+export function extractSupportedPidBitmap(raw: RawHandshake): string {
+  const evidence = buildDiscoveryEvidence(raw);
+  let out = '';
+  for (const block of evidence.blocks) {
+    if (!block.bitmapBytes) break;
+    out += block.bitmapBytes;
+  }
+  return out;
+}
+
+/** Kalıcı bitmap'in bir bloğu = 4 bayt = 8 hex hane. */
+const BITMAP_BLOCK_HEX_LEN = 8;
+
+/**
+ * {@link extractSupportedPidBitmap}'in TAM TERSİ: kalıcılaştırılmış hex'i
+ * `refinePidList`in beklediği iki kümeye geri çözer.
+ *
+ * NEDEN GEREKLİ (saha 2026-09-18, Renault VF1FLBUBCBY406165 · gerçek araç):
+ * Handshake bitmap'i `saveObdSupportedPidBitmap` ile diske YAZILIYORDU ama
+ * ÜRETİMDE HİÇ OKUNMUYORDU (`loadObdSupportedPidBitmap` yalnız testlerde
+ * çağrılıyordu). Sonuç ölçüldü — motor rölantide, 90 sn, 35 OBD paketi:
+ * `rpm` her pakette, `engineTemp` 5 turda bir, ama `fuelLevel` 35/35 pakette
+ * `-1`. Çünkü PID 0x2F ICE taban listesinden BİLİNÇLİ çıkarılmıştır
+ * (`obdPidConfig.ts`: çoğu Fiat/PSA/Renault desteklemez) ve onu geri açan TEK
+ * yol bitmap kanıtıdır. O oturumda handshake blok okuyamazsa `refinePidList`
+ * `readBlocks.size === 0` görüp tabanı aynen döndürür → `012F` native'e HİÇ
+ * sorulmaz. Oysa aracın kendi kanıtı (0x2F = destekleniyor) diskte DURUYORDU.
+ *
+ * ZERO-TRUST KORUNUR — bu fonksiyon kanıt UYDURMAZ:
+ *  · Hex yalnız GERÇEKTEN okunmuş blokların BİTİŞİK ÖNEKİDİR (`extract…` ilk
+ *    eksik blokta `break` eder) → her tam blok "okundu" demektir.
+ *  · Eksik/bozuk son blok (8 haneden kısa) ATILIR — yarım blok "okundu"
+ *    sayılmaz.
+ *  · Blok sırası `BITMAP_BLOCKS` ile aynıdır: 0x00, 0x20, 0x40, 0x60, 0x80, 0xA0.
+ *    i. bloğun tabanı i*32, PID = taban + bitIndex + 1 (MSB önce).
+ *  · `MAX` blok sayısı aşılırsa fazlası yok sayılır (bounded).
+ *
+ * @returns Boş girdide boş kümeler → çağıran fail-soft tabanı kullanır.
+ */
+export function decodeSupportedPidBitmap(
+  bitmapHex: string | null | undefined,
+): { supportedPids: Set<number>; readBlocks: Set<number> } {
+  const supportedPids = new Set<number>();
+  const readBlocks    = new Set<number>();
+  if (!bitmapHex) return { supportedPids, readBlocks };
+
+  const hex = bitmapHex.trim().toUpperCase();
+  if (!/^[0-9A-F]*$/.test(hex)) return { supportedPids, readBlocks };
+
+  const blockCount = Math.min(
+    Math.floor(hex.length / BITMAP_BLOCK_HEX_LEN),
+    BITMAP_BLOCKS.length,
+  );
+
+  for (let i = 0; i < blockCount; i++) {
+    const chunk = hex.slice(i * BITMAP_BLOCK_HEX_LEN, (i + 1) * BITMAP_BLOCK_HEX_LEN);
+    const base  = BITMAP_BLOCKS[i]!.offset;
+    let bitIndex = 0;
+    let usable = true;
+    for (let b = 0; b < 4; b++) {
+      const byte = parseInt(chunk.slice(b * 2, b * 2 + 2), 16);
+      if (Number.isNaN(byte)) { usable = false; break; }
+      for (let k = 7; k >= 0; k--) {
+        if ((byte >> k) & 1) supportedPids.add(base + bitIndex + 1);
+        bitIndex++;
+      }
+    }
+    /* Blok çözülemediyse "okundu" SAYILMAZ — aksi halde bozuk bayt
+       "kanıtlı desteklenmiyor" hükmüne dönüşüp PID'leri YANLIŞLIKLA elerdi. */
+    if (usable) readBlocks.add(BITMAP_BLOCKS[i]!.probe);
+  }
+
+  return { supportedPids, readBlocks };
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Mode 09 PID 04 — Kalibrasyon Kimliği (CAL ID)
+══════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * SAE J1979 Mode 09 PID 04 (Calibration ID) pozitif yanıtını ayrıştırır.
+ * Çerçeveleme {@link parseVIN} (PID 02) ile AYNI desendir: `49 04 <blokNo>
+ * <ASCII...>` bir ya da birden çok kez tekrarlanabilir (çok-modüllü ECU birden
+ * fazla CAL ID döndürebilir — burada TÜM bloklardaki yazdırılabilir baytlar
+ * sırayla toplanır; ayrı-ayrı modül ayrımı bu görevin kapsamı DIŞINDADIR).
+ *
+ * VIN'den FARKI: sabit 17 karakter ZORUNLULUĞU YOKTUR — CAL ID üreticiye göre
+ * değişken uzunluktadır. Yalnız yazdırılabilir ASCII baytlar toplanır, sondaki
+ * dolgu (boşluk/NUL) kırpılır. Hiçbir uzunluk/karakter seti UYDURULMAZ.
+ */
+export function parseCalibrationId(raw: string | null | undefined): string | null {
+  if (raw == null) return null;
+  const tokens = _hexTokens(raw);
+
+  const startIdx = tokens.findIndex((t, i) => t === '49' && tokens[i + 1] === '04');
+  if (startIdx < 0) return null;
+
+  const bytes: number[] = [];
+  let i = startIdx;
+  while (i < tokens.length) {
+    if (tokens[i] === '49' && tokens[i + 1] === '04') {
+      i += 3; // 49, 04, blokNo/adet atla
+      while (i < tokens.length && !(tokens[i] === '49' && tokens[i + 1] === '04')) {
+        const byte = parseInt(tokens[i]!, 16);
+        if (byte >= 0x20 && byte <= 0x7E) bytes.push(byte); // yazdırılabilir ASCII
+        i++;
+      }
+    } else {
+      i++;
+    }
+  }
+
+  if (bytes.length === 0) return null;
+  const calId = bytes.map((b) => String.fromCharCode(b)).join('').trimEnd();
+  return calId.length > 0 ? calId : null;
+}

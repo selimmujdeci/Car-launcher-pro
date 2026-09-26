@@ -47,6 +47,23 @@ const DESCRIPTORS: readonly AccountScopedStorageDescriptor[] = [
     description: 'Legacy client-side critical-command PIN hash authority.',
   },
   {
+    id: 'critical-pin-enrolled-hint',
+    backend: 'LOCAL_STORAGE',
+    scope: 'ACCOUNT',
+    sensitivity: 'OPERATIONAL',
+    cleanupPolicies: [
+      'PURGE_ON_LOGOUT',
+      'PURGE_ON_ACCOUNT_SWITCH',
+      'PURGE_ON_SECURITY_RESET',
+    ],
+    physicalKey: 'caros_critical_pin_enrolled',
+    namespaceVersion: 1,
+    ownerRequirements: { accountId: true, vehicleId: false },
+    verifyStrategy: 'KEY_ABSENT',
+    valueFormat: 'OPAQUE',
+    description: 'Yalnız UX ipucu (PIN belirle/gir metni); secret veya otorite değil — PIN sunucuda (083).',
+  },
+  {
     id: 'paired-vehicle-authority',
     backend: 'LOCAL_STORAGE',
     scope: 'ACCOUNT_VEHICLE',
@@ -186,13 +203,51 @@ const DESCRIPTORS: readonly AccountScopedStorageDescriptor[] = [
     description: 'Legacy vehicle speed alert configuration.',
   },
   {
+    id: 'active-vehicle-preference',
+    backend: 'LOCAL_STORAGE',
+    scope: 'ACCOUNT_VEHICLE',
+    sensitivity: 'PREFERENCE',
+    cleanupPolicies: ['PURGE_ON_LOGOUT', 'PURGE_ON_ACCOUNT_SWITCH'],
+    physicalKey: 'caros_active_vehicle_id',
+    namespaceVersion: 1,
+    ownerRequirements: { accountId: true, vehicleId: true },
+    verifyStrategy: 'KEY_ABSENT',
+    valueFormat: 'OPAQUE',
+    description: 'Last-selected active vehicle UX hint for multi-vehicle Kumanda — ' +
+      'never an authorization target; re-validated against the paired vehicle list on every read.',
+  },
+  {
     id: 'device-theme',
     backend: 'LOCAL_STORAGE',
     scope: 'GLOBAL_DEVICE',
     sensitivity: 'PREFERENCE',
     cleanupPolicies: ['RETAIN_DEVICE_PREFERENCE'],
     physicalKey: 'caros-theme',
-    legacyKeys: ['pwa-theme', 'caros-theme-studio'],
+    /* ── EKLENDİ (production kusuru, 2026-09-18) ──────────────────────────
+       Çıkış doğrulaması `UNREGISTERED_ACCOUNT_STORAGE_FOUND` ile düşüyordu:
+       tarayıcı deposunda `caros`/`pwa-`/`clp_` önekli ama KAYITSIZ anahtar
+       bulunca kapı FAIL-CLOSED davranır. Kaynak taramasıyla bulunan iki
+       gerçek yazıcı:
+
+         · `caros-console-theme`   — lib/console/consoleTheme.ts:36
+             Değer YALNIZ 'night' | 'day'. Kök layout'un boot script'i her
+             sayfada okur. Hesap/araç kimliği YOK.
+         · `caros-theme-studio-v2` — lib/theme/themeStudioState.ts:44
+             Tema manifest seti + geri-al geçmişi. Hesap/araç kimliği YOK
+             (kaynak taramasıyla doğrulandı) ve v1 anahtarı
+             (`caros-theme-studio`) ZATEN bu kaydın parçası.
+
+       Bu yüzden ikisi de bu kaydın kapsamındadır: cihaz görüntü tercihi.
+       Sınıflandırma "çıkış geçsin" diye SEÇİLMEDİ — içerikte hesap verisi
+       olmadığı ve aynı ailenin diğer anahtarlarının zaten burada olduğu
+       kanıtlandı. Hesap/araç kimliği taşıyan bir tema anahtarı eklenirse
+       ACCOUNT kapsamına ALINMALIDIR (purge + verifier ile). */
+    legacyKeys: [
+      'pwa-theme',
+      'caros-theme-studio',
+      'caros-theme-studio-v2',
+      'caros-console-theme',
+    ],
     namespaceVersion: 1,
     ownerRequirements: { accountId: false, vehicleId: false },
     verifyStrategy: 'CUSTOM',

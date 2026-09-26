@@ -44,6 +44,7 @@ import {
   type InspectorField, type Observability,
 } from '../../../platform/devtools/sessionInspectorModel';
 import { copyTextFailSoft, describeClipboardRoute } from '../../../platform/devtools/carosLabClipboard';
+import { PhoneLinkGuestPortalPanel } from './PhoneLinkGuestPortalPanel';
 
 const CLASS_STYLE: Record<Observability, string> = {
   OBSERVED:    'border-[var(--oem-good)] bg-[var(--oem-good-soft)] text-[var(--oem-good)]',
@@ -264,6 +265,17 @@ export function PhoneHubLinkScreen() {
       )}
 
       {/* ── Eylemler ───────────────────────────────────────────────── */}
+      {/* PHONE LINK F6.2 — TEŞHİS OVERRIDE.
+          Sunucuyu başlatan/durduran KANONİK ürün yolu artık
+          `phoneLinkProductBoot.ts` (SystemBoot Wave 4) üzerindedir; aşağıdaki
+          düğmeler ÜRÜN OTORİTESİ DEĞİL, yalnız manuel teşhis müdahalesidir.
+          Ürünün çalışması için bu ekrana GİRMEK GEREKMEZ. */}
+      <div
+        data-testid="phl-diagnostic-override"
+        className="rounded border border-[var(--oem-warn)] bg-[var(--oem-warn-soft)] px-2 py-1.5 font-mono text-[10px] text-[var(--oem-warn)]"
+      >
+        TEŞHİS OVERRIDE — ürün açılışı bu düğmelere BAĞLI DEĞİLDİR
+      </div>
       <div className="flex flex-wrap gap-2">
         <ActionButton
           testId="phl-start" label="Server'ı Başlat" icon={Play} disabled={busy}
@@ -299,6 +311,9 @@ export function PhoneHubLinkScreen() {
           {notice}
         </div>
       )}
+
+      {/* ── Misafir müzik portalı (F3) ─────────────────────────────── */}
+      <PhoneLinkGuestPortalPanel />
 
       {/* ── Saha ölçümü bekleyenler ────────────────────────────────── */}
       <div

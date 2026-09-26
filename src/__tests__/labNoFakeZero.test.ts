@@ -94,7 +94,7 @@ describe('E-19/E-21/E-22 — kaynak katmanları kapıyı atlamaz', () => {
         protocolAtRecovery: null, threshold: null, maxPerSession: null,
       },
     };
-    const sections = buildKwpSections(snap, 1_000);
+    const sections = buildKwpSections(snap);   // zaman snapshot.readAt'ten gelir
     const fields = sections.flatMap((s) => s.fields);
     const byId = (id: string) => fields.find((f) => f.id === id);
 
@@ -121,7 +121,7 @@ describe('E-19/E-21/E-22 — kaynak katmanları kapıyı atlamaz', () => {
         protocolAtRecovery: null, threshold: 3, maxPerSession: 2,
       },
     };
-    const fields = buildKwpSections(snap, 1_000).flatMap((s) => s.fields);
+    const fields = buildKwpSections(snap).flatMap((s) => s.fields);
     const rc = fields.find((f) => f.id === 'recoveryCount');
     expect(rc!.klass).toBe('OBSERVED');
     expect(rc!.value).toBe('0');

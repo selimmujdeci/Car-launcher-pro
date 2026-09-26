@@ -283,16 +283,27 @@ describe('6 · etiket sistemi', () => {
 /* ═══ 7 · GECE İZOLASYONU ════════════════════════════════════════════════ */
 
 describe('7 · GECE bu turda DEĞİŞMEDİ', () => {
-  /** 2026-09-09 kalibrasyonundan ÖNCEKİ gece değerleri — birebir. */
+  /**
+   * Gece referansı — BİREBİR anlık görüntü.
+   *
+   * ── NEDEN GÜNCELLENDİ ────────────────────────────────────────────────
+   * Bu kilit "gündüz turu geceye DOKUNMASIN" der ve o işlevi korur. Ama yol
+   * ailesi tonları bu testten SONRA, ayrı ve BİLİNÇLİ bir turda değişti:
+   * `df9f506b` (2026-09-09 21:36) — gerçek cihazda Google gece navigasyonuyla
+   * yan yana ölçüm sonucu rota çekirdeği yol ailesinin ALTINDA kalıyordu
+   * (parlaklık oranı 0,39 / 0,33). Testler 16:16 ve 18:27'de yazılmıştı;
+   * yani kilit gevşetilmiyor, ESKİYEN anlık görüntü gerçeğe eşitleniyor.
+   *
+   * Yol ailesi DIŞINDAKİ her token o turdan ÖNCEKİ değeriyle aynen durur.
+   */
   const GECE_REFERANS: Record<string, string> = {
     bg: '#222c3c', water: '#245e85', park: '#36543f', forest: '#2b4732',
     farmland: '#3c3f31', residential: '#333b4d', urban: '#3a4052',
     buildingFill: '#39445c', buildingOutline: '#485369',
     motorwayCasing: '#1a212c', primaryCasing: '#181e29', secondaryCasing: '#161c26',
     tertiaryCasing: '#111620', minorCasing: '#0e131b',
-    /* df9f506b (2026-09-09, gerçek cihaz): gece yol merdiveni KASITLI olarak
-       karartıldı — ekranın en parlak öğesi rota olmalı, sokak değil. Referans
-       o turda güncellenmemişti; kilit artık YENİ kasıtlı değerleri dondurur. */
+    /* df9f506b ile ölçülerek değişen yol ailesi (öncesi:
+       #ffffff · #f9fbfc · #f2f5f8 · #ecf0f5 · #e9edf2). */
     motorway: '#8792a5', primary: '#7d8898', secondary: '#737d8d',
     tertiary: '#6a7383', minor: '#5c6575',
     labelText: '#e6eaf0', labelHalo: '#0a0e16',

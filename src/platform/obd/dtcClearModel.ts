@@ -249,16 +249,15 @@ function isClearable(c: ClearObservedCode): boolean {
   return c.status === 'stored' || c.status === 'pending';
 }
 
-/** Yeniden okuma güvenilir mi — düşen bir mod varsa hüküm DOĞRULANAMADI olur. */
+/** Yeniden okuma güvenilir mi — clearable 03/07 düşerse hüküm DOĞRULANAMADI olur. */
 function afterScanIsTrustworthy(c: DtcScanCompleteness | null): boolean {
   if (c === null) return false;
-  // 'unsupported' KABUL EDİLİR (araç o servisi hiç bilmiyor — kanıt eksikliği değil,
-  // ölçülmüş bir gerçek). 'failed' kapsamı bozar. P0-OBD-CORE-05: 'deferred' de
-  // AYNI ŞEKİLDE güvensizdir — admisyon kapısı sorguyu HİÇ göndermedi, yani bu
-  // "okundu ama düştü" değil "hiç sorulmadı"dır; ikisi de "silindi" hükmüne
-  // temel OLAMAZ (yeniden okuma fiilen YAPILMADI).
-  const untrustworthy = (v: DtcScanCompleteness['stored']): boolean => v === 'failed' || v === 'deferred';
-  return !untrustworthy(c.stored) && !untrustworthy(c.pending) && !untrustworthy(c.permanent);
+  // 03/07 için sessizlik de kapsam kaybıdır; "kod yok" sayılamaz. 0A permanent
+  // Mode 04 ile silinmez, bu yüzden sonucu ayrıca raporlanır ama stored/pending
+  // silme başarısını tek başına belirlemez.
+  const untrustworthy = (v: DtcScanCompleteness['stored']): boolean =>
+    v === 'failed' || v === 'no_response' || v === 'deferred';
+  return !untrustworthy(c.stored) && !untrustworthy(c.pending);
 }
 
 /**

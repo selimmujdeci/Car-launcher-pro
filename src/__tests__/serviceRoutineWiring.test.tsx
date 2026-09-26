@@ -30,6 +30,16 @@ vi.mock('../platform/obdService', () => ({
     if (obd.throws) throw new Error('OBD okunamadı');
     return obd.snap;
   },
+  // Tazelik artık TEK otorite `getObdSpeedFresh()`ten okunur (writeGate.ts).
+  // Bayat/hiç-gelmemiş veri → `null`, üretimdeki `_lastSpeedRxMs` sözleşmesiyle
+  // birebir — bu mock `obd.snap`in KENDİ lastSeenMs/speed alanlarından türetilir.
+  getObdSpeedFresh: () => {
+    if (obd.throws) throw new Error('OBD okunamadı');
+    const snap = obd.snap as { speed?: number; lastSeenMs?: number } | null;
+    if (!snap || typeof snap.lastSeenMs !== 'number' || snap.lastSeenMs <= 0) return null;
+    if (Date.now() - snap.lastSeenMs > 3_000) return null;
+    return typeof snap.speed === 'number' ? snap.speed : null;
+  },
 }));
 
 import { readServiceRoutineSnapshot } from '../platform/devtools/serviceRoutineSources';

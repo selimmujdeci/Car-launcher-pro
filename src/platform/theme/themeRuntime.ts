@@ -143,11 +143,51 @@ function readStore(): Record<string, ThemeManifest> {
   return out;
 }
 
+const storeListeners = new Set<() => void>();
+
 function writeStore(store: Record<string, ThemeManifest>): void {
   memoryStore = store;
   try {
     safeSetRaw(STORE_KEY, JSON.stringify(store));
   } catch { /* fail-soft: bellekte kalır */ }
+  storeListeners.forEach((fn) => { try { fn(); } catch { /* dinleyici izole */ } });
+}
+
+/** Saklanmış manifest deposu değişince haber verir (sürücü hafızası dinler). */
+export function subscribeStoredManifests(fn: () => void): () => void {
+  storeListeners.add(fn);
+  return () => { storeListeners.delete(fn); };
+}
+
+/** Tüm temaların saklanmış manifestleri (kopya) — sürücü profili anlık görüntüsü. */
+export function getAllStoredManifests(): Record<string, ThemeManifest> {
+  return { ...readStore() };
+}
+
+/**
+ * Depoyu verilen anlık görüntüyle DEĞİŞTİRİR (sürücü değişimi) ve etkin temayı
+ * yeniden uygular. Girdi aynı `coerceThemeManifest` kapısından geçer.
+ */
+export function replaceStoredManifests(snapshot: Readonly<Record<string, unknown>>): void {
+  const out: Record<string, ThemeManifest> = {};
+  for (const [k, v] of Object.entries(snapshot ?? {})) {
+    if (!(THEME_BASE_IDS as readonly string[]).includes(k)) continue;
+    try { out[k] = coerceThemeManifest(v, k as ThemeBaseId); } catch { /* bozuk kayıt atlanır */ }
+  }
+  writeStore(out);
+  try { applyForTheme(useCarTheme.getState().theme); } catch { /* fail-soft */ }
+}
+
+/**
+ * Araç içinden yalnız VURGU RENGİ (sürücüye özel). Aynı manifest kapısından
+ * ('local') geçer — ikinci stil motoru yok. `null` = temanın kendi rengi.
+ */
+export function setLocalAccent(themeId: ThemeBaseId, color: string | null): void {
+  const base = getStoredManifest(themeId) ?? createThemeManifest(themeId);
+  const m: ThemeManifest = { ...base, tokens: { ...base.tokens, accentPrimary: color } };
+  const current = baseOf(useCarTheme.getState().theme);
+  if (current === themeId) applyThemeManifest(m, 'local', { persist: true });
+  else storeManifest(m);
 }
 
 /** Bir tema için saklanmış manifest (yoksa null). */
@@ -320,6 +360,25 @@ export function applyIncomingThemeManifest(raw: unknown, source: ThemeApplySourc
 
 let installed = false;
 
+/** Etkin temanın saklanmış manifestini uygular; yoksa kalıntıyı temizler. */
+function applyForTheme(theme: CarTheme): void {
+  const base = baseOf(theme);
+  if (!(THEME_BASE_IDS as readonly string[]).includes(base)) {
+    // Bu temada manifest desteği yok (ör. legacy 'oled'/'sunlight') → temizle.
+    clearAppliedDom();
+    return;
+  }
+  const m = getStoredManifest(base as ThemeBaseId);
+  if (m) {
+    applyThemeManifest(m, 'restore', { setBaseTheme: false, persist: false });
+  } else {
+    // KALINTI YOK: bu temanın manifesti yoksa hem CSS hem tema-başına yerleşim
+    // temizlenir → önceki temanın renkleri/kart sırası sızmaz.
+    clearAppliedDom();
+    try { useLayoutStore.getState().reset(base); } catch { /* fail-soft */ }
+  }
+}
+
 /**
  * Boot'ta çağrılır. Mevcut araç temasına ait saklanmış manifest'i uygular
  * (baz temayı ZORLAMAZ) ve tema değişimlerini izleyip eşleşen manifest'e geçer.
@@ -327,24 +386,6 @@ let installed = false;
 export function initThemeRuntime(): void {
   if (installed) return;
   installed = true;
-
-  const applyForTheme = (theme: CarTheme) => {
-    const base = baseOf(theme);
-    if (!(THEME_BASE_IDS as readonly string[]).includes(base)) {
-      // Bu temada manifest desteği yok (ör. legacy 'oled'/'sunlight') → temizle.
-      clearAppliedDom();
-      return;
-    }
-    const m = getStoredManifest(base as ThemeBaseId);
-    if (m) {
-      applyThemeManifest(m, 'restore', { setBaseTheme: false, persist: false });
-    } else {
-      // KALINTI YOK: bu temanın manifesti yoksa hem CSS hem tema-başına yerleşim
-      // temizlenir → önceki temanın renkleri/kart sırası sızmaz.
-      clearAppliedDom();
-      try { useLayoutStore.getState().reset(base); } catch { /* fail-soft */ }
-    }
-  };
 
   try {
     applyForTheme(useCarTheme.getState().theme);

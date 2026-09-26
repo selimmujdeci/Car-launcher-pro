@@ -1,16 +1,16 @@
 import { create } from 'zustand';
 import type { MapMode, MapSourceState } from './mapSourceTypes';
-/* ARCH-06/F2 — TIMER YÖNETİŞİMİ: ham `setInterval` yerine ARM tik-wheel'i.
-   SAHİPLİK DEĞİŞMEDİ: geri çağrı, periyot kararı ve cleanup bu modülde
-   KALIR; ARM yalnız tier/mod BÜTÇESİNİ uygular (düşük-uçta yavaşlatır,
-   yüksek tier'da periyodu AYNEN korur). Yeni merkezî callback mantığı YOK. */
-import { runtimeManager } from '../core/runtime/AdaptiveRuntimeManager';
+/* ARCH-06/F2'de bu modül ARM tik-wheel'ine taşınan `mapSource.ping` görevine
+   sahipti. F7-B'de o görev ve dayandığı HTTP probu KALDIRILDI (aşağıdaki
+   "Bağlantı yansıması" notu) — bu yüzden ARM bağımlılığı da kalmadı. */
+import { subscribeConnectivity } from './connectivity/connectivityAuthority';
+import { allowsConnectivity } from './connectivity/connectivityGate';
 
 export const useMapSourceStore = create<MapSourceState>(() => ({
   sources: new Map(),
   activeSourceId: null,
   servingFrom: null,
-  isOnline: typeof navigator !== 'undefined' ? navigator.onLine : true,
+  isOnline: allowsConnectivity('LIGHTWEIGHT_INTERNET'),
   isLoading: false,
   error: null,
   initialized: false,
@@ -18,10 +18,28 @@ export const useMapSourceStore = create<MapSourceState>(() => ({
   tileRender: 'vector',  // start in vector (idle); navigation will push to raster
 }));
 
-// ── Network detection ───────────────────────────────────────
+/* ── Bağlantı yansıması (F7-B) ───────────────────────────────
+ *
+ * Bu store ARTIK KENDİ internet gerçeğini ÜRETMEZ. `isOnline`, kanonik
+ * `ConnectivityAuthority` hükmünün salt-okur YANSIMASIDIR; kararı
+ * `ConnectivityPolicy` verir. Karo isteği küçük ve tekrar denenebilirdir →
+ * `LIGHTWEIGHT_INTERNET` (belirsizlikte denenir, eski davranış korunur).
+ *
+ * ── KALDIRILDI: `mapSource.ping` (30 sn) + OSM'ye HEAD PROBU ────────────────
+ * O prob, `navigator.onLine`ın Android WebView'da güvenilmez olmasının
+ * ÇARESİYDİ ("hotspot sonradan bağlanınca false kalıyor"). Kanonik otorite
+ * AYNI soruyu `NET_CAPABILITY_VALIDATED` ile PROBSUZ yanıtlar; iki ayrı cevap
+ * tutmak tam olarak F7'nin kapattığı borçtur. §28: ping/DNS/HTTP-probe/
+ * speedtest YOK — mevcut olan da kaldırıldı; §29: yeni timer YOK, ikinci ağ
+ * gözlemcisi YOK.
+ *
+ * Uydu/hibrit → yol ZORUNLU DÜŞÜRME ve bağlantı dönünce geri yükleme
+ * davranışı (`_setOnline`) AYNEN korunur.
+ */
 let networkListenersAttached = false;
-let _onlineHandler:  (() => void) | null = null;
-let _offlineHandler: (() => void) | null = null;
+
+/** Kanonik bağlantı aboneliğini söken thunk. */
+let _connectivityUnsub: (() => void) | null = null;
 
 /**
  * When connectivity drops and we force-downgrade from satellite/hybrid → road,
@@ -30,48 +48,12 @@ let _offlineHandler: (() => void) | null = null;
  */
 let _forcedDowngradeFrom: MapMode | null = null;
 
-/** ARM görev kaydını söken thunk (eski `setInterval` handle'ının yerine). */
-let _pingTimer: (() => void) | null = null;
-/**
- * Son başarılı tile fetch zamanı (Date.now()).
- * Tile akışı varsa redundant HEAD isteği gönderilmez — veri tasarrufu.
- */
-let _lastSuccessfulFetch = 0;
-
 export function getForcedDowngradeFrom(): MapMode | null {
   return _forcedDowngradeFrom;
 }
 
 export function setForcedDowngradeFrom(mode: MapMode | null): void {
   _forcedDowngradeFrom = mode;
-}
-
-/** Smart-tile protokolü başarılı online tile fetch'ini bildirir — ping askıya alma penceresini yeniler. */
-export function notifyTileSuccess(): void {
-  _lastSuccessfulFetch = Date.now();
-}
-
-/**
- * Gerçek internet bağlantısı testi — navigator.onLine Android WebView'da
- * güvenilmez (hotspot sonradan bağlanırsa false kalır).
- * OSM tile sunucusuna küçük bir HEAD isteği atar; 5s timeout.
- */
-async function _pingOnline(): Promise<boolean> {
-  try {
-    const ctrl = new AbortController();
-    // 5 s timeout — 2G/EDGE bağlantılarında 3 s zaman aşımı çok agresifti;
-    // yavaş ağda sahte "offline" tetiklemesini önler.
-    const t = setTimeout(() => ctrl.abort(), 5_000);
-    const r = await fetch('https://a.tile.openstreetmap.org/0/0/0.png', {
-      method: 'HEAD',
-      signal: ctrl.signal,
-      cache:  'no-store',
-    });
-    clearTimeout(t);
-    return r.ok;
-  } catch {
-    return false;
-  }
 }
 
 function _setOnline(online: boolean): void {
@@ -95,50 +77,26 @@ export function attachNetworkListeners(): void {
   if (networkListenersAttached || typeof window === 'undefined') return;
   networkListenersAttached = true;
 
-  _onlineHandler  = () => _setOnline(true);
-  _offlineHandler = () => _setOnline(false);
-
-  window.addEventListener('online',  _onlineHandler);
-  window.addEventListener('offline', _offlineHandler);
-  window.addEventListener('beforeunload', detachNetworkListeners, { once: true });
-
-  // ── Ping tabanlı bağlantı kontrol (Android WebView güvencesi) ──
-  // navigator.onLine hotspot bağlantılarında false kalabilir.
-  // Periyot 30 s — tile akışı varsa ping zaten atlanır (bant genişliği korunur).
-  const checkAndUpdate = () => {
-    const { isOnline } = useMapSourceStore.getState();
-    const timeSinceSuccess = Date.now() - _lastSuccessfulFetch;
-
-    // Tile akıyorsa bağlantı sağlıklıdır: gereksiz HEAD isteğini atla.
-    // İstisna: isOnline=false ise offline kurtarma için hemen ping at.
-    if (isOnline && timeSinceSuccess < 120_000) return;
-
-    void _pingOnline().then((online) => {
-      const current = useMapSourceStore.getState().isOnline;
-      if (online !== current) _setOnline(online);
-    });
-  };
-  // İlk kontrol: 1 saniye gecikmeyle (uygulama açılır açılmaz değil)
-  setTimeout(checkAndUpdate, 1_000);
-  _pingTimer = runtimeManager.scheduleTask({
-    id: 'mapSource.ping', periodMs: 30_000,       /* ARM sözlüğü YALNIZ 'SAFETY' | 'NORMAL' taşır. 'NORMAL' zaten
-         tier/mod çarpanına TABİ olan sınıftır — bütçelenebilir görev
-         tam olarak budur. ARM API'si F2'de GENİŞLETİLMEDİ. */
-      criticality: 'NORMAL',
-    fn: checkAndUpdate, deferIdle: true,
+  /* TEK kaynak: kanonik otorite. Tarayıcının `online`/`offline` olayları artık
+     DİNLENMEZ — o ipucu otorite değildir (§16) ve otorite zaten onu kanıt
+     olarak yutar. */
+  _connectivityUnsub = subscribeConnectivity(() => {
+    _setOnline(allowsConnectivity('LIGHTWEIGHT_INTERNET'));
   });
+
+  /* Otorite bu noktada çoktan hüküm kurmuş olabilir (Wave 1'de başlar); ilk
+     yansımayı abonelik beklemeden al. O(1) okuma — ağ isteği YOK. */
+  _setOnline(allowsConnectivity('LIGHTWEIGHT_INTERNET'));
+
+  window.addEventListener('beforeunload', detachNetworkListeners, { once: true });
 }
 
 /**
- * Remove online/offline listeners. Call when the map module is torn down
- * (e.g. test teardown, future hot-reload scenarios).
+ * Remove the canonical connectivity subscription. Call when the map module is
+ * torn down (e.g. test teardown, future hot-reload scenarios).
  */
 export function detachNetworkListeners(): void {
   if (!networkListenersAttached || typeof window === 'undefined') return;
-  if (_onlineHandler)  window.removeEventListener('online',  _onlineHandler);
-  if (_offlineHandler) window.removeEventListener('offline', _offlineHandler);
-  _onlineHandler  = null;
-  _offlineHandler = null;
+  if (_connectivityUnsub !== null) { _connectivityUnsub(); _connectivityUnsub = null; }
   networkListenersAttached = false;
-  if (_pingTimer !== null) { _pingTimer(); _pingTimer = null; }   // ARM unschedule thunk
 }

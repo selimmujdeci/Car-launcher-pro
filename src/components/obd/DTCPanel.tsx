@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import {
   useDTCState,
-  readDTCCodes, clearDTCCodes, readAllDTCs, readFreezeFrame,
+  readDTCCodes, clearDTCCodes, clearManufacturerDtcs, isUdsClearPathFieldVerified, readAllDTCs, readFreezeFrame,
   type DTCCode, type DTCSeverity, type DTCCodeWithStatus, type FreezeFrameResult,
   type DtcScanCompleteness, type DtcClearReport,
 } from '../../platform/dtcService';
@@ -16,10 +16,15 @@ import { readDiagnosticStatus, type DiagnosticStatusResult } from '../../platfor
 import { computeDtcVerdict, DTC_ADVISORY_TEXT, type DtcScanMode } from '../../platform/obd/dtcVerdict';
 import { buildScanReport } from '../../platform/obd/scanReport';
 import { DTC_OBSERVATION_CLASS_LABEL } from '../../platform/obd/dtcAuthority';
-import { lookupDtc, isKnownDtcCode } from '../../platform/dtcService';
-import { isEcuReadable, runFullVehicleScan, type MultiEcuScanReport } from '../../platform/obd/multiEcuScan';
+import { getClearableDtcSnapshot, lookupDtc, isKnownDtcCode } from '../../platform/dtcService';
+import {
+  isEcuDtcScanPartial, isEcuReachable, isEcuReadable,
+  runFullVehicleScan, type MultiEcuScanReport,
+} from '../../platform/obd/multiEcuScan';
 import { buildVehicleVerdict } from '../../platform/obd/verdictEngine';
 import { formatDtcDisplayCode, UDS_DTC_STATE_LABEL } from '../../platform/obd/udsDtc';
+import { explainDtcsWithAi, type DtcExplainItem } from '../../platform/obd/dtcAiExplanation';
+import { MechanicReportCard } from './MechanicReportCard';
 import { logError } from '../../platform/crashLogger';
 import { CarLauncher } from '../../platform/nativePlugin';
 import { useDebugStore } from '../../platform/debug';
@@ -253,15 +258,20 @@ function DTCPanelInner({ active = false }: { active?: boolean }) {
   const [clearReport, setClearReport] = useState<DtcClearReport | null>(null);
   // OBD-OS-F2: çoklu-ECU tarama sonucu (null = çalışmadı/desteklenmiyor → tek-ECU akışı).
   const [multiEcu, setMultiEcu] = useState<MultiEcuScanReport | null>(null);
+  /* Üretici DTC silme (UDS 0x14) — ECU BAŞINA iki aşama: kurulan ECU'nun tx'i. */
+  const [ecuClearArmed, setEcuClearArmed] = useState<string | null>(null);
+  const [ecuClearBusy, setEcuClearBusy] = useState<string | null>(null);
+  const [ecuClearResult, setEcuClearResult] = useState<{ tx: string; message: string; success: boolean } | null>(null);
+  /* Yapay zekâ açıklaması — bir YORUMDUR; hiçbir hüküm/defter bundan beslenmez. */
+  const [aiExplain, setAiExplain] = useState<{ loading: boolean; text: string | null; error: string | null } | null>(null);
 
   const criticalCount = dtc.codes.filter((c) => c.severity === 'critical').length;
   const warningCount  = dtc.codes.filter((c) => c.severity === 'warning').length;
 
-  /* P0-OBD-10 — Mode 04 ile SİLİNEBİLİR kod adedi: onaylanmış (Mode 03) + BEKLEYEN
-     (Mode 07). KALICI (Mode 0A) bilinçli DIŞARIDA — Mode 04 onu silemez, düğmeyi
-     onun için açmak "sil" deyip "silinemedi" demek olurdu. Nihai kapı YİNE serviste
-     (`getClearableDtcSnapshot`); buradaki sayım yalnız düğmenin görünür durumudur. */
-  const clearableCount = dtc.codes.length + pending.length;
+  /* P0-OBD-10 — buton bir DTC truth store değildir. Servis, sesli/uzak komut ve
+     bu projeksiyon AYNI envanteri kullanır: fonksiyonel + fiziksel 03/07;
+     UDS/KWP/0A hariç. */
+  const clearableCount = getClearableDtcSnapshot().count;
 
   const lastReadStr = dtc.lastReadAt
     ? new Date(dtc.lastReadAt).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })
@@ -273,6 +283,7 @@ function DTCPanelInner({ active = false }: { active?: boolean }) {
    * StandardPidEnums içinde zaten try/catch'li) — biri düşerse diğerleri gelir.
    */
   async function handleFullScan(): Promise<void> {
+    setAiExplain(null);   // eski taramanın yorumu yeni sonuca TAŞINMAZ
     await readDTCCodes();
     setIsDeepScanning(true);
     try {
@@ -308,6 +319,53 @@ function DTCPanelInner({ active = false }: { active?: boolean }) {
       }
     } finally {
       setIsDeepScanning(false);
+    }
+  }
+
+  /**
+   * Bulunan kayıtları yapay zekâya açıklatır. Girdi, ekrandaki ÖLÇÜLMÜŞ künyelerdir
+   * (kod · alt kod · ECU · durum); durum ölçülmediyse UNKNOWN gider, uydurulmaz.
+   */
+  async function handleAiExplain(): Promise<void> {
+    if (!multiEcu) return;
+    const items: DtcExplainItem[] = multiEcu.allCodes.map((c) => ({
+      code: c.code,
+      subCode: c.subCode ?? null,
+      ecu: c.ecuLabel,
+      state: c.state ?? (c.fromUds || c.fromKwp ? 'UNKNOWN'
+        : c.mode === 'pending' ? 'MODE07_PENDING'
+          : c.mode === 'permanent' ? 'MODE0A_PERMANENT' : 'MODE03_STORED'),
+      source: c.fromUds ? 'UDS' : c.fromKwp ? 'KWP' : 'OBD',
+    }));
+    setAiExplain({ loading: true, text: null, error: null });
+    try {
+      const r = await explainDtcsWithAi(items);
+      setAiExplain(r.ok ? { loading: false, text: r.text, error: null } : { loading: false, text: null, error: r.reason });
+    } catch (e) {
+      logError('DTCPanel:AiExplainFailed', e);
+      setAiExplain({ loading: false, text: null, error: 'Yapay zekâ açıklaması alınamadı.' });
+    }
+  }
+
+  /**
+   * ÜRETİCİ DTC SİLME (UDS 0x14) — ECU BAŞINA, İKİ AŞAMALI. İlk tık yalnız kurar;
+   * ikinci tık `confirmed:true` ile gönderir. Nihai karar servisteki kapılardadır
+   * (yazma · yetki · üretici kapısı); ekran yeniden taramayla ÖLÇÜMDEN tazelenir.
+   */
+  async function handleEcuClear(tx: string, rx: string): Promise<void> {
+    setEcuClearResult(null);
+    if (ecuClearArmed !== tx) { setEcuClearArmed(tx); return; }
+    setEcuClearArmed(null);
+    setEcuClearBusy(tx);
+    try {
+      const r = await clearManufacturerDtcs({ txHeader: tx, rxHeader: rx, confirmed: true, principal: 'LOCAL_UI' });
+      setEcuClearResult({ tx, message: r.userMessage, success: r.clear?.success === true });
+      if (r.allowed) await handleFullScan();
+    } catch (e) {
+      logError('DTCPanel:EcuClearFailed', e);
+      setEcuClearResult({ tx, message: 'Üretici hafızası silinemedi — beklenmeyen hata.', success: false });
+    } finally {
+      setEcuClearBusy(null);
     }
   }
 
@@ -466,6 +524,7 @@ function DTCPanelInner({ active = false }: { active?: boolean }) {
   const readyMonitors  = diagStatus?.monitors.filter((m) => m.available && m.ready).length ?? 0;
   const totalMonitors  = diagStatus?.monitors.filter((m) => m.available).length ?? 0;
   const isBusy = dtc.isReading || isDeepScanning;
+  const provenEcuCount = multiEcu?.results.filter(isEcuReachable).length ?? 0;
 
   return (
     <div
@@ -591,6 +650,9 @@ function DTCPanelInner({ active = false }: { active?: boolean }) {
         </div>
       )}
 
+      {/* Araç Ustası — deterministik AI Usta'nın son değerlendirmesi (yoksa görünmez). */}
+      <MechanicReportCard dtcCodes={dtc.codes.map((c) => c.code)} refreshKey={dtc.lastReadAt ?? 0} />
+
       {/* ── OBD-OS-F1-4: tarama kapsamı rozeti ─────────────────────── */}
       {/* "Temiz" demek yetmez: kullanıcı NE KADARININ tarandığını görmeli. Kısmi taramada
           coverage<1 ve düşen modlar AÇIKÇA yazılır (sessiz eksiklik = yanlış güven). */}
@@ -647,7 +709,8 @@ function DTCPanelInner({ active = false }: { active?: boolean }) {
               Araç ECU’ları
             </span>
             <span className="text-[10px] font-black uppercase tracking-widest text-[color:var(--oem-accent)]">
-              {multiEcu.scannedEcus} ECU tarandı
+              {provenEcuCount} kanıtlı ECU
+              {multiEcu.scannedEcus > provenEcuCount && ` · ${multiEcu.scannedEcus} denendi`}
               {multiEcu.skippedEcus > 0 && ` · ${multiEcu.skippedEcus} atlandı`}
             </span>
           </div>
@@ -662,18 +725,64 @@ function DTCPanelInner({ active = false }: { active?: boolean }) {
                 /* P0-OBD-PARITY: "okunamadı" hükmü TÜM DTC servislerine bakar
                    — yalnız UDS konuşan bir ECU eskiden yanlışlıkla düşmüş
                    sayılıyordu. Kural `multiEcuScan.isEcuReadable`de TEK yerde. */
-                const failed = !isEcuReadable(r);
+                const readable = isEcuReadable(r);
+                const reachable = isEcuReachable(r);
+                const partial = isEcuDtcScanPartial(r);
+                const standardCount = (mode: 'stored' | 'pending' | 'permanent') =>
+                  r.codes.filter((c) => c.mode === mode && !c.fromUds && !c.fromKwp).length;
+                const serviceCopy = (status: typeof r.stored, count: number): string =>
+                  status === 'ok' ? String(count)
+                    : status === 'unsupported' ? 'desteklenmiyor'
+                      : status === 'deferred' ? 'ertelendi' : 'okunamadı';
+                /* Silinebilir = UDS ARIZA kaydı; "test tamamlanmadı" arıza değildir. */
+                const udsFaults = r.codes.filter((c) => c.fromUds === true
+                  && (c.state === 'ACTIVE' || c.state === 'CONFIRMED_INACTIVE' || c.state === 'PENDING')).length;
+                const tx = r.ecu.txHeader;
                 return (
-                  <div key={r.ecu.txHeader} className="flex items-center justify-between gap-3 text-xs">
-                    <span className="font-bold text-[color:var(--oem-text)]">{r.ecu.label}</span>
+                  <div key={r.ecu.txHeader} className="flex items-start justify-between gap-3 text-xs">
+                    <div>
+                      <div className="font-bold text-[color:var(--oem-text)]">{r.ecu.label}</div>
+                      <div className="mt-0.5 text-[9px] text-[color:var(--oem-text-dim)]">
+                        Kayıtlı: {serviceCopy(r.stored, standardCount('stored'))} ·{' '}
+                        Bekleyen: {serviceCopy(r.pending, standardCount('pending'))} ·{' '}
+                        Kalıcı: {serviceCopy(r.permanent, standardCount('permanent'))}
+                      </div>
+                      {udsFaults > 0 && r.ecu.rxHeader && isUdsClearPathFieldVerified() && (
+                        <button
+                          type="button"
+                          data-testid={`ecu-clear-${tx}`}
+                          onClick={() => void handleEcuClear(tx, r.ecu.rxHeader)}
+                          disabled={ecuClearBusy !== null || isBusy}
+                          className="mt-1.5 text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-lg border border-[var(--oem-danger)] text-[color:var(--oem-danger)] disabled:opacity-40"
+                        >
+                          {ecuClearBusy === tx ? 'SİLİNİYOR…'
+                            : ecuClearArmed === tx ? `ONAYLA — ${udsFaults} ARIZA KAYDINI SİL`
+                              : `ÜRETİCİ KODLARINI SİL (${udsFaults})`}
+                        </button>
+                      )}
+                      {ecuClearArmed === tx && ecuClearBusy === null && (
+                        <div className="mt-1 text-[10px] text-[color:var(--oem-warn)]">
+                          Bu ECU’nun arıza hafızası kalıcı silinir. Arıza sürüyorsa kod geri gelir.
+                        </div>
+                      )}
+                      {ecuClearResult?.tx === tx && (
+                        <div
+                          data-testid={`ecu-clear-result-${tx}`}
+                          className={`mt-1 text-[10px] font-bold ${ecuClearResult.success ? 'text-[color:var(--oem-success)]' : 'text-[color:var(--oem-warn)]'}`}
+                        >
+                          {ecuClearResult.message}
+                        </div>
+                      )}
+                    </div>
                     <span className={
-                      failed ? 'text-[color:var(--oem-warn)] font-bold'
+                      !reachable || partial ? 'text-[color:var(--oem-warn)] font-bold'
                       : r.codes.length > 0 ? 'text-[color:var(--oem-danger)] font-black'
                       : 'text-[color:var(--oem-success)] font-bold'
                     }>
-                      {failed ? 'okunamadı'
+                      {!reachable ? 'ECU erişimi doğrulanamadı'
                         : r.codes.length > 0 ? `${r.codes.length} kod`
-                        : 'temiz'}
+                        : partial || !readable ? 'ECU erişilebilir · tarama kısmi'
+                          : 'arıza bulunamadı'}
                     </span>
                   </div>
                 );
@@ -694,6 +803,38 @@ function DTCPanelInner({ active = false }: { active?: boolean }) {
               Mode 03'tür; bu blok ECU BAŞINA fiziksel okumanın künyesidir ve
               ikisi AYRI gerçeklerdir — bu yüzden "çift gösterim" değil,
               provenance'ı ayrı iki kayıttır (rozetler hangisi olduğunu yazar). */}
+          {multiEcu.allCodes.length > 0 && (
+            <div className="mt-3 pt-3 border-t border-[var(--oem-border)]">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-[10px] font-black uppercase tracking-widest text-[color:var(--oem-text-dim)]">
+                  Yapay zekâ açıklaması
+                </span>
+                <button
+                  type="button"
+                  data-testid="dtc-ai-explain"
+                  onClick={() => void handleAiExplain()}
+                  disabled={aiExplain?.loading === true || isBusy}
+                  className="text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-lg border border-[var(--oem-accent)] text-[color:var(--oem-accent)] disabled:opacity-40"
+                >
+                  {aiExplain?.loading ? 'HAZIRLANIYOR…' : aiExplain?.text ? 'YENİDEN AÇIKLA' : 'YAPAY ZEKÂ İLE AÇIKLA'}
+                </button>
+              </div>
+              {aiExplain?.error && (
+                <div className="mt-2 text-[11px] text-[color:var(--oem-warn)]">{aiExplain.error}</div>
+              )}
+              {aiExplain?.text && (
+                <div data-testid="dtc-ai-explain-text" className="mt-2">
+                  <div className="text-[9px] font-black uppercase tracking-widest text-[color:var(--oem-warn)]">
+                    Yapay zekâ yorumu — doğrulanmış kayıt değildir, kesin teşhis için servise danışın
+                  </div>
+                  <div className="mt-1.5 text-xs leading-relaxed whitespace-pre-wrap text-[color:var(--oem-text)]">
+                    {aiExplain.text}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {multiEcu.allCodes.length > 0 && (
             <div className="mt-3 pt-3 border-t border-[var(--oem-border)] space-y-2">
               <div className="text-[10px] font-black uppercase tracking-widest text-[color:var(--oem-text-dim)]">
@@ -795,7 +936,7 @@ function DTCPanelInner({ active = false }: { active?: boolean }) {
 
           {multiEcu.failedReads > 0 && (
             <div className="mt-2 text-[11px] text-[color:var(--oem-warn)]">
-              {multiEcu.failedReads} okuma tamamlanamadı — bu tarama KISMİ, sonuç kesin değil.
+              {multiEcu.failedReads} DTC alt servisi yanıt vermedi — ECU bağlantısı doğrulanmış olsa da tarama kapsamı kısmi.
             </div>
           )}
         </div>
@@ -1166,5 +1307,3 @@ function DTCPanelInner({ active = false }: { active?: boolean }) {
 }
 
 export const DTCPanel = memo(DTCPanelInner);
-
-

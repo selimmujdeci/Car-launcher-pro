@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { isSupabaseConfigured } from '@/lib/supabase';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
+/* F0.6 · Demo/mock yolu YALNIZ kanıtlanabilir dev/test koşulunda açılır. */
+import {
+  isDemoFallbackAllowed, MISCONFIGURED_BODY, MISCONFIGURED_STATUS,
+} from '@/lib/demoModeGuard';
 
 // Demo mode: in-memory code store (populated by /vehicle/code)
 // Key: code string, Value: { vehicleId, expiresAt, used }
@@ -15,7 +19,10 @@ const DEMO_VEHICLES: Record<string, { id: string; name: string; plate: string }>
 let demoVehicleIndex = 0;
 
 async function getUserId(req: NextRequest): Promise<string | null> {
-  if (!isSupabaseConfigured) return 'mock-user';
+  /* F0.6 · FAIL-CLOSED: yapılandırma eksikse sahte kullanıcı ÜRETİLMEZ.
+     Eskiden burada koşulsuz `'mock-user'` dönülüyordu; üretimde env eksik
+     kalırsa kimlik doğrulaması sessizce kayboluyordu. */
+  if (!isSupabaseConfigured) return isDemoFallbackAllowed() ? 'mock-user' : null;
 
   const auth = req.headers.get('Authorization') ?? '';
   const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
@@ -33,12 +40,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Geçerli 6 haneli bir kod girin.' }, { status: 400 });
     }
 
+    /* F0.6 · ÜRETİMDE YAPILANDIRMA EKSİKSE EŞLEŞTİRME YAPILMAZ.
+       Kimlik kontrolünden ÖNCE gelir: hata sınıfı "yetkisiz" değil,
+       "servis yanlış yapılandırılmış"tır ve bunu açıkça söyler. */
+    if (!isSupabaseConfigured && !isDemoFallbackAllowed()) {
+      console.error('vehicle/link: Supabase yapılandırması eksik — üretimde demo yoluna DÜŞÜLMEZ');
+      return NextResponse.json(MISCONFIGURED_BODY, { status: MISCONFIGURED_STATUS });
+    }
+
     const userId = await getUserId(req);
     if (!userId) {
       return NextResponse.json({ error: 'Kimlik doğrulama gerekli.' }, { status: 401 });
     }
 
-    // ── Demo mode ──────────────────────────────────────────────────
+    // ── Demo mode (yalnız NODE_ENV !== 'production') ───────────────
     if (!isSupabaseConfigured) {
       const entry = demoCodes.get(code);
 

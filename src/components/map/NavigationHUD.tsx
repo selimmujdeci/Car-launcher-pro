@@ -32,6 +32,7 @@ import {
   computeFuelEstimate,
 } from '../../platform/routingService';
 import type { RouteStep } from '../../platform/routingService';
+import { TOMTOM_ROUTING_SERVER } from '../../platform/routing/tomtomRouting';
 import { useStore } from '../../store/useStore';
 import { useGPSLocation } from '../../platform/gpsService';
 // TEK MESAFE KAYNAĞI: tüm km gösterimleri (Benzinlik/İş/Ev/Özel) bu kanonik
@@ -682,8 +683,12 @@ const PreviewCard = memo(function PreviewCard({
   honesty?: NavigationHonestyVerdict;
 }) {
   const routeChip = honesty.chips.find((c) => c.id === 'route') ?? null;
-  const { altDistances, altDurations, altRealIndices, altHasToll, hasToll, totalDurationSeconds: mainDurS } = useRouteState();
+  const { altDistances, altDurations, altRealIndices, altHasToll, hasToll, serverUsed, totalDurationSeconds: mainDurS } = useRouteState();
   const hasAlts = altDistances.length > 0;
+  /* TomTom ücretli bölümü (sectionType=toll) BİLDİRİR; diğer sağlayıcılarda
+     `hasToll` yalnız yol sınıfı sezgisidir — "yok" diyemeyiz (smoke 2026-09-24:
+     TomTom rotasında da "Ücret bilgisi yok (OSRM)" yazıyordu). */
+  const tollReported = serverUsed === TOMTOM_ROUTING_SERVER;
 
   const altsRef  = useRef<HTMLDivElement | null>(null);
 
@@ -740,10 +745,13 @@ const PreviewCard = memo(function PreviewCard({
               </div>
             )}
           </div>
+          {/* Alçak ekranda (telefon yatay, ≤480 px) sayfa ekranın TEPESİNE uzanır ve
+              bu × sabit "ANA EKRAN" düğmesinin (sağ üst, ~118 px) ALTINDA kalıyordu
+              (saha 2026-09-24). Orada ANA EKRAN'ın soluna alınır; head unit'te yer değişmez. */}
           <button
             onClick={onCancel}
             aria-label="Navigasyonu iptal et"
-            className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 active:scale-90 transition-all bg-[var(--oem-surface-2)] border border-[var(--oem-line)] mt-0.5"
+            className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 active:scale-90 transition-all bg-[var(--oem-surface-2)] border border-[var(--oem-line)] mt-0.5 [@media(max-height:480px)]:mr-[88px]"
           >
             <X className="w-4 h-4 text-[color:var(--oem-ink-3,rgba(240,235,224,0.52))]" />
           </button>
@@ -754,12 +762,12 @@ const PreviewCard = memo(function PreviewCard({
             {hasToll ? (
               <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[var(--oem-warn-soft)] border border-[var(--oem-warn)] text-[color:var(--oem-warn)] text-xs font-black uppercase tracking-widest">
                 <AlertCircle className="w-3.5 h-3.5" />
-                Olası ücretli geçiş (OGS/HGS)
+                {tollReported ? 'Ücretli geçiş var (OGS/HGS)' : 'Olası ücretli geçiş (OGS/HGS)'}
               </span>
             ) : (
               <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[var(--oem-surface-2)] border border-[var(--oem-line)] text-[color:var(--oem-ink-3)] text-xs font-black uppercase tracking-widest">
                 <AlertCircle className="w-3.5 h-3.5" />
-                Ücret bilgisi yok (OSRM)
+                {tollReported ? 'Ücretli geçiş yok' : 'Ücret bilgisi yok'}
               </span>
             )}
           </div>

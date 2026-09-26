@@ -20,6 +20,7 @@
 
 import { useEffect, useState } from 'react';
 import { useVidStore, type VidStore } from '../../store/useVidStore';
+import { observedInternetReachability } from '../connectivity/connectivityGate';
 import { safeGetRaw, safeSetRaw } from '../../utils/safeStorage';
 import { maskVinStrict } from '../privacy/vinMask';
 import {
@@ -382,7 +383,7 @@ function _scheduleResearch(key: string): void {
       {
         fetchFn: (...a: Parameters<typeof fetch>) => fetch(...a),
         nowMs: now,
-        online: typeof navigator !== 'undefined' ? navigator.onLine : null,
+        online: observedInternetReachability(),
         backendBase: _backendBase(),
       },
     ).then((result) => {
@@ -451,7 +452,7 @@ export function _setIdentityForTest(id: VehicleIdentityInput, nowMs = Date.now()
   _identity = id;
   _lastIdentitySig = _identitySig({
     vin: id.vin, make: id.make, model: id.model, modelYear: id.modelYear,
-    vehicleType: 'ice',
+    vehicleType: 'ice', calibrationId: null,
   });
   _recompute(nowMs);
 }

@@ -102,14 +102,26 @@ export type RecoveryDecision =
   | {
     readonly action: 'RESTORE_PAUSED';
     readonly state: PersistedPlaybackState;
-    /** Kurtarma HER ZAMAN duraklatılmış yüklenir — otomatik çalma YOK. */
+    /** Varsayılan: duraklatılmış yüklenir — otomatik çalma YOK. */
     readonly autoPlay: false;
+  }
+  | {
+    /** Yalnız kullanıcı "açılışta devam" ayarını AÇTIYSA ve müzik ÇALARKEN kapandıysa. */
+    readonly action: 'RESTORE_PLAYING';
+    readonly state: PersistedPlaybackState;
+    readonly autoPlay: true;
   };
+
+export interface RecoveryOptions {
+  /** Kullanıcının AÇIK tercihi (`settings.resumeMusicOnStart`); varsayılan kapalı. */
+  readonly resumeIfWasPlaying?: boolean;
+}
 
 /** Bozuk/eski kaydı okur ve NE YAPILACAĞINA karar verir (saf karar, I/O yok). */
 export function decideRecovery(
   raw: string | null,
   nowMs: number,
+  options: RecoveryOptions = {},
 ): RecoveryDecision {
   if (!raw) return { action: 'NONE', reason: 'no_saved_state' };
 
@@ -157,9 +169,14 @@ export function decideRecovery(
     recoveryAttempts: (s.recoveryAttempts ?? 0) + 1,
   };
 
-  // KRİTİK: kullanıcı duraklattıysa da, çalıyorken öldüyse de SONUÇ AYNI —
-  // kurtarma otomatik ses çıkarmaz. Araç kontağı/güç durumu bilinmiyorken
-  // kendiliğinden çalmak sürücü için beklenmedik ve tehlikelidir.
+  /* OEM davranışı (kontakta son kaynağa devam) YALNIZ kullanıcı açıkça
+     istediyse: müzik kapanırken GERÇEKTEN çalıyordu ve kullanıcı DURAKLATMAMIŞTI.
+     Aksi her durumda — ayar kapalı, kullanıcı duraklatmış, çalmıyordu —
+     kurtarma otomatik ses ÇIKARMAZ: güç/kontak durumu bilinmiyorken
+     kendiliğinden çalmak beklenmedik ve tehlikelidir. */
+  if (options.resumeIfWasPlaying === true && state.lastObservedPlaying && !state.userPaused) {
+    return { action: 'RESTORE_PLAYING', state, autoPlay: true };
+  }
   return { action: 'RESTORE_PAUSED', state, autoPlay: false };
 }
 

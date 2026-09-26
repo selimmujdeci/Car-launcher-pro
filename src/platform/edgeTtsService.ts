@@ -14,6 +14,7 @@ import { requestDuck, type DuckHandle } from './media/authority/duckRequest';
 import type { DuckReason } from './media/authority/duckPolicy';
 /* MAVI-F0: TTS sentez + ilk duyulabilir ses ölçümü (YALNIZ ÖLÇÜM). */
 import { markMaviLatency } from './assistant/maviLatencyTrace';
+import { allowsConnectivity } from './connectivity/connectivityGate';
 
 const TTS_URL =
   (import.meta.env.VITE_EDGE_TTS_URL as string | undefined) || 'https://carospro.com/api/tts';
@@ -116,7 +117,8 @@ export function splitForSynthesis(text: string): string[] {
 
 /** Edge TTS şu an denenebilir mi (online + soğumada değil). */
 export function isEdgeTtsAvailable(): boolean {
-  if (typeof navigator !== 'undefined' && navigator.onLine === false) return false;
+  /* F7 — kullanicinin bekledigi etkilesimli bulut cagrisi. */
+  if (!allowsConnectivity('CLOUD_INTERACTIVE')) return false;
   return Date.now() >= _coolUntil;
 }
 

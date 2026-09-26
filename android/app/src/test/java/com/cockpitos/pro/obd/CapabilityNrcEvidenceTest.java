@@ -104,6 +104,22 @@ public class CapabilityNrcEvidenceTest {
         assertNull(ev.nrc);
     }
 
+    /* Saha 2026-09-23 (Renault 7E0): tek istekte ≤3 DID (22 D1 D2 D3). Yanıt
+       62 D1 <v1> D2 <v2> D3 <v3> — önek yalnız İLK DID; ayrıştırma TS'te. */
+    @Test
+    public void detailed_cokluDid_ilkDidOnekiyleKabulEdilir_geriKalanHamTasinir() throws Exception {
+        ElmProtocol p = protoWith(new FakeChannel().on("222002200B200C", "62 2002 0D 5B 20 0B 02 BF 20 0C 01 60"));
+        ElmProtocol.UdsEvidence ev = p.readDataByIdDetailed("22", "2002200B200C");
+        assertEquals("OK", ev.kind);
+        assertEquals("0D5B200B02BF200C0160", ev.data);
+    }
+
+    @Test
+    public void detailed_tekliDid_onekDavranisiDegismedi() throws Exception {
+        ElmProtocol p = protoWith(new FakeChannel().on("222002", "62 2002 0D 5B"));
+        assertEquals("0D5B", p.readDataByIdDetailed("22", "2002").data);
+    }
+
     @Test
     public void detailed_noData_NO_DATA_olarakAyrisir_unsupportedDEGIL() {
         // KRİTİK: NO DATA "araç kimliği tanımıyor" DEMEK DEĞİLDİR (bitmap destekli PID de

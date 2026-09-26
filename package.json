@@ -41,7 +41,11 @@
     "release:aab": "npm run build && npx cap sync android && node scripts/gradle-build.mjs bundleRelease",
     "ota:publish": "node scripts/publish-ota.mjs",
     "test:identity": "node scripts/run-db-matrix.mjs supabase/tests/069_p0_001a_identity_matrix.sql \"6 HALKA DA GECTI\"",
-    "test:e2ekey": "node scripts/run-db-matrix.mjs supabase/tests/070_e2e_key_publish_matrix.sql \"7 HALKA DA GECTI\""
+    "test:e2ekey": "node scripts/run-db-matrix.mjs supabase/tests/070_e2e_key_publish_matrix.sql \"7 HALKA DA GECTI\"",
+    "test:critical": "node scripts/run-db-matrix.mjs supabase/tests/083_critical_authority_matrix.sql \"8 HALKA DA GEÇTİ\"",
+    "test:devicekey": "node scripts/run-db-matrix.mjs supabase/tests/084_device_key_hash_matrix.sql \"6 HALKA DA GEÇTİ\"",
+    "test:push": "node scripts/run-db-matrix.mjs supabase/tests/085_push_authority_matrix.sql \"6 HALKA DA GEÇTİ\"",
+    "test:authedge": "node scripts/run-db-matrix.mjs supabase/tests/086_authority_edge_matrix.sql \"3 HALKA DA GEÇTİ\""
   },
   "dependencies": {
     "@capacitor/android": "^8.4.1",

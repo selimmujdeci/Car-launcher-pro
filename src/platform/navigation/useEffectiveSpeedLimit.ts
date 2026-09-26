@@ -28,7 +28,31 @@ import {
 } from './core/vehicleAwareSpeedLimitAuthority';
 import { useVehicleClassSnapshot } from '../vehicle/vehicleClassRuntime';
 import { useGPSLocation } from '../gpsService';
-import { useNavigation, NavStatus, getSnappedMarkerPosition } from '../navigationService';
+import { useNavigation, NavStatus, getSnappedMarkerPosition, getRouteProgressPoint } from '../navigationService';
+import { getRouteState } from '../routingService';
+import { speedLimitOnRouteAt } from '../routing/tomtomRouting';
+import type { SpeedLimitObservation } from './core/speedLimitTruthModel';
+
+/**
+ * Aktif rotanın sağlayıcısı (TomTom) aracın bulunduğu segment için yasal hız
+ * sınırı bildirdiyse onu GÖZLEM olarak döndürür; yoksa `null`.
+ * Koşul: navigasyon canlı ve araç rotaya OTURMUŞ (`getRouteProgressPoint` —
+ * koridor dışında null) — aksi hâlde rotanın limiti aracın yolu olmayabilir.
+ * Yeni otorite DEĞİL: aynı sınıflandırıcıdan (`classifySpeedLimit`) geçer.
+ */
+function _routeSpeedLimitObservation(navLive: boolean): SpeedLimitObservation | null {
+  if (!navLive) return null;
+  try {
+    const prog = getRouteProgressPoint();
+    if (!prog) return null;
+    const kmh = speedLimitOnRouteAt(getRouteState().speedLimitSections ?? [], prog.segIdx);
+    if (kmh === null) return null;
+    return {
+      kmh, source: 'route', resolvedAtMs: performance.now(),
+      resolvedAtLat: prog.lat, resolvedAtLon: prog.lon, conflicting: false, highway: null,
+    };
+  } catch { return null; }
+}
 
 /**
  * Aracın hız limiti için KANONİK konumu.
@@ -64,12 +88,18 @@ export function useEffectiveSpeedLimit(): EffectiveSpeedLimit {
   useSpeedLimitByLocation(lat, lon);
   const obs = useSpeedLimitObservation();
   const vehicle = useVehicleClassSnapshot();
+  const { status } = useNavigation();
 
-  const road = classifySpeedLimit(obs, { lat, lon, nowMs: performance.now() }, false);
+  /* Rotada ve sağlayıcı sınır bildirdiyse o kullanılır (Türkiye'de OSM `maxspeed`
+     kapsamı zayıf); yoksa OSM sorgusu — ikisi AYNI sınıflandırıcıdan geçer. */
+  const routeObs = _routeSpeedLimitObservation(
+    status === NavStatus.ACTIVE || status === NavStatus.REROUTING);
+  const chosen: SpeedLimitObservation = routeObs ?? obs;
+  const road = classifySpeedLimit(chosen, { lat, lon, nowMs: performance.now() }, false);
   const roadClass = resolveRoadClass({
     highway: obs.highway ?? null,
-    postedKmh: obs.kmh,
-    postedSource: obs.source,
+    postedKmh: chosen.kmh,
+    postedSource: chosen.source,
   });
 
   return computeEffectiveSpeedLimit({ road, roadClass, vehicleClass: vehicle.profile });

@@ -185,7 +185,19 @@ function applyVoiceSetting(
     if (action === 'set' && value)      next = parseInt(value, 10);
     else if (action === 'inc')          next = cur + _SETTING_STEP;
     else if (action === 'dec')          next = cur - _SETTING_STEP;
-    next = Math.max(0, Math.min(100, Number.isFinite(next) ? next : cur));
+    /* Değişmeyen değer "uygulandı" SAYILMAZ (smoke 2026-09-26): değer
+       okunamadıysa ya da zaten sınırdaysa geri okuma eskisiyle eşleşip sahte
+       "Ses ayarlandı" / "Parlaklık artırıldı" üretiyordu. */
+    if (action === 'set' && !Number.isFinite(parseInt(value ?? '', 10))) {
+      return { kind: 'REJECTED', key, reason: 'missing_value' };
+    }
+    /* GÜVENLİK: sesle parlaklık %10'un ALTINA inmez — sürüşte ekran simsiyah
+       kalıyordu ("ekranı karart" → %0, smoke 2026-09-26). */
+    const floor = key === 'brightness' ? 10 : 0;
+    next = Math.max(floor, Math.min(100, Number.isFinite(next) ? next : cur));
+    if ((action === 'inc' || action === 'dec') && next === cur) {
+      return { kind: 'REJECTED', key, reason: action === 'inc' ? 'at_max' : 'at_min' };
+    }
     update({ [key]: next } as unknown as Partial<AppSettings>);
     if (key === 'brightness' && isNative) {
       void CarLauncher.setBrightness({ value: Math.round((next / 100) * 255) })
@@ -309,11 +321,37 @@ import {
   findSavedLocationByName, shareSavedLocation, buildLocationShareText,
 } from '../platform/savedLocations/savedLocationsService';
 import { searchContacts } from '../platform/contactsService';
+import { recipientCandidates } from '../platform/savedLocationCommandParser';
 import { prepareWhatsAppMessage } from '../platform/whatsappShare';
 import type { ParsedCommand } from '../platform/commandParser';
 import type { SmartSnapshot } from '../platform/smartEngine';
 import type { DrawerType } from '../components/layout/DockBar';
 import { executeAIResult } from '../platform/commandExecutor';
+
+/** Konum komutları için GPS kalitesi (saha 2026-09-24: "Mavi düzgün konum alıyor mu?"). */
+const LOCATION_CMD_MAX_AGE_MS = 60_000;
+const LOCATION_CMD_MAX_ACCURACY_M = 100;
+
+/**
+ * Kaydet/gönder/paylaş için KULLANILABİLİR konum ya da sürücüye söylenecek
+ * neden. Bayat (≥60 sn) ya da kaba (±100 m üstü) fix ile konum KAYDEDİLMEZ /
+ * GÖNDERİLMEZ — eskiden son bilinen konum, yaşına ve doğruluğuna bakılmadan
+ * kullanılıyordu (otoparkta saatler önceki fix "şelale" diye kaydedilebilirdi).
+ */
+function _freshFixForLocationCommand(): { lat: number; lng: number } | { reason: string } {
+  const gps = getGPSState().location;
+  if (!gps || !Number.isFinite(gps.latitude) || !Number.isFinite(gps.longitude)) {
+    return { reason: 'GPS sinyali yok' };
+  }
+  const ts = gps.timestamp;
+  if (typeof ts === 'number' && ts > 1e12 && Date.now() - ts > LOCATION_CMD_MAX_AGE_MS) {
+    return { reason: 'konumum güncel değil, GPS sinyali bekleniyor' };
+  }
+  if (Number.isFinite(gps.accuracy) && gps.accuracy > LOCATION_CMD_MAX_ACCURACY_M) {
+    return { reason: `konum henüz netleşmedi (yaklaşık ${Math.round(gps.accuracy)} metre sapma)` };
+  }
+  return { lat: gps.latitude, lng: gps.longitude };
+}
 
 /**
  * Serbest adres navigasyonu — ÖNCE Özel Konumlar'da isim eşleşmesi arar
@@ -578,14 +616,14 @@ export function useVoiceCommandHandler({
       // Sonuç-temelli ACK: parser metni ("X kaydediliyor") burada KONUŞULMAZ
       // (voiceCommandPolicy.RESULT_ACK_COMMAND_TYPES) — cevap GERÇEK sonuçtan üretilir.
       if (cmd.type === 'save_location') {
-        const gps = getGPSState().location;
-        if (!gps) {
-          // GPS kanıtı YOK → konum UYDURULMAZ, sahte kayıt oluşmaz (fail-closed).
-          speakMaviAnswer('GPS sinyali yok, konumu kaydedemedim.');
+        const fix = _freshFixForLocationCommand();
+        if ('reason' in fix) {
+          // Güvenilir konum YOK → konum UYDURULMAZ, sahte/bayat kayıt oluşmaz (fail-closed).
+          speakMaviAnswer(`${fix.reason.charAt(0).toLocaleUpperCase('tr-TR')}${fix.reason.slice(1)}, konumu kaydedemedim.`);
           return;
         }
         const rawName = cmd.extra?.name ?? '';
-        const saved = addSavedLocation(gps.latitude, gps.longitude, rawName || null);
+        const saved = addSavedLocation(fix.lat, fix.lng, rawName || null);
         speakMaviAnswer(saved ? `${saved.name} olarak kaydettim.` : 'Konumu kaydedemedim.');
         return;
       }
@@ -608,6 +646,16 @@ export function useVoiceCommandHandler({
       }
 
       if (cmd.type === 'share_location') {
+        if (cmd.extra?.isCurrent === '1') {
+          const fix = _freshFixForLocationCommand();
+          if ('reason' in fix) {
+            speakMaviAnswer(`${fix.reason.charAt(0).toLocaleUpperCase('tr-TR')}${fix.reason.slice(1)}, konumu paylaşamadım.`);
+            return;
+          }
+          void shareSavedLocation({ id: 'current', name: 'Şu anki konum', lat: fix.lat, lng: fix.lng, timestamp: Date.now() })
+            .then((r) => { if (!r.ok) speakMaviAnswer('Konumu paylaşamadım.'); });
+          return;
+        }
         const targetName = cmd.extra?.name ?? '';
         const { match, ambiguous } = findSavedLocationByName(targetName);
         if (ambiguous.length > 0) {
@@ -653,7 +701,13 @@ export function useVoiceCommandHandler({
         const isCurrent = cmd.extra?.isCurrent === '1';
 
         const finishWithLocation = (locName: string, lat: number, lng: number): void => {
-          const contactMatches = searchContacts(recipientRaw, 'frequent');
+          /* Sesli dökümde kesme işareti yok ("ahmete", "mehmet abiye"): hal eki
+             soyulmuş adaylar SIRAYLA denenir; ilk eşleşen aday kullanılır. */
+          let contactMatches: ReturnType<typeof searchContacts> = [];
+          for (const cand of recipientCandidates(recipientRaw)) {
+            contactMatches = searchContacts(cand, 'frequent');
+            if (contactMatches.length > 0) break;
+          }
           if (contactMatches.length === 0) {
             speakMaviAnswer(`${recipientRaw} rehberde bulunamadı.`);
             return;
@@ -682,13 +736,13 @@ export function useVoiceCommandHandler({
         };
 
         if (isCurrent) {
-          const gps = getGPSState().location;
-          if (!gps) {
-            // GPS kanıtı YOK → konum UYDURULMAZ (fail-closed) — save_location ile AYNI ilke.
-            speakMaviAnswer('GPS sinyali yok, konumu gönderemedim.');
+          const fix = _freshFixForLocationCommand();
+          if ('reason' in fix) {
+            // Güvenilir konum YOK → konum UYDURULMAZ (fail-closed) — save_location ile AYNI ilke.
+            speakMaviAnswer(`${fix.reason.charAt(0).toLocaleUpperCase('tr-TR')}${fix.reason.slice(1)}, konumu gönderemedim.`);
             return;
           }
-          finishWithLocation('Şu anki konum', gps.latitude, gps.longitude);
+          finishWithLocation('Şu anki konum', fix.lat, fix.lng);
           return;
         }
 

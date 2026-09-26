@@ -24,6 +24,7 @@
  */
 
 import { readSessionRawSnapshot } from '../devtools/sessionInspectorSources';
+import { observedInternetReachability } from '../connectivity/connectivityGate';
 import { readPairingAuthority, readTelemetryPushObservation } from '../devtools/fleetConnectivitySources';
 import { getOBDDataSnapshot } from '../obdService';
 import { readLocationEngineSnapshot } from '../location/locationEngineRuntime';
@@ -169,7 +170,7 @@ export function readLongRoadSample(
       : null,
     tripTotalCount:      trip ? _numOrNull(trip.totalTrips) : null,
 
-    online: _safe(() => navigator.onLine),
+    online: _safe(() => observedInternetReachability()),
     telemetryReportPresent: tel !== null,
     offlineQueueSize: inj.offlineQueueSize,
 

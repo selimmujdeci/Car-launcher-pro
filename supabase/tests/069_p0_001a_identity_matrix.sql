@@ -134,7 +134,10 @@ BEGIN
   -- (d) Saklı anahtar DEĞİŞMEMELİ — cihaz kilitlenmemeli
   SELECT coalesce(api_key_hash, api_key) INTO v_stored
     FROM public.vehicles WHERE id = v_veh;
-  IF v_stored IS DISTINCT FROM v_key_first THEN
+  /* 084 sonrası saklanan = sha256(ham); öncesinde ham. İkisi de "ilk anahtar
+     hâlâ geçerli" demektir — cihaz kilitlenmez. */
+  IF v_stored IS DISTINCT FROM v_key_first
+     AND v_stored IS DISTINCT FROM encode(sha256(convert_to(v_key_first,'UTF8')),'hex') THEN
     RAISE EXCEPTION 'HALKA 2 DUSTU: sakli anahtar DEGISTI — sahadaki cihaz kilitlenirdi';
   END IF;
 

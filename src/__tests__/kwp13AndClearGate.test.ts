@@ -61,12 +61,16 @@ describe('P0-OBD-DIAG-02 › 0x13 kanonik otoritede AYRI kaynaktır', () => {
     /* Sessizlikte ya da hat hatasında denemek yanlış olurdu: o durumda adres/hat
        şüphelidir ve fazladan istek yalnız K-line'ı meşgul eder. */
     const src = scan();
-    expect(src, '0x13 kapısı kaldırılmış')
-      .toContain("if (outcome === 'unsupported') return await _readKwp13ForEcu(");
+    /* 2026-09-21 (570a351f): çağrıya `initFirst` eklendi ve `if` bloğa çevrildi —
+       kilit YAZIMA değil ANLAMA bakar: 0x13 yalnız `unsupported` dalında çağrılır. */
+    const gate = /if \(outcome === 'unsupported'\)\s*\{?\s*return await _readKwp13ForEcu\(/.exec(src);
+    expect(gate, '0x13 kapısı kaldırılmış').not.toBeNull();
     /* Kapı, 0x18 sonucu ok DEĞİLKEN çalışan dalın İÇİNDE olmalı. */
-    const gateIdx = src.indexOf("if (outcome === 'unsupported') return await _readKwp13ForEcu(");
+    const gateIdx = gate!.index;
     const okIdx   = src.indexOf("const envelope = validateKwpDtcResponse(res.raw);");
     expect(gateIdx, '0x13 kapısı pozitif dalın içine kaymış').toBeLessThan(okIdx);
+    /* 0x13 başka bir yerden ÇAĞRILMAZ (tek kapı). */
+    expect(src.match(/await _readKwp13ForEcu\(/g)?.length, '0x13 kapı dışından da çağrılıyor').toBe(1);
   });
 
   it('🔒 KİLİT: 0x13 de HEDEF KANITI olmadan gönderilmez (native kapı)', () => {
@@ -75,7 +79,8 @@ describe('P0-OBD-DIAG-02 › 0x13 kanonik otoritede AYRI kaynaktır', () => {
       .toContain('if (("18".equals(service) || "13".equals(service)) && !targetVerified)');
     /* Kapı, gönderim dalından ÖNCE olmalı. */
     const gate = p.indexOf('|| "13".equals(service)) && !targetVerified');
-    const send = p.indexOf('readAdvancedKwp13Dtc(tx, rx)');
+    /* 570a351f: `initFirst` parametresi eklendi — gönderim çağrısı yazımdan bağımsız aranır. */
+    const send = p.indexOf('readAdvancedKwp13Dtc(tx, rx');
     expect(gate).toBeGreaterThan(0);
     expect(gate, 'kapı gönderimden SONRA').toBeLessThan(send);
   });
@@ -229,6 +234,16 @@ describe('P0-OBD-DIAG-02 › üretici silme kapısı FAIL-CLOSED', () => {
       });
       expect(d.denyReasons).toContain('NO_TARGET');
       expect(d.resolvedTarget).toBeNull();
+    }
+  });
+
+  it('🔒 SAHA 2026-09-22: 11-bit CAN ECU (7E1) geçerli hedeftir; fonksiyonel yayın DEĞİLDİR', () => {
+    const can = { ...FULL, protocolActive: '6', target: { ...FULL.target, txHeader: '7E1', rxHeader: '7E9', sourceService: '19' as const } };
+    expect(evaluateManufacturerClearGate(can).allowed).toBe(true);
+    expect(evaluateManufacturerClearGate(can).resolvedTarget).toBe('7E1');
+    for (const tx of ['7DF', '18DB33F1']) {
+      const d = evaluateManufacturerClearGate({ ...can, target: { ...can.target, txHeader: tx } });
+      expect(d.denyReasons, `${tx} hedef sayıldı`).toContain('NO_TARGET');
     }
   });
 

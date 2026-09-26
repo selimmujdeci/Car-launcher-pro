@@ -23,7 +23,7 @@ import {
   type DtcClearCommandOutcome, type DtcClearVerdict,
 } from '../obd/dtcClearModel';
 import type {
-  DtcClearAttempt, DtcClearEvidenceSummary, DtcClearRereadOutcome,
+  DtcClearAttempt, DtcClearEvidenceSummary, DtcClearRereadClass, DtcClearRereadOutcome,
 } from '../obd/dtcClearEvidence';
 
 export type ClearTone = 'ok' | 'warn' | 'bad' | 'muted';
@@ -124,10 +124,11 @@ export interface ClearAttemptRow {
   readonly permanentText: string;
 }
 
-const CLASS_TITLE: Readonly<Record<'03' | '07' | '0A', string>> = {
+const CLASS_TITLE: Readonly<Record<DtcClearRereadClass['service'], string>> = {
   '03': 'Mode 03 — ONAYLANMIŞ',
   '07': 'Mode 07 — BEKLEYEN',
   '0A': 'Mode 0A — KALICI',
+  '19': 'UDS 19-02 — ÜRETİCİ',
 } as const;
 
 const GATE_DENY_TEXT: Readonly<Record<string, string>> = {
@@ -164,7 +165,8 @@ export function buildClearAttemptRow(a: DtcClearAttempt, index: number): ClearAt
     /* Ham yanıt yoksa UNAVAILABLE: boş string "ham geldi ama boştu" demek olurdu. */
     rawText:      a.raw === null || a.raw.length === 0 ? UNAVAILABLE : a.raw,
     /* Ürün Mode 04'ü FONKSİYONEL adresle yayınlar; belirli bir ECU seçilmez. */
-    scopeText:    a.scope === 'functional_7DF' ? 'FONKSİYONEL (7DF) — tüm emisyon ECU’ları' : UNAVAILABLE,
+    scopeText:    a.scope === 'functional_7DF' ? 'FONKSİYONEL (7DF) — tüm emisyon ECU’ları'
+      : a.scope === 'physical_ecu' && a.target ? `FİZİKSEL — yalnız ${a.target} (UDS 0x14)` : UNAVAILABLE,
     protocolText: a.protocol === null ? UNAVAILABLE : `ATDPN ${a.protocol}`,
     elapsedText:  a.elapsedMs === null ? UNAVAILABLE : `${a.elapsedMs} ms`,
     commandLabel: a.commandOutcome === null

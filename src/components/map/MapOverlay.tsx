@@ -132,8 +132,12 @@ export const MapOverlay = memo(function MapOverlay({
       isDriving ? 'bg-gradient-to-t from-black/50 via-transparent to-transparent' : ''
     }`}>
 
-      {/* Source badge — top-right */}
-      <div className={`absolute top-8 right-8 transition-all duration-700 ${isDriving ? 'opacity-30 scale-90 translate-x-4' : 'opacity-100'}`}>
+      {/* Source badge — sağ üst, köşe düğmesinin (KAPAT / ANA EKRAN) SOLUNDA.
+       *  top-8 right-8 idi: telefonda ölçüldü (2026-09-24, 904×406 css px) rozet
+       *  [789,28,876,56] KAPAT'ın [796,17,887,61] tamamen ALTINDA kalıyordu —
+       *  hiç görünmüyordu. Köşe düğmesi ≤ ~106 px + 12 px kenar → 8.25rem.
+       *  Sürüşteki `translate-x-4` kaldırıldı: rozeti 16 px köşe düğmesine itiyordu. */}
+      <div style={{ top: 'calc(var(--sat, 0px) + 20px)' }} className={`absolute right-[8.25rem] transition-all duration-700 ${isDriving ? 'opacity-30 scale-90' : 'opacity-100'}`}>
         <div className={`flex items-center gap-2.5 px-4 py-2 rounded-full bg-black/50 backdrop-blur-3xl border border-white/10 shadow-lg ${badge.text}`}>
           <div className={`w-2 h-2 rounded-full animate-pulse ${badge.dot}`} />
           <span className="text-[10px] font-black tracking-[0.2em] uppercase">{badge.label}</span>

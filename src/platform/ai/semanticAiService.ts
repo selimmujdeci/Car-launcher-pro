@@ -26,6 +26,7 @@ import { buildPidRegistryIntegrityPromptBlock } from './pidDescriptionGate';
 import { signalWithTimeout } from '../../utils/abortCompat';
 import { recordAiNetFailure, recordAiNetSuccess } from '../aiHealth';
 import { errorKindFromException } from './aiOfflineReason';
+import { allowsConnectivity } from '../connectivity/connectivityGate';
 
 /* ── POI Kategorileri ────────────────────────────────────────── */
 
@@ -276,7 +277,8 @@ export async function classifySemantic(
   }
 
   // ── 2. Direct AI ────────────────────────────────────────────
-  if (!navigator.onLine) return _offlineFallback();
+  /* F7 — etkilesimli bulut AI; belirsizlikte denenir, captive'de atlanir. */
+  if (!allowsConnectivity('CLOUD_INTERACTIVE')) return _offlineFallback();
 
   const resolvedKey = resolveApiKey(provider, apiKey);
   if (provider === 'none' || !resolvedKey) return _offlineFallback();
@@ -307,7 +309,7 @@ export function enrichBackground(
   apiKey:   string,
   ctx?:     VehicleContext,
 ): void {
-  if (!navigator.onLine) return;
+  if (!allowsConnectivity('CLOUD_INTERACTIVE')) return;
   const resolvedKey = resolveApiKey(provider, apiKey);
   if (provider === 'none' || !resolvedKey) return;
 

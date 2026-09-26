@@ -22,7 +22,6 @@ import {
 } from '../components/media/queuePanelModel';
 import { QueuePanel } from '../components/media/QueuePanel';
 import { createMusicViewModel, type MusicViewModel } from '../components/media/MusicViewModel';
-import { musicSurfaceVisibilityModel } from '../components/media/musicSurfaceVisibilityModel';
 import {
   _resetMusicUiPerfForTest, getMusicUiPerfSnapshot, markMetadataChanged,
   markNowPlayingInteraction, markQueueInteraction, recordMetadataCommit,
@@ -282,11 +281,19 @@ describe('F4 · kuyruk sunumu', () => {
       .toBe(500 - QUEUE_WINDOW_SIZE);
   });
 
-  it('sağlayıcı kuyruk düzenlemeyi desteklemiyorsa HİÇBİR eylem çizilmez', () => {
+  it('sağlayıcı kuyruk düzenlemeyi desteklemiyorsa DÜZENLEME çizilmez; gezinme (atla) kalır', () => {
     createQueue('SPOTIFY_CONNECT', [entry('a')], 0);
     const p = panelOf({ capabilities: getSource('SPOTIFY_CONNECT').capabilities, alignment: 'UNSUPPORTED' });
-    expect(p.actions).toEqual({ jump: false, remove: false, reorder: false, playNext: false });
+    expect(p.actions).toEqual({ jump: true, remove: false, reorder: false, playNext: false });
     expect(p.orderNotice).toMatchObject({ visible: true, message: 'Bu kaynakta sıra düzenlenemiyor' });
+  });
+
+  it('🔒 saha 2026-09-23: YouTube (kuyruk CarOS’ta) → listeden ATLAMA açık, düzenleme kapalı', () => {
+    expect(queueActionsFor(getSource('YOUTUBE').capabilities, 'normal'))
+      .toEqual({ jump: true, remove: false, reorder: false, playNext: false });
+    // Belirli öğeyi başlatamayan kaynakta (harici oturum) hiçbir eylem yok.
+    expect(queueActionsFor(getSource('EXTERNAL_MEDIA_SESSION').capabilities, 'normal'))
+      .toEqual({ jump: false, remove: false, reorder: false, playNext: false });
   });
 
   it('sürüşte düzenleme kapanır, atlama açık kalır', () => {
@@ -394,17 +401,13 @@ describe('F4 · sürüş ve hareket sözleşmesi', () => {
     expect(present(vmOf(), listeningOf({ queueEditable: false }), 'idle').queueEditingAllowed).toBe(false);
   });
 
-  it('MiniPlayer görünürlük politikası Now Playing açıkken çakışmaz', () => {
-    const music = vmOf();
-    expect(musicSurfaceVisibilityModel(music, {
-      drawerOpen: false, criticalSurfaceOpen: false, nowPlayingOpen: false,
-    })).toBe(true);
-    expect(musicSurfaceVisibilityModel(music, {
-      drawerOpen: false, criticalSurfaceOpen: false, nowPlayingOpen: true,
-    })).toBe(false);
-  });
+  /* KİLİT TAŞINDI (2026-09-05 ürün kararı): "MiniPlayer Now Playing ile
+     çakışmaz" kuralı, kokpitte MiniPlayer KALMADIĞI için konusuz kaldı.
+     Korunması gereken asıl şey — aynı anda İKİ oynatıcı yüzeyi olmaması —
+     `musicHomeSurface.test.ts` içinde ve aşağıdaki "aynı kanonik gerçek"
+     kilidinde yaşamaya devam ediyor. Kilit SİLİNMEDİ, doğru yerine geçti. */
 
-  it('MiniPlayer ve Now Playing AYNI kanonik gerçeği okur (iki gerçek yok)', () => {
+  it('Kokpit kartı ve Now Playing AYNI kanonik gerçeği okur (iki gerçek yok)', () => {
     const m = media({ playing: true });
     const s = snapshot({ playing: true, renderingVerified: true });
     const shell = createMusicViewModel(m, s);

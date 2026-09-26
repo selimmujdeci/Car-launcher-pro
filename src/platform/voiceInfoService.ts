@@ -32,6 +32,7 @@ import { getEarlyWarnings } from './obd/predictionRuntime';
 import { getObdSignalHealth } from './obdService';
 import { explainEarlyWarnings } from './obd/earlyWarningEngine';
 import { getMaintenanceSummaryText } from './vehicleMaintenanceService';
+import { takeLatestUnreadMessage, replyToLatestMessage } from './notificationService';
 
 /* ── Bilgi sorgusu tipleri ───────────────────────────────────────────────── */
 
@@ -46,6 +47,8 @@ const INFO_TYPES = new Set<CommandType>([
   'vehicle_temp',
   'vehicle_status',
   'vehicle_maintenance',
+  'read_message',
+  'reply_message',
 ]);
 
 export function isInformationalCommand(type: CommandType): boolean {
@@ -182,6 +185,30 @@ async function _speakStatus(turn: MaviTurnToken | null): Promise<void> {
   speakMaviAnswer(parts.join(', ') + '.', { turn });
 }
 
+/* ── Mesaj (Telefon Merkezi) ─────────────────────────────────────────────── */
+
+/** "Mavi, oku": en son okunmamış mesajı gönderenle okur; yoksa bunu söyler. */
+function _speakLatestMessage(turn: MaviTurnToken | null): void {
+  const taken = takeLatestUnreadMessage();
+  if (!taken) { speakMaviAnswer('Okunmamış mesajın yok.', { turn }); return; }
+  const { message, remaining } = taken;
+  const more = remaining > 0 ? ` Okunmamış ${remaining} mesaj daha var.` : '';
+  speakMaviAnswer(`${message.sender} yazdı: ${message.text}${more}`, { turn });
+}
+
+/** "Mesaja X diye cevap yaz": sonuç YALNIZ native gönderim sonucundan söylenir. */
+async function _replyLatestMessage(text: string, turn: MaviTurnToken | null): Promise<void> {
+  if (!text) { speakMaviAnswer('Ne yazacağımı da söyle, örneğin "nasılsın diye cevap yaz".', { turn }); return; }
+  const res = await replyToLatestMessage(text);
+  if (res.ok) { speakMaviAnswer(`${res.sender} kişisine gönderildi: ${text}`, { turn }); return; }
+  speakMaviAnswer(
+    res.reason === 'no_message'      ? 'Cevap verilecek mesaj yok.'
+    : res.reason === 'no_reply_action' ? 'Bu mesaj buradan cevaplanamıyor.'
+    : 'Cevabı gönderemedim.',
+    { turn },
+  );
+}
+
 /* ── Genel giriş ─────────────────────────────────────────────────────────── */
 
 /**
@@ -191,6 +218,7 @@ async function _speakStatus(turn: MaviTurnToken | null): Promise<void> {
 export async function answerInformational(
   type: CommandType,
   turn: MaviTurnToken | null = null,
+  extra?: Record<string, string>,
 ): Promise<void> {
   switch (type) {
     case 'show_weather':         await _speakWeather(turn); break;
@@ -198,6 +226,8 @@ export async function answerInformational(
     case 'vehicle_fuel':         _speakFuel(turn);          break;
     case 'vehicle_temp':         _speakTemp(turn);          break;
     case 'vehicle_status':       await _speakStatus(turn);  break;
+    case 'read_message':         _speakLatestMessage(turn); break;
+    case 'reply_message':        await _replyLatestMessage((extra?.text ?? '').trim(), turn); break;
     case 'vehicle_maintenance': {
       try {
         const summary = await getMaintenanceSummaryText();

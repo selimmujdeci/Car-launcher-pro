@@ -79,6 +79,7 @@ import { getEnforcementHorizonPortSnapshot } from '../navigation/enforcementHori
 import { getCehShadowSnapshot } from '../navigation/shadow/cehShadowRuntime';
 import { getRouteRationaleLedger } from '../navigation/core/routeRationaleModel';
 import { getNavTickCostSnapshot } from '../navigation/core/navTickCostModel';
+import { randomToken } from '../../utils/randomId';
 
 /** Bir okumanın hatasını yutar — TEK bölümün çökmesi tüm örneği DÜŞÜRMEZ. */
 function _safe<T>(fn: () => T, fallback: T): T {
@@ -555,7 +556,7 @@ function _newSessionId(): string {
       return crypto.randomUUID();
     }
   } catch { /* aşağıya düş */ }
-  return `sess-${Math.random().toString(36).slice(2)}-${Date.now()}`;
+  return `sess-${randomToken(10)}-${Date.now()}`;
 }
 
 /**

@@ -179,7 +179,9 @@ export function dispatchNearbyPoiNavigation(
   // 3) Başlangıç TTS'i + gerçek arama/navigasyon.
   speakNavigation(i18n.t(def.successKey));
   resolveAndNavigate(def.sentinel, gps, (outcome: AddressNavOutcome) => {
-    if (outcome === 'empty') speakNavigation(i18n.t(def.notFoundKey));
+    // Başta yalnız "arıyorum" denir; rota ANCAK sonuç kesinleşince duyurulur.
+    if (outcome === 'confirmed') speakNavigation(i18n.t('navigation.nearby_route_starting'));
+    else if (outcome === 'empty') speakNavigation(i18n.t(def.notFoundKey));
     else if (outcome === 'error') speakNavigation(i18n.t(def.errorKey));
     // 'confirmed' / 'multiple' — resolveAndNavigate zaten UI state'ini günceller;
     // ek TTS gerekmiyor (confirmed rota başlar, multiple kullanıcı seçim kartı görür).

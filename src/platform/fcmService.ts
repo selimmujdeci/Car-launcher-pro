@@ -3,7 +3,7 @@
  *
  * Akış:
  *   1. App açılınca requestPermission() → FCM token al
- *   2. Token'ı Supabase'e kaydet (register_push_token RPC)
+ *   2. Token'ı ARAÇ CİHAZ kimliğiyle kaydet (`register_vehicle_push_token`)
  *   3. Data-only push gelince → CommandListener'ı kısa süreli uyan
  *   4. 30 saniye işlem yoksa → CommandListener kapanır (akü tasarrufu)
  *
@@ -15,12 +15,11 @@ import { PushNotifications } from '@capacitor/push-notifications';
 import { logInfo } from './debug';
 import { sensitiveKeyStore }  from './sensitiveKeyStore';
 // Statik import — dynamic import INEFFECTIVE_DYNAMIC_IMPORT uyarısını tetikler
-import { getSupabaseClient }  from './supabaseClient';
+import { ensureDevicePushTokenRegistered } from './vehicleIdentityService';
 import {
   startCommandListener, stopCommandListener,
   isCommandListenerActive, triggerPendingPoll,
 } from './commandListener';
-import { drainNativeCommandQueue }                   from './nativeCommandBridge';
 
 const WAKE_TIMEOUT_MS = 30_000; // 30s işlem yoksa WS kapat
 
@@ -70,23 +69,28 @@ function wakeCommandListener(): void {
 
 // ── FCM Token kaydı ───────────────────────────────────────────────────────────
 
+/**
+ * FCM token'ını ARAÇ CİHAZ kimliğiyle kaydeder (PROD-1A1).
+ *
+ * Eskiden `register_push_token(p_vehicle_id, …)` çağrılıyordu; o RPC
+ * `auth.uid()` ister ve head unit OTURUMSUZ bağlandığı için HER çağrı
+ * `{ok:false,'Yetkisiz.'}` dönüyordu — ama istisna atmadığı için hemen
+ * ardından "Token kaydedildi" loglanıyordu. Production ölçümü:
+ * `vehicle_push_tokens` = 0 satır.
+ *
+ * Kayıt otoritesi TEKTİR: `vehicleIdentityService`. Bu modül ile `pushService`
+ * aynı token'ı ayrı ayrı teslim edebilir; ikinci çağrı orada ağa hiç çıkmadan
+ * karşılanır (RPC zaten idempotenttir, bu yalnız israfı keser).
+ *
+ * GİZLİLİK: token DEĞERİ loglanmaz; yalnız başarısızlık KATEGORİSİ yazılır.
+ */
 async function saveFcmToken(token: string): Promise<void> {
-  const vehicleId = await sensitiveKeyStore.get('veh_vehicle_id');
-  if (!vehicleId) return;
-
-  try {
-    const supabase = getSupabaseClient();
-    if (!supabase) return;
-
-    await supabase.rpc('register_push_token', {
-      p_vehicle_id: vehicleId,
-      p_fcm_token:  token,
-      p_platform:   'android',
-    });
-    logInfo('[FCM] Token kaydedildi');
-  } catch (err) {
-    console.warn('[FCM] Token kayıt hatası:', err);
+  const result = await ensureDevicePushTokenRegistered(token, 'android');
+  if (result.ok) {
+    logInfo('[FCM] Token kaydedildi (cihaz kimliği doğrulandı)');
+    return;
   }
+  console.warn(`[FCM] Token kaydedilemedi (${result.reason}) — push-to-wake yok`);
 }
 
 // ── İzin & kayıt ─────────────────────────────────────────────────────────────
@@ -126,25 +130,13 @@ export async function initFcmService(): Promise<() => void> {
     return () => {};
   }
 
-  // H-4: Startup kuyruk boşaltma — CommandService.java'nın offline çalıştırdığı
-  // MCU komutlarının sonuçlarını Supabase'e bildir.
-  void drainNativeCommandQueue(async (id, status) => {
-    const SUPABASE_URL  = import.meta.env.VITE_SUPABASE_URL      as string | undefined;
-    const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
-    if (!SUPABASE_URL || !SUPABASE_ANON) return;
-    try {
-      await fetch(`${SUPABASE_URL}/rest/v1/vehicle_commands?id=eq.${id}`, {
-        method:  'PATCH',
-        headers: {
-          'Content-Type':  'application/json',
-          'apikey':        SUPABASE_ANON,
-          'Authorization': `Bearer ${SUPABASE_ANON}`,
-          'Prefer':        'return=minimal',
-        },
-        body: JSON.stringify({ status, finished_at: new Date().toISOString() }),
-      });
-    } catch { /* fire-and-forget */ }
-  });
+  /* MRI F-02: startup native kuyruk boşaltma KALDIRILDI. Bu blok
+     CommandService.java'nın native fiziksel yürütücüsünün sonuçlarını anon
+     apikey ile `PATCH /rest/v1/vehicle_commands` yaparak yazıyordu — cihaz
+     kimliği doğrulamayan İKİNCİ bir komut-durumu otoritesi. Yürütücü
+     kaldırıldı (üretici yok) ve durumun tek yazarı kanonik
+     `commandListener` → `update_command_status` RPC'sidir (api_key kimlikli,
+     migration 083 anon UPDATE yetkisini zaten geri alır). */
 
   // Token alındığında Supabase'e kaydet
   const tokenListener = await PushNotifications.addListener(

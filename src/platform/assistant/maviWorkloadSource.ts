@@ -13,8 +13,9 @@
  *  · YENİ state/poll/timer/abonelik ÜRETMEZ — yalnız senkron okuma.
  *  · Her kaynak AYRI try/catch → biri düşerse alan `null` olur (sahte değer YOK).
  *  · Hiçbir otoriteye YAZMAZ; navigasyonu, sesi, aracı ETKİLEMEZ.
- *  · **Telefon görüşmesi OKUNMAZ** — repoda böyle bir üretim sinyali YOK
- *    (`DuckReason 'PHONE'` tanımlı ama üretimde çağıranı yok). Uydurulmaz.
+ *  · **Telefon görüşmesi OKUNMAZ** — tek sinyal arama bildirimidir (müzik
+ *    onunla `duck('PHONE')` ile susar); buraya bağlanması açık borçtur.
+ *    Uydurulmaz.
  */
 
 import { getNavigationState } from '../navigationService';

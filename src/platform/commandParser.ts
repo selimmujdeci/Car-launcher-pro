@@ -46,6 +46,11 @@ export type CommandType =
   | 'navigate_work'
   | 'navigate_address'
   | 'navigate_place'
+  | 'stop_navigation'
+  | 'go_home_screen'
+  // Uygulama içi ekran (extra.screen = katalog kimliği, extra.action = open|close).
+  // Parser kalıbı YOK: yalnız voiceService'in tam-eşleşme ekran kestirmesi kurar.
+  | 'open_screen'
   | 'find_nearby_gas'
   | 'find_nearby_parking'
   | 'find_nearby_restaurant'
@@ -113,7 +118,12 @@ export type CommandType =
   | 'share_location'
   // WhatsApp konum gönderimi — extra.recipient (alıcı adı) · extra.isCurrent
   // ('1' ise şu anki GPS, aksi halde extra.name kayıtlı konum adı).
-  | 'send_location_contact';
+  | 'send_location_contact'
+  // Telefon Merkezi · "Mavi, oku" — en son okunmamış mesajı okur (voiceInfoService).
+  | 'read_message'
+  // Telefon Merkezi · "mesaja X diye cevap yaz" — extra.text (cevap metni; boşsa
+  // Mavi ne yazılacağını sorar). Hedef: son okunan / en yeni mesaj.
+  | 'reply_message';
 
 export type CommandPriority = 'critical' | 'high' | 'normal';
 
@@ -170,7 +180,8 @@ const PATTERNS: CommandPattern[] = [
     label: 'Eve Git', example: 'eve git',
     keywords: [
       // Temel
-      'eve git', 'eve dön', 'eve gidelim', 'eve götür', 'anasayfa', 'ana sayfa', 'home', 'evime git', 'eve al beni',
+      // 'ana sayfa'/'anasayfa' YOK: bu EKRAN demektir, eve rota DEĞİL (go_home_screen).
+      'eve git', 'eve dön', 'eve gidelim', 'eve götür', 'home', 'evime git', 'eve al beni',
       // Argo / günlük
       'kapağı eve at', 'eve uçur', 'eve ulaştır', 'beni eve bırak', 'eve bas', 'eve fırlat',
       'eve çek', 'eve al', 'gidelim eve', 'haydi eve', 'eve gitsek',
@@ -178,7 +189,7 @@ const PATTERNS: CommandPattern[] = [
       'ev konumuna git', 'ev adresime git', 'evime gidelim', 'home konumuna git',
       'evime dön', 'eve nasıl giderim', 'ev adresimi aç', 'home\'a git',
     ],
-    tokens: ['eve', 'home', 'anasayfa', 'evime', 'ev'],
+    tokens: ['eve', 'home', 'evime', 'ev'],
   },
   {
     type: 'navigate_work', priority: 'critical',
@@ -315,6 +326,7 @@ const PATTERNS: CommandPattern[] = [
       'geri git şarkı', 'aynı şarkıyı tekrar çal', 'geri dön şarkı',
       // Uzun
       'önceki şarkıya dön', 'bir önceki parçaya geç', 'şarkıyı geri al',
+      'önceki şarkıya geç', 'önceki parçaya geç', 'önceki şarkıyı çal',
     ],
     tokens: ['onceki', 'previous', 'prev', 'geri', 'back', 'eski'],
   },
@@ -416,7 +428,9 @@ const PATTERNS: CommandPattern[] = [
     label: 'Gece Moduna Geç', example: 'gece moduna geç',
     keywords: [
       'gece moduna geç', 'gece modu', 'karanlık mod', 'dark mod', 'oled modu', 'karanlık tema',
-      'gece teması', 'karanlık yap', 'ekranı karartabilir misin', 'night mode',
+      // 'ekranı karartabilir misin' YOK: önek eşleşmesiyle "ekranı karart"ı gasp
+      // ediyordu → çelişki beyne gidip parlaklığı %0 yaptı (smoke 2026-09-26).
+      'gece teması', 'karanlık yap', 'night mode',
     ],
     tokens: ['gece', 'karanlik', 'dark', 'oled', 'night'],
   },
@@ -500,6 +514,7 @@ const PATTERNS: CommandPattern[] = [
     label: 'Uyku Modunu Aç/Kapat', example: 'uyku modunu aç',
     keywords: [
       'uyku modunu aç', 'uyku modunu kapat', 'uyku modu', 'sleep mode',
+      'uyku moduna al', 'uyku moduna geç',
       'bekleme modu', 'ekran uyku', 'sistem uyku',
     ],
     tokens: ['uyku', 'sleep', 'bekleme'],
@@ -512,7 +527,8 @@ const PATTERNS: CommandPattern[] = [
       'hızım kaç', 'hız kaç', 'hız nedir', 'ne kadar hızlı', 'hız göster', 'current speed',
       'kaç km gidiyorum', 'hızımı söyle', 'şu an hızım', 'hız limitim ne',
     ],
-    tokens: ['hiz', 'speed', 'kac', 'kmh', 'kilometre'],
+    // 'kac' YOK: "yüz yirmi bölü dört kaç" hız sorusu sanılıyordu (smoke 2026-09-25).
+    tokens: ['hiz', 'speed', 'kmh', 'kilometre'],
   },
   {
     type: 'vehicle_fuel', priority: 'normal',
@@ -562,6 +578,30 @@ const PATTERNS: CommandPattern[] = [
       'kaydet bu şarkıyı', 'beğendim ekle', 'şarkıyı kaydet',
     ],
     tokens: ['favori', 'favorilere', 'ekle', 'kaydet'],
+  },
+  {
+    type: 'go_home_screen', priority: 'high',
+    feedback: 'Ana ekrana dönüyorum',
+    label: 'Ana Ekrana Dön', example: 'ana ekrana dön',
+    // Açık panel/tam ekran harita kapanır; aktif rota BOZULMAZ.
+    keywords: [
+      'ana ekrana dön', 'ana ekrana git', 'ana ekranı aç', 'ana ekran', 'ana sayfaya dön',
+      'ana sayfaya git', 'ana sayfa', 'anasayfa', 'ana menü', 'ana menüye dön',
+      'başa dön', 'her şeyi kapat', 'ekranı kapat geri dön',
+    ],
+    tokens: [],
+  },
+  {
+    type: 'stop_navigation', priority: 'high',
+    feedback: 'Navigasyon sonlandırılıyor',
+    label: 'Navigasyonu Bitir', example: 'navigasyonu iptal et',
+    // Yalnız TAM ifadeler: "rota"/"iptal" tek başına başka komutları gasp etmesin.
+    keywords: [
+      'navigasyonu iptal et', 'navigasyonu kapat', 'navigasyonu durdur', 'navigasyonu bitir',
+      'navigasyonu sonlandır', 'rotayı iptal et', 'rotayı kapat', 'rotayı durdur',
+      'rotayı bitir', 'rotayı sonlandır', 'rotayı sil', 'yol tarifini durdur', 'yol tarifini kapat',
+    ],
+    tokens: [],
   },
   {
     type: 'show_traffic', priority: 'normal',
@@ -620,6 +660,7 @@ const PATTERNS: CommandPattern[] = [
     keywords: [
       'parlaklığı azalt', 'ekranı karart', 'daha karanlık', 'parlaklık kıs', 'brightness kıs', 'gece modu yap',
       'ekranı kıs', 'daha loş', 'ekran rahatsız ediyor', 'parlaklık düşür',
+      'ekranı karartabilir misin',
     ],
     tokens: ['karart', 'azalt', 'dim', 'gece', 'los'],
   },
@@ -744,6 +785,7 @@ const PATTERNS: CommandPattern[] = [
     keywords: [
       'arka kamerayı aç', 'arka kamera aç', 'geri kamera aç', 'geri kameraya bak', 'arka kameraya geç', 'reverse kamera',
       'park kamerası', 'geri görüş', 'geri vitese aldım kamerayı aç',
+      'geri görüş kamerasını aç', 'geri görüş kamerası', 'arka kamerayı göster',
     ],
     tokens: ['arka', 'geri', 'kamera', 'camera', 'rear', 'park'],
   },
@@ -765,14 +807,33 @@ const PATTERNS: CommandPattern[] = [
     feedback: 'Ekran kapatılıyor',
     label: 'Ekranı Kapat', example: 'ekranı kapat',
     keywords: [
+      // 'ekranı karart' YOK: karartmak = parlaklık AZALT (screen_brightness_down);
+      // iki tipte birden olunca beyne gidip "gece modu" açılıyordu (smoke 2026-09-25).
       'ekranı kapat', 'ekranı söndür', 'ekranı koy', 'display kapat', 'ekranı kapat tamamen',
-      'ekranı karart', 'ekranı kapat artık', 'monitörü kapat',
+      'ekranı kapat artık', 'monitörü kapat',
     ],
     tokens: ['ekran', 'screen', 'display', 'monitor'],
   },
   // vehicle_status — tanımı taşındı: vehicleIntents.ts (V3, aynı dizi
   // pozisyonunda; keywords/tokens/feedback BİREBİR).
   VEHICLE_STATUS_PATTERN,
+  // Telefon Merkezi · mesaj okuma (2026-09-23). Mesaj gelince Mavi içeriği
+  // KENDİLİĞİNDEN okumaz, yalnız duyurur ("Okumamı istersen, Mavi oku de");
+  // içerik bu komutla okunur. Dizinin SONUNDA durur: eşit puanda önceki kalıp
+  // kazanır → "obd oku" / "sistemi oku" araç kalıplarında kalır. Kısa 'oku' /
+  // 'okur' yalnız TAM KELİME eşleşir ("okula git" DEĞİL); token katmanı bilerek
+  // BOŞ — önek eşlemesi 'oku' → 'okula' gasbı yapardı.
+  {
+    type: 'read_message', priority: 'normal',
+    feedback: 'Mesaj okunuyor',
+    label: 'Mesajı Oku', example: 'mesajı oku',
+    keywords: [
+      'oku', 'okur', 'okusana', 'okuyabilir', 'okuyun', 'okur musun', 'mesajı okur musun',
+      'mesajı oku', 'mesajları oku', 'son mesajı oku', 'gelen mesajı oku', 'mesajımı oku',
+      'kim yazdı', 'kim mesaj attı', 'mesaj ne diyor',
+    ],
+    tokens: [],
+  },
 ];
 
 /* ── Text normalisation ──────────────────────────────────── */
@@ -980,6 +1041,12 @@ const FAST_PATH_TYPES: ReadonlySet<CommandType> = new Set<CommandType>([
   /* Sabit hedefli navigasyon — hedef kullanıcı ayarından gelir, metinden DEĞİL;
      serbest adres (`navigate_address`/`navigate_place`) BİLİNÇLİ olarak YOK. */
   'navigate_home', 'navigate_work',
+  /* Aktif oturumu kapatma — parametresiz; oturum yoksa yürütücü dürüstçe söyler. */
+  'stop_navigation', 'go_home_screen',
+  /* Mesaj okuma — parametresiz; içerik YEREL veridir (bildirim servisi).
+     SAHA 2026-09-24: "Mavi, mesajı oku" beyne (Gemini Live) gidiyor, model
+     mesajlara erişemediği için "okumaya yetkim yok" deyip turu kapatıyordu. */
+  'read_message',
 ]);
 
 /**
@@ -1153,7 +1220,8 @@ function scorePattern(
   // 3 harfli gerçek token'lar ('hiz') Tier-2 exact/prefix ile zaten yakalanır.
   if (score === 0) {
     for (const tok of inputTokens) {
-      if (tok.length < 4) continue;
+      // Asistanın adı komut değildir: "mavi" ~ "navi" (0.66) → "merhaba mavi" harita sanılıyordu.
+      if (tok.length < 4 || tok === 'mavi') continue;
       for (const pt of pattern.tokens) {
         if (pt.length < 4) continue;
         const dist = levenshtein(tok, pt);
@@ -1198,6 +1266,27 @@ function settingFeedback(m: VoiceSettingMatch): string {
  * Full parse — returns command + ranked suggestions.
  * Use this everywhere; `parseCommand` is a thin compatibility wrapper.
  */
+const REPLY_LEAD = String.raw`^(?:mavi[,\s]+)?(?:(?:bu|son|gelen)\s+)?(?:(?:mesaja|ona|buna)\s+)?`;
+const REPLY_VERB = String.raw`(?:cevap|yanıt|yanit)\s+(?:yaz|ver|gönder|gonder|at)`;
+/** "mesaja nasılsın diye cevap yaz" · "nasılsın diye yanıtla" */
+const REPLY_DIYE_RE = new RegExp(String.raw`${REPLY_LEAD}(.+?)\s+diye\s+(?:${REPLY_VERB}|cevapla|yanıtla|yanitla)[.!?]*$`, 'i');
+/** "mesaja cevap yaz: nasılsın" · "cevap yaz nasılsın" */
+const REPLY_AFTER_RE = new RegExp(String.raw`${REPLY_LEAD}${REPLY_VERB}\s*[:,]?\s+(.+?)[.!?]*$`, 'i');
+/** Metinsiz: "mesaja cevap yaz" / "cevap yaz" ("cevap ver" tek başına arama olabilir → yalnız "mesaja" ile). */
+const REPLY_EMPTY_RE = /^(?:mavi[,\s]+)?(?:(?:(?:bu|son|gelen)\s+)?mesaja\s+(?:cevap|yanıt|yanit)\s+(?:yaz|ver|gönder|gonder)|(?:cevap|yanıt|yanit)\s+yaz)[.!?]*$/i;
+
+/** Cevap metnini döndürür ('' = metin söylenmedi); cevap komutu değilse null. */
+export function tryParseReplyMessage(input: string): string | null {
+  const t = input.trim().toLocaleLowerCase('tr-TR');
+  if (REPLY_EMPTY_RE.test(t)) return '';
+  const m = REPLY_DIYE_RE.exec(t) ?? REPLY_AFTER_RE.exec(t);
+  if (!m) return null;
+  /* Orijinal yazımı koru: eşleşen dilimi küçültülmemiş girdiden al. */
+  const start = t.indexOf(m[1]);
+  const text = input.trim().slice(start, start + m[1].length).trim();
+  return text || null;
+}
+
 export function parseCommandFull(input: string): ParseResult {
   const trimmed = input.trim();
   if (!trimmed) return { command: null, suggestions: [], needsSemantic: false };
@@ -1261,6 +1350,24 @@ export function parseCommandFull(input: string): ParseResult {
         speechActClass: speechAct.speechClass ?? undefined,
         speechActCue:   speechAct.blocked ? speechAct.cue : undefined,
       },
+    };
+  }
+
+  /* Mesaja sesli cevap — serbest metin taşır, sözlük skorlamasından ÖNCE
+   * çözülür (metindeki kelimeler başka kalıplara gasp edilmesin). */
+  const replyText = tryParseReplyMessage(trimmed);
+  if (replyText !== null) {
+    return {
+      command: {
+        type:       'reply_message',
+        raw:        trimmed,
+        confidence: EXACT_SCORE,
+        feedback:   'Cevap gönderiliyor',
+        priority:   'normal',
+        extra:      { text: replyText },
+      },
+      suggestions:   [],
+      needsSemantic: false,
     };
   }
 
@@ -1390,6 +1497,8 @@ export function parseCommandFull(input: string): ParseResult {
             recipient: savedLocMatch.recipient ?? '',
             isCurrent: savedLocMatch.isCurrentLocation ? '1' : '',
           } : {}),
+          /* "konumumu paylaş" — kayıt değil, canlı konum. */
+          ...(savedLocMatch.verb === 'share' && savedLocMatch.isCurrentLocation ? { isCurrent: '1' } : {}),
         },
       },
       suggestions:   [],

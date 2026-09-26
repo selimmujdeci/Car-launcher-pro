@@ -28,14 +28,10 @@ vi.mock('../utils/safeStorage', () => ({
 }));
 
 import { useSystemStore } from '../store/useSystemStore';
-import type { TripRecord } from '../platform/tripLogService';
+import type { JourneyCompletionCard } from '../platform/trip/tripSessionAccess';
 
-function trip(id: string, distanceKm = 12.4): TripRecord {
-  return {
-    id, startTime: 1_757_600_000_000, endTime: 1_757_603_600_000,
-    distanceKm, durationMin: 60, avgSpeedKmh: 42, maxSpeedKmh: 98,
-    fuelConsumptionL: 1.1, fuelCostTL: 49, drivingScore: 88, harshEvents: 0,
-  };
+function trip(id: string, distanceKm = 12.4): JourneyCompletionCard {
+  return { id, distanceKm, durationMin: 60, avgSpeedKmh: 42, fuelCostTL: null, drivingScore: null };
 }
 
 beforeEach(() => {
@@ -94,7 +90,12 @@ describe('tamamlandı kartı — store kapısı', () => {
 });
 
 /* ══════════════════════════════════════════════════════════════════════════
- * KAPI 2 — orchestrator kanonik kapanış kilidi
+ * KAPI 2 — orchestrator KANONİK tetikleyici (kaynak kilidi)
+ *
+ * 2026-09-21: `history[0]`/`lastCompletedTripId` eşleşmesi KALDIRILDI — o
+ * kapı yanlış tetikleyiciyi (depolama segmenti mührü) filtreliyordu. Kart
+ * artık yalnız seyahat oturumunun kanonik hükmüyle açılır: JOURNEY +
+ * DESTINATION_REACHED (bkz. tripCompletionPopupCanonical.test.ts).
  * ════════════════════════════════════════════════════════════════════════ */
 
 describe('tamamlandı kartı — orchestrator kapısı (kaynak kilidi)', () => {
@@ -103,17 +104,18 @@ describe('tamamlandı kartı — orchestrator kapısı (kaynak kilidi)', () => {
     'utf8',
   );
 
-  it('kanonik kapanış kimliği OKUNUR', () => {
-    expect(src).toMatch(/getTripJournalGlance\(\)\.lastCompletedTripId/);
+  it('kart yalnız kanonik oturum seçicisinden açılır', () => {
+    expect(src).toContain('selectJourneyCompletionCard(readTripSessionOrNull())');
+    expect(src).toMatch(/if \(card === null\) return;/);
   });
 
-  it('history[0] kanonik kimlikle EŞLEŞMEZSE kart açılmaz', () => {
-    expect(src).toMatch(/head\.id !== completedId\) return;/);
+  it('depolama segmenti kapanışı artık tetikleyici DEĞİL', () => {
+    expect(src).not.toMatch(/getTripJournalGlance|history\[0\]|justEnded|_pendingTripSummary/);
   });
 
-  it('kart yalnız bu kapıdan geçtikten SONRA açılır', () => {
-    const gateAt = src.indexOf('head.id !== completedId');
-    const showAt = src.indexOf('setTripSummary(head)');
+  it('kart yalnız seçici sonucuyla açılır', () => {
+    const gateAt = src.indexOf('if (card === null) return;');
+    const showAt = src.indexOf('setTripSummary(card)');
     expect(gateAt).toBeGreaterThan(-1);
     expect(showAt).toBeGreaterThan(gateAt);
   });

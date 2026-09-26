@@ -111,6 +111,17 @@ export interface ObdObservation {
   readonly engineTempC?: unknown;
   readonly speedKmh?: unknown;
   readonly fuelPercent?: unknown;
+  /**
+   * F5.1B — her ALANIN KENDİ ölçüm anı (Unix ms; `0`/yok = bu oturumda hiç
+   * ölçülmedi). `lastSeenMs` linkin son paketidir, bir alanın ölçüm anı DEĞİL.
+   * Verilmezse eski davranış korunur (fail-soft, regresyonsuz).
+   */
+  readonly fieldObservedAt?: {
+    readonly speedMs?: number;
+    readonly rpmMs?: number;
+    readonly engineTempMs?: number;
+    readonly fuelMs?: number;
+  };
 }
 
 /** GPS tarafından gözlenen konum + tazelik kanıtı. */
@@ -195,6 +206,12 @@ export interface TelemetryBuildReport {
   readonly gpsSkipReason: 'no_fix' | 'stale_window' | 'invalid_coords' | null;
   /** Aralık/NaN yüzünden reddedilen alanlar. */
   readonly rejected: readonly string[];
+  /**
+   * F5.1B — değeri VAR ama KENDİ ölçümü bayat/hiç yok olduğu için payload'a
+   * ALINMAYAN alanlar. `rejected`ten farkı: değer geçerlidir, ÖLÇÜM ANI
+   * güvenilir değildir. Gözlemlenebilirlik içindir; karar `fields`tedir.
+   */
+  readonly staleFields: readonly string[];
 }
 
 /* ── Kurucu ────────────────────────────────────────────────────────────── */
@@ -208,6 +225,7 @@ export interface TelemetryBuildReport {
 export function buildTelemetryFields(input: TelemetryBuildInput): TelemetryBuildReport {
   const fields: TelemetryFields = {};
   const rejected: string[] = [];
+  const staleFields: string[] = [];
 
   /* ── OBD ────────────────────────────────────────────────────────────── */
   let obdSkipped = true;
@@ -240,14 +258,54 @@ export function buildTelemetryFields(input: TelemetryBuildInput): TelemetryBuild
       if (obd.speedKmh !== undefined && spd === null && !isUnsupportedObdValue(obd.speedKmh)) rejected.push('speedKmh');
       if (obd.fuelPercent !== undefined && fuel === null && !isUnsupportedObdValue(obd.fuelPercent)) rejected.push('fuelPercent');
 
-      // RPC anahtarı + normalize ad birlikte yazılır (ikisi de sözleşmenin parçası).
-      if (rpm  !== null) fields.rpm = rpm;                              // `rpm` her iki sözleşmede aynı
-      if (temp !== null) { fields.temp  = temp; fields.engineTempC = temp; }
-      if (spd  !== null) { fields.speed = spd;  fields.speedKmh    = spd; }
-      if (fuel !== null) { fields.fuel  = fuel; fields.fuelPercent = fuel; }
+      /* ── F5.1B · BİR ALANIN ÖLÇÜMÜ BAŞKA ALANI TAZELEMEZ ──────────────────
+       * ÖLÇÜLEN KUSUR (gerçek araç, Renault, 2026-09-18): yakıt 35/35 pakette
+       * `-1` geldi (hiç ölçülmedi) ama `obdService._current` ESKİ yakıtı
+       * saklıyordu; burası onu HER heartbeat'te `obdObservedAt = lastSeenMs`
+       * (= "şimdi") damgasıyla gönderiyordu. `lastSeenMs` "linkten en son
+       * HERHANGİ bir paket geldi" demektir — o alanın ölçüm anı DEĞİLDİR.
+       * Sonuç: rpm'in yeni ölçümü eski yakıtı "yeni ölçülmüş" yapıyordu.
+       *
+       * İKİ KURAL:
+       *  1. Bir alan, KENDİ ölçümü tazelik penceresi içindeyse gönderilir.
+       *     Hiç ölçülmemiş (`0`) veya bayat alan GÖNDERİLMEZ — eski değeri
+       *     yeni gibi sunmaktansa hiç sunmamak doğrudur (§8).
+       *  2. `obdObservedAt`, gönderilen alanların EN ESKİ ölçüm anıdır.
+       *     Böylece "bu satırdaki her OBD alanı en geç bu anda ölçüldü"
+       *     invaryantı YAPISAL olarak doğrulanır; hiçbir alan kendi
+       *     ölçümünden TAZE gösterilemez (fail-closed yön).
+       *
+       * Kanıt yoksa (`fieldObservedAt` verilmedi) eski davranış AYNEN korunur. */
+      const fo = obd.fieldObservedAt;
+      const win = Number.isFinite(obd.freshWindowMs) && obd.freshWindowMs > 0
+        ? obd.freshWindowMs : 0;
+      const stampOf = (ms: number | undefined): number | null => {
+        if (fo === undefined) return obd.lastSeenMs;           // kanıt yok → eski davranış
+        if (typeof ms !== 'number' || !(ms > 0)) return null;  // hiç ölçülmedi
+        if (win > 0 && input.nowMs - ms > win) return null;    // kendi ölçümü bayat
+        return ms;
+      };
 
-      if (rpm !== null || temp !== null || spd !== null || fuel !== null) {
-        fields.obdObservedAt = obd.lastSeenMs;
+      const rpmAt  = rpm  !== null ? stampOf(fo?.rpmMs)        : null;
+      const tempAt = temp !== null ? stampOf(fo?.engineTempMs) : null;
+      const spdAt  = spd  !== null ? stampOf(fo?.speedMs)      : null;
+      const fuelAt = fuel !== null ? stampOf(fo?.fuelMs)       : null;
+
+      if (rpm  !== null && rpmAt  === null) staleFields.push('rpm');
+      if (temp !== null && tempAt === null) staleFields.push('engineTempC');
+      if (spd  !== null && spdAt  === null) staleFields.push('speedKmh');
+      if (fuel !== null && fuelAt === null) staleFields.push('fuelPercent');
+
+      // RPC anahtarı + normalize ad birlikte yazılır (ikisi de sözleşmenin parçası).
+      if (rpmAt  !== null) fields.rpm = rpm as number;                  // `rpm` her iki sözleşmede aynı
+      if (tempAt !== null) { fields.temp  = temp as number; fields.engineTempC = temp as number; }
+      if (spdAt  !== null) { fields.speed = spd  as number; fields.speedKmh    = spd  as number; }
+      if (fuelAt !== null) { fields.fuel  = fuel as number; fields.fuelPercent = fuel as number; }
+
+      const includedStamps = [rpmAt, tempAt, spdAt, fuelAt]
+        .filter((v): v is number => v !== null);
+      if (includedStamps.length > 0) {
+        fields.obdObservedAt = Math.min(...includedStamps);
         fields.source = 'HEAD_UNIT_OBD';
       }
     }
@@ -330,5 +388,6 @@ export function buildTelemetryFields(input: TelemetryBuildInput): TelemetryBuild
     gpsSkipped,
     gpsSkipReason,
     rejected,
+    staleFields,
   };
 }

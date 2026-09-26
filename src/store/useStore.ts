@@ -144,10 +144,58 @@ export interface VehicleProfile {
   oilType?: OilType;
   /** İkinci el araç için başlangıç aşınma oranı (0–1); 0 = sıfır km */
   initialWearOffset?: number;
-  /** Sürücü tercihi: sürüş modu (özet + gelecekte tema/gaz tepkisi) */
+  /** ESKİ — sabit 'comfort' yazılıyordu, hiçbir yerde UYGULANMIYORDU (2026-09-24);
+   *  artık yazılmaz/gösterilmez. Kayıt uyumu + kokpit etiketi için duruyor. */
   driveMode?: 'comfort' | 'sport' | 'eco';
-  /** Sürücü tercihi: iklim sıcaklığı (°C) */
+  /** ESKİ — sabit 21 °C yazılıyordu; uygulamanın araca iklim komutu yolu YOK. */
   climateTempC?: number;
+}
+
+/* ── SÜRÜCÜ PROFİLİ (2026-09-24) ─────────────────────────────────────────────
+   Araç profilinden AYRI: araç = tahrik/OBD/VIN; sürücü = kişisel tercihler.
+   Yalnız uygulamanın GERÇEKTEN uygulayabildiği tercihler tutulur (koltuk/iklim
+   gibi araca komut gerektirenler YOK — araca yazma yolu yoktur). */
+
+/** Sürücü profilinin taşıdığı ayar anahtarları — TEK liste (yakala/uygula/senkron). */
+export const DRIVER_PREF_KEYS = [
+  'dayNightMode', 'volume', 'brightness',
+  'defaultMusic', 'resumeMusicOnStart', 'speedVolumeLevel', 'alertToneStyle',
+  'autoNavOnStart', 'mapOfflineOnly',
+  'companionEnabled', 'companionAssistantName', 'companionUserCallsign',
+  'companionPersonality', 'companionChattiness',
+  'companionWakeWordEnabled', 'companionWakeMode', 'companionWakePhrase', 'companionWakeEnrollment',
+  'wakeWordEnabled',
+] as const;
+export type DriverPrefKey = typeof DRIVER_PREF_KEYS[number];
+
+/** Kaydedilmiş hızlı adres (Ev/İş) — adres defterinin şekli. */
+export interface DriverQuickAddress {
+  name: string;
+  latitude: number;
+  longitude: number;
+  fullAddress?: string;
+}
+
+export interface DriverPrefs extends Partial<Pick<AppSettings, DriverPrefKey>> {
+  /** Ana ekran teması (useCarTheme). */
+  carTheme?: string;
+  /** Ev / İş — `null` = bu sürücüde kayıtlı değil (uygulanınca SİLİNİR). */
+  home?: DriverQuickAddress | null;
+  work?: DriverQuickAddress | null;
+  /** Tema Stüdyo özelleştirmeleri + vurgu rengi (tema başına manifest anlık görüntüsü). */
+  themeManifests?: Record<string, unknown>;
+}
+
+export interface DriverProfile {
+  id: string;
+  name: string;
+  /** Profil rengi (avatar) — yalnız görünüm. */
+  color: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+  prefs: DriverPrefs;
+  /** Bu sürücünün telefonu (Bluetooth) — bağlanınca profil kendiliğinden gelir. */
+  phone?: { address: string; name: string };
 }
 
 export interface AppSettings {
@@ -171,7 +219,10 @@ export interface AppSettings {
   defaultNav: string;
   defaultMusic: MusicOptionKey;
   sleepMode: boolean;
+  /** ESKİ "Offline Map HUD" — haritayı hiç etkilemiyordu; artık okunmaz (kalıcı kayıt uyumu için duruyor). */
   offlineMap: boolean;
+  /** Yalnız çevrimdışı harita: önbellekte olmayan karo internetten İNDİRİLMEZ (CacheLRUManager). */
+  mapOfflineOnly: boolean;
   widgetVisible: Record<string, boolean>;
   widgetOrder: string[];
   widgetSizes: Record<string, 'small' | 'medium' | 'large'>;
@@ -197,6 +248,18 @@ export interface AppSettings {
   /** Alt dock bar otomatik gizlensin mi — ekrana dokununca geri gelir */
   dockAutoHide: boolean;
   smartContextEnabled: boolean;
+  /**
+   * PHONE LINK F6 — "CarOS Bağlantı Önceliği" (isteğe bağlı kullanıcı tercihi).
+   *
+   * Etkinken, Phone Link ACTIVE olduğu sürece CarOS'un GERÇEKTEN kontrol
+   * edebildiği telefon-entegrasyon kaynaklarında (ses/medya) CarOS sahip olur.
+   *
+   * ⚠️ Bu ayar CarOS'a kullanıcı kararını AŞMA yetkisi VERMEZ: Bluetooth,
+   * Wi-Fi veya mobil bağlantıyı açmaz (bkz. `phoneLinkConnectivityIntent.ts`).
+   *
+   * Varsayılan KAPALI — ilk kurulumda hiçbir sistem habersiz susturulmaz.
+   */
+  carosConnectionPriorityEnabled: boolean;
   pinnedCards: PinnedCard[];
   dayNightMode: 'day' | 'night';
   editMode: boolean;
@@ -213,7 +276,18 @@ export interface AppSettings {
   weatherFallbackCity: { lat: number; lng: number; name: string } | null;
   vehicleProfiles: VehicleProfile[];
   activeVehicleProfileId: string | null;
+  /** Sürücü profilleri — araç profillerinden AYRI liste (v17). */
+  driverProfiles: DriverProfile[];
+  activeDriverProfileId: string | null;
+  /** İlk kurulum sihirbazı tamamlandı/atlandı mı (yeni kurulumda false). */
+  setupCompleted: boolean;
   autoNavOnStart: boolean;
+  /** Açılışta, kapanmadan önce ÇALAN ve kullanıcının DURAKLATMADIĞI müziğe devam et (varsayılan kapalı). */
+  resumeMusicOnStart: boolean;
+  /** Hıza bağlı ses (SVC) seviyesi — varsayılan kapalı. */
+  speedVolumeLevel: 'OFF' | 'LOW' | 'MEDIUM' | 'HIGH';
+  /** Güvenlik uyarı tonunun tarzı (safetyChime). KAPALI seçeneği bilerek YOK. */
+  alertToneStyle: 'classic' | 'soft' | 'bright';
   activeMediaSourceKey: string;
   musicFavorites: MusicFavorite[];
   /** Kullanıcının eklediği özel müzik kaynakları (internet akışı / radyo) — uygulama içinde çalar */
@@ -342,6 +416,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   defaultMusic: 'spotify',
   sleepMode: false,
   offlineMap: true,
+  mapOfflineOnly: false,
   widgetVisible: { nav: true, media: true, shortcuts: true, obd: true },
   widgetOrder: ['nav', 'speed', 'media'],
   widgetSizes: { media: 'medium', shortcuts: 'small' },
@@ -379,6 +454,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   customLocations: [],
   dockAutoHide: false,           // varsayılan: dock her zaman görünür
   smartContextEnabled: true,     // Smart Engine varsayılan açık
+  /* F6: KAPALI — kullanıcı açıkça istemeden rakip sistem susturulmaz. */
+  carosConnectionPriorityEnabled: false,
   pinnedCards: [],
   dayNightMode: 'day',
   editMode: false,
@@ -390,7 +467,13 @@ const DEFAULT_SETTINGS: AppSettings = {
   weatherFallbackCity: null,
   vehicleProfiles: [],
   activeVehicleProfileId: null,
+  driverProfiles: [],
+  activeDriverProfileId: null,
+  setupCompleted: false,
   autoNavOnStart: false,
+  resumeMusicOnStart: false,
+  speedVolumeLevel: 'OFF',
+  alertToneStyle: 'classic',
   activeMediaSourceKey: 'spotify',
   musicFavorites: [],
   customMusicSources: [],
@@ -408,6 +491,9 @@ const DEFAULT_SETTINGS: AppSettings = {
   companionWakeEnrollment: [],
   runtimeOverride: 'AUTO',
 };
+
+/** Sürücü avatar renkleri — sırayla atanır. */
+export const DRIVER_COLORS = ['#e0a23c', '#60a5fa', '#34d399', '#f472b6', '#a78bfa', '#f87171'] as const;
 
 export const useStore = create<StoreState>()(
   persist(
@@ -508,7 +594,7 @@ export const useStore = create<StoreState>()(
         setItem: (name, value) => safeStorage.setItem(name, value),
         removeItem: (name) => safeStorage.removeItem(name),
       })),
-      version: 16,
+      version: 18,
       migrate: (persistedState: unknown, fromVersion: number) => {
         const ps = (persistedState as { settings?: Partial<AppSettings> }) ?? {};
         const settings: AppSettings = { ...DEFAULT_SETTINGS, ...(ps.settings ?? {}) };
@@ -558,6 +644,30 @@ export const useStore = create<StoreState>()(
           // varsayılan 'hey_name' (yalnız "Hey Mavi"). Yalnız eski varsayılan
           // 'both' taşınır; kullanıcının seçtiği name/custom/hey_name korunur.
           if (settings.companionWakeMode === 'both') settings.companionWakeMode = 'hey_name';
+        }
+        if (fromVersion < 17) {
+          // v17: sürücü profilleri araç listesinden AYRILDI. Profiller sekmesinin
+          // oluşturduğu kayıtlar `prof-` ile başlar (Araç sekmesi `vp-`); onlar
+          // sürücü listesine taşınır. Müzik tercihi korunur; uygulanmayan eski
+          // iklim/mod alanları taşınmaz.
+          const all = Array.isArray(settings.vehicleProfiles) ? settings.vehicleProfiles : [];
+          const drivers = all.filter((p) => typeof p?.id === 'string' && p.id.startsWith('prof-'));
+          if (drivers.length) {
+            settings.vehicleProfiles = all.filter((p) => !drivers.includes(p));
+            settings.driverProfiles = drivers.map((p, i) => ({
+              id: p.id, name: p.name, color: DRIVER_COLORS[i % DRIVER_COLORS.length],
+              createdAt: p.createdAt, lastUsedAt: p.lastUsedAt ?? null,
+              prefs: p.defaultMusic ? { defaultMusic: p.defaultMusic } : {},
+            }));
+            if (drivers.some((p) => p.id === settings.activeVehicleProfileId)) {
+              settings.activeDriverProfileId = settings.activeVehicleProfileId;
+              settings.activeVehicleProfileId = settings.vehicleProfiles[0]?.id ?? null;
+            }
+          }
+        }
+        if (fromVersion < 18) {
+          // v18: ilk kurulum sihirbazı — mevcut kullanıcı zaten kurmuş sayılır.
+          settings.setupCompleted = true;
         }
         return { ...ps, settings };
       },

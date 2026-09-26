@@ -30,7 +30,8 @@ import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
-import { parseRoutingGraph, edgeIsOneway } from '../src/platform/navigation/map/graph/rtg2Reader';
+import { edgeIsOneway } from '../src/platform/navigation/map/graph/rtg2Reader';
+import { parseRoutingGraph } from '../src/platform/navigation/map/graph/rtg2Parse';
 
 const RUN = resolve(process.env.RTG4_RUN_DIR ?? 'field-runs/rtg4-portal-v2-national-20260908');
 const OUT = resolve(process.env.ALT_OUT_DIR ?? RUN);

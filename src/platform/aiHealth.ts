@@ -1,7 +1,7 @@
 /**
  * aiHealth — AI ağ sağlığı devre kesicisi (circuit breaker).
  *
- * SAHA HATASI (2026-06-12): yavaş/araızalı hotspot'ta `navigator.onLine` true
+ * SAHA HATASI (2026-06-12): yavaş/araızalı hotspot'ta kaba bağlantı bayrağı true
  * kalır ama Gemini istekleri timeout'a koşar. Her cümle 3 ardışık AI çağrısını
  * (companion 6s → semantic 5s → askAI 3s) timeout'a kadar bekliyor, sürücü
  * 10+ saniye sonra "İnternet yavaş, şunu mu demek istediniz?" duyuyordu —
@@ -50,7 +50,7 @@ import {
  * AYRIM: bir isteği KENDİ seçtiğimiz süre dolduğu için iptal etmemiz, ağın ölü
  * olduğunun KANITI DEĞİLDİR — sunucu yalnızca yavaş olabilir, cevap yolda
  * olabilir. Gerçek ulaşılamazlık (DNS/TLS/bağlantı kopması → fetch TypeError,
- * `navigator.onLine=false`) apayrı bir olaydır.
+ * kanonik hükmün OFFLINE olması) apayrı bir olaydır.
  *
  * Bu yüzden iki AYRI sayaç/eşik: gerçek ulaşılamazlık eskisi gibi 2 hatada
  * devreyi açar (2026-06-12 "ölü hotspot" regresyonu korunur); bütçe timeout'u

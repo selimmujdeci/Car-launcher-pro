@@ -274,7 +274,16 @@ async function runSearch(intent: MusicIntent, gen: number): Promise<MusicIntentO
         return makeOutcome(intent, 'F7_PROVIDER_QUEUE', 'REJECTED', 'provider_unavailable',
           { elapsedMs: mono() - startedAt });
       }
-      layer.playMedia(selected, unified);
+      /* Kuyruk = seçilen + benzerleri (aynı şarkının yorumları DEĞİL). Port
+         eski bir katmansa (test sahtesi) arama listesi aynen kalır. */
+      const queue = typeof layer.buildVoiceQueue === 'function'
+        ? await layer.buildVoiceQueue(selected, unified) : unified;
+      if (isStale(gen)) {
+        noteStaleIntentDrop();
+        return makeOutcome(intent, 'F5_SEARCH_SELECTION', 'REJECTED', 'superseded',
+          { elapsedMs: mono() - startedAt });
+      }
+      layer.playMedia(selected, queue);
       return makeOutcome(intent, 'F7_PROVIDER_QUEUE', 'ACCEPTED_UNVERIFIED', 'provider_dispatched',
         { subject: subjectOf(top!), elapsedMs: mono() - startedAt });
     }

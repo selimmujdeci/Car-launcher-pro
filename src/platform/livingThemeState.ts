@@ -12,7 +12,7 @@
  * Eksenler:
  *   tod   — günün vakti (sabah/gündüz/akşam/gece)   ← useDayNightManager + saat
  *   veh   — araç durumu (normal/yakıt/ısı/obd-yok)   ← OBD verisi
- *   conn  — bağlantı (online/offline)                 ← navigator.onLine
+ *   conn  — bağlantı (online/offline)                 ← ConnectivityAuthority
  *   comp  — Yol Arkadaşım (idle/listening/...)        ← voiceService.status
  *   level — animasyon seviyesi (full/reduced/static)  ← tier + runtime + reduced-motion
  *
@@ -53,7 +53,7 @@ export interface LivingThemeInputs {
   fuelLevel:            number;
   /** Motor (soğutma sıvısı) sıcaklığı °C; bilinmiyorsa < 0. */
   engineTemp:           number;
-  /** navigator.onLine. */
+  /** Kanonik bağlantı izni (çağıran enjekte eder; bu saf modül DOM okumaz). */
   online:               boolean;
   /** voiceService VoiceStatus (idle/listening/processing/success/error/throttled). */
   voiceStatus:          string;

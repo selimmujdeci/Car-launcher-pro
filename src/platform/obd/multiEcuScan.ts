@@ -150,7 +150,7 @@ import {
   KWP_ADDRESSING_VARIANTS, KWP_ADDRESSING_MAX_VARIANTS,
   classifyKwpAddressingResponse, ecuSourceFromRxHeader, getKwpAddressingProbes,
   recordKwpAddressingProbe, resolveVariantHeader, summarizeKwpAddressing,
-  type KwpAddressingVerdict,
+  type KwpAddressingVerdict, type KwpInitKind,
 } from './kwpAddressingProbe';
 import type { DtcReadOutcome } from './dtcScanEvidence';
 
@@ -771,6 +771,12 @@ export async function scanAllEcus(
        gönderilmez) ve YALNIZ POZİTİF yanıt adreslenebilirliği YÜKSELTİR.
        Sessizlik · NRC · bozuk yanıt · hat hatası POZİTİF SAYILMAZ → mevcut
        fail-closed karar (NOT_ADDRESSABLE / UNKNOWN) AYNEN KORUNUR. */
+    /* P0-OBD-DTC-INIT/2 — PROBLARDAN ÖNCEKİ ÖLÇÜM. Aşağıdaki tek seferlik
+       yeniden okuma YALNIZ "standart modlar sustu, PROB kanıtladı" durumunda
+       koşar; standart modlar zaten cevap verdiyse prob da yeniden okuma da
+       HİÇ çalışmaz (fazladan tek bayt K-line trafiği YOK). */
+    const addressabilityFromModes = addressability;
+
     let sessionVerdict: KwpSessionVerdict | null = null;
     if (addressability !== 'PROVEN' && isSlowSerialProtocol(activeProtocol)) {
       sessionVerdict = await _probeKwpSession(ecu, sessionEpoch, activeProtocol);
@@ -800,6 +806,14 @@ export async function scanAllEcus(
        DURUR (gereksiz K-line trafiği yok). */
     let addressingVerdict: KwpAddressingVerdict | null = null;
     let provenTxHeader: string | null = null;
+    /* P0-OBD-DTC-INIT — ÖLÇÜLEN KUSUR: matris bir ECU için K-line yeniden-
+       başlatmanın (ATFI/ATSI) fiziksel cevap almak için ZORUNLU olduğunu
+       kanıtlayabiliyordu (`KwpAddressingVerdict.requiredInit`) ama bu kanıt
+       yalnız LAB'a gidiyordu — asıl DTC isteği (0x18/0x13) hep init'siz
+       gönderiliyordu ve matrisin kanıtladığı ön koşulla AYNI nedenle susuyordu.
+       Bu ölçüm burada TAŞINIR ve aşağıda `readKwpForEcu`/`_readKwp13ForEcu`ya
+       iletilir. */
+    let provenInitFirst: KwpInitKind | null = null;
     if (addressability !== 'PROVEN' && isSlowSerialProtocol(activeProtocol)) {
       addressingVerdict = await _probeKwpAddressing(ecu, sessionEpoch, activeProtocol);
       attempts.push({
@@ -812,6 +826,7 @@ export async function scanAllEcus(
         /* ADRES UYDURULMADI, ÖLÇÜLDÜ: kazanan header ürüne geri yazılır ve
            bundan sonraki fiziksel istekler (0x18/0x19 dâhil) onu kullanır. */
         provenTxHeader = addressingVerdict.provenHeader;
+        provenInitFirst = addressingVerdict.requiredInit;
         addressability = mergeAddressability(addressability, 'PROVEN');
       }
     }
@@ -831,6 +846,32 @@ export async function scanAllEcus(
           kwpTargetVerified: ecu.addressBits === 8, probeOutcome: 'responded',
           discoverySource: 'physical_probe' }
       : ecu;
+
+    /* ── P0-OBD-DTC-INIT/2 · KANITLANMIŞ HEDEFLE TEK SEFERLİK YENİDEN OKUMA ──
+       ÖLÇÜLEN KUSUR (saha · ECU 7A / KWP): kullanıcıya "Kayıtlı/Bekleyen/Kalıcı:
+       okunamadı" diyen şey STANDART modlardır ve onlar bu turda YUKARIDA, prob
+       zincirinden ÖNCE, kanıtlanmamış hedefe ve init'siz gönderilmişti. Hemen
+       ardından oturum probu ya da adresleme matrisi AYNI ECU'nun fiziksel
+       adresini KANITLIYOR (ve gerekiyorsa ATFI/ATSI'yi ölçüyor) — ama bu kanıt
+       yalnız üretici servislerine (0x18/0x13) taşınıyor, standart modlar bir
+       daha DENENMİYORDU. Yani ürün, "doğru adresi/oturumu" öğrendikten sonra
+       kullanıcının asıl sorduğu hafızayı okumayı hiç denemiyordu.
+
+       KAPI DAR: yalnız (a) yavaş seri protokolde, (b) adres standart modlarla
+       DEĞİL PROBLA kanıtlandıysa ve (c) yalnız 'failed' (sustu/hat hatası) kalan
+       modlar için koşar. 'unsupported' ÖLÇÜLMÜŞ araç gerçeğidir → yeniden
+       SORULMAZ; 'ok' zaten okunmuştur. Bütçe/geç yanıt kapıları AYNEN geçerli;
+       hak yoksa ilk ölçüm AYNEN korunur (fail-closed). */
+    if (isSlowSerialProtocol(activeProtocol)
+        && addressabilityFromModes !== 'PROVEN' && addressability === 'PROVEN') {
+      const recovered = await _retryStandardModesOnProvenTarget(
+        addressed, result, sessionEpoch, activeProtocol, txn,
+        provenInitFirst, attempts, allCodes);
+      /* Kurtarılan okuma artık kapsam KAYBI değildir — sayaç dürüst kalır
+         (aksi hâlde ekran "3 DTC alt servisi yanıt vermedi" derken aynı
+         servisler okunmuş olurdu). */
+      failedReads = Math.max(0, failedReads - recovered);
+    }
 
     /* ── P0-VDK-F6B · KAPSAM PLANI (VERİ ODAKLI — ROL TABLOSU YOK) ───────
        Hangi ailenin sorulacağı artık bu dosyaya GÖMÜLÜ bir `if` değil, SAF bir
@@ -866,7 +907,8 @@ export async function scanAllEcus(
        anlamsız trafik üretir ve KWP hattı zaten yavaştır. Protokol bilinmiyorsa
        DENENMEZ ve `kwp` `null` kalır — "sorulmadı" ile "desteklenmiyor" AYRI. */
     if (planOf('KWP_DTC_18').decision === 'QUERY') {
-      const kwpCodes = await readKwpForEcu(addressed, result, sessionEpoch, activeProtocol, txn);
+      const kwpCodes = await readKwpForEcu(
+        addressed, result, sessionEpoch, activeProtocol, txn, provenInitFirst);
       result.codes.push(...kwpCodes);
       allCodes.push(...kwpCodes);
       if (result.kwp === 'failed') failedReads++;
@@ -963,10 +1005,30 @@ export async function scanAllEcus(
        ikisi de kapsam paydasında ayrı sınıftır (`deferred` → skipped,
        `not_addressable` → not_addressable), aksi halde kısmi bir tur %100
        kapsam gibi görünürdü. */
-    if (deferredKeys.has(key) || notAddressableKeys.has(key)) continue;
-    const states = [r.stored, r.pending, r.permanent, r.uds, r.kwp];
-    if (states.some((s) => s === 'ok' || s === 'unsupported')) scannedKeys.add(key);
-    else failedKeys.add(key);
+    if (deferredKeys.has(key)) continue;
+    /* P0-OBD-UX-DTC-FIX — TEK REACHABILITY OTORİTESİ ÜST ÖZETİ EZER.
+     * ÖLÇÜLEN ÇELİŞKİ: `notAddressableKeys` yalnız DAR bir fiziksel probun
+     * (standart Mode 03/07/0A + KWP oturum/adresleme matrisi) sonucuna
+     * bakıyordu — satırın ZATEN kullandığı `isEcuReachable` (fonksiyonel
+     * `probeOutcome==='responded'` veya herhangi bir DTC alt-servisinin
+     * 'ok'/'unsupported' dönmesi) HİÇ SORULMUYORDU. Sonuç: bir ECU satırda
+     * "erişilebilir" derken üst özet AYNI ECU'yu "ULAŞILAMADI" sayıyordu —
+     * aynı kanıt zincirinden iki çelişkili hüküm.
+     *
+     * DÜZELTME: bu ECU dar probla `notAddressableKeys`e girmiş olsa bile,
+     * TEK otorite (`isEcuReachable`) onu erişilebilir sayıyorsa buradan
+     * ÇIKARILIR — "03/07/0A yanıtsız" artık "ECU ulaşılamadı" ANLAMINA
+     * gelmez, yalnız DTC taramasının kısmi kaldığı ANLAMINA gelir
+     * (bkz. `isEcuDtcScanPartial`, satır rozetinde AYRICA gösterilir).
+     * Otorite de erişilemez diyorsa (gerçekten hiç fiziksel/fonksiyonel
+     * kanıt yok) ECU `notAddressableKeys`te KALIR — davranış DEĞİŞMEZ. */
+    if (notAddressableKeys.has(key) && isEcuReachable(r)) {
+      notAddressableKeys.delete(key);
+    }
+    if (notAddressableKeys.has(key)) continue;
+    const endpoint = classifyEcuCoverageStatus(r);
+    if (endpoint === 'scanned') scannedKeys.add(key);
+    else if (endpoint === 'failed') failedKeys.add(key);
   }
   const skippedKeys = new Set([
     ...ordered.slice(scanList.length).map(ecuCoverageKey),
@@ -1465,6 +1527,107 @@ function _outcomeFromNative(nativeOutcome: string | null, supported: boolean): D
 }
 
 /**
+ * P0-OBD-DTC-INIT/2 — STANDART MODLARI KANITLANMIŞ HEDEFLE TEK KEZ YENİDEN SORAR.
+ *
+ * ── SÖZLEŞME ──────────────────────────────────────────────────────────────
+ *  · YALNIZ `'failed'` (sustu / hat hatası) kalan modlar sorulur. `'unsupported'`
+ *    ÖLÇÜLMÜŞ araç gerçeğidir ve yeniden sorulmaz; `'ok'` zaten okunmuştur;
+ *    `'deferred'` bir ZAMANLAMA kararıdır ve burada ezilmez.
+ *  · İKİNCİ ÇÖZÜMLEYİCİ YOK: kod çözümü yine `resolveFunctionalDtcSource`
+ *    (kanonik otorite) üzerinden gider, kanıt yine `recordDtcEvidence` /
+ *    `recordFunctionalDtcEvidence` halkalarına yazılır. Bu fonksiyon yalnız
+ *    "aynı soruyu kanıtlanmış hedefe bir kez daha sor" adımıdır.
+ *  · FAIL-CLOSED: bütçe yoksa, tur iptal edildiyse ya da yanıt geç geldiyse İLK
+ *    ÖLÇÜM AYNEN KALIR — başarısız bir okuma "sorulmadı"ya ya da "temiz"e
+ *    DÖNÜŞTÜRÜLMEZ.
+ *
+ * @returns kapsam kaybından KURTARILAN mod sayısı (çağıran `failedReads`i düşürür).
+ */
+async function _retryStandardModesOnProvenTarget(
+  ecu: DiscoveredEcu, result: EcuScanResult, sessionEpoch: number,
+  protocol: string | null, txn: DiagnosticTransaction,
+  initFirst: KwpInitKind | null,
+  attempts: EcuServiceAttempt[], allCodes: EcuDtc[],
+): Promise<number> {
+  const fromEcuFn = vdkDtcFromEcuFn();
+  if (!fromEcuFn) return 0;
+
+  let recovered = 0;
+  for (const { mode, key } of MODES) {
+    if (result[key] !== 'failed') continue;
+    if (!consumeRequest(txn)) break;          // bütçe bitti → ilk ölçüm KALIR
+    try {
+      const res = await fromEcuFn({
+        tx: ecu.txHeader, rx: ecu.rxHeader, mode,
+        ...(initFirst !== null ? { initFirst } : {}),
+      });
+      if (!acceptResponse(txn)) break;        // geç yanıt → ilk ölçüm KALIR
+      const raw = typeof res.raw === 'string' && res.raw.length > 0 ? res.raw : null;
+      const nativeOutcome = typeof res.outcome === 'string' ? res.outcome : null;
+      attempts.push({
+        service: mode, subFunction: 'RETRY_PROVEN', outcome: nativeOutcome, raw,
+        codeCount: (res.codes ?? []).length,
+      });
+      traceFromTransaction(txn, {
+        operation: mode === '03' ? 'mode03' : mode === '07' ? 'mode07' : 'mode0A',
+        rawRequest: mode, rawResponse: raw,
+        transportOutcome: nativeOutcome,
+        latencyMs: typeof res.elapsedMs === 'number' ? res.elapsedMs : null,
+        ecuTxHeader: ecu.txHeader, ecuRxHeader: ecu.rxHeader, ecuLabel: ecu.label,
+        protocol: res.protocol ?? protocol, sessionEpoch,
+      });
+
+      const measured = _outcomeFromNative(nativeOutcome, res.supported);
+      if (measured !== 'ok') {
+        /* Hâlâ sustuysa DURUM DEĞİŞMEZ. ECU bu kez "servisi bilmiyorum" dediyse
+           bu bir ÖLÇÜMDÜR (kapsam kaybı değil) → sayaçtan düşer. */
+        const next = measured === 'no_response' || measured === 'failed' ? 'failed' : 'unsupported';
+        result[key] = next;
+        if (next === 'unsupported') recovered++;
+        recordDtcEvidence({
+          service: mode, ecuLabel: ecu.label, ecuTxHeader: ecu.txHeader,
+          outcome: measured, sessionEpoch, raw, protocol: res.protocol ?? protocol,
+          elapsedMs: res.elapsedMs ?? null, recoveryCount: res.recoveryCount ?? null,
+        });
+        continue;
+      }
+
+      const fnSrc = resolveFunctionalDtcSource({
+        mode, rawResponse: raw,
+        nativeCodes: isReplayActive() ? null : (res.codes ?? []),
+      });
+      recordFunctionalDtcEvidence(fnSrc, isReplayActive());
+      result[key] = 'ok';
+      recovered++;
+      recordDtcEvidence({
+        service: mode, ecuLabel: ecu.label, ecuTxHeader: ecu.txHeader,
+        outcome: 'ok', codes: [...fnSrc.codes], sessionEpoch, raw,
+        protocol: res.protocol ?? protocol,
+        elapsedMs: res.elapsedMs ?? null, recoveryCount: res.recoveryCount ?? null,
+      });
+      for (const code of fnSrc.codes) {
+        const tagged: EcuDtc = {
+          code, ecuLabel: ecu.label, ecuTxHeader: ecu.txHeader, mode: key,
+          ..._ecuIdentityFields(ecu),
+        };
+        result.codes.push(tagged);
+        result.authorityCodes.push(tagged);
+        allCodes.push(tagged);
+      }
+    } catch (e) {
+      recordDtcEvidence({
+        service: mode, ecuLabel: ecu.label, ecuTxHeader: ecu.txHeader,
+        outcome: 'failed', sessionEpoch, raw: null, protocol,
+        error: e instanceof Error ? e.message : String(e),
+      });
+      attempts.push({ service: mode, subFunction: 'RETRY_PROVEN', outcome: 'ERROR', raw: null, codeCount: 0 });
+      logError('OBD:EcuDtcRetryFailed', e);   // yeniden okuma düştü — tarama SÜRER
+    }
+  }
+  return recovered;
+}
+
+/**
  * P0-OBD-FINAL-02 — KWP TANI OTURUMU PROBU (kontrollü, salt-kanıt).
  *
  * ── NE ZAMAN KOŞAR ────────────────────────────────────────────────────────
@@ -1701,6 +1864,29 @@ export function isEcuReadable(r: EcuScanResult): boolean {
   const read = (v: EcuModeStatus | null): boolean => v === 'ok';
   return read(r.stored) || read(r.pending) || read(r.permanent)
     || read(r.uds) || read(r.udsSupported) || read(r.kwp) || read(r.kwp13);
+}
+
+/** ECU varlığı ile DTC alt-servis kapsamını birbirine karıştırmaz. */
+export function isEcuReachable(r: EcuScanResult): boolean {
+  if (r.ecu.probeOutcome === 'responded') return true;
+  const states = [r.stored, r.pending, r.permanent, r.uds, r.udsSupported, r.kwp, r.kwp13];
+  // Açık "unsupported" yanıtı da ECU'nun erişilebilir olduğunun kanıtıdır.
+  return states.some((s) => s === 'ok' || s === 'unsupported');
+}
+
+export function isEcuDtcScanPartial(r: EcuScanResult): boolean {
+  return [r.stored, r.pending, r.permanent, r.uds, r.udsSupported, r.kwp, r.kwp13]
+    .some((s) => s === 'failed' || s === 'deferred');
+}
+
+export type EcuCoverageScanStatus = 'scanned' | 'probed' | 'failed';
+
+/** DTC alt-servisi düşse bile erişim kanıtını ECU-geneli hataya dönüştürmez. */
+export function classifyEcuCoverageStatus(r: EcuScanResult): EcuCoverageScanStatus {
+  const states = [r.stored, r.pending, r.permanent, r.uds, r.udsSupported, r.kwp, r.kwp13];
+  if (states.some((s) => s === 'ok' || s === 'unsupported')) return 'scanned';
+  // Fonksiyonel PID keşfinde yanıt veren ECU erişilebilirdir; DTC boşluğu ayrı kalır.
+  return isEcuReachable(r) ? 'probed' : 'failed';
 }
 
 /** `EcuDtc` → kanonik sınıf. UDS/KWP standart sınıflarla KARIŞTIRILMAZ. */
@@ -2545,6 +2731,12 @@ export function _resetKwpDtcEvidenceForTest(): void {
 async function readKwpForEcu(
   ecu: DiscoveredEcu, result: EcuScanResult, sessionEpoch: number, protocol: string | null,
   txn: DiagnosticTransaction,
+  /**
+   * P0-OBD-DTC-INIT — adresleme matrisinin BU ECU için ÖLÇTÜĞÜ K-line yeniden-
+   * başlatma zorunluluğu (`KwpAddressingVerdict.requiredInit`). `null` = matris
+   * ya koşmadı ya da init GEREKMEDİ — davranış ESKİSİYLE BİREBİR AYNI kalır.
+   */
+  initFirst: KwpInitKind | null = null,
 ): Promise<EcuDtc[]> {
   /* KWP adresi CAN header aritmetiğinden TÜRETİLEMEZ. Açık target/session kanıtı yoksa gönderme. */
   if (!isKwpDtcAddressable(ecu, protocol)) {
@@ -2568,6 +2760,7 @@ async function readKwpForEcu(
       const res = await kwpAdvFn({
         service: '18', subFunction: '18', payload: '00FF00', tx: ecu.txHeader, rx: ecu.rxHeader,
         targetVerified: true,
+        ...(initFirst !== null ? { initFirst } : {}),
       });
       if (!acceptResponse(txn)) { result.kwp = null; return []; }   // geç yanıt
       const outcome = normalizeAdvancedOutcome(res.outcome, res.nrc ?? null);
@@ -2587,7 +2780,9 @@ async function readKwpForEcu(
            yalnız (b) hedef zaten kanıtlanmışken (buraya `kwpTargetVerified`
            olmadan girilemez). Yani fazladan tek bayt ancak ECU "18'i bilmiyorum"
            DEDİĞİNDE hatta çıkar. */
-        if (outcome === 'unsupported') return await _readKwp13ForEcu(ecu, result, sessionEpoch, protocol, txn);
+        if (outcome === 'unsupported') {
+          return await _readKwp13ForEcu(ecu, result, sessionEpoch, protocol, txn, initFirst);
+        }
         return [];
       }
       const envelope = validateKwpDtcResponse(res.raw);
@@ -2633,6 +2828,8 @@ async function readKwpForEcu(
 async function _readKwp13ForEcu(
   ecu: DiscoveredEcu, result: EcuScanResult, sessionEpoch: number, protocol: string | null,
   txn: DiagnosticTransaction,
+  /** P0-OBD-DTC-INIT — bkz. `readKwpForEcu` yorumu. */
+  initFirst: KwpInitKind | null = null,
 ): Promise<EcuDtc[]> {
   const kwp13Fn = vdkAdvancedDtcsFn();
   if (!kwp13Fn) { result.kwp13 = null; return []; }
@@ -2641,6 +2838,7 @@ async function _readKwp13ForEcu(
     const res = await kwp13Fn({
       service: '13', subFunction: '13', payload: '', tx: ecu.txHeader, rx: ecu.rxHeader,
       targetVerified: true,
+      ...(initFirst !== null ? { initFirst } : {}),
     });
     if (!acceptResponse(txn)) { result.kwp13 = null; return []; }   // geç yanıt
     const outcome = normalizeAdvancedOutcome(res.outcome, res.nrc ?? null);

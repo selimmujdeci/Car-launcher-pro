@@ -11,12 +11,14 @@
  * Kaynaklar (hepsi mevcut, tek-otorite):
  *   gün/gece → useStore(settings.dayNightMode)  (useDayNightManager yazar; biz okuruz)
  *   araç     → obdService (connectionState / fuelLevel / engineTemp / lastSeenMs)
- *   bağlantı → navigator.onLine
+ *   bağlantı → ConnectivityAuthority (kanonik)
  *   companion→ voiceService (useVoiceState().status)
  *   seviye   → deviceCapabilities.getDeviceTier + runtimeManager.getMode + reduced-motion
  */
 
 import { useEffect, useMemo, useState } from 'react';
+import { subscribeConnectivity } from '../platform/connectivity/connectivityAuthority';
+import { allowsConnectivity } from '../platform/connectivity/connectivityGate';
 import { useStore } from '../store/useStore';
 import {
   useOBDConnectionState,
@@ -41,19 +43,15 @@ const OBD_FRESH_MS = 20_000;
 /* ── Küçük salt-okur yardımcı hook'lar (DOM yazmaz, yalnız dinler) ── */
 
 function useOnlineStatus(): boolean {
+  /* F7-B: tarayıcının `online`/`offline` olayları DİNLENMEZ — o ipucu otorite
+     değildir ve kanonik otorite onu zaten kanıt olarak yutar. UI burada yalnız
+     salt-okur TÜKETİCİdir (§24): durum ÜRETMEZ, geçiş SÜRMEZ, timer AÇMAZ. */
   const [online, setOnline] = useState<boolean>(
-    typeof navigator !== 'undefined' ? navigator.onLine : true,
+    () => allowsConnectivity('LIGHTWEIGHT_INTERNET'),
   );
-  useEffect(() => {
-    const on  = () => setOnline(true);
-    const off = () => setOnline(false);
-    window.addEventListener('online', on);
-    window.addEventListener('offline', off);
-    return () => {
-      window.removeEventListener('online', on);
-      window.removeEventListener('offline', off);
-    };
-  }, []);
+  useEffect(() => subscribeConnectivity(() => {
+    setOnline(allowsConnectivity('LIGHTWEIGHT_INTERNET'));
+  }), []);
   return online;
 }
 

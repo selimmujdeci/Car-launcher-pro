@@ -187,7 +187,7 @@ const StatusCluster = memo(function StatusCluster() {
     <div data-editable="tesla.status" data-editable-type="header" className="flex items-center gap-3" style={{ color: p.ink2 }}>
       <span className={online ? 'lt-pulse' : undefined} aria-label={online ? 'Çevrimiçi' : 'Çevrimdışı'}
         style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, background: online ? '#34d399' : 'currentColor', opacity: online ? 1 : 0.4 }} />
-      <button onClick={() => openDrawer('notifications')} className="ex-btn relative flex items-center justify-center" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: p.ink2 }}>
+      <button onClick={() => openDrawer('notifications')} aria-label={n.unreadCount > 0 ? `Bildirimler: ${n.unreadCount} okunmamış` : 'Bildirimler'} className="caros-status-item ex-btn relative flex items-center justify-center" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: p.ink2 }}>
         <Bell className="w-4 h-4" />
         {n.unreadCount > 0 && (
           <span style={{ position: 'absolute', top: -4, right: -5, minWidth: 14, height: 14, background: p.accent, color: '#1a120a', fontSize: 8, fontWeight: 900, borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 2px' }}>
@@ -202,16 +202,18 @@ const StatusCluster = memo(function StatusCluster() {
   );
 });
 
-/* ─── CLOCK CARD ─────────────────────────────────────────────────── */
-const ClockCard = memo(function ClockCard() {
+/* ─── HEADER CLOCK ───────────────────────────────────────────────────
+   Saat sol sütunun kartıydı; başlık satırının ORTASINA taşındı (saha
+   2026-09-24, tüm temalar): sütun hız göstergesine kalır. Kimlik
+   (`tesla.clock`) korunur → Tema Stüdyo stil ayarı aynen uygulanır. */
+const HeaderClock = memo(function HeaderClock() {
   const p = usePal();
   const use24Hour = useStore(s => s.settings.use24Hour);
   const { time, date } = useClock(use24Hour, false);
   return (
-    <div data-editable="tesla.clock" data-editable-type="card" style={{ ...card(p, { pad: '13px 16px' }) }} className="flex-shrink-0">
-      <Screws />
-      <div style={{ fontSize: 38, fontWeight: 800, lineHeight: 1, color: p.ink, letterSpacing: '-0.5px', fontVariantNumeric: 'tabular-nums' }}>{time}</div>
-      <div style={{ fontSize: 14, fontWeight: 500, color: p.ink2, marginTop: 6 }}>{date}</div>
+    <div data-editable="tesla.clock" data-editable-type="card" className="absolute" style={{ left: '50%', top: '50%', transform: 'translate(-50%,-50%)', textAlign: 'center', pointerEvents: 'none' }}>
+      <div style={{ fontSize: 24, fontWeight: 800, lineHeight: 1, color: p.ink, letterSpacing: '-0.3px', fontVariantNumeric: 'tabular-nums' }}>{time}</div>
+      <div style={{ fontSize: 11, fontWeight: 500, color: p.ink2, marginTop: 2 }}>{date}</div>
     </div>
   );
 });
@@ -610,7 +612,7 @@ const DockScrollZone = memo(function DockScrollZone({ children }: { children: Re
     if (drag.current.moved) { e.stopPropagation(); e.preventDefault(); drag.current.moved = false; }
   };
   return (
-    <div ref={ref} className="no-scrollbar"
+    <div ref={ref} className="no-scrollbar" data-no-page-swipe
       onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerLeave={onPointerUp} onClickCapture={onClickCapture}
       style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'stretch', gap: 8, overflowX: 'auto', overflowY: 'hidden', scrollSnapType: 'x proximity', scrollbarWidth: 'none', msOverflowStyle: 'none', cursor: 'grab', touchAction: 'pan-x', WebkitOverflowScrolling: 'touch', overscrollBehaviorX: 'contain' }}>
       {children}
@@ -629,7 +631,7 @@ const ExpeditionDock = memo(function ExpeditionDock({ onOpenMap, onOpenApps, onO
   // görünür saat (kaydırma kabı DIŞINDA overlay). Sol/sağ grup serbest kaydırılır →
   // tüm fonksiyonlara ulaşılır (pager/snap-sayfa kilidi yok).
   return (
-    <div data-editable="tesla.dock" data-editable-type="dock" className="relative w-full" style={{ background: p.metal, borderRadius: 22, border: p.metalBorder, boxShadow: p.night ? '0 12px 30px -12px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -3px 8px rgba(0,0,0,0.55)' : '0 8px 22px -10px rgba(90,68,38,0.45), inset 0 1px 0 rgba(255,255,255,0.7), inset 0 -3px 7px rgba(120,92,52,0.25)', padding: '14px 18px 20px', minHeight: 138, zIndex: 30 }}>
+    <div data-editable="tesla.dock" data-editable-type="dock" data-no-page-swipe className="relative w-full" style={{ background: p.metal, borderRadius: 22, border: p.metalBorder, boxShadow: p.night ? '0 12px 30px -12px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -3px 8px rgba(0,0,0,0.55)' : '0 8px 22px -10px rgba(90,68,38,0.45), inset 0 1px 0 rgba(255,255,255,0.7), inset 0 -3px 7px rgba(120,92,52,0.25)', padding: '14px 18px 20px', minHeight: 138, zIndex: 30 }}>
       <Screws inset={9} />
 
       <div style={{ display: 'flex', alignItems: 'stretch' }}>
@@ -714,7 +716,7 @@ export const TeslaLayout = memo(function TeslaLayout(props: Props) {
 
   const renderTsCard = (id: string) => {
     switch (id) {
-      case 'clock':   return <ClockCard />;
+      case 'clock':   return null;   // saat başlıkta (HeaderClock)
       case 'speed':   return <SpeedGauge />;
       case 'fuel':    return <FuelCard />;
       case 'music':   return <MusicCard />;
@@ -745,8 +747,12 @@ export const TeslaLayout = memo(function TeslaLayout(props: Props) {
     );
   };
 
+  /* `clock` yerleşim niyetinde kalır (Tema Stüdyo kaydı bozulmaz) ama sütunda
+     ÇİZİLMEZ — saat başlıktadır; boş sarmalayıcı/boşluk da bırakılmaz. */
   const tsRail = (zone: Zone) =>
-    solved[zone].groups.map((g, i) => renderTsGroup(g, g.map((x) => x.id).join('+') || String(i)));
+    solved[zone].groups.map((g) => g.filter((x) => x.id !== 'clock'))
+      .filter((g) => g.length > 0)
+      .map((g, i) => renderTsGroup(g, g.map((x) => x.id).join('+') || String(i)));
 
   return (
     <PalCtx.Provider value={pal}>
@@ -754,7 +760,8 @@ export const TeslaLayout = memo(function TeslaLayout(props: Props) {
         <TopoBackground />
         {voiceOpen && <Suspense fallback={null}><VoiceAssistant onClose={() => setVoiceOpen(false)} minimal /></Suspense>}
         <div className="relative flex flex-col w-full h-full">
-          <div className="flex items-center justify-end px-5 pt-2.5 pb-1 flex-shrink-0">
+          <div className="relative flex items-center justify-end px-5 pt-2.5 pb-1 flex-shrink-0" style={{ minHeight: 40 }}>
+            <HeaderClock />
             <StatusCluster />
           </div>
           <div className="flex-1 min-h-0 flex" style={{ gap: 12, padding: '4px 14px 8px' }}>

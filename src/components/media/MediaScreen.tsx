@@ -7,7 +7,8 @@
  * Native: Android MediaSession üzerinden harici uygulama kontrolü
  * Web/Demo: mock track rotasyonu
  */
-import { memo, useEffect, useCallback, useMemo, useState, useRef, useSyncExternalStore } from 'react';
+import { Fragment, memo, useEffect, useCallback, useMemo, useState, useRef, useSyncExternalStore } from 'react';
+import { CarLauncher } from '../../platform/nativePlugin';
 import { createPortal } from 'react-dom';
 import {
   SkipBack, SkipForward, Play, Pause,
@@ -29,7 +30,7 @@ import {
   setMediaPreferredPackage, pollMediaNow, play,
   playMedia, ensureLocalLoaded,
   resumeLastMedia, previewLastMedia, getLastMedia,
-  ensureYouTubeReady, setYouTubeRegion,
+  ensureYouTubeReady, setYouTubeRegion, isYouTubeVideoAvailable, subscribeYouTubeVideoAvailability,
   /* MUSIC F7.3 · sonraki/önceki KUYRUK-FARKINDA tek girişten geçer: sıra
      backend'in (native timeline) veya üst katmanın (arama sonucu listesi)
      olabilir. Kapıya doğrudan gitmek, YouTube gibi kuyruksuz backend'lerde
@@ -752,6 +753,15 @@ function PlayerView({
      `runLyrics`). Panelin KENDİSİ presentation state'tir, lyrics İÇERİĞİ
      `musicLyricsAuthority`dedir (Cross-Domain §14). */
   const lyricsOpen = useSyncExternalStore(subscribeLyricsPanelVisible, getLyricsPanelVisible, getLyricsPanelVisible);
+  /* SAHA KUSURU 2026-09-05: gömme kısıtlı bir video (rights-holder embed
+     reddi) IFrame'in KENDİ ham "Video kullanılamıyor" kartını gösteriyordu —
+     ses artık doğrudan akıştan çalsa bile (youtubeService ses yedeği) bu
+     çirkin kart ekranda kalıyordu. `videoAvailable` ses yedeği devreye
+     girince false olur ve aşağıdaki efekt kapak moduna düşer — kullanıcı
+     YouTube'un ham hata kartını GÖRMEZ, kapak + ses akmaya devam eder. */
+  const videoAvailable = useSyncExternalStore(
+    subscribeYouTubeVideoAvailability, isYouTubeVideoAvailable, isYouTubeVideoAvailable,
+  );
 
   // YouTube video konumlandırma:
   //  • videoMode KAPALI → host gizli (kapak/ses gösterilir).
@@ -760,9 +770,12 @@ function PlayerView({
   //    kontrolleri VideoFullscreenChrome (body portal, host'tan üst z-index) gelir.
   useEffect(() => {
     if (!isYouTube) return;
-    /* Video görünürlüğü YALNIZ kullanıcının `videoMode` seçimine bağlıdır —
-       hareket/hız bunu REDDEDEMEZ (ürün kararı, 2026-09-03). */
-    if (!videoMode) {
+    /* Video görünürlüğü kullanıcının `videoMode` seçimine bağlıdır — hareket/hız
+       bunu REDDEDEMEZ (ürün kararı, 2026-09-03). `videoAvailable` İSTİSNADIR:
+       o bir kullanıcı tercihi değil, GERÇEK bir kanıttır (gömme reddi/ses
+       yedeği devrede) — video hiçbir koşulda GÖSTERİLEMEZ, gösterilirse
+       YouTube'un ham "Video kullanılamıyor" kartı ekranda kalır. */
+    if (!videoMode || !videoAvailable) {
       // Kapak modu — host gizli (rAF gerekmez). Albüm kapağını React gösterir.
       // Ses-only: harita normal (navigasyon akıcılığı korunur) → komşu kilidi kapalı.
       setYouTubeRegion(null);
@@ -783,7 +796,7 @@ function PlayerView({
       setYouTubeRegion(null);
       setMapHeavyNeighbor(false);
     };
-  }, [isYouTube, videoMode]);
+  }, [isYouTube, videoMode, videoAvailable]);
 
   /* Konum değiştirme YALNIZ kaynak gerçekten destekliyorsa bağlanır. Sürüşte
      dokunma hedefi büyütülür (aşağıdaki dolgu); yanlış dokunma riski azalır. */
@@ -856,7 +869,10 @@ function PlayerView({
         />
       </div>
 
-      <div className="relative z-10 flex-1 flex flex-col px-8 pt-6 pb-4 min-h-0">
+      {/* SAHA 2026-09-23 (telefon yatay, içerik ≈284px): COMPACT düzen bile
+          sığmıyor, "Sırada" düğmesi taşıp GİZLENİYORDU. Sığmayan ekranda
+          içerik kayar; sığan ekranda davranış aynı. */}
+      <div className="relative z-10 flex-1 flex flex-col px-8 pt-6 pb-4 min-h-0 overflow-y-auto">
 
         {/* Üst: kaynak badge + ayar/kaynak kısayolu */}
         <div className="flex items-center justify-between flex-shrink-0"
@@ -894,7 +910,8 @@ function PlayerView({
             F11: kenar ÖLÇÜLEN genişlik+yükseklik bütçesinden gelir (yalnız
             genişliğe göre ölçeklenen eski `min(280px,70vw)` düşük ekranlarda
             kendi hücresinden TAŞIYORDU — bkz. nowPlayingLayoutModel başlığı). */}
-        <div className="flex-1 flex items-center justify-center min-h-0 py-4">
+        <div className="flex-1 flex items-center justify-center min-h-0 py-4"
+          style={{ minHeight: layout.artworkPx + 32 /* py-4: kapak hücresinden taşmasın */ }}>
           <div ref={artRef} data-editable="media.album-art" data-editable-type="card"
             className="relative group" style={{ width: layout.artworkPx, aspectRatio: '1 / 1' }}>
             <AlbumArt size={layout.artworkPx} src={artwork.url ?? undefined}
@@ -1279,8 +1296,8 @@ function SourcesView({
                 (src.key === 'local_files'   && activeSession === 'local')
               );
               return (
+                <Fragment key={src.key}>
                 <button
-                  key={src.key}
                   onClick={() => { onSelectSource(src); }}
                   data-editable="media.source-card" data-editable-type="card"
                   className="flex items-center gap-4 p-4 rounded-2xl glass-card text-left transition-all active:scale-[0.98] group"
@@ -1306,6 +1323,13 @@ function SourcesView({
                         <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: src.color }}>Çalıyor</span>
                       </div>
                     )}
+                    {/* Bluetooth: "bağlı" İDDİA EDİLMEZ — genel BT durumu OBD adaptörünü de
+                        sayar ve A2DP alıcı durumu ölçülmüyor. Yalnız gözlenen akış söylenir. */}
+                    {!isPlaying && src.key === 'bluetooth' && (
+                      <div className="text-[10px] font-bold mt-1" style={{ color: 'var(--oem-ink-3)' }}>
+                        Telefondan çalınan müzik burada görünür
+                      </div>
+                    )}
                   </div>
 
                   {/* Aktif işareti */}
@@ -1318,6 +1342,24 @@ function SourcesView({
                     <ChevronRight className="w-5 h-5 transition-colors" style={{ color: 'var(--oem-ink-3)' }} />
                   )}
                 </button>
+                {isActive && !isPlaying && src.key === 'bluetooth' && (
+                  <div data-testid="bluetooth-source-hint" className="flex items-center gap-3 px-4 py-3 rounded-2xl"
+                    style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--oem-line, rgba(255,255,255,0.08))' }}>
+                    <div className="flex-1 text-[11px] leading-relaxed" style={{ color: 'var(--oem-ink-2)' }}>
+                      Telefonunuzu Bluetooth ile bu cihaza bağlayın ve müziği telefondan başlatın.
+                    </div>
+                    {isNative && (
+                      <button
+                        onClick={() => { void CarLauncher.openBluetoothSettings?.().catch(() => undefined); }}
+                        className="flex-shrink-0 rounded-xl px-3 text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all"
+                        style={{ minHeight: 44, background: src.color, color: '#fff' }}
+                      >
+                        Bluetooth ayarları
+                      </button>
+                    )}
+                  </div>
+                )}
+                </Fragment>
               );
             })}
           </div>

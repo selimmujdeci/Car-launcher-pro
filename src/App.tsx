@@ -17,6 +17,7 @@ import { SentryOverlay }      from './components/security/SentryOverlay';
 import { GlobalAlert }        from './components/common/GlobalAlert';
 import { GlobalDiagnosticButton } from './components/common/GlobalDiagnosticButton';
 import { VolumeGestureLayer } from './components/common/VolumeGestureLayer';
+import { CockpitPager }      from './components/cockpit/CockpitPager';
 import { signalReverse }      from './platform/cameraService';
 import { ReversePriorityOverlay } from './components/layout/ReversePriorityOverlay';
 import { SafetyOverlay }         from './components/safety/SafetyOverlay';
@@ -28,6 +29,7 @@ import { systemBoot }         from './platform/system/SystemBoot';
 import { onVehicleEvent }     from './platform/vehicleDataLayer/VehicleEventHub';
 import { useRoleStore }       from './platform/roleSystem/RoleStore';
 import { useNavigationOrientationMode } from './platform/navigation/navigationOrientation';
+import { FirstRunSetup } from './components/setup/FirstRunSetup';
 
 const DebugPanel = lazy(() =>
   import('./components/debug/DebugPanel').then((m) => ({ default: m.DebugPanel })),
@@ -187,6 +189,13 @@ function App() {
         {/* Global görünmez ses kontrolü — şoför (sol) kenarı dikey kaydırma; her sayfada aktif */}
         <VolumeGestureLayer />
 
+        {/* Digital Cockpit — HOME'un KOMŞU sayfası (yatay kaydırma ile gelir).
+            HOME bu iş için DEĞİŞTİRİLMEDİ: kokpit kardeş bir katmandır, MainLayout'u
+            sarmaz/transform etmez, unmount etmez → Navigation/Music/Mavi/Vehicle
+            abonelikleri geçişte yeniden başlamaz. Geri viteste hiç render edilmez
+            (kamera önceliği mutlak). */}
+        {!storeReverse && <CockpitPager />}
+
         {/*
          * ── Z-Index Hiyerarşi Kuralı ─────────────────────────────────────────
          * ReversePriorityOverlay: z-[100000] — mutlak zirve, hiçbir şey binemez.
@@ -203,6 +212,8 @@ function App() {
         </SafetyProvider>
 
         {!storeReverse && <GlobalAlert />}
+        {/* İlk kurulum sihirbazı — yalnız yeni kurulumda; geri viteste ve sürüşte gizli. */}
+        {!storeReverse && <FirstRunSetup />}
         {/* Global "Tanı Gönder" — her ekranda erişilebilir tek tetik (saha veri
             toplama fazı); geri viteste gizli (kamera temiz). */}
         {!storeReverse && <GlobalDiagnosticButton />}

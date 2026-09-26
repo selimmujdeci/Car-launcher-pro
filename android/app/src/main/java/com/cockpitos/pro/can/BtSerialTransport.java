@@ -113,6 +113,7 @@ public final class BtSerialTransport implements ICanTransport {
             _socket      = socket;
             _inputStream = socket.getInputStream();
             _connected   = true;
+            _validFrames = 0;   // MRI F-01: her bağlantı kendi kanıtını sıfırdan toplar
             _deviceName  = devName;
             _parser.reset();
             Log.i(TAG, "BT serial bağlandı: " + devName);
@@ -141,7 +142,9 @@ public final class BtSerialTransport implements ICanTransport {
                 throw new IOException("BT stream kapandı");
             }
             // Tüm frame'leri döner — eski feedBuf() sadece ilkini döndürüyordu
-            return _parser.feedBuf(_buf, n);
+            List<byte[]> frames = _parser.feedBuf(_buf, n);
+            if (!frames.isEmpty()) noteValidFrames(frames.size());   // MRI F-01 pasif kanıt
+            return frames;
         } catch (IOException e) {
             _connected = false;
             throw e;
@@ -151,6 +154,7 @@ public final class BtSerialTransport implements ICanTransport {
     @Override
     public boolean write(byte[] data) {
         if (!_connected || _socket == null) return false;
+        if (!writeAuthorized()) return false;   // MRI F-01: kanıtsız SPP cihazına yazma yok
         try {
             _socket.getOutputStream().write(data);
             _socket.getOutputStream().flush();
@@ -173,6 +177,38 @@ public final class BtSerialTransport implements ICanTransport {
 
     @Override
     public boolean isConnected() { return _connected; }
+
+    // ── MRI F-01: eşleşmiş ad-ipucu yalnız SALT-GÖZLEM izni verir; yazma pasif kanıt ister ──
+    // "ESP"/"SERIAL" gibi ad parçaları kimlik kanıtı DEĞİLDİR; yanlış eşleşmiş bir
+    // SPP cihazına heartbeat yazılmaz. Yazma yetkisi ancak cihaz bizim protokolü
+    // (CRC'li AA..55 frame) ≥ PROTOCOL_EVIDENCE_FRAMES kez konuşunca doğar.
+
+    /** Bağlantıdan beri CRC-geçerli frame sayısı. */
+    private volatile int _validFrames = 0;
+
+    private void noteValidFrames(int n) {
+        int before = _validFrames;
+        _validFrames = before + n;
+        if (before < SerialPortHandler.PROTOCOL_EVIDENCE_FRAMES
+                && _validFrames >= SerialPortHandler.PROTOCOL_EVIDENCE_FRAMES) {
+            SerialDiscoveryLedger.record(SerialDiscoveryLedger.Kind.PASSIVE_EVIDENCE, name(),
+                "frames=" + _validFrames);
+            SerialDiscoveryLedger.record(SerialDiscoveryLedger.Kind.WRITE_ENABLED, name(), "protocol_verified");
+        }
+    }
+
+    @Override
+    public boolean writeAuthorized() {
+        return _connected && _validFrames >= SerialPortHandler.PROTOCOL_EVIDENCE_FRAMES;
+    }
+
+    @Override
+    public String evidenceLabel() {
+        if (!_connected) return "NONE";
+        return writeAuthorized() ? "PROTOCOL_VERIFIED"
+                                 : "BONDED_NAME_HINT_OBSERVING(" + _validFrames + "/"
+                                   + SerialPortHandler.PROTOCOL_EVIDENCE_FRAMES + ")";
+    }
 
     @Override
     public String name() { return "BT:" + (_deviceName != null ? _deviceName : "?"); }

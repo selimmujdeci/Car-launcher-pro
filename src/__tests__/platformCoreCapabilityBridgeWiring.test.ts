@@ -394,11 +394,11 @@ describe('W4 — SystemBoot startup sırası korunur', () => {
   });
 
   it('34) `_reg` cleanup modeliyle kaydedilir (LIFO shutdown)', () => {
-    expect(SYSTEMBOOT_SRC).toMatch(/this\._reg\(startPlatformCoreCapabilityBridgeWiring\(/);
+    expect(SYSTEMBOOT_SRC).toMatch(/this\._reg\(gen, startPlatformCoreCapabilityBridgeWiring\(/);
   });
 
   it('35) Vehicle HAL bridge wiring kaydı HÂLÂ mevcut (W4C değişmedi)', () => {
-    expect(SYSTEMBOOT_SRC).toMatch(/this\._reg\(startPlatformCoreVehicleHalBridgeWiring\(/);
+    expect(SYSTEMBOOT_SRC).toMatch(/this\._reg\(gen, startPlatformCoreVehicleHalBridgeWiring\(/);
   });
 
   it('36) mevcut Wave sırası (1→2→3→4) DEĞİŞMEDİ', () => {

@@ -58,19 +58,61 @@ Object.defineProperty(import.meta, 'env', {
 
 /* ── Navigator geolocation mock ──────────────────────── */
 
-// Mock navigator.geolocation for GPS service tests
-Object.defineProperty(globalThis, 'navigator', {
-  value: {
-    ...globalThis.navigator,
-    geolocation: {
+/* Mock navigator.geolocation for GPS service tests.
+ *
+ * BULUNAN KUSUR (F8.1 denetimi, react-dom gerçek render testleri eklenirken):
+ * eski hâli `{...globalThis.navigator}` ile TÜM navigator'ı YENİ bir düz
+ * nesneyle DEĞİŞTİRİYORDU. `navigator.userAgent` (ve platform/vendor/…) jsdom'da
+ * PROTOTYPE getter'ıdır — spread yalnız KENDİ enumerable alanları kopyalar, bu
+ * yüzden sonuç nesnede `userAgent === undefined` kalıyordu. Bu, `navigator`ı
+ * DOĞRUDAN okuyan hiçbir mevcut testi BOZMADI ama react-dom'un kök oluşturma
+ * yolundaki DevTools algılaması `navigator.userAgent.indexOf(...)` çağırınca
+ * `undefined.indexOf` ile SESSİZCE çöküyordu (test dosyası "0 test" toplayıp
+ * anlamsız bir hatayla düşüyordu — kanıt: izole tekrar üretim).
+ *
+ * DÜZELTME: jsdom environment'ta GERÇEK `navigator` nesnesi zaten var —
+ * onu DEĞİŞTİRMEK yerine yalnız `geolocation`'ı ÜZERİNE ekleriz (userAgent
+ * ve diğer her şey AYNEN kalır). `@vitest-environment node` kullanan
+ * dosyalarda (`navigator` hiç yoksa) eski sentetik nesne davranışı KORUNUR. */
+if (typeof globalThis.navigator === 'undefined') {
+  Object.defineProperty(globalThis, 'navigator', {
+    value: {
+      geolocation: {
+        watchPosition: vi.fn(),
+        clearWatch: vi.fn(),
+        getCurrentPosition: vi.fn(),
+      },
+    },
+    writable: true,
+    configurable: true,
+  });
+} else {
+  Object.defineProperty(globalThis.navigator, 'geolocation', {
+    value: {
       watchPosition: vi.fn(),
       clearWatch: vi.fn(),
       getCurrentPosition: vi.fn(),
     },
-  },
-  writable: true,
-  configurable: true,
-});
+    writable: true,
+    configurable: true,
+  });
+
+  /* `navigator.onLine` jsdom'da PROTOTYPE üzerinde YALNIZ-getter'dır — birçok
+   * mevcut test doğrudan `navigator.onLine = false` ATAMASI yapar (eski
+   * "navigator'ı komple değiştir" davranışında bu her zaman yazılabilirdi).
+   * Gerçek nesneyi KORURKEN (userAgent için) `onLine`ı KENDİ nesnenin
+   * (`instance`) YAZILABİLİR bir alanı olarak GÖLGELERİZ — prototip
+   * getter'ı artık devreye girmez, testler eskisi gibi doğrudan atayabilir.
+   * Varsayılan `true` — jsdom'un kendi varsayılanıyla AYNI. */
+  if (!Object.prototype.hasOwnProperty.call(globalThis.navigator, 'onLine')) {
+    Object.defineProperty(globalThis.navigator, 'onLine', {
+      value: true,
+      writable: true,
+      configurable: true,
+      enumerable: true,
+    });
+  }
+}
 
 /* ── Cleanup ───────────────────────────────────────── */
 
@@ -79,6 +121,20 @@ beforeEach(() => {
   // localStorage temizle
   localStorage.clear();
   sessionStorage.clear();
+
+  /* Bazı testler kendi `afterEach`inde `delete navigator.onLine` yapıyor
+   * (eski "navigator düz obje" davranışına göre yazılmış — bkz. yukarıdaki
+   * F8.1 notu). Bu, yukarıda TANIMLANAN yazılabilir gölge alanı SİLER; bir
+   * sonraki testin `navigator.onLine = ...` ataması prototipin salt-okunur
+   * getter'ına düşüp THROW eder. Global `beforeEach` dosya-yerel
+   * `beforeEach`lerden ÖNCE çalıştığı için burada YENİDEN kurmak, silinmiş
+   * olsa bile her testin başında yazılabilir alanı GERİ GETİRİR. */
+  if (typeof globalThis.navigator !== 'undefined'
+    && !Object.prototype.hasOwnProperty.call(globalThis.navigator, 'onLine')) {
+    Object.defineProperty(globalThis.navigator, 'onLine', {
+      value: true, writable: true, configurable: true, enumerable: true,
+    });
+  }
 });
 
 // afterEach'de ek cleanup gerekirse buraya ekle

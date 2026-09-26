@@ -84,6 +84,19 @@ describe('A. İşaret hareket modeli', () => {
     expect(r.lat).toBeCloseTo(cur.lat, 10);
   });
 
+  it('🔒 1 Hz GPS: fix aralığında işaret DURMAZ, yeni fix gelince sıçramaz (saha 2026-09-24)', () => {
+    /* Telefonda ölçüldü: sınır 700 ms iken işaret her saniye ~300 ms durup ~4 m sıçrıyordu. */
+    const m = (50 / 3.6) / 111_320;                     // 1 sn'de 50 km/sa, derece
+    const s0 = sample({ tsMs: 0, lat: 36.8 });
+    const s1 = sample({ tsMs: 1_000, lat: 36.8 + m });
+    const s2 = sample({ tsMs: 2_000, lat: 36.8 + 2 * m });
+    const at1700 = computeRenderedMotion({ prev: s0, cur: s1, nowMs: 1_700 });
+    const at1990 = computeRenderedMotion({ prev: s0, cur: s1, nowMs: 1_990 });
+    const at2000 = computeRenderedMotion({ prev: s1, cur: s2, nowMs: 2_000 });
+    expect(at1990.lat as number).toBeGreaterThan(at1700.lat as number);
+    expect(Math.abs((at2000.lat as number) - (at1990.lat as number)) * 111_320).toBeLessThan(0.5);
+  });
+
   it('ekstrapolasyon SÜRE ile sınırlıdır (zombi hareket yok)', () => {
     const prev = sample({ tsMs: 1_000, lat: 36.80000 });
     const cur  = sample({ tsMs: 1_500, lat: 36.80007, speedKmh: 60 });

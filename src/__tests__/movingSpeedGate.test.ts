@@ -59,12 +59,14 @@ describe('judgeMovingGate — tehlikeli komut hız kapısı', () => {
     expect(judge(Number.POSITIVE_INFINITY, 0)).toBe('SPEED_UNKNOWN');
   });
 
-  it('BEYAN EDİLEN ÖDÜNÇ: SPEED_UNKNOWN reddetmez — ama ALLOW ile AYNI da değildir', () => {
-    /* Kapalı otoparkta (GPS yok · kontak kapalı → OBD yok) aracını uzaktan
-       açamamak ürünü kırardı; bu yüzden bilinmeyen hız BLOCK değildir.
-       Ama bu kabul KANITSIZDIR ve ayrı bir hüküm olarak döner — çağıran onu
-       ayrı sayaçta defterler ve CAROS LAB'da gösterir. İkisi tek değere
-       indirgenirse "güvenlik kapısı korudu" yalanı YAPISAL olarak mümkün olur. */
+  it('SINIFLANDIRICI: SPEED_UNKNOWN ne BLOCK ne ALLOW\'dur — icra kararı burada verilmez', () => {
+    /* MRI F-03 (2026-09-19): bu fonksiyon artık İCRA KAPISI DEĞİL, füzyon hız
+       KANITI sınıflandırıcısıdır. `SPEED_UNKNOWN` "kanıt yok" demektir; icra
+       kararı `action/motionSafetyPolicy.judgeMotionSafety`te verilir ve orada
+       kanıtsız tehlikeli komut REDDEDİLİR (Mavi ile aynı). Eski "kapalı otoparkta
+       açamamak ürünü kırar → kabul et" ödüncü KALDIRILDI; bkz.
+       `commandListenerValidityMotion.test.ts`. Burada kilitlenen: sınıflandırıcı
+       bilinmeyeni ne hareket ne durma olarak UYDURMAZ. */
     const unknown = judge(null, null);
     expect(unknown).not.toBe('BLOCK');
     expect(unknown).not.toBe('ALLOW');

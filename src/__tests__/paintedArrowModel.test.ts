@@ -14,6 +14,7 @@ import {
   buildPaintedArrow,
   ARROW_SHOW_MAX_M, ARROW_HIDE_MIN_M, ARROW_EXIT_M, ARROW_APPROACH_M,
   ARROW_BODY_W_M, ARROW_HEAD_W_M,
+  ARROW_VEHICLE_CLEAR_M, ARROW_GLIDE_LEAD_S, ARROW_UNKNOWN_SPEED_MPS,
   PAINTED_ARROW_POLICY_VERSION,
   type PaintedArrowInput,
 } from '../platform/map/core/paintedArrowModel';
@@ -93,7 +94,9 @@ describe('kapılar — dayanağı yoksa ÇİZİLMEZ ve nedeni sayılabilir', () 
   it('dönüşün içindeyken çizilmez — ok geride kalır ve yanıltır', () => {
     expect(buildPaintedArrow(input({ distanceToManeuverM: ARROW_HIDE_MIN_M - 1 })))
       .toMatchObject({ visible: false, reason: 'TOO_CLOSE' });
-    expect(buildPaintedArrow(input({ distanceToManeuverM: ARROW_HIDE_MIN_M })).visible).toBe(true);
+    /* 2026-09-24: sınırda görünürlük HIZA bağlı — duran araçta çizilir; hareket
+       hâlinde işaret bir fix içinde oka gireceği için çizilmez (aşağıdaki blok). */
+    expect(buildPaintedArrow(input({ distanceToManeuverM: ARROW_HIDE_MIN_M, speedMps: 0 })).visible).toBe(true);
   });
 
   it('düz devam · varış · kalkış için çizilmez', () => {
@@ -299,5 +302,57 @@ describe('bağlama — ok DOĞRU kavşağa çizilmeli', () => {
 
   it('gözlem yüzeyi KONUM taşımaz (gizlilik)', () => {
     expect(ACCESS).not.toMatch(/\blat\b|\blon\b|latitude|longitude|coordinate/i);
+  });
+});
+
+/* ── Saha 2026-09-24 (telefon): dönüşe 30 m kala okun gövdesi aracın ARKASINA
+   uzanıp aracın üstünden geçiyordu. Gövde her zaman 32 m geriye gidiyordu. ── */
+describe('ok araç işaretinin ÜSTÜNE binmez', () => {
+  /** Gövde kuyruğunun manevraya yol-boyu uzaklığı (m) — yaklaşım kolu kuzey-güney. */
+  const tailBackM = (ring: readonly (readonly [number, number])[]) =>
+    Math.max(...ring.map((p) => (LAT0 - p[1]) * 111_320));
+
+  for (const [dist, v] of [[30, 13.9], [40, 22.2], [60, 13.9], [25, 5]] as const) {
+    it(`🔒 ${dist} m kala, ${Math.round(v * 3.6)} km/sa: kuyruk işaretin bir fix sonraki yerinin ÖNÜNDE`, () => {
+      const r = buildPaintedArrow(input({ distanceToManeuverM: dist, speedMps: v }));
+      if (!r.visible) return;                 // çizilmemesi de güvenli
+      const gap = dist - tailBackM(r.ring);   // araç ↔ kuyruk
+      expect(gap).toBeGreaterThanOrEqual(ARROW_VEHICLE_CLEAR_M + v * ARROW_GLIDE_LEAD_S - 0.01);
+    });
+  }
+
+  it('🔒 30 m kala 50 km/sa: ok yine çizilir ama kısa gövdeyle (saha anı)', () => {
+    const r = buildPaintedArrow(input({ distanceToManeuverM: 30, speedMps: 13.9 }));
+    expect(r.visible).toBe(true);
+    if (r.visible) expect(tailBackM(r.ring)).toBeLessThan(ARROW_APPROACH_M);
+  });
+
+  it('🔒 hız bilinmiyorsa temkinli varsayım kullanılır (sıfır SAYILMAZ)', () => {
+    const unknown = buildPaintedArrow(input({ distanceToManeuverM: 28, speedMps: null }));
+    const assumed = buildPaintedArrow(input({ distanceToManeuverM: 28, speedMps: ARROW_UNKNOWN_SPEED_MPS }));
+    expect(unknown).toEqual(assumed);
+  });
+
+  it('🔒 ok katmanı araç katmanlarının ALTINA eklenir (beforeId)', () => {
+    const mgr = readFileSync(join(__dirname, '../platform/map/MapLayerManager.ts'), 'utf8');
+    expect(mgr).toContain('const _beforeUser = USER_LAYERS.find((id) => map.getLayer(id));');
+    expect(mgr.match(/\}, _beforeUser\);/g)?.length).toBe(2);
+  });
+});
+
+describe('ok araca yaklaştıkça haritada TAZELENİR', () => {
+  it('🔒 dedup anahtarı gövde boyunu içerir (yalnız anchor|turn DEĞİL)', () => {
+    const mgr = readFileSync(join(__dirname, '../platform/map/MapLayerManager.ts'), 'utf8');
+    expect(mgr).toContain('`v|${anchorIndex}|${verdict.turn}|${Math.round(verdict.approachM / 2)}`');
+  });
+
+  it('uzakta gövde boyu SABİT (gereksiz setData yok), yakında kısalır', () => {
+    const at = (d: number) => {
+      const r = buildPaintedArrow(input({ distanceToManeuverM: d, speedMps: 13.9 }));
+      return r.visible ? r.approachM : null;
+    };
+    expect(at(120)).toBe(ARROW_APPROACH_M);
+    expect(at(60)).toBe(ARROW_APPROACH_M);
+    expect(at(30)!).toBeLessThan(ARROW_APPROACH_M);
   });
 });

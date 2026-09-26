@@ -19,7 +19,9 @@
  */
 
 import { onVehicleEvent }                          from '../vehicleDataLayer';
-import { onTripState, getTripJournalGlance }       from '../tripLogService';
+import { onTripState }                             from '../tripLogService';
+/* Seyahat oturumu — SIFIR bağımlılıklı ince kapı (yeni abonelik kurmaz). */
+import { readTripSessionOrNull, selectJourneyCompletionCard } from '../trip/tripSessionAccess';
 import { speakAlert }                              from '../ttsService';
 import { useSystemStore }                          from '../../store/useSystemStore';
 import { startCognitiveEngine, stopCognitiveEngine } from './CognitivePriorityEngine';
@@ -71,22 +73,6 @@ function _cancelTimer(id: number): void {
 
 export function startSystemOrchestrator(): () => void {
   let _navFiredThisSession = false; // oturum başına bir kez harita aç
-  let _pendingTripSummary  = false; // DRIVING_STOPPED → trip bitmesini bekle
-  let _prevTripActive      = false; // onTripState geçiş tespiti için
-  let _lastResumeAt        = 0;     // en son foreground dönüşü (visibilitychange visible)
-
-  // RESUME-GUARD (saha 2026-07-07): app arka plan/uykudan dönünce birikmiş GPS
-  // tek tick'te işlenip hız spike'ı (≥DRIVE_ON_KMH) üretiyor → worker sahte
-  // DRIVING_STARTED/STOPPED → park halde sahte "Yolculuk Tamamlandı" banner (0.1km/2dk).
-  // Gerçek yolculuk resume anında bitmez → dönüşten sonraki bu pencerede finalize
-  // edilen trip artefakt sayılıp banner bastırılır (trip yine kaydedilir, yalnız modal yok).
-  const RESUME_TRIP_GRACE_MS = 5_000;
-  const _onOrchVisibility = () => {
-    if (typeof document !== 'undefined' && !document.hidden) _lastResumeAt = Date.now();
-  };
-  if (typeof document !== 'undefined') {
-    document.addEventListener('visibilitychange', _onOrchVisibility);
-  }
 
   startCognitiveEngine();
   thermalJournal.start();
@@ -205,7 +191,6 @@ export function startSystemOrchestrator(): () => void {
 
       case 'DRIVING_STOPPED': {
         store().setDriving(false);
-        _pendingTripSummary  = true;
         break;
       }
 
@@ -320,37 +305,38 @@ export function startSystemOrchestrator(): () => void {
     }
   });
 
-  /* ── Trip Log aboneliği ──────────────────────────────────── */
-  // Trip aktif → pasif geçişini yakala; pending flag varsa banneri göster.
-  const unsubTrip = onTripState((state) => {
-    const justEnded = _prevTripActive && !state.active;
-    _prevTripActive = state.active;
-
-    if (justEnded && _pendingTripSummary && state.history.length > 0) {
-      _pendingTripSummary = false;
-      // Resume-guard: foreground dönüşünün hemen ardından biten "trip" = arka-plan/
-      // uyku resume artefaktı → banner gösterme (gerçek yolculuk resume anında bitmez).
-      if (Date.now() - _lastResumeAt < RESUME_TRIP_GRACE_MS) return;
-
-      /* KANONİK KAPANIŞ KAPISI.
-       *
-       * `justEnded` yalnız "aktif yolculuk kalmadı" der; yolculuğun KAYDA
-       * GEÇTİĞİNİ söylemez. `tripLogService` 1 dk'dan kısa / 100 m'den kısa
-       * yolculukları KAYDETMEZ — geçiş olur, `history` değişmez ve eskiden
-       * burada **bir önceki yolculuk** yeniden "Yolculuk Tamamlandı" diye
-       * gösteriliyordu.
-       *
-       * `lastCompletedTripId` tam olarak `ACTIVE → COMPLETED` geçişinde
-       * kaydedilen kimliktir. `history[0]` onunla EŞLEŞMİYORSA bu kapanış
-       * bir özet üretmemiştir ve kart AÇILMAZ. (Store tarafında ayrıca
-       * tripId başına tek atış kilidi vardır — iki kapı, iki ayrı kusur
-       * sınıfı için.) */
-      const head = state.history[0];
-      const completedId = getTripJournalGlance().lastCompletedTripId;
-      if (!head || completedId === null || head.id !== completedId) return;
-
-      useSystemStore.getState().setTripSummary(head);
-    }
+  /* ── "Yolculuk tamamlandı" kartı — KANONİK TETİKLEYİCİ ─────────────
+   *
+   * ── ÖLÇÜLEN KUSUR (gerçek render, 2026-09-21) ───────────────────────
+   * Kart `tripLogService`in DEPOLAMA segmenti mühürüne bağlıydı
+   * (aktif → pasif geçişi + geçmişin başı): rota olmayan sürüşte 0.9 km / 4 dk'lık
+   * IDLE_WINDOW mühürü "YOLCULUK TAMAMLANDI" diye açılıyordu. Bunun üstüne
+   * kurulan üç yama (DRIVING_STOPPED bekleme, resume-guard, kanonik kapanış
+   * kimliği eşleşmesi) hep aynı yanlış tetikleyiciyi FİLTRELİYORDU.
+   *
+   * ── KANONİK KURAL (4543ccf9 · 982c8965) ───────────────────────────────
+   * Tamamlanma hükmünün TEK sahibi seyahat oturumudur: `kind === 'JOURNEY'`
+   * ve `journeyCompleted` (yalnız navigasyon otoritesinin varış mührü). Kart
+   * hedefsiz sürüşte (DRIVE_LOG), depolama mühürlerinde (IDLE_WINDOW /
+   * DATA_SILENCE / SERVICE_STOPPED), molada, restart'ta, rota iptali /
+   * reroute / hedef değişikliğinde AÇILMAZ. Sayılar oturumun BAŞINDAN
+   * İTİBAREN toplamıdır (120 + 180 → 300 km), tek segment değil.
+   *
+   * ── SIRA BAĞIMSIZLIĞI ─────────────────────────────────────────────────
+   * Oturum servisi aynı `onTripState` yayınına abonedir ve bu dinleyici
+   * ondan ÖNCE kayıtlıdır (SystemBoot dalgası, React effect'ten önce).
+   * Okuma bir mikro-göreve ertelenir ki aynı yayının TÜM eş-zamanlı
+   * dinleyicileri (oturum ilerletmesi dâhil) bitmiş olsun — yeni timer YOK.
+   *
+   * Tek atış oturum kimliğiyle store'dadır (`shownTripSummaryId`); resume
+   * artefaktı ya da GPS gürültüsü varış mührü ÜRETEMEZ, bu yüzden ayrıca
+   * bir hız/resume bekçisi gerekmez (gösterim hız kapısı `MainLayout`ta). */
+  const unsubTrip = onTripState(() => {
+    queueMicrotask(() => {
+      const card = selectJourneyCompletionCard(readTripSessionOrNull());
+      if (card === null) return;
+      useSystemStore.getState().setTripSummary(card);
+    });
   });
 
   /* ── Cleanup ─────────────────────────────────────────────── */
@@ -361,9 +347,6 @@ export function startSystemOrchestrator(): () => void {
     unsubThermal();
     unsubVehicle();
     unsubTrip();
-    if (typeof document !== 'undefined') {
-      document.removeEventListener('visibilitychange', _onOrchVisibility);
-    }
     _timers.forEach((t) => clearTimeout(t));
     _timers.clear();
   };

@@ -49,7 +49,10 @@ export type LyricsFormat = 'PLAIN' | 'SYNCED';
  * DEĞİLDİR — bkz. `LyricsAvailability.UNKNOWN` ile karışmaz).
  */
 export type LyricsProvenanceSource =
-  | 'LOCAL_ID3_USLT' | 'LOCAL_ID3_SYLT' | 'LOCAL_VORBIS_COMMENT' | 'NONE';
+  | 'LOCAL_ID3_USLT' | 'LOCAL_ID3_SYLT' | 'LOCAL_VORBIS_COMMENT'
+  /** İnternetten (LRCLIB) — yalnız bellekte tutulur, diske YAZILMAZ. */
+  | 'ONLINE_LRCLIB'
+  | 'NONE';
 
 export interface LyricsLine {
   /** SYNCED'de gerçek ms damgası; PLAIN'de HER ZAMAN `null` (uydurulmaz). */

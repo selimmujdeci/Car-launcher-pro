@@ -472,7 +472,7 @@ const REGISTRY: Record<string, Reg> = {
   /* 2 · Sağlayıcı */
   'pv-local':       { source: 'routeProviderReadiness', key: 'provider.localState',        stamp: 'OWN'  },
   'pv-probe':       { source: 'routeProviderReadiness', key: 'provider.localProbeCount',   stamp: 'NONE' },
-  'pv-online':      { source: 'navigator.onLine',       key: 'onlineHint',                 stamp: 'NONE' },
+  'pv-online':      { source: 'ConnectivityAuthority',  key: 'onlineHint',                 stamp: 'NONE' },
   'pv-source':      { source: 'routeProviderReadiness', key: 'provider.lastSource',        stamp: 'NONE' },
   'pv-server':      { source: 'useRouteStore.serverUsed', key: 'serverUsed',               stamp: 'NONE' },
   'pv-graph':       { source: 'offlineRoutingStatus',   key: 'offlineGraph.state',         stamp: 'OWN'  },

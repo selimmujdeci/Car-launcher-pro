@@ -24,7 +24,9 @@ import {
   captureEmergencyClip,
 } from '../dashcamService';
 import { uploadSentryClip, insertVehicleEvent, getSupabaseClient } from '../supabaseClient';
+import { allowsConnectivity } from '../connectivity/connectivityGate';
 import { showToast } from '../errorBus';
+import { randomToken } from '../../utils/randomId';
 
 /* ── Sabitler ────────────────────────────────────────────────── */
 
@@ -101,7 +103,7 @@ function _patchAlert(id: string, patch: Partial<SentryAlert>): void {
 }
 
 function _uid(): string {
-  return `snt-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  return `snt-${Date.now()}-${randomToken(5)}`;
 }
 
 /* ── G-Sensor callback ───────────────────────────────────────── */
@@ -261,7 +263,8 @@ async function _retryPending(): Promise<void> {
   if (_pendingBlobs.size === 0) return;
 
   for (const [alertId, blob] of Array.from(_pendingBlobs.entries())) {
-    if (!navigator.onLine) break;
+    /* F7-B: bekleyen klipler arka planda yüklenir. */
+    if (!allowsConnectivity('BACKGROUND_SYNC')) break;
 
     const result = await _doUpload(alertId, blob);
     if (result !== null) {

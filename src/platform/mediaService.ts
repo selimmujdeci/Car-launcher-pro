@@ -736,6 +736,18 @@ function applyNativeMediaInfo(info: NativeMediaInfo): void {
 
     const pkg = info.packageName ?? '';
 
+    /* ── Kendi oturumumuz uygulama-içi servisi EZMEZ ─────────────────
+     * SAHA 2026-09-23 (telefon): YouTube IFrame çalarken WebView'ın kendi
+     * MediaSession'ı (com.cockpitos.pro, başlıksız, playing:false)
+     * 'mediaChanged' ile geliyordu → grace sonrası hasSession:false →
+     * ~5 sn'de video butonu/kontroller kayboluyor, ekran "Çal"a dönüyordu.
+     * `_pollNative`'deki IN_APP kuralının olay yolundaki karşılığı; yalnız
+     * aktif kaynak BAŞKA bir uygulama-içi paketse (YouTube/stream) uygulanır. */
+    if (
+      IN_APP_PACKAGES.has(pkg) && _current.hasSession
+      && _current.activePackage !== pkg && IN_APP_PACKAGES.has(_current.activePackage)
+    ) return;
+
     /* ── Issue 1: Focus Lock ─────────────────────────────────────────
      * Kullanıcı manuel kaynak seçiminden sonra 5 saniyelik pencerede
      * başka bir paketin session'ı ekranı ele geçirmesini engelle.

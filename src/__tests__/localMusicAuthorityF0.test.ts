@@ -54,7 +54,7 @@ describe('F0 LOCAL canonical authority guards', () => {
        promise zincirini bozmaz (arch06PerformanceMeasurement D1-D4). */
     expect(boot).toContain('startMediaAuthority()');
     expect(boot).toContain("await measureBootService('startMediaAuthority', 1, true, () => startMediaAuthority())");
-    expect(boot).toContain("this._regNamed('media-authority', stopMediaAuthority)");
-    expect(boot).not.toContain('this._reg(stopMediaAuthority)');
+    expect(boot).toContain("this._regNamed(gen, 'media-authority', stopMediaAuthority)");
+    expect(boot).not.toContain('this._reg(gen, stopMediaAuthority)');
   });
 });

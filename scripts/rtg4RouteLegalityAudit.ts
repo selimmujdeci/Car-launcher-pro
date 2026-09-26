@@ -12,10 +12,8 @@
  * `unverified*` sayacına düşer.
  */
 import { readFileSync } from 'node:fs';
-import {
-  parseRoutingGraph, edgeAccessRole, edgeIsOneway, turnIsAllowed, viaWayStep,
-  type RoutingGraphView,
-} from '../src/platform/navigation/map/graph/rtg2Reader';
+import { edgeAccessRole, edgeIsOneway, turnIsAllowed, viaWayStep, type RoutingGraphView } from '../src/platform/navigation/map/graph/rtg2Reader';
+import { parseRoutingGraph } from '../src/platform/navigation/map/graph/rtg2Parse';
 
 export interface RouteLegalityReport {
   /** Rota üzerindeki ardışık düğüm çifti sayısı. */

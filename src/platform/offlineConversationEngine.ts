@@ -14,6 +14,7 @@
  */
 
 import { getMediaState }  from './mediaService';
+import { observedInternetReachability } from './connectivity/connectivityGate';
 import { getGPSState }    from './gpsService';
 import { onOBDData }      from './obdService';
 import { getRouteState }  from './routingService';
@@ -240,7 +241,10 @@ function buildWeather(isDriving?: boolean): string {
   }
   // Veri yok — bir sonraki soru için arka planda sessizce tazele (bu cevabı bekletmez).
   void refreshWeather().catch(() => undefined);
-  const online = typeof navigator !== 'undefined' && navigator.onLine;
+  /* F7-B: bu bir KAPI değil, yalnız DÜRÜST CEVAP seçimidir — yerel motor her
+     hâlükârda cevap verir. `null` (ölçülmedi) eskisi gibi "ulaşamadım" tarafına
+     düşer; sahte "internet yok" iddiası ÜRETİLMEZ. */
+  const online = observedInternetReachability() !== false;
   if (online) {
     return drive(
       'Hava verisine şu an ulaşamadım, birazdan tekrar sorabilirsin.',
@@ -255,7 +259,7 @@ function buildTraffic(isDriving?: boolean): string {
   // Trafik için gerçek veri kaynağı yok (kapsam dışı) — yalnız dürüst mesaj:
   // online iken "bilmiyorum" değil "şu an ulaşamadım" (veri kaynağı eklenince
   // aynı yerden gerçek veriye bağlanabilir).
-  const online = typeof navigator !== 'undefined' && navigator.onLine;
+  const online = observedInternetReachability() !== false;
   if (online) {
     return drive(
       'Trafik bilgisine şu an ulaşamadım.',

@@ -53,6 +53,25 @@
 /* ── Varyant tanımı ──────────────────────────────────────────────────────── */
 
 /**
+ * İstekten ÖNCE yapılacak bağlantı kurma TÜRÜ — TEK sözlük.
+ * `FAST`/`SLOW` ADAPTÖR seviyesi (ELM `ATFI`/`ATSI`), `SC81` PROTOKOL seviyesi
+ * (ISO 14230-2 servis 0x81). Etiketler de burada; iki yerde tutulan bir eşleme
+ * birinin sessizce eskimesi demektir.
+ */
+export type KwpInitKind = 'FAST' | 'SLOW' | 'SC81';
+
+export const KWP_INIT_KIND_LABEL: Readonly<Record<KwpInitKind, string>> = {
+  FAST: 'ATFI (hızlı başlatma)',
+  SLOW: 'ATSI (yavaş başlatma)',
+  SC81: 'servis 0x81 (StartCommunication)',
+} as const;
+
+/** Kısa etiket (LAB satırı) — uzun etiketle AYNI sözlükten türer. */
+export const KWP_INIT_KIND_SHORT: Readonly<Record<KwpInitKind, string>> = {
+  FAST: 'ATFI', SLOW: 'ATSI', SC81: 'SC81',
+} as const;
+
+/**
  * Bir matris satırı. `header` içindeki `{src}` ECU'nun kaynak adresiyle
  * doldurulur (fonksiyonel kontrol satırında yer almaz).
  */
@@ -76,13 +95,23 @@ export interface KwpAddressingVariant {
    * kesinti üretmez). `'FAST'` = ELM327 `ATFI` (ISO 14230-4 hızlı başlatma),
    * `'SLOW'` = `ATSI` (ISO 9141-2 / 5 baud).
    *
+   * ── P0-OBD-DTC-INIT/3: `'SC81'` — PROTOKOL SEVİYESİ StartCommunication ──────
+   * `ATFI`/`ATSI` ADAPTÖR seviyesinde başlatmadır ve sahada (2026-08-26) bu
+   * araçta İKİSİ DE `INIT_FAILED` döndü: adaptör hattı yeniden kurmayı REDDETTİ.
+   * `'SC81'` aynı niyeti PROTOKOL seviyesinde dener: ISO 14230-2 §5.2'de
+   * StartCommunication **servis 0x81**'dir ve fiziksel hedefe gönderilir;
+   * pozitif yanıt `C1 <key1> <key2>`tir (0x81 + 0x40 — mevcut `positiveSidOf`
+   * bunu ZATEN doğru üretir). Adaptörden bağımsızdır: ELM yalnız baytları taşır.
+   * SALT BAĞLANTI KURMA'dır — yazma · silme · security access DEĞİLDİR
+   * (`10` startDiagnosticSession ile aynı güvenlik sınıfı).
+   *
    * NEDEN AYRI BİR SINIF: başlatma satırları K-line'ı GERÇEKTEN yeniden kurar,
    * yani çalışan fonksiyonel oturumu ANLIK olarak böler. Bu yüzden matrisin
    * SONUNDA dururlar ve YALNIZ (a) kontrol satırı cevap verdiyse — hat canlı —
    * ve (b) başlatmasız fiziksel satırların HEPSİ sustuysa koşarlar. Yani ancak
    * "hat çalışıyor ama fiziksel adres kapalı" ÖLÇÜLDÜKTEN sonra denenirler.
    */
-  readonly initFirst?: 'FAST' | 'SLOW';
+  readonly initFirst?: KwpInitKind;
 }
 
 /**
@@ -151,6 +180,32 @@ export const KWP_ADDRESSING_VARIANTS: readonly KwpAddressingVariant[] = Object.f
        + 'oturum kanıtı da uzunluk kusuru yüzünden kaybolmuş demektir.',
   }),
   Object.freeze({
+    id: 'PHY_STARTCOMM_81',
+    headerTemplate: '81{src}F1',
+    request: '81',
+    physical: true,
+    label: 'fiziksel 81 + servis 0x81 (ISO 14230-2 StartCommunication)',
+    why: 'SAHA ELEME ZİNCİRİ: kontrol satırı CEVAP VERİYOR (hat canlı, ATSH etkili), '
+       + 'başlatmasız fiziksel satırların HEPSİ sustu (uzunluk ve eski-servis hipotezleri '
+       + 'ELENDİ), ATFI/ATSI ise ADAPTÖR tarafından reddedildi (`INIT_FAILED`, 2026-08-26). '
+       + 'Geriye ISO 14230-2\'nin kendi bağlantı kurma servisi kaldı ve o BUGÜNE KADAR HİÇ '
+       + 'GÖNDERİLMEDİ: `81` StartCommunication. Adaptör yeteneğine BAĞLI DEĞİLDİR — ELM '
+       + 'yalnız baytı taşır. Pozitif yanıt `C1`dir; ECU cevaplarsa fiziksel adres KANITLANIR '
+       + 've bu satır hangi ön koşulun gerçekten gerektiğini ÖLÇMÜŞ olur.',
+  }),
+  Object.freeze({
+    id: 'PHY_SC81_03',
+    headerTemplate: '81{src}F1',
+    request: '03',
+    physical: true,
+    initFirst: 'SC81',
+    label: 'fiziksel 81 + StartCommunication (0x81) + Mode 03',
+    why: 'Bağlantı kurulduktan SONRA arıza hafızasının gerçekten okunup okunmadığını ölçer. '
+       + 'Cevap gelirse `requiredInit=SC81` ÖLÇÜLMÜŞ olur ve mevcut taşıma zinciri bunu hem '
+       + 'standart modların yeniden okumasına hem 0x18/0x13\'e uygular — yani ürünün asıl '
+       + 'sorduğu hafıza açılır. Sessiz kalırsa hiçbir hüküm YÜKSELMEZ (fail-closed).',
+  }),
+  Object.freeze({
     id: 'PHY_FASTINIT_03',
     headerTemplate: '81{src}F1',
     request: '03',
@@ -177,8 +232,13 @@ export const KWP_ADDRESSING_VARIANTS: readonly KwpAddressingVariant[] = Object.f
   }),
 ]);
 
-/** Matris tavanı — K-line yavaştır; sınırsız deneme sürüş sırasında kabul edilemez. */
-export const KWP_ADDRESSING_MAX_VARIANTS = 8;
+/**
+ * Matris tavanı — K-line yavaştır; sınırsız deneme sürüş sırasında kabul edilemez.
+ * P0-OBD-DTC-INIT/3: 8 → 10 (iki `SC81` satırı eklendi). Tavan matrisin BOYUNU
+ * sınırlar, süresini DEĞİL: ilk cevap veren FİZİKSEL satırda durulur, yani
+ * hattın zaten cevap verdiği araçlarda fazladan tek bayt ÇIKMAZ.
+ */
+export const KWP_ADDRESSING_MAX_VARIANTS = 10;
 
 /** Bir varyantın header'ını ECU kaynak adresiyle doldurur (SAF). */
 export function resolveVariantHeader(v: KwpAddressingVariant, srcAddress: string): string {
@@ -382,7 +442,7 @@ export interface KwpAddressingProbeEntry {
   readonly variantId: string;
   readonly physical: boolean;
   /** Bu satır K-line başlatma yaptı mı ('FAST'/'SLOW'); yapmadıysa null. */
-  readonly initFirst: 'FAST' | 'SLOW' | null;
+  readonly initFirst: KwpInitKind | null;
   /** Başlatma komutunun HAM yanıtı (metin ya da hex); yoksa null. */
   readonly initRaw: string | null;
   readonly request: string | null;
@@ -441,7 +501,7 @@ export interface KwpAddressingVerdict {
    * hâlidir ve ürünün fiziksel istek yolunu KALICI olarak değiştirmesi gerektiğini
    * söyler (tek seferlik bir şans DEĞİL).
    */
-  readonly requiredInit: 'FAST' | 'SLOW' | null;
+  readonly requiredInit: KwpInitKind | null;
   /** TR gerekçe — LAB'da kararın NEDENİ görünür. */
   readonly reason: string;
   /** Bu ECU için denenen satır sayısı. */
@@ -496,7 +556,7 @@ export function summarizeKwpAddressing(
       ? ` · NRC 0x${best.nrc.toString(16).toUpperCase().padStart(2, '0')}`
       : '';
     const initText = best.initFirst !== null && best.initFirst !== undefined
-      ? ` · ${best.initFirst === 'FAST' ? 'ATFI (hızlı başlatma)' : 'ATSI (yavaş başlatma)'} GEREKTİ`
+      ? ` · ${KWP_INIT_KIND_LABEL[best.initFirst]} GEREKTİ`
       : '';
     reason = `${best.variantId}: ATSH ${best.header}${initText} + ${best.request} → `
            + `${displayRaw(best.raw) ?? 'YANIT'} (${KWP_ADDRESSING_RESULT_LABEL[best.result]}${nrcText})`;
@@ -510,7 +570,7 @@ export function summarizeKwpAddressing(
        "ECU sustu" DEMEK DEĞİLDİR ve öyle raporlanamaz. Başlatmanın HAM yanıtı
        teşhisin kendisidir — burada AÇIKÇA taşınır. */
     const inits = physical.filter((e) => e.result === 'INIT_FAILED')
-      .map((e) => `${e.variantId}: ${e.initFirst === 'SLOW' ? 'ATSI' : 'ATFI'} → ${e.initRaw ?? 'YANIT YOK'}`)
+      .map((e) => `${e.variantId}: ${e.initFirst === null ? 'BAŞLATMA' : KWP_INIT_KIND_SHORT[e.initFirst]} → ${e.initRaw ?? 'YANIT YOK'}`)
       .join(' · ');
     const plain = physical.filter((e) => e.result !== 'INIT_FAILED')
       .map((e) => `${e.variantId}:${e.result}`).join(' · ');

@@ -9,7 +9,7 @@
  * Okunan tek şey `obdService` anlık görüntüsüdür; çıktı "şu an izin verilir miydi"
  * sorusunun yanıtıdır — bir eylem DEĞİL.
  */
-import { getOBDDataSnapshot } from '../obdService';
+import { getOBDDataSnapshot, getObdSpeedFresh } from '../obdService';
 import type { WriteGateContext } from '../obd/writeGate';
 
 export interface ServiceRoutineRawSnapshot {
@@ -33,14 +33,13 @@ export function readServiceRoutineSnapshot(): ServiceRoutineRawSnapshot {
   const readAt = Date.now();
   try {
     const obd = getOBDDataSnapshot();
+    const freshSpeed = getObdSpeedFresh();
     return {
       readAt,
       gate: {
         connectionState: obd.connectionState,
-        speedKmh:        obd.speed,
+        speedKmh:        freshSpeed ?? Number.NaN,
         rpm:             obd.rpm,
-        lastSeenMs:      obd.lastSeenMs,
-        nowMs:           readAt,
         confirmed:       false,          // onay YOK — ekran komut göndermez
       },
       connectionState: obd.connectionState ?? null,

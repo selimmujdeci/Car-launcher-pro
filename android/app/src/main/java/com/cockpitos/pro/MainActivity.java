@@ -228,6 +228,27 @@ public class MainActivity extends BridgeActivity {
         // PHONE-HUB P1-A: bağlantı yaşam döngüsü AYRI plugin'de tutulur —
         // soket/iş parçacığı/anahtar sahipliği CarLauncherPlugin'e karışmasın.
         registerPlugin(com.cockpitos.pro.phonehub.link.PhoneHubLinkPlugin.class);
+        // PHONE LINK F3: misafir Music Remote portalının YEREL dinleyicisi de
+        // AYRI plugin'dir — portal soketi RFCOMM oturumuna karışmasın.
+        registerPlugin(com.cockpitos.pro.phonelink.PhoneLinkPortalPlugin.class);
+        // PHONE LINK F5: ag GOZLEMI de ayri plugin — yalniz ConnectivityManager
+        // callback'i tasir, hicbir yetki/kimlik karari VERMEZ.
+        registerPlugin(com.cockpitos.pro.phonelink.PhoneInternetObserverPlugin.class);
+        /*
+         * MRI F-04 (2026-09-20): VehicleHALPlugin uygulanmıştı ve ÜRETİM
+         * ÇAĞIRANI vardı — SystemBoot → startVehicleDataLayer →
+         * VehicleSignalResolver → NativeHALAdapter → VehicleHAL.startHAL() —
+         * ama bu listede YOKTU. Uygulamaya ait (npm paketi olmayan) plugin'ler
+         * `capacitor.plugins.json` ile OTOMATİK kaydedilmez; tek kayıt otoritesi
+         * burasıdır. Sonuç: köprü 'VehicleHAL' adını hiç çözemiyordu, AAOS VHAL
+         * veri kaynağı sessizce yok sayılıyor, araç verisi tamamen OBD/CAN
+         * yedeğine kalıyordu. (Yeteneğin yokluğu sahte veri ÜRETMİYORDU:
+         * NativeHALAdapter fail-closed, `halConnected` false kalıyordu.)
+         * Plugin READ-ONLY'dir (connect/disconnect/getter); CAN yazma yolu
+         * taşımaz, dolayısıyla F-01 sahiplik kapısını ve F-02 komut otoritesini
+         * etkilemez.
+         */
+        registerPlugin(com.cockpitos.pro.hal.VehicleHALPlugin.class);
         super.onCreate(savedInstanceState);
 
         // ── Ekran ayarları ──

@@ -600,6 +600,13 @@ export function withAlpha(color: string, alpha: number): string {
  * Çözemezse null — çağıran fail-soft davranır (BOŞ STRİNG DÖNMEZ: boş var
  * fallback'i devreye SOKMAZ ve rgba() geçersiz olur → tüm stil çöker).
  */
+/** "r, g, b" → WCAG göreli parlaklık (0..1). */
+function _relLuminance(triplet: string): number {
+  const [r, g, b] = triplet.split(',').map((x) => Number(x.trim()) / 255)
+    .map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
 export function colorToRgbTriplet(color: string): string | null {
   const s = color.trim();
   const hex = /^#([0-9a-f]{3})$|^#([0-9a-f]{6})$|^#([0-9a-f]{8})$/i.exec(s);
@@ -980,6 +987,17 @@ export function manifestToCssVars(m: ThemeManifest): Record<string, string> {
     put('--neon-accent', t.accentPrimary);
     put('--dock-icon-color-active', t.accentPrimary);
     put('--accent-rgb', colorToRgbTriplet(t.accentPrimary));
+    /* OEM tasarım sistemi de aynı vurguyu izler (telefon smoke 2026-09-25: vurgu
+       yalnız eski değişkenleri değiştiriyordu, `--oem-accent` okuyan bileşenler
+       tema renginde kalıyordu). Vurgu zemindeki yazı rengi vurgunun parlaklığına
+       göre seçilir — koyu vurguda koyu yazı okunmaz. */
+    const rgb = colorToRgbTriplet(t.accentPrimary);
+    if (rgb) {
+      put('--oem-accent', t.accentPrimary);
+      put('--oem-accent-soft', `rgba(${rgb}, 0.18)`);
+      put('--oem-accent-glow', `rgba(${rgb}, 0.34)`);
+      put('--oem-accent-ink', _relLuminance(rgb) > 0.35 ? '#1A140A' : '#FFFFFF');
+    }
   }
   if (t.accentSecondary) put('--accent-secondary', t.accentSecondary);
   if (t.bgPrimary) {
@@ -1039,6 +1057,7 @@ export function manifestToCssVars(m: ThemeManifest): Record<string, string> {
 export const ALL_MANAGED_CSS_VARS: readonly string[] = [
   '--accent-primary', '--accent-rgb', '--accent-secondary', '--pack-accent', '--premium-accent',
   '--accent-blue', '--neon-accent', '--dock-icon-color-active',
+  '--oem-accent', '--oem-accent-soft', '--oem-accent-glow', '--oem-accent-ink',
   '--bg-primary', '--pack-bg', '--bg-card', '--pack-card-bg',
   '--text-primary', '--text-primary-var', '--text-secondary', '--text-secondary-var',
   '--border-color', '--pack-border', '--accent-glow', '--pack-glow',

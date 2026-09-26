@@ -284,6 +284,13 @@ public class LinkSessionTest {
     @Test
     public void closeStopsThreadsAndPreventsResurrection() throws Exception {
         Pair p = connectAndConfirm();
+        /* İş parçacıkları eşleşmeden hemen sonra başlar ama "established" olayı
+         * yazıcıdan ÖNCE gelebilir (CI'da yarış) → kısa süre beklenir. */
+        long up = System.currentTimeMillis() + 2_000L;
+        while (System.currentTimeMillis() < up
+            && !(p.client.snapshot().readerAlive && p.client.snapshot().writerAlive)) {
+            Thread.sleep(10L);
+        }
         assertTrue(p.client.snapshot().readerAlive);
         assertTrue(p.client.snapshot().writerAlive);
 

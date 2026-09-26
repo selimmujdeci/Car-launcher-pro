@@ -10,6 +10,7 @@
  */
 import { useState, useEffect } from 'react';
 import { isNative } from './bridge';
+import { allowsConnectivity } from './connectivity/connectivityGate';
 import { isLowEndDevice } from './headUnitCompat';
 import { CarLauncher } from './nativePlugin';
 import {
@@ -27,7 +28,7 @@ import { resolveActiveGrammar } from './voice/contextGrammarApplier';
    yetkilendirmez, hiçbir durum tutmaz. */
 import {
   isResultAckCommand, isProvisionalFeedback, isConversationEnd, looksLikeAiRequest,
-  dedupeAlts, bestLocalParse, computeResetDelays,
+  dedupeAlts, bestLocalParse, computeResetDelays, isExplicitMusicQueryForLocal,
   AFFIRM_RE, NEGATE_RE, CHAIN_SPLIT, STT_MAX_ALTERNATIVES,
 } from './voice/voiceCommandPolicy';
 import { tryOfflineConversation } from './offlineConversationEngine';
@@ -93,6 +94,11 @@ import { fromSemanticResult, commandTypeToIntentType } from './intentEngine';
    AYNI desen); tip-only import derlemede SİLİNİR, üretim paketine girmez. */
 import type { MusicIntent } from './media/intent/musicIntent';
 import { isInformationalCommand, answerInformational } from './voiceInfoService';
+/* LIVE TUR ÇÖZÜM KANITI: kanonik ekran kaydı — "klimayı aç" gibi parser'ın tanımadığı
+   panel isteklerinde "bu bir EYLEM isteği" kanıtı (yeni otorite/parser DEĞİL, salt okuma). */
+import { resolveScreenEntry, matchScreenCommand } from './screenCatalog';
+import { parseAppControl } from './voice/appControlCommands';
+import { executeAppControl } from './voice/appControlExecutor';
 import { weatherQueryNamesCity } from './weatherService';
 import { showToast } from './errorBus';
 import { VOICE_TUNING } from './voiceTuning';
@@ -108,6 +114,7 @@ import {
   setMaviLatencyCapability,
   setMaviLatencyPlan,
   setMaviLatencyWorkload,
+  getMaviLatencyEvidence,
 } from './assistant/maviLatencyTrace';
 /* MAVI-F3 · KISMİ TRANSKRİPT AKIŞI. Bu modül HİÇBİR eylem yolu import etmez ve
    `processTextCommand`ı ÇAĞIRAMAZ: kısmi sonuç yalnız artımlı anlama ve endpoint
@@ -167,6 +174,11 @@ import {
   isMaviStreamingResponseEnabled, type ResponseStreamHandle,
 } from './voice/maviResponseStream';
 import { tickSpeechStream } from './voice/maviSpeechStream';
+/* GEMINI LIVE (2026-09-21) · birincil online konuşma yolu. Bu handle Live'ın
+   ses/transkript/tool parçalarını tur mührüne ve TEK seslendirme otoritesine
+   bağlar. Sağlayıcı zinciri (Live → REST → OpenRouter → Claude → offline)
+   `companionChatProvider`dadır; burada yalnız port verilir ve kesme yapılır. */
+import { beginLiveAudioStream, cancelActiveLiveAudioStream } from './voice/maviLiveAudioStream';
 /* MAVI-F5 · CAPABILITY FABRIC — kontrollü giriş kapısı.
    Beynin eylem önerisi kanonik yürütücüye teslim edilmeden ÖNCE katalogdan
    çözülür ve TİPLİ doğrulamadan geçer. Kapı VARSAYILAN GÖLGE kiptedir: karar
@@ -610,6 +622,7 @@ export { cancelAssistantDuck } from './voice/voicePerceptionRuntime';
 /* MUSIC F14 · yerel bağlama için AYRICA import edilir (yukarıdaki satır yalnız
    YENİDEN VERİR, bu dosyanın İÇİNDE çağrılabilir bir isim YARATMAZ). */
 import { cancelAssistantDuck as _cancelAssistantDuck } from './voice/voicePerceptionRuntime';
+import { DEVELOPER_FEATURES_ENABLED } from './debug/developerFeatures';
 
 
 /* ── Voice Lifecycle Events (Faz-3 · MAVI3-1 — ADDITIVE gözlemlenebilirlik) ──
@@ -862,7 +875,7 @@ function dispatch(cmd: ParsedCommand, ctx?: VehicleContext, turn?: MaviTurnToken
   // Bilgi sorguları ("hava durumu nasıl", "hızım kaç") → statik feedback yerine
   // GERÇEK veriyle cevap ver. Aksi halde sadece "gösteriliyor" denir, cevap verilmez.
   if (isInformationalCommand(cmd.type)) {
-    void answerInformational(cmd.type, turn ?? null);
+    void answerInformational(cmd.type, turn ?? null, cmd.extra);
   } else if (!isResultAckCommand(cmd.type)) {
     // MAVI-M3: yıkıcı/davranışsal komutlarda parser'ın hazır metni SESLENDİRİLMEZ —
     // ACK yürütme sonucundan gelir (bkz. isResultAckCommand).
@@ -907,7 +920,7 @@ function dispatchDriving(cmd: ParsedCommand, ctx?: VehicleContext, turn?: MaviTu
   pushTrail('action', `sesli komut (sürüşte): ${cmd.type}`);  // olay izi (PII yok)
   endConversationSession(); // araç komutu → sohbet döngüsü biter (yalnız companion sohbeti sürer)
   if (isInformationalCommand(cmd.type)) {
-    void answerInformational(cmd.type, turn ?? null);
+    void answerInformational(cmd.type, turn ?? null, cmd.extra);
   } else if (!isResultAckCommand(cmd.type)) {
     // MAVI-M3 + M6: sonuç-ACK komutlarında parser metni KONUŞULMAZ; kalanlar TEK otoriteden.
     speakMaviAnswer(cmd.feedback, {
@@ -1496,6 +1509,13 @@ const CRITICAL_VOICE_TYPES = new Set<ParsedCommand['type']>([
    `_answerMusicIntent`in AYNI davranışı KORUMASI için. */
 const _TRANSPORT_KINDS_FOR_DUCK = new Set<MusicIntent['kind']>([
   'PLAY', 'PAUSE', 'TOGGLE', 'STOP', 'NEXT', 'PREVIOUS',
+  /* YENİ çalma başlatan türler de: aksi hâlde Mavi'nin sözü bitince duck-resume
+     ESKİ çalanı geri başlatıp yeni kaynağı kesiyordu (ölçüldü 2026-09-26: Kral FM
+     3. sn'de çaldı, 4. sn'de önceki YouTube parçası devraldı). */
+  'PLAY_QUERY', 'PLAY_ARTIST', 'PLAY_ALBUM', 'PLAY_PLAYLIST', 'PLAY_LOCAL', 'PLAY_PROVIDER',
+  'PLAY_SOMETHING_FOR_DRIVE', 'PLAY_SOMETHING_CALMER', 'PLAY_SOMETHING_MORE_ENERGETIC',
+  'CONTINUE_SUGGESTED', 'PLAY_FAVORITES', 'PLAY_MY_PLAYLIST',
+  'CONTINUE_LIKE_THIS', 'START_RADIO', 'PLAY_FAVORITES_MIX', 'LONG_DRIVE_MIX',
 ]);
 
 /* ── API ANAHTARI YOK yönlendirmesi ──────────────────
@@ -1524,28 +1544,49 @@ const BRAIN_TIMEOUT_PARKED_MS  = 8_000;
 /* MAVI-F13/2: onay/ret söylem regexleri `voiceCommandPolicy`de (AFFIRM_RE · NEGATE_RE). */
 let _pendingCmd: ParsedCommand | null = null;
 let _pendingAt  = 0;
+/* "Ne yazayım?" sorusundan sonra: bir sonraki söz CEVAP METNİDİR (onay penceresiyle aynı süre). */
+let _awaitingReplyTextAt = 0;
+
+/**
+ * Mavi soru sorarak konuştu (mesaj duyurusu · okunan mesaj · "Ne yazayım?"):
+ * sesli oturum açılır ve takip dinlemesi kurulur → konuşma bitince mikrofon
+ * kendiliğinden açılır, "Hey Mavi" gerekmez. Mevcut sohbet döngüsü mekanizması
+ * (`armFollowUp`) kullanılır; ikinci bir dinleme yolu KURULMAZ.
+ */
+export function armMaviPromptFollowUp(): void {
+  beginConversationSession();
+  armVoiceFollowUp();
+}
+
+/* Mesaj duyurusundan sonra: "evet" = oku, "hayır" = geç. Aksi hâlde yalın
+   "evet" sözlükte `navigate_home`a (0.82) düşüyordu. */
+let _awaitingReadAt = 0;
+
+/** Mesaj duyurusu ("Okumamı istersen…") bitince mikrofon açılır; evet/hayır anlaşılır. */
+export function armMessageAnnouncementFollowUp(): void {
+  _awaitingReadAt = Date.now();
+  armMaviPromptFollowUp();
+}
 
 /* ── AI anahtar çözümü (tembel — yalnız AI yolları çağırır) ──
  * Bozuk persist kaydı (JSON.parse throw) komut akışını öldürmesin: provider
  * 'none'a düşer, yerel parser çalışmaya devam eder (fail-soft, CLAUDE.md §2). */
-async function _resolveAiKeys(): Promise<{
+/**
+ * PHONE LINK F9: dışa açıldı (yalnız `export` eklendi — gövde/davranış
+ * DEĞİŞMEDİ) — `phoneLinkAssistantBridgeAdapter.ts` AYNI anahtar/sağlayıcı
+ * çözümünü kullanır; ikinci bir çözümleme YAZILMADI (tek otorite, §7).
+ */
+export async function _resolveAiKeys(): Promise<{
   provider: AIProvider; apiKey: string; hasNet: boolean; tavilyKey: string;
   /**
    * Gemini = ARAMA MOTORU anahtarı. Sohbet zincirinde olsun olmasın, web/güncel
    * bilgi sorgularının grounding'i (google_search) HER ZAMAN bu anahtarla yapılır.
-   * Groq/Haiku tek başına internete bakamaz → web kararlarını Gemini'ye devreder.
+   * Claude tek başına internete bakamaz → web kararlarını Gemini'ye devreder.
    * Boşsa (Gemini anahtarı yok) canlı arama yapılamaz (hava yine yerelden gelir).
    */
   searchKey: string;
-  /**
-   * SOHBET BEYNİ ZİNCİRİ — SIRA SABİT: Gemini → Groq → Haiku (yalnız anahtarı
-   * GİRİLMİŞ sağlayıcılar). Gemini birincil çünkü hem güvenilir sohbet/komut
-   * kararı hem YERLEŞİK google_search araması onda; Groq/Haiku, Gemini 429/hata
-   * olunca otomatik yedek. ("Groq birincil, Gemini yalnız arama" denemesi saha
-   * geri bildirimiyle geri alındı — Groq web/komut kararında yeterince güvenilir
-   * değildi.)
-   */
-  chain: ReadonlyArray<{ provider: 'gemini' | 'groq' | 'haiku'; apiKey: string }>;
+  /** SOHBET BEYNİ ZİNCİRİ — sıra sabit: Gemini → OpenRouter → Claude. */
+  chain: ReadonlyArray<{ provider: 'gemini' | 'openrouter' | 'haiku'; apiKey: string }>;
 }> {
   // GÜVENLİK: localStorage'dan SADECE hassas-olmayan provider SEÇİMİ okunur
   // (gemini|haiku enum'u). API ANAHTARLARI burada DEĞİL — aşağıda
@@ -1560,40 +1601,36 @@ async function _resolveAiKeys(): Promise<{
   let apiKey = '';
   let tavilyKey = '';
   let searchKey = '';
-  const chain: { provider: 'gemini' | 'groq' | 'haiku'; apiKey: string }[] = [];
+  const chain: { provider: 'gemini' | 'openrouter' | 'haiku'; apiKey: string }[] = [];
   try {
     const { sensitiveKeyStore: sks } = await import('./sensitiveKeyStore');
-    const [geminiKey, haikuKey, groqKey, tavily] = await Promise.all([
+    const [geminiKey, haikuKey, openRouterKey, tavily] = await Promise.all([
       sks.get('geminiApiKey'),
       sks.get('claudeHaikuApiKey'),
-      sks.get('groqApiKey'),
+      sks.get('openRouterApiKey'),
       sks.get('tavilyApiKey'),
     ]);
     apiKey = resolveApiKey(
       provider,
-      provider === 'gemini' ? geminiKey : provider === 'haiku' ? haikuKey : groqKey,
+      provider === 'gemini' ? geminiKey : provider === 'haiku' ? haikuKey : '',
     );
     tavilyKey = (tavily ?? '').trim();
     const resolvedGemini = resolveApiKey('gemini', geminiKey);
-    const resolvedGroq   = resolveApiKey('groq', groqKey);
     const resolvedHaiku  = resolveApiKey('haiku', haikuKey);
-    // Gemini = arama motoru anahtarı (Groq/Haiku yedekteyken web kararını buna devreder).
+    const hasOpenRouter  = Boolean(openRouterKey?.trim());
+    // Gemini = arama motoru anahtarı (Claude yedekteyken web kararını buna devreder).
     searchKey = resolvedGemini;
-    // ZİNCİR SIRA SABİT: Gemini → Groq → Haiku (yalnız girilmiş anahtarlar).
-    // SAHA 2026-07-03: "Groq birincil, Gemini yalnız arama" denemesi GERİ ALINDI —
-    // Groq (Llama) type:"web" kararını Gemini kadar güvenilir üretmiyordu → haber/
-    // altın/döviz araması tetiklenmiyor + JSON komut kararı zayıf ("anladım ama iş
-    // yapmadı"). Gemini birincil: hem güvenilir sohbet/komut hem YERLEŞİK google_search.
-    // Groq/Haiku Gemini 429/hata olunca otomatik yedek (asistan aptallaşmaz).
+    // OpenRouter anahtarı gateway'in mevcut güvenli key source'undan çözülür; burada
+    // yalnız provider zincirine katılma işareti taşınır, ikinci key authority kurulmaz.
     if (resolvedGemini) chain.push({ provider: 'gemini', apiKey: resolvedGemini });
-    if (resolvedGroq)   chain.push({ provider: 'groq',   apiKey: resolvedGroq });
+    if (hasOpenRouter)  chain.push({ provider: 'openrouter', apiKey: '' });
     if (resolvedHaiku)  chain.push({ provider: 'haiku',  apiKey: resolvedHaiku });
   } catch { /* anahtar deposu hatası → AI'sız devam (fail-soft) */ }
   // Devre kesici (aiHealth): art arda Gemini ağ hatası/timeout sonrası soğuma
   // penceresinde hasNet=false döner → TÜM AI yolları atlanır, yerel zincir anında
   // cevap verir. Yavaş hotspot'ta her cümlenin 3 ardışık timeout (6+5+3 sn)
   // beklemesi ve sürekli "İnternet yavaş..." duyulması böyle kesilir.
-  const hasNet = typeof navigator !== 'undefined' && navigator.onLine && isAiNetHealthy();
+  const hasNet = allowsConnectivity('CLOUD_INTERACTIVE') && isAiNetHealthy();
   return { provider, apiKey, hasNet, tavilyKey, searchKey, chain };
 }
 
@@ -1613,8 +1650,13 @@ async function _warmupBrain(): Promise<void> {
     const { chain, hasNet } = await _resolveAiKeys();
     if (!hasNet || chain.length === 0) return;
     const gem = chain.find((c) => c.provider === 'gemini');
-    if (!gem) return; // yalnız Gemini soğuk-başlangıç yaşıyor; Groq/Haiku ısıtma gerekmez
-    const { warmupGemini } = await import('./companion/companionChatProvider');
+    if (!gem) return; // Live/REST Gemini ısıtması; OpenRouter/Claude kendi taşımasında kalır
+    const { warmupGemini, warmupGeminiLive } = await import('./companion/companionChatProvider');
+    /* Live birincil yol: WSS el sıkışması kullanıcı konuşurken tamamlansın.
+       REST ısıtması KORUNUR (ilk yedeğin soğuk başlangıcı da örtülür). */
+    let _driving = false;
+    try { _driving = currentMaviVehicleContext().isDriving === true; } catch { _driving = false; }
+    warmupGeminiLive(gem.apiKey, _driving);
     await warmupGemini(gem.apiKey);
   } catch { /* ısıtma best-effort — komut akışını asla etkilemez */ }
 }
@@ -1624,6 +1666,31 @@ async function _warmupBrain(): Promise<void> {
  * ("leyla türk" ← "Leyla Göktürk"). Online + Gemini varsa sorgu hızlı bir
  * onarım çağrısından geçer (≤1.8s); başarısız/zaman aşımında ham sorgu
  * AYNEN kullanılır — komut asla bloklanmaz (fail-soft). */
+/** F9'un ayrık müzik niyeti (sakin şey · sözler · kuyruk…) ya da `null`. Modül yüklenemezse `null` (eski yol). */
+async function _narrowF9MusicIntent(text: string): Promise<Parameters<typeof _answerMusicIntent>[0] | null> {
+  try {
+    const [{ resolveMusicIntent }, { isNarrowSafeMusicKind }] = await Promise.all([
+      import('./media/intent/musicIntentResolver'),
+      import('./media/intent/musicIntent'),
+    ]);
+    const mi = resolveMusicIntent(text);
+    return mi !== null && isNarrowSafeMusicKind(mi.kind) ? mi : null;
+  } catch { return null; }
+}
+
+/** Metinde istasyon adı varsa radyo kaynağına sabitlenmiş arama niyeti; yoksa `null`. */
+async function _radioStationIntent(text: string): Promise<MusicIntent | null> {
+  try {
+    const { resolveMusicIntent } = await import('./media/intent/musicIntentResolver');
+    const mi = resolveMusicIntent(text);
+    if (!mi || mi.kind !== 'PLAY_QUERY' || !mi.query) return null;
+    // "kral fm'i" → "kral fm" (belirtme eki aramayı bozmasın)
+    const query = mi.query.replace(/['’](?:[ıiuü]|y[ıiuü]|n[ıiuü])$/i, '').trim();
+    if (query.length < 2) return null;
+    return { ...mi, query, source: { ...(mi.source ?? { spoken: 'fm' }), providerId: 'radio' } as MusicIntent['source'] };
+  } catch { return null; }
+}
+
 async function _maybeRepairMusicQuery(cmd: ParsedCommand): Promise<void> {
   try {
     const extra = cmd.extra as Record<string, string> | undefined;
@@ -1652,6 +1719,24 @@ async function _maybeRepairMusicQuery(cmd: ParsedCommand): Promise<void> {
  * aday tavanı DEĞİŞMEDİ. Genel API korunsun diye ikisi de buradan
  * eski adlarıyla yeniden dışa verilir (tüketici: `voiceNbest` testleri). */
 export { dedupeAlts as _dedupeAlts, bestLocalParse as _bestLocalParse } from './voice/voiceCommandPolicy';
+
+/**
+ * Live turu için "bu bir EYLEM isteği" kanıtı (bkz. `liveTurnResolution`).
+ * `'action'`: yerel parser bilgi-sorgusu OLMAYAN bir komut buldu (≥0.5) YA DA
+ * metin kanonik bir iç ekran adı taşıyor (`resolveScreenEntry`). Aksi → `'unknown'`.
+ * Salt okuma: hiçbir şey yürütmez, fast-path açmaz, yetki üretmez.
+ */
+function _liveRequestEvidence(text: string, cmd: ParsedCommand | null): 'action' | 'unknown' {
+  try {
+    if (cmd && cmd.confidence >= 0.5 && !isInformationalCommand(cmd.type)) return 'action';
+    /* Mesaj okuma bir bilgi sorgusu ama veri YEREL (bildirim servisi): model
+       mesajlara erişemez → araçsız sesli cevabı ("okumaya yetkim yok") çözüm
+       SAYILMAZ; tur UNRESOLVED olur ve yerel kurtarma mesajı okur (saha 2026-09-24). */
+    if (cmd && cmd.confidence >= 0.5 && cmd.type === 'read_message') return 'action';
+    if (resolveScreenEntry(text) !== null) return 'action';
+  } catch { /* kanıt okunamadı → bilinmiyor (fail-soft) */ }
+  return 'unknown';
+}
 
 export async function processTextCommand(
   text: string,
@@ -1818,6 +1903,57 @@ export async function processTextCommand(
     _pendingCmd = null; // süresi geçti ya da farklı bir şey söylendi → temizle, devam et
   }
 
+  // ── Mesaj duyurusuna evet/hayır ──
+  if (_awaitingReadAt) {
+    const fresh = (now - _awaitingReadAt) < PENDING_TTL_MS;
+    _awaitingReadAt = 0;
+    if (fresh && NEGATE_RE.test(trimmed)) {
+      _lastCommandTime = now;
+      endConversationSession();
+      speakMaviAnswer('Tamam.');
+      push({ status: 'idle', error: null });
+      completeMaviTurn(turn);
+      return true;
+    }
+    if (fresh && AFFIRM_RE.test(trimmed)) {
+      _lastCommandTime = now;
+      const readCmd: ParsedCommand = {
+        type: 'read_message', raw: trimmed, confidence: 1,
+        feedback: 'Mesaj okunuyor', priority: 'normal',
+      };
+      void reportVoiceDiag('voice_route', { route: 'message_local_bypass' });
+      if (ctx?.isDriving) { dispatchDriving(readCmd, ctx, turn); } else { dispatch(readCmd, ctx, turn); }
+      armMaviPromptFollowUp();   // okunan mesaja cevap verilebilsin
+      completeMaviTurn(turn);
+      return true;
+    }
+  }
+
+  // ── "Ne yazayım?" → bu söz cevap metnidir (hayır/vazgeç → gönderilmez) ──
+  if (_awaitingReplyTextAt) {
+    const fresh = (now - _awaitingReplyTextAt) < PENDING_TTL_MS;
+    _awaitingReplyTextAt = 0;
+    if (fresh) {
+      _lastCommandTime = now;
+      if (NEGATE_RE.test(trimmed)) {
+        endConversationSession();
+        _emitVoiceEvent('execution_result', { result: 'cancelled' });
+        speakMaviAnswer('Tamam, göndermiyorum.');
+        push({ status: 'idle', error: null });
+        completeMaviTurn(turn);
+        return true;
+      }
+      const replyCmd: ParsedCommand = {
+        type: 'reply_message', raw: trimmed, confidence: 1,
+        feedback: 'Cevap gönderiliyor', priority: 'normal', extra: { text: trimmed },
+      };
+      void reportVoiceDiag('voice_route', { route: 'message_local_bypass' });
+      if (ctx?.isDriving) { dispatchDriving(replyCmd, ctx, turn); } else { dispatch(replyCmd, ctx, turn); }
+      completeMaviTurn(turn);
+      return true;
+    }
+  }
+
   // ── Sohbet kapatma sözleri ("tamam", "sus", "kapat", "sonra konuşuruz") ──
   // Yalnız sesli oturumda (takip dinleme döngüsü) geçerli: döngü SESSİZCE
   // kapanır, TTS yok (timeout/kapatmada tekrar tekrar konuşma istenmiyor).
@@ -1914,6 +2050,53 @@ export async function processTextCommand(
     return true;
   }
 
+  /* ── 1a0. EKRAN KESTİRMESİ — "yolculuk bilgisayarını göster" · "ses ayarlarını aç" ──
+   * Girdinin TAMAMI katalogdaki bir ekran adı + aç/göster/kapat ise yerelde açılır.
+   * Ölçüldü 2026-09-26: parser bu cümleleri `navigate_address@0.9` sanıyordu ve
+   * beyin "yolculuk bilgisayarı"nı yolculuk DEFTERİ diye açıyordu. Parser'ın KESİN
+   * (1.0) komutları ezilmez ("müzik aç" çalmaya devam eder); tek istisna daha özel
+   * olan ayar sekmesidir ("ses ayarlarını aç" → ayarlar + Ses sekmesi). */
+  {
+    const scr = matchScreenCommand(trimmed);
+    const exact = result.command !== null && result.command.confidence >= 1;
+    const moreSpecific = scr !== null && scr.id.startsWith('settings-') && result.command?.type === 'open_settings';
+    if (scr && (!exact || moreSpecific)) {
+      _lastCommandTime = now;
+      void reportVoiceDiag('voice_route', { route: 'local_fast_path' });
+      setMaviLatencyRoute('local_fast_path');
+      const cmd: ParsedCommand = {
+        type: 'open_screen', raw: trimmed, confidence: 1, feedback: '', priority: 'normal',
+        extra: { screen: scr.id, action: scr.action },
+      };
+      if (ctx?.isDriving) { dispatchDriving(cmd, ctx, turn); } else { dispatch(cmd, ctx, turn); }
+      completeMaviTurn(turn);
+      return true;
+    }
+  }
+
+  /* ── 1a0b. UYGULAMA KONTROLÜ — karışık/tekrar · sarma · tema adı · sürücü ──
+   * Kesin kurallı ve dar (bkz. appControlCommands). Genel parser bu cümleleri
+   * YANLIŞ eyleme çeviriyordu ("30 saniye ileri sar" → sonraki şarkı @1.0), bu
+   * yüzden eşleşme parser'dan ÖNCE gelir. Cümle yalnız sonuçtan kurulur. */
+  {
+    const ac = parseAppControl(trimmed);
+    if (ac) {
+      _lastCommandTime = now;
+      void reportVoiceDiag('voice_route', { route: 'local_fast_path' });
+      setMaviLatencyRoute('local_fast_path');
+      endConversationSession();
+      push({ status: 'processing', transcript: trimmed, error: null, suggestions: [] });
+      let out: { ok: boolean; text: string };
+      try { out = await executeAppControl(ac); } catch { out = { ok: false, text: 'Bunu şu an yapamadım.' }; }
+      if (!continueIfTurnActive(turn, 'feedback')) return false;
+      speakMaviAnswer(out.text, { isDriving: ctx?.isDriving === true, turn });
+      push({ status: out.ok ? 'success' : 'error', error: out.ok ? null : out.text, transcript: trimmed });
+      setTimeout(() => { if (isMaviTurnCurrent(turn) && _current.status !== 'idle') push({ status: 'idle', error: null }); }, 2500);
+      completeMaviTurn(turn);
+      return true;
+    }
+  }
+
   /* ── 1a. DETERMİNİSTİK HIZLI YOL (MAVI-P0-LATENCY) ────────────────────────
    * ÖLÇÜLEN KUSUR: "sonraki şarkı" gibi TAM eşleşen, kapalı biçimli komutlar
    * bile önce birleşik beyne gidiyordu; park hâlinde bütçe
@@ -1937,8 +2120,14 @@ export async function processTextCommand(
     /* Parser aynı metni FARKLI bir tipe çözdüyse hızlı yol AÇILMAZ: iki yerel
      * karar çelişiyorsa hakem sağlayıcıdır (fail-closed — hızlı yol asla
      * parser'ın kararını EZMEZ). */
+    /* "parlaklığı artır": parser aynı niyeti kanıtlı ayar yolundan (set_setting ·
+       brightness) çözer — bu bir çelişki DEĞİLDİR, aynı yön ise yerelde kalır. */
+    const sameBrightness = fast !== null && result.command?.type === 'set_setting'
+      && result.command.extra?.settingKey === 'brightness'
+      && ((fast.type === 'screen_brightness_up' && result.command.extra?.settingAction === 'inc')
+        || (fast.type === 'screen_brightness_down' && result.command.extra?.settingAction === 'dec'));
     const agrees = fast !== null
-      && (result.command === null || result.command.type === fast.type);
+      && (result.command === null || result.command.type === fast.type || sameBrightness);
     if (fast && agrees) {
       _lastCommandTime = now;
       void reportVoiceDiag('voice_route', { route: 'local_fast_path' });
@@ -1949,6 +2138,25 @@ export async function processTextCommand(
         type: fast.type, raw: trimmed, confidence: 1, feedback: '', priority: 'normal',
       };
       if (ctx?.isDriving) { dispatchDriving(cmd, ctx, turn); } else { dispatch(cmd, ctx, turn); }
+      completeMaviTurn(turn);
+      return true;
+    }
+  }
+
+  // ── 1a1. SAYILI AYAR BYPASS — "sesi yüzde kırk beş yap" · "parlaklığı 80 yap" ──
+  // Değer yerelde KESİN okundu; beyin bir şey iyileştirmez, yalnız bozar (ölçüldü
+  // 2026-09-26: aynı cümlede Gemini değeri bazen boş gönderdi → "anlayamadım").
+  {
+    const c = result.command;
+    const x = c?.extra;
+    if (c && c.type === 'set_setting' && c.confidence >= AUTO_DISPATCH_MIN
+      && x?.settingKind === 'number' && x.settingAction === 'set'
+      && (x.settingKey === 'volume' || x.settingKey === 'brightness')
+      && /^\d{1,3}$/.test(x.settingValue ?? '')) {
+      _lastCommandTime = now;
+      void reportVoiceDiag('voice_route', { route: 'local_fast_path' });
+      setMaviLatencyRoute('local_fast_path');
+      if (ctx?.isDriving) { dispatchDriving(c, ctx, turn); } else { dispatch(c, ctx, turn); }
       completeMaviTurn(turn);
       return true;
     }
@@ -1973,6 +2181,79 @@ export async function processTextCommand(
     _lastCommandTime = now;
     void reportVoiceDiag('voice_route', { route: 'weather_local_bypass' });
     if (ctx?.isDriving) { dispatchDriving(result.command, ctx, turn); } else { dispatch(result.command, ctx, turn); }
+    completeMaviTurn(turn);
+    return true;
+  }
+
+  // ── 1b0. NET MÜZİK İSTEĞİ BYPASS — "Ahmet Kaya'dan müzik çal" ─────────────
+  // Yerel ayrıştırıcı sanatçı/şarkıyı açıkça çıkardıysa beyne GİTMEZ (saha
+  // 2026-09-25: beyin sorgusuz "müzik aç" önerip rastgele müzik çalıyor ya da
+  // hiçbir şey yapmadan "müzik başlatıldı" diyordu). Aynı yerel yol: ASR isim
+  // onarımı → tur mühürü → dispatch (fallback (a) dalıyla birebir).
+  /* "daha sakin bir şey çal" · "şarkı sözlerini göster": parser bunları serbest
+     aramaya çevirir (smoke 2026-09-25: literal aranıp alakasız video çalıyordu).
+     F9'un ayrık kalıbı tutuyorsa aşağıdaki 1c0 ile AYNI kanonik yürütücüye gider. */
+  if (isExplicitMusicQueryForLocal(result.command, trimmed, AUTO_DISPATCH_MIN)) {
+    const narrow = await _narrowF9MusicIntent(trimmed);
+    if (!continueIfTurnActive(turn, 'action')) return false;
+    if (narrow) {
+      _lastCommandTime = now;
+      void reportVoiceDiag('voice_route', { route: 'music_intent_local_bypass' });
+      setMaviLatencyRoute('music_intent_local_bypass');
+      void _answerMusicIntent(narrow, turn);
+      return true;
+    }
+  }
+  /* "radyodan Kral FM aç" · "TRT FM aç": parser `open_radio` der ve İSTASYON ADINI
+     atar → yalnız genel müzik kaynağı açılıyordu (saha 2026-09-25). F9 metinde
+     istasyon buluyorsa radyo kaynağında o istasyon aranır; ad yoksa eski yol. */
+  if (result.command?.type === 'open_radio') {
+    const station = await _radioStationIntent(trimmed);
+    if (!continueIfTurnActive(turn, 'action')) return false;
+    if (station) {
+      _lastCommandTime = now;
+      void reportVoiceDiag('voice_route', { route: 'music_intent_local_bypass' });
+      setMaviLatencyRoute('music_intent_local_bypass');
+      void _answerMusicIntent(station, turn);
+      return true;
+    }
+  }
+  if (isExplicitMusicQueryForLocal(result.command, trimmed, AUTO_DISPATCH_MIN) && result.command) {
+    _lastCommandTime = now;
+    void reportVoiceDiag('voice_route', { route: 'music_query_local_bypass' });
+    setMaviLatencyRoute('music_query_local_bypass');
+    await _maybeRepairMusicQuery(result.command);
+    if (!continueIfTurnActive(turn, 'action')) return false;
+    if (ctx?.isDriving) { dispatchDriving(result.command, ctx, turn); } else { dispatch(result.command, ctx, turn); }
+    completeMaviTurn(turn);
+    return true;
+  }
+
+  // ── 1b1. MESAJ OKUMA/CEVAP BYPASS — "Mavi, oku" · "X diye cevap yaz" ──────────────────
+  // Okunmamış mesajlar yalnız yerel bildirim deposunda (notificationService);
+  // beynin bu veriye aracı YOK → Gemini "okumaya yetkim yok, WhatsApp'ı
+  // açayım" diyordu (saha 2026-09-23, telefon). Hava (1b) ile AYNI desen.
+  if (
+    result.command &&
+    (result.command.type === 'read_message' || result.command.type === 'reply_message') &&
+    result.command.confidence >= 0.7
+  ) {
+    _lastCommandTime = now;
+    void reportVoiceDiag('voice_route', { route: 'message_local_bypass' });
+    const isReply = result.command.type === 'reply_message';
+    if (isReply && !(result.command.extra?.text ?? '').trim()) {
+      /* Metin söylenmedi → sor ve bir sonraki sözü cevap metni olarak bekle. */
+      _awaitingReplyTextAt = now;
+      speakMaviAnswer('Ne yazayım?');
+      armMaviPromptFollowUp();
+      push({ status: 'idle', error: null });
+      completeMaviTurn(turn);
+      return true;
+    }
+    if (ctx?.isDriving) { dispatchDriving(result.command, ctx, turn); } else { dispatch(result.command, ctx, turn); }
+    /* Okunan mesajdan sonra cevap verilebilsin: mikrofon kendiliğinden açılır.
+       (dispatch sohbet oturumunu kapatır → kurulum ONDAN SONRA.) */
+    if (!isReply) armMaviPromptFollowUp();
     completeMaviTurn(turn);
     return true;
   }
@@ -2135,9 +2416,9 @@ export async function processTextCommand(
   // yeni komut vermiş olabilir → bu tur artık sağlayıcıya gitmez, konuşmaz.
   if (!continueIfTurnActive(turn, 'provider_result')) return false;
 
-  // Online beyin (companionChatProvider) hibrit zinciri destekler: Gemini →
-  // Groq → Haiku (yalnız anahtarı girilmiş sağlayıcılar zincire girer).
-  // Eskiden bu gate sadece 'gemini' idi → Groq/Haiku seçildiğinde komutlar
+  // Online beyin zinciri: Gemini Live → Gemini REST → OpenRouter → Claude.
+  // Yalnız mevcut güvenli depoda anahtarı bulunan halkalar kullanılabilir.
+  // Eskiden bu gate sadece 'gemini' idi → diğer BYOK sağlayıcıları seçildiğinde komutlar
   // online beyne hiç ulaşmayıp OFFLINE asistana düşüyordu (#saha fix
   // 2026-06-21). Zincir boşsa tryCompanionBrain zaten null döner → güvenle
   // offline zincire iner.
@@ -2229,8 +2510,25 @@ export async function processTextCommand(
       onClosed: _disarmStreamWatchdog,
     });
     if (_stream) _armStreamWatchdog();
+    /* GEMINI LIVE portu: iş yükü akışa izin veriyorsa (F8 kapısıyla AYNI) Live
+       adayı kurulur. Sağlayıcı konuşmaz; ses bu handle üzerinden `maviSpeech` →
+       `ttsService`e gider. Tool çağrısı → `parseBrainJson` → aşağıdaki AYNI
+       aksiyon köprüsü/capability/dispatch/authority zinciri (yeni yol YOK). */
+    const _live = _wlAllowsStream ? beginLiveAudioStream({
+      turn,
+      // Yeni voice turn / barge-in / kesin fallback temizliği aynı lifecycle
+      // kapısından gerçek Live oturumuna kadar yayılır. Generation + turn
+      // muhafızları ayrıca korunur; bu callback onların yerine geçmez.
+      cancelUpstream: () => { _provider.cancelGeminiLiveTurn(); },
+    }) : null;
     const brain = await tryCompanionBrain(trimmed, {
       ...(_stream ? { onToken: _stream.onToken } : {}),
+      ...(_live ? { live: _live } : {}),
+      /* REGRESSION FIX (2026-09-21): Live'ın araçsız SESLİ cevabı bir EYLEM
+         isteğinde çözüm sayılmaz. Kanıt MEVCUT yerel otoritelerden: parser
+         (bilgi sorgusu dışı komut ≥0.5) ya da kanonik ekran kaydı eşleşmesi.
+         Metin tahmini yok; yeni parser/fast-path yok. */
+      liveRequestEvidence: _live ? _liveRequestEvidence(trimmed, result.command) : undefined,
       isDriving: ctx?.isDriving,
       // MAVI-M2: hız BİLİNMİYORSA (`null`) beyne SIFIR gönderilmez — alan hiç
       // taşınmaz (sahte "0 km/h" bağlamı = sahte "araç duruyor" iddiası).
@@ -2251,6 +2549,9 @@ export async function processTextCommand(
      * için iptal edilecek bir yarış da kalmadı (yara bandı değil, kaynak çözüm).
      * MAVI-F0: sağlayıcı turu bitti (başarı · null · timeout — hepsi süre ödedi). */
     markMaviLatency('brain_complete');
+    /* GEMINI LIVE: sağlayıcı sonuç ÜRETMEDİYSE (fallback/supersede) handle kapanır;
+       ürettiyse `complete()` zaten çağrıldı (idempotent). */
+    if (_live && !brain) _live.abort();
     /* MAVI-F4: sağlayıcı bitti → tamponda kalan güvenli metin konuşulur ve
      * konuşma oturumu kapanır. Akış YAPISAL çıktı gördüyse (action/web) hiç
      * konuşmamıştır ve `answer` slotunu BIRAKMIŞTIR → aşağıdaki kanonik yol
@@ -2552,6 +2853,9 @@ export function startListening(opts?: StartListeningOpts): void {
   // konuşan bir şey yoksa zararsız no-op. TTS-end bildirimi tetiklemez (takip/idle
   // mantığını yanlışlıkla ilerletmez).
   ttsCancel();
+  /* GEMINI LIVE: uçuştaki Live ses akışı da kesilir (ttsCancel PCM'i susturur;
+     handle da kapanır ki geç gelen parçalar yeni dinlemeye sızmasın). */
+  cancelActiveLiveAudioStream();
   // Yeni etkileşim bekleyen takipsiz-idle'ı geçersiz kılar (eski cevabın TTS
   // bitişi bu turu idle'a düşürmesin).
   clearConvIdle();
@@ -2611,14 +2915,16 @@ export function startListening(opts?: StartListeningOpts): void {
         // aksi halde cihaz-içi Vosk. Native tarafta da yönlendirilir: preferOffline=false +
         // Google mevcut → online; aksi halde Vosk (onlineFallback çift yönlü: online koparsa Vosk).
         //
-        // GERÇEK BAĞLANTI KAPISI (sahte onLine koruması): online STT yalnız
-        // navigator.onLine VE isAiNetHealthy() iken açılır. navigator.onLine tek başına
-        // güvenilmez — head unit internetsizken bile 'true' raporlayabilir. Gemini devre
-        // kesicisi (isAiNetHealthy) art arda gerçek AI ağ hatasında düşer → ağ sahte/ölü
+        // GERÇEK BAĞLANTI KAPISI (F7-B): online STT yalnız kanonik bağlantı
+        // politikası İZİN VERİYORSA ve isAiNetHealthy() iken açılır. Tek bir
+        // tarayıcı bayrağı güvenilmezdi — head unit internetsizken bile 'true'
+        // raporlayabiliyordu; kanonik otorite bunu NET_CAPABILITY_VALIDATED ile
+        // ayırır ve captive portalı "online" saymaz. Gemini devre kesicisi
+        // (isAiNetHealthy) art arda gerçek AI ağ hatasında düşer → ağ sahte/ölü
         // ise STT de Vosk'a iner (en çok ilk 1-2 komut online dener, sonra breaker
         // kapatır; 90s soğuma). Böylece: internetli head unit ≈ Siri (online STT + Gemini),
         // internetsiz/sahte-online head unit → Vosk. Cihaz tier'ından BAĞIMSIZ.
-        preferOffline: !(typeof navigator !== 'undefined' && navigator.onLine && isAiNetHealthy()),
+        preferOffline: !(allowsConnectivity('CLOUD_INTERACTIVE') && isAiNetHealthy()),
         // n-best: STT'nin ilk birkaç alternatifini iste — beyin doğru olanı seçer
         // (Vosk küçük TR modeli tek "en iyi"de sık yanılıyor). Wake yolu kendi path'i.
         onlineFallback: true, language: 'tr-TR', maxResults: STT_MAX_ALTERNATIVES,
@@ -2626,11 +2932,12 @@ export function startListening(opts?: StartListeningOpts): void {
         // döndürür → JS bulut STT'ye (Groq Whisper / Gemini) gönderir (OEM doğruluk),
         // başarısızsa Vosk metni kalır (tek yakalama, çakışma yok). Telefon (Google STT)
         // yolu WAV üretmez → doğrudan Google metni kullanılır. Offline → returnAudio false.
-        // Bulut STT kapısı: yalnız navigator.onLine. isAiNetHealthy() (Gemini devre
-        // kesici) BİLİNÇLİ olarak çıkarıldı — Groq Whisper STT ayrı endpoint, Gemini
-        // beyninin 429/hatası bulut TANIMAYI bloke etmemeli (saha: companion_groq
-        // çalışıyor ama cloud STT hiç girmiyordu). Kötü ağı 6sn timeout + fail-soft toparlar.
-        returnAudio: typeof navigator !== 'undefined' && navigator.onLine,
+        // Bulut STT kapısı: yalnız kanonik bağlantı politikası. isAiNetHealthy()
+        // (Gemini devre kesici) BİLİNÇLİ olarak çıkarıldı — Groq Whisper STT ayrı
+        // endpoint, Gemini beyninin 429/hatası bulut TANIMAYI bloke etmemeli (saha:
+        // companion_groq çalışıyor ama cloud STT hiç girmiyordu). Kötü ağı 6sn
+        // timeout + fail-soft toparlar.
+        returnAudio: allowsConnectivity('CLOUD_INTERACTIVE'),
         // OFFLINE KOMUT GRAMMAR'ı (Yol A): internetsizken Vosk'u komut sözlüğüne kısıtla
         // → offline komut doğruluğu OEM-hissine çıkar. ONLINE'da verilmez (bulut tam
         // dikteyi çözer; grammar serbest cümleyi [unk]'a düşürürdü). Native full-vocab fallback'li.
@@ -2641,7 +2948,7 @@ export function startListening(opts?: StartListeningOpts): void {
         // kapı `resolveActiveGrammar` içinde `undefined` döndürür. Fail-soft:
         // bağlam/sözlük kurulamazsa genele düşer, o da olmazsa gramer verilmez.
         grammar: resolveActiveGrammar(
-          typeof navigator !== 'undefined' && navigator.onLine, Date.now(),
+          allowsConnectivity('CLOUD_INTERACTIVE'), Date.now(),
         ),
         // Araç içi hassasiyet (voiceTuning.ts): kazanç + dinleme penceresi.
         // Native tarafta clamp'lenir; wake word bu opsiyonları geçmediği için etkilenmez.
@@ -3040,6 +3347,8 @@ export function _resetVoiceServiceForTest(): void {
   _terminalExtensions = 0;
   _voiceCogPaused  = false;
   _pendingCmd      = null;
+  _awaitingReplyTextAt = 0;
+  _awaitingReadAt  = 0;
   _lastCommandTime = 0;
   /* MAVI-F13/2: sohbet oturumu zamanlayıcılarının sıfırlaması SAHİBİNDEDİR —
      kökte tek tek saymak yerine tek kapı çağrılır (biri unutulamaz). */
@@ -3071,4 +3380,20 @@ export function useVoiceState(): VoiceState {
     return () => { _stateListeners.delete(setState); };
   }, []);
   return state;
+}
+
+/* ── GELİŞTİRİCİ TEST GİRİŞİ (yalnız CAROS LAB derlemeleri) ──────────────────
+ * Mavi smoke testi (2026-09-25): mikrofon olmadan komutları SESLİ komutla AYNI
+ * yoldan (`processTextCommand`) sürmek için. `DEVELOPER_FEATURES_ENABLED`
+ * derleme zamanında katlanır → satış derlemesinde bu blok ölü kod olarak ELENİR.
+ * Yeni yetki/otorite kurmaz: yalnız mevcut giriş ve durum okuması açılır. */
+if (DEVELOPER_FEATURES_ENABLED && typeof window !== 'undefined') {
+  (window as unknown as { __carosMavi?: unknown }).__carosMavi = Object.freeze({
+    run: (text: string) => { openMaviLatencyTrace(); return processTextCommand(text); },
+    state: () => getVoiceSnapshot(),
+    /* Tur izi (yol · yetenek kararı · hata kodu) — ölçüm şalteri açıksa dolar. */
+    trace: () => getMaviLatencyEvidence(),
+    /* Etki özeti (navigasyon · medya · ayar · ekran) — ne SÖYLEDİ değil ne YAPTI. */
+    effects: () => import('./debug/maviEffectProbe').then((m) => m.readMaviEffects()),
+  });
 }

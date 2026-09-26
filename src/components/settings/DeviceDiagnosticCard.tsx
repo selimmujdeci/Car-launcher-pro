@@ -17,17 +17,27 @@
  */
 import { useState } from 'react';
 import { Capacitor } from '@capacitor/core';
-import { getCapabilities, getDeviceTier, supportsModuleWorker } from '../../platform/deviceCapabilities';
+import {
+  getCapabilities, getDeviceTier, supportsModuleWorker,
+  getNativeResourceEvidence, getResourceEvidenceSource,
+} from '../../platform/deviceCapabilities';
 import { getGpuRenderer } from '../../utils/detectWeakGpu';
 import { useHALStatusStore } from '../../platform/vehicleDataLayer/halStatusStore';
 import { getPushStatus } from '../../platform/pushService';
+import { decideLocalModelEligibility } from '../../platform/ai/local/localModelEligibility';
+import { capabilityRegistry } from '../../platform/capability/capabilityRegistry';
 
+/* Bu sözlük PUSH-TO-WAKE durumunu anlatır; "Play Services" başlığı yanıltıcıydı:
+   `denied`/`unpaired`/`unregistered` Play Services ile ilgili DEĞİLDİR ve
+   `unregistered` (token alındı ama KAYDEDİLEMEDİ) bir Play Services eksikliği
+   olarak gösterilseydi kart YANLIŞ bir neden bildirmiş olurdu. */
 const PUSH_TEXT: Record<string, string> = {
-  web:         '— (web)',
-  active:      'var (FCM aktif)',
-  unavailable: 'YOK (uzak komut WS fallback)',
-  denied:      'izin reddedildi',
-  unpaired:    'eşli değil',
+  web:          '— (web)',
+  active:       'var (token kayıtlı)',
+  unregistered: 'YOK — token kaydedilemedi (uzak komut yoklamayla)',
+  unavailable:  'YOK — Play Services yok (uzak komut WS fallback)',
+  denied:       'izin reddedildi',
+  unpaired:     'eşli değil',
 };
 
 const TIER_COLOR: Record<string, string> = {
@@ -48,6 +58,25 @@ function webViewBand(chrome: number): string {
   return `Chrome ${chrome} · tam modern (modül worker)`;
 }
 
+/**
+ * HYBRID-F2 · `ai.local_model` LAB etiketi — `runtimeCapabilityProviders.ts`
+ * `_localModelResult` ile AYNI SIRALI mantık (DEVICE ELIGIBILITY → RUNTIME
+ * AVAILABILITY → MODEL LOADED), yalnız insan-okur metne çevrilir. Bu fazda
+ * `runtimeAvailable`/`modelLoaded` HER ZAMAN `false`'tur (gerçek runtime/model
+ * yok) → capability BURADA da HER KOŞULDA `UNAVAILABLE` kalır (fail-closed,
+ * `eligible ≠ available`).
+ */
+function localModelCapabilityLabel(
+  eligibilityStatus: 'eligible' | 'ineligible' | 'unknown',
+  runtimeAvailable: boolean,
+  modelLoaded: boolean,
+): string {
+  if (eligibilityStatus !== 'eligible') return 'UNAVAILABLE';
+  if (!runtimeAvailable)                return 'UNAVAILABLE';
+  if (!modelLoaded)                     return 'UNAVAILABLE';
+  return 'AVAILABLE';
+}
+
 export function DeviceDiagnosticCard() {
   const [copied, setCopied] = useState(false);
   const activeSource = useHALStatusStore((s) => s.activeSource);
@@ -56,6 +85,8 @@ export function DeviceDiagnosticCard() {
   const c        = getCapabilities();
   const tier     = getDeviceTier();
   const modWkr   = supportsModuleWorker();
+  const resSrc   = getResourceEvidenceSource();
+  const resEv    = getNativeResourceEvidence();
   const renderer = getGpuRenderer();
   const native   = Capacitor.isNativePlatform();
   const platform = Capacitor.getPlatform();
@@ -67,6 +98,34 @@ export function DeviceDiagnosticCard() {
   const dpr = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
   const orient = w > h ? 'yatay' : 'dikey';
 
+  /* HYBRID-F1/F2 · yerel LLM uygunluk kararı (SAF, F0 kanıtından türetilir).
+     Bu kart bir OTORİTE DEĞİLDİR: kararı yeniden VERMEZ, yalnız F1 sonucunu
+     GÖSTERİR. Thermal/memory pressure bu ekranda okunmuyor (opsiyonel alan —
+     eksikliği eligibility'yi ENGELLEMEZ, bkz. localModelEligibility.ts). */
+  const localEligibility = decideLocalModelEligibility({
+    deviceTier:      tier,
+    isLowRamDevice:  resEv?.isLowRamDevice,
+    supportedAbis:   resEv?.supportedAbis,
+    totalRamMb:      resEv?.totalRamMb,
+    availMemMb:      resEv?.availMemMb,
+    usableStorageMb: resEv?.usableStorageMb,
+    cpuCoreCount:    resEv?.cpuCoreCount,
+    sdkInt:          resEv?.sdkInt,
+  });
+  const localEligLabel  = localEligibility.status.toUpperCase();
+  const localEligReason = localEligibility.status !== 'eligible' ? ` (${localEligibility.reason})` : '';
+  // Bu fazda gerçek runtime/model YOK — sabit `false` (HYBRID-F5/F6'da gerçek kanıtla değişir).
+  const localModelCapability = localModelCapabilityLabel(localEligibility.status, false, false);
+
+  /* HYBRID-F3 · GERÇEK Capability Registry sonucu — bu kart burada YENİ HÜKÜM
+     ÜRETMEZ, yalnız `platformCoreCapabilityWiring`in beslediği singleton'ı OKUR.
+     Wiring henüz refresh'i tamamlamadıysa (async, fire-and-forget) veya web/demo
+     modundaysa kayıt `unknown`/`null` kalabilir — bu bir hata DEĞİL, dürüst bir
+     "henüz ölçülmedi" durumudur (sahte sonuç ÜRETİLMEZ). Yalnız mount anında BİR
+     KEZ okunur (subscribe YOK — kartı yeniden açmak günceller). */
+  const registryRecord = capabilityRegistry.getCapability('ai.local_model');
+  const registryLabel  = registryRecord ? registryRecord.status.toUpperCase() : 'UNKNOWN (henüz ölçülmedi)';
+
   // Kopyalanabilir / fotoğraflanabilir düz metin — sahaya çıkan tek veri.
   const report = [
     `CarOS Pro v${version}`,
@@ -75,11 +134,21 @@ export function DeviceDiagnosticCard() {
     `Android     : ${c.androidVersion || 'bilinmiyor'}`,
     `Cihaz sınıfı: ${tier.toUpperCase()}`,
     `GPU         : ${renderer || 'maskeli'}${c.weakGpu ? ' (ZAYIF)' : ''}`,
-    `CPU / RAM   : ${c.cores || '?'} çekirdek / ${c.memoryMb ? Math.round(c.memoryMb / 1024) + 'GB' : 'bilinmiyor'}`,
+    `CPU / RAM   : ${c.cores || '?'} çekirdek / ${c.memoryMb ? Math.round(c.memoryMb / 1024 * 10) / 10 + 'GB' : 'bilinmiyor'} (${resSrc === 'native' ? 'native ölçüm' : 'tahmini'})`,
+    /* HYBRID-F0 · gerçek kaynak kanıtı (yalnız GÖZLEM — tier'a girmez).
+       Native profil yoksa (eski APK/web) alanlar `undefined` → 'bilinmiyor'. */
+    `Boş RAM     : ${resEv?.availMemMb ? resEv.availMemMb + 'MB' : 'bilinmiyor'}  ·  Depolama: ${resEv?.usableStorageMb ? Math.round(resEv.usableStorageMb / 1024 * 10) / 10 + 'GB boş' : 'bilinmiyor'}`,
+    `ABI         : ${resEv?.supportedAbis?.length ? resEv.supportedAbis.join(', ') : 'bilinmiyor'}`,
+    /* HYBRID-F2/F3 · ai.local_model: DEVICE ELIGIBILITY (F1) ile RUNTIME AVAILABILITY
+       AYRI sorulardır — eligible olmak capability'yi AVAILABLE yapmaz. `Registry`
+       satırı GERÇEK `capabilityRegistry` sonucudur (F3 wiring) — bu kart onu YALNIZ
+       OKUR, kendi hesapladığı `localModelCapability` ile karşılaştırılabilir tutulur. */
+    `ai.local_model: ${localModelCapability} — eligibility ${localEligLabel}${localEligReason} · runtime: absent · model: not_loaded`,
+    `  ↳ Registry (gerçek wiring sonucu): ${registryLabel}`,
     `Ekran       : ${w}×${h} @${dpr}x (${orient})`,
     `Modül worker: ${yn(modWkr)}  ·  SAB: ${yn(c.hasWorkerSAB)}`,
     `Özellikler  : WebGL ${yn(c.supportsWebGL)} · backdrop ${yn(c.supportsBackdropFilter)} · dvh ${yn(c.supportsDvh)} · @layer ${yn(c.supportsCssLayer)}`,
-    `Play Services: ${PUSH_TEXT[getPushStatus()] ?? getPushStatus()}`,
+    `Push-to-Wake: ${PUSH_TEXT[getPushStatus()] ?? getPushStatus()}`,
     `CAN kaynağı : ${activeSource || 'yok'} (${canPhase})`,
     `UA          : ${ua}`,
   ].join('\n');

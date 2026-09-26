@@ -1,24 +1,19 @@
 /**
  * nativeCommandBridge.ts — H-4 Native Command Service Köprüsü
  *
- * Bu modül üç görevi üstlenir:
- *   1. MCU Komut Dispatch: commandListener.ts'deki TODO'yu doldurur.
- *      bridge.ts üzerinden CarLauncherPlugin'in MCU metodlarını çağırır.
+ * Bu modül kanonik `commandListener` yolunun native yüzüdür:
+ *   1. MCU Komut Dispatch: commandListener kararını verdikten SONRA
+ *      CarLauncherPlugin'in MCU metodlarını çağırır (icra kararı burada değil).
+ *   2. Cross-channel nonce: JS ve native aynı replay store'unu paylaşır.
+ *   3. Cihaz sürümü ve OTA indirme/kurulum köprüleri.
  *
- *   2. Native Kuyruk Okuma: CommandService.java (FCM) WebView yokken
- *      komut aldığında SharedPreferences'a yazar. WebView açılınca bu
- *      modül kuyruğu boşaltır ve komutları commandListener'a iletir.
- *
- *   3. Anahtar Senkronizasyonu: commandCrypto.ts'in safeStorage'a yazdığı
- *      E2E JWK private key'ini Android EncryptedSharedPreferences'a aktarır.
- *      Bu sayede CommandService.java (FCM) WebView yokken E2E komutları
- *      NativeCryptoManager üzerinden çözebilir.
+ * MRI F-02: native komut kuyruğu okuma ve E2E anahtar senkronizasyonu
+ * kaldırıldı — ikinci (native) fiziksel yürütücü kalktığı için üreticileri yok.
  *
  * Güvenlik:
  *   - MCU dispatch: hız > 5 km/h ise lock/unlock reddedilir (commandListener garantisi)
  *   - Whitelist: sadece CarLauncherPlugin'de tanımlı 6 komut (Java McuCommandFactory)
- *   - Kuyruk TTL: MAX_QUEUE_AGE_MS üzeri girdiler atılır
- *   - JWK: düz metin olarak loglanmaz; yalnızca EncryptedSharedPreferences'a yazılır
+ *   - Native sonuç "gönderildi" yüklemi TEK yerde: nativePlugin.isNativeCommandSent
  */
 
 import { useState, useEffect, useRef } from 'react';
@@ -32,14 +27,8 @@ import type {
   OtaDownloadProgressEvent,
   OtaInstallResult,
 } from './nativePlugin';
-import { safeGetRaw } from '../utils/safeStorage';
 import type { CommandType } from './commandListener';
 import { logInfo } from './debug';
-
-// ── Sabitler ─────────────────────────────────────────────────────────────────
-
-/** CommandService.java'daki MAX_QUEUE_SIZE ile uyumlu */
-const MAX_QUEUE_AGE_MS = 5 * 60_000; // 5 dakika — commandListener TTL ile aynı
 
 // ── MCU Komut Dispatch ───────────────────────────────────────────────────────
 
@@ -244,141 +233,22 @@ export async function installOtaApk(fileName: string): Promise<OtaInstallResult>
   }
 }
 
-// ── Native Kuyruk — CommandService.java çıktısı ───────────────────────────────
-
-export interface QueuedNativeCommand {
-  id:         string;
-  type:       string;
-  vehicle_id: string;
-  ts:         number;   // System.currentTimeMillis()
-}
-
-export interface NativeCommandResult {
-  id:     string;
-  type:   string;
-  status: 'completed' | 'failed';
-  ts:     number;
-}
-
-/**
- * CommandService.java'nın WebView yokken yazdığı komut kuyruğunu okur.
- * Sadece native platformda geçerlidir; web modda boş dizi döner.
- */
-export async function getQueuedNativeCommands(): Promise<QueuedNativeCommand[]> {
-  if (!Capacitor.isNativePlatform()) return [];
-
-  try {
-    const result = await (CarLauncher as unknown as {
-      getQueuedNativeCommands(): Promise<{ commands: string }>;
-    }).getQueuedNativeCommands();
-
-    const raw = JSON.parse(result.commands ?? '[]') as QueuedNativeCommand[];
-
-    // TTL filtresi — 5 dakikadan eski girdileri at
-    const now = Date.now();
-    return raw.filter((c) => now - c.ts < MAX_QUEUE_AGE_MS);
-  } catch {
-    return [];
-  }
-}
-
-/**
- * CommandService.java'nın kuyruğunu ve sonuç listesini temizler.
- */
-export async function clearNativeCommandQueue(): Promise<void> {
-  if (!Capacitor.isNativePlatform()) return;
-  try {
-    await (CarLauncher as unknown as {
-      clearNativeCommandQueue(): Promise<void>;
-    }).clearNativeCommandQueue();
-  } catch { /* non-critical */ }
-}
-
-/**
- * CommandService.java'nın MCU çalıştırıp yazdığı sonuçları okur.
- * Bu sonuçlar Supabase'e status güncellemesi göndermek için kullanılır.
- */
-export async function getNativeCommandResults(): Promise<NativeCommandResult[]> {
-  if (!Capacitor.isNativePlatform()) return [];
-  try {
-    const result = await (CarLauncher as unknown as {
-      getNativeCommandResults(): Promise<{ results: string }>;
-    }).getNativeCommandResults();
-    return JSON.parse(result.results ?? '[]') as NativeCommandResult[];
-  } catch {
-    return [];
-  }
-}
-
-// ── Startup Kuyruk Boşaltma ───────────────────────────────────────────────────
-
-/**
- * Uygulama açılınca çağrılır.
- * CommandService.java'nın offline çalıştırdığı komutların status'larını
- * Supabase'e güncellemek için sonuçları JS katmanına teslim eder.
+/* ── Native Komut Kuyruğu / Sonuç Drenajı — MRI F-02'de KALDIRILDI ──────────
  *
- * @param onResult — (commandId, status) → Supabase PATCH gönderme fonksiyonu
+ * `getQueuedNativeCommands` · `getNativeCommandResults` ·
+ * `clearNativeCommandQueue` · `drainNativeCommandQueue` yalnız
+ * CommandService.java'nın native fiziksel yürütücüsünün SharedPreferences
+ * çıktısını okuyordu. O yürütücü kaldırıldı → kuyruğun ÜRETİCİSİ kalmadı.
+ *
+ * `drainNativeCommandQueue`ın tek tüketicisi (`fcmService`) sonuçları anon
+ * apikey ile `PATCH /rest/v1/vehicle_commands` yapıyordu: bu, cihaz kimliği
+ * doğrulamayan İKİNCİ bir komut-durumu otoritesiydi. Kanonik tek kapı
+ * `commandListener` → `update_command_status` RPC'sidir (api_key kimlikli).
+ *
+ * `syncKeysToNative` da kaldırıldı: E2E private key'i native
+ * EncryptedSharedPreferences'a yalnız native decrypt yolu için kopyalıyordu ve
+ * zaten hiçbir yerden çağrılmıyordu (anahtar yönetimi `sensitiveKeyStore`ta).
  */
-export async function drainNativeCommandQueue(
-  onResult: (id: string, status: 'completed' | 'failed') => Promise<void>,
-): Promise<void> {
-  const results = await getNativeCommandResults();
-  if (results.length === 0) return;
-
-  logInfo(`[NativeCmdBridge] ${results.length} native sonuç boşaltılıyor`);
-
-  for (const r of results) {
-    // TTL kontrolü (5 dakika)
-    if (Date.now() - r.ts > MAX_QUEUE_AGE_MS) continue;
-    try {
-      await onResult(r.id, r.status);
-    } catch (e) {
-      console.warn(`[NativeCmdBridge] Sonuç bildirimi başarısız (${r.id}):`, e);
-    }
-  }
-
-  await clearNativeCommandQueue();
-  logInfo('[NativeCmdBridge] Native kuyruk temizlendi');
-}
-
-// ── E2E Anahtar Senkronizasyonu ───────────────────────────────────────────────
-
-const E2E_PRIVATE_KEY_STORAGE_KEY = 'car-e2e-private-key'; // commandCrypto.ts ile aynı
-
-/**
- * commandCrypto.ts'in safeStorage'a yazdığı ECDH P-256 private key JWK'ını
- * Android EncryptedSharedPreferences'a kopyalar.
- *
- * Bu, CommandService.java'nın WebView yokken FCM üzerinden gelen E2E şifreli
- * komutları NativeCryptoManager aracılığıyla çözebilmesi için gereklidir.
- *
- * Güvenlik: JWK değeri hiçbir zaman console'a basılmaz; yalnızca Keystore
- * tarafından şifrelenen EncryptedSharedPreferences'a yazılır.
- *
- * Çağrı zamanı: loadOrCreateDeviceKey() tamamlandıktan hemen sonra.
- */
-export async function syncKeysToNative(): Promise<void> {
-  if (!Capacitor.isNativePlatform()) return;
-
-  try {
-    const jwkJson = safeGetRaw(E2E_PRIVATE_KEY_STORAGE_KEY);
-    if (!jwkJson) {
-      console.warn('[NativeCmdBridge] syncKeysToNative: JWK henüz oluşturulmamış');
-      return;
-    }
-
-    // secureStoreSet: EncryptedSharedPreferences → CarLauncherSecureStore
-    // NativeCryptoManager.java "car-e2e-private-key" key'ini bu alias'tan okur
-    await (CarLauncher as unknown as {
-      secureStoreSet(opts: { key: string; value: string }): Promise<void>;
-    }).secureStoreSet({ key: E2E_PRIVATE_KEY_STORAGE_KEY, value: jwkJson });
-
-    logInfo('[NativeCmdBridge] E2E JWK native katmana senkronize edildi');
-  } catch (err) {
-    // Non-fatal: native E2E çözümü devre dışı kalır, JS tarafı devralır
-    console.warn('[NativeCmdBridge] syncKeysToNative başarısız:', err);
-  }
-}
 
 // ── Servis Durum Hook ─────────────────────────────────────────────────────────
 

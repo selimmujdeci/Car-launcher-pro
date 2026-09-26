@@ -197,9 +197,26 @@ describe('F13-3 · prompt’a İKİNCİ hafıza/bağlam bloğu enjekte edilmez',
     }
   });
 
-  it('canlı sohbet sağlayıcısı kanonik izdüşümü BEYAN eder', () => {
-    expect(CHAT_PROV).toContain('askOrchestratedChat(');
-    expect(CHAT_PROV).toContain('systemCarriesCanonicalProjection: true');
+  it('orkestratörü ÇAĞIRAN her üretim dosyası kanonik izdüşümü BEYAN eder', () => {
+    /* 2f22f4b2 (2026-09-21): sağlayıcı zinciri LIVE → REST → OPENROUTER →
+     * CLAUDE → OFFLINE olarak sabitlendi ve alt-bayraklı orkestratör yolu
+     * `companionChatProvider`dan ÇIKARILDI. Kilit eskiden o çağrıyı sabit
+     * varsayıyordu; artık invariant'ın kendisini kilitler: canlı prompt TEK
+     * kanonik izdüşümle kurulur ve orkestratörü kim çağırırsa çağırsın
+     * `systemCarriesCanonicalProjection: true` beyan etmek ZORUNDADIR —
+     * aksi hâlde çift bağlam/hafıza enjeksiyonu geri gelir. */
+    // Çapa: canlı sağlayıcı prompt'u kanonik izdüşümle kurar (tek kaynak).
+    expect(CHAT_PROV).toContain('function buildBrainSystemPrompt(');
+    expect(CHAT_PROV).toContain('projectMaviMemory(');
+    // Kapı: üretimde orkestratörü çağıran her dosya beyanı taşır.
+    const impl = ['ai', 'orchestrator', 'concrete', 'maviOrchestratedChat.ts'].join(sep);
+    for (const file of productionFiles(SRC)) {
+      if (file.endsWith(impl)) continue;
+      const src = stripComments(readFileSync(file, 'utf8'));
+      if (!src.includes('askOrchestratedChat(')) continue;
+      expect(src, `${file}: orkestratörü kanonik izdüşüm beyanı OLMADAN çağırıyor`)
+        .toContain('systemCarriesCanonicalProjection: true');
+    }
   });
 
   it('kanonik uzun-vadeli hafızanın TEK cephesi vardır', () => {

@@ -111,8 +111,11 @@ describe('ARCH-06/F3/A · kamera coalescing', () => {
    ═══════════════════════════════════════════════════════════════════════════ */
 
 describe('ARCH-06/F3/B · rota geometri revizyonu', () => {
-  it('B1 — 🔒 geometri dedup anahtarı: hash + styleKey + navStatus', () => {
-    expect(ROUTE_HOOK).toContain('const hash = routeHash(route.geometry)');
+  it('B1 — 🔒 geometri dedup anahtarı: hash + rota revizyonu + styleKey + navStatus', () => {
+    /* 2026-09-25: özet (uzunluk + uç noktalar) aynı başlangıç/hedefli iki FARKLI
+       rotada çakışıyordu → etiketler eski rotada kalıyordu. Revizyon yalnız rota
+       KAYDINDA artar; ilerleme güncellemesi yine rebuild ETMEZ (B2). */
+    expect(ROUTE_HOOK).toContain('const hash = `${routeHash(route.geometry)}#${route.routeRevision}`');
     expect(ROUTE_HOOK).toMatch(
       /if \(!styleKeyChanged && last && last\.hash === hash && last\.navStatus === navStatus\)/);
   });
@@ -121,7 +124,7 @@ describe('ARCH-06/F3/B · rota geometri revizyonu', () => {
     /* Kabul ölçütü (§35): progress-only güncelleme → geometri rebuild 0.
        Bu, bağımlılık dizisinde ilerleme alanının BULUNMAMASIYLA sağlanır. */
     const deps = ROUTE_HOOK.match(
-      /\}, \[route\.geometry, route\.alternatives, route\.altRealIndices, mapStatus, styleKey, navStatus\]\);/);
+      /\}, \[route\.geometry, route\.alternatives, route\.altRealIndices, route\.routeRevision, mapStatus, styleKey, navStatus\]\);/);
     expect(deps).not.toBeNull();
     const depStr = deps?.[0] ?? '';
     for (const forbidden of ['distanceMeters', 'progress', 'currentStepIndex', 'remaining', 'eta']) {

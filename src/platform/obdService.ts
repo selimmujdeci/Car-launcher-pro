@@ -19,6 +19,7 @@ import { getConfig, onPerformanceModeChange } from './performanceMode';
 import { runtimeManager }                     from '../core/runtime/AdaptiveRuntimeManager';
 import { logError } from './crashLogger';
 import { probeAdapterIdentity, resetAdapterIdentity } from './obd/adapterIdentityService';
+import { queryCalibrationId } from './obd/calibrationIdService';
 import { useRafSmoothed } from './rafSmoother';
 import { parseBinaryOBDFrame, hasBinaryFrame, clearAccumulatedBuffer } from './obdBinaryParser';
 import {
@@ -28,11 +29,11 @@ import {
   flushCanSnapshotNow,
   stopCanSnapshot,
 } from './canSnapshotService';
-import { buildHandshakeResult, classifyHandshakeResponse, buildDiscoveryEvidence } from '../core/val/OBDHandshake';
+import { buildHandshakeResult, classifyHandshakeResponse, buildDiscoveryEvidence, extractSupportedPidBitmap, decodeSupportedPidBitmap } from '../core/val/OBDHandshake';
 import type { DiscoveryEvidence, DiscoveryCompleteness } from '../core/val/OBDHandshake';
 import { vehicleProfileRegistry } from '../core/val/VehicleProfile';
 import type { IVehicleProfile }   from '../core/val/VehicleProfile';
-import { loadObdAddress, saveObdAddress, clearObdAddress, clearObdTransport, loadObdProfileId, saveObdProfileId, loadObdTransport, saveObdTransport, loadObdTransportVerified, saveObdTransportVerified, loadObdProtocol, saveObdProtocol, loadObdFuelCalib, saveObdFuelCalib, isValidTcpAddress, markObdAddressVerified, loadVerifiedObdAddresses, type ObdTransport } from './obdStorage';
+import { loadObdAddress, saveObdAddress, clearObdAddress, clearObdTransport, loadObdProfileId, saveObdProfileId, loadObdTransport, saveObdTransport, loadObdTransportVerified, saveObdTransportVerified, loadObdProtocol, saveObdProtocol, saveObdSupportedPidBitmap, loadObdSupportedPidBitmapFor, saveObdSupportedPidBitmapFor, loadObdFuelCalib, saveObdFuelCalib, isValidTcpAddress, markObdAddressVerified, loadVerifiedObdAddresses, type ObdTransport } from './obdStorage';
 import { persistHandshakeVin } from './vehicleProfileService';
 import { getHandshakeVin } from './safety/vinContext';
 import { setVinEpochProvider } from './vehicle/vehicleIdentity';
@@ -85,7 +86,7 @@ import {
   type LinkLossRecord, type LinkLossSummary, type LinkLossTrigger,
 } from './obd/linkLossLedger';
 import { setActiveObdProtocol } from './obd/activeProtocol';
-import { bindObdSessionEpochReader } from './obd/obdEpochReader';
+import { bindDiagnosticLinkActivitySink, bindObdSessionEpochReader } from './obd/obdEpochReader';
 
 /**
  * Doğrulanmamış (oturum başı / modal tahmini) bağlantıda BLE ÖNCE denenirken verilen
@@ -199,6 +200,7 @@ let _nativeGeneration = 0;
    it never owns or increments the epoch.  Keeping the callback here avoids
    generic PDU → obdService → VDK/PDU routing module initialization cycles. */
 bindObdSessionEpochReader(() => _nativeGeneration);
+bindDiagnosticLinkActivitySink(_noteDiagnosticLinkActivity);
 
 // stopOBD() + startOBD() arasındaki native disconnect/connect race'ini önler.
 // _startNative() bu promise'i await ederek önceki disconnectOBD() tamamlanmadan
@@ -325,11 +327,34 @@ let _lastRealDataMs = 0;
  */
 let _lastSpeedRxMs = 0;
 /**
+ * F5.1B — ALAN BAZLI ÖLÇÜM DAMGALARI (`_lastSpeedRxMs` deseninin genellemesi).
+ *
+ * ÖLÇÜLEN KUSUR (gerçek araç, Renault, 2026-09-18): yakıt 35/35 pakette `-1`
+ * geldi (hiç ölçülmedi) ama `_current.fuelLevel` ESKİ değeri saklıyordu ve
+ * telemetri üreticisi onu HER heartbeat'te `obdObservedAt = lastSeenMs` (yani
+ * "şimdi") damgasıyla gönderiyordu. Sonuç: bir sensörün (rpm) yeni ölçümü,
+ * başka bir sensörün (fuel) eski değerini "yeni ölçülmüş" yapıyordu.
+ *
+ * Damga YALNIZ sanitizer'dan GEÇMİŞ gerçek bir alan geldiğinde tazelenir:
+ * `-1` (bu turda sorulmadı/desteklenmiyor) `patch`e hiç girmez, bu yüzden
+ * buraya ULAŞMAZ → alan "bilinmiyor" kalır. `getOBDDataSnapshot()` sözleşmesi
+ * DEĞİŞMEZ (geriye uyumluluk); tazelik soranlar `getObdFieldObservedAt()`
+ * kapısını kullanır — `getObdSpeedFresh()` ile AYNI disiplin.
+ */
+let _lastRpmRxMs  = 0;
+let _lastTempRxMs = 0;
+let _lastFuelRxMs = 0;
+/**
  * Son HERHANGİ bir native paket (ATRV DAHİL) — LINK HEARTBEAT. "transportConnected"
  * bundan türer. `_lastRealDataMs`'ten AYRI olması şart: ATRV, ECU ölse bile ~5s'de bir
  * gelir → aynı damgada tutulursa donmayı maskeler (saha 2026-07-16 Doblo kökü).
  */
 let _lastRxAt = 0;
+/**
+ * Son TANI yanıtının alındığı an (bu oturumda) — bkz. `noteDiagnosticLinkActivity`.
+ * Canlı veri tazeliği DEĞİLDİR; yalnız "hat ve ECU tanıya cevap veriyor" kanıtıdır.
+ */
+let _lastDiagRxAt = 0;
 /**
  * C · ADAPTÖR VOLTAJININ OKUNDUĞU AN (duvar saati). `0` = hiç okunmadı.
  *
@@ -739,10 +764,6 @@ let _lastKnownGpsSpeed      = 0;    // km/h
 
 // Fix 1: ICE/Diesel Guard zamanlayıcı başlangıcı
 let _iceRpmMissStart: number | null = null;
-
-// Fix 3: ısınma (warm-up) erken çıkış kancası
-let _warmupActive   = false;
-let _warmupResolve: (() => void) | null = null;
 
 // ── Fuel computation config ──────────────────────────────────
 // Set via setObdFuelConfig() whenever the active vehicle profile changes.
@@ -1558,6 +1579,11 @@ async function _maybeRunEcuRecovery(now: number, staleMs: number): Promise<void>
   if (_recoveryInFlight || _recoveryExhausted) return;
   if (!_current.transportConnected || _current.dataFresh) return;
   if (_ecuSilentStreak < ECU_SILENT_STREAK_TO_RECOVER) return;
+  /* ECU SESSİZ DEĞİL, TANIYA CEVAP VERİYOR: poll açlığını kendi tanı trafiğimiz
+     yaratıyor (DTC istekleri kuyrukta öncelikli). ATPC/ATWS/reconnect burada
+     taramanın ortasında hattı sıfırlar — saha 2026-09-22'de şanzıman ECU'sunu
+     "ertelendi"ye düşüren zincirin ikinci halkası. Canlı veri yine BAYAT gösterilir. */
+  if (now - _lastDiagRxAt < staleMs) return;
   /* P0-OBD-CORE-06 — TRANSPORT ↔ OTURUM KURTARMASI ÇAKIŞMAZ. Uçuşta bir
      connect denemesi (ya da beklemede bir merdiven tetiği) varken ATPC/ATWS
      koşturmak, kurulmakta olan oturumu ELM seviyesinde sıfırlar: iki motor
@@ -1722,6 +1748,12 @@ function _clearDataGate(): void {
   // hızını MİRAS ALMAZ (saha kuralı) — damga sıfırlanır, `getObdSpeedFresh()`
   // yeni bir 010D gelene kadar `null` döner.
   _lastSpeedRxMs = 0;
+  /* Aynı oturum sınırı kuralı: yeni oturum ESKİ oturumun devir/sıcaklık/yakıt
+     ölçümünü MİRAS ALMAZ — damgalar sıfırlanır, alanlar yeniden ölçülene kadar
+     "bilinmiyor"dur. */
+  _lastRpmRxMs  = 0;
+  _lastTempRxMs = 0;
+  _lastFuelRxMs = 0;
 }
 
 /**
@@ -1806,6 +1838,11 @@ function _onRealData(patch: Partial<OBDData>): void {
   // tazelenir. NO_DATA / timeout / parse hatası / eksik alan bu satıra ULAŞMAZ
   // (`_sanitizeNative` onları patch'e hiç koymaz) → hız "bilinmiyor" kalır.
   if (patch.speed !== undefined) _lastSpeedRxMs = _rxNow;
+  /* AYNI KURAL diğer çekirdek OBD alanları için (F5.1B): her alan KENDİ ölçüm
+     anını taşır; birinin gelmesi diğerini tazelemez. */
+  if (patch.rpm        !== undefined) _lastRpmRxMs  = _rxNow;
+  if (patch.engineTemp !== undefined) _lastTempRxMs = _rxNow;
+  if (patch.fuelLevel  !== undefined) _lastFuelRxMs = _rxNow;
   if (_hasEcuData(patch)) {
     _lastRealDataMs = _rxNow;
     /* #554: ECU yeniden konuştu → bekleyen suskunluk kaydının kurtarma ucu
@@ -1826,11 +1863,8 @@ function _onRealData(patch: Partial<OBDData>): void {
     _resetEcuRecoveryState('ecu_data_received');
   }
 
-  // Fix 3: ısınma devam ediyorken geçerli çekirdek PID gelirse 2s deadline'ı iptal et
-  if (_warmupActive && _warmupResolve && _hasEcuData(patch)) {
-    _warmupResolve();
-    return; // gate açılana kadar bu paket görmezden gelinir; sonraki paket connected'e geçirir
-  }
+  /* Eski "Fix 3" ısınma kancası (a181e5c2, 2026-06-06'da kaldırıldı) burada ölü
+     kalmıştı: `_warmupResolve` hiç atanmıyordu (CodeQL: invocation of non-function). */
 
   if (!_dataGatePassed) {
     if (_hasEcuData(patch)) {
@@ -2619,10 +2653,43 @@ async function _runConnectAttempt(opts?: { trustBypass?: boolean }): Promise<voi
   //    Race against a timeout so a non-responsive BT device doesn't hang.
   // W5-OBD-PR1: statik taban → handshake bitmap KANITIYLA rafine edilir.
   // Kanıt yoksa (ilk bağlantı / handshake başarısız) taban aynen kullanılır (fail-soft).
+  /* ── KALICI KANIT ARTIK GERİ OKUNUYOR (saha 2026-09-18, gerçek araç) ──────
+   * ÖLÇÜLEN KUSUR (Renault VF1FLBUBCBY406165, motor rölantide, 90 sn, 35 OBD
+   * paketi): `rpm` her pakette, `engineTemp` 5 turda bir geldi — ama
+   * `fuelLevel` 35/35 pakette `-1` idi. Yani yakıt bozuk DEĞİL, HİÇ SORULMUYORDU.
+   *
+   * Zincir: PID 0x2F ICE tabanından BİLİNÇLİ çıkarılmıştır (`obdPidConfig.ts`:
+   * çoğu Fiat/PSA/Renault desteklemez, kör sorgu her turda 200 ms NO-DATA).
+   * Onu geri açan TEK yol bitmap kanıtıdır. Kanıt handshake'te üretilip
+   * `saveObdSupportedPidBitmap` ile diske YAZILIYORDU — ama ÜRETİMDE HİÇ
+   * OKUNMUYORDU (`loadObdSupportedPidBitmap` yalnız testlerde çağrılıyordu).
+   * Handshake o oturumda blok okuyamazsa `refinePidList` `readBlocks.size === 0`
+   * görüp tabanı aynen döndürüyor → `012F` native'e hiç gitmiyordu. Oysa bu
+   * aracın kendi kanıtı (bitmap grup 2 → 0x2F = destekleniyor) diskte DURUYORDU.
+   *
+   * Artık oturum-içi kanıt YOKSA araca bağlı kalıcı kanıt tohum olarak kullanılır.
+   * İKİNCİ OTORİTE KURULMAZ: aynı `refinePidList` kapısı, aynı bitmap biçimi,
+   * yalnız kaynağı bellek yerine disk. Oturum-içi kanıt geldiğinde O KAZANIR
+   * (aşağıdaki handshake dalı `setObdCorePids` ile listeyi anında tazeler).
+   * Kanıt araca bağlıdır (VIN → MAC): global OR'lanmış anahtar KARAR için
+   * kullanılamaz, başka aracın yeteneğini bu araca taşırdı. */
+  let _seedSupported = _handshakeSupportedPids;
+  let _seedReadBlocks = _handshakeReadBlocks;
+  if (_seedReadBlocks.size === 0) {
+    const persistedBitmap = loadObdSupportedPidBitmapFor(
+      candidate?.address ?? _lastKnownAddress,
+      getHandshakeVin(),
+    );
+    const decoded = decodeSupportedPidBitmap(persistedBitmap);
+    if (decoded.readBlocks.size > 0) {
+      _seedSupported  = decoded.supportedPids;
+      _seedReadBlocks = decoded.readBlocks;
+    }
+  }
   const pidList = refinePidList(
     getPidListForVehicle(_current.vehicleType),
-    _handshakeSupportedPids,
-    _handshakeReadBlocks,
+    _seedSupported,
+    _seedReadBlocks,
   );
   // ELM327 ATSP numaraları: undefined=ATSP0 otomatik · 6=CAN 11/500 · 5=KWP hızlı init ·
   // 4=KWP 5-baud · 3=ISO 9141-2 · 7=CAN 29/500. Otomatik çoğu aracı bulur; bulamazsa sırayla denenir.
@@ -2858,6 +2925,14 @@ async function _runConnectAttempt(opts?: { trustBypass?: boolean }): Promise<voi
           failReason: _connectFailReason(ePrimary),
         });
       }
+      /* ORPHAN NATIVE TASK FIX (LAB kanıtı: CONNECT_TIMEOUT/socket_closed geç
+       * gelir): tek-transport (TCP) denemesi burada TAMAMEN TÜKENİYOR — bir
+       * sonraki reconnect turu (`_scheduleReconnect`) ayrı bir zamanlayıcıyla
+       * gelir, o ana kadar native'e HİÇBİR iptal sinyali gitmiyordu. Primary→
+       * fallback geçişiyle (aşağıda) AYNI temizlik disiplini: throw'dan ÖNCE
+       * dürüstçe kapat. `.catch` ile yutulur — disconnect'in kendi hatası bu
+       * turun asıl hatasını (ePrimary) GÖLGELEMEZ. */
+      try { await CarLauncher.disconnectOBD(); } catch { /* yoksay */ }
       throw ePrimary;
     }
 
@@ -2924,6 +2999,19 @@ async function _runConnectAttempt(opts?: { trustBypass?: boolean }): Promise<voi
           failReason: _reason,
         });
       }
+      /* ORPHAN NATIVE TASK FIX (kök neden — LAB kanıtı: CONNECT_TIMEOUT'un
+       * `timeoutStage:'connect'`i ile `nativeFailureClass:'socket_closed'`/
+       * `'broken_pipe'` FARKLI ANLARDA doğuyordu). Fallback burada TAMAMEN
+       * tükeniyor ama native'in tek-thread executor'da bloke olan 3-katmanlı
+       * RFCOMM denemesine (secure→insecure→reflection) HİÇBİR iptal sinyali
+       * gitmiyordu — yalnız primary→fallback GEÇİŞİNDE (yukarıda) disconnectOBD()
+       * çağrılıyordu, tam tükenişte DEĞİL. Orphan task bir SONRAKİ connectOBD()
+       * çağrısına kadar (native'in KENDİ `disconnect()` yorumu bunu "bilinen
+       * sınır" olarak belgeliyor — OBDManager.java) çalışmaya devam ediyor; geç
+       * biten sonucu (`socket_closed`/`broken_pipe`) BU turun ZATEN kapanmış
+       * kaydına karışıyordu. Primary→fallback ile AYNI disiplin: throw'dan
+       * ÖNCE dürüstçe kapat — orphan native task hemen kapanma sinyali alır. */
+      try { await CarLauncher.disconnectOBD(); } catch { /* yoksay */ }
       throw eFallback;
     }
     _connectedTp = _fallbackTp;
@@ -3025,6 +3113,22 @@ async function _runConnectAttempt(opts?: { trustBypass?: boolean }): Promise<voi
         _handshakeSupportedPids = new Set(result.supportedPids);
         _handshakeReadBlocks    = new Set(result.readBlocks);
 
+        /* KALICI YETENEK OTORİTESİ (bkz. obdStorage.ts üst yorumu): yukarıdaki
+           `_handshakeSupportedPids` yalnız BELLEKTE yaşar, bu oturum kapanınca
+           kaybolur. Bitmap'i kalıcılaştırmak `vehicleFingerprintBuilder`ın bir
+           sonraki bağlantıda AYNI aracı (protokol+ECU+bitmap imzasıyla) tanımasını
+           ve `getPidListForVehicle` tabanının ötesine geçen kanıtı hayatta
+           tutmasını sağlar. İKİNCİ bir "desteklenen PID" otoritesi KURULMAZ —
+           bu ZATEN hesaplanmış `result`ten türetilir, boşsa (kanıt yok) NO-OP'tur
+           (mevcut kalıcı bitmap SİLİNMEZ). */
+        const bitmapHex = extractSupportedPidBitmap(raw);
+        if (bitmapHex) {
+          saveObdSupportedPidBitmap(bitmapHex);
+          /* Global anahtar fingerprint içindir (OR'lanmış, araç-ötesi). KARAR
+             girdisi olarak bir sonraki bağlantıda okunacak kopya ARACA bağlanır. */
+          saveObdSupportedPidBitmapFor(_lastKnownAddress, getHandshakeVin(), bitmapHex);
+        }
+
         /* ── KANIT AYNI OTURUMDA UYGULANIR (saha 2026-07-31) ──────────────────
          * Eskiden bu kanıt YALNIZ "bir sonraki reconnect"te işe yarıyordu: çekirdek
          * PID kümesi `connectOBD({pids})` ile bir kez gönderiliyor, handshake ise
@@ -3110,6 +3214,18 @@ async function _runConnectAttempt(opts?: { trustBypass?: boolean }): Promise<voi
             result.failedBlock ? `, kirildi@01${result.failedBlock}` : ''})`,
           '→ profil:', profile.name,
           result.supportedPids.has(0x2F) ? '· yakıt(2F) destekli' : '');
+
+        /* Mode 09 PID 04 (Kalibrasyon Kimliği) — el sıkışma zincirinin PARÇASI
+           DEĞİL (native `performHandshakeRaw` bunu taşımaz); AYRI, mevcut genel
+           salt-okunur PDU yolundan (bkz. calibrationIdService.ts üst yorumu) TEK
+           seferlik sorgu. PARALELLEŞTİRİLİR: handshake zincirini bloklamaz,
+           hata fail-soft yutulur (CAL ID okunamaması OBD akışını ETKİLEMEZ). */
+        void queryCalibrationId()
+          .then((r) => {
+            if (_stale()) return;
+            console.info('[OBD:CalId]', r.value ? `CAL ID: ${r.value}` : `okunamadı (${r.outcome})`);
+          })
+          .catch((e: unknown) => logError('OBD:CalibrationId', e));
       })
       .catch((err: unknown) => {
         persistHandshakeVin(null);
@@ -3398,9 +3514,6 @@ export function stopOBD(): void {
   _nativeReconnectGuardTimeouts = 0;
   _nativeReconnectLastOutcome = null;
   _nativeReconnectLastDurationMs = null;
-  // Fix 3: ısınma promise'ini çöz ve bayrağı sıfırla (Zero-Leak)
-  if (_warmupResolve) { _warmupResolve(); _warmupResolve = null; }
-  _warmupActive = false;
   // Fix 1: ICE RPM miss sayacı sıfırla
   _iceRpmMissStart = null;
   clearAccumulatedBuffer();
@@ -3605,6 +3718,24 @@ export function getObdSignalHealth(nowMs: number = performance.now()): {
  */
 export function getObdSessionEpoch(): number {
   return _nativeGeneration;
+}
+
+/**
+ * Bu oturumda bir TANI yanıtı alındı → LINK HEARTBEAT (ATRV ile aynı sınıf kanıt).
+ *
+ * SAHA (2026-09-22, gerçek araç): native canlı veriyi poll turunun SONUNDA tek
+ * olayla yollar; çoklu-ECU taramasında DTC istekleri kuyrukta öncelikli olduğu için
+ * tur 17 sn'yi aştı, JS hiç paket görmedi ve watchdog SAĞLIKLI hattı "öldü" sayıp
+ * kopardı → epoch arttı → sıradaki ECU (şanzıman, onaylı U1225/U1226) "ertelendi".
+ *
+ * Yalnız link canlılığını tazeler; `_lastValidFrameAt`e (canlı veri tazeliği)
+ * DOKUNMAZ — bayat veri bayat görünmeye devam eder. Başka oturumun yanıtı sayılmaz.
+ */
+function _noteDiagnosticLinkActivity(sessionEpoch: number): void {
+  if (!_running || sessionEpoch !== _nativeGeneration) return;
+  const now = Date.now();
+  _lastRxAt = now;
+  _lastDiagRxAt = now;
 }
 
 /* P0-OBD-09: kimlik katmanı oturum numarasını ÇEKMEZ, biz İTERİZ. Ters yön
@@ -3925,6 +4056,29 @@ export function getObdSpeedFresh(): number | null {
   if (Date.now() - _lastSpeedRxMs > windowMs) return null;   // bayat → bilinmiyor
   const v = _current.speed;
   return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : null;
+}
+
+/**
+ * Çekirdek OBD alanlarının KENDİ ölçüm anları (epoch ms; `0` = bu oturumda HİÇ
+ * ölçülmedi).
+ *
+ * `getOBDDataSnapshot().lastSeenMs` "OBD linkinden EN SON herhangi bir paket
+ * geldi" demektir — bir ALANIN ölçüm anı DEĞİLDİR. İkisini karıştırmak,
+ * rpm'in yeni ölçümünün eski yakıtı "yeni ölçülmüş" göstermesine yol açar
+ * (F5.1B kök nedeni). Tazelik kararı verecek her tüketici bu kapıyı kullanır.
+ *
+ * İKİNCİ OTORİTE DEĞİLDİR: damgalar `_onRealData` içinde, sanitizer'dan geçmiş
+ * patch'in alan varlığından türer — `getObdSpeedFresh()` ile aynı kaynak.
+ */
+export function getObdFieldObservedAt(): {
+  speedMs: number; rpmMs: number; engineTempMs: number; fuelMs: number;
+} {
+  return {
+    speedMs:      _lastSpeedRxMs,
+    rpmMs:        _lastRpmRxMs,
+    engineTempMs: _lastTempRxMs,
+    fuelMs:       _lastFuelRxMs,
+  };
 }
 
 export function onOBDData(fn: (d: OBDData) => void): () => void {

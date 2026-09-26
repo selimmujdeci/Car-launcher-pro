@@ -1,0 +1,38 @@
+[
+  {
+    "aday": "A-mevcut",
+    "minor": "#e9edf2",
+    "rota/yol": 0.39,
+    "minor↔zemin": 11.96,
+    "motorway↔zemin": 14.06,
+    "rota↔yol": 2.34,
+    "parlak%": 6.36
+  },
+  {
+    "aday": "B-hafif",
+    "minor": "#b3bdcd",
+    "rota/yol": 0.66,
+    "minor↔zemin": 7.42,
+    "motorway↔zemin": 12.17,
+    "rota↔yol": 1.45,
+    "parlak%": 5.76
+  },
+  {
+    "aday": "C-google",
+    "minor": "#8d99ac",
+    "rota/yol": 1.06,
+    "minor↔zemin": 4.88,
+    "motorway↔zemin": 10.37,
+    "rota↔yol": 1.05,
+    "parlak%": 3.11
+  },
+  {
+    "aday": "D-agresif",
+    "minor": "#78849a",
+    "rota/yol": 1.46,
+    "minor↔zemin": 3.73,
+    "motorway↔zemin": 8.74,
+    "rota↔yol": 1.37,
+    "parlak%": 3.02
+  }
+]

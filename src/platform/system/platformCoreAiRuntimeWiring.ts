@@ -27,6 +27,7 @@
  */
 
 import { logError } from '../crashLogger';
+import { allowsConnectivity } from '../connectivity/connectivityGate';
 import { getAppEventBus } from './platformCoreEventBusWiring';
 import { vehicleHal } from '../vehicleHal';
 import { AiOrchestrator } from '../aiCore/aiOrchestrator';
@@ -155,7 +156,7 @@ export function startPlatformCoreAiRuntimeWiring(deps: AiRuntimeWiringDeps = {})
     runtime = new AiCoreRuntime({
       bus, hal, orchestrator,
       diagnosticsProvider: deps.diagnosticsProvider ?? _defaultDiagnosticsProvider,
-      online: () => (typeof navigator !== 'undefined' ? navigator.onLine !== false : true),
+      online: () => allowsConnectivity('CLOUD_INTERACTIVE'),
       // #124 — PROAKTİF KRİTİK ARIZA UYARISI: mevcut edge çalışmasının sonuna binen
       // fail-soft GÖZLEMCİ. YENİ POLL/TIMER/ABONELİK AÇMAZ; runtime sonucunu
       // DEĞİŞTİREMEZ. Debounce/güvenlik kapısı/karakter tavanı köprünün DEĞİL,

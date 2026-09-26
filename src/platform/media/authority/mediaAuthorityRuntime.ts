@@ -31,6 +31,9 @@ import {
 import { recordRecovery, recordRecoverySucceeded } from './mediaAuthorityEvidence';
 import { recordMediaEvent } from './mediaAuthorityEvents';
 import { configureQueueRecovery, runQueueRecovery } from './queueRecoveryRuntime';
+import { derivePlaybackErrorNotice } from './playbackErrorNotice';
+import { useStore } from '../../../store/useStore';
+import { showToast } from '../../errorBus';
 /* F3.2 — CANLI gözlenen kuyruk kanıtı. Bu iki modül SAF/tipsel ağırlıktadır
    (I/O yok, UI yok); statik import ana paket bütçesini etkilemez ve yayının
    snapshot işlemesiyle AYNI turda, sıra garantisiyle yapılmasını sağlar. */
@@ -203,8 +206,18 @@ async function applySnapshotToMediaState(s: NativeAuthoritySnapshot): Promise<vo
   }
 }
 
-function persistNow(): void {
-  const s = native.getSnapshot();
+/**
+ * SAHA 2026-09-23 (telefon): "açılışta devam" parçayı 80. sn yerine 0'dan
+ * başlattı. `getSnapshot()` olay itişlidir ve native çalma SÜRERKEN konum
+ * itmez → kaydedilen konum parçanın başladığı andaki değer (0) kalıyordu.
+ * Kayıt anında görüntü native'den TAZE okunur; okunamazsa son bilinen görüntü
+ * kullanılır (kuyruk kaydı kaybolmasın).
+ */
+async function persistNow(): Promise<void> {
+  if (!native.getSnapshot().authorityAvailable || !_lastSource || _lastQueue.length === 0) return;
+  const fresh = await native.refreshSnapshot();
+  const s = fresh.authorityAvailable ? fresh : native.getSnapshot();
+  /* await sırasında otorite durdurulduysa/kuyruk boşaldıysa yazılmaz. */
   if (!s.authorityAvailable || !_lastSource || _lastQueue.length === 0) return;
   persistPlaybackState({
     source: _lastSource,
@@ -221,11 +234,14 @@ function persistNow(): void {
 }
 
 /**
- * Process-death kurtarması. Kuyruk YÜKLENİR ama ÇALMAZ — kullanıcı play'e
- * basana kadar araçta beklenmedik ses çıkmaz.
+ * Process-death kurtarması. Varsayılan: kuyruk YÜKLENİR ama ÇALMAZ. Kullanıcı
+ * "açılışta devam" ayarını açtıysa ve müzik çalarken kapandıysa kaldığı yerden
+ * çalar (karar `decideRecovery`de, tek yerde).
  */
 async function runRecovery(): Promise<void> {
-  const decision = decideRecovery(readPersistedRaw(), Date.now());
+  const decision = decideRecovery(readPersistedRaw(), Date.now(), {
+    resumeIfWasPlaying: useStore.getState().settings.resumeMusicOnStart === true,
+  });
   if (decision.action === 'NONE') {
     if (decision.reason === 'corrupt_json' || decision.reason === 'corrupt_shape') {
       clearPersistedState();   // bozuk kayıt fail-soft silinir
@@ -243,7 +259,7 @@ async function runRecovery(): Promise<void> {
     items: decision.state.items,
     startIndex: decision.state.currentIndex,
     positionMs: decision.state.positionMs,
-    autoPlay: false,   // ASLA otomatik çalma
+    autoPlay: decision.autoPlay,   // yalnız açık kullanıcı tercihiyle true
   });
 
   /* Kurtarma TAMAMLANDI → deneme sayacı sıfırlanır.
@@ -260,6 +276,9 @@ async function runRecovery(): Promise<void> {
   }
 }
 
+/** Son gözlenen parça-hatası sayacı (`null` = henüz gözlenmedi → bildirim yok). */
+let _lastItemErrorCount: number | null = null;
+
 /** Otoriteyi başlatır — idempotent. */
 export async function startMediaAuthority(): Promise<void> {
   if (_started) return;
@@ -275,12 +294,16 @@ export async function startMediaAuthority(): Promise<void> {
 
   _unsubscribe = native.subscribe((s) => {
     void applySnapshotToMediaState(s);
+    /* Bozuk/desteklenmeyen parça: native atladıysa kullanıcıya SÖYLENİR. */
+    const step = derivePlaybackErrorNotice(_lastItemErrorCount, s);
+    _lastItemErrorCount = step.count;
+    if (step.notice) showToast({ ...step.notice, duration: 6000 });
     // Kurtarma fail-soft'tur ve ASLA oynatma komutu göndermez.
     try { runQueueRecovery(); } catch { /* kurtarma akışı bozamaz */ }
   });
 
   if (_persistTimer) clearInterval(_persistTimer);
-  _persistTimer = setInterval(persistNow, PERSIST_PERIOD_MS);
+  _persistTimer = setInterval(() => { void persistNow(); }, PERSIST_PERIOD_MS);
 
   try { await runRecovery(); } catch { /* kurtarma ASLA açılışı bozmaz */ }
 
@@ -293,6 +316,7 @@ export async function startMediaAuthority(): Promise<void> {
 /** Zero-Leak teardown. */
 export function stopMediaAuthority(): void {
   _started = false;
+  _lastItemErrorCount = null;
   if (_unsubscribe) { _unsubscribe(); _unsubscribe = null; }
   if (_persistTimer) { clearInterval(_persistTimer); _persistTimer = null; }
   native.stopNativeAuthority();
@@ -313,6 +337,9 @@ export function isAuthorityOwnedPackage(pkg: string): boolean {
 export function isAuthorityAvailable(): boolean {
   return isNative && native.getSnapshot().authorityAvailable;
 }
+
+/** @internal — yalnız testler: periyodik kaydın tek turu. */
+export function __persistNowForTest(): Promise<void> { return persistNow(); }
 
 export function __resetRuntimeForTest(): void {
   _started = false;

@@ -54,7 +54,9 @@ export interface LocalVehicle {
 function storeLocalVehicle(v: LocalVehicle): void {
   try {
     localStorage.setItem(STORAGE.VEHICLE_ID,    v.id);
-    localStorage.setItem(STORAGE.API_KEY,       v.apiKey);
+    /* `api_key` ARTIK SAKLANMAZ (#631): boş dize yazmak yerine SİLİNİR — eski
+       sürümden kalmış gerçek bir anahtar da temizlenir, düz metin sır yazılmaz. */
+    localStorage.removeItem(STORAGE.API_KEY);
     localStorage.setItem(STORAGE.VEHICLE_NAME,  v.name);
     localStorage.setItem(STORAGE.VEHICLE_PLATE, v.plate);
   } catch { /* quota — silently ignore */ }
@@ -230,6 +232,96 @@ export async function pairVehicle(code: string): Promise<PairResult> {
       message: browserOnline
         ? 'Sunucuya ulaşılamadı (istek tamamlanmadı). Bağlantı gelince otomatik denenecek.'
         : 'Cihaz çevrimdışı. Bağlantı gelince otomatik denenecek.',
+    };
+  }
+}
+
+// ── Ayırma (unlink) ───────────────────────────────────────────────────────────
+
+export const UNPAIR_ENDPOINT = '/api/vehicle/unlink';
+
+export interface UnpairResult {
+  success: boolean;
+  message: string;
+  /** Sunucu `vehicles.owner_id`'yi gerçekten temizledi mi (bireysel araç). */
+  ownerCleared?: boolean;
+  /** Tekrar denenebilir ağ/sunucu arızası — RED DEĞİLDİR. */
+  retryable?: boolean;
+  code?: string;
+}
+
+/**
+ * Aracı hesaptan GERÇEKTEN ayırır (F0.4).
+ *
+ * ── SÖZLEŞME ─────────────────────────────────────────────────────────────
+ * Bu fonksiyon YEREL KAYDA DOKUNMAZ. Yerel temizlik YALNIZ `success === true`
+ * döndükten sonra çağıran tarafından yapılır. Eskiden tam tersi oluyordu:
+ * yerel kayıt siliniyor, sunucuda sahiplik kalıyordu — kullanıcı aracını
+ * "bıraktığını" sanırken kotası dolu kalıyor, kimliğini kaybederse araca
+ * bir daha erişemiyordu.
+ *
+ * Oturum ZORUNLUDUR: rota Bearer ister ve kullanıcıyı token'dan çözer;
+ * araç kimliği istemcinin İDDİASI değil, sunucunun doğruladığı sahiplik
+ * üzerinden değerlendirilir.
+ */
+export async function unpairVehicle(vehicleId: string): Promise<UnpairResult> {
+  const access = await authorizePairingContinuation();
+  if (!access.allowed) {
+    return {
+      success: false,
+      code: 'ACCOUNT_CLEANUP_IN_PROGRESS',
+      message: 'Güvenli oturum temizliği sırasında bu işlem yapılamaz.',
+    };
+  }
+
+  const token = await ensurePwaSession();
+  if (!token) {
+    return {
+      success: false,
+      code: 'AUTH_REQUIRED',
+      message: 'Oturum başlatılamadı — bağlantınızı kontrol edip tekrar deneyin.',
+    };
+  }
+
+  try {
+    const res = await fetch(UNPAIR_ENDPOINT, {
+      method:  'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization:  `Bearer ${token}`,
+      },
+      body: JSON.stringify({ vehicleId }),
+    });
+
+    const data = (await res.json()) as {
+      vehicleId?: string; ownerCleared?: boolean; error?: string; code?: string;
+    };
+
+    if (!res.ok || !data.vehicleId) {
+      /* 5xx/429 geçici arızadır → RED değil, tekrar denenebilir. 4xx kalıcıdır.
+         Hiçbir durumda "başarılı" DÖNÜLMEZ; çağıran yereli SİLMEZ. */
+      const verdict = classifyHttpFailure(res.status);
+      return {
+        success:   false,
+        message:   data.error ?? 'Araç bağlantısı kesilemedi.',
+        retryable: verdict.retryable,
+        code:      data.code,
+      };
+    }
+
+    return {
+      success:      true,
+      ownerCleared: data.ownerCleared === true,
+      message:      'Araç hesabınızdan ayrıldı.',
+    };
+  } catch {
+    const browserOnline = typeof navigator === 'undefined' || navigator.onLine !== false;
+    return {
+      success:   false,
+      retryable: true,
+      message:   browserOnline
+        ? 'Sunucuya ulaşılamadı — araç bağlantısı KESİLMEDİ, tekrar deneyin.'
+        : 'Cihaz çevrimdışı — araç bağlantısı KESİLMEDİ, tekrar deneyin.',
     };
   }
 }

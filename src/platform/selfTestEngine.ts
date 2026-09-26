@@ -23,6 +23,8 @@
  */
 
 import { getCapabilities, getDeviceTier } from './deviceCapabilities';
+import { getConnectivitySnapshot } from './connectivity/connectivityAuthority';
+import { allowsConnectivity } from './connectivity/connectivityGate';
 
 /* ── Tipler ──────────────────────────────────────────────────── */
 
@@ -134,8 +136,10 @@ async function probeBackend(): Promise<Omit<ProbeResult, 'name' | 'category' | '
   const anon = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
   if (typeof fetch === 'undefined')  return { status: 'skip', detail: 'fetch yok' };
   if (!url || !anon)                 return { status: 'skip', detail: 'Supabase env yok (BYOK boş)' };
-  if (typeof navigator !== 'undefined' && navigator.onLine === false)
-    return { status: 'warn', detail: 'cihaz çevrimdışı (onLine=false)' };
+  /* F7-B: kanonik kapı. Teşhis DÜRÜSTLÜĞÜ için gerekçe artık gerçek durumu
+     söyler — tek bir tarayıcı bayrağı yerine OFFLINE/LOCAL_ONLY/CAPTIVE ayrımı. */
+  if (!allowsConnectivity('LIGHTWEIGHT_INTERNET'))
+    return { status: 'warn', detail: `cihaz çevrimdışı (${getConnectivitySnapshot().state})` };
 
   const t0 = now();
   const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;

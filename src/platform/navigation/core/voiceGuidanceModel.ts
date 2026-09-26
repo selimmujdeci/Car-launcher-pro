@@ -53,6 +53,35 @@ export function finalTierMetres(speedKmh: number): number {
   return Math.min(FINAL_TIER_MAX_M, Math.max(FINAL_TIER_MIN_M, (v / 3.6) * FINAL_TIER_SECONDS));
 }
 
+/**
+ * Otoyol kademeleri (analiz 2026-09-24): sabit 600/250 m, 120 km/s'te ilk
+ * anonsu manevradan yalnız ~18 sn önce yapıyordu — çıkış için şerit değiştirmeye
+ * yetmez. Bu hızın üstünde kademeler 1000/400 m'ye açılır (≈30 sn / 12 sn).
+ */
+export const HIGHWAY_SPEED_KMH = 80;
+export const HIGHWAY_FAR_TIER_M = 1000;
+export const HIGHWAY_NEAR_TIER_M = 400;
+
+const _isHighway = (speedKmh: number): boolean =>
+  Number.isFinite(speedKmh) && speedKmh >= HIGHWAY_SPEED_KMH;
+
+export function farTierMetres(speedKmh: number): number {
+  return _isHighway(speedKmh) ? HIGHWAY_FAR_TIER_M : FAR_TIER_M;
+}
+
+export function nearTierMetres(speedKmh: number): number {
+  return _isHighway(speedKmh) ? HIGHWAY_NEAR_TIER_M : NEAR_TIER_M;
+}
+
+/** Sese uygun mesafe: "250 metre" · "1 kilometre" · "1,5 kilometre". */
+export function spokenDistance(distanceM: number): string {
+  if (distanceM >= 950) {
+    const km = Math.round(distanceM / 100) / 10;
+    return `${String(km).replace('.', ',')} kilometre`;
+  }
+  return `${Math.round(distanceM / 50) * 50} metre`;
+}
+
 export interface GuidanceDecisionInput {
   /** Navigasyon ACTIVE/REROUTING mi. */
   readonly navActive: boolean;
@@ -67,6 +96,27 @@ export interface GuidanceDecisionInput {
   readonly instruction: string;
   /** Bu manevra için ŞU ANA KADAR söylenmiş kademelerin bit maskesi. */
   readonly spokenBits: number;
+  /** Manevra VARIŞ adımı mı (OSRM `arrive`). Talimat metni "Hedefinize
+   *  ulaştınız" geçmiş zamandır; "600 metre sonra hedefinize ulaştınız"
+   *  denmesin diye varış kendi cümleleriyle söylenir. */
+  readonly isArrival?: boolean;
+  /** Sıradaki manevradan hemen sonra (yakın) gelen ikinci manevra — varsa
+   *  YAKLAŞMA/DÖNÜŞ anonsuna "ardından …" olarak eklenir (ör. dönüşten 30 m
+   *  sonra ikinci dönüş: ayrı anons için zaman kalmaz). */
+  readonly thenInstruction?: string | null;
+  /** İkinci manevra varış mı. */
+  readonly thenIsArrival?: boolean;
+}
+
+/**
+ * Talimatı SESE uygun hâle getirir. Ekrandaki "Sağa dönün (Atatürk Caddesi)"
+ * biçimi TTS'te parantezle okunuyordu → "sağa dönün, Atatürk Caddesi".
+ */
+export function spokenInstruction(instruction: string): string {
+  const inst = (instruction ?? '').trim();
+  const m = /^(.*\S)\s*\(([^()]+)\)$/.exec(inst);
+  const base = m ? `${m[1]}, ${m[2]!.trim()}` : inst;
+  return base.charAt(0).toLowerCase() + base.slice(1);
 }
 
 export interface GuidanceDecision {
@@ -88,7 +138,10 @@ export interface GuidanceDecision {
  * TEKRAR OYNATILMAZ.
  */
 export function decideGuidance(input: GuidanceDecisionInput): GuidanceDecision | null {
-  const { navActive, isRerouting, distanceM, distanceSource, speedKmh, instruction, spokenBits } = input;
+  const {
+    navActive, isRerouting, distanceM, distanceSource, speedKmh, instruction, spokenBits, isArrival,
+    thenInstruction, thenIsArrival,
+  } = input;
 
   if (!navActive || isRerouting) return null;
   if (distanceSource === 'UNKNOWN') return null;
@@ -97,28 +150,31 @@ export function decideGuidance(input: GuidanceDecisionInput): GuidanceDecision |
   if (!inst) return null;
 
   // Talimatı cümle ortasına uydur: "Sola dönün" → "sola dönün"
-  const lower = inst.charAt(0).toLowerCase() + inst.slice(1);
-  const rounded = Math.round(distanceM / 50) * 50;
+  const lower = isArrival ? 'hedefinize ulaşacaksınız' : spokenInstruction(inst);
+  const dist = spokenDistance(distanceM);
+  const thenRaw = (thenInstruction ?? '').trim();
+  const then = isArrival || !thenRaw ? ''
+    : `, ardından ${thenIsArrival ? 'hedefinize ulaşacaksınız' : spokenInstruction(thenRaw)}`;
 
   const finalM = finalTierMetres(speedKmh);
   if (distanceM <= finalM && !(spokenBits & STAGE_BIT.IMMINENT)) {
     return {
       stage: 'IMMINENT',
-      text: `Şimdi ${lower}`,
+      text: isArrival ? 'Hedefinize ulaşmak üzeresiniz' : `Şimdi ${lower}${then}`,
       nextBits: spokenBits | STAGE_BIT.IMMINENT | STAGE_BIT.NEAR | STAGE_BIT.FAR,
     };
   }
-  if (distanceM <= NEAR_TIER_M && !(spokenBits & STAGE_BIT.NEAR)) {
+  if (distanceM <= nearTierMetres(speedKmh) && !(spokenBits & STAGE_BIT.NEAR)) {
     return {
       stage: 'NEAR',
-      text: `${rounded} metre sonra ${lower}`,
+      text: `${dist} sonra ${lower}${then}`,
       nextBits: spokenBits | STAGE_BIT.NEAR | STAGE_BIT.FAR,
     };
   }
-  if (distanceM <= FAR_TIER_M && !(spokenBits & STAGE_BIT.FAR)) {
+  if (distanceM <= farTierMetres(speedKmh) && !(spokenBits & STAGE_BIT.FAR)) {
     return {
       stage: 'FAR',
-      text: `${rounded} metre sonra ${lower}`,
+      text: `${dist} sonra ${lower}`,
       nextBits: spokenBits | STAGE_BIT.FAR,
     };
   }

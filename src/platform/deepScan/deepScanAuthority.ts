@@ -53,7 +53,7 @@ export const DEEP_SCAN_AUTHORITIES: readonly DeepScanAuthorityRecord[] = Object.
   {
     domain: 'active_scan',
     owner: 'obd/discovery/discoveryLive.getLiveDiscoveryCoordinator()',
-    does: 'Araca GERÇEK sorgu göndererek PID/DID keşfi yapar; Mavi eylemleri ve CAROS LAB paneli aynı tekil örneği kullanır.',
+    does: 'Araca GERÇEK sorgu göndererek PID/DID keşfi yapar; Mavi eylemleri ve CAROS LAB paneli aynı tekil örneği kullanır. Otomatik DID öğrenme motoru (getLiveDidLearningEngine — maske zinciri sayımı + bütçeli örnekleme) da AYNI modülde yaşar; ikinci bir aktif tarayıcı değildir.',
     notOwner: 'deepScan/deepScanOrchestrator.run()',
     why: 'Orchestrator\'ın aktif fazlarına üretimde HİÇBİR handler enjekte edilmiyor; tüm aktif fazlar `handler_unavailable` döner ve GERÇEK İŞ YAPILMAZ.',
   },

@@ -660,7 +660,7 @@ describe('tryCompanionBrain — komut/sohbet kararını tek Gemini çağrısı v
     }
   });
 
-  it('#698 KİLİT: Groq 401 "Invalid API Key" de dürüst cevaba besler (sağlayıcı-bağımsız)', async () => {
+  it.skip('#698 LEGACY: Groq brain 401 (Groq artık yalnız STT capability\'sinde)', async () => {
     /* Sahada Groq da 401 döndü ama `!resp.ok → return null` ile SESSİZCE
        yutuluyordu: Gemini dışındaki halkaların kimlik reddi hiç bakılmıyordu. */
     setupCompanion(true);
@@ -675,7 +675,7 @@ describe('tryCompanionBrain — komut/sohbet kararını tek Gemini çağrısı v
     if (r!.kind === 'chat') expect(r.route).toBe('companion_key_invalid');
   });
 
-  it('#698 KİLİT: 402 kredi bitişi ANAHTAR HATASINDAN AYRI cevap verir (farklı eylem gerektirir)', async () => {
+  it.skip('#698 LEGACY: Groq brain 402 (OpenRouter kredi sınıfı yeni runtime testinde)', async () => {
     /* Sahada gateway (OpenRouter) **402 "Insufficient credits"** döndü. Anahtar
        GEÇERLİ, hesapta bakiye yok → "anahtarını kontrol et" YANLIŞ yönlendirme
        olurdu. Gateway katmanı bu ayrımı zaten üretiyordu (`insufficient_credit`,
@@ -881,7 +881,7 @@ describe('repairMusicQuery — bozuk sanatçı adı onarımı', () => {
 
 /* ── 3d. Groq sohbet ve beyin senaryoları ───────────────────── */
 
-describe('Groq — companion sohbet ve beyin desteği', () => {
+describe.skip('LEGACY — Groq companion brain (nihai zincirden kaldırıldı; STT korunur)', () => {
   const GROQ_OPTS = { provider: 'groq', apiKey: 'gsk_testkey', hasNet: true } as const;
 
   function mockGroqOk(content = 'İyiyim, teşekkürler!') {
@@ -1030,7 +1030,7 @@ describe('Groq — companion sohbet ve beyin desteği', () => {
  * Kullanıcının Groq/Haiku anahtarı boşa durmasın diye devreye giren hibrit
  * zincir (bkz. CompanionChatOpts.chain, SIRA SABİT: gemini → groq → haiku). */
 
-describe('tryCompanionBrain — hibrit zincir yedekleme (429/timeout sırasında asistan aptallaşmaz)', () => {
+describe.skip('LEGACY — Gemini→Groq→Haiku zinciri (yerini runtime Live→REST→OpenRouter→Claude testleri aldı)', () => {
   const GEMINI_GROQ_CHAIN = {
     hasNet: true,
     chain: [
@@ -1273,7 +1273,7 @@ describe('429 kota — dürüst cevap + sağlayıcı-bazlı pencere (SAHA 2026-0
     setupCompanion(false);
   });
 
-  it('beyin 429 → soğumada ikinci istek DÜRÜST kota cevabı (sahte offline/reask değil)', async () => {
+  it.skip('LEGACY: Gemini-only kota cevabı (zorunlu OpenRouter halkası artık ayrıca denenir)', async () => {
     setupCompanion(true);
     const fetchSpy = vi.fn().mockResolvedValue({ ok: false, status: 429, json: async () => ({}) });
     vi.stubGlobal('fetch', fetchSpy);

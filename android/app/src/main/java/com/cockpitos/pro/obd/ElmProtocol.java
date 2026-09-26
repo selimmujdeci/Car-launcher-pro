@@ -35,6 +35,15 @@ public final class ElmProtocol {
     /** Ardışık çekirdek Mode-01 NO_DATA sayacı — tüm komutlar tek executor'dan geçer (cmdQueue). */
     private int coreNoDataStreak = 0;
 
+    /**
+     * CAN ölü-oturum sayacı — KWP merdiveninden AYRI tutulur.
+     *
+     * NEDEN AYRI: KWP yolu {@code KwpRecoveryEvidence} defterine yazar ve o defter
+     * K-line saha kanıtıdır; CAN sayımını oraya karıştırmak KWP kanıtını kirletirdi
+     * (bkz. {@code noteKwpSessionHealth}: "CAN kurtarma davranışı ile sıfır temas").
+     */
+    private int canNoDataStreak = 0;
+
     /* ── LIVE_STREAM_STOP_REASON izlenebilirliği (P0 saha 2026-07-23) ──────────
      * Akış durduğunda "neden durdu" sorusu KANITLA yanıtlanmalı. Aşağıdaki alanlar
      * yalnız çekirdek Mode-01 yolunda güncellenir (ek maliyet ihmal edilebilir). */
@@ -50,6 +59,34 @@ public final class ElmProtocol {
 
     /** Bu kadar ardışık çekirdek NO_DATA = oturum ölü kabul (≈2 poll turu / ~6s). */
     static final int KWP_DEAD_SESSION_THRESHOLD = 4;
+
+    /**
+     * CAN'de ölü oturum eşiği — ardışık ÇEKİRDEK NO_DATA sayısı.
+     *
+     * ── SAHA KÖK NEDENİ (2026-09-13, Renault protokol 7, motor rölantide) ──────────
+     * Poll izi tek bir blok gösterdi: 15 başarılı sorgu → **36 ARDIŞIK NO_DATA**
+     * (~60 sn tam kararma) → sonra tekrar tam başarı. Kararma boyunca HER PID düştü
+     * (010C/010D/0105/010F/0149/014A), yani PID'e özel değildi. Ham içerik temizdi
+     * (literal "NO DATA", prompt görüldü) ve adaptör bize cevap veriyordu — telefon↔
+     * dongle hattı SAĞLAMDI, ölü olan dongle↔araç tarafıydı. Motor kesintisiz çalıştı
+     * (öncesi 858 dev/dk → sonrası 830; su 82→85 °C), yani kontak da kapanmamıştı.
+     *
+     * TOPARLANMAYI ARAÇ DEĞİL BİZ SAĞLADIK: kararmanın sonunda log'da `ATZ` + `ATSP7`
+     * göründü (17:33:04) ve veri 2 sn sonra geri geldi. Yani ELM327 oturumu ölüyor ve
+     * YALNIZ tam re-init diriltiyor. 60 saniyenin sebebi ECU değil, bizim TESPİT
+     * GECİKMEMİZ: KWP/ISO için yazılmış ölü-oturum merdiveni CAN'de HİÇ çalışmıyordu
+     * ({@code noteKwpSessionHealth} ilk satırındaki {@code !isSlowSerialActive()} kapısı)
+     * → CAN'de tek çare yavaş transport watchdog'uydu. KWP'de düzeltilmeden önceki
+     * durumun aynısı ("recovery bu moda TAMAMEN KÖRDÜ ... ~2dk sonra kurtarıyordu").
+     *
+     * ⚠️ 6 ÖLÇÜLMEDİ, SEÇİLDİ. Gerekçe: çekirdek rotasyonda 010D ve 010C HER turda
+     * sorulur, dolayısıyla sağlıklı araçta sayaç sürekli sıfırlanır; 6 ardışık düşüş
+     * ≈ 3 tam tur boyunca TEK BİR başarı yok demektir — gerçekten ölü oturumdur.
+     * KWP'nin 4'ü alınmadı: CAN rotasyonunda araca göre desteklenmeyen PID bulunabilir
+     * (ör. 0111/012F) ve daha düşük eşik boşuna re-init tetikleyebilirdi.
+     * Ölçülen maliyet: NO_DATA başına ~870 ms → kararma ~60 sn yerine ~5 sn.
+     */
+    static final int CAN_DEAD_SESSION_THRESHOLD = 6;
 
     /**
      * Sayaç YALNIZ çekirdek poll PID'lerinde ilerler. EXTENDED keşif PID'leri BİLEREK
@@ -74,6 +111,7 @@ public final class ElmProtocol {
      */
     public String initELM327(String protocol) throws IOException {
         coreNoDataStreak = 0; // taze oturum — kurtarma sayacı sıfırdan
+        canNoDataStreak  = 0; // CAN merdiveni de (ilk bağlantı dahil TÜM init yolları)
         activeProtocol = new ElmInitSequencer(channel).init(protocol);
         return activeProtocol;
     }
@@ -496,7 +534,27 @@ public final class ElmProtocol {
      * Çağıran TEK kuyruk görevi içinde olmalıdır (mevcut sözleşme).
      */
     public DtcClassResult readDtcClassFromEcu(String tx, String rx, String mode) throws Exception {
-        return withEcuHeader(tx, rx, () -> readDtcClass(mode));
+        return readDtcClassFromEcu(tx, rx, mode, null);
+    }
+
+    /**
+     * P0-OBD-DTC-INIT/2 — {@code initFirst} TAŞIYAN overload (STANDART MODLAR).
+     *
+     * ── NEDEN GEREKLİ ─────────────────────────────────────────────────────────
+     * Adresleme matrisi (TS `kwpAddressingProbe.ts` + bu sınıftaki matris satır
+     * probu) bir ECU'nun fiziksel adrese YALNIZ K-line yeniden başlatıldıktan
+     * sonra cevap verdiğini ÖLÇEBİLİYOR. O ölçüm bugüne kadar YALNIZ üretici servislerine (0x18/0x13)
+     * taşınıyordu; oysa sahada okunamayan şey KULLANICININ GÖRDÜĞÜ standart
+     * hafızaydı (Mode 03/07/0A → "Kayıtlı/Bekleyen/Kalıcı: okunamadı"). Standart
+     * modlar matris KOŞMADAN ÖNCE, init'siz ve kanıtlanmamış hedefle gönderilip
+     * bir daha DENENMİYORDU. Bu overload o tek eksik taşımayı yapar.
+     *
+     * Çözümleyici KOPYALANMADI: {@link #readDtcClass(String)} AYNEN kullanılır.
+     * {@code null} init ⇒ davranış ESKİSİYLE BİREBİR AYNI.
+     */
+    public DtcClassResult readDtcClassFromEcu(String tx, String rx, String mode, String initFirst)
+            throws Exception {
+        return withEcuHeader(tx, rx, initFirst, () -> readDtcClass(mode));
     }
 
     /* ── OBD-OS-F3-3: KWP2000 ReadDTCByStatus (servis 0x18) ─────────────────── */
@@ -746,7 +804,14 @@ public final class ElmProtocol {
             "19",  // UDS readDTCInformation
             "1A",  // KWP readEcuIdentification
             "21",  // KWP readDataByLocalIdentifier
-            "22"   // readDataByIdentifier
+            "22",  // readDataByIdentifier
+            /* P0-OBD-DTC-INIT/3 — ISO 14230-2 §5.2 StartCommunication.
+               SALT BAGLANTI KURMA: hafizaya YAZMAZ, DTC SILMEZ, rutin
+               CALISTIRMAZ, security access DEGILDIR — beyaz listedeki "10"
+               (startDiagnosticSession) ile AYNI guvenlik sinifindadir.
+               Destructive liste (04·11·14·27·28·2E·2F·31·34-37·3B·85)
+               DEGISMEDI; bu satir o listeye DOKUNMAZ. */
+            "81"   // KWP StartCommunication
         )));
 
     /**
@@ -847,6 +912,7 @@ public final class ElmProtocol {
     }
 
     private InitResult initKLineForRow(String init) {
+        if ("SC81".equals(init)) return startCommunicationInit();
         String cmd = "SLOW".equals(init) ? "ATSI" : "ATFI";
         String r;
         try {
@@ -864,6 +930,36 @@ public final class ElmProtocol {
         }
         boolean ok = c.contains("OK") || c.contains("BUSINIT");
         return new InitResult(ok, shown);
+    }
+
+    /**
+     * P0-OBD-DTC-INIT/3 — PROTOKOL SEVIYESI baglanti kurma (ISO 14230-2 §5.2).
+     *
+     * ── NEDEN AYRI BIR YOL ────────────────────────────────────────────────────
+     * {@code ATFI}/{@code ATSI} ADAPTOR seviyesinde baslatmadir ve sahada
+     * (2026-08-26 · ECU 7A) IKISI DE {@code INIT_FAILED} dondu: adaptor hatti
+     * yeniden kurmayi REDDETTI. Bu metot ayni niyeti hattin KENDI servisiyle
+     * dener: fiziksel hedefe {@code 81} gonderilir, pozitif yanit {@code C1}dir.
+     * Adaptorun init yetenegine BAGLI DEGILDIR — ELM yalniz bayti tasir.
+     *
+     * Header CAGIRAN tarafindan ZATEN kurulmustur (ATSH); burada DEGISTIRILMEZ.
+     * SALT BAGLANTI KURMA: yazma · silme · security access YOKTUR.
+     *
+     * POZITIF KANIT SARTI: {@code C1} HAM YANITTA gorulmelidir. Sessizlik, ELM
+     * metin durumu ve ayrik negatif ({@code 7F 81 ..}) "baglanti kuruldu"
+     * DEMEK DEGILDIR (fail-closed).
+     */
+    private InitResult startCommunicationInit() {
+        String raw;
+        try {
+            raw = sendChecked("81", 2000);
+        } catch (Exception e) {
+            String m = e.getMessage();
+            return new InitResult(false, "81 istisna: " + (m == null ? e.getClass().getSimpleName() : m));
+        }
+        String compact = raw == null ? "" : raw.replaceAll("\\s+", "").toUpperCase(Locale.ROOT);
+        String shown = "81 -> " + (raw == null ? "YANIT YOK" : raw.trim());
+        return new InitResult(compact.contains("C1") && !compact.contains("7F81"), shown);
     }
 
     private AddressingEvidence sendAddressingRow(String req) {
@@ -1022,9 +1118,19 @@ public final class ElmProtocol {
     private ElmResponseParser.Result sendAndClassify(String cmd, int timeoutMs, String mode, String pid) {
         boolean core = cmd != null && CORE_MODE01.contains(cmd);
         if (core) coreRequestSeq++;
+        final long _t0 = System.currentTimeMillis();
         try {
             String raw = sendObserved(cmd, timeoutMs);
             ElmResponseParser.Result r = ElmResponseParser.classify(raw, mode, pid);
+            /* TEŞHİS (GEÇİCİ · 2026-09-13): poll döngüsünde HANGİ PID'in ne döndürdüğü
+             * ürün içinden görünmüyordu; "veri neden kesiliyor" sorusu ancak tahminle
+             * cevaplanabiliyordu. Süre de basılır — NO_DATA (hızlı) ile timeout (yavaş)
+             * ayrımı ölçümle yapılsın. Kök neden kapanınca KALDIRILIR. */
+            if (com.cockpitos.pro.BuildConfig.DEBUG) {
+                android.util.Log.i("OBD", "[PollTrace] " + cmd + " -> " + r.kind
+                    + " (" + (System.currentTimeMillis() - _t0) + "ms) raw=\""
+                    + (raw == null ? "<null>" : raw.replace("\r", "\\r").replace("\n", "\\n")) + "\"");
+            }
             // Son BAŞARILI paketin künyesi — durma kaydı "en son ne çalışmıştı"yı söylesin.
             if (core) {
                 if (r.kind == ElmResponseParser.Kind.OK) {
@@ -1048,8 +1154,17 @@ public final class ElmProtocol {
                 }
             }
             noteKwpSessionHealth(cmd, r.kind, raw);
+            noteCanSessionHealth(cmd, r.kind);
             return r;
         } catch (Exception e) {
+            /* TEŞHİS (GEÇİCİ · 2026-09-13) — istisna yolu da görünsün. */
+            if (com.cockpitos.pro.BuildConfig.DEBUG) {
+                android.util.Log.w("OBD", "[PollTrace] " + cmd + " -> EXCEPTION "
+                    + e.getClass().getSimpleName() + " (" + (System.currentTimeMillis() - _t0) + "ms) "
+                    + (e instanceof ElmPromptTimeoutException
+                        ? "partial=\"" + ((ElmPromptTimeoutException) e).partialResponse + "\""
+                        : String.valueOf(e.getMessage())));
+            }
             // SESSİZ EXCEPTION YASAK (P0 saha 2026-07-23): kanal hatası eskiden hiçbir
             // yere yazılmıyordu — "veri neden durdu" sorusu cevapsız kalıyordu.
             if (core) {
@@ -1244,10 +1359,47 @@ public final class ElmProtocol {
             channel.send("ATWS", 1000);           // warm start — soket KAPANMAZ
             String p = initELM327(activeProtocol); // öğrenilmiş protokolle taze init
             coreNoDataStreak = 0;
+            canNoDataStreak  = 0;   // CAN merdiveni de taze oturumdan başlar
             return p != null;
         } catch (Exception e) {
             return false; // fail-soft — TS son çareye (transport reconnect) geçer
         }
+    }
+
+    /**
+     * CAN'de ölü oturum takibi — KWP merdiveninin CAN karşılığı (bkz.
+     * {@link #CAN_DEAD_SESSION_THRESHOLD} yorumundaki saha kök nedeni).
+     *
+     * KWP'den FARKLAR (bilinçli):
+     *  · ATPC GÖNDERİLMEZ — o K-line "protocol close" komutudur, CAN'de karşılığı yok.
+     *    Sahada kararmayı gerçekten bitiren şey ATZ+ATSP idi; o yüzden doğrudan
+     *    {@link #reinitSession()} (ATWS + öğrenilmiş protokolle taze init) çağrılır.
+     *  · {@code KwpRecoveryEvidence} defterine YAZILMAZ (K-line kanıtı kirlenmesin).
+     *  · Yeni timer/thread YOK: karar yalnız mevcut poll yanıtının sınıfından doğar.
+     */
+    private void noteCanSessionHealth(String cmd, ElmResponseParser.Kind kind) {
+        if (cmd == null || !CORE_MODE01.contains(cmd) || !isCanActive()) return;
+        if (kind == ElmResponseParser.Kind.OK) { canNoDataStreak = 0; return; }
+        // Yalnız "ECU sustu" formları sayılır; ELM/soket hataları transport tarafının işi.
+        if (kind != ElmResponseParser.Kind.NO_DATA
+            && kind != ElmResponseParser.Kind.TIMEOUT_PARTIAL) return;
+        if (++canNoDataStreak < CAN_DEAD_SESSION_THRESHOLD) return;
+        canNoDataStreak = 0;
+        try {
+            android.util.Log.w("OBD", "[CanRecover] " + CAN_DEAD_SESSION_THRESHOLD
+                + " ardışık çekirdek NO DATA (protokol=" + activeProtocol
+                + ") → ATWS+reinit (ölü CAN oturumu)");
+        } catch (Throwable ignored) { /* JVM unit test: Log mock yok */ }
+        reinitSession();   // fail-soft: false dönerse TS transport reconnect'e düşer
+    }
+
+    /** Aktif protokol CAN mı ('6'-'9', 'A'-'C')? Yavaş seri / bilinmeyen → false. */
+    private boolean isCanActive() {
+        String p = activeProtocol;
+        if (p == null || p.isEmpty()) return false;
+        char c = Character.toUpperCase(p.charAt(0));
+        return c == '6' || c == '7' || c == '8' || c == '9'
+            || c == 'A' || c == 'B' || c == 'C';
     }
 
     /** Aktif protokol yavaş seri mi (ISO 9141-2 '3' / KWP2000 '4'-'5')? CAN/J1850 → false. */
@@ -1288,6 +1440,29 @@ public final class ElmProtocol {
      * olur, araya başka bir komut giremez (tüm dallar için geçerli).
      */
     public <T> T withEcuHeader(String tx, String rx, java.util.concurrent.Callable<T> action) throws Exception {
+        return withEcuHeader(tx, rx, null, action);
+    }
+
+    /**
+     * P0-OBD-DTC-INIT — {@code initFirst} TAŞIYAN overload.
+     *
+     * ── NEDEN VAR (ölçülen kusur) ─────────────────────────────────────────────
+     * {@link #probeKwpAddressingRow} bir ECU için K-line yeniden-başlatmanın
+     * (ATFI/ATSI) fiziksel isteğe cevap almak için ZORUNLU olduğunu ÖLÇEBİLİYORDU
+     * ({@code KwpAddressingVerdict.requiredInit}, bkz. TS `kwpAddressingProbe.ts`)
+     * ama bu kanıt yalnız LAB ekranına gidiyordu: gerçek DTC isteği
+     * ({@code readAdvancedKwpDtc}/{@code readAdvancedKwp13Dtc}/{@code readAdvancedUdsDtc})
+     * her zaman init'siz `withEcuHeader(tx, rx, action)` çağırıyordu — yani matrisin
+     * kanıtladığı ön koşul, onu gerektiren asıl istekte HİÇ TEKRARLANMIYORDU.
+     * Saha (ECU 7A / KWP): adres + oturum probu init'siz sustu, matris init'li
+     * cevap verdi, ama 0x18/0x19 yine init'siz gittiği için AYNI NEDENLE sustu.
+     *
+     * `initFirst` yalnız KWP (6 haneli tx) dalında anlamlıdır; CAN/29-bit dallarda
+     * yok sayılır (K-line'a özgü bir kavramdır, uydurma bir CAN davranışı EKLENMEZ).
+     * `null` ise davranış ESKİSİYLE BİREBİR AYNIDIR (init YOK) — geri uyum korunur.
+     */
+    public <T> T withEcuHeader(String tx, String rx, String initFirst,
+                                java.util.concurrent.Callable<T> action) throws Exception {
         if (tx == null || tx.isEmpty()) {
             // Varsayılan adresleme: header set/restore YOK → restore riski de yok.
             return action.call();
@@ -1296,7 +1471,7 @@ public final class ElmProtocol {
             return withEcuHeader29Bit(tx, rx, action);
         }
         if (tx.length() == 6) {
-            return withEcuHeaderKwp(tx, action);
+            return withEcuHeaderKwp(tx, initFirst, action);
         }
         return withEcuHeader11Bit(tx, rx, action);
     }
@@ -1316,6 +1491,17 @@ public final class ElmProtocol {
      * başarısızlık {@link HeaderRestoreException} ile raporlanır (sessiz yanlış veri yasak).
      */
     private <T> T withEcuHeaderKwp(String tx, java.util.concurrent.Callable<T> action) throws Exception {
+        return withEcuHeaderKwp(tx, null, action);
+    }
+
+    /**
+     * P0-OBD-DTC-INIT — {@code initFirst} niyetiyle: ATSH sonrası, action'dan ÖNCE,
+     * matrisin ({@link #probeKwpAddressingRow}) ÖLÇTÜĞÜ K-line yeniden-başlatmayı
+     * ({@code initKLineForRow}) TEKRARLAR. Başlatma düşerse istek HİÇ GÖNDERİLMEZ
+     * (fail-closed) — yarım hatta veri istemek gürültü üretir, ölçüm değil.
+     */
+    private <T> T withEcuHeaderKwp(String tx, String initFirst,
+                                    java.util.concurrent.Callable<T> action) throws Exception {
         T result = null;
         Exception primary = null;
         final String protocolDigit = queryActiveProtocolDigit();
@@ -1323,6 +1509,12 @@ public final class ElmProtocol {
             String sh = channel.send("ATSH" + tx, 500);
             if (!okish(sh)) {
                 throw new IOException("KWP header ayarlanamadı (tx=" + tx + "): ATSH 'OK' dönmedi (" + summarize(sh) + ")");
+            }
+            if (initFirst != null) {
+                InitResult init = initKLineForRow(initFirst);
+                if (!init.ok) {
+                    throw new IOException("KWP K-line yeniden başlatma başarısız (tx=" + tx + "): " + init.raw);
+                }
             }
             result = action.call();
         } catch (Exception e) {
@@ -1499,8 +1691,9 @@ public final class ElmProtocol {
      * 29-bit restore: yalnız GERÇEKTEN değiştirilmiş alanlar restore edilir —
      *  (1) {@code cpSet} ise {@code ATCP18} (varsayılan CAN önceliği); (2) {@code protocolSwitched}
      *  ise {@code ATSP<önceki protokol>} (öğrenilemediyse ATSP0 otomatik-arama fallback);
-     *  (3) HER ZAMAN {@link #restoreDefaultHeader()} ({@code ATSH7DF}+{@code ATAR}/{@code ATCRA}-off
-     *  — 11-bit ile PAYLAŞILAN, kopyalama yok). Restore başarısızlığı SESSİZCE YUTULMAZ (Patch 12A
+     *  (3) HER ZAMAN {@link #restoreDefaultHeader(String, boolean)} (aktif protokole uygun
+     *  fonksiyonel header + {@code ATAR}/{@code ATCRA}-off). Restore başarısızlığı SESSİZCE
+     *  YUTULMAZ (Patch 12A
      *  yasası — artık protokol/CAN önceliği restore'unu da kapsar); {@link HeaderRestoreException}
      *  ile raporlanır, {@code addSuppressed} zinciri korunur.
      */
@@ -1531,7 +1724,7 @@ public final class ElmProtocol {
                     "Protokol restore (ATSP" + target + ") istisna: " + e.getMessage()));
             }
         }
-        return chain(failure, restoreDefaultHeader());
+        return chain(failure, restoreDefaultHeader(priorProtocol, cpSet));
     }
 
     /** İki restore hatasını TEK zincire birleştirir ({@code addSuppressed}) — ilk null ise ikinciyi döner. */
@@ -1556,20 +1749,36 @@ public final class ElmProtocol {
         }
     }
 
+    /** Aktif protokol alanından fonksiyonel header'a restore. */
+    private Exception restoreDefaultHeader() {
+        return restoreDefaultHeader(activeProtocol, false);
+    }
+
     /**
-     * Varsayılana restore: {@code ATSH7DF} (fonksiyonel/broadcast header) + {@code ATAR}
+     * Varsayılana restore: 11-bit CAN'de {@code ATSH7DF}; protokol 7/9'da
+     * {@code ATCP18}+{@code ATSHDB33F1} (29-bit fonksiyonel OBD header'ı) + {@code ATAR}
      * (Automatically Receive — ATCRA filtresini iptal edip protokolün otomatik alım moduna
      * döner). {@code ATAR} desteklemeyen/eski ELM klonlarında {@code ATCRA} (parametresiz —
      * filtreyi kapat) fallback denenir. İkisi de başarısızsa restore başarısız sayılır.
      *
      * @return null = restore başarılı; değilse fırlatılacak {@link HeaderRestoreException}.
      */
-    private Exception restoreDefaultHeader() {
+    private Exception restoreDefaultHeader(String protocolDigit, boolean priorityAlreadyRestored) {
+        final boolean can29 = is29BitProtocol(protocolDigit);
+        if (can29 && !priorityAlreadyRestored) {
+            try {
+                String cp = channel.send("ATCP" + DEFAULT_29BIT_CAN_PRIORITY, 500);
+                if (!okish(cp)) return new HeaderRestoreException("ATCP18 restore başarısız: " + summarize(cp));
+            } catch (Exception e) {
+                return new HeaderRestoreException("ATCP18 restore istisna: " + e.getMessage());
+            }
+        }
+        final String functionalHeader = can29 ? "DB33F1" : "7DF";
         try {
-            String sh = channel.send("ATSH7DF", 500);
-            if (!okish(sh)) return new HeaderRestoreException("ATSH7DF restore başarısız: " + summarize(sh));
+            String sh = channel.send("ATSH" + functionalHeader, 500);
+            if (!okish(sh)) return new HeaderRestoreException("ATSH" + functionalHeader + " restore başarısız: " + summarize(sh));
         } catch (Exception e) {
-            return new HeaderRestoreException("ATSH7DF restore istisna: " + e.getMessage());
+            return new HeaderRestoreException("ATSH" + functionalHeader + " restore istisna: " + e.getMessage());
         }
         try {
             String ar = channel.send("ATAR", 500);
@@ -1742,7 +1951,11 @@ public final class ElmProtocol {
             if ("21".equals(s)) {
                 return udsRequestDetailed("21" + d, "21", "61" + d, UDS_PENDING_TOTAL_TIMEOUT_MS, "LID " + d);
             }
-            return udsRequestDetailed("22" + d, "22", "62" + d, UDS_PENDING_TOTAL_TIMEOUT_MS, "DID " + d);
+            /* ISO 14229-1 §10.2: tek istekte BİRDEN FAZLA DID (22 D1 D2 …). Yanıt
+               62 D1 <veri1> D2 <veri2> … biçimindedir → beklenen önek yalnız İLK DID'dir;
+               DID uzunlukları bilinmediği için ayrıştırma çağırana (TS) bırakılır. */
+            String prefix = (d.length() > 4 && d.length() % 4 == 0) ? "62" + d.substring(0, 4) : "62" + d;
+            return udsRequestDetailed("22" + d, "22", prefix, UDS_PENDING_TOTAL_TIMEOUT_MS, "DID " + d);
         } catch (UdsNegativeResponseException e) {
             // FATAL NRC (ör. 0x83 engineIsNotRunning) — ECU ayrık yanıt VERDİ, kimlik muhtemelen
             // VAR. Hata olarak yutmak yerine kanıt olarak taşı → TS condition_required öğrenir.
@@ -1926,6 +2139,25 @@ public final class ElmProtocol {
             if (negIdx >= 0 && compact.length() >= negIdx + 6) {
                 String nrc = compact.substring(negIdx + 4, negIdx + 6);
                 Integer nrcVal = parseHexByte(nrc);
+                /* == OLCULEN KOK NEDEN (2026-09-22, gercek arac) ==================
+                   ECU "bekle" (0x78 responsePending) dedikten SONRA gercek yaniti
+                   gonderir. ELM327 ikisini AYNI tamponda verir (ATL0 + CR atiliyor):
+
+                     1902FF -> "7F1978" + "0DB0:5902FF2031161:402100014006382:..."
+
+                   Eski sira ONCE 7F'i goruyordu -> RETRY -> bos komut -> ELM "?" ->
+                   IOException -> transport_error. Yani 219 BAYTLIK OLUMLU YANIT
+                   ELDEYKEN ATILIYORDU; motor ECU'sunun uretici DTC tablosu (54 kayit)
+                   urunde HIC okunamiyordu.
+
+                   DUZELTME YALNIZ BEKLEME AILESINI (0x21/0x78 = RETRY) kapsar: yanit
+                   ZATEN geldiyse beklemenin anlami yoktur. Diger NRC'lerde
+                   (UNSUPPORTED / SESSION_REQUIRED / FATAL) sira ve davranis AYNEN
+                   korunur — orada 7F gercek ve TEK hukumdur. */
+                if (classifyNrc(nrc) == NrcAction.RETRY) {
+                    UdsEvidence settled = positiveEvidence(raw, positiveNeedle, openedHere, openedCmd);
+                    if (settled != null) return settled;
+                }
                 switch (classifyNrc(nrc)) {
                     case UNSUPPORTED:
                         // PR-CAP-2: NRC KORUNUR. Eskiden 0x11/0x12/0x31 (kimlik yok → kalıcı) ile
@@ -1972,15 +2204,30 @@ public final class ElmProtocol {
             }
             if (compact.equals("?")) throw new IOException("ELM327 komutu anlaşılmadı (" + label + ")");
 
-            for (String body : splitResponseBodies(raw)) {
-                int idx = body.indexOf(positiveNeedle);
-                if (idx >= 0) {
-                    return new UdsEvidence(body.substring(idx + positiveNeedle.length()), "OK", null)
-                        .withSession(openedHere, openedCmd);
-                }
-            }
+            UdsEvidence positive = positiveEvidence(raw, positiveNeedle, openedHere, openedCmd);
+            if (positive != null) return positive;
             throw new IOException("Beklenmeyen UDS yanıtı (" + label + "): " + summarize(raw));
         }
+    }
+
+    /**
+     * Ham yanitta OLUMLU yanit onegi var mi — varsa onek SOYULMUS kanit, yoksa {@code null}.
+     *
+     * TEK YER: hem normal cikis yolu hem de responsePending (0x78) kisa devresi BUNU
+     * kullanir; iki ayri arama yazilsaydi biri duzeltilip digeri unutulurdu. Arama
+     * {@link #splitResponseBodies} govdeleri uzerindedir — hizasiz/ilgisiz bir eslesme
+     * degil, ISO-TP birlestirmesinden gecmis govde.
+     */
+    private UdsEvidence positiveEvidence(String raw, String positiveNeedle,
+                                         boolean openedHere, String openedCmd) {
+        for (String body : splitResponseBodies(raw)) {
+            int idx = body.indexOf(positiveNeedle);
+            if (idx >= 0) {
+                return new UdsEvidence(body.substring(idx + positiveNeedle.length()), "OK", null)
+                    .withSession(openedHere, openedCmd);
+            }
+        }
+        return null;
     }
 
     /**
@@ -2614,7 +2861,7 @@ public final class ElmProtocol {
      *  - {@code UNKNOWN}     : yanit geldi ama hicbir sinifa girmedi (hukum YOK).
      */
     public static final class ClearResult {
-        /** Hatta GERCEKTEN gonderilen komut (her zaman "04"). */
+        /** Hatta GERCEKTEN gonderilen komut ("04" ya da UDS "14FFFFFF"). */
         public final String tx;
         /** ELM327 in dondurdugu HAM metin (kirpilmis). */
         public final String raw;
@@ -2699,6 +2946,40 @@ public final class ElmProtocol {
         return (hex.length() % 2 == 1 && hex.length() >= 3) ? hex.substring(3) : hex;
     }
 
+    /** ELM327 CAN protokolleri: 6/8 (11-bit) · 7/9 (29-bit). */
+    private static boolean isCanProtocol(String protocolDigit) {
+        return "6".equals(protocolDigit) || "8".equals(protocolDigit) || is29BitProtocol(protocolDigit);
+    }
+
+    /** ELM327 yavas seri hat protokolleri: 3 (ISO 9141-2) · 4/5 (ISO 14230-4 KWP). */
+    private static boolean isKLineProtocol(String protocolDigit) {
+        return "3".equals(protocolDigit) || "4".equals(protocolDigit) || "5".equals(protocolDigit);
+    }
+
+    /**
+     * Protokol AILESINE gore fonksiyonel header restore — {@link #restoreDefaultHeader(String,
+     * boolean)} (CAN) ile {@link #restoreKwpDefaultHeader(String)} (K-line) arasinda SECIM yapar;
+     * UCUNCU bir otorite kurmaz, header degerlerini KENDI uretmez. Tek cagiran
+     * {@link #clearDtcCodesDetailed()}tir (Mode 04 fonksiyonel istegi).
+     *
+     * NEDEN AILE AYRIMI ZORUNLU: {@code restoreDefaultHeader} CAN'e ozeldir — K-line'da
+     * {@code ATSH7DF} (CAN adresi) kurup {@code ATAR}/{@code ATCRA} (CAN-only komutlar;
+     * bkz. {@link #withEcuHeaderKwp} yorumu: klonlarda "?" uretir) gonderirdi; ikisi de
+     * dusunce restore BASARISIZ sayilir ve fail-closed kapi Mode 04'u HIC gondermezdi.
+     * Yani K-line araclarda (Renault Trafic · Doblo · 2000-2008 AB araclari) silme KALICI
+     * olarak bloklanirdi — duzeltilmek istenen kusurdan daha buyuk bir kusur.
+     *
+     * AILE BILINMIYORSA (ATDPN hane vermedi · J1850 · J1939/USER) header'a DOKUNULMAZ:
+     * kanonik fonksiyonel adresi BILMEDIGIMIZ bir hatta tahmin yurutmek calisan durumu
+     * bozar; bu, Mode 04'un bu turdan ONCEKI davranisinin ta kendisidir. Hukum yine
+     * ECU'nun olculen yanitindan gelir, uydurulmaz.
+     */
+    private Exception restoreFunctionalHeaderForProtocol(String protocolDigit) {
+        if (isCanProtocol(protocolDigit))   return restoreDefaultHeader(protocolDigit, false);
+        if (isKLineProtocol(protocolDigit)) return restoreKwpDefaultHeader(protocolDigit);
+        return null;
+    }
+
     /**
      * Ariza kodlarini ve freeze-frame verisini siler (Mode 04) - KANITLI yol.
      *
@@ -2713,6 +2994,16 @@ public final class ElmProtocol {
         final long t0 = System.currentTimeMillis();
         final String raw;
         try {
+            /* Mode 04 fonksiyonel bir OBD isteğidir. Önceki fiziksel ECU taraması
+               adaptörde ATSH/ATCRA bırakmış olabilir (restore DÜŞTÜYSE üst katman
+               tarama turunu fail-soft sürdürür → header ASILI KALIR); komuttan
+               HEMEN önce gerçek ATDPN'e uygun fonksiyonel header kesin olarak
+               kurulur. Restore düşerse Mode 04 HATTA ÇIKMAZ (fail-closed: bilinmeyen
+               header'la yazma, kör yazmadır). */
+            String protocolDigit = queryActiveProtocolDigit();
+            if (protocolDigit == null) protocolDigit = activeProtocol;
+            Exception headerFailure = restoreFunctionalHeaderForProtocol(protocolDigit);
+            if (headerFailure != null) throw headerFailure;
             raw = sendChecked("04", MODE04_TIMEOUT_MS);
         } catch (IOException e) {
             throw e;
@@ -2736,6 +3027,53 @@ public final class ElmProtocol {
      */
     public boolean clearDTCs() throws IOException {
         return clearDtcCodesDetailed().isPositive();
+    }
+
+    /** UDS 0x14 ClearDiagnosticInformation — groupOfDTC 0xFFFFFF (tum gruplar). */
+    public static final String UDS_CLEAR_ALL_CMD = "14FFFFFF";
+
+    /**
+     * Uretici DTC hafizasini siler — UDS 0x14, TEK ECU (fiziksel hedef).
+     *
+     * {@code withEcuHeader} blogu ICINDE cagrilmalidir; hedef CAGIRANIN kanitli adresidir
+     * ve {@link #isPhysicalCanRequestHeader} ile suzulur. Fonksiyonel (7DF) yayinla
+     * gonderilmesi YASAKTIR: araçtaki TUM ECU'larin hafizasini silerdi.
+     *
+     * Mode 04 ile AYNI sozlesme: bu metot "silindi" DEMEZ, yalniz ECU'nun cevabini
+     * olcer; hukum TS'te silme sonrasi 19-02 yeniden okumasiyla verilir. Istek motoru
+     * {@link #udsRequestDetailed}: NRC siniflandirmasi, 0x78 beklemesi ve (gerekirse)
+     * TEK extended session denemesi tek yerde kalir. Ham metin bu motordan DISARI
+     * cikmaz → {@code raw} null'dur (uydurulmaz).
+     */
+    public ClearResult clearUdsDtcsDetailed() throws IOException {
+        final long t0 = System.currentTimeMillis();
+        String outcome;
+        Integer nrc = null;
+        try {
+            UdsEvidence ev = udsRequestDetailed(UDS_CLEAR_ALL_CMD, "14", "54",
+                UDS_PENDING_TOTAL_TIMEOUT_MS, "UDS 0x14");
+            if ("OK".equals(ev.kind))           outcome = "POSITIVE";
+            else if ("NO_DATA".equals(ev.kind)) outcome = "NO_DATA";
+            else { outcome = "NEGATIVE"; nrc = ev.nrc; }
+        } catch (UdsNegativeResponseException e) {
+            outcome = "NEGATIVE";
+            nrc = e.nrc;
+        }
+        return new ClearResult(UDS_CLEAR_ALL_CMD, null, outcome,
+            nrc == null ? null : String.format(Locale.ROOT, "%02X", nrc),
+            activeProtocol, System.currentTimeMillis() - t0);
+    }
+
+    /**
+     * Silme gibi YIKICI bir istegin gidebilecegi TEK hedef sinifi: fiziksel CAN adresi.
+     * 11-bit: 3 hane ve fonksiyonel 7DF DEGIL · 29-bit: 18DA (fiziksel) onekli 8 hane.
+     * K-line ve fonksiyonel yayin (7DF / 18DB33F1) REDDEDILIR — sahada dogrulanmadi.
+     */
+    public static boolean isPhysicalCanRequestHeader(String tx) {
+        if (tx == null) return false;
+        final String h = tx.replaceAll("[^0-9A-Fa-f]", "").toUpperCase(Locale.ROOT);
+        if (h.length() == 3) return !"7DF".equals(h);
+        return h.length() == 8 && h.startsWith("18DA");
     }
 
     /**
@@ -2945,31 +3283,101 @@ public final class ElmProtocol {
     }
 
     /**
-     * Ham çok-satırlı ELM327 yanıtını bağımsız hex "gövde"lere ayrıştırır (Patch 4 DTC parser'ından
-     * Patch 12A UDS readDid ile PAYLAŞILAN mantık — kopyalama YOK, tek doğruluk kaynağı):
-     *  - ISO-TP segment önekli satırlar ("0:", "1:"...) TEK gövdede BİRLEŞTİRİLİR (bir PDU'nun
-     *    parçalarıdır) — birleşik gövde listenin SONUNA eklenir.
-     *  - Önek YOK satırlar (çok-ECU: her ECU kendi tek çerçevesiyle yanıt verir) BAĞIMSIZ
-     *    gövdeler olarak sırayla eklenir — birbirine KARIŞTIRILMAZ.
+     * Ham ELM327 yanitini bagimsiz hex "govde"lere ayristirir (Patch 4 DTC parser'indan
+     * Patch 12A UDS readDid ile PAYLASILAN mantik — kopyalama YOK, tek dogruluk kaynagi):
+     *  - ISO-TP segment onekleri ("0:", "1:"...) TEK govdede BIRLESTIRILIR (bir PDU'nun
+     *    parcalaridir) — birlesik govde listenin SONUNA eklenir.
+     *  - Onek YOK satirlar (cok-ECU: her ECU kendi tek cercevesiyle yanit verir) BAGIMSIZ
+     *    govdeler olarak sirayla eklenir — birbirine KARISTIRILMAZ.
      *
-     * @return hex gövde listesi (boşluksuz, büyük harf); raw null/boş ise boş liste.
+     * == OLCULEN KOK NEDEN (2026-09-22, gercek arac + V-LINK / ELM327 v2.2) ==========
+     * Onek ARAMASI satir BASINA bagliydi ({@code ^[0-9A-F]&#123;1,2&#125;:}). GERCEK CIHAZDA
+     * BOYLE BIR SATIR YOKTUR: init {@code ATL0} gonderir (linefeed KAPALI) ve HER IKI tasima
+     * da CR'i atar ({@code OBDManager.RfcommChannel} ve {@code BleObdManager.appendRx}).
+     * Yani cok-cerceveli bir PDU TEK satir gelir ve onek satirin ICINDE yasar:
+     *
+     *   olculen  : "0140:4902015646311:524642303032352:39333238353639"   (0902 / VIN)
+     *   eski kod : onek eslesmez -> ':' silinir -> cerceve INDEKSLERI ("1","2") VERIYE KARISIR
+     *              -> "015646311 5246423030323 5239333238353639"  (BOZUK, tek uzunluk)
+     *   dogru    : "01" + "564631" + "52464230303235" + "39333238353639"
+     *              -> VIN "VF1RFB00259328569"
+     *
+     * Ayni bozulma ariza kodunu da YUTUYORDU: sanziman ECU'su (7E9) UDS 19-02 yaniti
+     * "00B0:5902FFD225861:2ED226862EFFFF" -> DOGRU cozum "59 02 FF | D2 25 86 2E |
+     * D2 26 86 2E" = U1225-86 ve U1226-86 (durum 0x2E = ONAYLI + BEKLEYEN + test basarisiz)
+     * iken urun "FFD2258612ED226862EFFFF" goruyordu. Yani ARACTAKI GERCEK ARIZA KODLARI
+     * kullaniciya HIC ulasmiyordu (referans tarayici ayni iki kodu gosteriyordu).
+     *
+     * YENI KURAL: onek satirin HER YERINDE aranir. ELM327 segment indeksi TEK hex hanedir
+     * (0..F, 16'da basa doner — sahada "A:".."F:" sonrasi "0:" olculdu), bu yuzden ':' den
+     * ONCEKI TEK hane indekstir ve veriden KESIN ayrilir. Satir ayracli girdi (ATL1 / mevcut
+     * test fixture'lari) BIREBIR eskisi gibi calisir.
+     * ===============================================================================
+     *
+     * @return hex govde listesi (bosluksuz, buyuk harf); raw null/bos ise bos liste.
      */
     static java.util.List<String> splitResponseBodies(String raw) {
         java.util.List<String> bodies = new java.util.ArrayList<>();
         if (raw == null) return bodies;
         StringBuilder segmented = new StringBuilder();
+        int declaredBytes = -1;
         for (String line : raw.toUpperCase(Locale.ROOT).split("\n")) {
             String t = line.trim();
             if (t.isEmpty()) continue;
-            if (t.matches("^[0-9A-F]{1,2}:.*")) {
-                segmented.append(t.substring(t.indexOf(':') + 1).replaceAll("[^0-9A-F]", ""));
-            } else {
+            final int firstMark = t.indexOf(':');
+            if (firstMark < 0) {
                 String hex = t.replaceAll("[^0-9A-F]", "");
                 if (!hex.isEmpty()) bodies.add(hex);
+                continue;
             }
+            /* Ilk onekten ONCEKI metin ISO-TP toplam uzunlugudur ("014" / "00B") — SID
+               tasimaz, ama ATILMAZ: cok-ECU ile cok-cercevenin ayni satirda karistigi
+               durumda oradaki BAGIMSIZ govde sessizce kaybolurdu. Onek hanesinin kendisi
+               (':' den onceki TEK hane) veri DEGILDIR, disarida birakilir. */
+            String head = t.substring(0, Math.max(0, firstMark - 1)).replaceAll("[^0-9A-F]", "");
+            if (!head.isEmpty()) bodies.add(head);
+            /* ELM327 ISO-TP toplam uzunlugunu "0:" segmentinin HEMEN ONUNE 3 hex hane
+               basar. Son cercevenin dolgusu (AA/55/00/FF) bu uzunlugun DISINDADIR;
+               kesilmezse veri sanilir. Uzunluk head'in SON 3 hanesidir: onune ayni
+               satirda baska tek-cerceve yanitlar yapisabilir. Olculen (2026-09-22,
+               motor ECU 19-02): "7F1978" + "107" + "0:5902FF..." -> 263 bayt; sondaki
+               "AAAA" dolgusu sahte ONAYLI "B2AAA-AA" kaydi uretiyordu. */
+            if (declaredBytes < 0 && head.length() >= 3 && t.charAt(firstMark - 1) == '0') {
+                declaredBytes = Integer.parseInt(head.substring(head.length() - 3), 16);
+            }
+            appendIsoTpSegments(t, firstMark, segmented);
+        }
+        /* Yalniz TEK cercevenin dolgusu kadar fazlalik kesilir (son CF en az 1 veri
+           bayti tasir -> en fazla 6 bayt dolgu). Daha buyuk fark uzunlugun yanlis
+           okundugunu gosterir -> hicbir sey kesilmez (eski davranis, veri kaybi yok). */
+        final int excess = segmented.length() - declaredBytes * 2;
+        if (declaredBytes > 7 && excess > 0 && excess <= 12) {
+            segmented.setLength(declaredBytes * 2);
         }
         if (segmented.length() > 0) bodies.add(segmented.toString());
         return bodies;
+    }
+
+    /**
+     * {@link #splitResponseBodies} yardimcisi — bir satirdaki TUM ISO-TP segmentlerini
+     * (onek satirin neresinde olursa olsun) {@code out}'a ekler.
+     *
+     * Her ':' icin ondan ONCEKI TEK hane cerceve indeksidir ve veriye DAHIL EDILMEZ;
+     * iki onek arasindaki her sey o cercevenin verisidir. Cerceve UZUNLUGU VARSAYILMAZ
+     * (6/7 bayt) — sinirlari onekler zaten verir, boylece kismi/dolgulu yanit da bozulmaz.
+     */
+    private static void appendIsoTpSegments(String line, int firstMark, StringBuilder out) {
+        int i = firstMark + 1;
+        while (true) {
+            int mark = line.indexOf(':', i);
+            if (mark < 0) {
+                out.append(line.substring(i).replaceAll("[^0-9A-F]", ""));
+                return;
+            }
+            int end = Math.max(i, mark - 1);     // indeks hanesi VERI DEGILDIR
+            out.append(line.substring(i, end).replaceAll("[^0-9A-F]", ""));
+            i = mark + 1;
+        }
     }
 
     /**

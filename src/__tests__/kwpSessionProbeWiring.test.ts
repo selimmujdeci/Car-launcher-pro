@@ -96,7 +96,12 @@ describe('P0-OBD-FINAL-02 › fail-closed: pozitif oturum kanıtı YOKSA 0x18 A�
     // … ama HİÇBİR ŞEY AÇILMADI.
     expect(sent18()).toBe(false);
     expect(report.results[0]!.kwpDiagnosticOutcome).toBe('not_addressable');
-    expect(report.completeness.notAddressable).toBe(1);
+    /* 625eaa03 (2026-09-14, "reconcile ECU reachability"): ECU işlevsel keşifte
+       (0100) CEVAP VERDİ → tek erişilebilirlik otoritesi (`isEcuReachable`) onu
+       "ulaşılamadı" SAYMAZ; DTC servislerinin susması KISMİ tarama demektir.
+       Kilit korunan asıl şey: bu ECU TARANMIŞ diye SAYILMAZ (sahte kapsam yok). */
+    expect(report.completeness.notAddressable).toBe(0);
+    expect(report.completeness.scanned).toBe(0);
   });
 
   it('🔒 KİLİT: ECU oturumu REDDETTİ (7F 10 11) → adres canlı ama 0x18 YİNE AÇILMAZ', async () => {

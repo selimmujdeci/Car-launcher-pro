@@ -26,7 +26,8 @@ import { speedLimitMaxDistanceM } from './navigation/core/speedLimitTruthModel';
  * İlk gerçek Overpass sonucu gelince levha görünür; sonrasında önceki değer korunur.
  */
 /** Limitin kaynağı — sürücüye DÜRÜST gösterilir. */
-export type SpeedLimitSource = 'osm' | 'inferred';
+/** `route` = aktif rotanın sağlayıcısının (TomTom) bildirdiği yasal sınır — levha karşılığı. */
+export type SpeedLimitSource = 'osm' | 'inferred' | 'route';
 
 export interface RoadSpeedLimit {
   /** km/h */

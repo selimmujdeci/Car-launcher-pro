@@ -133,6 +133,8 @@ let _storeSnap: ThermalSnapshot = { level: 0, tempC: NaN, source: 'unknown', ts:
 let _socDieTempC: number = NaN;
 /** Kademeyi die kaynağı mı yükseltti — yalnız kendi kararımızı geri alırız. */
 let _socEscalated = false;
+/** Kademeyi üretici termal hükmü mü yükseltti (aynı geri-alma disiplini). */
+let _statusEscalated = false;
 const _storeListeners  = new Set<() => void>();
 const _thermalCallbacks = new Set<ThermalCallback>();
 
@@ -581,10 +583,64 @@ export function dieLevelFor(tempC: number, prevLevel: ThermalLevel = 0): Thermal
   return 0;
 }
 
+/**
+ * Üretici kalibreli `PowerManager.getCurrentThermalStatus()` → paylaşılan kademe.
+ *
+ * NEDEN EN GÜVENİLİR KAYNAK: die sıcaklığı SoC'ye göre değişir (bu SoC'de boşta
+ * 73-79 °C normalken başka SoC'de 60 °C kritik olabilir) — bu yüzden eşikler
+ * cihaza göre KALİBRE EDİLMEK zorundadır. `getCurrentThermalStatus()` ise bu
+ * kalibrasyonu ÜRETİCİNİN kendisi yapar ve CİLT sıcaklığını da hesaba katar.
+ *
+ * Eşleme (Android tanımlarıyla birebir):
+ *   NONE(0) · LIGHT(1)                → 0  (kısıtlama yok; LIGHT kullanıcıya sezilmez)
+ *   MODERATE(2)                       → L1 (ürün fark edilir yavaşlar → hafif kısıt)
+ *   SEVERE(3)                         → L2 (ürün belirgin etkilenir → orta kısıt)
+ *   CRITICAL(4)·EMERGENCY(5)·SHUTDOWN(6) → L3 (cihaz kendini korumaya alıyor)
+ *
+ * Aralık dışı/eksik değer → `null` (UNAVAILABLE; hüküm ÜRETİLMEZ).
+ */
+export function statusLevelFor(status: number | undefined): ThermalLevel | null {
+  if (typeof status !== 'number' || !Number.isFinite(status)) return null;
+  if (status < 0 || status > 6) return null;
+  if (status >= 4) return 3;
+  if (status === 3) return 2;
+  if (status === 2) return 1;
+  return 0;
+}
+
 async function _pollNativeThermal(): Promise<void> {
   if (!isNative) return;
   try {
     const res = await CarLauncher.readThermal();
+
+    /* ── ÜRETİCİ KALİBRELİ HÜKÜM — die'dan ÖNCE gelir (2026-09-06 saha kusuru) ──
+     * Gerçek cihazda ölçüldü (Redmi 23090RA98I): `dumpsys thermalservice` →
+     * `HAL Ready: true`, `Thermal Status: 3` (SEVERE), cilt 51 °C. Uygulamanın
+     * O ANDAKİ hükmü ise L0'dı: batarya 40.4 °C (<45 eşiği) ve die 63 °C
+     * (<100 eşiği) — İKİ kaynak da SUSUYORDU. Sonuç: `--rt-blur/anim/shadow`
+     * 1'de kaldı, tam ekran haritada RenderThread %80'de sabitlendi (ölçüldü)
+     * ve ısınma kendini besledi.
+     *
+     * Bu kaynak yalnız GEÇERLİ bir değer geldiğinde konuşur; HAL ölü olan
+     * head unit'lerde alan hiç gelmez → aşağıdaki die yolu AYNEN korunur
+     * (kütük #139 kararı bozulmaz). */
+    const byStatus = statusLevelFor(res?.thermalStatus);
+    if (byStatus !== null) {
+      if (byStatus === 0) {
+        // Yalnız BİZ yükselttiysek serbest bırak — başka kaynağın kararını ezmeyiz.
+        if (_statusEscalated) {
+          _statusEscalated = false;
+          _injectedPriority = false;
+          _applyTemp(SCALE_L0, 'injected');
+        }
+      } else {
+        _statusEscalated = true;
+        _injectedPriority = true;
+        _applyTemp(byStatus === 3 ? SCALE_L3 : byStatus === 2 ? SCALE_L2 : SCALE_L1, 'injected');
+        return;   // üretici hükmü kesindir; die tahminiyle EZİLMEZ
+      }
+    }
+
     if (!res?.available || !Array.isArray(res.zones)) return;
 
     const die = selectDieTempC(res.zones);
@@ -750,6 +806,10 @@ export function stopThermalWatchdog(): void {
   _injectedPriority    = false;
   _savedBrightness     = null;
   _radarWasPaused      = false;
+  // Kaynak-sahiplik bayrakları: durdurulan watchdog "hâlâ ben yükseltmiştim"
+  // diye yeniden başlatıldığında yanlış geri-alma yapmamalı.
+  _socEscalated        = false;
+  _statusEscalated     = false;
   // Tahminsel motor sıfırla
   _thermalHistory.length   = 0;
   _earlyWarningActive      = false;

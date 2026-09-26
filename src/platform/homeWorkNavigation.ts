@@ -83,6 +83,9 @@ export function _resetHomeWorkDispatchGuardForTests(): void {
 export function dispatchHomeWorkNavigation(
   category: QuickAddressCategory,
   now: number = Date.now(),
+  /* Mavi turunda çağıran kendi tek-cevap yuvasını verir; aksi halde beynin
+     iyimser cümlesi ("rota oluşturuluyor") bu sonucun ARDINDAN da konuşuluyordu. */
+  speak: (text: string) => void = speakNavigation,
 ): HomeWorkDispatchResult {
   const last = _lastDispatchAt[category];
   if (last !== undefined && now - last < DISPATCH_DEDUPE_MS) {
@@ -95,11 +98,11 @@ export function dispatchHomeWorkNavigation(
     const key = result.reason === 'invalid'
       ? 'navigation.destination_invalid'
       : (category === 'home' ? 'navigation.home_missing' : 'navigation.work_missing');
-    speakNavigation(i18n.t(key));
+    speak(i18n.t(key));
     return { ok: false, reason: result.reason };
   }
 
   startNavigation(result.address, false, 'USER_QUICK');   // kütük #429: ev/iş komutu
-  speakNavigation(i18n.t(category === 'home' ? 'navigation.home_starting' : 'navigation.work_starting'));
+  speak(i18n.t(category === 'home' ? 'navigation.home_starting' : 'navigation.work_starting'));
   return { ok: true };
 }

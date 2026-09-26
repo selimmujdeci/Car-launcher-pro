@@ -180,6 +180,10 @@ describe('eşleştirme · PWA ekranı dürüstlüğü', () => {
        (`lib/supabase.ts` → `ensurePwaSession`) taşındı; kilidin ölçtüğü şey
        DEĞİŞMEDİ: istek hâlâ gerçek bir `access_token` ile imzalanır. */
     expect(svc).toMatch(/Authorization/);
+    /* Oturum jetonu artık TEK kanonik okuyucudan gelir (`ensurePwaSession`);
+       eskiden burada ham `access_token` alanı aranıyordu ama jeton okuması
+       `lib/supabase`e taşındığı için o desen eşleşmiyordu. Ölçülen kural
+       değişmedi: eşleştirme OTURUM ister. */
     expect(svc).toMatch(/ensurePwaSession/);
     expect(read('src/lib/supabase.ts')).toMatch(/access_token/);
     expect(svc, 'yanıttan api_key okunuyor — kapatılan kusur geri geldi')

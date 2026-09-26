@@ -14,7 +14,8 @@
  *     gezinme/scroll dikkat dağıtıcıdır (spec §7). Bu İKİNCİ bir sürüş
  *     otoritesi DEĞİLDİR; mevcut `drivingMode`i OKUR.
  *   · Söz yoksa/aranıyorsa boş panel yerine DÜRÜST durum metni gösterilir
- *     (spec §6) — hiçbir koşulda söz UYDURULMAZ.
+ *     (spec §6) — hiçbir koşulda söz UYDURULMAZ. İnternet yokluğu "bulunamadı"
+ *     ile KARIŞTIRILMAZ; internetten gelen söz kaynağıyla (LRCLIB) etiketlenir.
  *   · Toy karaoke efekti YOK: aktif satır yalnız CSS geçişiyle (`transition-all`)
  *     büyür/parlar, kelime bazlı animasyon/kayan renk YOKTUR.
  */
@@ -122,7 +123,9 @@ export function LyricsPanel({ open, onClose, drivingMode, positionSec }: Props) 
         </p>
       ) : query.availability === 'UNAVAILABLE' ? (
         <p data-lyrics-unavailable="true" className="flex flex-1 items-center justify-center px-6 text-center text-sm" style={{ color: 'var(--oem-ink-2)' }}>
-          Bu parça için şarkı sözü bulunamadı.
+          {query.reason === 'RETRY_LATER'
+            ? 'İnternet bağlantısı yok ya da sözler şu an alınamadı. Bağlantı gelince yeniden denenecek.'
+            : 'Bu parça için şarkı sözü bulunamadı.'}
         </p>
       ) : query.availability === 'UNKNOWN' ? (
         <p data-lyrics-loading="true" className="flex flex-1 items-center justify-center px-6 text-center text-sm" style={{ color: 'var(--oem-ink-2)' }}>
@@ -166,6 +169,12 @@ export function LyricsPanel({ open, onClose, drivingMode, positionSec }: Props) 
           </div>
         )
       ) : null}
+      {query.result?.source === 'ONLINE_LRCLIB' && (
+        <div data-lyrics-attribution="lrclib" className="flex-shrink-0 px-4 py-2 text-center text-[10px] font-bold uppercase tracking-widest"
+          style={{ color: 'var(--oem-ink-3, rgba(240,235,224,0.42))', borderTop: '1px solid var(--oem-line, rgba(255,255,255,.08))' }}>
+          Sözler internetten · LRCLIB
+        </div>
+      )}
     </section>
   );
 }

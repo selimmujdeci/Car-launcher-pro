@@ -15,6 +15,7 @@
  */
 
 import { getRouteState, getNavigationCoreSnapshot } from '../routingService';
+import { observedInternetReachability } from '../connectivity/connectivityGate';
 /* G1 TEK KONUM KANIT OTORİTESİ (#527) + fix yaşı dağılımı (#537).
    GİZLİLİK: bu katmandan YALNIZ yaş/bayatlık/kaynak geçer — KOORDİNAT GEÇMEZ. */
 import { getLocationEvidence, getFixAgeLedger } from '../gpsService';
@@ -788,7 +789,7 @@ export function readNavigationCoreSnapshot(): NavigationCoreRawSnapshot {
 
     provider:     _safe(() => getProviderReadinessSnapshot(), _EMPTY_PROVIDER),
     offlineGraph: _safe(() => getOfflineRoutingStatus(), _EMPTY_OFFLINE),
-    onlineHint:   _safe(() => (typeof navigator !== 'undefined' ? navigator.onLine : null), null),
+    onlineHint:   _safe(() => observedInternetReachability(), null),
     serverUsed:   route?.serverUsed ?? null,
     routeError:   route?.error ?? null,
     routeLoading: route?.loading ?? false,
@@ -917,7 +918,7 @@ export function readNavigationCoreSnapshot(): NavigationCoreRawSnapshot {
         core?.fix != null,
         _safe(() => useUnifiedVehicleStore.getState().location?.accuracy ?? null, null),
       ),
-      online: typeof navigator === 'undefined' ? null : navigator.onLine,
+      online: _safe(() => observedInternetReachability(), null),
       searchVerdict: null,   // arama hükmü ayrı ekranda (Adres Arama Kanıtı)
       routeChainOutcome: _safe(() => getRouteProviderLedger().lastChain.outcome, null),
       geometryIntegrity: _safe(() => getCommittedGeometry()?.integrity ?? null, null),

@@ -12,6 +12,16 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { VOICE_TUNING } from '../platform/voiceTuning';
+/* CONNECTIVITY F7-B: bulut STT kapisi artik kanonik `ConnectivityPolicy`dir.
+   Eski beklenti (`preferOffline === true`) bu jsdom'da `navigator.onLine`in
+   TANIMSIZ olmasina dayaniyordu — yani "bayrak YOK" sessizce "internet YOK"
+   sayiliyordu. Kanonik model bunu `UNKNOWN` sayar (§16: yalnizca ACIK `false`
+   cevrimdisi kanitidir). Kilit bu yuzden ORTAM ARTEFAKTI yerine ACIK KANITA
+   baglanir; boylece iddia hem daha guclu hem de gercek urun davranisidir. */
+import {
+  ingestConnectivityEvidence, _resetConnectivityAuthorityForTest,
+} from '../platform/connectivity/connectivityAuthority';
+import { evidenceFromCapacitorNetwork } from '../platform/connectivity/connectivityEvidence';
 import type { ParsedCommand } from '../platform/commandParser';
 
 const M = vi.hoisted(() => ({
@@ -143,7 +153,21 @@ describe('native opsiyon aktarımı', () => {
     expect(M.sttOptions).not.toBeNull();
     expect(M.sttOptions!['gain']).toBe(VOICE_TUNING.nativeGainX);
     expect(M.sttOptions!['maxListenMs']).toBe(VOICE_TUNING.maxListenMs);
-    expect(M.sttOptions!['preferOffline']).toBe(true); // mevcut davranış korunur
+  });
+
+  it('bağlantı KANITI çevrimdışıyken cihaz-içi Vosk tercih edilir (preferOffline)', async () => {
+    _resetConnectivityAuthorityForTest();
+    ingestConnectivityEvidence(evidenceFromCapacitorNetwork({
+      connected: false, transport: 'UNKNOWN', observedAt: Date.now(),
+    }));
+    vi.useFakeTimers();
+    startListening();
+    await vi.advanceTimersByTimeAsync(VOICE_TUNING.warmupMs + 50);
+
+    expect(M.sttOptions).not.toBeNull();
+    expect(M.sttOptions!['preferOffline']).toBe(true);   // internetsiz → Vosk
+    expect(M.sttOptions!['returnAudio']).toBe(false);    // bulut STT'ye ses GÖNDERİLMEZ
+    _resetConnectivityAuthorityForTest();
   });
 
   it('takip dinlemesi (followUpWindow) KISA pencereyi native\'e geçirir', async () => {

@@ -185,8 +185,8 @@ export function buildRemoteCommandView(
         note: 'Araç 5 km/h üstündeyken kilit/kilit-açma reddi. Bu sayaç ancak hız otoritesi BESLENİYORSA artabilir.',
       }, c ? c.movingBlocked : null),
       observed({
-        id: 'movingUnverified', label: 'Hız kanıtsız kabul', source: SRC_LISTENER,
-        note: 'Tehlikeli komutun TAZE hız ölçümü olmadan kabul edildiği durumlar. Sıfırdan büyükse o komutlar kapıdan değil, kapının körlüğünden geçmiştir — "güvenlik kapısı korudu" DENEMEZ.',
+        id: 'movingUnverified', label: 'Hareket kanıtsız RED', source: SRC_LISTENER,
+        note: 'MRI F-03: tehlikeli komutun hareket KANITI olmadığı için REDDEDİLDİĞİ durumlar (unknown/bayat/çelişkili). Eskiden bu komutlar kanıtsız KABUL ediliyordu; artık Mavi ile aynı kanonik karar (motionSafetyPolicy) uygulanır. Sayaç "kapı korudu" ile "kanıt yoktu" ayrımını görünür tutar.',
       }, c ? c.movingUnverified : null),
       observed({
         id: 'unknownType', label: 'Tanımsız komut tipi', source: SRC_LISTENER,

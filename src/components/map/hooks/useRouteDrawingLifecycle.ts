@@ -27,6 +27,7 @@ import {
   setRouteGeometry, setTurnFocus, clearTurnFocus,
 } from '../../../platform/mapService';
 import { getRouteState, notifyStyleChange, type RouteStep } from '../../../platform/routingService';
+import { NavStatus } from '../../../platform/navigationService';
 import {
   applyRouteEmphasis, invalidateRouteEmphasis, routeConfidenceFrom,
 } from '../../../platform/map/MapLayerManager';
@@ -42,6 +43,8 @@ export interface RouteDrawingSlice {
   readonly altDurations: number[];
   readonly totalDurationSeconds: number;
   readonly steps: RouteStep[];
+  /** Her rota kaydında artan revizyon — çizim dedup anahtarının parçası. */
+  readonly routeRevision: number;
   readonly currentStepIndex: number;
   readonly distanceToNextTurnMeters: number;
   /** Rotayı hangi katman üretti — `'straight-line'` ise GERÇEK ROTA DEĞİLDİR. */
@@ -95,6 +98,12 @@ export function useRouteDrawingLifecycle(o: RouteDrawingLifecycleOptions): void 
   // notifyStyleChange(false) → styleKey increments → this effect re-runs automatically.
   useEffect(() => {
     if (!route.geometry) return;
+    /* OTURUM KAPANDI → YENİDEN ÇİZME (smoke 2026-09-24, cihazda ölçüldü): varıştan
+       5 sn sonra IDLE'da `FullMapView` haritayı ve rota deposunu temizliyor, AYNI
+       commit'te bu efekt render anındaki (henüz silinmemiş) `route.geometry` ile
+       rotayı yeniden çiziyordu; depo boşalınca efekt erken döndüğü için tam rota
+       haritada KALIYORDU. Ref'lere de yazılmaz (stil yenilenince geri çizilmesin). */
+    if (!isNavigating) return;
     // Ref'leri mapStatus'ten bağımsız her zaman güncelle.
     // _onStyleReady ve webglcontextrestored callback'leri bu ref'lerden okur;
     // harita LOADING iken gelen yeni geometri kaybolmamalı.
@@ -111,7 +120,15 @@ export function useRouteDrawingLifecycle(o: RouteDrawingLifecycleOptions): void 
     // gerçekten yüklüyse (isStyleLoaded) çizime devam et.
     if (!mapRef.current || (mapStatus !== 'READY' && !mapRef.current.isStyleLoaded())) return;
     if (styleChangingRef.current) return; // style reload in-flight — wait for notifyStyleChange(false)
-    const hash = routeHash(route.geometry);
+    /* Varıldı: dedup anahtarı durumu da içerdiği için kırpılmış rota BAŞTAN çiziliyordu. */
+    if (navStatus === NavStatus.ARRIVED) return;
+    /* Dedup anahtarı = geometri özeti + ROTA REVİZYONU. Özet yalnız nokta sayısı +
+       ilk/son noktadır; aynı başlangıç/hedefli iki FARKLI rota (seçilen alternatif ↔
+       en hızlı) aynı özeti verebiliyordu → yeniden çizim atlanıyor, sokak adı
+       etiketleri ESKİ rotada kalıyor, kırpma ise ref'teki YENİ geometriyi çiziyordu
+       (telefon smoke 2026-09-25: etiketler çizginin olmadığı sokakta). Revizyon her
+       rota kaydında artar, ilerleme güncellemesinde artmaz (F3 kazancı korunur). */
+    const hash = `${routeHash(route.geometry)}#${route.routeRevision}`;
     const last = lastAppliedRef.current;
     const styleKeyChanged = !last || last.styleKey !== styleKey;
     if (!styleKeyChanged && last && last.hash === hash && last.navStatus === navStatus) {
@@ -124,8 +141,8 @@ export function useRouteDrawingLifecycle(o: RouteDrawingLifecycleOptions): void 
     lastAppliedRef.current = { hash, styleKey, navStatus };
     setRouteGeometry(mapRef.current, route.geometry, route.alternatives, route.altRealIndices, route.altDurations, route.totalDurationSeconds, route.steps);
     pushDebug('ROUTE_GEOMETRY_SET', { pts: route.geometry?.length, first: route.geometry?.[0] });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- bağımlılık dizisi TAŞIMADAN ÖNCEKİYLE birebir aynı (davranış kilidi)
-  }, [route.geometry, route.alternatives, route.altRealIndices, mapStatus, styleKey, navStatus]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- taşımadan önceki dizi + routeRevision (dedup anahtarının parçası)
+  }, [route.geometry, route.alternatives, route.altRealIndices, route.routeRevision, mapStatus, styleKey, navStatus]);
 
   // Failsafe Deadlock Recovery — SEL_LAYER 3 saniye boyunca kayıpsa rota yeniden inşa edilir.
   // Senaryo: Android low-memory → layer silindi ama style READY → setRouteGeometry hiç tetiklenmedi.
@@ -169,7 +186,7 @@ export function useRouteDrawingLifecycle(o: RouteDrawingLifecycleOptions): void 
       }
     }, 400);
     return () => clearInterval(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- bağımlılık dizisi TAŞIMADAN ÖNCEKİYLE birebir aynı (davranış kilidi)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- taşımadan önceki dizi + routeRevision (dedup anahtarının parçası)
   }, [isNavigating]);
 
   // Turn focus: highlight next turn when approaching, clear on step advance
@@ -194,7 +211,7 @@ export function useRouteDrawingLifecycle(o: RouteDrawingLifecycleOptions): void 
     } else {
       clearTurnFocus();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- bağımlılık dizisi TAŞIMADAN ÖNCEKİYLE birebir aynı (davranış kilidi)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- taşımadan önceki dizi + routeRevision (dedup anahtarının parçası)
   }, [route.currentStepIndex, route.distanceToNextTurnMeters, route.steps.length]);
 
   // Route start micro-interaction flash

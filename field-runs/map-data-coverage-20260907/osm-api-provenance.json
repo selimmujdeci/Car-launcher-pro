@@ -1,0 +1,23 @@
+{
+  "url": "https://api.openstreetmap.org/api/0.6/map.json?bbox=34.8486328125,36.91476428895592,34.87060546875,36.93233006150314",
+  "at": "2026-09-06T22:43:59.386Z",
+  "headers": {
+    "accept-ranges": "bytes",
+    "alt-svc": "h3=\":443\";ma=86400,h3-29=\":443\";ma=86400,h3-27=\":443\";ma=86400",
+    "cache-control": "private, max-age=0, must-revalidate",
+    "connection": "keep-alive",
+    "content-disposition": "attachment; filename=\"map.osm\"",
+    "content-encoding": "br",
+    "content-type": "application/json; charset=utf-8",
+    "date": "Sun, 06 Sep 2026 22:43:59 GMT",
+    "server": "Apache",
+    "strict-transport-security": "max-age=31536000; includeSubDomains; preload",
+    "transfer-encoding": "chunked",
+    "vary": "Accept-Encoding",
+    "via": "1.1 varnish",
+    "x-cache": "MISS",
+    "x-cache-hits": "0",
+    "x-served-by": "cache-fco2270023-FCO",
+    "x-timer": "S1788734639.710273,VS0,VE655"
+  }
+}

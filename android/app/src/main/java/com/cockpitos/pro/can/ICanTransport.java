@@ -45,4 +45,23 @@ public interface ICanTransport {
 
     /** Kısa açıklayıcı isim (log ve canStatus için). */
     String name();
+
+    // ── MRI F-01: yazma yetkisi transport'un KENDİ kanıtına bağlıdır ────────
+
+    /**
+     * Bu transporta AKTİF yazma (heartbeat/komut) yetkisi var mı?
+     * Varsayılan FAIL-CLOSED: kanıt üretmeyen transport yazamaz. Her
+     * implementasyon kendi pozitif kanıtını tanımlar (platform eşleşmesi,
+     * pasif protokol kanıtı, kullanıcının açıkça izin verdiği USB cihazı).
+     */
+    default boolean writeAuthorized() { return false; }
+
+    /**
+     * Salt-gözlem penceresi doldu ve hiç geçerli frame gelmedi mi?
+     * `true` → CanBusManager transportu bırakır ve keşfe devam eder.
+     */
+    default boolean observationExpired() { return false; }
+
+    /** Kanıt etiketi (teşhis/defter; sır içermez). */
+    default String evidenceLabel() { return "NONE"; }
 }

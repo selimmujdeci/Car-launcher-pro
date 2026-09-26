@@ -33,6 +33,7 @@ import {
   type CrashEntry,
 } from './crashLogger';
 import { pushVehicleEvent }  from './vehicleIdentityService';
+import { allowsConnectivity } from './connectivity/connectivityGate';
 import { healthMonitor }     from './system/SystemHealthMonitor';
 import { getOBDStatusSnapshot } from './obdService';
 import { useOtaStore, getCurrentVersionCode } from './otaUpdateService';
@@ -62,6 +63,7 @@ import {
   _resetDeliveryLedgerForTest,
   type DeliveryState,
 } from './diagnosticDelivery';
+import { randomToken } from '../utils/randomId';
 
 /* ── Sabitler ───────────────────────────────────────────────── */
 
@@ -104,8 +106,7 @@ const MAX_ARRAY_LEN = 20;
 
 /** Oturum kimliği — 8 karakter (17 karakterlik VIN maskesine takılmaz) */
 const BOOT_ID: string = (() => {
-  try { return crypto.randomUUID().slice(0, 8); }
-  catch { return Math.random().toString(36).slice(2, 10); }
+  return randomToken(8);
 })();
 
 /** Bu oturumun (app boot) başlangıç zamanı — errorLedger'da eski/yeni sınırı
@@ -892,10 +893,10 @@ async function _triggerSnapshot(
     }
   } catch { /* tanı ön-kontrolü snapshot akışını asla kıramaz */ }
 
-  // Fail-open: yalnız onLine === false kesin "çevrimdışı"dır; alan yoksa
-  // (eski WebView / test ortamı) çevrimiçi varsayılır — kuyruk at-least-once
-  // olduğundan yanlış 'queued' veri kaybettirmez.
-  const online = typeof navigator === 'undefined' || navigator.onLine !== false;
+  // F7-B: kanonik kapı. Eskisi gibi fail-open kalır — kanıt yokken (`UNKNOWN`)
+  // `BACKGROUND_SYNC` İZİNLİDİR, yani belirsizlikte yine denenir. Kuyruk
+  // at-least-once olduğundan yanlış 'queued' veri kaybettirmez.
+  const online = allowsConnectivity('BACKGROUND_SYNC');
 
   // Idempotency: her tetikleme deterministik-benzersiz reportId alır; kuyruğun
   // retry'leri AYNI reportId'yi taşır → defter tek kayıt tutar (duplicate yok).

@@ -1,0 +1,25 @@
+{
+  "url": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/17/51054/78228",
+  "tile": {
+    "z": 17,
+    "x": 78228,
+    "y": 51054
+  },
+  "bounds": [
+    34.859619140625,
+    36.91696023183306,
+    34.86236572265625,
+    36.91915611148194
+  ],
+  "headers": {
+    "access-control-allow-origin": "*",
+    "cache-control": "max-age=86400",
+    "connection": "keep-alive",
+    "content-length": "22753",
+    "content-type": "image/jpeg",
+    "date": "Sun, 06 Sep 2026 22:47:48 GMT",
+    "etag": "\"ocu0kkvvthjuf\"",
+    "server": "Apache",
+    "x-robots-tag": "noindex"
+  }
+}

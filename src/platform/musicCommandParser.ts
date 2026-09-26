@@ -288,6 +288,10 @@ function cleanQuery(q: string): string {
     /\s+(?:müzik(?:leri(?:ni)?|i)?|muzik(?:leri(?:ni)?|i)?|şarkı(?:yı|sı(?:nı)?|ları(?:nı)?)?|sarki(?:yi|si(?:ni)?|lari(?:ni)?)?|parça(?:yı|sı(?:nı)?)?|parca(?:yi|si(?:ni)?)?)$/i;
   const hadMusicWord = TRAILING_MUSIC_WORD.test(r);
   r = r.replace(TRAILING_MUSIC_WORD, '').trim();
+  // "Sezen Aksu'dan bir şarkı" → müzik kelimesinden önce kalan belirsiz niceleyici.
+  if (hadMusicWord) r = r.replace(/\s+(?:bir|birkaç|birkac|güzel|guzel)$/i, '').trim();
+  // "Tarkan'ın Şımarık" → iyelik eki aramayı bozmasın ("Tarkan Şımarık").
+  r = r.replace(/['’](?:n?[ıiuü]n)(?=\s|$)/gi, '');
   // Apostroflu ek her zaman güvenle silinir ("Tatlıses'ten" → "Tatlıses").
   r = r.replace(/['']\s*(?:dan|den|tan|ten|da|de|ta|te)$/i, '').trim();
   // Apostrofsuz ek yalnızca "X müzik/şarkı" kalıbı kesinleştiyse silinir

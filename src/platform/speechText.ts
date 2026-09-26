@@ -187,6 +187,16 @@ export function normalizeForSpeech(input: string): string {
     // 8) '&' → "ve" (yaygın sembol). Diğer sembollere dokunma (anlam riski).
     s = s.replace(/\s?&\s?/g, ' ve ');
 
+    // 8b) SOKAK/CADDE NUMARASI — "0482. Sokak" → "dört yüz seksen iki Sokak".
+    //     Nokta kalınca segmentleyici onu cümle sonu sanıp "dört yüz seksen iki."
+    //     diye düşen tonla kesiyor, "Sokak"ı ayrı söylüyordu (smoke 2026-09-24).
+    //     Sürücü sokağı levhadaki sayıyla bilir ("455 sokak" diye arar) → düz sayı.
+    //     "Yol" listede YOK: "Hız sınırı 50. Yol çalışması var." cümle sonunu yutardı.
+    s = s.replace(
+      /\b(\d+)\.(?=\s+(?:sokak|sokağı|sok|sk|cadde|caddesi|cad|cd|bulvar|bulvarı|blv|çıkmaz|çıkmazı)(?![a-zçğıöşü]))/gi,
+      (_m, n: string) => numberToTurkish(parseInt(n, 10)),
+    );
+
     // 9) KALAN SAYILAR — binlik ayraçlı, ondalıklı ve düz tam sayılar (EN SON).
     //    Binlik: 1.500 / 12.000.000  → tek sayı (ayraçları at).
     s = s.replace(/\b\d{1,3}(?:\.\d{3})+(?:,\d+)?\b/g, (m) => {

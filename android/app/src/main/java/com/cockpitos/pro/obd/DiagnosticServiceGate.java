@@ -72,7 +72,13 @@ public final class DiagnosticServiceGate {
     private static final Set<String> READ_ONLY_SIDS =
         Collections.unmodifiableSet(new LinkedHashSet<>(Arrays.asList(
             "01", "03", "06", "07", "09", "0A",
-            "10", "13", "17", "18", "19", "1A", "21", "22", "3E"
+            "10", "13", "17", "18", "19", "1A", "21", "22", "3E",
+            /* 81 KWP StartCommunication (ISO 14230-2 5.2) — 570a351f matris
+               kapisina ekledi ama BURAYA eklemedi; "matris kapisini TAMAMEN
+               KAPSAR" sozlesmesi bozuldu (CI: gateCoversExistingMatrixWhitelist).
+               SALT BAGLANTI KURMA: yazma/silme/security access YOK, "10" ile ayni
+               sinif; destructive listede YOK; pozitif yanit C1 = 81+40. */
+            "81"
         )));
 
     /**

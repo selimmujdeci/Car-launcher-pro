@@ -1,6 +1,8 @@
 import { Capacitor } from '@capacitor/core';
 import { Directory, Encoding, Filesystem } from '@capacitor/filesystem';
-import { parseRoutingGraph } from './rtg2Reader';
+/* #1218: BigInt taşıyan ayrıştırıcı legacy startup chunk'ına girmesin diye
+   statik değil TEMBEL yüklenir (bkz. rtg2ParseLoader). */
+import { loadRoutingGraphParser } from './rtg2ParseLoader';
 import type { TurkeyGraphManifest, TurkeyGraphRegion } from './turkeyGraphManifest';
 import { validateTurkeyGraphManifest } from './turkeyGraphManifest';
 
@@ -495,9 +497,13 @@ export async function discoverRegionalDistribution(
     manifestStatus = 'FAILED'; return null;
   }
 }
-function graphValid(bytes: ArrayBuffer, region: TurkeyGraphRegion, format: 'RTG3' | 'RTG4'): boolean {
+async function graphValid(bytes: ArrayBuffer, region: TurkeyGraphRegion, format: 'RTG3' | 'RTG4'): Promise<boolean> {
   if (bytes.byteLength !== region.byteSize) return false;
-  const parsed = parseRoutingGraph(bytes);
+  /* Ayrıştırıcı yüklenemezse doğrulama YAPILAMAZ → `false` (fail-closed).
+     "Bilinmiyor" ASLA "geçerli" sayılmaz; bozuk graf yayımlanmaz. */
+  let parse;
+  try { parse = await loadRoutingGraphParser(); } catch { return false; }
+  const parsed = parse(bytes);
   return parsed.outcome === 'OK' && parsed.view?.version === (format === 'RTG4' ? 4 : 3) &&
     parsed.view.nodeCount === region.nodeCount && parsed.view.edgeCount === region.edgeCount;
 }
@@ -509,7 +515,7 @@ function altValid(bytes: ArrayBuffer, region: TurkeyGraphRegion): boolean {
 }
 async function installedValid(region: TurkeyGraphRegion, item: InstalledRegionRecord, format: 'RTG3' | 'RTG4'): Promise<boolean> {
   const graph = await readBytes(finalPath(region.regionId, item.generation, false));
-  if (!graph || await digest(graph) !== item.graphSha256 || !graphValid(graph, region, format)) return false;
+  if (!graph || await digest(graph) !== item.graphSha256 || !await graphValid(graph, region, format)) return false;
   if (!region.alt) return item.altSha256 === null;
   const alt = await readBytes(finalPath(region.regionId, item.generation, true));
   return !!alt && item.altSha256 === region.alt.sha256 && await digest(alt) === item.altSha256 && altValid(alt, region);
@@ -559,7 +565,7 @@ Promise<{ ok: true; downloaded: readonly string[] } | { ok: false; reason: Regio
     try {
       activeDownloads++;
       const graph = await fetchBounded(pkg.graphUrl, signal, region.byteSize);
-      if (await digest(graph) !== region.sha256 || !graphValid(graph, region, manifest.graphManifest.graphFormat)) {
+      if (await digest(graph) !== region.sha256 || !await graphValid(graph, region, manifest.graphManifest.graphFormat)) {
         lastIntegrityFailure = `GRAPH_INVALID:${id}`; return { ok: false, reason: 'DATA_CORRUPT' };
       }
       const alt = region.alt && pkg.altUrl ? await fetchBounded(pkg.altUrl, signal, region.alt.byteSize) : null;
@@ -591,7 +597,7 @@ Promise<{ ok: true; downloaded: readonly string[] } | { ok: false; reason: Regio
       const publishedGraph = await readBytes(finalPath(id, pkg.generation, false));
       const publishedAlt = alt ? await readBytes(finalPath(id, pkg.generation, true)) : null;
       if (!publishedGraph || await digest(publishedGraph) !== region.sha256 ||
-          !graphValid(publishedGraph, region, manifest.graphManifest.graphFormat) ||
+          !await graphValid(publishedGraph, region, manifest.graphManifest.graphFormat) ||
           (alt && (!publishedAlt || await digest(publishedAlt) !== region.alt!.sha256 || !altValid(publishedAlt, region)))) {
         throw new Error('PUBLISHED_VERIFY');
       }

@@ -1,5 +1,4 @@
 import { memo, useState, useEffect } from 'react';
-import type { CSSProperties } from 'react';
 import { Gauge, Satellite, Sparkles } from 'lucide-react';
 import { isNative } from '../../platform/bridge';
 import { useOBDState, getObdFreshWindowMs } from '../../platform/obdService';
@@ -7,6 +6,7 @@ import { useGPSState } from '../../platform/gpsService';
 import { getAiHealthSnapshot } from '../../platform/aiHealth';
 import { sensitiveKeyStore } from '../../platform/sensitiveKeyStore';
 import type { StatusPalette } from './StatusControls';
+import { StatusItem, type StatusItemState } from './StatusItem';
 import {
   deriveObdStatus, deriveGpsStatus, deriveAiStatus, statusTone, statusAnimates,
   type ObdStatus, type GpsStatus, type AiStatus, type StatusTone,
@@ -15,9 +15,9 @@ import {
 /**
  * VehicleStatusIndicators — OEM durum çubuğuna OBD / GPS / AI göstergeleri ekler.
  *
- * StatusControls (Wi-Fi/BT/ses) ile aynı boyut/stroke/spacing; MEVCUT kaynaklardan
- * beslenir (yeni state/polling/health-ping YOK). Monokrom ikon + küçük durum noktası;
- * büyük renkli rozet yok. Animasyon YALNIZ connecting/checking durumunda ve CSS
+ * StatusControls (Wi-Fi/BT/ses) ile AYNI öğe (`StatusItem`: ikon + kısa etiket +
+ * anlamsal nokta); MEVCUT kaynaklardan beslenir (yeni state/polling/health-ping
+ * YOK). Büyük renkli rozet yok. Nabız YALNIZ connecting/checking durumunda ve CSS
  * `motion-safe:` ile (prefers-reduced-motion / low-tier'da kapanır) — JS timer/rAF yok.
  *
  * AI ikonu SIKI kurala tabi: yapılandırılmış sağlayıcı yoksa / kapalıysa HİÇ render
@@ -27,16 +27,10 @@ import {
 
 const AI_PROVIDER_KEYS = ['geminiApiKey', 'claudeHaikuApiKey', 'groqApiKey'] as const;
 
-function toneColor(tone: StatusTone, palette: StatusPalette): { color: string; opacity: number } {
-  switch (tone) {
-    case 'ok':     return { color: palette.accent, opacity: 1 };
-    case 'active': return { color: palette.accent, opacity: 0.9 };
-    case 'warn':   return { color: '#f59e0b', opacity: 1 };   // amber
-    case 'error':  return { color: '#ef4444', opacity: 1 };   // red
-    case 'muted':
-    default:       return { color: palette.ink2, opacity: 0.45 };
-  }
-}
+/** Model tonu → durum öğesi durumu (renk/anlam StatusItem'ındır). */
+const TONE_STATE: Record<StatusTone, StatusItemState> = {
+  ok: 'ok', active: 'active', warn: 'warn', error: 'error', muted: 'off',
+};
 
 const OBD_LABEL: Record<ObdStatus, string> = {
   connected: 'OBD: Bağlı', stale: 'OBD: Veri bayat', connecting: 'OBD: Bağlanıyor',
@@ -96,54 +90,33 @@ function VehicleStatusIndicatorsInner({ palette, size = 15 }: { palette: StatusP
     primaryReady: aiHealthy,
   });
 
-  const px: CSSProperties = { width: size, height: size, flexShrink: 0 };
-  const btn: CSSProperties = {
-    background: 'transparent', border: 'none', cursor: 'pointer', position: 'relative',
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
-    padding: 5, borderRadius: 9, minWidth: 34, minHeight: 34,
-  };
-
   const renderIcon = (
-    id: IndicatorId, Icon: typeof Gauge,
+    id: IndicatorId, Icon: typeof Gauge, caption: string,
     status: ObdStatus | GpsStatus | AiStatus, label: string,
-  ) => {
-    const tone = statusTone(status);
-    const { color, opacity } = toneColor(tone, palette);
-    const animate = statusAnimates(status);
-    const dotColor = tone === 'muted' ? 'transparent' : color;
-    return (
-      <button
-        key={id}
-        onClick={() => setOpen((o) => (o === id ? null : id))}
-        style={btn}
-        aria-label={label}
-        title={label}
-      >
-        <Icon style={{ ...px, color, opacity }} />
-        {/* Küçük durum noktası — büyük rozet yok. Yalnız active durumda hafif nabız. */}
-        <span
-          className={animate ? 'motion-safe:animate-pulse' : undefined}
-          aria-hidden
-          style={{
-            position: 'absolute', top: 4, right: 4,
-            width: 6, height: 6, borderRadius: 999,
-            background: dotColor,
-            boxShadow: dotColor === 'transparent' ? 'none' : `0 0 0 1.5px ${palette.surface ?? 'rgba(0,0,0,0.35)'}`,
-          }}
-        />
-      </button>
-    );
-  };
+  ) => (
+    <StatusItem
+      key={id}
+      Icon={Icon}
+      state={TONE_STATE[statusTone(status)]}
+      caption={caption}
+      label={label}
+      onClick={() => setOpen((o) => (o === id ? null : id))}
+      palette={palette}
+      size={size}
+      /* Yalnız bağlanıyor/kontrol durumunda hafif nabız (CSS, reduced-motion korumalı). */
+      pulseClassName={statusAnimates(status) ? 'motion-safe:animate-pulse' : undefined}
+    />
+  );
 
   const labelFor = (id: IndicatorId): string =>
     id === 'obd' ? OBD_LABEL[obdStatus] : id === 'gps' ? GPS_LABEL[gpsStatus] : AI_LABEL[aiStatus];
 
   return (
-    <div className="flex items-center" style={{ gap: 2, position: 'relative' }}>
-      {renderIcon('obd', Gauge, obdStatus, OBD_LABEL[obdStatus])}
-      {renderIcon('gps', Satellite, gpsStatus, GPS_LABEL[gpsStatus])}
+    <div className="flex items-center" style={{ gap: 4, position: 'relative' }}>
+      {renderIcon('obd', Gauge, 'OBD', obdStatus, OBD_LABEL[obdStatus])}
+      {renderIcon('gps', Satellite, 'GPS', gpsStatus, GPS_LABEL[gpsStatus])}
       {/* AI: yapılandırılmış sağlayıcı yoksa / kapalıysa HİÇ render edilmez */}
-      {aiStatus !== 'hidden' && renderIcon('ai', Sparkles, aiStatus, AI_LABEL[aiStatus])}
+      {aiStatus !== 'hidden' && renderIcon('ai', Sparkles, 'AI', aiStatus, AI_LABEL[aiStatus])}
 
       {open && (
         <>

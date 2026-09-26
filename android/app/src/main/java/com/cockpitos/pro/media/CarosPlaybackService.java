@@ -118,6 +118,22 @@ public class CarosPlaybackService extends MediaSessionService {
     private volatile float   userVolume          = 1.0f;   // duck ÖNCESİ kullanıcı seviyesi
     private volatile boolean noisyReceiverActive = false;
 
+    /* ── Çalma hatası kurtarma ────────────────────────────────────────────
+       ÖLÇÜLEN KUSUR: `onPlayerError` yalnız kodu kaydediyordu; ExoPlayer hata
+       durumunda DURUR → kuyruktaki TEK bozuk dosya tüm çalmayı sessizce
+       bitiriyordu ve kullanıcıya hiçbir şey söylenmiyordu. Artık YALNIZ
+       parçaya özgü hatalarda (dosya/biçim/çözücü) sıradakine geçilir; ağ ve
+       ses çıkışı hataları atlanmaz (atlamak onları çözmez, listeyi tüketir).
+       Art arda atlama sınırlıdır: bütün kuyruk bozuksa döngü OLUŞMAZ. */
+    static final int MAX_CONSECUTIVE_ERROR_SKIPS = 5;
+    private int              consecutiveErrorSkips = 0;
+    /** Parçaya özgü HER hata artırır — JS yeni olayı bununla fark eder. */
+    private volatile int     itemErrorCount        = 0;
+    private volatile String  lastErrorTitle        = "";
+    private volatile int     lastErrorCode         = 0;
+    /** SKIPPED (sıradakine geçildi) · END (sıradaki yok) · HALTED (art arda sınır). */
+    private volatile String  lastErrorAction       = "";
+
     private BroadcastReceiver noisyReceiver;
 
     /* ── PAKET B · Generation + olay izi ──────────────────────────────────── */
@@ -597,7 +613,14 @@ public class CarosPlaybackService extends MediaSessionService {
         logEvent(CarosMediaEventLog.EV_SOURCE_SWITCH_DONE, activeSource);
         int idx = Math.max(0, Math.min(startIndex, items.size() - 1));
 
-        p.setMediaItems(items, idx, Math.max(0, positionMs));
+        try {
+            p.setMediaItems(items, idx, Math.max(0, positionMs));
+        } catch (RuntimeException e) {
+            // Tek bir çözülemeyen yayın biçimi tüm uygulamayı ÇÖKERTMEZ; dürüst hata döner.
+            lastFailureCode = "unsupported_stream";
+            publishDiagnostics();
+            return "unsupported_stream";
+        }
         p.prepare();
         userVolume = 1.0f;
         applyEffectiveVolume();
@@ -778,6 +801,10 @@ public class CarosPlaybackService extends MediaSessionService {
         b.putBoolean("playWhenReady",      p != null && p.getPlayWhenReady());
         b.putBoolean("renderingVerified",  isRenderingVerified());
         b.putInt("recoveryCount",          recoveryCount);
+        b.putInt("itemErrorCount",         itemErrorCount);
+        b.putString("lastErrorTitle",      lastErrorTitle);
+        b.putInt("lastErrorCode",          lastErrorCode);
+        b.putString("lastErrorAction",     lastErrorAction);
         b.putBoolean("shuffle",            p != null && p.getShuffleModeEnabled());
         b.putString("repeat",              repeatToString(p));
         /* ── PAKET B · generation + bounded olay izi ──────────────────────
@@ -818,7 +845,10 @@ public class CarosPlaybackService extends MediaSessionService {
 
     private final class PlayerListenerImpl implements Player.Listener {
         @Override public void onIsPlayingChanged(boolean isPlaying) {
-            if (isPlaying) { audioRoute = readAudioRoute(); lastFailureCode = ""; }
+            if (isPlaying) {
+                audioRoute = readAudioRoute(); lastFailureCode = "";
+                consecutiveErrorSkips = 0;   // bir parça GERÇEKTEN çaldı → seri biter
+            }
             /* F20: durunca izleyici de durur (kapalıyken timer YOK). */
             if (!isPlaying) { cancelFade(); resetTransitionGain(); }
             updateFadeMonitor();
@@ -829,6 +859,7 @@ public class CarosPlaybackService extends MediaSessionService {
         }
         @Override public void onPlayerError(@NonNull PlaybackException error) {
             lastFailureCode = "player_error_" + error.errorCode;
+            recoverFromItemError(error.errorCode);
             publishDiagnostics();
         }
         @Override public void onAudioSessionIdChanged(int audioSessionId) {
@@ -846,6 +877,60 @@ public class CarosPlaybackService extends MediaSessionService {
             @NonNull Player.PositionInfo old, @NonNull Player.PositionInfo now, int reason) {
             publishDiagnostics();
         }
+    }
+
+    /** Yalnız ÇALAN PARÇAYA özgü hatalar: başka parçaya geçmek bunları aşar. */
+    static boolean isItemSpecificError(int code, boolean localItem) {
+        switch (code) {
+            case PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND:
+            case PlaybackException.ERROR_CODE_IO_NO_PERMISSION:
+            case PlaybackException.ERROR_CODE_IO_READ_POSITION_OUT_OF_RANGE:
+            case PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED:
+            case PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED:
+            case PlaybackException.ERROR_CODE_DECODER_INIT_FAILED:
+            case PlaybackException.ERROR_CODE_DECODING_FAILED:
+            case PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES:
+            case PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED:
+                return true;
+            /* SAHA 2026-09-23 (telefon, bozuk MP3): ayrıştırıcı 463 MB ayırmaya
+               kalktı → Loader.UnexpectedLoaderException(OOM) → IO_UNSPECIFIED ve
+               kuyruk bozuk parçada DURDU. Yerel dosyada (content://) okuma hatası
+               o dosyanındır; ağ akışında geçici olabilir → yalnız yerelde atlanır. */
+            case PlaybackException.ERROR_CODE_IO_UNSPECIFIED:
+                return localItem;
+            default:
+                return false;   // ağ · ses çıkışı · bilinmeyen → ATLANMAZ
+        }
+    }
+
+    /** Cihazdaki dosya mı (MediaStore content://) — ağ akışı DEĞİL. */
+    static boolean isLocalItem(@Nullable MediaItem item) {
+        return item != null && item.localConfiguration != null
+            && "content".equals(item.localConfiguration.uri.getScheme());
+    }
+
+    /** Bozuk parçayı atlar (sınırlı); kullanıcının çalma niyeti korunur, uydurulmaz. */
+    private void recoverFromItemError(int code) {
+        Player p = player;
+        if (p == null) return;
+        MediaItem failed = p.getCurrentMediaItem();
+        if (!isItemSpecificError(code, isLocalItem(failed))) return;
+        lastErrorTitle = failed != null && failed.mediaMetadata.title != null
+            ? failed.mediaMetadata.title.toString() : "";
+        lastErrorCode = code;
+        itemErrorCount++;
+        if (consecutiveErrorSkips >= MAX_CONSECUTIVE_ERROR_SKIPS || !p.hasNextMediaItem()) {
+            lastErrorAction = consecutiveErrorSkips >= MAX_CONSECUTIVE_ERROR_SKIPS ? "HALTED" : "END";
+            logEvent(CarosMediaEventLog.EV_ERROR_SKIP_HALTED, lastErrorAction + ":" + code);
+            return;
+        }
+        consecutiveErrorSkips++;
+        lastErrorAction = "SKIPPED";
+        logEvent(CarosMediaEventLog.EV_ERROR_SKIP, String.valueOf(code));
+        /* playWhenReady hata sonrası KORUNUR: kullanıcı çalıyorsa sıradaki çalar,
+           duraklatmışsa yalnız hazırlanır (kendiliğinden çalma YOK). */
+        p.seekToNextMediaItem();
+        p.prepare();
     }
 
     /* ── MediaItem üretimi + URI doğrulama ────────────────────────────────── */

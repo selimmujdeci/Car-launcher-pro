@@ -22,7 +22,9 @@ sw.addEventListener('fetch', (event) => {
         url.pathname.match(/^\/tile\/\d+\/\d+\/\d+$/)) {
         event.respondWith(handleTileRequest(event.request));
     }
-    else if (url.hostname.includes('tile.openstreetmap.org')) {
+    else if (url.hostname === 'tile.openstreetmap.org' || url.hostname.endsWith('.tile.openstreetmap.org')) {
+        /* Tam alan adı (CodeQL js/incomplete-url-substring-sanitization): `includes`
+           `tile.openstreetmap.org.evil.com`'u da OSM sayıp karo önbelleğine alırdı. */
         // Handle OSM tiles with offline fallback
         event.respondWith(handleOsmTileRequest(event.request));
     }

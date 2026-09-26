@@ -102,10 +102,11 @@ BEGIN
   apia := 'tj_api_a_' || replace(gen_random_uuid()::text, '-', '');
   apib := 'tj_api_b_' || replace(gen_random_uuid()::text, '-', '');
 
-  INSERT INTO public.vehicles (owner_id, name, api_key)
-  VALUES (ua, 'TJ_VEHICLE_A', apia) RETURNING id INTO va;
-  INSERT INTO public.vehicles (owner_id, name, api_key)
-  VALUES (ub, 'TJ_VEHICLE_B', apib) RETURNING id INTO vb;
+  /* 084: anahtar at-rest sha256 saklanır; cihaz ham apia/apib gönderir. */
+  INSERT INTO public.vehicles (owner_id, name, api_key_hash)
+  VALUES (ua, 'TJ_VEHICLE_A', encode(sha256(convert_to(apia,'UTF8')),'hex')) RETURNING id INTO va;
+  INSERT INTO public.vehicles (owner_id, name, api_key_hash)
+  VALUES (ub, 'TJ_VEHICLE_B', encode(sha256(convert_to(apib,'UTF8')),'hex')) RETURNING id INTO vb;
 
   INSERT INTO tj_ids VALUES ('user_a', ua), ('user_b', ub),
                             ('veh_a', va), ('veh_b', vb);

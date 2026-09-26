@@ -122,6 +122,14 @@ public final class BleObdManager {
 
     private final ExecutorService obdExecutor = Executors.newSingleThreadExecutor();
 
+    /**
+     * P0-OBD-CONNECT-RACE (BLE) — TEK connect-attempt otoritesi.
+     * {@code obdExecutor.submit()} dönen Future SAKLANMAZ (iptal edilemez) ve retry
+     * döngüsü {@code obdRunning}'e bakmaz; terk edilmiş görevi durduran tek şey bu
+     * nesil kapısıdır. Classic yoldaki {@link OBDManager#connect} ile AYNI desen.
+     */
+    private final ConnectGenerationGuard connectGen = new ConnectGenerationGuard();
+
     private volatile BluetoothGatt gatt = null;
     private volatile BluetoothGattCharacteristic notifyChar = null;
     private volatile BluetoothGattCharacteristic writeChar  = null;
@@ -194,6 +202,11 @@ public final class BleObdManager {
 
         disconnect();
 
+        /* P0-OBD-CONNECT-RACE: nesil disconnect()'TEN SONRA rezerve edilir — disconnect()
+           uçuştaki ESKİ denemeyi invalidate() ile düşürür, bizimki ondan sonra alınmalı
+           (önce alsaydık kendi denememizi anında stale yapardık). */
+        final int myGen = connectGen.begin();
+
         obdExecutor.submit(() -> {
             try {
                 BluetoothAdapter bt = BluetoothAdapter.getDefaultAdapter();
@@ -208,6 +221,13 @@ public final class BleObdManager {
                 BluetoothGatt g = null;
                 boolean gattConnected = false;
                 for (int attempt = 0; attempt < 2 && !gattConnected; attempt++) {
+                    /* P0-OBD-CONNECT-RACE · KONTROL NOKTASI A (ASIL DÜZELTME):
+                       JS bu bacaktan vazgeçip classic'e geçtiyse disconnect() nesli
+                       düşürmüştür. O hâlde 2. connectGatt() AÇILMAZ — açılsaydı, aynı
+                       dual-mode dongle üzerinde süren classic RFCOMM el sıkışmasını
+                       düşürürdü (ölçülen saha arızası). Fail-closed: paylaşılan alana
+                       dokunmadan, callback ateşlemeden sessizce çık. */
+                    if (!connectGen.isCurrent(myGen)) return;
                     resetOpResult();
                     g = device.connectGatt(mContext, false, gattCallback, BluetoothDevice.TRANSPORT_LE);
                     if (g == null) {
@@ -252,13 +272,27 @@ public final class BleObdManager {
                 elm = new ElmProtocol(new GattChannel());
                 String detectedProtocol = elm.initELM327(obdProtocol);
 
+                /* P0-OBD-CONNECT-RACE · KONTROL NOKTASI B: initELM327() de BLOKE olan bir
+                   AT dizisidir; bu süre içinde JS vazgeçmiş olabilir. Stale ise "bağlandı"
+                   callback'i ASLA ateşlenmez ve pollLoop() BAŞLAMAZ — artık kimsenin
+                   sahiplenmediği bağlantıyı kendimiz kapatırız. (OBDManager ile aynı desen.) */
+                if (!connectGen.isCurrent(myGen)) {
+                    disconnectInternal();
+                    return;
+                }
+
                 obdRunning = true;
                 cb.onConnected(detectedProtocol);
 
                 pollLoop();
 
             } catch (Exception e) {
-                disconnect();
+                /* P0-OBD-CONNECT-RACE · KONTROL NOKTASI C: bu deneme zaten STALE'se hatası
+                   da GEÇ ve YANLIŞ-ATFEDİLMİŞ bir kanıttır (JS çoktan classic'e geçti) —
+                   callback ATEŞLENMEZ. Kontrol disconnect()'ten ÖNCEDİR: disconnect()
+                   invalidate() çağırdığı için sonrasına koysaydık gerçek hatayı da yutardık. */
+                if (!connectGen.isCurrent(myGen)) return;
+                disconnectInternal();
                 // Patch 3: yapılandırılmış hata kodu — bkz. OBDManager.connect() aynı desen.
                 String code = (e instanceof ElmInitSequencer.UnableToConnectException)
                     ? "OBD_UNABLE_TO_CONNECT" : "CONNECT_FAILED";
@@ -271,6 +305,28 @@ public final class BleObdManager {
 
     /** Bağlantıyı kapatır, GATT kaynaklarını serbest bırakır (idempotent). */
     public synchronized void disconnect() {
+        /* P0-OBD-CONNECT-RACE: DIŞ iptal — uçuştaki connect görevini GEÇERSİZ kıl.
+           BLE'de stale'liği üretecek ikinci bir connect() GELMEZ (JS classic'e geçerken
+           yalnız disconnect() çağırır), bu yüzden tek iptal sinyali budur. connect()
+           kendi neslini bu çağrıdan SONRA aldığı için sağlıklı akış etkilenmez. */
+        connectGen.invalidate();
+        disconnectInternal();
+    }
+
+    /**
+     * Kaynak temizliği — nesli DÜŞÜRMEZ (idempotent).
+     *
+     * ── NEDEN AYRI (regresyon koruması) ──────────────────────────────────────────
+     * Sınıf İÇİ temizlik yolları nesli düşürMEMELİDİR:
+     *  · {@code onConnectionStateChange} GATT 133'te temizlik yapar — bu, 2 denemelik
+     *    retry'ın TASARLANMIŞ akışıdır; nesli düşürseydik retry'ı kendi elimizle
+     *    iptal ederdik (kontrol noktası A stale görüp çıkardı).
+     *  · {@code pollLoop} hata temizliği GATT/poll thread'inde koşar; o sırada plugin
+     *    thread'i YENİ bir connect() başlatmış olabilir — nesli düşürmek TAZE denemeyi
+     *    öldürürdü.
+     * Dıştan gelen gerçek iptal için {@link #disconnect()} kullanılır.
+     */
+    private synchronized void disconnectInternal() {
         obdRunning = false;
         BluetoothGatt g = gatt;
         gatt = null;
@@ -392,7 +448,7 @@ public final class BleObdManager {
                 Thread.currentThread().interrupt();
                 break;
             } catch (Exception e) {
-                disconnect();
+                disconnectInternal();
                 listener.onStatusChanged("disconnected", e.getMessage());
                 break;
             }
@@ -595,6 +651,26 @@ public final class BleObdManager {
         if (!obdRunning || p == null) throw new IOException("OBD bağlantısı yok");
         try {
             return cmdQueue.submit(ElmCommandQueue.Priority.USER, null, p::clearDtcCodesDetailed).get();
+        } catch (java.util.concurrent.ExecutionException ee) {
+            Throwable cause = ee.getCause();
+            if (cause instanceof Exception) throw (Exception) cause;
+            throw ee;
+        }
+    }
+
+    /**
+     * Uretici DTC silme — UDS 0x14, YALNIZ fiziksel CAN hedefine (USER onceligi,
+     * atomik header). Fonksiyonel/K-line hedef ISTEK GONDERILMEDEN reddedilir.
+     */
+    public com.cockpitos.pro.obd.ElmProtocol.ClearResult clearUdsDtcs(String tx, String rx) throws Exception {
+        final ElmProtocol p = elm;
+        if (!obdRunning || p == null) throw new IOException("OBD bağlantısı yok");
+        if (!ElmProtocol.isPhysicalCanRequestHeader(tx) || rx == null || rx.trim().isEmpty()) {
+            throw new IOException("UDS silme yalnız fiziksel CAN hedefine gönderilir: " + tx);
+        }
+        try {
+            return cmdQueue.submit(ElmCommandQueue.Priority.USER, null,
+                () -> p.withEcuHeader(tx, rx, p::clearUdsDtcsDetailed)).get();
         } catch (java.util.concurrent.ExecutionException ee) {
             Throwable cause = ee.getCause();
             if (cause instanceof Exception) throw (Exception) cause;
@@ -826,11 +902,17 @@ public final class BleObdManager {
     }
 
     public ElmProtocol.UdsEvidence readAdvancedUdsDtc(String tx, String rx, String sub, String payload) throws Exception {
+        return readAdvancedUdsDtc(tx, rx, sub, payload, null);
+    }
+
+    /** P0-OBD-DTC-INIT: {@code init} TAŞIYAN overload — bkz. {@code OBDManager} eşdeğeri. */
+    public ElmProtocol.UdsEvidence readAdvancedUdsDtc(
+            String tx, String rx, String sub, String payload, String init) throws Exception {
         final ElmProtocol p = elm;
         if (!obdRunning || p == null) throw new IOException("OBD bağlantısı yok");
         try {
             return cmdQueue.submit(ElmCommandQueue.Priority.USER, null,
-                () -> p.withEcuHeader(tx, rx, () -> p.readUdsDtcInformationDetailed(sub, payload))).get();
+                () -> p.withEcuHeader(tx, rx, init, () -> p.readUdsDtcInformationDetailed(sub, payload))).get();
         } catch (java.util.concurrent.ExecutionException ee) {
             Throwable cause = ee.getCause(); if (cause instanceof Exception) throw (Exception) cause; throw ee;
         }
@@ -872,22 +954,32 @@ public final class BleObdManager {
 
     /** P0-OBD-DIAG-02 — ISO 14230-3 servis 0x13; 0x18 ile AYNI hedef kapisina tabi. */
     public ElmProtocol.UdsEvidence readAdvancedKwp13Dtc(String tx, String rx) throws Exception {
+        return readAdvancedKwp13Dtc(tx, rx, null);
+    }
+
+    /** P0-OBD-DTC-INIT: {@code init} TAŞIYAN overload — bkz. {@code OBDManager} eşdeğeri. */
+    public ElmProtocol.UdsEvidence readAdvancedKwp13Dtc(String tx, String rx, String init) throws Exception {
         final ElmProtocol p = elm;
         if (!obdRunning || p == null) throw new IOException("OBD bağlantısı yok");
         try {
             return cmdQueue.submit(ElmCommandQueue.Priority.USER, null,
-                () -> p.withEcuHeader(tx, rx, p::readKwpDtcs13Detailed)).get();
+                () -> p.withEcuHeader(tx, rx, init, p::readKwpDtcs13Detailed)).get();
         } catch (java.util.concurrent.ExecutionException ee) {
             Throwable cause = ee.getCause(); if (cause instanceof Exception) throw (Exception) cause; throw ee;
         }
     }
 
     public ElmProtocol.UdsEvidence readAdvancedKwpDtc(String tx, String rx) throws Exception {
+        return readAdvancedKwpDtc(tx, rx, null);
+    }
+
+    /** P0-OBD-DTC-INIT: {@code init} TAŞIYAN overload — bkz. {@code OBDManager} eşdeğeri. */
+    public ElmProtocol.UdsEvidence readAdvancedKwpDtc(String tx, String rx, String init) throws Exception {
         final ElmProtocol p = elm;
         if (!obdRunning || p == null) throw new IOException("OBD bağlantısı yok");
         try {
             return cmdQueue.submit(ElmCommandQueue.Priority.USER, null,
-                () -> p.withEcuHeader(tx, rx, p::readKwpDtcsDetailed)).get();
+                () -> p.withEcuHeader(tx, rx, init, p::readKwpDtcsDetailed)).get();
         } catch (java.util.concurrent.ExecutionException ee) {
             Throwable cause = ee.getCause(); if (cause instanceof Exception) throw (Exception) cause; throw ee;
         }
@@ -942,11 +1034,17 @@ public final class BleObdManager {
      * set/restore); farki, "43 00" ile "NO DATA" ve "7F" ayrimini KAYBETMEMESI.
      */
     public ElmProtocol.DtcClassResult readDtcClassFromEcu(String tx, String rx, String mode) throws Exception {
+        return readDtcClassFromEcu(tx, rx, mode, null);
+    }
+
+    /** P0-OBD-DTC-INIT/2: {@code init} TASIYAN overload — bkz. {@code ElmProtocol} esdegeri. */
+    public ElmProtocol.DtcClassResult readDtcClassFromEcu(String tx, String rx, String mode, String init)
+            throws Exception {
         final ElmProtocol p = elm;
         if (!obdRunning || p == null) throw new IOException("OBD baglantisi yok");
         try {
             return cmdQueue.submit(ElmCommandQueue.Priority.USER, null,
-                () -> p.readDtcClassFromEcu(tx, rx, mode)).get();
+                () -> p.readDtcClassFromEcu(tx, rx, mode, init)).get();
         } catch (java.util.concurrent.ExecutionException ee) {
             Throwable cause = ee.getCause();
             if (cause instanceof Exception) throw (Exception) cause;
@@ -1173,7 +1271,10 @@ public final class BleObdManager {
                 // GATT 133 vb. — temiz hata + close.
                 Log.w(TAG, "onConnectionStateChange hata status=" + status);
                 signalOp(false);
-                disconnect();
+                /* Nesli DÜŞÜRME: GATT 133 retry'ın TASARLANMIŞ girdisidir (2 deneme).
+                   disconnect() çağırsaydık kontrol noktası A stale görüp meşru 2.
+                   denemeyi iptal ederdi. */
+                disconnectInternal();
                 return;
             }
             if (newState == BluetoothGatt.STATE_CONNECTED) {
@@ -1187,7 +1288,7 @@ public final class BleObdManager {
                     try { listener.onStatusChanged("disconnected", "GATT bağlantısı koptu"); }
                     catch (Exception ignored) {}
                 }
-                disconnect();
+                disconnectInternal();
             }
         }
 

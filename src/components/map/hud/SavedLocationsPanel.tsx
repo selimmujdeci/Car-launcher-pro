@@ -87,24 +87,26 @@ export const SavedLocationsPanel = memo(function SavedLocationsPanel({
         bottom:        0,
         width:         296,
         maxHeight:     320,
-        background:    'rgba(10,14,26,0.45)',
-        backdropFilter:'blur(22px)',
-        border:        '1px solid rgba(255,255,255,0.10)',
-        boxShadow:     '0 20px 50px rgba(0,0,0,0.5)',
+        /* Tema yüzeyi (gündüz beyaz · gece koyu). Eskiden SABİT yarı saydam koyu
+           camdı → açık haritada çamurlu gri, yazılar okunmuyordu (saha 2026-09-24). */
+        background:    'var(--oem-surface-1, #FFFFFF)',
+        border:        '1px solid var(--oem-line-strong, var(--oem-line, rgba(0,0,0,0.12)))',
+        boxShadow:     'var(--oem-shadow-card, 0 20px 44px -18px rgba(0,0,0,0.45))',
+        color:         'var(--oem-ink, #1a1a1a)',
       }}
     >
       {/* Başlık */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-white/[0.08]">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-[color:var(--oem-line)]">
         <div className="flex items-center gap-2">
           <Star className="w-3.5 h-3.5" style={{ color: '#E0A23C' }} />
-          <span className="text-[11px] font-black uppercase tracking-widest text-white">
+          <span className="text-[11px] font-black uppercase tracking-widest text-[color:var(--oem-ink)]">
             Özel Konumlar
           </span>
         </div>
         <button
           onClick={onClose}
           aria-label="Kapat"
-          className="w-6 h-6 rounded-lg flex items-center justify-center active:scale-90 transition-all bg-white/[0.04] border border-white/[0.06]"
+          className="w-6 h-6 rounded-lg flex items-center justify-center active:scale-90 transition-all bg-[var(--oem-surface-2)] border border-[color:var(--oem-line)]"
         >
           <X className="w-3.5 h-3.5 text-[color:var(--oem-ink-3,rgba(240,235,224,0.52))]" />
         </button>
@@ -112,7 +114,7 @@ export const SavedLocationsPanel = memo(function SavedLocationsPanel({
 
       {/* Konum Ekle — isim girişi (görev §1) */}
       {addingName ? (
-        <div className="flex items-center gap-2 px-3 py-2.5 border-b border-white/[0.06]"
+        <div className="flex items-center gap-2 px-3 py-2.5 border-b border-[color:var(--oem-line)]"
           style={{ background: 'rgba(224,162,60,0.08)' }}>
           <input
             autoFocus
@@ -122,7 +124,7 @@ export const SavedLocationsPanel = memo(function SavedLocationsPanel({
             onKeyDown={(e) => { if (e.key === 'Enter') confirmAddLocation(); if (e.key === 'Escape') setAddingName(false); }}
             placeholder="Konum adı (ör. Annemler)"
             maxLength={60}
-            className="flex-1 min-w-0 bg-white/[0.06] border border-white/[0.12] rounded-lg px-2.5 py-2 text-[12px] font-bold text-white placeholder:text-[color:var(--oem-ink-3,rgba(240,235,224,0.4))] outline-none focus:border-[#E0A23C]"
+            className="flex-1 min-w-0 bg-[var(--oem-surface-2)] border border-[color:var(--oem-line)] rounded-lg px-2.5 py-2 text-[12px] font-bold text-[color:var(--oem-ink)] placeholder:text-[color:var(--oem-ink-3,rgba(240,235,224,0.4))] outline-none focus:border-[#E0A23C]"
           />
           <button
             onClick={confirmAddLocation}
@@ -135,7 +137,7 @@ export const SavedLocationsPanel = memo(function SavedLocationsPanel({
           <button
             onClick={() => setAddingName(false)}
             aria-label="Vazgeç"
-            className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 active:scale-90 transition-all bg-white/[0.04] border border-white/[0.08]"
+            className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 active:scale-90 transition-all bg-[var(--oem-surface-2)] border border-[color:var(--oem-line)]"
           >
             <X className="w-4 h-4 text-[color:var(--oem-ink-3,rgba(240,235,224,0.52))]" />
           </button>
@@ -144,7 +146,7 @@ export const SavedLocationsPanel = memo(function SavedLocationsPanel({
         <button
           onClick={startAddLocation}
           disabled={!gpsLat || !gpsLon}
-          className="w-full flex items-center gap-2 px-3 py-2.5 border-b border-white/[0.06] active:scale-[0.98] transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+          className="w-full flex items-center gap-2 px-3 py-2.5 border-b border-[color:var(--oem-line)] active:scale-[0.98] transition-all disabled:opacity-40 disabled:cursor-not-allowed"
           style={{ background: 'rgba(224,162,60,0.08)' }}
         >
           <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
@@ -152,7 +154,7 @@ export const SavedLocationsPanel = memo(function SavedLocationsPanel({
             <Plus className="w-4 h-4" style={{ color: '#E0A23C' }} />
           </div>
           <div className="flex flex-col items-start min-w-0">
-            <span className="text-[12px] font-black uppercase tracking-wider leading-none" style={{ color: '#E8B86A' }}>
+            <span className="text-[12px] font-black uppercase tracking-wider leading-none" style={{ color: 'var(--oem-accent-strong, #B7791F)' }}>
               Konum Ekle
             </span>
             <span className="text-[9px] font-bold text-[color:var(--oem-ink-3,rgba(240,235,224,0.52))] mt-1">
@@ -163,7 +165,7 @@ export const SavedLocationsPanel = memo(function SavedLocationsPanel({
       )}
 
       {addError && (
-        <div className="mx-2 mt-2 px-2 py-1 rounded-lg text-[10px] font-mono text-center bg-red-900/60 border border-red-700/50 text-red-300">
+        <div className="mx-2 mt-2 px-2 py-1 rounded-lg text-[10px] font-mono text-center bg-[var(--oem-danger-soft)] border border-[var(--oem-danger)] text-[color:var(--oem-danger)]">
           {addError}
         </div>
       )}
@@ -181,7 +183,7 @@ export const SavedLocationsPanel = memo(function SavedLocationsPanel({
           customLocations.map((loc) => (
             <div
               key={loc.id}
-              className="flex items-center gap-1.5 px-3 py-2 border-b border-white/[0.04] last:border-0 hover:bg-white/[0.03]"
+              className="flex items-center gap-1.5 px-3 py-2 border-b border-[color:var(--oem-line)] last:border-0 hover:bg-[var(--oem-surface-2)]"
             >
               {editingId === loc.id ? (
                 <>
@@ -192,7 +194,7 @@ export const SavedLocationsPanel = memo(function SavedLocationsPanel({
                     onChange={(e) => setEditInput(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter') confirmRename(); if (e.key === 'Escape') setEditingId(null); }}
                     maxLength={60}
-                    className="flex-1 min-w-0 bg-white/[0.06] border border-white/[0.12] rounded-lg px-2 py-1.5 text-[11px] font-bold text-white outline-none focus:border-[#E0A23C]"
+                    className="flex-1 min-w-0 bg-[var(--oem-surface-2)] border border-[color:var(--oem-line)] rounded-lg px-2 py-1.5 text-[11px] font-bold text-[color:var(--oem-ink)] outline-none focus:border-[#E0A23C]"
                   />
                   <button
                     onClick={confirmRename}
@@ -205,7 +207,7 @@ export const SavedLocationsPanel = memo(function SavedLocationsPanel({
                   <button
                     onClick={() => setEditingId(null)}
                     aria-label="Vazgeç"
-                    className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 active:scale-90 transition-all bg-white/[0.04] border border-white/[0.08]"
+                    className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 active:scale-90 transition-all bg-[var(--oem-surface-2)] border border-[color:var(--oem-line)]"
                   >
                     <X className="w-3.5 h-3.5 text-[color:var(--oem-ink-3,rgba(240,235,224,0.52))]" />
                   </button>
@@ -230,7 +232,7 @@ export const SavedLocationsPanel = memo(function SavedLocationsPanel({
                       <MapPin className="w-3 h-3" style={{ color: '#E0A23C' }} />
                     </div>
                     <div className="flex flex-col min-w-0">
-                      <span className="text-[11px] font-black text-white truncate leading-none">
+                      <span className="text-[11px] font-black text-[color:var(--oem-ink)] truncate leading-none">
                         {loc.name}
                       </span>
                       <span className="text-[9px] font-mono text-[color:var(--oem-ink-3,rgba(240,235,224,0.52))] mt-1 truncate">
@@ -245,7 +247,7 @@ export const SavedLocationsPanel = memo(function SavedLocationsPanel({
                     onClick={() => shareLocation(loc)}
                     disabled={shareBusyId === loc.id}
                     aria-label={`${loc.name} — paylaş`}
-                    className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 active:scale-90 transition-all bg-white/[0.05] border border-white/[0.10] disabled:opacity-50"
+                    className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 active:scale-90 transition-all bg-[var(--oem-surface-2)] border border-[color:var(--oem-line)] disabled:opacity-50"
                   >
                     {shareBusyId === loc.id
                       ? <Loader2 className="w-3.5 h-3.5 animate-spin text-[color:var(--oem-ink-3,rgba(240,235,224,0.52))]" />
@@ -254,7 +256,7 @@ export const SavedLocationsPanel = memo(function SavedLocationsPanel({
                   <button
                     onClick={() => startRename(loc)}
                     aria-label={`${loc.name} — adını değiştir`}
-                    className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 active:scale-90 transition-all bg-white/[0.05] border border-white/[0.10]"
+                    className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 active:scale-90 transition-all bg-[var(--oem-surface-2)] border border-[color:var(--oem-line)]"
                   >
                     <Pencil className="w-3.5 h-3.5 text-[color:var(--oem-ink-3,rgba(240,235,224,0.7))]" />
                   </button>

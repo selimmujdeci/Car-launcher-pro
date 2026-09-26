@@ -59,6 +59,8 @@ export interface GetAppsResult {
 export interface NativeDeviceStatus {
   btConnected: boolean;
   btDevice: string;      // connected BT device name (empty if none)
+  /** Tüm bağlı BT cihazları — eski plugin sürümünde yok. */
+  btConnectedDevices?: Array<{ name: string; address: string }>;
   wifiConnected: boolean;
   wifiName: string;      // SSID (requires ACCESS_FINE_LOCATION on API 26+)
   battery: number;       // 0–100
@@ -365,6 +367,12 @@ export interface NativeAuthoritySnapshot {
   gaplessSupported?:  boolean;
   renderingVerified:  boolean;
   recoveryCount?:     number;
+  /** Parçaya özgü çalma hatası sayacı + son olay (native atlama kararının gözlemi). */
+  itemErrorCount?:    number;
+  lastErrorTitle?:    string;
+  lastErrorCode?:     number;
+  /** SKIPPED | END | HALTED */
+  lastErrorAction?:   string;
   shuffle?:           boolean;
   repeat?:            string;   // off|one|all
   title?:             string;
@@ -664,6 +672,16 @@ export interface NativeThermalResult {
   readonly readableCount: number;
   /** `readableCount > 0` — hiçbir bölge okunamadıysa false. */
   readonly available: boolean;
+  /**
+   * `PowerManager.getCurrentThermalStatus()` — ÜRETİCİ KALİBRELİ termal hüküm
+   * (0=NONE · 1=LIGHT · 2=MODERATE · 3=SEVERE · 4=CRITICAL · 5=EMERGENCY · 6=SHUTDOWN).
+   *
+   * Ham die sıcaklığından FARKLIDIR: üretici cilt sıcaklığını da hesaba katarak
+   * kalibre eder, bu yüzden eşik tahminine gerek bırakmaz. HAL ölü olan cihazlarda
+   * (bazı head unit'ler) alan HİÇ GELMEZ → `undefined` = UNAVAILABLE, sahte
+   * "serin" hükmü üretilmez.
+   */
+  readonly thermalStatus?: number;
 }
 
 export interface NativeDeviceProfile {
@@ -678,6 +696,19 @@ export interface NativeDeviceProfile {
   webViewVersion: string;   // Chrome version string or ""
   /** 'low' | 'mid' | 'high' — mapped from RAM + SDK level */
   deviceClass:    'low' | 'mid' | 'high';
+  /**
+   * HYBRID-F0 · GERÇEK KAYNAK KANITI (opsiyonel — eski APK/plugin sürümünde YOK).
+   * `ActivityManager.MemoryInfo.availMem` — o anki kullanılabilir RAM (MB). Anlık
+   * ölçümdür (arka plan basıncına göre dalgalanır); tier kararı BURADAN verilmez,
+   * yalnız `deviceCapabilities`'in girdisidir.
+   */
+  availMemMb?:      number;
+  /** `Runtime.getRuntime().availableProcessors()` — `navigator.hardwareConcurrency`in native karşılığı. */
+  cpuCoreCount?:    number;
+  /** `Build.SUPPORTED_ABIS` — ör. `["arm64-v8a","armeabi-v7a"]`. Boşsa alan hiç YOK (uydurma dizi üretilmez). */
+  supportedAbis?:   string[];
+  /** `filesDir.getUsableSpace()` (MB) — uygulamanın yazabileceği gerçek boş alan. */
+  usableStorageMb?: number;
 }
 
 /**
@@ -1506,7 +1537,7 @@ export interface CarLauncherPlugin {
   // Bluetooth bağlantı değişiklikleri — araç BT sistemine bağlan/bağlantı kes
   addListener(
     event: 'btChanged',
-    handler: (data: { connected: boolean; deviceName: string }) => void,
+    handler: (data: { connected: boolean; deviceName: string; deviceAddress?: string }) => void,
   ): Promise<PluginListenerHandle>;
 
   addListener(
@@ -1699,19 +1730,29 @@ export interface CarLauncherPlugin {
   setNavigationActive(options: { active: boolean }): Promise<void>;
 
   /**
-   * PIN güvenliği — Android Keystore + EncryptedSharedPreferences
+   * LOCAL PIN (valet/geofence koruması) — Android Keystore destekli
+   * EncryptedSharedPreferences + PBKDF2-SHA256. Otorite NATIVE'dedir.
    *
-   * Java implementasyonu (CarLauncherPlugin.java):
-   *   setPinHash   → EncryptedSharedPreferences.putString("pin_hash", hash)
-   *   verifyPin    → hash(attempt).equals(prefs.getString("pin_hash"))
-   *   clearPin     → EncryptedSharedPreferences.remove("pin_hash")
+   * Wave 12B: eski `setPinHash(hash)` sözleşmesi KALDIRILDI — hash'i JS
+   * üretiyordu, yani güven sınırı yanlış yerdeydi (JS istediği doğrulayıcıyı
+   * yazabilirdi) ve 4 haneli PIN için düz SHA-256 çevrimdışı kırılır. Artık JS
+   * yalnız ham kullanıcı girdisini taşır; türetme/karşılaştırma/sayaç
+   * native'dedir ve doğrulayıcı JS'e HİÇ dönmez.
    *
-   * Bu metodlar TypeScript'te tanımlıdır; Java tarafı yoksa
-   * pinService.ts sessionStorage fallback'ine düşer.
+   * `status` deterministik sözleşmedir (string AYRIŞTIRMA ile yetki kurulmaz):
+   *   OK · WRONG · NOT_SET · ALREADY_SET · LOCKED · INVALID
+   * Çağrı reject ederse çağıran FAIL-CLOSED davranır (UNKNOWN != UNLOCKED).
    */
-  setPinHash(options: { hash: string }): Promise<void>;
-  verifyPin(options: { attempt: string }): Promise<{ match: boolean }>;
-  clearPin(): Promise<void>;
+  localPinStatus(): Promise<{
+    configured: boolean; locked: boolean; remainingSec: number; failedAttempts: number;
+  }>;
+  /** İlk kurulum; PIN zaten varsa ALREADY_SET döner. */
+  setLocalPin(options: { pin: string }): Promise<{ status: string }>;
+  verifyLocalPin(options: { pin: string }): Promise<{ status: string; remainingSec?: number }>;
+  /** Mevcut PIN kanıtı ZORUNLU (atomik doğrula+yaz). */
+  changeLocalPin(options: { current: string; next: string }): Promise<{ status: string }>;
+  /** Mevcut PIN kanıtı ZORUNLU — kanıtsız kaldırma bypass'tir. */
+  clearLocalPin(options: { current: string }): Promise<{ status: string }>;
 
   /**
    * Expert Trust mühürü — HMAC-SHA256 anahtarı Android Keystore'da tutulur (ham seed WebView'da yok).
@@ -1869,13 +1910,10 @@ export interface CarLauncherPlugin {
   triggerAlarm(): Promise<NativeVehicleCommandResult>;
   stopAlarm():    Promise<NativeVehicleCommandResult>;
 
-  // H-4 Native Command Service — CommandService.java kuyruk okuma
-  /** CommandService.java'nın WebView yokken biriktirdiği komut kuyruğunu okur (JSON) */
-  getQueuedNativeCommands?(): Promise<{ commands: string }>;
-  /** MCU sonuç listesini okur — startup'ta Supabase status sync için */
-  getNativeCommandResults?(): Promise<{ results: string }>;
-  /** Hem komut kuyruğunu hem sonuç listesini temizler */
-  clearNativeCommandQueue?(): Promise<void>;
+  /* H-4 native komut kuyruğu köprüleri (getQueuedNativeCommands /
+     getNativeCommandResults / clearNativeCommandQueue) MRI F-02'de kaldırıldı:
+     kuyruğun tek üreticisi olan native fiziksel yürütücü kaldırıldı. Komut
+     durumunun tek yazarı kanonik `update_command_status` RPC'sidir. */
 
   /**
    * OBD El Sıkışması — bağlantı ısınma sonrası çağrılır (W5-OBD-PR1).
@@ -1953,7 +1991,16 @@ export interface CarLauncherPlugin {
    *
    * Opsiyonel (`?`): eski plugin sürümlerinde yok → çağıran guard'lar (graceful degrade).
    */
-  readDtcFromEcu?(options: { tx: string; rx: string; mode: '03' | '07' | '0A' }): Promise<{
+  readDtcFromEcu?(options: {
+    tx: string; rx: string; mode: '03' | '07' | '0A';
+    /**
+     * P0-OBD-DTC-INIT/2 — adresleme matrisinin BU ECU için ÖLÇTÜĞÜ K-line
+     * yeniden başlatma zorunluluğu (`KwpAddressingVerdict.requiredInit`).
+     * YALNIZ kanıtlanmış hedefle yapılan TEK SEFERLİK yeniden okumada gönderilir;
+     * ilk turda ALAN HİÇ YAZILMAZ → davranış eskisiyle birebir aynı kalır.
+     */
+    initFirst?: 'FAST' | 'SLOW' | 'SC81';
+  }): Promise<{
     codes: string[];
     supported: boolean;
     /**
@@ -2013,6 +2060,43 @@ export interface CarLauncherPlugin {
   }>;
 
   /**
+   * ÜRETİCİ DTC SİLME — UDS 0x14 (ClearDiagnosticInformation, FFFFFF), TEK ECU.
+   * YIKICI: yalnız `dtcService.clearManufacturerDtcs` çağırır (yetki + yazma +
+   * üretici kapısı ARKASINDA). Native yalnız fiziksel CAN hedefini kabul eder.
+   * `clearDtcCodes` ile aynı sözleşme: ECU'nun ret cevabı `outcome`'da döner,
+   * yalnız taşıma hatası reject eder. `raw` taşınmaz (motor ham metni vermez).
+   * Opsiyonel: eski plugin'de yoktur.
+   */
+  /** Eşleşmiş TELEFONLAR (BT sınıfı PHONE) — `connected` yoksa bilinmiyor. */
+  getBluetoothPhones?(): Promise<{
+    state: 'NO_ADAPTER' | 'NO_PERMISSION' | 'OFF' | 'ON';
+    phones?: Array<{ name: string; connected?: boolean }>;
+  }>;
+
+  /* ── Telefon Merkezi · bildirim aktarımı (NotificationMirror) ── */
+  /** Kullanıcı "Bildirim erişimi" verdi mi — ölçülür. `connected` = dinleyici şu an
+   *  bağlı mı (değilse native yeniden bağlama ister). */
+  getNotificationAccess?(): Promise<{ granted: boolean; connected?: boolean }>;
+  openNotificationAccessSettings?(): Promise<{ opened: boolean }>;
+  /** Mesajın KENDİ yanıt eylemiyle; yoksa ok:false (sahte gönderim yok). */
+  replyToNotification?(opts: { key: string; text: string }): Promise<{ ok: boolean; reason?: string }>;
+  /** Arama eylemi: ANSWER · DECLINE · HANG_UP · CALL_BACK (cevapsız aramada "Geri ara"). */
+  invokeNotificationAction?(opts: { key: string; kind: 'ANSWER' | 'DECLINE' | 'HANG_UP' | 'CALL_BACK' }): Promise<{ ok: boolean; reason?: string }>;
+  dismissNotification?(opts: { key: string }): Promise<{ ok: boolean }>;
+  /** Dinleyici kurulduktan sonra süren/çalan aramaları yeniden yayınlatır;
+   *  `activeCallKeys` = şu an aktif arama bildirimleri (dinleyici yoksa boş). */
+  replayActiveCallNotifications?(): Promise<{ replayed: boolean; activeCallKeys?: string[] }>;
+
+  clearUdsDtcs?(options: { tx: string; rx: string }): Promise<{
+    tx: string;
+    /** POSITIVE | NEGATIVE | NO_DATA */
+    outcome: string;
+    nrc?: string;
+    protocol?: string;
+    elapsedMs: number;
+  }>;
+
+  /**
    * V-08 — KWP2000 Service 0x18 (ReadDTCByStatus): KWP araçlarda üretici DTC'leri.
    *
    * UDS 0x19'un KWP KARŞILIĞIDIR — KWP araçlarda (Renault sınıfı, çoğu 2000-2008
@@ -2066,7 +2150,7 @@ export interface CarLauncherPlugin {
      * Başlatma çalışan oturumu anlık böler; çağıran bunu yalnız hat canlılığı
      * ÖLÇÜLDÜKTEN sonra ister.
      */
-    init?: 'FAST' | 'SLOW';
+    init?: 'FAST' | 'SLOW' | 'SC81';
   }): Promise<{
     /** GERÇEKTEN gönderilen istek; gönderilmediyse ''. */
     request: string;
@@ -2102,6 +2186,14 @@ export interface CarLauncherPlugin {
      * Tuning atomiktir — okuma düşse bile restore ÇALIŞIR.
      */
     isoTpTuning?: boolean;
+    /**
+     * P0-OBD-DTC-INIT — adresleme matrisinin (`kwpAddressingProbe`) BU ECU için
+     * ÖLÇTÜĞÜ K-line yeniden-başlatma zorunluluğu (`requiredInit`). Yalnız KWP
+     * (6 haneli tx) dalında anlamlıdır; native ATSH sonrası, isteği göndermeden
+     * ÖNCE ATFI/ATSI'yi TEKRARLAR. Ölçülmediyse ALAN HİÇ GÖNDERİLMEZ (uydurma
+     * başlatma komutu YOK) — davranış eskisiyle birebir aynı kalır.
+     */
+    initFirst?: 'FAST' | 'SLOW' | 'SC81';
   }): Promise<{
     raw: string; kind: string;
     outcome: 'ok' | 'negative_nrc' | 'no_response' | 'timeout' | 'malformed' | 'transport_error' | 'not_addressable';

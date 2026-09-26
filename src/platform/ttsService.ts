@@ -21,8 +21,20 @@ import { isLowEndDevice } from './headUnitCompat';
 import { tryPlayClip, cancelClip } from './voiceClips';
 import { speakOnline, isOnlineTtsAvailable, cancelOnline } from './onlineTtsService';
 import { speakEdge, isEdgeTtsAvailable, cancelEdge } from './edgeTtsService';
+import { beginPcmPlayback, cancelPcmPlayback, type PcmPlaybackHandle } from './livePcmTtsService';
 /* MAVI-F0: ilk duyulabilir ses ölçümü (YALNIZ ÖLÇÜM — hiçbir TTS kararını etkilemez). */
 import { markMaviLatency } from './assistant/maviLatencyTrace';
+import { DEVELOPER_FEATURES_ENABLED } from './debug/developerFeatures';
+
+/* Geliştirici derlemesi: söylenen metnin sınırlı kaydı (Mavi smoke testi).
+   Satış derlemesinde ölü kod olarak elenir; davranışı değiştirmez. */
+function _devLogSpeech(kind: string, text: string): void {
+  if (!DEVELOPER_FEATURES_ENABLED || typeof window === 'undefined') return;
+  const w = window as unknown as { __carosSpeech?: Array<{ k: string; t: string; at: number }> };
+  const log = (w.__carosSpeech ??= []);
+  log.push({ k: kind, t: text.slice(0, 300), at: Date.now() });
+  if (log.length > 300) log.splice(0, log.length - 300);
+}
 
 /* ── Platform detection ──────────────────────────────────── */
 
@@ -585,6 +597,7 @@ interface SpeakOptions {
 
 export function ttsSpeak(text: string, opts: SpeakOptions = {}): void {
   if (!text.trim()) return;
+  _devLogSpeech('speak', text);
 
   const now = Date.now();
   if (!opts.force && text === _lastSpokenText && now - _lastSpokenAt < MIN_REPEAT_MS) {
@@ -759,6 +772,7 @@ export function ttsCancel(): void {
   cancelClip();    // çalan premium klibi de durdur
   cancelEdge();    // uçuştaki/çalan Edge asistan sesini de durdur
   cancelOnline();  // uçuştaki/çalan online asistan sesini de durdur
+  cancelPcmPlayback(); // Gemini Live PCM sesi de aynı otoriteden kesilir
   if (_isNative) {
     CarLauncher.ttsStop()
       .then(() => { _endTtsDuck(); })
@@ -781,7 +795,7 @@ export function ttsCancel(): void {
  *   → "Sağa dön, Bağdat Caddesi"
  */
 const _DIST_PATTERNS = [
-  /\d+[\s.,]*(?:km|kilometre|m|metre)\s+sonra\s*/gi,
+  /\d+(?:[.,]\d+)?\s*(?:km|kilometre|m|metre)\s+sonra\s*/gi,  // "1,5 kilometre sonra" dahil
   /yaklaşık\s+\d+\s+\w+\s+sonra\s*/gi,
 ];
 
@@ -872,9 +886,52 @@ export function speakFeedback(feedback: string): void {
  *   3) Native/web TTS yedeği (varsa)
  * Böylece TTS motoru OLMAYAN head unit'lerde bile asistan tam sesli çalışır.
  */
+/**
+ * GEMINI LIVE · ASİSTAN CEVABI SES OLARAK GELİYOR (metin yok, sentez yok).
+ *
+ * Tek seslendirme otoritesi burasıdır: Live'ın PCM akışı da `speakAssistant`
+ * ile AYNI kapıdan (bu fonksiyon) geçer — uçuştaki her kanal susturulur, `isTtsSpeaking`
+ * saati kurulur, taşıma `WEBVIEW_AUDIO` işaretlenir (wake self-echo kapısı ve
+ * barge-in hakemi bunu okur), bitişte `_notifyTtsEnd` takip dinlemesini
+ * tetikler. Çağıran (voice katmanı) parçaları `push`, bitince `end` der;
+ * `ttsCancel` her zamanki gibi keser.
+ *
+ * `null` → Web Audio yok (Live bu turda KULLANILMAZ; REST+TTS yolu çalışır).
+ * `__SAFETY_LOCK__` altında da `null`: kilitliyken asistan sesi çalmaz.
+ */
+export function speakLivePcm(onEnd?: () => void): PcmPlaybackHandle | null {
+  if (typeof window !== 'undefined' && (window as unknown as Record<string, unknown>).__SAFETY_LOCK__) return null;
+  if (!_isNative && isTTSAvailable()) window.speechSynthesis.cancel();
+  cancelClip(); cancelEdge(); cancelOnline();
+  const seq = ++_speakSeq;
+  _markSpeakingStart();
+  const reason = _currentDuckReason();
+  const handle = beginPcmPlayback(() => {
+    if (seq !== _speakSeq) return;   // daha yeni söz devraldı → bayat bitiş follow-up tetiklemez
+    _notifyTtsEnd();
+    onEnd?.();
+  }, reason);
+  if (!handle) { _markSpeakingEnd(); return null; }
+  _markTransport('WEBVIEW_AUDIO');   // MAVI-F12: WebView'den çalar → mikrofon açık kalır
+  let _devPcmBytes = 0;
+  return {
+    get active(): boolean { return handle.active; },
+    push: (pcm: ArrayBuffer): void => {
+      _devPcmBytes += pcm.byteLength;
+      handle.push(pcm);
+      // Akış ortası: emniyet tavanı tazelenir (uzun cevap ortada kesilmesin).
+      _refreshSpeakingClock();
+      _speakingMaxMs = Math.max(_speakingMaxMs, MAX_SPEAKING_MS);
+    },
+    end: (): void => { _devLogSpeech('pcm', `${_devPcmBytes} bayt`); handle.end(); },
+    cancel: (): void => { handle.cancel(); if (seq === _speakSeq) _markSpeakingEnd(); },
+  };
+}
+
 export function speakAssistant(text: string, onEnd?: () => void): void {
   const t = text?.trim();
   if (!t) return;
+  _devLogSpeech('assistant', t);
   if (typeof window !== 'undefined' && (window as unknown as Record<string, unknown>).__SAFETY_LOCK__) return;
 
   // Premium/asistan cevabı BAŞLARKEN uçuştaki HER kanalı sustur: tarayıcı ara sözü
@@ -883,7 +940,7 @@ export function speakAssistant(text: string, onEnd?: () => void): void {
   // duyuluyordu. _speakSeq bumplanır → kesilen web ara sözünün bitişi follow-up'ı
   // erken tetiklemez (web settle seq-korumalı).
   if (!_isNative && isTTSAvailable()) window.speechSynthesis.cancel();
-  cancelClip(); cancelEdge(); cancelOnline();
+  cancelClip(); cancelEdge(); cancelOnline(); cancelPcmPlayback();
   _speakSeq++;
   // Asistan cevabı BAŞLIYOR — hangi tier'a düşerse düşsün (klip/Edge/online/native)
   // emniyet zamanlayıcıları bu cevabı ortasından kesmesin (isTtsSpeaking).

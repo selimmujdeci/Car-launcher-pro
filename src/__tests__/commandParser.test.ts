@@ -10,7 +10,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { parseCommandFull, parseCommand, buildCommandGrammar } from '../platform/commandParser';
+import { parseCommandFull, parseCommand, buildCommandGrammar, tryParseReplyMessage } from '../platform/commandParser';
 import { tryParseMusicCommand } from '../platform/musicCommandParser';
 
 describe('parseCommandFull — exact match', () => {
@@ -351,4 +351,50 @@ describe('commandParser · hafıza cümlesi muafiyeti (SAHA 2026-09-11)', () => 
     expect(parseCommandFull('burayı ev diye kaydet').command?.type).toBe('save_location');
     expect(parseCommandFull('yerimi kaydet').command?.type).toBe('save_location');
   });
+});
+
+/* Telefon Merkezi · "Mavi, oku" (read_message) — kısa 'oku' tam kelime; araç
+   "oku" kalıpları ve "okula" gasp edilmez. */
+describe('read_message', () => {
+  for (const q of ['oku', 'evet oku', 'mesajı oku', 'okur musun', 'okuyabilir misin', 'kim yazdı']) {
+    it(`"${q}" → read_message`, () => {
+      expect(parseCommandFull(q).command?.type).toBe('read_message');
+    });
+  }
+  it('"okula git" → read_message DEĞİL', () => {
+    expect(parseCommandFull('okula git').command?.type).not.toBe('read_message');
+  });
+  for (const q of ['obd oku', 'sistemi oku']) {
+    it(`"${q}" → read_message DEĞİL`, () => {
+      expect(parseCommandFull(q).command?.type).not.toBe('read_message');
+    });
+  }
+});
+
+/* Telefon Merkezi · sesli cevap (reply_message) — serbest metin korunur. */
+describe('reply_message', () => {
+  const cases: Array<[string, string]> = [
+    ['mesaja nasılsın diye cevap yaz', 'nasılsın'],
+    ['Mesaja Nasılsın diye cevap yaz', 'Nasılsın'],
+    ['mavi, mesaja geliyorum diye yanıt ver', 'geliyorum'],
+    ['yolda olduğumu söyle diye cevapla', 'yolda olduğumu söyle'],
+    ['cevap yaz birazdan ararım', 'birazdan ararım'],
+    ['mesaja cevap yaz: tamam', 'tamam'],
+    ['onaylıyorum diye cevap yaz', 'onaylıyorum'],
+  ];
+  for (const [q, text] of cases) {
+    it(`"${q}" → reply_message "${text}"`, () => {
+      const r = parseCommandFull(q);
+      expect(r.command?.type).toBe('reply_message');
+      expect(r.command?.extra?.text).toBe(text);
+    });
+  }
+  it('metinsiz "mesaja cevap yaz" → boş metin (Mavi sorar)', () => {
+    expect(tryParseReplyMessage('mesaja cevap yaz')).toBe('');
+  });
+  for (const q of ['cevap ver', 'aramaya cevap ver', 'mesajı oku', 'eve git']) {
+    it(`"${q}" → reply_message DEĞİL`, () => {
+      expect(parseCommandFull(q).command?.type).not.toBe('reply_message');
+    });
+  }
 });

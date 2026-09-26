@@ -1,9 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import {
-  RTG4_MAGIC, captureStableRtg3SearchState, parseRoutingGraph,
-  restoreLocalRtg3SearchState, stableDirectedEdgeId, stableRestrictionId, viaWayStep,
-  RTG3_VIA_WAY_FLAG, RTG3_VIA_WAY_FINAL,
-} from '../platform/navigation/map/graph/rtg2Reader';
+import { RTG4_MAGIC, viaWayStep, RTG3_VIA_WAY_FLAG, RTG3_VIA_WAY_FINAL } from '../platform/navigation/map/graph/rtg2Reader';
+import { captureStableRtg3SearchState, parseRoutingGraph, restoreLocalRtg3SearchState, stableDirectedEdgeId, stableRestrictionId } from '../platform/navigation/map/graph/rtg2Parse';
 
 type Edge = readonly [number, number, bigint];
 type Restriction = readonly [number, number, number, number, number, number, bigint];

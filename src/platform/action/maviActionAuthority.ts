@@ -45,18 +45,13 @@ import type { VehicleContext } from '../aiVoiceService';
  * ════════════════════════════════════════════════════════════════════════ */
 
 /**
- * Bu hızın ÜSTÜ tartışmasız "hareket" sayılır. OBD hızı tamsayı km/h yayınlar;
- * 3 km/h el freni çekili araçtaki sensör gürültüsüne pay bırakır ama yürüme
- * hızını geçmez (`obd/writeGate` eşiğiyle aynı ailedendir).
+ * Hareket eşiği ve politika tipi artık TEK yerde (`motionSafetyPolicy`) tanımlıdır
+ * (MRI F-03): uzak komut yolu da aynı karar fonksiyonunu tüketir. Buradaki
+ * yeniden dışa aktarım mevcut çağıranları (devtools/testler) kırmamak içindir.
  */
-export const MOTION_STOPPED_MAX_KMH = 3;
-
-/** Hareket politikası — M2 `motionState` sözleşmesine dayanır. */
-export type MotionPolicy =
-  /** Hareket durumu ne olursa olsun yürüyebilir. */
-  | 'any'
-  /** YALNIZ DOĞRULANMIŞ `stopped`. `moving` VE `unknown` reddedilir (fail-closed). */
-  | 'requires_stopped';
+export { MOTION_STOPPED_MAX_KMH } from './motionSafetyPolicy';
+export type { MotionPolicy } from './motionSafetyPolicy';
+import { judgeMotionSafety, type MotionPolicy } from './motionSafetyPolicy';
 
 /**
  * Araç etkili bir eylemin ihtiyaç duyduğu YÜRÜTÜCÜ PORTU (capability) adı.
@@ -415,22 +410,17 @@ export function evaluateVehicleAction(input: ActionGateInput): ActionGateOutcome
    * hareket hâlinde kapı açma kapısı sessizce AÇILIYORDU. Artık YALNIZ AÇIKÇA
    * doğrulanmış `stopped` geçer: `unknown` · `undefined` · çelişkili telemetri
    * hepsi REDDEDİLİR ("bilinmiyorsa duruyor varsayma"). */
-  if (def.motionPolicy === 'requires_stopped') {
-    const vctx  = input.vehicleCtx;
-    const motion = vctx?.motionState;
-    const speed  = typeof vctx?.speedKmh === 'number' && Number.isFinite(vctx.speedKmh)
-      ? vctx.speedKmh : null;
-    /* Hareket KANITI: üç bağımsız kaynaktan biri bile hareket diyorsa hareket sayılır. */
-    const movingProof = motion === 'moving'
-      || vctx?.isDriving === true
-      || (speed !== null && speed > MOTION_STOPPED_MAX_KMH);
-    /* Çelişki de kanıttır: "stopped" denip hız yüksekse telemetriye GÜVENİLMEZ. */
-    const verifiedStopped = motion === 'stopped' && !movingProof;
-    if (!verifiedStopped) {
-      return deny(intentResult(
-        input.intent, 'denied',
-        movingProof ? 'vehicle_moving' : 'motion_unverified',
-      ));
+  {
+    /* MRI F-03: karar TEK fonksiyondan (`judgeMotionSafety`) gelir; uzak komut yolu
+       (`commandListener`) da aynı fonksiyonu aynı kanıt sözleşmesiyle çağırır. */
+    const vctx = input.vehicleCtx;
+    const motion = judgeMotionSafety(def.motionPolicy, {
+      motionState: vctx?.motionState,
+      speedKmh:    vctx?.speedKmh,
+      isDriving:   vctx?.isDriving,
+    });
+    if (!motion.allow) {
+      return deny(intentResult(input.intent, 'denied', motion.reason));
     }
   }
 

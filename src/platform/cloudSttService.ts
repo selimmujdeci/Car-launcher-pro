@@ -13,6 +13,7 @@
  * İkisi de yoksa null (Vosk kalır).
  */
 import { geminiChatEndpoint } from './ai/gateway/models';
+import { allowsConnectivity } from './connectivity/connectivityGate';
 
 const GROQ_STT_ENDPOINT = 'https://api.groq.com/openai/v1/audio/transcriptions';
 const GEMINI_STT_ENDPOINT = geminiChatEndpoint();
@@ -20,13 +21,14 @@ const GEMINI_STT_ENDPOINT = geminiChatEndpoint();
 const DEFAULT_TIMEOUT_MS = 6_000;
 
 /**
- * İnternet kapısı — YALNIZ navigator.onLine. isAiNetHealthy() (Gemini devre kesici)
+ * İnternet kapısı — F7 kanonik `ConnectivityAuthority`. isAiNetHealthy() (Gemini devre kesici)
  * BİLİNÇLİ dışarıda: Groq Whisper / Gemini SES endpoint'i, Gemini SOHBET breaker'ından
  * bağımsız denenmeli (biri 429 olsa da diğeri/STT çalışabilir). Kötü ağ → 6sn timeout
  * + fail-soft null → Vosk yedeği. Böylece online'da bulut STT HER ZAMAN şans bulur.
  */
 function hasRealNet(): boolean {
-  return typeof navigator !== 'undefined' && !!navigator.onLine;
+  /* F7 — kanonik otorite: 'bagli' degil, 'bu is yapilabilir mi'. */
+  return allowsConnectivity('CLOUD_INTERACTIVE');
 }
 
 /** Bulut STT hiç denenmeli mi? (online + en az bir anahtar). Native returnAudio kapısı için. */

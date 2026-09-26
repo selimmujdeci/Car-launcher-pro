@@ -40,6 +40,8 @@ vi.mock('../platform/sensitiveKeyStore', () => ({
 }));
 
 vi.mock('../platform/connectivityService', () => ({
+  VEHICLE_API_KEY_SLOT: '__CAROS_VEHICLE_API_KEY__',
+  setQueueVehicleApiKeyResolver: vi.fn(),
   connectivityService: { enqueue: vi.fn(async () => {}) },
 }));
 

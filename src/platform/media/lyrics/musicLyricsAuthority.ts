@@ -41,12 +41,33 @@ import {
   notePersistWriteFailure, notePersistLoadRejectedRecord, noteSyncProjectionLatency,
 } from './musicLyricsTelemetry';
 
+import { buildLyricsQuery, lookupLrclib, type LyricsLookupOutcome, type LyricsLookupQuery } from './lrclibProvider';
+import { allowsConnectivity } from '../../connectivity/connectivityGate';
+import { subscribeConnectivity } from '../../connectivity/connectivityAuthority';
+
 const STORAGE_KEY = 'caros.music.f16.lyrics.v1';
 
 /** `null` = arandı, bulunamadı (dürüst NEGATİF sonuç — her açılışta yeniden native'e sorulmaz). */
 type CacheValue = LyricsResult | null;
 
 let cache = new Map<string, CacheValue>();
+
+/**
+ * Aynı önbellek kaydı → AYNI sonuç nesnesi. `peekLyrics` bir
+ * `useSyncExternalStore` anlık görüntüsüdür; veri değişmeden her okumada yeni
+ * nesne dönerse React bunu "değişti" sayıp sonsuz render'a girer. SAHA
+ * 2026-09-23 (telefon): internetten söz bulununca panel React #185 ile düştü ve
+ * tüm çekmece hata ekranına geçti (gömülü LRC'de de aynısı olurdu).
+ */
+const _availableByValue = new WeakMap<LyricsResult, LyricsQueryResult>();
+function availableResult(value: LyricsResult): LyricsQueryResult {
+  let r = _availableByValue.get(value);
+  if (!r) {
+    r = Object.freeze({ availability: 'AVAILABLE', result: value }) as LyricsQueryResult;
+    _availableByValue.set(value, r);
+  }
+  return r;
+}
 let loaded = false;
 const subs = new Set<() => void>();
 
@@ -103,10 +124,90 @@ export function subscribeLyricsCache(listener: () => void): () => void {
 export interface LyricsQueryResult {
   readonly availability: LyricsAvailability;
   readonly result: LyricsResult | null;
+  /** `RETRY_LATER`: internet yok/sunucu hatası — "bulunamadı" DEĞİL, bağlantı gelince yeniden denenir. */
+  readonly reason?: 'RETRY_LATER';
 }
 
 const UNKNOWN_RESULT: LyricsQueryResult = Object.freeze({ availability: 'UNKNOWN', result: null });
 const UNAVAILABLE_RESULT: LyricsQueryResult = Object.freeze({ availability: 'UNAVAILABLE', result: null });
+const RETRY_RESULT: LyricsQueryResult = Object.freeze({ availability: 'UNAVAILABLE', result: null, reason: 'RETRY_LATER' });
+
+/* ── İnternet sağlayıcısı (LRCLIB) — yalnız gömülü söz YOKSA ─────────────────
+   Bağlantı yoksa kalıcı NEGATİF yazılmaz: kimlik bekleme listesine alınır ve
+   kanonik bağlantı otoritesi (F7) hükmü değiştirdiğinde BİR KEZ yeniden
+   sorulur (timer/polling YOK). "İnternet var mı" kararı bu modülde VERİLMEZ:
+   iş sınıfı `LIGHTWEIGHT_INTERNET` olarak beyan edilir, karar kapıdadır. */
+const MAX_RETRY_LATER = 5;
+const _retryLater = new Map<string, { identity: CanonicalMediaIdentity; sourceClass: SourceClass | null }>();
+const _inflight = new Map<string, Promise<LyricsQueryResult>>();
+let _onlineLookup: ((q: LyricsLookupQuery) => Promise<LyricsLookupOutcome>) | null = null;
+let _connectivityUnsub: (() => void) | null = null;
+
+/** Test/DI dikişi — gerçek ağ çağrısı yerine geçer. */
+export function _setOnlineLyricsLookupForTest(fn: typeof _onlineLookup): void { _onlineLookup = fn; }
+
+/** Küçük, tekrar denenebilir bulut isteği — karar kanonik bağlantı kapısında. */
+function canFetchLyrics(): boolean {
+  return allowsConnectivity('LIGHTWEIGHT_INTERNET');
+}
+
+function installConnectivityRetry(): void {
+  if (_connectivityUnsub) return;
+  _connectivityUnsub = subscribeConnectivity(() => {
+    if (_retryLater.size === 0 || !canFetchLyrics()) return;
+    const pending = [..._retryLater.values()];
+    _retryLater.clear();
+    notify();
+    for (const p of pending) void primeLyricsForCurrentItem(p.identity, p.sourceClass);
+  });
+}
+
+function retryLater(key: string, identity: CanonicalMediaIdentity, sourceClass: SourceClass | null): LyricsQueryResult {
+  _retryLater.delete(key);
+  _retryLater.set(key, { identity, sourceClass });
+  while (_retryLater.size > MAX_RETRY_LATER) {
+    const oldest = _retryLater.keys().next();
+    if (oldest.done) break;
+    _retryLater.delete(oldest.value);
+  }
+  installConnectivityRetry();
+  notify();
+  return RETRY_RESULT;
+}
+
+function notFound(key: string, nowMs: number): LyricsQueryResult {
+  cacheSet(key, null);
+  noteResolved(null, 'NONE', nowMs);
+  return UNAVAILABLE_RESULT;
+}
+
+/** Gömülü söz yokken internetten dener; yanlış eşleşme yerine "bulunamadı" der. */
+async function tryOnline(
+  identity: CanonicalMediaIdentity, sourceClass: SourceClass | null, key: string, nowMs: number,
+): Promise<LyricsQueryResult> {
+  const q = buildLyricsQuery(identity);
+  if (!q) return notFound(key, nowMs);
+  if (!canFetchLyrics()) return retryLater(key, identity, sourceClass);
+  const out = await (_onlineLookup ?? lookupLrclib)(q);
+  if (out.kind === 'RETRY') return retryLater(key, identity, sourceClass);
+  if (out.kind === 'NOT_FOUND') return notFound(key, nowMs);
+  let lines: readonly LyricsLine[] | null = null;
+  let format: LyricsFormat = 'PLAIN';
+  if (out.lyrics.synced) {
+    lines = sanitizeSyncedLines(out.lyrics.synced);
+    format = 'SYNCED';
+  }
+  if (lines === null && out.lyrics.plain) {
+    lines = sanitizePlainText(out.lyrics.plain);
+    format = 'PLAIN';
+  }
+  if (lines === null) { noteParseFailure(); return notFound(key, nowMs); }
+  const result = makeLyricsResult(identity, format, lines, 'ONLINE_LRCLIB', nowMs, null);
+  if (result === null) { noteIdentityMismatchRejected(); return UNAVAILABLE_RESULT; }
+  cacheSet(key, result);   // persist() yalnız LOCAL_ kaydı yazar → internet sonucu diske GİTMEZ
+  noteResolved(format, 'ONLINE_LRCLIB', nowMs);
+  return availableResult(result);
+}
 
 /**
  * Yalnız ÖNBELLEKTEN okur — native çağırmaz, senkrondur.
@@ -116,6 +217,7 @@ export function peekLyrics(identity: CanonicalMediaIdentity | null): LyricsQuery
   ensureLoaded();
   const key = identity ? lyricsKeyFor(identity) : null;
   if (key === null) { noteIdentityMismatchRejected(); return UNAVAILABLE_RESULT; }
+  if (_retryLater.has(key)) return RETRY_RESULT;
   if (!cache.has(key)) { noteCacheMiss(); noteUnknown(); return UNKNOWN_RESULT; }
   noteCacheHit();
   const value = cache.get(key)!;
@@ -129,7 +231,7 @@ export function peekLyrics(identity: CanonicalMediaIdentity | null): LyricsQuery
       return UNKNOWN_RESULT;
     }
   }
-  return Object.freeze({ availability: 'AVAILABLE', result: value });
+  return availableResult(value);
 }
 
 /* ── Asenkron çözümleme (yalnız LOCAL + cache miss'te native çağırır) ────── */
@@ -161,29 +263,31 @@ export async function primeLyricsForCurrentItem(
   if (key === null || identity === null) { noteIdentityMismatchRejected(); return UNAVAILABLE_RESULT; }
 
   const cached = peekLyrics(identity);
-  if (cached.availability !== 'UNKNOWN') return cached;
+  if (cached.availability !== 'UNKNOWN' && cached.reason !== 'RETRY_LATER') return cached;
+  _retryLater.delete(key);
 
+  /* Panel ve Mavi aynı anda sorarsa TEK istek gider. */
+  const running = _inflight.get(key);
+  if (running) return running;
+  const job = resolveLyrics(identity, sourceClass, key, nowMs).finally(() => { _inflight.delete(key); });
+  _inflight.set(key, job);
+  return job;
+}
+
+async function resolveLyrics(
+  identity: CanonicalMediaIdentity, sourceClass: SourceClass | null, key: string, nowMs: number,
+): Promise<LyricsQueryResult> {
   if (sourceClass !== 'LOCAL' || !identity.libraryId) {
-    /* Sağlayıcı kaynağı bugün DESTEKLENMİYOR (§1) — native ÇAĞRILMAZ. */
-    cacheSet(key, null);
-    noteResolved(null, 'NONE', nowMs);
-    return UNAVAILABLE_RESULT;
+    /* Sağlayıcı kaynağında gömülü etiket YOK — native ÇAĞRILMAZ, internet denenir. */
+    return tryOnline(identity, sourceClass, key, nowMs);
   }
   const track = getMusicLibrarySnapshot().tracks.find((t) => t.id === identity.libraryId);
-  if (!track || !track.contentUri) {
-    cacheSet(key, null);
-    noteResolved(null, 'NONE', nowMs);
-    return UNAVAILABLE_RESULT;
-  }
+  if (!track || !track.contentUri) return tryOnline(identity, sourceClass, key, nowMs);
 
   try {
     const res = await readNative(track.contentUri);
     const row = res.results.find((r) => r.uri === track.contentUri) ?? res.results[0] ?? null;
-    if (!row || row.source === 'NONE') {
-      cacheSet(key, null);
-      noteResolved(null, 'NONE', nowMs);
-      return UNAVAILABLE_RESULT;
-    }
+    if (!row || row.source === 'NONE') return tryOnline(identity, sourceClass, key, nowMs);
     let lines: readonly LyricsLine[] | null = null;
     let format: LyricsFormat = 'PLAIN';
     if (row.source === 'ID3_SYLT' && row.synced) {
@@ -196,9 +300,7 @@ export async function primeLyricsForCurrentItem(
     }
     if (lines === null) {
       noteParseFailure();
-      cacheSet(key, null);
-      noteResolved(null, 'NONE', nowMs);
-      return UNAVAILABLE_RESULT;
+      return tryOnline(identity, sourceClass, key, nowMs);
     }
     /* Native taraf kaynağı `ID3_USLT`/`ID3_SYLT`/`VORBIS_LYRICS` olarak
        raporlar (bkz. `TrackLyricsExtractor.java` — bugün YALNIZ LOCAL
@@ -210,19 +312,18 @@ export async function primeLyricsForCurrentItem(
     const mappedSource = sourceMap[row.source];
     if (mappedSource === undefined) {
       noteParseFailure();
-      cacheSet(key, null);
-      noteResolved(null, 'NONE', nowMs);
-      return UNAVAILABLE_RESULT;
+      return tryOnline(identity, sourceClass, key, nowMs);
     }
     const result = makeLyricsResult(identity, format, lines, mappedSource, nowMs, track.generationModified);
     if (result === null) { noteIdentityMismatchRejected(); return UNAVAILABLE_RESULT; }
     cacheSet(key, result);
     noteResolved(format, result.source, nowMs);
-    return Object.freeze({ availability: 'AVAILABLE', result });
+    return availableResult(result);
   } catch {
-    /* Native yoksa (tarayıcı) veya izin reddedildiyse: kanıt YOK, uydurma YOK. */
+    /* Native yoksa (tarayıcı) veya izin reddedildiyse gömülü kanıt YOK —
+       internet denenir; o da yoksa dürüst sonuç döner, uydurma YOK. */
     noteUnknown();
-    return UNKNOWN_RESULT;
+    return tryOnline(identity, sourceClass, key, nowMs);
   }
 }
 
@@ -262,5 +363,9 @@ export function _resetMusicLyricsAuthorityForTest(): void {
   loaded = false;
   subs.clear();
   _nativeReader = null;
+  _onlineLookup = null;
+  _retryLater.clear();
+  _inflight.clear();
+  if (_connectivityUnsub) { _connectivityUnsub(); _connectivityUnsub = null; }
   try { safeStorage.removeItem(STORAGE_KEY); } catch { /* test ortamı — yoksay */ }
 }

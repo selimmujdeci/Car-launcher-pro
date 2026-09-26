@@ -79,7 +79,7 @@ export function recordRemoteFailure(): void {
 
 /**
  * Genel sağlayıcı hükmü.
- * `onlineHint` çağıranın gözlemidir (`navigator.onLine`) — bu modül DOM okumaz.
+ * `onlineHint` çağıranın gözlemidir (kanonik otorite) — bu modül DOM okumaz.
  * `offlineGraphUsable` çevrimdışı grafiğin gerçekten kullanılabilir olup olmadığı.
  */
 export function resolveProviderReadiness(

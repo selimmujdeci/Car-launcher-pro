@@ -13,7 +13,8 @@
  */
 
 import { bridge, type CommandResult }   from './bridge';
-import { fromAIResponse, type AppIntent } from './intentEngine';
+import { describeSettingResult } from './settingsVoice';
+import { fromAIResponse, stopNavigationResult, goHomeScreenResult, type AppIntent } from './intentEngine';
 import type { AIVoiceResult, VehicleContext } from './aiVoiceService';
 /* MAVI-F5: yürütme SONUCUNU capability gözlem seviyesine çevirir. Bu katman
    yeni bir yürütücü ya da ikinci bir gerçeklik kaynağı KURMAZ — yalnız kanonik
@@ -82,7 +83,7 @@ import { applyLiveStyle } from './liveStyleEngine';
 import { getWeatherNarrative } from './weatherService';
 import { useUnifiedVehicleStore } from './vehicleDataLayer/UnifiedVehicleStore';
 import { resolveAppByName } from './appRegistry';
-import { resolveScreen } from './screenRegistry';
+import { resolveScreen, getScreenById } from './screenRegistry';
 import { searchContacts, recordCall } from './contactsService';
 /* MAVI-F10: hafızanın TEK kanonik cephesi. `companionMemory.addFact/forgetFact`
    ARTIK ÇAĞRILMAZ — o yol hassas-veri kapısından GEÇMİYORDU (ölçülen kusur A)
@@ -462,6 +463,8 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<I
    * okunur ve tüm `_speak`/`_speakProgress` çağrılarına taşınır. `null` ise
    * (turn kavramı olmayan çağıran) kapı devre dışıdır → geriye uyumlu. */
   const _turn = ctx.turn ?? null;
+  /* Ev/iş sonucu da turun tek-cevap yuvasından konuşur (beyin cümlesi bastırılır). */
+  const _say = (t: string): void => _speak(t, isDriving, _turn);
 
   // Kara kutu: her dispatch anında son intent'i kaydet
   _lastIntent = intent.type;
@@ -516,7 +519,7 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<I
       case 'OPEN_NAVIGATION': {
         const dest = intent.payload.destination;
         if (isHomeWorkDestination(dest)) {
-          dispatchHomeWorkNavigation(dest);
+          dispatchHomeWorkNavigation(dest, Date.now(), _say);
           break;
         }
         ctx.launch(ctx.defaultNav);
@@ -530,6 +533,12 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<I
        * duyuyordu. Artık iki yol AYRI konuşur. (Rota isteği asenkrondur; port
        * BAĞLIYKEN bile cümle `ACCEPTED` seviyesindedir — doğrulama iddiası
        * taşımaz. Gerçek kanıt bekleyen gözlemle ölçülür.) */
+      /* "navigasyonu iptal et" — kapı yoktu; beyin en yakın yetenek olarak
+         rota BAŞLATIYORDU (smoke 2026-09-25). Yerel yolla AYNI sonuç. */
+      case 'STOP_NAVIGATION':
+        return stopNavigationResult();
+      case 'GO_HOME_SCREEN':
+        return goHomeScreenResult(ctx.openDrawer ? (t) => ctx.openDrawer?.(t) : undefined);
       case 'NAVIGATE_ADDRESS': {
         const dest = intent.payload.destination;
         if (dest && ctx.navigateToPlace) {
@@ -816,12 +825,13 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<I
         // İç ekran/panel aç-kapat (trafik, klima, arıza kodları, Gemini QR…).
         // Bulunamazsa SAHTE ONAY YOK — dürüstçe söyler.
         const scr    = (intent.payload.screen ?? '').trim();
-        const screen = scr ? resolveScreen(scr) : null;
+        const screen = scr ? (getScreenById(scr) ?? resolveScreen(scr)) : null;
         const closing = intent.payload.screenAction === 'close';
         if (screen) {
-          if (closing) (screen.close ?? (() => {}))();
-          else screen.open();
-          _speak(`${screen.label} ${closing ? 'kapatılıyor' : 'açılıyor'}`, isDriving, _turn);
+          const opened = closing ? ((screen.close ?? (() => {}))(), true) : screen.open() !== false;
+          _speak(opened
+            ? `${screen.label} ${closing ? 'kapatılıyor' : 'açılıyor'}`
+            : `${screen.label} şu an açılamıyor`, isDriving, _turn);
         } else {
           _speak(scr ? `${scr} ekranını bulamadım` : 'Hangi ekranı açayım?', isDriving, _turn);
         }
@@ -874,24 +884,18 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<I
         );
         const ev: SettingApplyEvidence | null = applied ?? null;
         _pendingSettingEvidence = evidenceFromSettingApply(ev);
-        if (!ev) {
-          return intentResult(intent.type, 'failed', 'setting_port_missing',
-            'Ayarı uygulayamadım.');
+        const r = describeSettingResult(intent.payload.settingKey, intent.payload.settingAction,
+          intent.payload.settingValue, ev);
+        /* Gerekçe kodu kanıt türünden (LAB/kilit): başarı YALNIZ geri okunmuş `APPLIED`. */
+        let reason: string;
+        switch (ev?.kind) {
+          case 'APPLIED':        reason = 'setting_readback'; break;
+          case 'DELIVERED':      reason = 'setting_unverified'; break;
+          case 'SURFACE_OPENED': reason = 'setting_surface_only'; break;
+          case 'REJECTED':       reason = 'setting_rejected'; break;
+          default:               reason = 'setting_port_missing';
         }
-        switch (ev.kind) {
-          case 'APPLIED':
-            return intentResult(intent.type, 'succeeded', 'setting_readback', 'Ayar uygulandı');
-          case 'DELIVERED':
-            /* §12.3 `TRANSPORT_ACK` satırı: gönderdim, olduğunu göremiyorum. */
-            return intentResult(intent.type, 'started', 'setting_unverified',
-              'Komutu gönderdim ama uygulandığını doğrulayamıyorum.');
-          case 'SURFACE_OPENED':
-            return intentResult(intent.type, 'started', 'setting_surface_only',
-              'Ayarlar ekranını açtım; bunu oradan seçmen gerekiyor.');
-          default:
-            return intentResult(intent.type, 'failed', 'setting_rejected',
-              'Ayarı değiştiremedim.');
-        }
+        return intentResult(intent.type, r.status, reason, r.text);
       }
       case 'ENABLE_DRIVING_MODE': {
         ctx.openDrawer?.('none');
@@ -899,9 +903,17 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<I
         break;
       }
       case 'TOGGLE_SLEEP_MODE': {
-        // MainLayout registerCommandHandler tarafından yakalanır
-        _speak('Uyku modu değiştirildi', isDriving, _turn);
-        break;
+        /* Eski yorum ("MainLayout yakalar") beyin yolu için DOĞRU DEĞİLDİ: hiçbir
+           şey değişmeden "değiştirildi" deniyordu (smoke 2026-09-25). Yerel yolla
+           aynı ayar yazılır ve geri okunur. */
+        const before = useStore.getState().settings.sleepMode;
+        useStore.getState().updateSettings({ sleepMode: !before });
+        const after = useStore.getState().settings.sleepMode;
+        if (after === before) {
+          return intentResult(intent.type, 'failed', 'sleep_mode_unchanged', 'Uyku modunu değiştiremedim.');
+        }
+        return intentResult(intent.type, 'succeeded', 'sleep_mode_readback',
+          after ? 'Uyku modu açıldı' : 'Uyku modu kapatıldı');
       }
       case 'SHOW_WEATHER': {
         ctx.openWeather?.();

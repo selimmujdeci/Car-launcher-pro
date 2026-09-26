@@ -52,7 +52,7 @@ export type StatusTone = 'ok' | 'warn' | 'error' | 'muted' | 'active';
 
 /**
  * @param wifiConnected deviceApi.wifiConnected (native yoklama)
- * @param online        navigator.onLine (internet erişilebilirliği — yeni ping YOK)
+ * @param online        kanonik internet erişilebilirliği (yeni ping YOK)
  */
 export function deriveWifiStatus(wifiConnected: boolean, online: boolean): WifiStatus {
   if (!wifiConnected && !online) return 'offline';

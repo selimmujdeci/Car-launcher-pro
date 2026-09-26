@@ -32,6 +32,8 @@ vi.mock('../platform/sensitiveKeyStore', () => ({
 }));
 
 vi.mock('../platform/connectivityService', () => ({
+  VEHICLE_API_KEY_SLOT: '__CAROS_VEHICLE_API_KEY__',
+  setQueueVehicleApiKeyResolver: vi.fn(),
   connectivityService: { enqueue: vi.fn(async () => {}) },
 }));
 
@@ -107,7 +109,9 @@ describe('ensureDeviceRegistered — boot-time self-pair', () => {
     expect(connectivityService.enqueue).toHaveBeenCalledTimes(1);
     const body = (connectivityService.enqueue as unknown as { mock: { calls: unknown[][] } })
       .mock.calls[0][3] as Record<string, unknown>;
-    expect(body.p_api_key).toBe('auto_key_xyz');
+    // Kuyrukta SIR yok (2026-09-25): gövdede yer tutucu, gerçek anahtar gönderimde çözülür.
+    expect(body.p_api_key).toBe('__CAROS_VEHICLE_API_KEY__');
+    expect(JSON.stringify(body)).not.toContain('auto_key_xyz');
     expect(body.p_type).toBe('support_snapshot');
     expect(vis.getVehicleEventPipelineStatus().droppedNoKeyCount).toBe(0);
   });

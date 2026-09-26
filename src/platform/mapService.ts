@@ -13,6 +13,7 @@
 // (geriye dönük uyumlu — import yolları değişmedi). Davranış değişikliği YOK.
 // ══════════════════════════════════════════════════════════════════════════
 import { searchOffline } from './offlineSearchService';
+import { allowsConnectivity, observedInternetReachability } from './connectivity/connectivityGate';
 import type { StoredLocation } from './offlineSearchService';
 import { searchGlobal } from './poi/offlinePoiService';
 import { NOMINATIM_URL, NOMINATIM_UA } from './map/_mapState';
@@ -24,6 +25,7 @@ import { recordAddressSearch } from './geo/addressSearchLedgerStore';
 import { applyLocationBias, detectCitiesInQuery } from './geo/locationBiasGate';
 import { resolveCityAnchor } from './geo/cityAnchor';
 import { awaitNominatimSlot } from './geo/nominatimRateLimit';
+import { premiumGeocode, normalizeTrAddressQuery } from './geocodingProviders';
 import {
   detectPlaceIntent, rankPlaces, dedupePlacesWithEvidence, type PlaceLayer,
 } from './geo/placeQueryModel';
@@ -298,6 +300,7 @@ const _STAGE_OF_LAYER: Readonly<Record<PlaceLayer, AddressSearchStage>> = {
   OVERPASS_CATEGORY: 'OVERPASS_CATEGORY',
   OVERPASS_NAME:     'NOMINATIM',   // bu yüzeyde ad araması Nominatim'e aittir
   OVERPASS_STREET:   'OVERPASS_STREET',
+  PREMIUM:           'PREMIUM',
 };
 
 /**
@@ -391,7 +394,7 @@ export async function searchPlaces(
          sorusu burada ANLAMSIZ; sahte `false` yerine ölçülmedi (`null`). */
       fastFailHit:         null,
       hadLocation:         userLat != null && userLng != null,
-      online:              typeof navigator === 'undefined' ? null : navigator.onLine,
+      online:              observedInternetReachability(),
       fallbackQueryUsable: (userLat != null && userLng != null)
         ? extractStreetQuery(query) !== null : null,
       biasDroppedCount:    _biasDropped,
@@ -406,10 +409,10 @@ export async function searchPlaces(
 
   /* Sorgunun ANLAMI — kategori mi, ad mı, adres mi (saf; bkz. placeQueryModel). */
   const _intent = detectPlaceIntent(query);
-  /* YALNIZ AÇIKÇA `false` çevrimdışıdır (bkz. overpassCategorySearch'teki aynı
-     kural): bayrağı tanımlamayan çalışma zamanında çevrimiçi katman sessizce
-     KAPANMAZ. Yanlış tarafa düşmenin bedeli yok — ağ hatası zaten `[]`dir. */
-  const _online = typeof navigator === 'undefined' || navigator.onLine !== false;
+  /* F7-B kanonik kapı. Kanıt YOKKEN (`UNKNOWN`) çevrimiçi katman sessizce
+     KAPANMAZ — `LIGHTWEIGHT_INTERNET` belirsizlikte denemeye izin verir; yanlış
+     tarafa düşmenin bedeli yok, ağ hatası zaten `[]`dir. */
+  const _online = allowsConnectivity('LIGHTWEIGHT_INTERNET');
 
   /* Adaylar katman etiketiyle taşınır: sıralama ve tekilleştirme "hangi kaynak
      daha zengin/güvenilir" sorusunu bu etiketle cevaplar. Etiket DIŞARI SIZMAZ. */
@@ -520,7 +523,8 @@ export async function searchPlaces(
     const _nearSink = _sink();
     const _wideSink = _sink();
     const _catT0    = Date.now();
-    const [onlineRaw, wideRaw, catRaw] = await Promise.all([
+    const _premT0 = Date.now();
+    const [onlineRaw, wideRaw, catRaw, premiumRaw] = await Promise.all([
       _nominatimSearch(query, maxResults, userLat, userLng, _nearSink),
       _wantsWideGeocode
         ? _nominatimSearch(query, maxResults, undefined, undefined, _wideSink)
@@ -528,7 +532,26 @@ export async function searchPlaces(
       (_catDef !== null && _canGeo)
         ? searchCategoryNearby(_catDef, userLat as number, userLng as number)
         : Promise.resolve([]),
+      /* Lisanslı sağlayıcı (TomTom): OSM'de olmayan ev numaraları / adsız
+         sokaklar / işletmeler. Anahtar yoksa boş döner (fail-soft). Çok kısa
+         sorgular gönderilmez (ücretli kota). */
+      query.trim().length >= 3
+        ? premiumGeocode(query, userLat, userLng, { typeahead: true, limit: 6 }).catch(() => [])
+        : Promise.resolve([]),
     ]);
+
+    if (premiumRaw.length > 0) {
+      const premHits = filterNumberedStreetMismatch(normalizeTrAddressQuery(query), premiumRaw.map((g) => ({ ...g, fullName: g.fullName })));
+      const premGated = _gate(premHits.map((g): LayeredLocation => ({
+        id: g.id, name: g.name, address: g.fullName, lat: g.lat, lng: g.lng,
+        source: 'search', timestamp: Date.now(), useCount: 0, layer: 'PREMIUM',
+      })));
+      combined.push(...premGated);
+      _attempts.push({
+        provider: 'PREMIUM', outcome: 'HIT', rawCount: premiumRaw.length,
+        keptCount: premGated.length, ms: Date.now() - _premT0,
+      });
+    }
 
     /* ── SAHA DÜZELTMESİ (2026-08-03, cihazda gözlendi) ───────────────────────
      * Bu çubuğa "0455 sokak" yazıldığında Nominatim **İzmir'de 701 km uzaktaki

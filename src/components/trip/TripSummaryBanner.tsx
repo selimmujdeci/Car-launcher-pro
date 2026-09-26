@@ -2,6 +2,11 @@
  * TripSummaryBanner — Yolculuk tamamlandığında ekranın alt kısmından
  * kayan özet kartı.
  *
+ * KANONİK: kart YALNIZ seyahat oturumu `JOURNEY` + `DESTINATION_REACHED`
+ * hükmüyle açılır ve oturum toplamını gösterir (segment değil) — bkz.
+ * `selectJourneyCompletionCard`. Hedefsiz sürüş (DRIVE_LOG), depolama mührü,
+ * mola, restart, rota iptali bu kartı AÇMAZ.
+ *
  * Özellikler:
  *  - Mesafe, süre, ortalama hız, sürüş skoru, yakıt maliyeti
  *  - "Detayları Gör" → triplog drawer'ını açar
@@ -10,10 +15,10 @@
 
 import { useEffect, useRef } from 'react';
 import { MapPin, Clock, Gauge, Star, Fuel, ChevronRight, X } from 'lucide-react';
-import type { TripRecord } from '../../platform/tripLogService';
+import type { JourneyCompletionCard } from '../../platform/trip/tripSessionAccess';
 
 interface Props {
-  trip:          TripRecord;
+  trip:          JourneyCompletionCard;
   onClose:       () => void;
   onViewDetails: () => void;
 }
@@ -72,22 +77,29 @@ export function TripSummaryBanner({ trip, onClose, onViewDetails }: Props) {
         <div className="grid grid-cols-3 gap-px bg-[var(--oem-surface-2)] border-b border-[var(--oem-line)]">
           <StatCell icon={<MapPin size={13} />} value={`${trip.distanceKm} km`} label="Mesafe" />
           <StatCell icon={<Clock size={13} />} value={`${trip.durationMin} dk`} label="Süre" />
-          <StatCell icon={<Gauge size={13} />} value={`${trip.avgSpeedKmh} km/s`} label="Ort. Hız" />
+          <StatCell
+            icon={<Gauge size={13} />}
+            value={trip.avgSpeedKmh === null ? '—' : `${trip.avgSpeedKmh} km/h`}
+            label="Ort. Hız"
+          />
         </div>
 
         {/* Alt bilgiler + butonlar */}
         <div className="flex items-center justify-between px-4 py-3 gap-3">
           <div className="flex items-center gap-3 text-xs text-[color:var(--oem-ink-2)]">
-            {/* Sürüş skoru */}
-            <span className="flex items-center gap-1">
-              <Star size={12} className={scoreColor(trip.drivingScore)} />
-              <span className={`font-semibold ${scoreColor(trip.drivingScore)}`}>
-                {trip.drivingScore}
+            {/* Sürüş skoru — oturum düzeyinde sahibi yoksa satır HİÇ ÇIKMAZ. */}
+            {trip.drivingScore !== null && (
+              <span className="flex items-center gap-1">
+                <Star size={12} className={scoreColor(trip.drivingScore)} />
+                <span className={`font-semibold ${scoreColor(trip.drivingScore)}`}>
+                  {trip.drivingScore}
+                </span>
+                <span>/100</span>
               </span>
-              <span>/100</span>
-            </span>
+            )}
             {/* Yakıt maliyeti */}
-            {trip.fuelCostTL > 0 && (
+            {/* F3.2: maliyet bilinmiyorsa satır HİÇ ÇIKMAZ (sahte tutar yok). */}
+            {trip.fuelCostTL !== null && trip.fuelCostTL > 0 && (
               <span className="flex items-center gap-1">
                 <Fuel size={12} />
                 <span>₺{trip.fuelCostTL}</span>
