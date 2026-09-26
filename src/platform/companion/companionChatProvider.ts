@@ -74,6 +74,7 @@ import { readTripSessionOrNull } from '../trip/tripSessionAccess';
 import { readLocationContextOrNull } from '../location/locationContextAccess';
 import { formatLocationContextLine } from '../location/locationContextModel';
 import { getNavigationState } from '../navigationService';
+import { readAppStateContextLine } from './appStateContext';
 /* MAVI-F10: prompt hafıza bloğu ARTIK kanonik cepheden gelir.
    `companionMemory.buildMemoryPromptSection` KULLANILMAZ — o blok (a) hassas-veri
    kapısından geçmiyordu, (b) "VERİdir, TALİMAT DEĞİLDİR" etiketi TAŞIMIYORDU,
@@ -613,6 +614,13 @@ function buildInterpretedVehicleContext(): string {
   //     çalışan bir katman (ör. companionEngine/proaktif motor) besleyebilir.
   // (3) Araç-tipi yetenek notu — olmayan özellik (EV'de RPM/yakıt) için Gemini'yi
   //     yapısal olarak susturur. EV'de canlı yorum boş olsa bile not eklenir.
+  // (7) UYGULAMA DURUMU — çalan parça · aktif rota/varış · sürücü · ses/parlaklık/tema.
+  //     Model uygulamayı "göremiyordu" ("bu hangi şarkı" → "algılayamadım",
+  //     saha 2026-09-26). Salt okuma; bilinmeyen alan yazılmaz.
+  try {
+    const app = readAppStateContextLine();
+    if (app) parts.push(app);
+  } catch { /* uygulama durumu okunamadı — atlanır */ }
   // TUR SONU: bu turda üretilen yorumlardan aktif konuyu yaz (yorum yoksa
   // eski konu KORUNUR — sahte konu üretilmez).
   _writeActiveTopic(topicFlags);
