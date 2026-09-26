@@ -5,21 +5,30 @@
  */
 export const COCKPIT_CANVAS = Object.freeze({ width: 1024, height: 600 });
 
+/** Sunum 1280×720 referans koordinatlarında yazılır; tuvale tek tip ölçek + dikey ortalama. */
+export const COCKPIT_DESIGN_SCALE = 0.8;
+export const COCKPIT_DESIGN_OFFSET_Y = 12;
+
 export function cockpitScale(viewportWidth: number, viewportHeight: number): number {
   if (!Number.isFinite(viewportWidth) || !Number.isFinite(viewportHeight)) return 1;
   if (viewportWidth <= 0 || viewportHeight <= 0) return 1;
   return Math.min(viewportWidth / COCKPIT_CANVAS.width, viewportHeight / COCKPIT_CANVAS.height);
 }
 
+/**
+ * Bölge kutuları TUVAL koordinatında (tasarım 1280×720 → ×0.8, +12 dikey).
+ * Sunum `DigitalCockpitScreen`: solda hız, sağda devir, ortada dekoratif yol,
+ * üstte dönüş kartı, altta menzil · kilometre · müzik.
+ */
 export const COCKPIT_REGIONS = Object.freeze({
-  topBar:       { x: 0,   y: 0,   w: 1024, h: 66 },
-  leftCluster:  { x: 48,  y: 110, w: 240,  h: 322 },
-  speedCluster: { x: 336, y: 112, w: 352,  h: 216 },
-  rightCluster: { x: 736, y: 110, w: 240,  h: 322 },
-  roadScene:    { x: 320, y: 320, w: 384,  h: 132 },
-  maneuverBar:  { x: 350, y: 330, w: 324,  h: 88 },
-  musicCard:    { x: 40,  y: 492, w: 602,  h: 72 },
-  assistCard:   { x: 680, y: 492, w: 296,  h: 72 },
+  topBar:       { x: 0,   y: 0,   w: 1024, h: 60 },
+  speedCluster: { x: 47,  y: 120, w: 264,  h: 300 },
+  rightCluster: { x: 713, y: 120, w: 264,  h: 300 },
+  roadScene:    { x: 216, y: 212, w: 592,  h: 388 },
+  maneuverBar:  { x: 376, y: 23,  w: 272,  h: 77 },
+  leftCluster:  { x: 62,  y: 490, w: 224,  h: 70 },
+  assistCard:   { x: 800, y: 470, w: 162,  h: 60 },
+  musicCard:    { x: 344, y: 530, w: 336,  h: 70 },
 });
 
 export interface CockpitTokens {
@@ -50,21 +59,21 @@ export interface CockpitTokens {
 // Gündüz daha parlak/kontrastlı, gece daha az ışık yayar. Kontrast testi: birincil
 // metin ≥7:1, ikincil ≥4.5:1 her yüzeyde.
 export const COCKPIT_DAY_TOKENS: CockpitTokens = Object.freeze({
-  canvas: '#0E141A', surfaceTop: '#18222A', surfaceBottom: '#10181F',
-  shelf: '#141D24', textPrimary: '#F2F6F7', textSecondary: '#9FB0B7',
-  accent: '#35C4E0', accentSoft: '#1B3A44', detail: '#E0A23C',
-  border: '#27343D', edge: '#33434D', track: '#243039',
-  horizon: '#15222A', horizonLine: '#24404A', warningRed: '#FF5A4E', sign: '#F5F5EF',
-  accentHigh: '#8BEBFF', glow: '#1F7A90', muted: '#8A9BA3',
+  canvas: '#03060B', surfaceTop: '#0D1C31', surfaceBottom: '#060D17',
+  shelf: '#0A1420', textPrimary: '#EEF4FF', textSecondary: '#9FB0C8',
+  accent: '#2F8CFF', accentSoft: '#12325C', detail: '#E0A23C',
+  border: '#1E2C40', edge: '#2A3B54', track: '#1A2433',
+  horizon: '#0C1829', horizonLine: '#0E1C30', warningRed: '#FF5A4E', sign: '#FFFFFF',
+  accentHigh: '#5FB4FF', glow: '#1E6FE0', muted: '#7A8BA3',
 });
 
 export const COCKPIT_NIGHT_TOKENS: CockpitTokens = Object.freeze({
-  canvas: '#05080B', surfaceTop: '#0D1419', surfaceBottom: '#080D11',
-  shelf: '#0B1116', textPrimary: '#DCE6E8', textSecondary: '#8698A0',
-  accent: '#2AA9C4', accentSoft: '#123039', detail: '#C48A2E',
-  border: '#1A252C', edge: '#223039', track: '#17232A',
-  horizon: '#0E1A20', horizonLine: '#1B343C', warningRed: '#E0544A', sign: '#BCCAC8',
-  accentHigh: '#5FD4EE', glow: '#0F4A58', muted: '#6F818A',
+  canvas: '#010306', surfaceTop: '#08121F', surfaceBottom: '#03080F',
+  shelf: '#050B13', textPrimary: '#D9E3F0', textSecondary: '#8796AD',
+  accent: '#2677DB', accentSoft: '#0D2647', detail: '#C48A2E',
+  border: '#152133', edge: '#1D2C42', track: '#121B27',
+  horizon: '#08111D', horizonLine: '#0A1524', warningRed: '#E0544A', sign: '#D6DCE3',
+  accentHigh: '#4D9FEA', glow: '#1757B0', muted: '#66758A',
 });
 
 export function cockpitTokensFor(mode: 'day' | 'night'): CockpitTokens {
