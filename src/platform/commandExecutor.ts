@@ -13,7 +13,7 @@
  */
 
 import { bridge, type CommandResult }   from './bridge';
-import { VOICE_SETTINGS } from './settingsVoice';
+import { describeSettingResult } from './settingsVoice';
 import { fromAIResponse, stopNavigationResult, goHomeScreenResult, type AppIntent } from './intentEngine';
 import type { AIVoiceResult, VehicleContext } from './aiVoiceService';
 /* MAVI-F5: yürütme SONUCUNU capability gözlem seviyesine çevirir. Bu katman
@@ -207,24 +207,6 @@ function _speak(text: string, isDriving: boolean, turn: MaviTurnToken | null): v
  */
 function _speakProgress(text: string, isDriving: boolean, turn: MaviTurnToken | null): void {
   speakMaviAnswer(text, { isDriving, tier: 'progress', turn });
-}
-
-/**
- * Geri okunmuş (APPLIED) ayar için NE değiştiğini söyleyen cümle — genel
- * "Ayar uygulandı" sürücüye hangi ayarın ne olduğunu anlatmıyordu.
- */
-function _settingAppliedText(key: string | undefined, action: string | undefined, value: string | undefined): string {
-  const label = VOICE_SETTINGS.find((s) => s.key === key)?.label;
-  if (!label) return 'Ayar uygulandı';
-  const n = Number(value);
-  switch (action) {
-    case 'on':  return `${label} açıldı`;
-    case 'off': return `${label} kapatıldı`;
-    case 'inc': return `${label} artırıldı`;
-    case 'dec': return `${label} azaltıldı`;
-    case 'set': return value && Number.isFinite(n) ? `${label} yüzde ${n} yapıldı` : `${label} ayarlandı`;
-    default:    return `${label} güncellendi`;
-  }
 }
 
 /** Hata durumunda TTS + toast. */
@@ -901,25 +883,18 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<I
         );
         const ev: SettingApplyEvidence | null = applied ?? null;
         _pendingSettingEvidence = evidenceFromSettingApply(ev);
-        if (!ev) {
-          return intentResult(intent.type, 'failed', 'setting_port_missing',
-            'Ayarı uygulayamadım.');
+        const r = describeSettingResult(intent.payload.settingKey, intent.payload.settingAction,
+          intent.payload.settingValue, ev);
+        /* Gerekçe kodu kanıt türünden (LAB/kilit): başarı YALNIZ geri okunmuş `APPLIED`. */
+        let reason: string;
+        switch (ev?.kind) {
+          case 'APPLIED':        reason = 'setting_readback'; break;
+          case 'DELIVERED':      reason = 'setting_unverified'; break;
+          case 'SURFACE_OPENED': reason = 'setting_surface_only'; break;
+          case 'REJECTED':       reason = 'setting_rejected'; break;
+          default:               reason = 'setting_port_missing';
         }
-        switch (ev.kind) {
-          case 'APPLIED':
-            return intentResult(intent.type, 'succeeded', 'setting_readback',
-              _settingAppliedText(intent.payload.settingKey, intent.payload.settingAction, intent.payload.settingValue));
-          case 'DELIVERED':
-            /* §12.3 `TRANSPORT_ACK` satırı: gönderdim, olduğunu göremiyorum. */
-            return intentResult(intent.type, 'started', 'setting_unverified',
-              'Komutu gönderdim ama uygulandığını doğrulayamıyorum.');
-          case 'SURFACE_OPENED':
-            return intentResult(intent.type, 'started', 'setting_surface_only',
-              'Ayarlar ekranını açtım; bunu oradan seçmen gerekiyor.');
-          default:
-            return intentResult(intent.type, 'failed', 'setting_rejected',
-              'Ayarı değiştiremedim.');
-        }
+        return intentResult(intent.type, r.status, reason, r.text);
       }
       case 'ENABLE_DRIVING_MODE': {
         ctx.openDrawer?.('none');

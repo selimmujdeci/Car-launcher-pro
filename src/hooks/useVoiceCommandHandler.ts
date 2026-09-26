@@ -185,7 +185,16 @@ function applyVoiceSetting(
     if (action === 'set' && value)      next = parseInt(value, 10);
     else if (action === 'inc')          next = cur + _SETTING_STEP;
     else if (action === 'dec')          next = cur - _SETTING_STEP;
+    /* Değişmeyen değer "uygulandı" SAYILMAZ (smoke 2026-09-26): değer
+       okunamadıysa ya da zaten sınırdaysa geri okuma eskisiyle eşleşip sahte
+       "Ses ayarlandı" / "Parlaklık artırıldı" üretiyordu. */
+    if (action === 'set' && !Number.isFinite(parseInt(value ?? '', 10))) {
+      return { kind: 'REJECTED', key, reason: 'missing_value' };
+    }
     next = Math.max(0, Math.min(100, Number.isFinite(next) ? next : cur));
+    if ((action === 'inc' || action === 'dec') && next === cur) {
+      return { kind: 'REJECTED', key, reason: action === 'inc' ? 'at_max' : 'at_min' };
+    }
     update({ [key]: next } as unknown as Partial<AppSettings>);
     if (key === 'brightness' && isNative) {
       void CarLauncher.setBrightness({ value: Math.round((next / 100) * 255) })

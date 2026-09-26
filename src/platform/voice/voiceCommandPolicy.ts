@@ -87,6 +87,8 @@ const RESULT_ACK_COMMAND_TYPES: ReadonlySet<ParsedCommand['type']> = new Set<Par
   /* Parça atlama: "Önceki şarkı" yürütmeden ÖNCE konuşuluyor, gerçek sonuç
    * ("Listenin başındayız" · "değiştiremedim") susuyordu (saha 2026-09-25). */
   'music_next', 'music_prev',
+  /* Ayar: parser metni ("artırılıyor") değer DEĞİŞMESE de konuşuluyordu. */
+  'set_setting', 'screen_brightness_up', 'screen_brightness_down',
 ]);
 
 /** Sesi YALNIZ yürütme sonucundan gelen komut mu (parser metni konuşulmaz). */

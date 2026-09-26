@@ -77,8 +77,32 @@ function hasWord(tokens: string[], words: string[]): boolean {
   return false;
 }
 
-/** "%50", "50", "yuzde 50" → 0–100 arası tam sayı; yoksa null. */
+const _TENS: Record<string, number> = {
+  on: 10, yirmi: 20, otuz: 30, kirk: 40, elli: 50, altmis: 60, yetmis: 70, seksen: 80, doksan: 90,
+};
+const _ONES: Record<string, number> = {
+  bir: 1, iki: 2, uc: 3, dort: 4, bes: 5, alti: 6, yedi: 7, sekiz: 8, dokuz: 9,
+};
+
+/** "yuzde kirk bes" → 45 · "yuzde yuz" → 100. Sesli komutta sayı YAZIYLA gelir. */
+function spokenPercent(normalized: string): number | null {
+  const m = normalized.match(/(?:^|\s)yuzde\s+(.+)$/);
+  if (!m) return null;
+  const words = m[1].split(' ');
+  if (words[0] === 'yuz') return 100;
+  let v = 0; let hit = false;
+  for (const w of words) {
+    if (!hit && _TENS[w] !== undefined) { v += _TENS[w]; hit = true; continue; }
+    if (_ONES[w] !== undefined) { v += _ONES[w]; hit = true; }
+    break;
+  }
+  return hit ? Math.max(0, Math.min(100, v)) : null;
+}
+
+/** "%50", "50", "yuzde 50", "yuzde elli" → 0–100 arası tam sayı; yoksa null. */
 function extractPercent(normalized: string): number | null {
+  const spoken = spokenPercent(normalized);
+  if (spoken !== null) return spoken;
   const m = normalized.match(/(\d{1,3})/);
   if (m) {
     const v = parseInt(m[1], 10);
@@ -148,7 +172,9 @@ export const VOICE_SETTINGS: VoiceSetting[] = [
     // Kök 'parlak' — "parlaklığı" (yumuşamış) dahil tüm çekimleri yakalar.
     aliases: ['parlak', 'isik seviyesi', 'aydinlatma'] },
   { key: 'volume', kind: 'number', label: 'Ses', min: 0, max: 100, incDec: false,
-    aliases: ['ses seviyesi', 'ses duzeyi'] },
+    // 'sesi': "sesi yüzde elli yap" hiç tanınmıyor, volume_up'a düşüyordu (smoke 2026-09-26).
+    // Yüzde yoksa ("sesi aç") eşleşme DÖNMEZ → volume_up/down refleksi aynen kalır.
+    aliases: ['ses seviyesi', 'ses duzeyi', 'sesi'] },
 
   /* Native (özel) */
   { key: 'wifi', kind: 'bool', label: 'WiFi',
@@ -248,4 +274,47 @@ export function matchVoiceSetting(raw: string): VoiceSettingMatch | null {
       return null;
     }
   }
+}
+
+/* ── Ayar SONUCU cümlesi (yerel + beyin yolu ORTAK) ─────────────────────────
+ * Söz yalnız KANITTAN kurulur (MAVI-F7): geri okundu → ne değiştiğini söyle;
+ * gönderildi ama kanıt yok → "doğrulayamıyorum"; değişmedi → nedenini söyle. */
+export type SettingResultEvidence =
+  | { readonly kind: 'APPLIED' | 'DELIVERED' | 'SURFACE_OPENED'; readonly key: string }
+  | { readonly kind: 'REJECTED'; readonly key: string; readonly reason: string };
+
+export function describeSettingResult(
+  key: string | undefined, action: string | undefined, value: string | undefined,
+  ev: SettingResultEvidence | null,
+): { status: 'succeeded' | 'started' | 'failed'; text: string } {
+  const label = VOICE_SETTINGS.find((s) => s.key === key)?.label;
+  if (!ev) return { status: 'failed', text: 'Ayarı uygulayamadım.' };
+  if (ev.kind === 'APPLIED') {
+    if (!label) return { status: 'succeeded', text: 'Ayar uygulandı' };
+    const n = Number(value);
+    const text = action === 'on' ? `${label} açıldı`
+      : action === 'off' ? `${label} kapatıldı`
+        : action === 'inc' ? `${label} artırıldı`
+          : action === 'dec' ? `${label} azaltıldı`
+            : action === 'set' ? (value && Number.isFinite(n) ? `${label} yüzde ${n} yapıldı` : `${label} ayarlandı`)
+              : `${label} güncellendi`;
+    return { status: 'succeeded', text };
+  }
+  if (ev.kind === 'DELIVERED') {
+    // Donanım anahtarı (WiFi/BT): istek gönderildi, sonucu gözlenemiyor.
+    if (label && (action === 'on' || action === 'off')) {
+      return { status: 'started', text: `${label} ${action === 'on' ? 'açılıyor' : 'kapatılıyor'}` };
+    }
+    return { status: 'started', text: 'Komutu gönderdim ama uygulandığını doğrulayamıyorum.' };
+  }
+  if (ev.kind === 'SURFACE_OPENED') {
+    return { status: 'started', text: 'Ayarlar ekranını açtım; bunu oradan seçmen gerekiyor.' };
+  }
+  const who = label ?? 'Ayar';
+  const reason = 'reason' in ev ? ev.reason : '';
+  const text = reason === 'at_max' ? `${who} zaten en yüksek seviyede.`
+    : reason === 'at_min' ? `${who} zaten en düşük seviyede.`
+      : reason === 'missing_value' ? `${who} için kaç olacağını anlayamadım.`
+        : 'Ayarı değiştiremedim.';
+  return { status: 'failed', text };
 }

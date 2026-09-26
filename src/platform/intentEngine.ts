@@ -26,6 +26,7 @@ import type { NearbyPoiCategory } from './nearbyPoiNavigation';
 // MAVI-M3: yürütme sonucu sözleşmesi (saf veri — TTS/UI/store yan etkisi YOK).
 import { intentResult, type IntentExecutionResult } from './intentExecutionResult';
 import { cancelNavigationByVoice } from './navigationService';
+import { describeSettingResult } from './settingsVoice';
 import { openDrawer } from './drawerBus';
 import { setFullMapView } from './mapViewBus';
 
@@ -593,14 +594,19 @@ export async function routeIntent(intent: AppIntent, ctx: RouterContext): Promis
     case 'CYCLE_THEME':
       ctx.cycleTheme?.();
       break;
-    case 'SET_SETTING':
-      ctx.applySetting?.(
+    case 'SET_SETTING': {
+      const ev = ctx.applySetting?.(
         intent.payload.settingKey ?? '',
         intent.payload.settingAction ?? '',
         intent.payload.settingValue,
         intent.payload.settingKind,
-      );
-      break;
+      ) ?? null;
+      /* Yerel hat da KANITTAN konuşur (parser metni bu tipte susar): zaten
+         %100'deyken "Parlaklık artırılıyor" deniyordu (smoke 2026-09-26). */
+      const r = describeSettingResult(intent.payload.settingKey, intent.payload.settingAction,
+        intent.payload.settingValue, ev);
+      return intentResult(intent.type, r.status, 'setting_result', r.text);
+    }
     case 'SET_MUSIC':
       if (intent.payload.targetApp) ctx.launch(intent.payload.targetApp);
       break;

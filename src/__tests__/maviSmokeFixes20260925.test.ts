@@ -6,6 +6,7 @@ import { describe, it, expect } from 'vitest';
 import { parseCommandFull, matchDeterministicWholeInput } from '../platform/commandParser';
 import { stopNavigationResult, routeIntent, type AppIntent, type RouterContext } from '../platform/intentEngine';
 import { isResultAckCommand } from '../platform/voice/voiceCommandPolicy';
+import { describeSettingResult } from '../platform/settingsVoice';
 import { isNarrowSafeMusicKind } from '../platform/media/intent/musicIntent';
 import { resolveMusicIntent } from '../platform/media/intent/musicIntentResolver';
 import { isGeminiLiveEnabled, _resetGeminiLiveFlagForTest, GEMINI_LIVE_LOCAL_FLAG } from '../platform/ai/live/geminiLiveFlag';
@@ -92,5 +93,21 @@ describe('Mavi smoke 2026-09-25', () => {
     expect(cmd('radyodan Kral FM aç')?.type).toBe('open_radio');
     expect(resolveMusicIntent('radyodan Kral FM aç')?.query).toBe('kral fm');
     expect(resolveMusicIntent('radyo aç')?.query ?? null).toBeNull();
+  });
+
+  it('ses yüzdesi yazıyla söylenince de anlaşılır ("kırk beş" → 45)', () => {
+    const v = (t: string) => cmd(t)?.extra?.settingValue;
+    expect(v('sesi yüzde kırk beş yap')).toBe('45');
+    expect(v('sesi yüzde elli yap')).toBe('50');
+    expect(v('sesi yüzde yüz yap')).toBe('100');
+    expect(cmd('sesi aç')?.type).toBe('volume_up');
+  });
+
+  it('değişmeyen ayar "uygulandı" denmez', () => {
+    expect(describeSettingResult('brightness', 'inc', undefined, { kind: 'REJECTED', key: 'brightness', reason: 'at_max' }).text)
+      .toBe('Parlaklık zaten en yüksek seviyede.');
+    expect(describeSettingResult('volume', 'set', '', { kind: 'REJECTED', key: 'volume', reason: 'missing_value' }).status).toBe('failed');
+    expect(describeSettingResult('volume', 'set', '45', { kind: 'APPLIED', key: 'volume' }).text).toBe('Ses yüzde 45 yapıldı');
+    expect(isResultAckCommand('screen_brightness_up')).toBe(true);
   });
 });
