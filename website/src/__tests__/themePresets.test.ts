@@ -16,6 +16,7 @@ describe('renk taslakları', () => {
     expect(ps.length).toBeLessThanOrEqual(15);
     expect(new Set(ps.map((p) => p.id)).size).toBe(ps.length);
     expect(ps.some((p) => p.mode === 'day')).toBe(true);
+    expect(ps.filter((p) => p.mode === 'sun').length).toBeGreaterThanOrEqual(3);
   });
 
   const all = THEME_BASE_IDS.flatMap((id) => colorPresetsFor(id).map((p) => [id, p] as const));
@@ -28,6 +29,12 @@ describe('renk taslakları', () => {
     expect(cr(t.textPrimary!, bg), 'yazı/zemin').toBeGreaterThanOrEqual(7);
     expect(cr(t.textSecondary!, card), 'ikincil yazı/kart').toBeGreaterThanOrEqual(4.5);
     expect(cr(t.accentPrimary!, card), 'vurgu/kart').toBeGreaterThanOrEqual(3);
+    if (p.mode === 'sun') {
+      // GÜNEŞ ALTI: daha sert eşikler (parlak ışık kontrastı yer).
+      expect(cr(t.textPrimary!, card), 'güneş yazı').toBeGreaterThanOrEqual(15);
+      expect(cr(t.textSecondary!, card), 'güneş ikincil').toBeGreaterThanOrEqual(7);
+      expect(cr(t.accentPrimary!, card), 'güneş vurgu').toBeGreaterThanOrEqual(4.5);
+    }
   });
 
   it.each(all)('%s · %o manifest doğrulamasından değişmeden geçer', (_id, p) => {
