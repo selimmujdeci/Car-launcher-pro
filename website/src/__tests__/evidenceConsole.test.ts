@@ -323,7 +323,10 @@ describe('#662 · tasarım sistemi sabitleri', () => {
     expect(layout).toContain('Fraunces');
     expect(layout).toContain('--font-display');
     expect(layout).toContain('Inter');
-    expect(layout).toContain('JetBrains_Mono');
+    expect(layout).toContain('JetBrainsMono-Variable.woff2');
+    expect(layout).toContain('--font-mono');
+    /* Build-time Google Fonts fetch'i aralıklı build kırıyordu — fontlar yerel. */
+    expect(layout).not.toContain('next/font/google');
   });
 
   it('KİLİT: gösterge "KANIT YOK" metnini gerçekten basar', () => {
