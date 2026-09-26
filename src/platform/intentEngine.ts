@@ -29,12 +29,16 @@ import { cancelNavigationByVoice } from './navigationService';
 import { describeSettingResult } from './settingsVoice';
 import { openDrawer } from './drawerBus';
 import { setFullMapView } from './mapViewBus';
+import { requestCockpitPage } from './cockpitPageBus';
 
 /** "Ana ekrana dön" — mevcut iki veri yolu (çekmece + harita görünümü) kapatılır.
  *  Navigasyon oturumuna DOKUNMAZ: rota sürerken ana ekran mini haritayı gösterir. */
 export function goHomeScreenResult(openDrawerPort?: (t: 'none') => void): IntentExecutionResult {
   (openDrawerPort ?? openDrawer)('none');
   setFullMapView(false);
+  /* Kokpit sayfaları (yolculuk · OBD · gösterge) da ana ekranın ÜSTÜNDE — kapatılmazsa
+     "Ana ekrandayız" yalan olur (smoke 2026-09-26). */
+  requestCockpitPage('home');
   return intentResult('GO_HOME_SCREEN', 'succeeded', 'home_screen', 'Ana ekrandayız.');
 }
 

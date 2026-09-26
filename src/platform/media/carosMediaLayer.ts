@@ -850,6 +850,11 @@ export function getYouTubeSkipDiagnostics(): Readonly<{ skipped: number; gaveUp:
 
 async function _recoverYouTube(failedId: string): Promise<void> {
   if (_ytRecovering) return;
+  /* Eski oturumun hatası yeni oturumu DEĞİŞTİREMEZ (smoke 2026-09-26): YouTube'dan
+     radyoya geçerken ölen IFrame'in hatası buraya düşüyor, kurtarma o an çalan
+     RADYONUN adını YouTube'da arıyor ve "Kral FM" yerine bir hayran videosu açıyordu. */
+  const now0 = _currentTrack();
+  if (now0 && now0.providerId !== 'youtube') return;
   _ytRecovering = true;
   try {
     if (failedId) _ytFailedIds.add(failedId);

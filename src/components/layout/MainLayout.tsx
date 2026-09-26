@@ -30,6 +30,7 @@ import { SleepOverlay } from './SleepOverlay';
 import type { DrawerType } from './DockBar';
 import { registerDrawerHandler, unregisterDrawerHandler } from '../../platform/drawerBus';
 import { registerMapViewHandler, unregisterMapViewHandler } from '../../platform/mapViewBus';
+import { requestCockpitPage } from '../../platform/cockpitPageBus';
 // DriveHUD kaldırıldı
 // DrawerPanel lazy-loaded — ilk render'da bundle parse yükü yoktur
 const DrawerPanel      = lazyWithRetry(() => import('./DrawerPanel').then((m) => ({ default: m.DrawerPanel })));
@@ -266,6 +267,13 @@ export default function MainLayout() {
     registerMapViewHandler(setFullMapOpen);
     return () => { unregisterMapViewHandler(); };
   }, []);
+
+  /* Kokpit sayfası (yolculuk · OBD · gösterge, z-9600) harita/çekmecenin ÜSTÜNDE durur.
+     Bir ekran açıldığında kokpit kapanmazsa açılan ekran görünmez — "haritayı aç"
+     "Harita açılıyor" deyip göstergede kalıyordu (smoke 2026-09-26). */
+  useEffect(() => {
+    if (fullMapOpen || drawer !== 'none') requestCockpitPage('home');
+  }, [fullMapOpen, drawer]);
 
 
   // ── Remote Command Context Bridge ─────────────────────────
