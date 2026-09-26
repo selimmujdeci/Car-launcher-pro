@@ -71,6 +71,7 @@ import {
 } from '@/lib/theme/themeStudioState';
 import { ComponentEditor, SurfaceEditor, TokensEditor } from './theme/ThemeEditors';
 import { ZoneReorder } from './theme/ZoneReorder';
+import { PresetGallery } from './theme/PresetGallery';
 
 /* ── Önizleme hedefi (gerçek araç uygulaması) ─────────────────────── */
 
@@ -724,6 +725,16 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
             </p>
           )}
         </div>
+
+        {/* ── Hazır renk / kart şekli taslakları (tüm tema ya da seçili ekran) ── */}
+        <PresetGallery
+          themeId={state.themeId}
+          manifest={state.manifests[state.themeId]}
+          surfaceId={state.surface}
+          surfaceLabel={surfaces.find((x) => x.id === state.surface)?.label ?? 'Bu ekran'}
+          onPatchTokens={patchTokens}
+          onPatchScreen={(p) => patchScreen(state.surface, p)}
+        />
 
         {/* ── Ekran ayarı ── */}
         <button
