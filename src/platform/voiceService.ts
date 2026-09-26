@@ -97,6 +97,8 @@ import { isInformationalCommand, answerInformational } from './voiceInfoService'
 /* LIVE TUR ÇÖZÜM KANITI: kanonik ekran kaydı — "klimayı aç" gibi parser'ın tanımadığı
    panel isteklerinde "bu bir EYLEM isteği" kanıtı (yeni otorite/parser DEĞİL, salt okuma). */
 import { resolveScreenEntry, matchScreenCommand } from './screenCatalog';
+import { parseAppControl } from './voice/appControlCommands';
+import { executeAppControl } from './voice/appControlExecutor';
 import { weatherQueryNamesCity } from './weatherService';
 import { showToast } from './errorBus';
 import { VOICE_TUNING } from './voiceTuning';
@@ -2067,6 +2069,29 @@ export async function processTextCommand(
         extra: { screen: scr.id, action: scr.action },
       };
       if (ctx?.isDriving) { dispatchDriving(cmd, ctx, turn); } else { dispatch(cmd, ctx, turn); }
+      completeMaviTurn(turn);
+      return true;
+    }
+  }
+
+  /* ── 1a0b. UYGULAMA KONTROLÜ — karışık/tekrar · sarma · tema adı · sürücü ──
+   * Kesin kurallı ve dar (bkz. appControlCommands). Genel parser bu cümleleri
+   * YANLIŞ eyleme çeviriyordu ("30 saniye ileri sar" → sonraki şarkı @1.0), bu
+   * yüzden eşleşme parser'dan ÖNCE gelir. Cümle yalnız sonuçtan kurulur. */
+  {
+    const ac = parseAppControl(trimmed);
+    if (ac) {
+      _lastCommandTime = now;
+      void reportVoiceDiag('voice_route', { route: 'local_fast_path' });
+      setMaviLatencyRoute('local_fast_path');
+      endConversationSession();
+      push({ status: 'processing', transcript: trimmed, error: null, suggestions: [] });
+      let out: { ok: boolean; text: string };
+      try { out = await executeAppControl(ac); } catch { out = { ok: false, text: 'Bunu şu an yapamadım.' }; }
+      if (!continueIfTurnActive(turn, 'feedback')) return false;
+      speakMaviAnswer(out.text, { isDriving: ctx?.isDriving === true, turn });
+      push({ status: out.ok ? 'success' : 'error', error: out.ok ? null : out.text, transcript: trimmed });
+      setTimeout(() => { if (isMaviTurnCurrent(turn) && _current.status !== 'idle') push({ status: 'idle', error: null }); }, 2500);
       completeMaviTurn(turn);
       return true;
     }
