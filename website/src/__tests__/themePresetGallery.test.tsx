@@ -21,7 +21,7 @@ function mount(onTokens = vi.fn(), onScreen = vi.fn()) {
   root = createRoot(host);
   act(() => root!.render(
     <PresetGallery themeId="horizon" manifest={st.manifests.horizon} surfaceId="trip" surfaceLabel="Yolculuk"
-      onPatchTokens={onTokens} onPatchScreen={onScreen} />,
+      onApplyPreset={onTokens} onPatchScreen={onScreen} />,
   ));
   const btn = (text: string) => [...host!.querySelectorAll('button')].find((b) => b.textContent?.includes(text))!;
   return { onTokens, onScreen, btn };
@@ -32,7 +32,7 @@ describe('PresetGallery', () => {
     const { onTokens, btn } = mount();
     const p = colorPresetsFor('horizon')[1];
     act(() => btn(p.name).click());
-    expect(onTokens).toHaveBeenCalledWith(p.tokens);
+    expect(onTokens).toHaveBeenCalledWith('color', p.tokens);
   });
 
   it('"Sadece: Yolculuk" seçilince yalnız o ekrana uygulanır', () => {
@@ -49,7 +49,7 @@ describe('PresetGallery', () => {
     act(() => btn('Kart Şekilleri').click());
     const s = SHAPE_PRESETS.find((x) => x.id === 'shape-cam')!;
     act(() => btn(s.name).click());
-    expect(onTokens).toHaveBeenCalledWith(s.tokens);
+    expect(onTokens).toHaveBeenCalledWith('shape', s.tokens);
   });
 });
 
@@ -63,5 +63,23 @@ describe('reducer ile', () => {
     expect(canUndo(st)).toBe(true);
     st = studioReducer(st, { type: 'undo' });
     expect(st.manifests.tesla.tokens).toEqual(before);
+  });
+
+  it('tüm temaya taslak: ekran/bileşen düzeyindeki eski RENKLER temizlenir, diğer ayarlar kalır; tek adım geri', () => {
+    let st = createStudioState();
+    st = studioReducer(st, { type: 'select-theme', themeId: 'horizon' });
+    st = studioReducer(st, { type: 'patch-screen', surface: 'home', patch: { accentPrimary: '#F2871C', radiusCard: 10 } });
+    st = studioReducer(st, { type: 'patch-component', componentId: 'horizon.dock', patch: { accentColor: '#F2871C', fontScale: 1.2 } });
+    const before = st.manifests.horizon;
+    const p = colorPresetsFor('horizon')[1];
+    st = studioReducer(st, { type: 'apply-preset', kind: 'color', tokens: p.tokens });
+    const m = st.manifests.horizon;
+    expect(m.tokens.accentPrimary).toBe(p.tokens.accentPrimary);
+    expect(m.screenOverrides.home?.accentPrimary ?? null).toBeNull();
+    expect(m.screenOverrides.home?.radiusCard).toBe(10);          // renk dışı ayar korunur
+    expect(m.componentOverrides['horizon.dock']?.accentColor ?? null).toBeNull();
+    expect(m.componentOverrides['horizon.dock']?.fontScale).toBe(1.2);
+    st = studioReducer(st, { type: 'undo' });
+    expect(st.manifests.horizon).toEqual(before);
   });
 });

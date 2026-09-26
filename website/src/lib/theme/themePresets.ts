@@ -74,9 +74,12 @@ function companion(accent: string, mode: PresetMode): string {
 export function buildColorPreset(spec: ColorPresetSpec): ColorPreset {
   const { hue: h, sat: s, mode } = spec;
   const night = mode === 'night';
-  const bgA = night ? hsl(h, s, 0.065) : hsl(h, s * 0.45, 0.93);
-  const card = night ? hsl(h, s * 0.8, 0.14) : hsl(h, s * 0.25, 0.995);
-  const border = night ? hsl(h, s * 0.6, 0.25) : hsl(h, s * 0.3, 0.8);
+  /* Ton BELİRGİN olsun (saha 2026-09-26: %6-14 parlaklıkta tüm paletler "aynı renk"
+     görünüyordu). Doygunluk yükseltildi, zemin/kart birkaç basamak açıldı. */
+  const sn = Math.min(1, s * 1.35);
+  const bgA = night ? hsl(h, sn, 0.11) : hsl(h, s * 0.45, 0.93);
+  const card = night ? hsl(h, sn * 0.85, 0.19) : hsl(h, s * 0.25, 0.995);
+  const border = night ? hsl(h, sn * 0.7, 0.32) : hsl(h, s * 0.3, 0.8);
   const text = night ? hsl(h, 0.16, 0.93) : hsl(h, 0.3, 0.11);
   const text2 = night ? hsl(h, 0.12, 0.7) : hsl(h, 0.18, 0.34);
   const accent = ensureContrast(spec.accent, card, 3, mode);
