@@ -96,7 +96,7 @@ import type { MusicIntent } from './media/intent/musicIntent';
 import { isInformationalCommand, answerInformational } from './voiceInfoService';
 /* LIVE TUR ÇÖZÜM KANITI: kanonik ekran kaydı — "klimayı aç" gibi parser'ın tanımadığı
    panel isteklerinde "bu bir EYLEM isteği" kanıtı (yeni otorite/parser DEĞİL, salt okuma). */
-import { resolveScreenEntry } from './screenCatalog';
+import { resolveScreenEntry, matchScreenCommand } from './screenCatalog';
 import { weatherQueryNamesCity } from './weatherService';
 import { showToast } from './errorBus';
 import { VOICE_TUNING } from './voiceTuning';
@@ -2046,6 +2046,30 @@ export async function processTextCommand(
     if (ctx?.isDriving) { dispatchDriving(result.command, ctx, turn); } else { dispatch(result.command, ctx, turn); }
     completeMaviTurn(turn);
     return true;
+  }
+
+  /* ── 1a0. EKRAN KESTİRMESİ — "yolculuk bilgisayarını göster" · "ses ayarlarını aç" ──
+   * Girdinin TAMAMI katalogdaki bir ekran adı + aç/göster/kapat ise yerelde açılır.
+   * Ölçüldü 2026-09-26: parser bu cümleleri `navigate_address@0.9` sanıyordu ve
+   * beyin "yolculuk bilgisayarı"nı yolculuk DEFTERİ diye açıyordu. Parser'ın KESİN
+   * (1.0) komutları ezilmez ("müzik aç" çalmaya devam eder); tek istisna daha özel
+   * olan ayar sekmesidir ("ses ayarlarını aç" → ayarlar + Ses sekmesi). */
+  {
+    const scr = matchScreenCommand(trimmed);
+    const exact = result.command !== null && result.command.confidence >= 1;
+    const moreSpecific = scr !== null && scr.id.startsWith('settings-') && result.command?.type === 'open_settings';
+    if (scr && (!exact || moreSpecific)) {
+      _lastCommandTime = now;
+      void reportVoiceDiag('voice_route', { route: 'local_fast_path' });
+      setMaviLatencyRoute('local_fast_path');
+      const cmd: ParsedCommand = {
+        type: 'open_screen', raw: trimmed, confidence: 1, feedback: '', priority: 'normal',
+        extra: { screen: scr.id, action: scr.action },
+      };
+      if (ctx?.isDriving) { dispatchDriving(cmd, ctx, turn); } else { dispatch(cmd, ctx, turn); }
+      completeMaviTurn(turn);
+      return true;
+    }
   }
 
   /* ── 1a. DETERMİNİSTİK HIZLI YOL (MAVI-P0-LATENCY) ────────────────────────

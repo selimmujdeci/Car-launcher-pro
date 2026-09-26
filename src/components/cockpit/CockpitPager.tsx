@@ -53,6 +53,7 @@ import {
 } from './cockpitSwipeModel';
 import { ObdLivePage } from './ObdLivePage';
 import { TripComputerPage } from './TripComputerPage';
+import { registerCockpitPageHandler, unregisterCockpitPageHandler } from '../../platform/cockpitPageBus';
 
 /** Sayfa oturma animasyonu — akıcı ama ağır değil (OEM hissi). */
 const SETTLE_MS = 260;
@@ -145,6 +146,22 @@ export function CockpitPager() {
     active: false, engaged: false, pointerId: -1,
     startX: 0, startY: 0, startT: 0, dx: 0,
   });
+
+  /* ── Sesli sayfa isteği ("yolculuk bilgisayarını aç") — cockpitPageBus ───
+     Sayfa durumunun sahibi BURASI. Güvenlik kapısı jestle AYNIDIR: geri vites /
+     tiyatro / uyku açıkken kokpit sesle de AÇILMAZ ve `false` döner. */
+  const blockedRef = useRef(blocked);
+  blockedRef.current = blocked;
+  useEffect(() => {
+    registerCockpitPageHandler((p) => {
+      if (p !== 'home' && blockedRef.current) return false;
+      if (p !== 'home') setMounted(true);
+      setDragDx(null);
+      setPage(p);
+      return true;
+    });
+    return () => { unregisterCockpitPageHandler(); };
+  }, []);
 
   /* ── Güvenlik: geri vites / tiyatro / uyku → kokpit anında kapanır ───── */
   useEffect(() => {

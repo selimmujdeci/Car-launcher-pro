@@ -9,7 +9,9 @@
  */
 
 import { openDrawer } from './drawerBus';
-import { focusSettingsSection } from './settingsFocusBus';
+import { focusSettingsSection, type SettingsSection } from './settingsFocusBus';
+import { requestCockpitPage, type CockpitPageTarget } from './cockpitPageBus';
+import { setFullMapView } from './mapViewBus';
 import type { DrawerType } from '../components/layout/DockBar';
 /* SAF KATALOG (kimlik · etiket · alias) + sesli ad çözümü — TEK KAYNAK.
    Burada yalnız AÇMA/KAPAMA davranışı bağlanır. */
@@ -19,7 +21,8 @@ export interface ScreenEntry {
   id:      string;
   label:   string;              // TTS/onay metni ("Trafik paneli")
   aliases: readonly string[];   // normalize edilmiş Türkçe tetikleyiciler
-  open:    () => void;
+  /** `false` → sahip reddetti (ör. geri viteste kokpit); çağıran "açtım" DEMEZ. */
+  open:    () => void | boolean;
   close?:  () => void;          // yoksa 'kapat' → mevcut drawer'ı kapat
 }
 
@@ -31,6 +34,24 @@ function bindScreen(c: ScreenCatalogEntry): ScreenEntry {
   // Ayar-içi derin panel: Gemini QR (KeyBeam) — settingsFocusBus ile.
   if (c.id === 'gemini-qr') {
     return { ...base, open: () => { openDrawer('settings'); focusSettingsSection('gemini-qr'); }, close: () => openDrawer('none') };
+  }
+  // Kokpit sayfaları: çekmece/harita kapanır, sayfa sahibi (CockpitPager) güvenliği uygular.
+  const cockpit: Record<string, CockpitPageTarget> = { 'trip-computer': 'trip', 'obd-live': 'obd', cockpit: 'cockpit' };
+  if (cockpit[c.id]) {
+    const page = cockpit[c.id];
+    return {
+      ...base,
+      open: () => { openDrawer('none'); setFullMapView(false); return requestCockpitPage(page); },
+      close: () => { requestCockpitPage('home'); },
+    };
+  }
+  if (c.id === 'map') {
+    return { ...base, open: () => { openDrawer('none'); setFullMapView(true); }, close: () => setFullMapView(false) };
+  }
+  // Ayar sekmesi: ayarlar açılır + ilgili sekmeye odaklanılır.
+  if (c.id.startsWith('settings-')) {
+    const section = c.id.slice('settings-'.length) as SettingsSection;
+    return { ...base, open: () => { openDrawer('settings'); focusSettingsSection(section); }, close: () => openDrawer('none') };
   }
   return { ...base, open: () => openDrawer(c.id as DrawerType), close: () => openDrawer('none') };
 }

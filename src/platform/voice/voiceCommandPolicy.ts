@@ -89,6 +89,7 @@ const RESULT_ACK_COMMAND_TYPES: ReadonlySet<ParsedCommand['type']> = new Set<Par
   'music_next', 'music_prev',
   /* Ayar: parser metni ("artırılıyor") değer DEĞİŞMESE de konuşuluyordu. */
   'set_setting', 'screen_brightness_up', 'screen_brightness_down',
+  'open_screen',
 ]);
 
 /** Sesi YALNIZ yürütme sonucundan gelen komut mu (parser metni konuşulmaz). */

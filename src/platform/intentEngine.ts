@@ -20,7 +20,7 @@
  */
 import type { ParsedCommand, CommandType } from './commandParser';
 import { resolveAppByName } from './appRegistry';
-import { resolveScreen } from './screenRegistry';
+import { resolveScreen, getScreenById } from './screenRegistry';
 import { isHomeWorkDestination, dispatchHomeWorkNavigation } from './homeWorkNavigation';
 import type { NearbyPoiCategory } from './nearbyPoiNavigation';
 // MAVI-M3: yürütme sonucu sözleşmesi (saf veri — TTS/UI/store yan etkisi YOK).
@@ -207,6 +207,7 @@ const CMD_TO_INTENT: Record<CommandType, IntentType> = {
   navigate_place:       'NAVIGATE_PLACE',
   stop_navigation:      'STOP_NAVIGATION',
   go_home_screen:       'GO_HOME_SCREEN',
+  open_screen:          'OPEN_SCREEN',
   find_nearby_gas:        'FIND_NEARBY_GAS',
   find_nearby_parking:    'FIND_NEARBY_PARKING',
   find_nearby_restaurant: 'UNKNOWN',
@@ -312,6 +313,10 @@ export function toIntent(cmd: ParsedCommand, ctx: IntentContext): AppIntent {
       break;
     case 'open_maps':
       payload.targetApp = ctx.defaultNav;
+      break;
+    case 'open_screen':
+      payload.screen       = cmd.extra?.['screen'];
+      payload.screenAction = cmd.extra?.['action'] === 'close' ? 'close' : 'open';
       break;
     case 'open_radio':
       // Radyo isteği → aktif müzik kaynağını aç (radyo entegrasyonu yoksa fallback)
@@ -505,12 +510,15 @@ export async function routeIntent(intent: AppIntent, ctx: RouterContext): Promis
     }
     case 'OPEN_SCREEN': {
       // İç ekran/panel aç-kapat (trafik, klima, arıza kodları, Gemini QR…).
-      const screen = intent.payload.screen ? resolveScreen(intent.payload.screen) : null;
-      if (screen) {
-        if (intent.payload.screenAction === 'close') (screen.close ?? (() => {}))();
-        else screen.open();
-      }
-      break;
+      const key = intent.payload.screen ?? '';
+      const screen = key ? (getScreenById(key) ?? resolveScreen(key)) : null;
+      if (!screen) return intentResult(intent.type, 'failed', 'screen_not_found', key ? `${key} ekranını bulamadım` : 'Hangi ekranı açayım?');
+      const closing = intent.payload.screenAction === 'close';
+      const opened = closing ? ((screen.close ?? (() => {}))(), true) : screen.open() !== false;
+      // Tek dürüst cümle (open_screen sonuç-temelli): sahip reddettiyse "açıldı" denmez.
+      return opened
+        ? intentResult(intent.type, 'succeeded', closing ? 'screen_closed' : 'screen_opened', `${screen.label} ${closing ? 'kapatıldı' : 'açıldı'}`)
+        : intentResult(intent.type, 'failed', 'screen_refused', `${screen.label} şu an açılamıyor`);
     }
     case 'NAVIGATE_ADDRESS':
     case 'NAVIGATE_PLACE': {

@@ -48,6 +48,9 @@ export type CommandType =
   | 'navigate_place'
   | 'stop_navigation'
   | 'go_home_screen'
+  // Uygulama içi ekran (extra.screen = katalog kimliği, extra.action = open|close).
+  // Parser kalıbı YOK: yalnız voiceService'in tam-eşleşme ekran kestirmesi kurar.
+  | 'open_screen'
   | 'find_nearby_gas'
   | 'find_nearby_parking'
   | 'find_nearby_restaurant'

@@ -1555,7 +1555,8 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
   useEffect(() => {
     const SECTION_TO_TAB: Record<string, Tab> = {
       'gemini-qr': 'assistant', 'assistant': 'assistant', 'sound': 'sound', 'appearance': 'appearance',
-      'profiles': 'profiles',
+      'profiles': 'profiles', 'navigation': 'navigation', 'maintenance': 'maintenance',
+      'connect': 'connect', 'about': 'about',
     };
     return registerSettingsFocus((section) => {
       const target = SECTION_TO_TAB[section];

@@ -83,7 +83,7 @@ import { applyLiveStyle } from './liveStyleEngine';
 import { getWeatherNarrative } from './weatherService';
 import { useUnifiedVehicleStore } from './vehicleDataLayer/UnifiedVehicleStore';
 import { resolveAppByName } from './appRegistry';
-import { resolveScreen } from './screenRegistry';
+import { resolveScreen, getScreenById } from './screenRegistry';
 import { searchContacts, recordCall } from './contactsService';
 /* MAVI-F10: hafızanın TEK kanonik cephesi. `companionMemory.addFact/forgetFact`
    ARTIK ÇAĞRILMAZ — o yol hassas-veri kapısından GEÇMİYORDU (ölçülen kusur A)
@@ -825,12 +825,13 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<I
         // İç ekran/panel aç-kapat (trafik, klima, arıza kodları, Gemini QR…).
         // Bulunamazsa SAHTE ONAY YOK — dürüstçe söyler.
         const scr    = (intent.payload.screen ?? '').trim();
-        const screen = scr ? resolveScreen(scr) : null;
+        const screen = scr ? (getScreenById(scr) ?? resolveScreen(scr)) : null;
         const closing = intent.payload.screenAction === 'close';
         if (screen) {
-          if (closing) (screen.close ?? (() => {}))();
-          else screen.open();
-          _speak(`${screen.label} ${closing ? 'kapatılıyor' : 'açılıyor'}`, isDriving, _turn);
+          const opened = closing ? ((screen.close ?? (() => {}))(), true) : screen.open() !== false;
+          _speak(opened
+            ? `${screen.label} ${closing ? 'kapatılıyor' : 'açılıyor'}`
+            : `${screen.label} şu an açılamıyor`, isDriving, _turn);
         } else {
           _speak(scr ? `${scr} ekranını bulamadım` : 'Hangi ekranı açayım?', isDriving, _turn);
         }
