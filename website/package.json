@@ -9,6 +9,7 @@
     "start": "next start"
   },
   "dependencies": {
+    "@material/material-color-utilities": "^0.3.0",
     "@supabase/auth-js": "2.110.1",
     "@supabase/ssr": "^0.12.0",
     "@supabase/supabase-js": "^2.104.0",

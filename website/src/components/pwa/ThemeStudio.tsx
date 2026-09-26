@@ -21,7 +21,7 @@
 import {
   memo, useCallback, useEffect, useMemo, useReducer, useRef, useState,
 } from 'react';
-import { sendCommand } from '@/lib/commandService';
+import { sendCommand, subscribeCommandStatus, COMMAND_TTL_MINUTES } from '@/lib/commandService';
 import {
   manifestToCssVars,
   THEME_BASE_IDS,
@@ -82,7 +82,8 @@ const PREVIEW_H = 720;
 
 const PERSIST_DEBOUNCE_MS = 1000;
 
-type SyncState = 'idle' | 'sending' | 'ok' | 'fail';
+/** `waiting` = sıraya yazıldı, araç henüz UYGULAMADI · `applied` = araç "uyguladım" dedi. */
+type SyncState = 'idle' | 'sending' | 'waiting' | 'applied' | 'fail';
 type EditorTarget =
   | { kind: 'none' }
   | { kind: 'tokens' }
@@ -101,6 +102,18 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
   const [probe, setProbe] = useState<ProbeItem[] | null>(null);
   const [hoverId, setHoverId] = useState<string | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
+  /* Gelişmiş ayarlar katlaması — kullanıcı başına kolaylık (tarayıcıda hatırlanır). */
+  const [advancedOpen, setAdvancedOpenState] = useState(false);
+  useEffect(() => {
+    try { if (localStorage.getItem('caros_studio_advanced') === '1') setAdvancedOpenState(true); } catch { /* fail-soft */ }
+  }, []);
+  const setAdvancedOpen = useCallback((fn: (v: boolean) => boolean) => {
+    setAdvancedOpenState((v) => {
+      const next = fn(v);
+      try { localStorage.setItem('caros_studio_advanced', next ? '1' : '0'); } catch { /* fail-soft */ }
+      return next;
+    });
+  }, []);
 
   /** Ölçümden gelen kimlikler = o an araçta GERÇEKTEN çizili bileşenler. */
   const inventory = useMemo(() => (probe === null ? null : probe.map((p) => p.id)), [probe]);
@@ -111,6 +124,7 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
   const mountedRef = useRef(true);
   const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const syncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const statusUnsub = useRef<(() => void) | null>(null);
   const [scale, setScale] = useState(0.3);
 
   const manifest = state.manifests[state.themeId];
@@ -160,6 +174,7 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
       mountedRef.current = false;
       if (persistTimer.current) clearTimeout(persistTimer.current);
       if (syncTimer.current) clearTimeout(syncTimer.current);
+      statusUnsub.current?.();
     };
   }, []);
 
@@ -278,16 +293,35 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
       themeVars: manifestToCssVars(outgoing),
     });
     if (!mountedRef.current) return;
-    if (r.ok) {
-      dispatch({ type: 'mark-sent', at });
-      setSync('ok');
-      setSyncNote(r.queued ? 'Araç çevrimdışı — sıraya alındı' : null);
-    } else {
+    if (syncTimer.current) clearTimeout(syncTimer.current);
+    statusUnsub.current?.();
+    statusUnsub.current = null;
+    if (!r.ok) {
       setSync('fail');
       setSyncNote(r.error ?? 'Gönderilemedi');
+      syncTimer.current = setTimeout(() => { if (mountedRef.current) setSync('idle'); }, 3500);
+      return;
     }
-    if (syncTimer.current) clearTimeout(syncTimer.current);
-    syncTimer.current = setTimeout(() => { if (mountedRef.current) setSync('idle'); }, 3500);
+    dispatch({ type: 'mark-sent', at });
+    /* "Gönderildi" ≠ "uygulandı": aracın kendi cevabı beklenir (komut satırı durumu).
+       Yerel zaman aşımı araç HATASI DEĞİLDİR — komut sunucuda TTL boyunca bekler,
+       araç açılınca uygular; bu yüzden "bekleniyor" kalır, "başarısız" denmez. */
+    setSync('waiting');
+    setSyncNote(r.queued ? 'Araç çevrimdışı — açılınca uygulanacak' : 'Araç bekleniyor…');
+    if (!r.commandId) return;
+    statusUnsub.current = subscribeCommandStatus(r.commandId, (ev) => {
+      if (!mountedRef.current) return;
+      if (ev.status === 'completed') {
+        setSync('applied');
+        setSyncNote(null);
+        syncTimer.current = setTimeout(() => { if (mountedRef.current) setSync('idle'); }, 5000);
+      } else if (ev.status === 'failed' || ev.status === 'rejected') {
+        setSync('fail');
+        setSyncNote('Araç temayı uygulayamadı');
+      } else if (ev.status === 'expired') {
+        setSyncNote(`Araç henüz almadı — açılınca uygulanacak (${COMMAND_TTL_MINUTES} dk içinde)`);
+      }
+    }, 20_000);
   }, [vehicleId, manifest]);
 
   /* ── Kısayollar ─────────────────────────────────────────────────── */
@@ -332,7 +366,7 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
   );
 
   const touched = customizationCount(manifest);
-  const syncColor = sync === 'ok' ? '#34d399' : sync === 'fail' ? '#f87171' : sync === 'sending' ? '#60a5fa' : 'var(--pwa-text-3)';
+  const syncColor = sync === 'applied' ? '#34d399' : sync === 'fail' ? '#f87171' : sync === 'sending' || sync === 'waiting' ? '#60a5fa' : 'var(--pwa-text-3)';
 
   /* ── DÜZENLEYİCİ PANELİ — ÖNİZLEMEYİ KAPATMADAN ───────────────────
    * KULLANICI ŞİKÂYETİ (2026-08-18): *"yaptığım düzenlemeleri göremiyorum,
@@ -445,8 +479,9 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
             }}
           >
             {!vehicleId ? '⚠ Araç Bağlı Değil'
-              : sync === 'ok' ? '✓ Gönderildi'
+              : sync === 'applied' ? '✓ Araçta uygulandı'
               : sync === 'fail' ? '✗ Hata'
+              : sync === 'waiting' ? '◷ Araç bekleniyor'
               : sync === 'sending' ? '● Gönderiliyor…'
               : '● Hazır'}
           </div>
@@ -587,7 +622,7 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
               opacity: vehicleId ? 1 : 0.5,
             }}
           >
-            {!vehicleId ? '⚠ Araç Bağlı Değil' : sync === 'ok' ? '✓ Araca Gönderildi' : 'Araca Gönder'}
+            {!vehicleId ? '⚠ Araç Bağlı Değil' : sync === 'applied' ? '✓ Araçta Uygulandı' : sync === 'waiting' ? '◷ Araç Bekleniyor' : 'Araca Gönder'}
           </button>
         </div>
         {syncNote && (
@@ -686,293 +721,316 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
           </div>
         </div>
 
-        {/* ── Aktif tema eylemleri ── */}
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            type="button"
-            onClick={() => setEditor({ kind: 'tokens' })}
-            className="text-[11px] font-bold rounded-xl active:scale-95"
-            style={{ minHeight: 46, background: 'rgba(96,165,250,0.14)', border: '1.5px solid rgba(96,165,250,0.4)', color: '#60a5fa' }}
-          >
-            Tema Geneli Düzenle
-          </button>
-          <CopyFromMenu
-            themeId={state.themeId}
-            onCopy={(src) => dispatch({ type: 'copy-from', sourceThemeId: src })}
-          />
-        </div>
-
-        {/* ── Ekran seçimi ── */}
-        <div>
-          <p className="text-[9px] font-black uppercase tracking-[0.35em] mb-2" style={{ color: 'var(--pwa-text-3)' }}>
-            Ekranlar
-          </p>
-          <div className="flex gap-1.5 overflow-x-auto pb-1">
-            {surfaces.map((s) => (
-              <button
-                key={s.id}
-                type="button"
-                onClick={() => dispatch({ type: 'select-surface', surface: s.id })}
-                className="flex-shrink-0 px-3 rounded-xl text-[10px] font-black uppercase tracking-wider active:scale-95"
-                style={{
-                  minHeight: 40,
-                  background: state.surface === s.id ? 'rgba(96,165,250,0.18)' : 'var(--pwa-surface)',
-                  color: state.surface === s.id ? '#60a5fa' : 'var(--pwa-text-3)',
-                  border: `1px solid ${state.surface === s.id ? 'rgba(96,165,250,0.42)' : 'var(--pwa-border-soft)'}`,
-                }}
-              >
-                {s.label}
-              </button>
-            ))}
-          </div>
-          {surfaceShown === false && (
-            <p
-              className="mt-2 text-[10px] leading-snug font-semibold rounded-lg px-2.5 py-2"
-              style={{ background: 'rgba(251,191,36,0.10)', border: '1px solid rgba(251,191,36,0.30)', color: '#fbbf24' }}
-            >
-              Bu ekran önizlemede gösterilemiyor — araçta kullanıcı eylemiyle açılır
-              (geri vites, uzun basma). Değişiklikler yine de kaydedilir ve araca gider;
-              ama burada <b>sonucu göremezsin</b>.
-            </p>
-          )}
-        </div>
-
-        {/* ── Ekran ayarı ── */}
+        {/* ── GELİŞMİŞ AYARLAR (Samsung Good Lock deseni) — ince ayarlar silinmedi,
+             yalnız varsayılan görünümden çekildi. Önizlemede Dokun&Düzenle yine
+             doğrudan kartın editörünü açar (bu katlamadan bağımsız). ── */}
         <button
           type="button"
-          onClick={() => setEditor({ kind: 'surface', surface: state.surface })}
-          className="text-[11px] font-bold rounded-xl active:scale-95"
-          style={{ minHeight: 46, background: 'var(--pwa-surface)', border: '1px solid var(--pwa-border)', color: 'var(--pwa-text-2)' }}
+          onClick={() => setAdvancedOpen((v) => !v)}
+          aria-expanded={advancedOpen}
+          className="flex items-center gap-3 rounded-2xl px-4 text-left active:scale-[0.99]"
+          style={{ minHeight: 56, background: 'var(--pwa-surface-3)', border: '1px solid var(--pwa-border-soft)' }}
         >
-          Bu Ekranın Genel Ayarı
+          <span className="text-[14px] font-black" style={{ color: 'var(--pwa-text-2)' }}>{advancedOpen ? '▾' : '▸'}</span>
+          <span className="flex-1 min-w-0">
+            <span className="block text-[12px] font-black" style={{ color: 'var(--pwa-text)' }}>Gelişmiş ayarlar</span>
+            <span className="block text-[10px] truncate" style={{ color: 'var(--pwa-text-3)' }}>
+              Renkler tek tek · yazı tipi · kenarlık · ekranlar · bileşenler · yerleşim
+            </span>
+          </span>
         </button>
+        {advancedOpen && (
+        <div className="flex flex-col gap-4">
+          {/* ── Aktif tema eylemleri ── */}
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => setEditor({ kind: 'tokens' })}
+              className="text-[11px] font-bold rounded-xl active:scale-95"
+              style={{ minHeight: 46, background: 'rgba(96,165,250,0.14)', border: '1.5px solid rgba(96,165,250,0.4)', color: '#60a5fa' }}
+            >
+              Tema Geneli Düzenle
+            </button>
+            <CopyFromMenu
+              themeId={state.themeId}
+              onCopy={(src) => dispatch({ type: 'copy-from', sourceThemeId: src })}
+            />
+          </div>
 
-        {/* ── Yerleşim (yalnız solver kullanan temada, yalnız ana ekranda) ── */}
-        {state.surface === 'home' && (
-          isLayoutCapableTheme(state.themeId) && solved ? (
-            <div className="rounded-2xl p-3 flex flex-col gap-2"
-              style={{ background: 'var(--pwa-surface-3)', border: '1px solid var(--pwa-border-soft)' }}>
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-[10px] font-black uppercase tracking-[0.3em]" style={{ color: 'var(--pwa-text-3)' }}>
-                  Yerleşim (çözülmüş)
-                </p>
+          {/* ── Ekran seçimi ── */}
+          <div>
+            <p className="text-[9px] font-black uppercase tracking-[0.35em] mb-2" style={{ color: 'var(--pwa-text-3)' }}>
+              Ekranlar
+            </p>
+            <div className="flex gap-1.5 overflow-x-auto pb-1">
+              {surfaces.map((s) => (
                 <button
+                  key={s.id}
                   type="button"
-                  onClick={() => dispatch({ type: 'reset-all-layout' })}
-                  className="text-[9px] font-bold px-2 py-1.5 rounded-lg active:scale-95"
-                  style={{ background: 'var(--pwa-surface)', border: '1px solid var(--pwa-border)', color: 'var(--pwa-text-3)' }}
-                >
-                  Yerleşimi Sıfırla
-                </button>
-              </div>
-              <p className="text-[10px]" style={{ color: 'var(--pwa-text-3)' }}>
-                Aşağıdaki sıra <b>araçtaki yerleşim motorunun</b> (layoutSolver) bu manifestle
-                ürettiği gerçek sonuçtur. Bir kartın sırasını/boyutunu değiştirmek için
-                kartın kendi editörünü açın.
-              </p>
-
-              {/* ── SÜTUN GENİŞLİĞİ (PR-5) ─────────────────────────────────
-                  Kullanıcı isteği: "sütun genişliği". Bugüne dek raylar SABİT
-                  clamp() değerleriyle çiziliyordu ve hiçbir ayarla değişmiyordu.
-                  MUTLAK PİKSEL DEĞİL ÇARPAN: temanın kendi duyarlı sınırları
-                  ölçeklenir, böylece farklı ekran boyutlarında taşma/ezilme
-                  olmaz. Orta sahne (harita) listede YOKTUR — o esnektir ve
-                  kalan alanı alır; ölçeklemek anlamsız olurdu. */}
-              <div className="flex flex-col gap-1.5 pt-1"
-                style={{ borderTop: '1px solid var(--pwa-border-soft)' }}>
-                <p className="text-[9px] font-bold uppercase tracking-wider" style={{ color: 'var(--pwa-text-3)' }}>
-                  Sütun Genişliği
-                </p>
-                {SCALABLE_ZONES.map((z) => {
-                  const deger = manifest.zoneWidths[z] ?? null;
-                  return (
-                    <div key={z} className="flex items-center gap-2">
-                      <span className="text-[10px] font-bold flex-1" style={{ color: 'var(--pwa-text-2)' }}>
-                        {ZONE_LABEL[z]}
-                      </span>
-                      <input
-                        type="range"
-                        min={ZONE_SCALE_MIN}
-                        max={ZONE_SCALE_MAX}
-                        step={0.05}
-                        value={deger ?? 1}
-                        onChange={(e) => dispatch({
-                          type: 'patch-zone-width', zone: z, scale: Number(e.target.value),
-                        })}
-                        style={{ flex: 2, minWidth: 0 }}
-                      />
-                      <span className="text-[10px] font-black tabular-nums w-10 text-right"
-                        style={{ color: deger === null ? 'var(--pwa-text-3)' : '#60a5fa' }}>
-                        {deger === null ? 'oto' : `${deger.toFixed(2)}×`}
-                      </span>
-                      {deger !== null && (
-                        <button
-                          type="button"
-                          aria-label="Sütun genişliğini sıfırla"
-                          onClick={() => dispatch({ type: 'patch-zone-width', zone: z, scale: null })}
-                          className="text-[9px] font-bold px-1.5 py-1 rounded-md active:scale-95"
-                          style={{ background: 'var(--pwa-surface)', border: '1px solid var(--pwa-border)', color: 'var(--pwa-text-3)' }}
-                        >
-                          ↺
-                        </button>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-              {solved.zones.filter((z) => z.items.length > 0 || z.overflow.length > 0).map((z) => (
-                <div key={z.zone} className="flex flex-col gap-1">
-                  <p className="text-[9px] font-bold uppercase tracking-wider" style={{ color: 'var(--pwa-text-3)' }}>
-                    {ZONE_LABEL[z.zone]}
-                  </p>
-                  {/* SÜRÜKLE-BIRAK (#658): sıra artık sayı girerek değil,
-                      taşıyarak değiştirilir. Liste `solved`dan gelir — yani
-                      ARAÇTAKİ çözücünün gerçek sonucudur, ayrı bir sıra
-                      kopyası tutulmaz. */}
-                  <ZoneReorder
-                    items={z.items.map((it) => ({ id: it.id, label: it.label, locked: it.locked }))}
-                    onCommit={(ids) => dispatch({ type: 'reorder-zone', zone: z.zone, orderedCardIds: ids })}
-                  />
-                  <div className="flex flex-wrap gap-1.5">
-                    {z.overflow.map((id) => (
-                      <span key={id}
-                        className="text-[10px] font-semibold px-2 py-1 rounded-lg"
-                        style={{ background: 'rgba(251,191,36,0.12)', border: '1px solid rgba(251,191,36,0.35)', color: '#fbbf24' }}>
-                        {id} · TAŞTI
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="rounded-2xl p-3"
-              style={{ background: 'var(--pwa-surface-3)', border: '1px solid var(--pwa-border-soft)' }}>
-              <p className="text-[10px]" style={{ color: 'var(--pwa-text-3)' }}>
-                <b>{preset.label}</b> sabit yerleşimle çizilir (araçta yerleşim motoruna
-                bağlı değildir) → bu temada kart sırası/boyutu <b>düzenlenemez</b>.
-                Renk, tipografi ve efekt düzenlemeleri tam çalışır.
-              </p>
-            </div>
-          )
-        )}
-
-        {/* ── Bileşen listesi ── */}
-        <div>
-          <p className="text-[9px] font-black uppercase tracking-[0.35em] mb-2" style={{ color: 'var(--pwa-text-3)' }}>
-            Düzenlenebilir Bileşenler
-          </p>
-          <div className="flex flex-col gap-1.5">
-            {components.map((c) => {
-              const s = manifest.componentOverrides[c.id];
-              const edited = s !== undefined;
-              const present = inventory === null ? null : inventory.includes(c.id);
-              return (
-                <button
-                  key={c.id}
-                  type="button"
-                  onClick={() => setEditor({ kind: 'component', componentId: c.id })}
-                  className="flex items-center justify-between gap-2 px-3 rounded-xl text-left active:scale-[0.99]"
+                  onClick={() => dispatch({ type: 'select-surface', surface: s.id })}
+                  className="flex-shrink-0 px-3 rounded-xl text-[10px] font-black uppercase tracking-wider active:scale-95"
                   style={{
-                    minHeight: 52,
-                    background: edited ? 'rgba(52,211,153,0.08)' : 'var(--pwa-surface)',
-                    border: `1px solid ${edited ? 'rgba(52,211,153,0.3)' : 'var(--pwa-border)'}`,
+                    minHeight: 40,
+                    background: state.surface === s.id ? 'rgba(96,165,250,0.18)' : 'var(--pwa-surface)',
+                    color: state.surface === s.id ? '#60a5fa' : 'var(--pwa-text-3)',
+                    border: `1px solid ${state.surface === s.id ? 'rgba(96,165,250,0.42)' : 'var(--pwa-border-soft)'}`,
                   }}
                 >
-                  <div className="min-w-0">
-                    <p className="text-[12px] font-bold truncate" style={{ color: 'var(--pwa-text-2)' }}>{c.label}</p>
-                    <p className="text-[9px] font-mono truncate" style={{ color: 'var(--pwa-text-3)' }}>
-                      {c.id} · {c.type}{c.locked ? ' · kilitli' : ''}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-1.5 flex-shrink-0">
-                    {present === false && (
-                      <span className="text-[8px] font-bold px-1.5 py-0.5 rounded" style={{ background: 'rgba(251,191,36,0.14)', color: '#fbbf24' }}>
-                        EKRANDA YOK
-                      </span>
-                    )}
-                    {edited && (
-                      <span className="text-[8px] font-bold px-1.5 py-0.5 rounded" style={{ background: 'rgba(52,211,153,0.16)', color: '#34d399' }}>
-                        DÜZENLENDİ
-                      </span>
-                    )}
-                    <span style={{ color: 'var(--pwa-text-3)' }}>›</span>
-                  </div>
+                  {s.label}
                 </button>
-              );
-            })}
-            {components.length === 0 && (
-              <p className="text-[11px] px-1" style={{ color: 'var(--pwa-text-3)' }}>
-                Bu ekranda bu temaya ait düzenlenebilir bileşen yok.
+              ))}
+            </div>
+            {surfaceShown === false && (
+              <p
+                className="mt-2 text-[10px] leading-snug font-semibold rounded-lg px-2.5 py-2"
+                style={{ background: 'rgba(251,191,36,0.10)', border: '1px solid rgba(251,191,36,0.30)', color: '#fbbf24' }}
+              >
+                Bu ekran önizlemede gösterilemiyor — araçta kullanıcı eylemiyle açılır
+                (geri vites, uzun basma). Değişiklikler yine de kaydedilir ve araca gider;
+                ama burada <b>sonucu göremezsin</b>.
               </p>
             )}
           </div>
-          {inventory !== null && (
-            <p className="text-[9px] mt-2 px-1" style={{ color: 'var(--pwa-text-3)' }}>
-              Önizleme ölçümünde bulunan bileşen: {inventory.length}. &quot;EKRANDA YOK&quot; = o bileşen
-              önizlemenin şu anki görünümünde çizilmiyor (ör. çekmece kapalı) — stil yine kaydedilir.
-            </p>
-          )}
-        </div>
 
-        {/* ── Seviyeli sıfırlama ── */}
-        <div className="rounded-2xl p-3 flex flex-col gap-2"
-          style={{ background: 'var(--pwa-surface-3)', border: '1px solid var(--pwa-border-soft)' }}>
-          <p className="text-[10px] font-black uppercase tracking-[0.3em]" style={{ color: 'var(--pwa-text-3)' }}>
-            Sıfırlama
-          </p>
-          <p className="text-[10px]" style={{ color: 'var(--pwa-text-3)' }}>
-            <b>Kartı Sıfırla</b> kartın editöründe, <b>Ekranı Sıfırla</b> ekran
-            ayarındadır. Aşağıdaki işlem <b>seçili temanın tamamını</b> kapsar ve
-            iki adım ister. Tek bir <b>Geri Al</b> ile iade edilebilir.
-          </p>
-          {!confirmReset ? (
-            <button
-              type="button"
-              onClick={() => setConfirmReset(true)}
-              disabled={touched === 0}
-              className="text-[11px] font-bold rounded-xl active:scale-95"
-              style={{
-                minHeight: 44, background: 'var(--pwa-surface)',
-                border: '1px solid var(--pwa-border)', color: 'var(--pwa-text-2)',
-                opacity: touched === 0 ? 0.4 : 1,
-              }}
-            >
-              ↺ Tüm Değişiklikleri Geri Al
-            </button>
-          ) : (
-            <>
-              <div className="rounded-xl p-2.5"
-                style={{ background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.32)' }}>
-                <p className="text-[11px] font-bold" style={{ color: '#f87171' }}>
-                  Bu temadaki tüm Studio değişiklikleri geri alınacak.
+          {/* ── Ekran ayarı ── */}
+          <button
+            type="button"
+            onClick={() => setEditor({ kind: 'surface', surface: state.surface })}
+            className="text-[11px] font-bold rounded-xl active:scale-95"
+            style={{ minHeight: 46, background: 'var(--pwa-surface)', border: '1px solid var(--pwa-border)', color: 'var(--pwa-text-2)' }}
+          >
+            Bu Ekranın Genel Ayarı
+          </button>
+
+          {/* ── Yerleşim (yalnız solver kullanan temada, yalnız ana ekranda) ── */}
+          {state.surface === 'home' && (
+            isLayoutCapableTheme(state.themeId) && solved ? (
+              <div className="rounded-2xl p-3 flex flex-col gap-2"
+                style={{ background: 'var(--pwa-surface-3)', border: '1px solid var(--pwa-border-soft)' }}>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[10px] font-black uppercase tracking-[0.3em]" style={{ color: 'var(--pwa-text-3)' }}>
+                    Yerleşim (çözülmüş)
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => dispatch({ type: 'reset-all-layout' })}
+                    className="text-[9px] font-bold px-2 py-1.5 rounded-lg active:scale-95"
+                    style={{ background: 'var(--pwa-surface)', border: '1px solid var(--pwa-border)', color: 'var(--pwa-text-3)' }}
+                  >
+                    Yerleşimi Sıfırla
+                  </button>
+                </div>
+                <p className="text-[10px]" style={{ color: 'var(--pwa-text-3)' }}>
+                  Aşağıdaki sıra <b>araçtaki yerleşim motorunun</b> (layoutSolver) bu manifestle
+                  ürettiği gerçek sonuçtur. Bir kartın sırasını/boyutunu değiştirmek için
+                  kartın kendi editörünü açın.
                 </p>
-                <p className="text-[10px] mt-1" style={{ color: 'var(--pwa-text-3)' }}>
-                  <b>{preset.label}</b> başlangıç hâline döner (renk · yazı · bileşen ·
-                  ekran · yerleşim). Diğer temalara <b>dokunulmaz</b>.
+
+                {/* ── SÜTUN GENİŞLİĞİ (PR-5) ─────────────────────────────────
+                    Kullanıcı isteği: "sütun genişliği". Bugüne dek raylar SABİT
+                    clamp() değerleriyle çiziliyordu ve hiçbir ayarla değişmiyordu.
+                    MUTLAK PİKSEL DEĞİL ÇARPAN: temanın kendi duyarlı sınırları
+                    ölçeklenir, böylece farklı ekran boyutlarında taşma/ezilme
+                    olmaz. Orta sahne (harita) listede YOKTUR — o esnektir ve
+                    kalan alanı alır; ölçeklemek anlamsız olurdu. */}
+                <div className="flex flex-col gap-1.5 pt-1"
+                  style={{ borderTop: '1px solid var(--pwa-border-soft)' }}>
+                  <p className="text-[9px] font-bold uppercase tracking-wider" style={{ color: 'var(--pwa-text-3)' }}>
+                    Sütun Genişliği
+                  </p>
+                  {SCALABLE_ZONES.map((z) => {
+                    const deger = manifest.zoneWidths[z] ?? null;
+                    return (
+                      <div key={z} className="flex items-center gap-2">
+                        <span className="text-[10px] font-bold flex-1" style={{ color: 'var(--pwa-text-2)' }}>
+                          {ZONE_LABEL[z]}
+                        </span>
+                        <input
+                          type="range"
+                          min={ZONE_SCALE_MIN}
+                          max={ZONE_SCALE_MAX}
+                          step={0.05}
+                          value={deger ?? 1}
+                          onChange={(e) => dispatch({
+                            type: 'patch-zone-width', zone: z, scale: Number(e.target.value),
+                          })}
+                          style={{ flex: 2, minWidth: 0 }}
+                        />
+                        <span className="text-[10px] font-black tabular-nums w-10 text-right"
+                          style={{ color: deger === null ? 'var(--pwa-text-3)' : '#60a5fa' }}>
+                          {deger === null ? 'oto' : `${deger.toFixed(2)}×`}
+                        </span>
+                        {deger !== null && (
+                          <button
+                            type="button"
+                            aria-label="Sütun genişliğini sıfırla"
+                            onClick={() => dispatch({ type: 'patch-zone-width', zone: z, scale: null })}
+                            className="text-[9px] font-bold px-1.5 py-1 rounded-md active:scale-95"
+                            style={{ background: 'var(--pwa-surface)', border: '1px solid var(--pwa-border)', color: 'var(--pwa-text-3)' }}
+                          >
+                            ↺
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                {solved.zones.filter((z) => z.items.length > 0 || z.overflow.length > 0).map((z) => (
+                  <div key={z.zone} className="flex flex-col gap-1">
+                    <p className="text-[9px] font-bold uppercase tracking-wider" style={{ color: 'var(--pwa-text-3)' }}>
+                      {ZONE_LABEL[z.zone]}
+                    </p>
+                    {/* SÜRÜKLE-BIRAK (#658): sıra artık sayı girerek değil,
+                        taşıyarak değiştirilir. Liste `solved`dan gelir — yani
+                        ARAÇTAKİ çözücünün gerçek sonucudur, ayrı bir sıra
+                        kopyası tutulmaz. */}
+                    <ZoneReorder
+                      items={z.items.map((it) => ({ id: it.id, label: it.label, locked: it.locked }))}
+                      onCommit={(ids) => dispatch({ type: 'reorder-zone', zone: z.zone, orderedCardIds: ids })}
+                    />
+                    <div className="flex flex-wrap gap-1.5">
+                      {z.overflow.map((id) => (
+                        <span key={id}
+                          className="text-[10px] font-semibold px-2 py-1 rounded-lg"
+                          style={{ background: 'rgba(251,191,36,0.12)', border: '1px solid rgba(251,191,36,0.35)', color: '#fbbf24' }}>
+                          {id} · TAŞTI
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-2xl p-3"
+                style={{ background: 'var(--pwa-surface-3)', border: '1px solid var(--pwa-border-soft)' }}>
+                <p className="text-[10px]" style={{ color: 'var(--pwa-text-3)' }}>
+                  <b>{preset.label}</b> sabit yerleşimle çizilir (araçta yerleşim motoruna
+                  bağlı değildir) → bu temada kart sırası/boyutu <b>düzenlenemez</b>.
+                  Renk, tipografi ve efekt düzenlemeleri tam çalışır.
                 </p>
               </div>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => setConfirmReset(false)}
-                  className="flex-1 text-[11px] font-bold rounded-xl active:scale-95"
-                  style={{ minHeight: 44, background: 'var(--pwa-surface)', border: '1px solid var(--pwa-border)', color: 'var(--pwa-text-2)' }}
-                >
-                  Vazgeç
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { dispatch({ type: 'reset-theme' }); setConfirmReset(false); }}
-                  className="flex-1 text-[11px] font-black rounded-xl active:scale-95"
-                  style={{ minHeight: 44, background: 'rgba(248,113,113,0.14)', border: '1.5px solid rgba(248,113,113,0.42)', color: '#f87171' }}
-                >
-                  Evet, {preset.label} sıfırlansın
-                </button>
-              </div>
-            </>
+            )
           )}
+
+          {/* ── Bileşen listesi ── */}
+          <div>
+            <p className="text-[9px] font-black uppercase tracking-[0.35em] mb-2" style={{ color: 'var(--pwa-text-3)' }}>
+              Düzenlenebilir Bileşenler
+            </p>
+            <div className="flex flex-col gap-1.5">
+              {components.map((c) => {
+                const s = manifest.componentOverrides[c.id];
+                const edited = s !== undefined;
+                const present = inventory === null ? null : inventory.includes(c.id);
+                return (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => setEditor({ kind: 'component', componentId: c.id })}
+                    className="flex items-center justify-between gap-2 px-3 rounded-xl text-left active:scale-[0.99]"
+                    style={{
+                      minHeight: 52,
+                      background: edited ? 'rgba(52,211,153,0.08)' : 'var(--pwa-surface)',
+                      border: `1px solid ${edited ? 'rgba(52,211,153,0.3)' : 'var(--pwa-border)'}`,
+                    }}
+                  >
+                    <div className="min-w-0">
+                      <p className="text-[12px] font-bold truncate" style={{ color: 'var(--pwa-text-2)' }}>{c.label}</p>
+                      <p className="text-[9px] font-mono truncate" style={{ color: 'var(--pwa-text-3)' }}>
+                        {c.id} · {c.type}{c.locked ? ' · kilitli' : ''}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                      {present === false && (
+                        <span className="text-[8px] font-bold px-1.5 py-0.5 rounded" style={{ background: 'rgba(251,191,36,0.14)', color: '#fbbf24' }}>
+                          EKRANDA YOK
+                        </span>
+                      )}
+                      {edited && (
+                        <span className="text-[8px] font-bold px-1.5 py-0.5 rounded" style={{ background: 'rgba(52,211,153,0.16)', color: '#34d399' }}>
+                          DÜZENLENDİ
+                        </span>
+                      )}
+                      <span style={{ color: 'var(--pwa-text-3)' }}>›</span>
+                    </div>
+                  </button>
+                );
+              })}
+              {components.length === 0 && (
+                <p className="text-[11px] px-1" style={{ color: 'var(--pwa-text-3)' }}>
+                  Bu ekranda bu temaya ait düzenlenebilir bileşen yok.
+                </p>
+              )}
+            </div>
+            {inventory !== null && (
+              <p className="text-[9px] mt-2 px-1" style={{ color: 'var(--pwa-text-3)' }}>
+                Önizleme ölçümünde bulunan bileşen: {inventory.length}. &quot;EKRANDA YOK&quot; = o bileşen
+                önizlemenin şu anki görünümünde çizilmiyor (ör. çekmece kapalı) — stil yine kaydedilir.
+              </p>
+            )}
+          </div>
+
+          {/* ── Seviyeli sıfırlama ── */}
+          <div className="rounded-2xl p-3 flex flex-col gap-2"
+            style={{ background: 'var(--pwa-surface-3)', border: '1px solid var(--pwa-border-soft)' }}>
+            <p className="text-[10px] font-black uppercase tracking-[0.3em]" style={{ color: 'var(--pwa-text-3)' }}>
+              Sıfırlama
+            </p>
+            <p className="text-[10px]" style={{ color: 'var(--pwa-text-3)' }}>
+              <b>Kartı Sıfırla</b> kartın editöründe, <b>Ekranı Sıfırla</b> ekran
+              ayarındadır. Aşağıdaki işlem <b>seçili temanın tamamını</b> kapsar ve
+              iki adım ister. Tek bir <b>Geri Al</b> ile iade edilebilir.
+            </p>
+            {!confirmReset ? (
+              <button
+                type="button"
+                onClick={() => setConfirmReset(true)}
+                disabled={touched === 0}
+                className="text-[11px] font-bold rounded-xl active:scale-95"
+                style={{
+                  minHeight: 44, background: 'var(--pwa-surface)',
+                  border: '1px solid var(--pwa-border)', color: 'var(--pwa-text-2)',
+                  opacity: touched === 0 ? 0.4 : 1,
+                }}
+              >
+                ↺ Tüm Değişiklikleri Geri Al
+              </button>
+            ) : (
+              <>
+                <div className="rounded-xl p-2.5"
+                  style={{ background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.32)' }}>
+                  <p className="text-[11px] font-bold" style={{ color: '#f87171' }}>
+                    Bu temadaki tüm Studio değişiklikleri geri alınacak.
+                  </p>
+                  <p className="text-[10px] mt-1" style={{ color: 'var(--pwa-text-3)' }}>
+                    <b>{preset.label}</b> başlangıç hâline döner (renk · yazı · bileşen ·
+                    ekran · yerleşim). Diğer temalara <b>dokunulmaz</b>.
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setConfirmReset(false)}
+                    className="flex-1 text-[11px] font-bold rounded-xl active:scale-95"
+                    style={{ minHeight: 44, background: 'var(--pwa-surface)', border: '1px solid var(--pwa-border)', color: 'var(--pwa-text-2)' }}
+                  >
+                    Vazgeç
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { dispatch({ type: 'reset-theme' }); setConfirmReset(false); }}
+                    className="flex-1 text-[11px] font-black rounded-xl active:scale-95"
+                    style={{ minHeight: 44, background: 'rgba(248,113,113,0.14)', border: '1.5px solid rgba(248,113,113,0.42)', color: '#f87171' }}
+                  >
+                    Evet, {preset.label} sıfırlansın
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+
         </div>
+        )}
 
       </div>
       )}

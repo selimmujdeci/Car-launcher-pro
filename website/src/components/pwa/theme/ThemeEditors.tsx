@@ -456,10 +456,12 @@ export const ComponentEditor = memo(function ComponentEditor({
       {(has('textColor') || has('fontWeight')) && <SectionTitle>Yazı</SectionTitle>}
       {has('textColor') && (
         <ColorField label="Ana Metin" value={style.textColor} onChange={(v) => onPatch({ textColor: v })}
+          readableOn={style.bg}
           swatches={['#FFFFFF', preset.textPrimary, '#F5F0E8', '#E2E8F3', '#0C1420']} />
       )}
       {has('textSecondaryColor') && (
         <ColorField label="İkincil Metin" value={style.textSecondaryColor} onChange={(v) => onPatch({ textSecondaryColor: v })}
+          readableOn={style.bg}
           swatches={['#94A0B8', preset.textSecondary, '#A89678', '#9A9082', '#606060']} />
       )}
       {has('textTertiaryColor') && (
@@ -627,9 +629,11 @@ export const TokensEditor = memo(function TokensEditor({
       <ColorField label="İkincil Vurgu" hint={`Tema varsayılanı: ${preset.base.accentSecondary}`}
         value={tokens.accentSecondary} onChange={(v) => onPatch({ accentSecondary: v })} />
       <ColorField label="Ana Metin" hint={`Tema varsayılanı: ${preset.base.textPrimary}`}
-        value={tokens.textPrimary} onChange={(v) => onPatch({ textPrimary: v })} swatches={TEXT_SWATCHES} swatchLabel="Yazı Renkleri" />
+        value={tokens.textPrimary} onChange={(v) => onPatch({ textPrimary: v })} swatches={TEXT_SWATCHES} swatchLabel="Yazı Renkleri"
+        readableOn={tokens.bgCard ?? preset.base.bgCard} />
       <ColorField label="İkincil Metin" hint={`Tema varsayılanı: ${preset.base.textSecondary}`}
-        value={tokens.textSecondary} onChange={(v) => onPatch({ textSecondary: v })} swatches={TEXT_SWATCHES} swatchLabel="Yazı Renkleri" />
+        value={tokens.textSecondary} onChange={(v) => onPatch({ textSecondary: v })} swatches={TEXT_SWATCHES} swatchLabel="Yazı Renkleri"
+        readableOn={tokens.bgCard ?? preset.base.bgCard} />
       <ColorField label="Kenarlık" value={tokens.borderColor} onChange={(v) => onPatch({ borderColor: v })} />
       <ColorField label="Parıltı Rengi" value={tokens.glowColor} onChange={(v) => onPatch({ glowColor: v })} />
       <ColorField label="Başarı" value={tokens.successColor} onChange={(v) => onPatch({ successColor: v })} />

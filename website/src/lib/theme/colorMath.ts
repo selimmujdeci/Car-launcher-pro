@@ -202,6 +202,44 @@ export function contrastRatio(a: Rgba, b: Rgba): number {
   return (hi + 0.05) / (lo + 0.05);
 }
 
+/** Sürüşte yazı için alt sınır (WCAG AA gövde metni). */
+export const READABLE_MIN_CONTRAST = 4.5;
+
+/**
+ * Yazı rengi `fg`, zemin `bg` üstünde okunur mu? İkisi de TEK renge çözülemiyorsa
+ * (gradient, geçersiz) `null` — bilinmeyen için "okunur/okunmaz" UYDURULMAZ.
+ */
+export function readabilityOf(fg: string | null | undefined, bg: string | null | undefined): number | null {
+  const a = parseColor(fg);
+  const b = parseColor(bg);
+  if (!a || !b) return null;
+  return contrastRatio(a, b);
+}
+
+/**
+ * `fg`'yi tonunu koruyarak beyaza ya da siyaha (zeminle daha çok ayrışana) doğru
+ * en az adımla kaydırıp `min` kontrasta ulaştırır. Zaten okunursa aynen döner.
+ */
+export function ensureReadable(fg: string, bg: string, min = READABLE_MIN_CONTRAST): string {
+  const a = parseColor(fg);
+  const b = parseColor(bg);
+  if (!a || !b || contrastRatio(a, b) >= min) return fg;
+  const white = { r: 255, g: 255, b: 255, a: 1 };
+  const black = { r: 0, g: 0, b: 0, a: 1 };
+  const target = contrastRatio(white, b) >= contrastRatio(black, b) ? white : black;
+  for (let i = 1; i <= 20; i++) {
+    const t = i / 20;
+    const mix = {
+      r: Math.round(a.r + (target.r - a.r) * t),
+      g: Math.round(a.g + (target.g - a.g) * t),
+      b: Math.round(a.b + (target.b - a.b) * t),
+      a: 1,
+    };
+    if (contrastRatio(mix, b) >= min) return rgbaToHex(mix);
+  }
+  return rgbaToHex(target);
+}
+
 /**
  * Nötr yazı rampası — açıktan koyuya, algısal olarak eşit adımlı.
  *
