@@ -399,7 +399,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   unitSystem: 'metric',
   brightness: 100,
   volume: 60,
-  volumeStyle: 'minimal_pro',
+  volumeStyle: 'tesla_ultra',
   theme: 'light',
   themePack: 'tesla',
   themeStyle: 'glass',
@@ -594,7 +594,7 @@ export const useStore = create<StoreState>()(
         setItem: (name, value) => safeStorage.setItem(name, value),
         removeItem: (name) => safeStorage.removeItem(name),
       })),
-      version: 18,
+      version: 19,
       migrate: (persistedState: unknown, fromVersion: number) => {
         const ps = (persistedState as { settings?: Partial<AppSettings> }) ?? {};
         const settings: AppSettings = { ...DEFAULT_SETTINGS, ...(ps.settings ?? {}) };
@@ -668,6 +668,11 @@ export const useStore = create<StoreState>()(
         if (fromVersion < 18) {
           // v18: ilk kurulum sihirbazı — mevcut kullanıcı zaten kurmuş sayılır.
           settings.setupCompleted = true;
+        }
+        if (fromVersion < 19) {
+          /* v19: ses göstergesi rakamlı dikey kart. Eski varsayılan 6px çizgi fark edilmiyordu
+             ve seçim UI'ı hiç yoktu — 'minimal_pro' kimsenin bilinçli seçimi değil. */
+          if (settings.volumeStyle === 'minimal_pro') settings.volumeStyle = 'tesla_ultra';
         }
         return { ...ps, settings };
       },

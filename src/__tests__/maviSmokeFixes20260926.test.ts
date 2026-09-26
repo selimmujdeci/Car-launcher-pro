@@ -75,3 +75,11 @@ describe('"bu hangi şarkı" radyo çalarken', () => {
     expect(s).toContain("(m.source === 'unknown' && !m.playing)");
   });
 });
+
+describe('ses göstergesi görünür', () => {
+  it('varsayılan rakamlı kart; eski 6px çizgi v19 göçünde değişir', () => {
+    const s = src('store/useStore.ts');
+    expect(s).toContain("volumeStyle: 'tesla_ultra',");
+    expect(s).toContain("if (settings.volumeStyle === 'minimal_pro') settings.volumeStyle = 'tesla_ultra';");
+  });
+});
