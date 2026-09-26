@@ -24,6 +24,12 @@ describe('parseAppControl — dar ve kesin', () => {
     ['sürücü değiştir', { op: 'driver', name: null }],
   ])('"%s"', (t, want) => { expect(parseAppControl(t)).toEqual(want); });
 
+  it.each([
+    ['bu hangi şarkı', 'now_playing'], ['hangi şarkı çalıyor', 'now_playing'],
+    ['varışa ne kadar kaldı', 'eta'], ['kaç km kaldı', 'remaining'],
+    ['kim sürüyor', 'driver'], ['ses kaç', 'volume'],
+  ])('bilgi: "%s" → %s', (t, what) => { expect(parseAppControl(t)).toEqual({ op: 'info', what }); });
+
   it.each(['karışık çal', 'tekrar söyle', 'ileri git', 'tesla aç', 'ben sürüyorum', 'eve götür', 'sonraki şarkı'])(
     '"%s" bu katmana ait DEĞİL', (t) => { expect(parseAppControl(t)).toBeNull(); });
 

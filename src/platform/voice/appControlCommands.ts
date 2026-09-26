@@ -18,7 +18,9 @@ export type AppControl =
   | { readonly op: 'seek'; readonly deltaSec: number }
   | { readonly op: 'restart' }
   | { readonly op: 'theme'; readonly theme: CoreThemeName }
-  | { readonly op: 'driver'; readonly name: string | null };
+  | { readonly op: 'driver'; readonly name: string | null }
+  /** Salt okuma: uygulamanın kendi verisinden cevap (beyin/ağ gerekmez). */
+  | { readonly op: 'info'; readonly what: 'now_playing' | 'eta' | 'remaining' | 'driver' | 'volume' };
 
 function norm(s: string): string {
   return s.toLocaleLowerCase('tr-TR')
@@ -86,6 +88,19 @@ export function parseAppControl(raw: string): AppControl | null {
       return { op: 'theme', theme: t as CoreThemeName };
     }
   }
+
+  /* ── Uygulama bilgisi (salt okuma) ──────────────────────────────────── */
+  if (/^(?:bu\s+)?(?:hangi sarki|ne calıyor|ne caliyor|hangi sarki caliyor|calan sarki ne|bu sarkinin adi ne|bu sarki ne|sarkinin adi ne|kim soyluyor|bu kimin sarkisi)$/.test(n)) {
+    return { op: 'info', what: 'now_playing' };
+  }
+  if (/^(?:varisa ne kadar (?:kaldi|var)|ne zaman varir(?:iz|im)|kac dakika(?:da)? varir(?:iz|im)|kac dakika kaldi|varis (?:saati|suresi) ne)$/.test(n)) {
+    return { op: 'info', what: 'eta' };
+  }
+  if (/^(?:kac (?:km|kilometre) kaldi|ne kadar yol kaldi|daha ne kadar yol var|hedefe ne kadar kaldi)$/.test(n)) {
+    return { op: 'info', what: 'remaining' };
+  }
+  if (/^(?:surucu kim|kim suruyor|aktif surucu kim|hangi surucu)$/.test(n)) return { op: 'info', what: 'driver' };
+  if (/^(?:ses (?:kac|seviyesi (?:ne|kac))|ses yuzde kac)$/.test(n)) return { op: 'info', what: 'volume' };
 
   /* ── Sürücü ─────────────────────────────────────────────────────────── */
   if (/^surucu(?:yu)?\s+degistir$/.test(n) || /^surucu(?:ler)?\s+(?:kim|kimler|listesi)$/.test(n)) {

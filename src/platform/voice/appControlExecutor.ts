@@ -70,6 +70,35 @@ export async function executeAppControl(c: AppControl): Promise<AppControlOutcom
         : { ok: false, text: 'Temayı değiştiremedim.' };
     }
 
+    case 'info': {
+      const [{ getMediaState }, nav, { useStore }] = await Promise.all([
+        import('../mediaService'), import('../navigationService'), import('../../store/useStore'),
+      ]);
+      if (c.what === 'now_playing') {
+        const m = getMediaState();
+        if (!m.track?.title || m.source === 'unknown') return { ok: false, text: 'Şu an çalan bir parça yok.' };
+        const who = m.track.artist ? `, ${m.track.artist}` : '';
+        return { ok: true, text: m.playing ? `Çalan: ${m.track.title}${who}.` : `Duraklatıldı. Son parça: ${m.track.title}${who}.` };
+      }
+      if (c.what === 'eta' || c.what === 'remaining') {
+        const n = nav.getNavigationState();
+        if (n.status === nav.NavStatus.IDLE || n.status === nav.NavStatus.ERROR) return { ok: false, text: 'Şu an aktif bir rota yok.' };
+        if (c.what === 'eta') {
+          if (!(typeof n.etaSeconds === 'number' && n.etaSeconds > 0)) return { ok: false, text: 'Varış süresini henüz hesaplayamadım.' };
+          return { ok: true, text: `Yaklaşık ${Math.max(1, Math.round(n.etaSeconds / 60))} dakika sonra varıyoruz.` };
+        }
+        if (!(typeof n.distanceMeters === 'number' && n.distanceMeters > 0)) return { ok: false, text: 'Kalan mesafeyi henüz hesaplayamadım.' };
+        const km = n.distanceMeters / 1000;
+        return { ok: true, text: km < 1 ? `${Math.round(n.distanceMeters)} metre kaldı.` : `${km.toFixed(km < 10 ? 1 : 0).replace('.', ',')} kilometre kaldı.` };
+      }
+      const s = useStore.getState().settings;
+      if (c.what === 'driver') {
+        const d = s.driverProfiles?.find((x) => x.id === s.activeDriverProfileId);
+        return d ? { ok: true, text: `Sürücü ${d.name}.` } : { ok: false, text: 'Seçili bir sürücü profili yok.' };
+      }
+      return Number.isFinite(s.volume) ? { ok: true, text: `Ses yüzde ${s.volume}.` } : { ok: false, text: 'Ses seviyesini okuyamadım.' };
+    }
+
     case 'driver': {
       const [{ useStore }, svc] = await Promise.all([
         import('../../store/useStore'), import('../driverProfileService'),
