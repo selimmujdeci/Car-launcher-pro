@@ -21,6 +21,15 @@ export const metadata: Metadata = {
   title: 'Arabam Cebimde',
   description: 'Arabam Cebimde — Aracınızı avucunuzun içinden yönetin.',
   manifest: '/manifest.webmanifest',
+  /* Arabam Cebimde logosu (2026-09-26) — yalnız tüketici yüzeyinde; filo sitesi
+     kendi simgesini korur (kök layout). */
+  icons: {
+    icon: [
+      { url: '/icons/arabam-cebimde-192.png', sizes: '192x192', type: 'image/png' },
+      { url: '/icons/arabam-cebimde-48.png', sizes: '48x48', type: 'image/png' },
+    ],
+    apple: { url: '/icons/arabam-cebimde-180.png', sizes: '180x180', type: 'image/png' },
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',
