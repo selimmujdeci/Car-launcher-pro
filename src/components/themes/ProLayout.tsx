@@ -78,7 +78,7 @@ function buildPal(night: boolean): Pal {
         card: 'var(--bg-card, rgba(30,34,43,0.74))',
         cardSolid: 'var(--bg-card, rgba(17,22,34,0.94))',
         border: '1px solid var(--border-color, rgba(255,255,255,0.07))',
-        inkCritical: '#FBFCFF',
+        inkCritical: 'var(--text-primary, #FBFCFF)',
         ink: 'var(--text-primary, #eef2f8)',
         ink2: 'var(--text-secondary, rgba(225,231,242,0.66))',
         ink3: 'var(--text-tertiary, rgba(225,231,242,0.40))',
@@ -104,7 +104,7 @@ function buildPal(night: boolean): Pal {
         border: '1px solid var(--border-color, rgba(47,107,255,0.18))',
         // Güneş okunabilirliği (WCAG AAA / ISO 15008): tam-opak koyu mürekkep,
         // ikincil/üçüncül yazılar da yüksek kontrast (sönük gri yok).
-        inkCritical: '#05090F',
+        inkCritical: 'var(--text-primary, #05090F)',
         ink: 'var(--text-primary, #0c1420)',
         ink2: 'var(--text-secondary, rgba(16,26,42,0.88))',
         ink3: 'var(--text-tertiary, rgba(16,26,42,0.72))',

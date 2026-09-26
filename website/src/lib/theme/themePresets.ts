@@ -49,7 +49,6 @@ export interface ShapePreset {
 
 const hsl = (h: number, s: number, l: number): string => rgbaToHex(hslToRgba(h, s, l));
 const solid = (c: string): Paint => ({ kind: 'solid', from: c, to: null, angle: 180, stopA: 0, stopB: 100, alpha: 100 });
-const linear = (a: string, b: string): Paint => ({ kind: 'linear', from: a, to: b, angle: 160, stopA: 0, stopB: 100, alpha: 100 });
 
 /** Vurguyu zemine karşı en az `min` kontrasta çeker (gündüzde koyulaştır, gecede aç). */
 function ensureContrast(accent: string, bg: string, min: number, mode: PresetMode): string {
@@ -76,7 +75,6 @@ export function buildColorPreset(spec: ColorPresetSpec): ColorPreset {
   const { hue: h, sat: s, mode } = spec;
   const night = mode === 'night';
   const bgA = night ? hsl(h, s, 0.065) : hsl(h, s * 0.45, 0.93);
-  const bgB = night ? hsl(h, s * 0.9, 0.105) : hsl(h, s * 0.35, 0.965);
   const card = night ? hsl(h, s * 0.8, 0.14) : hsl(h, s * 0.25, 0.995);
   const border = night ? hsl(h, s * 0.6, 0.25) : hsl(h, s * 0.3, 0.8);
   const text = night ? hsl(h, 0.16, 0.93) : hsl(h, 0.3, 0.11);
@@ -93,7 +91,9 @@ export function buildColorPreset(spec: ColorPresetSpec): ColorPreset {
     iconNav: accent,
     iconMedia: accent,
     iconDock: accent,
-    bgPrimary: linear(bgA, bgB),
+    /* DÜZ renk: zayıf GPU modunda (`perf-low`) tüm background-image'lar kapatılır —
+       gradyan zemin head unit'te TAMAMEN kayboluyordu (başsız Chrome'da ölçüldü). */
+    bgPrimary: solid(bgA),
     bgCard: solid(card),
   };
   return { ...spec, tokens, swatch: [bgA, card, accent, text] };

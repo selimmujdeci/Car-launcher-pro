@@ -95,7 +95,7 @@ const DAY: Pal = {
   // `--accent-rgb` yollarsa CANLI yansır.
   accent: 'var(--accent-primary, #E07B14)', accentDeep: '#B65F0C', accentGlow: 'rgba(var(--accent-rgb, 255,154,46), 0.45)',
   accentA23: 'rgba(var(--accent-rgb, 224,123,20), 0.23)', accentA40: 'rgba(var(--accent-rgb, 224,123,20), 0.4)', accentA53: 'rgba(var(--accent-rgb, 224,123,20), 0.53)',
-  inkCritical: '#181410', ink: 'var(--text-primary, #2A2620)', ink2: 'var(--text-secondary, #6E665A)', ink3: 'var(--text-tertiary, #A79E90)',
+  inkCritical: 'var(--text-primary, #181410)', ink: 'var(--text-primary, #2A2620)', ink2: 'var(--text-secondary, #6E665A)', ink3: 'var(--text-tertiary, #A79E90)',
   plate: 'var(--bg-card, #F4F0E8)', plateRaised: 'var(--card-raised, #FBF8F2)', plateSunk: 'var(--card-sunk, #EBE5DA)',
   edge: 'var(--border-color, #B3AA99)', edgeLight: 'rgba(255,255,255,.85)', hairline: 'rgba(var(--edge-rgb, 60,48,28), .12)',
   rivetL: '#EDE7DA', rivetD: '#8A8276',
@@ -113,7 +113,7 @@ const NIGHT: Pal = {
   // hue'su yeşile çekildi → Tesla'nın espresso kahvesinden NET ayrışır.
   accent: 'var(--accent-primary, #F2871C)', accentDeep: '#B65F0C', accentGlow: 'rgba(var(--accent-rgb, 242,135,28), 0.5)',
   accentA23: 'rgba(var(--accent-rgb, 242,135,28), 0.23)', accentA40: 'rgba(var(--accent-rgb, 242,135,28), 0.4)', accentA53: 'rgba(var(--accent-rgb, 242,135,28), 0.53)',
-  inkCritical: '#FCF7EE', ink: 'var(--text-primary, #EDE4D2)', ink2: 'var(--text-secondary, #A89678)', ink3: 'var(--text-tertiary, #6E6049)',
+  inkCritical: 'var(--text-primary, #FCF7EE)', ink: 'var(--text-primary, #EDE4D2)', ink2: 'var(--text-secondary, #A89678)', ink3: 'var(--text-tertiary, #6E6049)',
   plate: 'var(--bg-card, #1a241a)', plateRaised: 'var(--card-raised, #26331f)', plateSunk: 'var(--card-sunk, #0a0f0a)',
   edge: 'var(--border-color, #3a4a2a)', edgeLight: 'rgba(var(--edge-rgb, 150,180,92), .36)', hairline: 'rgba(var(--edge-rgb, 150,180,92), .15)',
   rivetL: '#7d8a5a', rivetD: '#0a0d07',
