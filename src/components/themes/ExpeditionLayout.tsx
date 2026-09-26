@@ -212,7 +212,7 @@ const Header = memo(function Header() {
             muaf (Tesla/Horizon zili ile aynı) — yoksa zil boş siyah kutu görünüyordu. */}
         <button onClick={() => openDrawer('notifications')} aria-label={n.unreadCount > 0 ? `Bildirimler: ${n.unreadCount} okunmamış` : 'Bildirimler'} className="caros-status-item ex-btn relative" style={{ background: 'none', border: 'none', cursor: 'pointer', color: p.ink2, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <Bell className="w-[18px] h-[18px]" />
-          {n.unreadCount > 0 && <span style={{ position: 'absolute', top: -4, right: -5, minWidth: 14, height: 14, background: p.accent, color: '#1a0f02', fontSize: 8, fontWeight: 900, borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 2px' }}>{n.unreadCount > 9 ? '9+' : n.unreadCount}</span>}
+          {n.unreadCount > 0 && <span style={{ position: 'absolute', top: -4, right: -5, minWidth: 14, height: 14, background: p.accent, color: 'var(--oem-accent-ink, #1a0f02)', fontSize: 8, fontWeight: 900, borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 2px' }}>{n.unreadCount > 9 ? '9+' : n.unreadCount}</span>}
         </button>
         <span className={online ? 'lt-pulse' : undefined} aria-label={online ? 'Çevrimiçi' : 'Çevrimdışı'}
           style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, background: online ? '#34d399' : 'currentColor', opacity: online ? 1 : 0.4 }} />
@@ -394,7 +394,7 @@ const MusicPlate = memo(function MusicPlate() {
   const shownPct = total > 0 ? (dragPct ?? pct) : pct;
   const playBtn: React.CSSProperties = p.night
     ? { background: 'transparent', color: p.accent, border: `2.5px solid ${p.accent}`, boxShadow: `0 0 18px ${p.accentGlow}` }
-    : { background: p.accent, color: '#1a0f02', border: 'none', boxShadow: `0 6px 16px ${p.accentGlow}, inset 0 2px 0 rgba(255,255,255,.35)` };
+    : { background: p.accent, color: 'var(--oem-accent-ink, #1a0f02)', border: 'none', boxShadow: `0 6px 16px ${p.accentGlow}, inset 0 2px 0 rgba(255,255,255,.35)` };
   return (
     <Plate editId="expedition.music" editType="media" style={{ padding: '18px 20px', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
       <div className="flex items-center" style={{ gap: 14 }}>
@@ -478,10 +478,10 @@ function DockBtn({ Icon, cap, active, onClick, badge }: { Icon: typeof Navigatio
   return (
     <button data-dock-item data-editable="expedition.dock-buttons" data-editable-type="dock" onClick={onClick} className="ex-dock-btn flex flex-col items-center justify-center flex-shrink-0" style={{ flex: '0 0 38%', minWidth: 0, scrollSnapAlign: 'start', background: 'transparent', border: 'none', cursor: 'pointer', gap: 8, color: active ? p.accent : p.ink2, borderRight: `1px solid ${p.hairline}`, position: 'relative', touchAction: 'pan-x' }}>
       {active && !p.night
-        ? <span style={{ width: 52, height: 52, borderRadius: '50%', background: p.accent, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', boxShadow: `0 4px 14px ${p.accentGlow}` }}><Icon className="w-8 h-8" /></span>
+        ? <span style={{ width: 52, height: 52, borderRadius: '50%', background: p.accent, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--oem-accent-ink, #fff)', boxShadow: `0 4px 14px ${p.accentGlow}` }}><Icon className="w-8 h-8" /></span>
         : <Icon className="w-[34px] h-[34px]" style={{ filter: 'drop-shadow(0 1px 1px rgba(0,0,0,.5))' }} />}
       <span style={{ fontSize: 14.5, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase' }}>{cap}</span>
-      {!!badge && <span style={{ position: 'absolute', top: 6, right: '22%', minWidth: 17, height: 17, background: p.accent, color: '#1a120a', fontSize: 10, fontWeight: 900, borderRadius: 9, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 3px' }}>{badge > 9 ? '9+' : badge}</span>}
+      {!!badge && <span style={{ position: 'absolute', top: 6, right: '22%', minWidth: 17, height: 17, background: p.accent, color: 'var(--oem-accent-ink, #1a120a)', fontSize: 10, fontWeight: 900, borderRadius: 9, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 3px' }}>{badge > 9 ? '9+' : badge}</span>}
     </button>
   );
 }

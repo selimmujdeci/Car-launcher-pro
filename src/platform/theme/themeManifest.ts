@@ -1024,6 +1024,22 @@ export function manifestToCssVars(m: ThemeManifest): Record<string, string> {
   }
   const edgeRgb = t.borderColor ? colorToRgbTriplet(t.borderColor) : null;
   if (edgeRgb) put('--edge-rgb', edgeRgb);
+  /* OTOMATİK YAZI RENGİ (kullanıcı 2026-09-26: "renk değişince yazılar da renge göre
+     değişmeli, bazı renklerde yazı görünmüyor"). Kart/zemin rengi verilip yazı rengi
+     VERİLMEMİŞSE yazı, yüzeyin parlaklığına göre açık/koyu seçilir. Kullanıcının açıkça
+     seçtiği yazı rengi ASLA ezilmez. */
+  const surfaceRgb = cardRgb ?? (t.bgPrimary ? colorToRgbTriplet(t.bgPrimary.from) : null);
+  if (surfaceRgb) {
+    const light = _relLuminance(surfaceRgb) > 0.4;
+    if (!t.textPrimary) {
+      const ink = light ? '#14181F' : '#F2F4F8';
+      put('--text-primary', ink); put('--text-primary-var', ink);
+    }
+    if (!t.textSecondary) {
+      const ink2 = light ? '#4A5160' : '#AEB6C4';
+      put('--text-secondary', ink2); put('--text-secondary-var', ink2);
+    }
+  }
   const bgRgb = t.bgPrimary ? colorToRgbTriplet(t.bgPrimary.from) : null;
   if (bgRgb) {
     put('--bg-rgb', bgRgb);
