@@ -11,6 +11,7 @@ import { getMediaState } from '../mediaService';
 import { useStore } from '../../store/useStore';
 import { getOwnTrail } from '../diagnosticTrailCore';
 import { useCarTheme } from '../../store/useCarTheme';
+import { getActiveSource } from '../media/authority/mediaCommandGateway';
 
 export function readMaviEffects(): Record<string, unknown> {
   const nav = getNavigationState();
@@ -27,6 +28,10 @@ export function readMaviEffects(): Record<string, unknown> {
     track: media.track?.title ?? null,
     positionSec: Number.isFinite(media.track?.positionSec) ? Math.round(media.track.positionSec) : null,
     source: media.source,
+    activePackage: media.activePackage,
+    hasSession: media.hasSession,
+    gatewaySource: getActiveSource(),
+    mediaTrail: getOwnTrail().filter((e) => e.kind === 'action' && /medya/i.test(e.label)).slice(-4).map((e) => `${e.label}${e.detail ? ':' + e.detail : ''}`),
     volume: s.volume,
     brightness: s.brightness,
     theme: s.theme,
