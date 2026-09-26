@@ -76,8 +76,8 @@ function buildPal(night: boolean): Pal {
         // yollarsa CANLI yansır. Alfa gereken accent tonları --accent-rgb üzerinden (rgba(var(...))).
         bg: 'var(--bg-primary, radial-gradient(115% 85% at 72% -10%, #162232 0%, transparent 48%), linear-gradient(160deg,#0c0d11 0%,#101117 45%,#0a0b0e 100%))',
         card: 'var(--bg-card, rgba(30,34,43,0.74))',
-        cardSolid: 'rgba(17,22,34,0.94)',
-        border: '1px solid rgba(255,255,255,0.07)',
+        cardSolid: 'var(--bg-card, rgba(17,22,34,0.94))',
+        border: '1px solid var(--border-color, rgba(255,255,255,0.07))',
         inkCritical: '#FBFCFF',
         ink: 'var(--text-primary, #eef2f8)',
         ink2: 'var(--text-secondary, rgba(225,231,242,0.66))',
@@ -87,8 +87,8 @@ function buildPal(night: boolean): Pal {
         accentGlow: 'rgba(var(--accent-rgb, 91,141,255), 0.40)',
         good: '#34d399',
         shadow: '0 18px 48px -22px rgba(0,0,0,0.72), 0 2px 10px rgba(0,0,0,0.45)',
-        dockBg: 'rgba(16,21,33,0.62)',
-        dockBorder: '1px solid rgba(255,255,255,0.09)',
+        dockBg: 'rgba(var(--card-rgb, 16,21,33), 0.62)',
+        dockBorder: '1px solid var(--border-color, rgba(255,255,255,0.09))',
         tile: 'rgba(255,255,255,0.05)',
       }
     : {
@@ -100,8 +100,8 @@ function buildPal(night: boolean): Pal {
           'linear-gradient(160deg,#dbe4f1 0%,#e7eef7 46%,#e0e9f4 100%))',
         // Kart yüzeyleri neredeyse opak (güneşte saydamlık kontrastı düşürür) + hafif mavimsi
         card: 'var(--bg-card, linear-gradient(150deg, rgba(249,251,255,0.97) 0%, rgba(234,242,253,0.96) 100%))',
-        cardSolid: 'linear-gradient(150deg, #f8fbff 0%, #e9f1fd 100%)',
-        border: '1px solid rgba(47,107,255,0.18)',
+        cardSolid: 'var(--bg-card, linear-gradient(150deg, #f8fbff 0%, #e9f1fd 100%))',
+        border: '1px solid var(--border-color, rgba(47,107,255,0.18))',
         // Güneş okunabilirliği (WCAG AAA / ISO 15008): tam-opak koyu mürekkep,
         // ikincil/üçüncül yazılar da yüksek kontrast (sönük gri yok).
         inkCritical: '#05090F',
@@ -114,7 +114,7 @@ function buildPal(night: boolean): Pal {
         good: '#0e9f6e',
         shadow: '0 14px 34px -16px rgba(40,70,120,0.30), 0 2px 8px rgba(40,70,120,0.10)',
         dockBg: 'linear-gradient(150deg, rgba(249,251,255,0.84) 0%, rgba(232,241,253,0.80) 100%)',
-        dockBorder: '1px solid rgba(47,107,255,0.20)',
+        dockBorder: '1px solid var(--border-color, rgba(47,107,255,0.20))',
         tile: 'rgba(47,107,255,0.08)',
       };
 }
@@ -127,10 +127,12 @@ function cardStyle(p: Pal, opts?: { solid?: boolean; pad?: number }): React.CSSP
   return {
     background: opts?.solid ? p.cardSolid : p.card,
     border: p.border,
-    borderRadius: 24,
-    boxShadow: p.shadow,
-    backdropFilter: 'blur(18px) saturate(1.25)',
-    WebkitBackdropFilter: 'blur(18px) saturate(1.25)',
+    borderRadius: 'var(--radius-card, 24px)',
+    /* Tema Stüdyo ışıması (--glow-intensity 0-100); yoksa 0 → görünüm AYNI. */
+    boxShadow: `${p.shadow}, 0 0 calc(var(--glow-intensity, 0) * 0.3px) rgba(var(--accent-rgb, 91,141,255), calc(var(--glow-intensity, 0) / 250))`,
+    /* Cam derinliği şekil taslağından (--card-blur); yoksa temanın 18px'i. */
+    backdropFilter: 'blur(var(--card-blur, 18px)) saturate(1.25)',
+    WebkitBackdropFilter: 'blur(var(--card-blur, 18px)) saturate(1.25)',
     padding: opts?.pad,
   };
 }
@@ -290,7 +292,7 @@ const NavCard = memo(function NavCard({ onOpenMap, fullMapOpen }: { onOpenMap: (
   const navSummary = useNavSummary();
   return (
     <div data-editable="pro.map" data-editable-type="map" onClick={onOpenMap} className="relative overflow-hidden cursor-pointer flex-1 min-h-0"
-      style={{ borderRadius: 24, border: p.border, boxShadow: p.shadow }}>
+      style={{ borderRadius: 'var(--radius-card, 24px)', border: p.border, boxShadow: p.shadow }}>
       {/* Harita */}
       <div className="absolute inset-0">
         {fullMapOpen
@@ -743,7 +745,7 @@ const ProDock = memo(function ProDock({ onOpenMap, onVoice, onOpenApps, onOpenSe
         data-no-page-swipe
         className="pro-dock-scroll flex items-center gap-1.5 px-3 py-3.5 rounded-3xl w-full"
         style={{
-          background: p.dockBg, border: p.dockBorder,
+          background: p.dockBg, border: p.dockBorder, borderRadius: 'var(--radius-dock, 24px)',
           backdropFilter: 'blur(22px) saturate(1.3)', WebkitBackdropFilter: 'blur(22px) saturate(1.3)',
           boxShadow: p.shadow,
           overflowX: 'auto', overflowY: 'hidden',
