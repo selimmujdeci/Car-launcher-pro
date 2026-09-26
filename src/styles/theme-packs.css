@@ -83,7 +83,7 @@ html[data-theme="pro"] .premium-card {
 }
 
 html[data-theme="pro"] [data-dock="main"] {
-  background: var(--dock-bg) !important;
+  background: var(--pack-dock-bg, var(--dock-bg)) !important;
   border-top: 1px solid var(--dock-border) !important;
   box-shadow: 0 -4px 24px rgba(0,0,0,0.35) !important;
 }
@@ -92,8 +92,9 @@ html[data-theme="pro"] [data-layout="pro-main"],
 html[data-theme="pro"] [data-pro-sidebar],
 html[data-theme="pro"] [data-pro-topbar],
 html[data-theme="pro"] [data-pro-bottombar] {
-  background: #16181D !important;
-  border-color: rgba(255,255,255,0.10) !important;
+  /* Tema Stüdyo: --pack-surface / --border-color yalnız özelleştirmede yazılır; yoksa AYNI. */
+  background: var(--pack-surface, #16181D) !important;
+  border-color: var(--border-color, rgba(255,255,255,0.10)) !important;
 }
 
 html[data-theme="pro"] .text-emerald-400 { color: #2ECC71 !important; }
@@ -147,16 +148,16 @@ html[data-theme="pro"][data-day-night="day"] .ultra-premium-root {
 html[data-theme="pro"][data-day-night="day"] .glass-card,
 html[data-theme="pro"][data-day-night="day"] .up-panel,
 html[data-theme="pro"][data-day-night="day"] .premium-card {
-  background: rgba(255,255,255,0.94) !important;
-  border: 1px solid rgba(0,0,0,0.10) !important;
+  background: var(--pack-card-bg, rgba(255,255,255,0.94)) !important;
+  border: 1px solid var(--pack-border, rgba(0,0,0,0.10)) !important;
   box-shadow: 0 4px 20px rgba(0,0,0,0.10), 0 0 0 1px rgba(0,0,0,0.04) !important;
   backdrop-filter: blur(1px) !important;
   background-image: none !important;
-  color: #14181F !important;
+  color: var(--text-primary, #14181F) !important;
 }
 
 html[data-theme="pro"][data-day-night="day"] [data-dock="main"] {
-  background: rgba(248,249,251,0.97) !important;
+  background: var(--pack-dock-bg, rgba(248,249,251,0.97)) !important;
   border-top: 1px solid rgba(0,0,0,0.10) !important;
   box-shadow: 0 -2px 16px rgba(0,0,0,0.10) !important;
 }
@@ -165,7 +166,7 @@ html[data-theme="pro"][data-day-night="day"] [data-layout="pro-main"],
 html[data-theme="pro"][data-day-night="day"] [data-pro-sidebar],
 html[data-theme="pro"][data-day-night="day"] [data-pro-topbar],
 html[data-theme="pro"][data-day-night="day"] [data-pro-bottombar] {
-  background: #ECEEF1 !important;
+  background: var(--pack-surface, #ECEEF1) !important;
   border-color: rgba(0,0,0,0.08) !important;
 }
 

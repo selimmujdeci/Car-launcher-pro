@@ -94,7 +94,7 @@ const NIGHT_H: Pal = {
   // `--accent-rgb` yollarsa CANLI yansır.
   desk: 'var(--bg-primary, radial-gradient(150% 130% at 50% -15%, #17263f 0%, #111a2b 55%, #090e18 100%))',
   panel: 'var(--bg-card, #19233a)', panelHi: 'var(--card-raised, #222e49)', panelLo: 'var(--card-lo, #0f141f)',
-  inkCritical: '#F2F6FE', ink: 'var(--text-primary, #E2E8F3)', ink2: 'var(--text-secondary, #94A0B8)', ink3: 'var(--text-tertiary, #556077)',
+  inkCritical: 'var(--text-primary, #F2F6FE)', ink: 'var(--text-primary, #E2E8F3)', ink2: 'var(--text-secondary, #94A0B8)', ink3: 'var(--text-tertiary, #556077)',
   accent: 'var(--accent-primary, #F2871C)', accent2: 'var(--accent-secondary, #FFB35C)', accentDeep: '#B25F0C', accentGlow: 'rgba(var(--accent-rgb, 242,135,28), .42)', accentInk: '#1A0D02',
   edge: 'var(--border-color, rgba(120,150,210,.14))', edgeHi: 'var(--border-color, rgba(165,195,242,.20))',
   metal: 'linear-gradient(160deg,var(--card-hi, #283448) 0%,var(--bg-card, #1a2336) 55%,var(--card-lo, #111726) 100%)',
@@ -102,7 +102,7 @@ const NIGHT_H: Pal = {
   elev: '0 16px 36px rgba(0,0,0,.58), 0 3px 9px rgba(0,0,0,.5)',
   bevel: 'inset 0 1px 0 rgba(200,214,238,.14)',
   mapveil: 'linear-gradient(180deg, rgba(6,9,14,0) 38%, rgba(6,9,14,.62))',
-  onDark: '#E4E9F1', onDark2: '#97A1B3',
+  onDark: 'var(--text-primary, #E4E9F1)', onDark2: 'var(--text-secondary, #97A1B3)',
   ok: '#7FB87E',
 };
 
@@ -110,7 +110,7 @@ const DAY_H: Pal = {
   night: false,
   desk: 'var(--bg-primary, radial-gradient(150% 130% at 50% -15%, #ece3d0 0%, #ddd2b9 55%, #cabd9f 100%))',
   panel: 'var(--bg-card, #F2ECDE)', panelHi: 'var(--card-raised, #F8F3E9)', panelLo: 'var(--card-sunk, #E2D8C4)',
-  inkCritical: '#221C12', ink: 'var(--text-primary, #2E281C)', ink2: 'var(--text-secondary, #6C6250)', ink3: 'var(--text-tertiary, #9A907A)',
+  inkCritical: 'var(--text-primary, #221C12)', ink: 'var(--text-primary, #2E281C)', ink2: 'var(--text-secondary, #6C6250)', ink3: 'var(--text-tertiary, #9A907A)',
   accent: 'var(--accent-primary, #DA801A)', accent2: 'var(--accent-secondary, #E89A3C)', accentDeep: '#A85C0C', accentGlow: 'rgba(var(--accent-rgb, 218,128,26), .28)', accentInk: '#FFF6E9',
   edge: 'var(--border-color, rgba(92,72,38,.20))', edgeHi: 'rgba(255,250,238,.7)',
   metal: 'linear-gradient(160deg,var(--card-hi, #d3c9b3) 0%,var(--bg-card, #b8ac90) 55%,var(--card-sunk, #9c9075) 100%)',
@@ -119,7 +119,7 @@ const DAY_H: Pal = {
   bevel: 'inset 0 1px 0 rgba(255,252,244,.7)',
   mapveil: 'linear-gradient(180deg, rgba(40,32,18,0) 45%, rgba(40,32,18,.34))',
   // Gündüz şasi/metal AÇIK kum-steel → üzerine KOYU metin
-  onDark: '#2E281C', onDark2: '#6C6250',
+  onDark: 'var(--text-primary, #2E281C)', onDark2: 'var(--text-secondary, #6C6250)',
   ok: '#5E9E3E',
 };
 
@@ -208,7 +208,7 @@ const HzTopBar = memo(function HzTopBar() {
     <div data-editable="horizon.topbar" data-editable-type="header" className="relative flex items-center justify-between flex-shrink-0" style={{ height: HZ_TOPBAR_H, padding: '0 2px' }}>
       <div className="flex items-center">
         {/* Marka plakası — metal + imza vida */}
-        <div className="flex items-center" style={{ gap: 13, padding: '8px 16px 8px 10px', borderRadius: 14, background: p.metal, border: `1px solid ${p.edgeHi}`, boxShadow: p.elev, position: 'relative' }}>
+        <div className="flex items-center" style={{ gap: 13, padding: '8px 16px 8px 10px', borderRadius: 14, background: p.metal, backgroundColor: p.panel, border: `1px solid ${p.edgeHi}`, boxShadow: p.elev, position: 'relative' }}>
           <Bolt style={{ top: 6, left: 6 }} />
           <Bolt style={{ bottom: 6, left: 6 }} />
           <HzMark size={40} />
@@ -512,7 +512,7 @@ const HzMediaCard = memo(function HzMediaCard() {
   return (
     <Panel editId="horizon.media" editType="media" style={{ padding: '13px 15px', display: 'flex', flexDirection: 'column', gap: 10, minHeight: 0 }}>
       <div className="flex items-center" style={{ gap: 12 }}>
-        <button onClick={() => openMusicDrawer()} className="hz-btn" style={{ width: 56, height: 56, borderRadius: 12, flexShrink: 0, border: `1px solid ${p.edge}`, overflow: 'hidden', background: p.metal, display: 'grid', placeItems: 'center', cursor: 'pointer', boxShadow: p.bevel }}>
+        <button onClick={() => openMusicDrawer()} className="hz-btn" style={{ width: 56, height: 56, borderRadius: 12, flexShrink: 0, border: `1px solid ${p.edge}`, overflow: 'hidden', background: p.metal, backgroundColor: p.panel, display: 'grid', placeItems: 'center', cursor: 'pointer', boxShadow: p.bevel }}>
           {track.albumArt ? <img src={track.albumArt} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <Music2 className="w-6 h-6" style={{ color: p.accent }} />}
         </button>
         <div style={{ minWidth: 0, flex: 1 }}>
@@ -787,7 +787,7 @@ const HzDock = memo(function HzDock({ onOpenMap, onOpenApps, onOpenSettings, onV
   const carosLabAllowed = useCarosLabAllowed();
   return (
     <div style={{ position: 'relative', flex: '0 0 auto', height: HZ_DOCK_H }}>
-      <div data-editable="horizon.dock" data-editable-type="dock" data-no-page-swipe style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, borderRadius: 'var(--radius-dock, 17px)', background: p.metal, border: `1px solid ${p.edgeHi}`, boxShadow: `${p.elev}, ${p.bevel}`, display: 'flex', alignItems: 'stretch', padding: '0 10px' }}>
+      <div data-editable="horizon.dock" data-editable-type="dock" data-no-page-swipe style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, borderRadius: 'var(--radius-dock, 17px)', background: p.metal, backgroundColor: p.panel, border: `1px solid ${p.edgeHi}`, boxShadow: `${p.elev}, ${p.bevel}`, display: 'flex', alignItems: 'stretch', padding: '0 10px' }}>
         {/* imza vidaları — dock köşeleri */}
         <Bolt style={{ top: 8, left: 9 }} /><Bolt style={{ bottom: 8, left: 9 }} />
         <Bolt style={{ top: 8, right: 9 }} /><Bolt style={{ bottom: 8, right: 9 }} />

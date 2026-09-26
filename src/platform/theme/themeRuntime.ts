@@ -258,7 +258,12 @@ export function applyThemeManifest(
         if (!(name in vars)) root.style.removeProperty(name);
       }
       for (const [k, v] of Object.entries(vars)) {
-        root.style.setProperty(k, v);
+        /* 'important': kullanıcının AÇIK tema seçimi `.sunlight-mode` gibi
+           `!important` ile zorlayan otomatik kuralları yener (ölçüldü: gündüz
+           güneş modu --bg-card/--bg-primary/--border-color'ı beyaza zorluyor,
+           taslak seçilince yalnız ikonlar değişiyordu). Yalnız manifestin
+           DOKUNDUĞU değişkenler yazılır → seçim yoksa güneş modu aynen çalışır. */
+        root.style.setProperty(k, v, 'important');
         varCount++;
       }
       appliedVarNames = Object.keys(vars);

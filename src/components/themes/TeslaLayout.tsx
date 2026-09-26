@@ -71,7 +71,7 @@ const SAND: Pal = {
   // `--accent-rgb` yollarsa CANLI yansır.
   accent: 'var(--accent-primary, #E0822E)', accent2: 'var(--accent-secondary, #B85C16)', accentSoft: 'rgba(var(--accent-rgb, 224,130,46), 0.16)', accentGlow: 'rgba(var(--accent-rgb, 224,130,46), 0.30)',
   accentA33: 'rgba(var(--accent-rgb, 224,130,46), 0.33)', accentA20: 'rgba(var(--accent-rgb, 224,130,46), 0.2)',
-  inkCritical: '#160F06', ink: 'var(--text-primary, #2A2014)', ink2: 'var(--text-secondary, rgba(42,32,20,0.66))', ink3: 'var(--text-tertiary, rgba(42,32,20,0.45))',
+  inkCritical: 'var(--text-primary, #160F06)', ink: 'var(--text-primary, #2A2014)', ink2: 'var(--text-secondary, rgba(42,32,20,0.66))', ink3: 'var(--text-tertiary, rgba(42,32,20,0.45))',
   card: 'var(--bg-card, linear-gradient(155deg,#fbf5e9 0%,#efe3cf 100%))', cardSolid: 'var(--bg-card, #f6efe0)',
   cardBorder: '1px solid var(--border-color, rgba(120,92,52,0.26))',
   cardShadow: '0 6px 16px -8px rgba(90,68,38,0.34), inset 0 1px 0 rgba(255,255,255,0.75)',
@@ -91,7 +91,7 @@ const LAVA: Pal = {
   night: true,
   accent: 'var(--accent-primary, #E0822E)', accent2: 'var(--accent-secondary, #F4A24E)', accentSoft: 'rgba(var(--accent-rgb, 224,130,46), 0.14)', accentGlow: 'rgba(var(--accent-rgb, 224,130,46), 0.45)',
   accentA33: 'rgba(var(--accent-rgb, 224,130,46), 0.33)', accentA20: 'rgba(var(--accent-rgb, 224,130,46), 0.2)',
-  inkCritical: '#FDFAF3', ink: 'var(--text-primary, #F2ECE0)', ink2: 'var(--text-secondary, rgba(242,236,224,0.60))', ink3: 'var(--text-tertiary, rgba(242,236,224,0.34))',
+  inkCritical: 'var(--text-primary, #FDFAF3)', ink: 'var(--text-primary, #F2ECE0)', ink2: 'var(--text-secondary, rgba(242,236,224,0.60))', ink3: 'var(--text-tertiary, rgba(242,236,224,0.34))',
   // CarOS Night Collection — Tesla = koyu ESPRESSO / sıcak kahve. Olive yeşilden
   // espresso kahveye çekildi (Expedition'ın yeşilinden NET ayrışır); çok hafif amber
   // yansıma, premium ve sakin. Accent/ink/plateActive korunur; yalnız zemin/yüzey hue.
@@ -508,7 +508,7 @@ function Stat({ icon, value, label, warn }: { icon: React.ReactNode; value: stri
 function DockPlate({ Icon, label, onClick, active }: { Icon: typeof Navigation; label: string; onClick: () => void; active?: boolean }) {
   const p = usePal();
   return (
-    <button onClick={onClick} className="ex-btn relative flex items-center justify-center flex-shrink-0" style={{ flex: '0 0 31%', minWidth: 0, scrollSnapAlign: 'start', height: 108, borderRadius: 'var(--radius-tile, 18px)', background: active ? p.plateActive : p.plate, border: active ? `1px solid ${p.accent}` : p.plateBorder, boxShadow: p.plateShadow, gap: 13, padding: '0 15px', cursor: 'pointer' }}>
+    <button onClick={onClick} className="ex-btn relative flex items-center justify-center flex-shrink-0" style={{ flex: '0 0 31%', minWidth: 0, scrollSnapAlign: 'start', height: 108, borderRadius: 'var(--radius-tile, 18px)', background: active ? p.plateActive : p.plate, backgroundColor: active ? p.accent : p.cardSolid, border: active ? `1px solid ${p.accent}` : p.plateBorder, boxShadow: p.plateShadow, gap: 13, padding: '0 15px', cursor: 'pointer' }}>
       <Icon className="w-[37px] h-[37px] flex-shrink-0" style={{ color: active ? '#241405' : p.accent2 }} />
       <span className="uppercase truncate" style={{ fontSize: 18, fontWeight: 800, letterSpacing: '0.05em', color: active ? (p.night ? '#FBC892' : '#241405') : p.ink2 }}>{label}</span>
     </button>
@@ -632,7 +632,7 @@ const ExpeditionDock = memo(function ExpeditionDock({ onOpenMap, onOpenApps, onO
   // görünür saat (kaydırma kabı DIŞINDA overlay). Sol/sağ grup serbest kaydırılır →
   // tüm fonksiyonlara ulaşılır (pager/snap-sayfa kilidi yok).
   return (
-    <div data-editable="tesla.dock" data-editable-type="dock" data-no-page-swipe className="relative w-full" style={{ background: p.metal, borderRadius: 'var(--radius-dock, 22px)', border: p.metalBorder, boxShadow: p.night ? '0 12px 30px -12px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -3px 8px rgba(0,0,0,0.55)' : '0 8px 22px -10px rgba(90,68,38,0.45), inset 0 1px 0 rgba(255,255,255,0.7), inset 0 -3px 7px rgba(120,92,52,0.25)', padding: '14px 18px 20px', minHeight: 138, zIndex: 30 }}>
+    <div data-editable="tesla.dock" data-editable-type="dock" data-no-page-swipe className="relative w-full" style={{ background: p.metal, backgroundColor: p.cardSolid, borderRadius: 'var(--radius-dock, 22px)', border: p.metalBorder, boxShadow: p.night ? '0 12px 30px -12px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -3px 8px rgba(0,0,0,0.55)' : '0 8px 22px -10px rgba(90,68,38,0.45), inset 0 1px 0 rgba(255,255,255,0.7), inset 0 -3px 7px rgba(120,92,52,0.25)', padding: '14px 18px 20px', minHeight: 138, zIndex: 30 }}>
       <Screws inset={9} />
 
       <div style={{ display: 'flex', alignItems: 'stretch' }}>

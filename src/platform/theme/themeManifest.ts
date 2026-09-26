@@ -1015,6 +1015,8 @@ export function manifestToCssVars(m: ThemeManifest): Record<string, string> {
   const cardRgb = t.bgCard ? colorToRgbTriplet(t.bgCard.from) : null;
   if (cardRgb) {
     put('--card-rgb', cardRgb);
+    /* Tema paketi CSS'inin (theme-packs.css) sabit dock zemini bununla ezilir. */
+    put('--pack-dock-bg', t.bgCard ? paintToCss(t.bgCard) : null);
     put('--card-hi', _mixToward(cardRgb, 255, 0.08));
     put('--card-raised', _mixToward(cardRgb, 255, 0.05));
     put('--card-lo', _mixToward(cardRgb, 0, 0.45));
@@ -1023,7 +1025,11 @@ export function manifestToCssVars(m: ThemeManifest): Record<string, string> {
   const edgeRgb = t.borderColor ? colorToRgbTriplet(t.borderColor) : null;
   if (edgeRgb) put('--edge-rgb', edgeRgb);
   const bgRgb = t.bgPrimary ? colorToRgbTriplet(t.bgPrimary.from) : null;
-  if (bgRgb) put('--bg-rgb', bgRgb);
+  if (bgRgb) {
+    put('--bg-rgb', bgRgb);
+    /* Düz zemin (gradyan/performans modundan bağımsız) — paket CSS'indeki sabit yerleşim zemini. */
+    put('--pack-surface', t.bgPrimary ? t.bgPrimary.from : null);
+  }
   if (t.bgPrimary) {
     const css = paintToCss(t.bgPrimary);
     put('--bg-primary', css);
@@ -1091,6 +1097,7 @@ export const ALL_MANAGED_CSS_VARS: readonly string[] = [
   '--card-blur', '--glass-blur', '--glow-intensity',
   '--font-ui', '--font-weight-ui', '--letter-spacing-ui', '--line-height-ui',
   '--card-rgb', '--card-hi', '--card-raised', '--card-lo', '--card-sunk', '--edge-rgb', '--bg-rgb',
+  '--pack-dock-bg', '--pack-surface',
 ];
 
 /* ══ Bileşen stili → CSS ═════════════════════════════════════════════ */

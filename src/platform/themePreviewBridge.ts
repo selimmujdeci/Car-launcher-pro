@@ -33,6 +33,7 @@
 import { useLayoutStore } from '../store/useLayoutStore';
 import { useCarTheme, type CarTheme } from '../store/useCarTheme';
 import { applyIncomingThemeManifest } from './theme/themeRuntime';
+import { THEME_BASE_IDS } from './theme/themeManifest';
 import { THEME_COMPONENTS, type ThemeSurfaceId } from './theme/themeComponentRegistry';
 import { openDrawer } from './drawerBus';
 import { setFullMapView } from './mapViewBus';
@@ -213,14 +214,19 @@ export function initThemePreviewBridge(): void {
       switch (data.type) {
         /* ── v3: Tema Manifesti canlı önizleme (kalıcı DEĞİL) ── */
         case 'caros-theme-manifest': {
-          const r = applyIncomingThemeManifest(data.manifest, 'preview');
-          // Önizlemede baz tema da değişmeli (layout bileşeni değişir). Manifest
-          // reddedilirse HİÇBİR ŞEY yapılmaz (fail-closed).
-          if (r.ok && r.themeId) {
+          /* SIRA KRİTİK (saha 2026-09-26, başsız Chrome'da ölçüldü): baz tema
+             manifest UYGULANDIKTAN SONRA değiştirilince tema-değişimi dinleyicisi
+             o temanın KAYITLI (önizlemede boş) manifestini geri yükleyip az önce
+             yazılan tüm renkleri SİLİYORDU → taslak seçilince "hiçbir şey olmuyor".
+             Önce baz tema, sonra manifest. Manifest reddedilirse tema geri alınmaz
+             ama hiçbir renk de yazılmaz (fail-closed). */
+          const incomingId = (data.manifest as { themeId?: unknown } | null)?.themeId;
+          if (typeof incomingId === 'string' && (THEME_BASE_IDS as readonly string[]).includes(incomingId)) {
             const cur = useCarTheme.getState().theme;
-            const next = (cur.endsWith('-day') ? `${r.themeId}-day` : r.themeId) as CarTheme;
+            const next = (cur.endsWith('-day') ? `${incomingId}-day` : incomingId) as CarTheme;
             if (next !== cur) useCarTheme.getState().setTheme(next);
           }
+          const r = applyIncomingThemeManifest(data.manifest, 'preview');
           postToParent({
             type: 'caros-preview-manifest-ack',
             ok: r.ok,
