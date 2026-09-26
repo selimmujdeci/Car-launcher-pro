@@ -191,7 +191,10 @@ function applyVoiceSetting(
     if (action === 'set' && !Number.isFinite(parseInt(value ?? '', 10))) {
       return { kind: 'REJECTED', key, reason: 'missing_value' };
     }
-    next = Math.max(0, Math.min(100, Number.isFinite(next) ? next : cur));
+    /* GÜVENLİK: sesle parlaklık %10'un ALTINA inmez — sürüşte ekran simsiyah
+       kalıyordu ("ekranı karart" → %0, smoke 2026-09-26). */
+    const floor = key === 'brightness' ? 10 : 0;
+    next = Math.max(floor, Math.min(100, Number.isFinite(next) ? next : cur));
     if ((action === 'inc' || action === 'dec') && next === cur) {
       return { kind: 'REJECTED', key, reason: action === 'inc' ? 'at_max' : 'at_min' };
     }

@@ -110,4 +110,10 @@ describe('Mavi smoke 2026-09-25', () => {
     expect(describeSettingResult('volume', 'set', '45', { kind: 'APPLIED', key: 'volume' }).text).toBe('Ses yüzde 45 yapıldı');
     expect(isResultAckCommand('screen_brightness_up')).toBe(true);
   });
+
+  it('"ekranı karart" gece modu DEĞİL, parlaklık azaltma (çelişki beyne gitmez)', () => {
+    expect(cmd('ekranı karart')?.type).toBe('screen_brightness_down');
+    expect(matchDeterministicWholeInput('ekranı karart')?.type).toBe('screen_brightness_down');
+    expect(cmd('gece moduna geç')?.type).toBe('theme_night');
+  });
 });

@@ -2094,6 +2094,25 @@ export async function processTextCommand(
     }
   }
 
+  // ── 1a1. SAYILI AYAR BYPASS — "sesi yüzde kırk beş yap" · "parlaklığı 80 yap" ──
+  // Değer yerelde KESİN okundu; beyin bir şey iyileştirmez, yalnız bozar (ölçüldü
+  // 2026-09-26: aynı cümlede Gemini değeri bazen boş gönderdi → "anlayamadım").
+  {
+    const c = result.command;
+    const x = c?.extra;
+    if (c && c.type === 'set_setting' && c.confidence >= AUTO_DISPATCH_MIN
+      && x?.settingKind === 'number' && x.settingAction === 'set'
+      && (x.settingKey === 'volume' || x.settingKey === 'brightness')
+      && /^\d{1,3}$/.test(x.settingValue ?? '')) {
+      _lastCommandTime = now;
+      void reportVoiceDiag('voice_route', { route: 'local_fast_path' });
+      setMaviLatencyRoute('local_fast_path');
+      if (ctx?.isDriving) { dispatchDriving(c, ctx, turn); } else { dispatch(c, ctx, turn); }
+      completeMaviTurn(turn);
+      return true;
+    }
+  }
+
   // ── 1b. HAVA DURUMU BYPASS — yerel hava servisi kotasız/anında cevaplar ──
   // "hava durumu nasıl" gibi net (≥0.7) yerel eşleşmeler beyne (Gemini/Groq/
   // Haiku) HİÇ GİTMEZ: hava zaten yerelde gerçek veriyle cevaplanıyor

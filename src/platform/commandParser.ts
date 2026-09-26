@@ -425,7 +425,9 @@ const PATTERNS: CommandPattern[] = [
     label: 'Gece Moduna Geç', example: 'gece moduna geç',
     keywords: [
       'gece moduna geç', 'gece modu', 'karanlık mod', 'dark mod', 'oled modu', 'karanlık tema',
-      'gece teması', 'karanlık yap', 'ekranı karartabilir misin', 'night mode',
+      // 'ekranı karartabilir misin' YOK: önek eşleşmesiyle "ekranı karart"ı gasp
+      // ediyordu → çelişki beyne gidip parlaklığı %0 yaptı (smoke 2026-09-26).
+      'gece teması', 'karanlık yap', 'night mode',
     ],
     tokens: ['gece', 'karanlik', 'dark', 'oled', 'night'],
   },
@@ -655,6 +657,7 @@ const PATTERNS: CommandPattern[] = [
     keywords: [
       'parlaklığı azalt', 'ekranı karart', 'daha karanlık', 'parlaklık kıs', 'brightness kıs', 'gece modu yap',
       'ekranı kıs', 'daha loş', 'ekran rahatsız ediyor', 'parlaklık düşür',
+      'ekranı karartabilir misin',
     ],
     tokens: ['karart', 'azalt', 'dim', 'gece', 'los'],
   },
