@@ -69,7 +69,8 @@ export function describePhoneConnection(s: PhonesState): PhoneLine {
   return {
     title: 'Android\'de eşleşmiş telefon yok',
     detail: 'Bazı araç ünitelerinde telefon, ünitenin kendi Bluetooth uygulamasıyla bağlanır '
-      + 've burada görünmez. Aramalar ve mesajlar yine de bildirim erişimiyle CarOS\'a gelir.',
+      + 've burada görünmez. Aramalar ve mesajlar yine de bildirim erişimiyle CarOS\'a gelir. '
+      + 'Telefonu Android Bluetooth ayarlarından ayrıca eşleştirmeyin; ünite bunu yeni cihaz sayıp reddedebilir.',
     good: false,
   };
 }
@@ -104,6 +105,20 @@ export const PhoneConnectionTab = memo(function PhoneConnectionTab() {
     if (isNative) CarLauncher.launchApp({ action: 'android.settings.BLUETOOTH_SETTINGS' }).catch(() => undefined);
   }, []);
 
+  /* SAHA 2026-09-26 (head unit müşterisi): "Bluetooth izni yok" yazıyor ama izni verecek
+     düğme yoktu; tek düğme Bluetooth AYARLARINI açıyordu → kullanıcı telefonu Android'e
+     yeniden eşleştirmeye çalışıyor, ünitenin kendi BT modülü "yeni cihaz" diye reddediyordu.
+     Artık izin yoksa önce sistem izin penceresi; "bir daha sorma" dendiyse uygulama izinleri. */
+  const requestBtPermission = useCallback(async () => {
+    if (!isNative) return;
+    try { await CarLauncher.requestAndroid13Permissions(); } catch { /* fail-soft */ }
+    window.setTimeout(() => { void reload(); }, 1500);
+  }, [reload]);
+  const openAppPermissions = useCallback(() => {
+    if (isNative) CarLauncher.requestNotificationAccess({ step: 'appDetails' }).catch(() => undefined);
+  }, []);
+  const noPermission = phones !== undefined && phones !== null && phones.state === 'NO_PERMISSION';
+
   const line = describePhoneConnection(phones);
 
   return (
@@ -133,6 +148,28 @@ export const PhoneConnectionTab = memo(function PhoneConnectionTab() {
             Aramalar ve Bluetooth müzik telefonun bu üniteyle eşleşmesiyle çalışır;
             telefona ek uygulama kurmak gerekmez.
           </p>
+          {noPermission ? (
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                onClick={() => { void requestBtPermission(); }}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold active:scale-95 transition-transform"
+                style={{ background: 'var(--oem-accent)', color: 'var(--oem-accent-ink, #fff)', border: 'none' }}
+              >
+                <Bluetooth className="w-3.5 h-3.5" /> İzin ver
+              </button>
+              <button
+                onClick={openAppPermissions}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold active:scale-95 transition-transform"
+                style={{ background: 'var(--oem-surface-0)', border: '1px solid var(--oem-line-strong)', color: 'var(--oem-ink)' }}
+              >
+                <Settings className="w-3.5 h-3.5" /> Uygulama izinleri
+              </button>
+              <p className="w-full text-[11px] leading-relaxed" style={{ color: 'var(--oem-ink-3)' }}>
+                Pencere açılmazsa "Uygulama izinleri" → İzinler → <b>Yakındaki cihazlar</b> → İzin ver.
+                Telefonu yeniden eşleştirmeniz gerekmez.
+              </p>
+            </div>
+          ) : (
           <div className="mt-3">
             <button
               onClick={openBtSettings}
@@ -143,6 +180,7 @@ export const PhoneConnectionTab = memo(function PhoneConnectionTab() {
               <Settings className="w-3.5 h-3.5" /> Bluetooth Ayarlarını Aç
             </button>
           </div>
+          )}
         </Card>
       </div>
 

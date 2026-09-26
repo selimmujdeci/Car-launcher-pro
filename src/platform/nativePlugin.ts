@@ -1607,7 +1607,8 @@ export interface CarLauncherPlugin {
   checkWriteSettings():     Promise<{ granted: boolean }>;
   requestWriteSettings():   Promise<void>;
   checkNotificationAccess():  Promise<{ granted: boolean }>;
-  requestNotificationAccess(): Promise<void>;
+  /** `step: 'appDetails'` → CarOS'un uygulama bilgisi/izinler sayfası (kalıcı reddedilen izinler için). */
+  requestNotificationAccess(opts?: { step?: 'auto' | 'appDetails' }): Promise<void>;
 
   /**
    * Android 12+ BLUETOOTH_CONNECT ve Android 13+ POST_NOTIFICATIONS için
