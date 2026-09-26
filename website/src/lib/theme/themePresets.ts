@@ -17,7 +17,8 @@
 import { contrastRatio, hslToRgba, parseColor, rgbaToHex, rgbToHsv, hsvToRgb } from './colorMath';
 import type { GlobalTokens, Paint, ScreenOverride, ThemeBaseId } from './themeManifest';
 
-export type PresetMode = 'night' | 'day';
+/** night: gece · day: gündüz · sun: GÜNEŞ ALTI — en yüksek kontrast (kullanıcı 2026-09-26). */
+export type PresetMode = 'night' | 'day' | 'sun';
 
 export interface ColorPresetSpec {
   readonly id: string;
@@ -73,6 +74,7 @@ function companion(accent: string, mode: PresetMode): string {
 
 export function buildColorPreset(spec: ColorPresetSpec): ColorPreset {
   const { hue: h, sat: s, mode } = spec;
+  if (mode === 'sun') return buildSunPreset(spec);
   const night = mode === 'night';
   /* Ton BELİRGİN olsun (saha 2026-09-26: %6-14 parlaklıkta tüm paletler "aynı renk"
      görünüyordu). Doygunluk yükseltildi, zemin/kart birkaç basamak açıldı. */
@@ -100,6 +102,35 @@ export function buildColorPreset(spec: ColorPresetSpec): ColorPreset {
     bgCard: solid(card),
   };
   return { ...spec, tokens, swatch: [bgA, card, accent, text] };
+}
+
+/**
+ * GÜNEŞ ALTI taslağı: parlak güneşte ekran yansıması kontrastı yer; bu yüzden
+ * zemin neredeyse beyaz, yazı neredeyse siyah, vurgu koyu ve doygun, kenarlık
+ * belirgin. Eşikler gündüzden SERT: yazı ≥ 15:1 · ikincil ≥ 7:1 · vurgu ≥ 4.5:1.
+ */
+function buildSunPreset(spec: ColorPresetSpec): ColorPreset {
+  const { hue: h, sat: s } = spec;
+  const bg = hsl(h, s * 0.35, 0.96);
+  const card = '#FFFFFF';
+  const border = hsl(h, s * 0.4, 0.34);
+  const text = hsl(h, 0.35, 0.05);
+  const text2 = hsl(h, 0.25, 0.24);
+  const accent = ensureContrast(spec.accent, card, 4.5, 'day');
+  const tokens: Partial<GlobalTokens> = {
+    accentPrimary: accent,
+    accentSecondary: ensureContrast(companion(accent, 'night'), card, 4.5, 'day'),
+    textPrimary: text,
+    textSecondary: text2,
+    borderColor: border,
+    glowColor: accent,
+    iconNav: accent,
+    iconMedia: accent,
+    iconDock: accent,
+    bgPrimary: solid(bg),
+    bgCard: solid(card),
+  };
+  return { ...spec, tokens, swatch: [bg, card, accent, text] };
 }
 
 /** Taslağın TEK EKRANA uygulanan kısmı — ekran override'ı yalnız bu alanları taşır. */
@@ -131,6 +162,9 @@ const SPECS: Record<ThemeBaseId, readonly ColorPresetSpec[]> = {
     C('exp-devriye', 'Gece Devriyesi', 'Taktik yeşil, düşük ışık', '#9BE15D', 150, 0.2),
     C('exp-sis', 'Sabah Sisi', 'Gündüz · açık zeytin, net okunur', '#C46A12', 90, 0.22, 'day'),
     C('exp-kumtasi', 'Kumtaşı', 'Gündüz · sıcak bej, kiremit vurgu', '#B5501F', 36, 0.3, 'day'),
+    C('exp-gunes-turuncu', 'Güneş · Turuncu', 'Güneş altı · beyaz zemin, koyu turuncu', '#C2410C', 30, 0.3, 'sun'),
+    C('exp-gunes-orman', 'Güneş · Orman', 'Güneş altı · beyaz zemin, koyu yeşil', '#166534', 120, 0.3, 'sun'),
+    C('exp-gunes-mavi', 'Güneş · Kobalt', 'Güneş altı · beyaz zemin, koyu mavi', '#1D4ED8', 215, 0.3, 'sun'),
   ],
   horizon: [
     C('hor-gece-yarisi', 'Gece Yarısı', 'Temanın ruhu: lacivert + amber', '#F2871C', 218, 0.42),
@@ -145,6 +179,9 @@ const SPECS: Record<ThemeBaseId, readonly ColorPresetSpec[]> = {
     C('hor-gun-batimi', 'Gün Batımı', 'Mor akşam, mercan ufuk', '#FF7A6B', 250, 0.35),
     C('hor-gumus-ay', 'Gümüş Ay', 'Gece mavisi, ay gümüşü', '#C9D6EA', 216, 0.3),
     C('hor-buz-beyazi', 'Buz Beyazı', 'Gündüz · soğuk beyaz, lacivert yazı', '#1E5FD9', 214, 0.35, 'day'),
+    C('hor-gunes-lacivert', 'Güneş · Lacivert', 'Güneş altı · beyaz zemin, lacivert', '#1E3A8A', 220, 0.35, 'sun'),
+    C('hor-gunes-amber', 'Güneş · Amber', 'Güneş altı · beyaz zemin, koyu amber', '#B45309', 35, 0.3, 'sun'),
+    C('hor-gunes-petrol', 'Güneş · Petrol', 'Güneş altı · beyaz zemin, petrol mavisi', '#0F766E', 180, 0.3, 'sun'),
   ],
   tesla: [
     C('tes-espresso', 'Espresso Amber', 'Temanın ruhu, koyu kavrulmuş', '#E0822E', 32, 0.28),
@@ -159,6 +196,9 @@ const SPECS: Record<ThemeBaseId, readonly ColorPresetSpec[]> = {
     C('tes-bordo', 'Bordo Deri', 'Koyu bordo deri, bakır dikiş', '#E07B4F', 355, 0.3),
     C('tes-inci', 'İnci', 'Gündüz · inci beyazı, kırmızı vurgu', '#C8102E', 30, 0.15, 'day'),
     C('tes-kum-beji', 'Kum Beji', 'Gündüz · sıcak bej, espresso yazı', '#A5541E', 34, 0.35, 'day'),
+    C('tes-gunes-kirmizi', 'Güneş · Kırmızı', 'Güneş altı · beyaz zemin, koyu kırmızı', '#B91C1C', 0, 0.2, 'sun'),
+    C('tes-gunes-grafit', 'Güneş · Grafit', 'Güneş altı · beyaz zemin, siyah vurgu', '#1F2937', 220, 0.1, 'sun'),
+    C('tes-gunes-mavi', 'Güneş · Mavi', 'Güneş altı · beyaz zemin, koyu mavi', '#1D4ED8', 215, 0.3, 'sun'),
   ],
   pro: [
     C('pro-buz-mavisi', 'Buz Mavisi', 'Temanın ruhu: antrasit + mavi', '#5B8DFF', 225, 0.14),
@@ -173,6 +213,9 @@ const SPECS: Record<ThemeBaseId, readonly ColorPresetSpec[]> = {
     C('pro-gece-pembe', 'Gece Pembesi', 'Koyu mor zemin, pembe ışık', '#FF6FB5', 300, 0.22),
     C('pro-grafit-sade', 'Grafit Sade', 'En sade: gri üstüne beyaz', '#E6EAF0', 220, 0.05),
     C('pro-kristal', 'Beyaz Kristal', 'Gündüz · parlak beyaz, mavi vurgu', '#2F6BFF', 220, 0.2, 'day'),
+    C('pro-gunes-mavi', 'Güneş · Mavi', 'Güneş altı · beyaz zemin, koyu mavi', '#1D4ED8', 220, 0.25, 'sun'),
+    C('pro-gunes-mor', 'Güneş · Mor', 'Güneş altı · beyaz zemin, koyu mor', '#6D28D9', 265, 0.25, 'sun'),
+    C('pro-gunes-yesil', 'Güneş · Yeşil', 'Güneş altı · beyaz zemin, koyu yeşil', '#047857', 160, 0.25, 'sun'),
   ],
 };
 

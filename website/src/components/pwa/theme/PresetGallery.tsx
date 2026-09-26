@@ -121,6 +121,9 @@ export const PresetGallery = memo(function PresetGallery({
                   {p.mode === 'day' && (
                     <span className="text-[8px] font-bold px-1.5 py-0.5 rounded" style={{ background: 'rgba(251,191,36,0.14)', color: '#fbbf24' }}>GÜNDÜZ</span>
                   )}
+                  {p.mode === 'sun' && (
+                    <span className="text-[8px] font-bold px-1.5 py-0.5 rounded" style={{ background: 'rgba(249,115,22,0.16)', color: '#f97316' }}>☀ GÜNEŞ</span>
+                  )}
                 </div>
                 <span className="text-[9px] leading-tight" style={{ color: 'var(--pwa-text-3)' }}>{p.mood}</span>
               </button>
