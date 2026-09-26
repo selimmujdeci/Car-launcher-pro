@@ -1507,6 +1507,13 @@ const CRITICAL_VOICE_TYPES = new Set<ParsedCommand['type']>([
    `_answerMusicIntent`in AYNI davranışı KORUMASI için. */
 const _TRANSPORT_KINDS_FOR_DUCK = new Set<MusicIntent['kind']>([
   'PLAY', 'PAUSE', 'TOGGLE', 'STOP', 'NEXT', 'PREVIOUS',
+  /* YENİ çalma başlatan türler de: aksi hâlde Mavi'nin sözü bitince duck-resume
+     ESKİ çalanı geri başlatıp yeni kaynağı kesiyordu (ölçüldü 2026-09-26: Kral FM
+     3. sn'de çaldı, 4. sn'de önceki YouTube parçası devraldı). */
+  'PLAY_QUERY', 'PLAY_ARTIST', 'PLAY_ALBUM', 'PLAY_PLAYLIST', 'PLAY_LOCAL', 'PLAY_PROVIDER',
+  'PLAY_SOMETHING_FOR_DRIVE', 'PLAY_SOMETHING_CALMER', 'PLAY_SOMETHING_MORE_ENERGETIC',
+  'CONTINUE_SUGGESTED', 'PLAY_FAVORITES', 'PLAY_MY_PLAYLIST',
+  'CONTINUE_LIKE_THIS', 'START_RADIO', 'PLAY_FAVORITES_MIX', 'LONG_DRIVE_MIX',
 ]);
 
 /* ── API ANAHTARI YOK yönlendirmesi ──────────────────
