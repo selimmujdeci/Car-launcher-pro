@@ -149,6 +149,13 @@ export type StudioAction =
   | { type: 'reset-surface'; surface: ThemeSurfaceId }
   | { type: 'reset-theme' }
   | { type: 'copy-from'; sourceThemeId: ThemeBaseId }
+  /**
+   * Hazır taslağı TÜM TEMAYA uygula. Ekran/bileşen düzeyindeki eski RENK (ya da
+   * şekilde KÖŞE) ayarları temizlenir: daha özel olan kazandığı için eski turuncu
+   * vurgu taslağı ana ekranda eziyordu (saha 2026-09-26: "hepsi aynı renk").
+   * Yerleşim/görünürlük/yazı boyutu gibi diğer ayarlar KORUNUR. Tek geçmiş adımı.
+   */
+  | { type: 'apply-preset'; kind: 'color' | 'shape'; tokens: Partial<GlobalTokens> }
   | { type: 'rename'; name: string }
   | { type: 'mark-sent'; at: string }
   /** `scope` verilmezse GLOBAL geri al; verilirse yalnız o kapsamın son adımı. */
@@ -575,6 +582,30 @@ export function studioReducer(s: StudioState, a: StudioAction): StudioState {
      */
     case 'reset-theme':
       return commit(s, { kind: 'theme' }, () => createThemeManifest(s.themeId), null, 'Tüm değişiklikleri geri al');
+
+    case 'apply-preset':
+      return commit(s, { kind: 'theme' }, (m) => {
+        m.tokens = { ...m.tokens, ...a.tokens };
+        const screens: Record<string, ScreenOverride> = {};
+        for (const [id, so] of Object.entries(m.screenOverrides)) {
+          const next: ScreenOverride = a.kind === 'color'
+            ? { ...so, accentPrimary: null, textPrimary: null, textSecondary: null, bg: null }
+            : { ...so, radiusCard: null };
+          if (!isEmptyScreenOverride(next)) screens[id] = next;
+        }
+        m.screenOverrides = screens;
+        const comps: Record<string, ComponentStyle> = {};
+        for (const [id, cs] of Object.entries(m.componentOverrides)) {
+          const next: ComponentStyle = a.kind === 'color'
+            ? { ...cs, bg: null, borderColor: null, textColor: null, textSecondaryColor: null,
+              textTertiaryColor: null, accentColor: null, iconColor: null, states: null }
+            : { ...cs, radius: null, borderWidth: null, borderStyle: null, backdropBlur: null,
+              glowLevel: null, shadowLevel: null };
+          if (!isEmptyComponentStyle(next)) comps[id] = next;
+        }
+        m.componentOverrides = comps;
+        return m;
+      }, null, a.kind === 'color' ? 'Renk taslağı' : 'Kart şekli taslağı');
 
     case 'copy-from': {
       if (!THEME_BASE_IDS.includes(a.sourceThemeId) || a.sourceThemeId === s.themeId) return s;

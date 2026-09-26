@@ -34,4 +34,15 @@ describe('türetilmiş tema tonları', () => {
       expect(src).toContain('var(--border-color,');
       expect(src).toContain('var(--glow-intensity, 0)');
     });
+
+  it('kart rengi verilip yazı verilmezse yazı ZEMİNE GÖRE otomatik seçilir; açık seçim ezilmez', () => {
+    const dark = createThemeManifest('horizon');
+    dark.tokens.bgCard = { kind: 'solid', from: '#1a2230', to: null, angle: 180, stopA: 0, stopB: 100, alpha: 100 };
+    expect(manifestToCssVars(dark)['--text-primary']).toBe('#F2F4F8');
+    const light = createThemeManifest('horizon');
+    light.tokens.bgCard = { kind: 'solid', from: '#f2f4f8', to: null, angle: 180, stopA: 0, stopB: 100, alpha: 100 };
+    expect(manifestToCssVars(light)['--text-primary']).toBe('#14181F');
+    light.tokens.textPrimary = '#ff0000';
+    expect(manifestToCssVars(light)['--text-primary']).toBe('#ff0000');
+  });
 });

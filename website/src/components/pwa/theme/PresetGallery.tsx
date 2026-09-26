@@ -17,7 +17,8 @@ interface Props {
   manifest: ThemeManifest;
   surfaceId: string;
   surfaceLabel: string;
-  onPatchTokens: (patch: Partial<GlobalTokens>) => void;
+  /** Tüm temaya uygulama — ekran/bileşen düzeyindeki eski renk/köşe ayarları da temizlenir. */
+  onApplyPreset: (kind: 'color' | 'shape', tokens: Partial<GlobalTokens>) => void;
   onPatchScreen: (patch: Partial<ScreenOverride>) => void;
 }
 
@@ -39,18 +40,18 @@ function isShapeActive(p: ShapePreset, m: ThemeManifest, scope: Scope, surfaceId
 }
 
 export const PresetGallery = memo(function PresetGallery({
-  themeId, manifest, surfaceId, surfaceLabel, onPatchTokens, onPatchScreen,
+  themeId, manifest, surfaceId, surfaceLabel, onApplyPreset, onPatchScreen,
 }: Props) {
   const [scope, setScope] = useState<Scope>('theme');
   const [tab, setTab] = useState<'colors' | 'shapes'>('colors');
   const colors = useMemo(() => colorPresetsFor(themeId), [themeId]);
 
   const applyColor = (p: ColorPreset) => {
-    if (scope === 'theme') onPatchTokens(p.tokens);
+    if (scope === 'theme') onApplyPreset('color', p.tokens);
     else onPatchScreen(screenPatchOf(p));
   };
   const applyShape = (p: ShapePreset) => {
-    if (scope === 'theme') onPatchTokens(p.tokens);
+    if (scope === 'theme') onApplyPreset('shape', p.tokens);
     else onPatchScreen({ radiusCard: p.tokens.radiusCard });
   };
 

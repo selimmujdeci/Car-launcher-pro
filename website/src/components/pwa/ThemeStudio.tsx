@@ -629,7 +629,7 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
           manifest={state.manifests[state.themeId]}
           surfaceId={state.surface}
           surfaceLabel={surfaces.find((x) => x.id === state.surface)?.label ?? 'Bu ekran'}
-          onPatchTokens={patchTokens}
+          onApplyPreset={(kind, tokens) => dispatch({ type: 'apply-preset', kind, tokens })}
           onPatchScreen={(p) => patchScreen(state.surface, p)}
         />
 
