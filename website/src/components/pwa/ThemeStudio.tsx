@@ -622,6 +622,17 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
       {editorNode ?? (
       <div className="flex flex-col gap-4 pt-4 pb-6">
 
+        {/* ── Hazır renk / kart şekli taslakları — İLK görünen içerik (kullanıcı:
+            "Geri Al/Yinele'nin hemen altında görünmeli"). Kapsam: tüm tema | seçili ekran. ── */}
+        <PresetGallery
+          themeId={state.themeId}
+          manifest={state.manifests[state.themeId]}
+          surfaceId={state.surface}
+          surfaceLabel={surfaces.find((x) => x.id === state.surface)?.label ?? 'Bu ekran'}
+          onPatchTokens={patchTokens}
+          onPatchScreen={(p) => patchScreen(state.surface, p)}
+        />
+
         {/* ── 4 tema galerisi ── */}
         <div>
           <p className="text-[9px] font-black uppercase tracking-[0.35em] mb-2" style={{ color: 'var(--pwa-text-3)' }}>
@@ -725,16 +736,6 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
             </p>
           )}
         </div>
-
-        {/* ── Hazır renk / kart şekli taslakları (tüm tema ya da seçili ekran) ── */}
-        <PresetGallery
-          themeId={state.themeId}
-          manifest={state.manifests[state.themeId]}
-          surfaceId={state.surface}
-          surfaceLabel={surfaces.find((x) => x.id === state.surface)?.label ?? 'Bu ekran'}
-          onPatchTokens={patchTokens}
-          onPatchScreen={(p) => patchScreen(state.surface, p)}
-        />
 
         {/* ── Ekran ayarı ── */}
         <button
