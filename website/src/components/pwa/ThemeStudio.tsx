@@ -71,6 +71,7 @@ import {
 } from '@/lib/theme/themeStudioState';
 import { ComponentEditor, SurfaceEditor, TokensEditor } from './theme/ThemeEditors';
 import { ZoneReorder } from './theme/ZoneReorder';
+import { PresetGallery } from './theme/PresetGallery';
 
 /* ── Önizleme hedefi (gerçek araç uygulaması) ─────────────────────── */
 
@@ -620,6 +621,17 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
       {/* ═══ KAYAN İÇERİK — düzenleyici açıkken ONUN YERİNE panel gelir ═══ */}
       {editorNode ?? (
       <div className="flex flex-col gap-4 pt-4 pb-6">
+
+        {/* ── Hazır renk / kart şekli taslakları — İLK görünen içerik (kullanıcı:
+            "Geri Al/Yinele'nin hemen altında görünmeli"). Kapsam: tüm tema | seçili ekran. ── */}
+        <PresetGallery
+          themeId={state.themeId}
+          manifest={state.manifests[state.themeId]}
+          surfaceId={state.surface}
+          surfaceLabel={surfaces.find((x) => x.id === state.surface)?.label ?? 'Bu ekran'}
+          onPatchTokens={patchTokens}
+          onPatchScreen={(p) => patchScreen(state.surface, p)}
+        />
 
         {/* ── 4 tema galerisi ── */}
         <div>
