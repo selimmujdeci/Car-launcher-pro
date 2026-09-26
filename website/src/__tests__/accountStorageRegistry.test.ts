@@ -457,6 +457,6 @@ describe('known storage scan and verify-empty', () => {
     const entries = shell.split(',').map((e) => e.trim()).filter(Boolean);
     expect(entries).toEqual(['OFFLINE_URL', 'ICON_URL']);
     expect(source).toContain("const OFFLINE_URL = '/offline.html';");
-    expect(source).toContain("const ICON_URL  = '/icons/icon-192.svg';");
+    expect(source).toContain("const ICON_URL  = '/icons/arabam-cebimde-192.png';");
   });
 });

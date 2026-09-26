@@ -40,7 +40,7 @@
 const CONSUMER_URL = '/kumanda';
 /** Filo/CarOS paneli kökü. */
 const FLEET_URL    = '/dashboard';
-const ICON_URL  = '/icons/icon-192.svg';
+const ICON_URL  = '/icons/arabam-cebimde-192.png';
 const BADGE_URL = '/icons/badge-72.svg';
 
 /**
@@ -49,7 +49,7 @@ const BADGE_URL = '/icons/badge-72.svg';
  * Sürüm adı DEĞİŞİRSE eski kabuk `activate`te silinir; böylece çevrimdışı
  * sayfanın eski bir kopyası cihazda sonsuza dek YAŞAMAZ.
  */
-const SHELL_CACHE = 'arabam-shell-v1';
+const SHELL_CACHE = 'arabam-shell-v2';
 const OFFLINE_URL = '/offline.html';
 /** Kabuğa giren TEK dosya kümesi — araç/oturum verisi burada YOKTUR. */
 const SHELL_ASSETS = [OFFLINE_URL, ICON_URL];
