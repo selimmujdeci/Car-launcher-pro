@@ -605,6 +605,15 @@ function _relLuminance(triplet: string): number {
   return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
 
+/** "r, g, b" üçlüsünü hedef kanala (255 = beyaz, 0 = siyah) `amt` oranında yaklaştırır → #hex. */
+function _mixToward(triplet: string, target: number, amt: number): string {
+  return '#' + triplet.split(',').map((x) => {
+    const c = Number(x.trim());
+    const v = Math.round(c + (target - c) * amt);
+    return Math.max(0, Math.min(255, v)).toString(16).padStart(2, '0');
+  }).join('');
+}
+
 export function colorToRgbTriplet(color: string): string | null {
   const s = color.trim();
   const hex = /^#([0-9a-f]{3})$|^#([0-9a-f]{6})$|^#([0-9a-f]{8})$/i.exec(s);
@@ -998,6 +1007,23 @@ export function manifestToCssVars(m: ThemeManifest): Record<string, string> {
     }
   }
   if (t.accentSecondary) put('--accent-secondary', t.accentSecondary);
+
+  /* TÜRETİLMİŞ TONLAR (kullanıcı 2026-09-26: "taslak seçince tema komple değişmeli").
+     Temalar kartı TEK renkle değil kabartma/gömme/ışık tonlarıyla çizer (metal plaka,
+     cam, deri…). Bu tonlar yalnız ilgili token SET ise yazılır; temalar eski hex'lerini
+     `var(--x, <eski>)` yedeği olarak okur → özelleştirme yokken görünüm AYNI kalır. */
+  const cardRgb = t.bgCard ? colorToRgbTriplet(t.bgCard.from) : null;
+  if (cardRgb) {
+    put('--card-rgb', cardRgb);
+    put('--card-hi', _mixToward(cardRgb, 255, 0.08));
+    put('--card-raised', _mixToward(cardRgb, 255, 0.05));
+    put('--card-lo', _mixToward(cardRgb, 0, 0.45));
+    put('--card-sunk', _mixToward(cardRgb, 0, 0.55));
+  }
+  const edgeRgb = t.borderColor ? colorToRgbTriplet(t.borderColor) : null;
+  if (edgeRgb) put('--edge-rgb', edgeRgb);
+  const bgRgb = t.bgPrimary ? colorToRgbTriplet(t.bgPrimary.from) : null;
+  if (bgRgb) put('--bg-rgb', bgRgb);
   if (t.bgPrimary) {
     const css = paintToCss(t.bgPrimary);
     put('--bg-primary', css);
@@ -1064,6 +1090,7 @@ export const ALL_MANAGED_CSS_VARS: readonly string[] = [
   '--radius-card', '--card-radius', '--radius-btn', '--radius-tile', '--radius-dock',
   '--card-blur', '--glass-blur', '--glow-intensity',
   '--font-ui', '--font-weight-ui', '--letter-spacing-ui', '--line-height-ui',
+  '--card-rgb', '--card-hi', '--card-raised', '--card-lo', '--card-sunk', '--edge-rgb', '--bg-rgb',
 ];
 
 /* ══ Bileşen stili → CSS ═════════════════════════════════════════════ */

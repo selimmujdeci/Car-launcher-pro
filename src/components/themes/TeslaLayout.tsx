@@ -69,16 +69,16 @@ const SAND: Pal = {
   // Tema Stüdyo — özelleştirme yoksa fallback = mevcut hex (görünüm AYNI); PWA
   // `--bg-primary`/`--bg-card`/`--text-primary`/`--text-secondary`/`--accent-primary`/
   // `--accent-rgb` yollarsa CANLI yansır.
-  accent: 'var(--accent-primary, #E0822E)', accent2: '#B85C16', accentSoft: 'rgba(var(--accent-rgb, 224,130,46), 0.16)', accentGlow: 'rgba(var(--accent-rgb, 224,130,46), 0.30)',
+  accent: 'var(--accent-primary, #E0822E)', accent2: 'var(--accent-secondary, #B85C16)', accentSoft: 'rgba(var(--accent-rgb, 224,130,46), 0.16)', accentGlow: 'rgba(var(--accent-rgb, 224,130,46), 0.30)',
   accentA33: 'rgba(var(--accent-rgb, 224,130,46), 0.33)', accentA20: 'rgba(var(--accent-rgb, 224,130,46), 0.2)',
   inkCritical: '#160F06', ink: 'var(--text-primary, #2A2014)', ink2: 'var(--text-secondary, rgba(42,32,20,0.66))', ink3: 'var(--text-tertiary, rgba(42,32,20,0.45))',
-  card: 'var(--bg-card, linear-gradient(155deg,#fbf5e9 0%,#efe3cf 100%))', cardSolid: '#f6efe0',
-  cardBorder: '1px solid rgba(120,92,52,0.26)',
+  card: 'var(--bg-card, linear-gradient(155deg,#fbf5e9 0%,#efe3cf 100%))', cardSolid: 'var(--bg-card, #f6efe0)',
+  cardBorder: '1px solid var(--border-color, rgba(120,92,52,0.26))',
   cardShadow: '0 6px 16px -8px rgba(90,68,38,0.34), inset 0 1px 0 rgba(255,255,255,0.75)',
   tile: 'rgba(120,92,52,0.10)',
-  plate: 'linear-gradient(180deg,#f4ead7 0%,#e2d3b8 100%)', plateActive: 'linear-gradient(180deg,#f2a24c 0%,#e0822e 100%)',
-  plateBorder: '1px solid rgba(120,92,52,0.32)', plateShadow: 'inset 0 1px 0 rgba(255,255,255,0.8), 0 2px 4px rgba(90,68,38,0.20)',
-  metal: 'linear-gradient(180deg,#e9dcc4 0%,#d3c0a0 60%,#c2ad89 100%)', metalBorder: '1px solid rgba(120,92,52,0.4)',
+  plate: 'linear-gradient(180deg,var(--card-hi, #f4ead7) 0%,var(--card-sunk, #e2d3b8) 100%)', plateActive: 'linear-gradient(180deg,var(--accent-secondary, #f2a24c) 0%,var(--accent-primary, #e0822e) 100%)',
+  plateBorder: '1px solid var(--border-color, rgba(120,92,52,0.32))', plateShadow: 'inset 0 1px 0 rgba(255,255,255,0.8), 0 2px 4px rgba(90,68,38,0.20)',
+  metal: 'linear-gradient(180deg,var(--card-hi, #e9dcc4) 0%,var(--bg-card, #d3c0a0) 60%,var(--card-sunk, #c2ad89) 100%)', metalBorder: '1px solid var(--border-color, rgba(120,92,52,0.4))',
   good: '#5E8A34',
   screw: '#b29a73', screwHi: 'rgba(255,255,255,0.7)',
   bg: 'var(--bg-primary, radial-gradient(120% 100% at 50% -10%, #f1e6d0 0%, #e6d6ba 45%, #d8c6a2 100%))',
@@ -89,19 +89,19 @@ const SAND: Pal = {
 
 const LAVA: Pal = {
   night: true,
-  accent: 'var(--accent-primary, #E0822E)', accent2: '#F4A24E', accentSoft: 'rgba(var(--accent-rgb, 224,130,46), 0.14)', accentGlow: 'rgba(var(--accent-rgb, 224,130,46), 0.45)',
+  accent: 'var(--accent-primary, #E0822E)', accent2: 'var(--accent-secondary, #F4A24E)', accentSoft: 'rgba(var(--accent-rgb, 224,130,46), 0.14)', accentGlow: 'rgba(var(--accent-rgb, 224,130,46), 0.45)',
   accentA33: 'rgba(var(--accent-rgb, 224,130,46), 0.33)', accentA20: 'rgba(var(--accent-rgb, 224,130,46), 0.2)',
   inkCritical: '#FDFAF3', ink: 'var(--text-primary, #F2ECE0)', ink2: 'var(--text-secondary, rgba(242,236,224,0.60))', ink3: 'var(--text-tertiary, rgba(242,236,224,0.34))',
   // CarOS Night Collection — Tesla = koyu ESPRESSO / sıcak kahve. Olive yeşilden
   // espresso kahveye çekildi (Expedition'ın yeşilinden NET ayrışır); çok hafif amber
   // yansıma, premium ve sakin. Accent/ink/plateActive korunur; yalnız zemin/yüzey hue.
-  card: 'var(--bg-card, rgba(48,40,31,0.92))', cardSolid: 'rgba(40,33,25,0.97)',
-  cardBorder: '1px solid rgba(224,130,46,0.18)',
+  card: 'var(--bg-card, rgba(48,40,31,0.92))', cardSolid: 'var(--bg-card, rgba(40,33,25,0.97))',
+  cardBorder: '1px solid var(--border-color, rgba(224,130,46,0.18))',
   cardShadow: '0 14px 32px -16px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.05)',
   tile: 'rgba(255,255,255,0.05)',
-  plate: 'linear-gradient(180deg,#332a1f 0%,#201a12 100%)', plateActive: 'linear-gradient(180deg,#f2a24c 0%,#e0822e 100%)',
-  plateBorder: '1px solid rgba(224,130,46,0.20)', plateShadow: 'inset 0 1px 0 rgba(255,255,255,0.06), 0 2px 6px rgba(0,0,0,0.5)',
-  metal: 'linear-gradient(180deg,#42352a 0%,#2a2218 55%,#1a140d 100%)', metalBorder: '1px solid rgba(0,0,0,0.5)',
+  plate: 'linear-gradient(180deg,var(--card-hi, #332a1f) 0%,var(--card-lo, #201a12) 100%)', plateActive: 'linear-gradient(180deg,var(--accent-secondary, #f2a24c) 0%,var(--accent-primary, #e0822e) 100%)',
+  plateBorder: '1px solid var(--border-color, rgba(224,130,46,0.20))', plateShadow: 'inset 0 1px 0 rgba(255,255,255,0.06), 0 2px 6px rgba(0,0,0,0.5)',
+  metal: 'linear-gradient(180deg,var(--card-hi, #42352a) 0%,var(--bg-card, #2a2218) 55%,var(--card-lo, #1a140d) 100%)', metalBorder: '1px solid rgba(0,0,0,0.5)',
   good: '#9DB857',
   screw: '#52453a', screwHi: 'rgba(255,255,255,0.12)',
   bg: 'var(--bg-primary, radial-gradient(120% 100% at 50% -8%, #2f2619 0%, #221b13 46%, #16100b 100%))',
@@ -143,8 +143,9 @@ function card(p: Pal, opts?: { solid?: boolean; pad?: number | string }): React.
     overflow: 'hidden',   // içerik kartı aşarsa kırp
     background: opts?.solid ? p.cardSolid : p.card,
     border: p.cardBorder,
-    borderRadius: 18,
-    boxShadow: p.cardShadow,
+    borderRadius: 'var(--radius-card, 18px)',
+    /* Tema Stüdyo ışıması (--glow-intensity 0-100); yoksa 0 → görünüm AYNI. */
+    boxShadow: `${p.cardShadow}, 0 0 calc(var(--glow-intensity, 0) * 0.3px) rgba(var(--accent-rgb, 224,130,46), calc(var(--glow-intensity, 0) / 250))`,
     padding: opts?.pad as React.CSSProperties['padding'],
   };
 }
@@ -311,7 +312,7 @@ const MapCard = memo(function MapCard({ onOpenMap, fullMapOpen }: { onOpenMap: (
   const p = usePal();
   const navSummary = useNavSummary();
   return (
-    <div data-editable="tesla.map" data-editable-type="map" onClick={onOpenMap} className="relative overflow-hidden cursor-pointer flex-1 min-h-0 min-w-0" style={{ borderRadius: 18, border: p.cardBorder, boxShadow: p.cardShadow }}>
+    <div data-editable="tesla.map" data-editable-type="map" onClick={onOpenMap} className="relative overflow-hidden cursor-pointer flex-1 min-h-0 min-w-0" style={{ borderRadius: 'var(--radius-card, 18px)', border: p.cardBorder, boxShadow: p.cardShadow }}>
       <div className="absolute inset-0">
         {fullMapOpen
           ? <div className="w-full h-full flex items-center justify-center" style={{ background: p.night ? '#10140c' : '#e6d6ba' }}><Navigation className="w-10 h-10" style={{ color: p.accent }} /></div>
@@ -507,7 +508,7 @@ function Stat({ icon, value, label, warn }: { icon: React.ReactNode; value: stri
 function DockPlate({ Icon, label, onClick, active }: { Icon: typeof Navigation; label: string; onClick: () => void; active?: boolean }) {
   const p = usePal();
   return (
-    <button onClick={onClick} className="ex-btn relative flex items-center justify-center flex-shrink-0" style={{ flex: '0 0 31%', minWidth: 0, scrollSnapAlign: 'start', height: 108, borderRadius: 18, background: active ? p.plateActive : p.plate, border: active ? `1px solid ${p.accent}` : p.plateBorder, boxShadow: p.plateShadow, gap: 13, padding: '0 15px', cursor: 'pointer' }}>
+    <button onClick={onClick} className="ex-btn relative flex items-center justify-center flex-shrink-0" style={{ flex: '0 0 31%', minWidth: 0, scrollSnapAlign: 'start', height: 108, borderRadius: 'var(--radius-tile, 18px)', background: active ? p.plateActive : p.plate, border: active ? `1px solid ${p.accent}` : p.plateBorder, boxShadow: p.plateShadow, gap: 13, padding: '0 15px', cursor: 'pointer' }}>
       <Icon className="w-[37px] h-[37px] flex-shrink-0" style={{ color: active ? '#241405' : p.accent2 }} />
       <span className="uppercase truncate" style={{ fontSize: 18, fontWeight: 800, letterSpacing: '0.05em', color: active ? (p.night ? '#FBC892' : '#241405') : p.ink2 }}>{label}</span>
     </button>
@@ -631,7 +632,7 @@ const ExpeditionDock = memo(function ExpeditionDock({ onOpenMap, onOpenApps, onO
   // görünür saat (kaydırma kabı DIŞINDA overlay). Sol/sağ grup serbest kaydırılır →
   // tüm fonksiyonlara ulaşılır (pager/snap-sayfa kilidi yok).
   return (
-    <div data-editable="tesla.dock" data-editable-type="dock" data-no-page-swipe className="relative w-full" style={{ background: p.metal, borderRadius: 22, border: p.metalBorder, boxShadow: p.night ? '0 12px 30px -12px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -3px 8px rgba(0,0,0,0.55)' : '0 8px 22px -10px rgba(90,68,38,0.45), inset 0 1px 0 rgba(255,255,255,0.7), inset 0 -3px 7px rgba(120,92,52,0.25)', padding: '14px 18px 20px', minHeight: 138, zIndex: 30 }}>
+    <div data-editable="tesla.dock" data-editable-type="dock" data-no-page-swipe className="relative w-full" style={{ background: p.metal, borderRadius: 'var(--radius-dock, 22px)', border: p.metalBorder, boxShadow: p.night ? '0 12px 30px -12px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -3px 8px rgba(0,0,0,0.55)' : '0 8px 22px -10px rgba(90,68,38,0.45), inset 0 1px 0 rgba(255,255,255,0.7), inset 0 -3px 7px rgba(120,92,52,0.25)', padding: '14px 18px 20px', minHeight: 138, zIndex: 30 }}>
       <Screws inset={9} />
 
       <div style={{ display: 'flex', alignItems: 'stretch' }}>

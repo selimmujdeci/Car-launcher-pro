@@ -93,11 +93,11 @@ const NIGHT_H: Pal = {
   // PWA `--bg-primary`/`--bg-card`/`--text-primary`/`--text-secondary`/`--accent-primary`/
   // `--accent-rgb` yollarsa CANLI yansır.
   desk: 'var(--bg-primary, radial-gradient(150% 130% at 50% -15%, #17263f 0%, #111a2b 55%, #090e18 100%))',
-  panel: 'var(--bg-card, #19233a)', panelHi: '#222e49', panelLo: '#0f141f',
+  panel: 'var(--bg-card, #19233a)', panelHi: 'var(--card-raised, #222e49)', panelLo: 'var(--card-lo, #0f141f)',
   inkCritical: '#F2F6FE', ink: 'var(--text-primary, #E2E8F3)', ink2: 'var(--text-secondary, #94A0B8)', ink3: 'var(--text-tertiary, #556077)',
-  accent: 'var(--accent-primary, #F2871C)', accent2: '#FFB35C', accentDeep: '#B25F0C', accentGlow: 'rgba(var(--accent-rgb, 242,135,28), .42)', accentInk: '#1A0D02',
-  edge: 'rgba(120,150,210,.14)', edgeHi: 'rgba(165,195,242,.20)',
-  metal: 'linear-gradient(160deg,#283448 0%,#1a2336 55%,#111726 100%)',
+  accent: 'var(--accent-primary, #F2871C)', accent2: 'var(--accent-secondary, #FFB35C)', accentDeep: '#B25F0C', accentGlow: 'rgba(var(--accent-rgb, 242,135,28), .42)', accentInk: '#1A0D02',
+  edge: 'var(--border-color, rgba(120,150,210,.14))', edgeHi: 'var(--border-color, rgba(165,195,242,.20))',
+  metal: 'linear-gradient(160deg,var(--card-hi, #283448) 0%,var(--bg-card, #1a2336) 55%,var(--card-lo, #111726) 100%)',
   bolt: 'radial-gradient(circle at 36% 30%, #7d8db2, #283042 70%)',
   elev: '0 16px 36px rgba(0,0,0,.58), 0 3px 9px rgba(0,0,0,.5)',
   bevel: 'inset 0 1px 0 rgba(200,214,238,.14)',
@@ -109,11 +109,11 @@ const NIGHT_H: Pal = {
 const DAY_H: Pal = {
   night: false,
   desk: 'var(--bg-primary, radial-gradient(150% 130% at 50% -15%, #ece3d0 0%, #ddd2b9 55%, #cabd9f 100%))',
-  panel: 'var(--bg-card, #F2ECDE)', panelHi: '#F8F3E9', panelLo: '#E2D8C4',
+  panel: 'var(--bg-card, #F2ECDE)', panelHi: 'var(--card-raised, #F8F3E9)', panelLo: 'var(--card-sunk, #E2D8C4)',
   inkCritical: '#221C12', ink: 'var(--text-primary, #2E281C)', ink2: 'var(--text-secondary, #6C6250)', ink3: 'var(--text-tertiary, #9A907A)',
-  accent: 'var(--accent-primary, #DA801A)', accent2: '#E89A3C', accentDeep: '#A85C0C', accentGlow: 'rgba(var(--accent-rgb, 218,128,26), .28)', accentInk: '#FFF6E9',
-  edge: 'rgba(92,72,38,.20)', edgeHi: 'rgba(255,250,238,.7)',
-  metal: 'linear-gradient(160deg,#d3c9b3 0%,#b8ac90 55%,#9c9075 100%)',
+  accent: 'var(--accent-primary, #DA801A)', accent2: 'var(--accent-secondary, #E89A3C)', accentDeep: '#A85C0C', accentGlow: 'rgba(var(--accent-rgb, 218,128,26), .28)', accentInk: '#FFF6E9',
+  edge: 'var(--border-color, rgba(92,72,38,.20))', edgeHi: 'rgba(255,250,238,.7)',
+  metal: 'linear-gradient(160deg,var(--card-hi, #d3c9b3) 0%,var(--bg-card, #b8ac90) 55%,var(--card-sunk, #9c9075) 100%)',
   bolt: 'radial-gradient(circle at 36% 30%, #fdf8ec, #8d815f 72%)',
   elev: '0 12px 26px rgba(70,54,26,.18), 0 2px 6px rgba(70,54,26,.14)',
   bevel: 'inset 0 1px 0 rgba(255,252,244,.7)',
@@ -147,8 +147,10 @@ function injectHz() {
 /* ─── PANEL (rafine bevel — VİDA YOK; askeri azalt) ───────────────── */
 function panelStyle(p: Pal): React.CSSProperties {
   return {
-    position: 'relative', minWidth: 0, minHeight: 0, overflow: 'hidden', borderRadius: 17,
-    background: p.panel, border: `1px solid ${p.edge}`, boxShadow: `${p.elev}, ${p.bevel}`,
+    position: 'relative', minWidth: 0, minHeight: 0, overflow: 'hidden', borderRadius: 'var(--radius-card, 17px)',
+    background: p.panel, border: `1px solid ${p.edge}`,
+    /* Tema Stüdyo ışıması (--glow-intensity 0-100); yoksa 0 → görünüm AYNI. */
+    boxShadow: `${p.elev}, ${p.bevel}, 0 0 calc(var(--glow-intensity, 0) * 0.3px) rgba(var(--accent-rgb, 242,135,28), calc(var(--glow-intensity, 0) / 250))`,
   };
 }
 /* Tema Stüdyo kimliği:  KARARLI bileşen kimliğidir (themeComponentRegistry). */
@@ -341,7 +343,7 @@ const HzConsumptionCard = memo(function HzConsumptionCard({ onOpenSettings }: { 
 /* ─── MERKEZ: HARİTA HERO ────────────────────────────────────────── */
 function HzMapBtn({ children, onPress }: { children: React.ReactNode; onPress?: () => void }) {
   const p = usePalH();
-  return <button className="hz-btn flex items-center justify-center" style={{ width: 40, height: 40, borderRadius: 12, background: p.panel, border: `1px solid ${p.edge}`, color: p.ink2, cursor: 'pointer', boxShadow: p.elev }} onClick={e => { e.stopPropagation(); onPress?.(); }}>{children}</button>;
+  return <button className="hz-btn flex items-center justify-center" style={{ width: 40, height: 40, borderRadius: 'var(--radius-btn, 12px)', background: p.panel, border: `1px solid ${p.edge}`, color: p.ink2, cursor: 'pointer', boxShadow: p.elev }} onClick={e => { e.stopPropagation(); onPress?.(); }}>{children}</button>;
 }
 
 /** Manevra mesafesi biçimi: 1000m+ → "2.4 km", altı → "350 m" (10'a yuvarlı). */
@@ -382,11 +384,11 @@ const HzMap = memo(function HzMap({ onOpenMap, fullMapOpen }: { onOpenMap: () =>
   // minHeight 200: grid çökse bile harita konteyneri asla 0px olamaz (Duster vakası)
   return (
     <Panel editId="horizon.map" editType="map" style={{ padding: 0, flex: 1, minWidth: 0, minHeight: 200, maskImage: notchMask, WebkitMaskImage: notchMask }} onClick={onOpenMap}>
-      <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, borderRadius: 17, overflow: 'hidden', cursor: 'pointer', background: terrain }}>
+      <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, borderRadius: 'var(--radius-card, 17px)', overflow: 'hidden', cursor: 'pointer', background: terrain }}>
         {fullMapOpen
           ? <div className="w-full h-full flex items-center justify-center"><Navigation className="w-10 h-10" style={{ color: p.accent }} /></div>
           : <MiniMapWidget onFullScreenClick={onOpenMap} />}
-        <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, pointerEvents: 'none', borderRadius: 17, background: p.mapveil }} />
+        <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, pointerEvents: 'none', borderRadius: 'var(--radius-card, 17px)', background: p.mapveil }} />
       </div>
 
       {/* nav talimatı — sol üst (YALNIZ gerçek aktif rotada; sahte mockup verisi YASAK) */}
@@ -785,7 +787,7 @@ const HzDock = memo(function HzDock({ onOpenMap, onOpenApps, onOpenSettings, onV
   const carosLabAllowed = useCarosLabAllowed();
   return (
     <div style={{ position: 'relative', flex: '0 0 auto', height: HZ_DOCK_H }}>
-      <div data-editable="horizon.dock" data-editable-type="dock" data-no-page-swipe style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, borderRadius: 17, background: p.metal, border: `1px solid ${p.edgeHi}`, boxShadow: `${p.elev}, ${p.bevel}`, display: 'flex', alignItems: 'stretch', padding: '0 10px' }}>
+      <div data-editable="horizon.dock" data-editable-type="dock" data-no-page-swipe style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, borderRadius: 'var(--radius-dock, 17px)', background: p.metal, border: `1px solid ${p.edgeHi}`, boxShadow: `${p.elev}, ${p.bevel}`, display: 'flex', alignItems: 'stretch', padding: '0 10px' }}>
         {/* imza vidaları — dock köşeleri */}
         <Bolt style={{ top: 8, left: 9 }} /><Bolt style={{ bottom: 8, left: 9 }} />
         <Bolt style={{ top: 8, right: 9 }} /><Bolt style={{ bottom: 8, right: 9 }} />
