@@ -19,7 +19,7 @@ import {
   type Paint,
   type PaintKind,
 } from '@/lib/theme/themeManifest';
-import { NEUTRAL_TEXT_RAMP } from '@/lib/theme/colorMath';
+import { NEUTRAL_TEXT_RAMP, READABLE_MIN_CONTRAST, ensureReadable, readabilityOf } from '@/lib/theme/colorMath';
 import { CHECKER_BG, ColorPicker, rememberColor } from './ColorPicker';
 
 /* ── Ortak kabuk ──────────────────────────────────────────────────── */
@@ -99,7 +99,7 @@ export const TEXT_SWATCHES: readonly string[] = [
  * uzayını + saydamlığı açar (`ColorPicker`), hazır renkler yalnız kısayoldur.
  */
 export const ColorField = memo(function ColorField({
-  label, hint, value, onChange, swatches = COLOR_SWATCHES, allowAlpha = true, swatchLabel,
+  label, hint, value, onChange, swatches = COLOR_SWATCHES, allowAlpha = true, swatchLabel, readableOn,
 }: {
   label: string;
   hint?: string;
@@ -108,8 +108,13 @@ export const ColorField = memo(function ColorField({
   swatches?: readonly string[];
   allowAlpha?: boolean;
   swatchLabel?: string;
+  /** Bu YAZI rengi hangi zeminin üstünde duruyor — verilirse okunabilirlik denetlenir. */
+  readableOn?: Paint | string | null;
 }) {
   const [open, setOpen] = useState(false);
+  const bgSolid = solidOf(readableOn);
+  const ratio = value && bgSolid ? readabilityOf(value, bgSolid) : null;
+  const hardToRead = ratio !== null && ratio < READABLE_MIN_CONTRAST;
   return (
     <FieldRow label={label} hint={hint} inherited={value === null} onReset={() => onChange(null)}>
       <div className="flex items-center gap-3">
@@ -163,6 +168,23 @@ export const ColorField = memo(function ColorField({
         </button>
       </div>
 
+      {hardToRead && value && bgSolid && (
+        <div className="flex items-center gap-2 rounded-xl px-3 py-2"
+          style={{ background: 'rgba(251,191,36,0.10)', border: '1px solid rgba(251,191,36,0.35)' }}>
+          <span className="flex-1 text-[11px] font-bold" style={{ color: '#fbbf24' }}>
+            ⚠ Sürüşte zor okunur ({ratio.toFixed(1).replace('.', ',')}:1 · en az 4,5:1)
+          </span>
+          <button
+            type="button"
+            onClick={() => onChange(ensureReadable(value, bgSolid))}
+            className="flex-shrink-0 text-[11px] font-black rounded-lg px-3 active:scale-95"
+            style={{ height: 34, background: '#fbbf24', color: '#1a1a1a' }}
+          >
+            Okunur yap
+          </button>
+        </div>
+      )}
+
       {open && (
         <ColorPicker
           value={value}
@@ -193,6 +215,13 @@ export const ColorField = memo(function ColorField({
     </FieldRow>
   );
 });
+
+/** Zemin TEK renk mi? Gradient / katman saydamlığı varsa gerçek zemin bilinmez → `null`. */
+function solidOf(p: Paint | string | null | undefined): string | null {
+  if (!p) return null;
+  if (typeof p === 'string') return p;
+  return p.kind === 'solid' && p.alpha >= 100 ? p.from : null;
+}
 
 /* ── Sayı (slider) ────────────────────────────────────────────────── */
 

@@ -21,7 +21,7 @@
 import {
   memo, useCallback, useEffect, useMemo, useReducer, useRef, useState,
 } from 'react';
-import { sendCommand } from '@/lib/commandService';
+import { sendCommand, subscribeCommandStatus, COMMAND_TTL_MINUTES } from '@/lib/commandService';
 import {
   manifestToCssVars,
   THEME_BASE_IDS,
@@ -82,7 +82,8 @@ const PREVIEW_H = 720;
 
 const PERSIST_DEBOUNCE_MS = 1000;
 
-type SyncState = 'idle' | 'sending' | 'ok' | 'fail';
+/** `waiting` = sıraya yazıldı, araç henüz UYGULAMADI · `applied` = araç "uyguladım" dedi. */
+type SyncState = 'idle' | 'sending' | 'waiting' | 'applied' | 'fail';
 type EditorTarget =
   | { kind: 'none' }
   | { kind: 'tokens' }
@@ -111,6 +112,7 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
   const mountedRef = useRef(true);
   const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const syncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const statusUnsub = useRef<(() => void) | null>(null);
   const [scale, setScale] = useState(0.3);
 
   const manifest = state.manifests[state.themeId];
@@ -160,6 +162,7 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
       mountedRef.current = false;
       if (persistTimer.current) clearTimeout(persistTimer.current);
       if (syncTimer.current) clearTimeout(syncTimer.current);
+      statusUnsub.current?.();
     };
   }, []);
 
@@ -278,16 +281,35 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
       themeVars: manifestToCssVars(outgoing),
     });
     if (!mountedRef.current) return;
-    if (r.ok) {
-      dispatch({ type: 'mark-sent', at });
-      setSync('ok');
-      setSyncNote(r.queued ? 'Araç çevrimdışı — sıraya alındı' : null);
-    } else {
+    if (syncTimer.current) clearTimeout(syncTimer.current);
+    statusUnsub.current?.();
+    statusUnsub.current = null;
+    if (!r.ok) {
       setSync('fail');
       setSyncNote(r.error ?? 'Gönderilemedi');
+      syncTimer.current = setTimeout(() => { if (mountedRef.current) setSync('idle'); }, 3500);
+      return;
     }
-    if (syncTimer.current) clearTimeout(syncTimer.current);
-    syncTimer.current = setTimeout(() => { if (mountedRef.current) setSync('idle'); }, 3500);
+    dispatch({ type: 'mark-sent', at });
+    /* "Gönderildi" ≠ "uygulandı": aracın kendi cevabı beklenir (komut satırı durumu).
+       Yerel zaman aşımı araç HATASI DEĞİLDİR — komut sunucuda TTL boyunca bekler,
+       araç açılınca uygular; bu yüzden "bekleniyor" kalır, "başarısız" denmez. */
+    setSync('waiting');
+    setSyncNote(r.queued ? 'Araç çevrimdışı — açılınca uygulanacak' : 'Araç bekleniyor…');
+    if (!r.commandId) return;
+    statusUnsub.current = subscribeCommandStatus(r.commandId, (ev) => {
+      if (!mountedRef.current) return;
+      if (ev.status === 'completed') {
+        setSync('applied');
+        setSyncNote(null);
+        syncTimer.current = setTimeout(() => { if (mountedRef.current) setSync('idle'); }, 5000);
+      } else if (ev.status === 'failed' || ev.status === 'rejected') {
+        setSync('fail');
+        setSyncNote('Araç temayı uygulayamadı');
+      } else if (ev.status === 'expired') {
+        setSyncNote(`Araç henüz almadı — açılınca uygulanacak (${COMMAND_TTL_MINUTES} dk içinde)`);
+      }
+    }, 20_000);
   }, [vehicleId, manifest]);
 
   /* ── Kısayollar ─────────────────────────────────────────────────── */
@@ -332,7 +354,7 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
   );
 
   const touched = customizationCount(manifest);
-  const syncColor = sync === 'ok' ? '#34d399' : sync === 'fail' ? '#f87171' : sync === 'sending' ? '#60a5fa' : 'var(--pwa-text-3)';
+  const syncColor = sync === 'applied' ? '#34d399' : sync === 'fail' ? '#f87171' : sync === 'sending' || sync === 'waiting' ? '#60a5fa' : 'var(--pwa-text-3)';
 
   /* ── DÜZENLEYİCİ PANELİ — ÖNİZLEMEYİ KAPATMADAN ───────────────────
    * KULLANICI ŞİKÂYETİ (2026-08-18): *"yaptığım düzenlemeleri göremiyorum,
@@ -445,8 +467,9 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
             }}
           >
             {!vehicleId ? '⚠ Araç Bağlı Değil'
-              : sync === 'ok' ? '✓ Gönderildi'
+              : sync === 'applied' ? '✓ Araçta uygulandı'
               : sync === 'fail' ? '✗ Hata'
+              : sync === 'waiting' ? '◷ Araç bekleniyor'
               : sync === 'sending' ? '● Gönderiliyor…'
               : '● Hazır'}
           </div>
@@ -587,7 +610,7 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
               opacity: vehicleId ? 1 : 0.5,
             }}
           >
-            {!vehicleId ? '⚠ Araç Bağlı Değil' : sync === 'ok' ? '✓ Araca Gönderildi' : 'Araca Gönder'}
+            {!vehicleId ? '⚠ Araç Bağlı Değil' : sync === 'applied' ? '✓ Araçta Uygulandı' : sync === 'waiting' ? '◷ Araç Bekleniyor' : 'Araca Gönder'}
           </button>
         </div>
         {syncNote && (
