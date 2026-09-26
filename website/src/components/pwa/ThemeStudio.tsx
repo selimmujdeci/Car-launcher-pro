@@ -21,7 +21,7 @@
 import {
   memo, useCallback, useEffect, useMemo, useReducer, useRef, useState,
 } from 'react';
-import { sendCommand, subscribeCommandStatus, COMMAND_TTL_MINUTES } from '@/lib/commandService';
+import { sendCommand, subscribeCommandStatus, fetchCommandStatus, COMMAND_TTL_MINUTES, type CommandStatus } from '@/lib/commandService';
 import {
   manifestToCssVars,
   THEME_BASE_IDS,
@@ -125,6 +125,8 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
   const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const syncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const statusUnsub = useRef<(() => void) | null>(null);
+  /** Beklenen komut — realtime olayı kaçarsa durum doğrudan sorulur. */
+  const pendingCmd = useRef<{ id: string; until: number } | null>(null);
   const [scale, setScale] = useState(0.3);
 
   const manifest = state.manifests[state.themeId];
@@ -275,6 +277,50 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
   }, [editor, selectMode, previewReady, requestProbe]);
 
   /* ── Araca Gönder ───────────────────────────────────────────────── */
+  /** Aracın komut sonucu — realtime ya da doğrudan sorgu, hangisi önce gelirse. */
+  const settleCommand = useCallback((commandId: string, status: CommandStatus) => {
+    if (!mountedRef.current || pendingCmd.current?.id !== commandId) return;
+    if (status === 'completed') {
+      pendingCmd.current = null;
+      statusUnsub.current?.(); statusUnsub.current = null;
+      setSync('applied');
+      setSyncNote(null);
+      if (syncTimer.current) clearTimeout(syncTimer.current);
+      syncTimer.current = setTimeout(() => { if (mountedRef.current) setSync('idle'); }, 5000);
+    } else if (status === 'failed' || status === 'rejected') {
+      pendingCmd.current = null;
+      statusUnsub.current?.(); statusUnsub.current = null;
+      setSync('fail');
+      setSyncNote('Araç temayı uygulayamadı');
+    } else if (status === 'expired') {
+      pendingCmd.current = null;
+      setSync('fail');
+      setSyncNote('Araç süre içinde almadı — tekrar gönderebilirsin');
+    }
+  }, []);
+
+  /* Realtime olayı KAÇABİLİR (saha 2026-09-26: telefon arka plandayken tema araçta
+     uygulandı, stüdyo "Araç bekleniyor" kaldı). Beklerken durum doğrudan sorulur:
+     sayfaya dönünce hemen, görünürken birkaç saniyede bir; TTL dolunca durur. */
+  useEffect(() => {
+    if (sync !== 'waiting') return;
+    const check = () => {
+      const p = pendingCmd.current;
+      if (!p || document.visibilityState !== 'visible') return;
+      if (Date.now() > p.until) { settleCommand(p.id, 'expired'); return; }
+      void fetchCommandStatus(p.id).then((st) => { if (st) settleCommand(p.id, st); });
+    };
+    const t = setInterval(check, 4000);
+    const onVis = () => { if (document.visibilityState === 'visible') check(); };
+    document.addEventListener('visibilitychange', onVis);
+    window.addEventListener('focus', onVis);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener('visibilitychange', onVis);
+      window.removeEventListener('focus', onVis);
+    };
+  }, [sync, settleCommand]);
+
   const sendToVehicle = useCallback(async () => {
     if (!vehicleId) return;
     setSync('sending');
@@ -309,20 +355,16 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
     setSync('waiting');
     setSyncNote(r.queued ? 'Araç çevrimdışı — açılınca uygulanacak' : 'Araç bekleniyor…');
     if (!r.commandId) return;
+    pendingCmd.current = { id: r.commandId, until: Date.now() + COMMAND_TTL_MINUTES * 60_000 };
     statusUnsub.current = subscribeCommandStatus(r.commandId, (ev) => {
-      if (!mountedRef.current) return;
-      if (ev.status === 'completed') {
-        setSync('applied');
-        setSyncNote(null);
-        syncTimer.current = setTimeout(() => { if (mountedRef.current) setSync('idle'); }, 5000);
-      } else if (ev.status === 'failed' || ev.status === 'rejected') {
-        setSync('fail');
-        setSyncNote('Araç temayı uygulayamadı');
-      } else if (ev.status === 'expired') {
-        setSyncNote(`Araç henüz almadı — açılınca uygulanacak (${COMMAND_TTL_MINUTES} dk içinde)`);
+      if (ev.status === 'expired') {
+        // Yerel zaman aşımı: araç henüz cevap vermedi — sorgu devam eder (aşağıdaki efekt).
+        if (mountedRef.current) setSyncNote(`Araç henüz almadı — açılınca uygulanacak (${COMMAND_TTL_MINUTES} dk içinde)`);
+        return;
       }
+      settleCommand(r.commandId!, ev.status);
     }, 20_000);
-  }, [vehicleId, manifest]);
+  }, [vehicleId, manifest, settleCommand]);
 
   /* ── Kısayollar ─────────────────────────────────────────────────── */
   /* Geri al / ileri al — TEK mekanizma, kapsam parametresiyle.

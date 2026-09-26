@@ -420,6 +420,28 @@ export function subscribeCommandStatus(
   };
 }
 
+/**
+ * Komutun ŞU ANKİ durumunu veritabanından oku (tek sorgu). Realtime olayı
+ * kaçırılabilir — ör. telefon uygulaması arka plandayken araç komutu
+ * tamamlar (saha 2026-09-26: tema araçta uygulandı, stüdyo "Araç bekleniyor"
+ * kaldı). Okunamazsa `null` (bilinmiyor) — "bekliyor" ya da "başarısız" UYDURULMAZ.
+ */
+export async function fetchCommandStatus(commandId: string): Promise<CommandStatus | null> {
+  if (!evaluateAccountScopedCapability('COMMAND_DISPATCH').allowed) return null;
+  if (!supabaseBrowser) return null;
+  try {
+    const { data, error } = await supabaseBrowser
+      .from('vehicle_commands')
+      .select('status')
+      .eq('id', commandId)
+      .maybeSingle();
+    if (error || !data) return null;
+    return (data as { status: CommandStatus }).status ?? null;
+  } catch {
+    return null;
+  }
+}
+
 // ── Komut gönder + dinle (birleşik API) ───────────────────────────────────────
 
 export async function sendAndTrack(
