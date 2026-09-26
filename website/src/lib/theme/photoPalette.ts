@@ -1,96 +1,125 @@
 /**
- * photoPalette — FOTOĞRAFTAN TEMA (kullanıcı isteği 2026-09-26, Samsung Theme Park deseni).
+ * photoPalette — FOTOĞRAFTAN TEMA, Google'ın yöntemiyle (2026-09-26).
  *
- * Fotoğraf CİHAZDA küçültülüp piksellerine bakılır; hiçbir yere yüklenmez.
- * Buradan yalnız 1-3 baskın RENK çıkar; palet mevcut `buildColorPreset` ile
- * kurulur → okunabilirlik disiplini (yazı/zemin, vurgu/kart) hazır taslaklarla
- * AYNIDIR. Yeni tema motoru YOK.
+ * Renk seçimi ve şema üretimi Google'ın açık kaynak Material Color Utilities
+ * kütüphanesiyle yapılır (Android duvar kağıdı renkleriyle AYNI algoritma):
+ *   1. Fotoğraf CİHAZDA küçültülür (hiçbir yere yüklenmez).
+ *   2. `QuantizerCelebi` → `Score`: fotoğraftan en fazla 4 aday renk. Puan
+ *      renk alanının büyüklüğü (%70) + canlılık (%30); griler elenir.
+ *   3. Kullanıcı RENGİ seçer (tek renge bahis yok: kırmızı araba + mavi gökyüzü
+ *      fotoğrafında ikisi de seçenek olur), sonra STİLİ seçer.
+ *   4. Stiller HCT renk uzayında Material şemalarıyla üretilir → kontrast baştan
+ *      garantilidir (Material rolleri: onSurface/surface, primary/…).
  *
- * Belirgin renk yoksa (gri/siyah/beyaz ağırlıklı fotoğraf) boş döner — zorlama
- * tema üretilmez.
+ * Çıktı mevcut `GlobalTokens` yamasıdır — uygulama, geri alma ve "Araca Gönder"
+ * hazır taslaklarla AYNI yoldan geçer. Yeni tema motoru YOK.
  */
-import { hsvToRgb, rgbaToHex, rgbToHsv } from './colorMath';
-import { buildColorPreset, type ColorPreset } from './themePresets';
+import {
+  argbFromRgb,
+  Hct,
+  hexFromArgb,
+  QuantizerCelebi,
+  SchemeNeutral,
+  SchemeTonalSpot,
+  SchemeVibrant,
+  Score,
+  type DynamicScheme,
+} from '@material/material-color-utilities';
+import type { GlobalTokens, Paint } from './themeManifest';
+import type { ColorPreset, PresetMode } from './themePresets';
+
+/** Hiçbir renk uygun değilse Score'un döndürdüğü yedek (Google mavisi) — bunu "fotoğrafın rengi" diye SUNMAYIZ. */
+const FALLBACK = 0xff4285f4;
 
 export interface PhotoColor {
   readonly hex: string;
-  /** 0-360 */
-  readonly hue: number;
-  /** 0-1 */
-  readonly sat: number;
-  /** Renkli piksellerin içindeki payı (0-1). */
-  readonly share: number;
+  readonly argb: number;
 }
 
-const BUCKETS = 24;               // 15°'lik ton dilimleri
-const MIN_SAT = 0.2;              // bunun altı gri sayılır
-const MIN_V = 0.15;               // çok karanlık piksel ton taşımaz
-const MIN_COLORFUL_SHARE = 0.06;  // renkli piksel oranı bunun altındaysa "belirgin renk yok"
-
 /**
- * RGBA piksel dizisinden baskın renkler (en fazla `max`). Dilim ağırlığı
- * doygunluğun karesiyle çarpılır — geniş ama soluk bir gökyüzü, küçük ama canlı
- * bir kırmızı arabayı ezmesin.
+ * RGBA piksel dizisinden Google'ın seçtiği aday renkler (en fazla `max`).
+ * Uygun renk yoksa (gri/siyah/beyaz fotoğraf) BOŞ — yedek mavi uydurulmaz.
  */
-export function extractPhotoColors(px: ArrayLike<number>, max = 3): PhotoColor[] {
-  const w = new Array<number>(BUCKETS).fill(0);
-  const acc = Array.from({ length: BUCKETS }, () => ({ r: 0, g: 0, b: 0, n: 0 }));
-  let total = 0; let colorful = 0;
+export function extractPhotoColors(px: ArrayLike<number>, max = 4): PhotoColor[] {
+  const argb: number[] = [];
   for (let i = 0; i + 3 < px.length; i += 4) {
-    if (px[i + 3] < 128) continue;
-    total++;
-    const r = px[i], g = px[i + 1], b = px[i + 2];
-    const hsv = rgbToHsv({ r, g, b, a: 1 });
-    if (hsv.s < MIN_SAT || hsv.v < MIN_V) continue;
-    colorful++;
-    const k = Math.floor(((hsv.h % 360) / 360) * BUCKETS) % BUCKETS;
-    /* Doygunluğun KARESİ: geniş ama orta doygun gökyüzü (s≈0.37), küçük ama canlı
-       kırmızı arabayı eziyordu (yerel denemede kırmızı araba → mavi palet). */
-    w[k] += hsv.s * hsv.s * (0.5 + hsv.v / 2);
-    acc[k].r += r; acc[k].g += g; acc[k].b += b; acc[k].n++;
+    if (px[i + 3] < 255) continue;
+    argb.push(argbFromRgb(px[i], px[i + 1], px[i + 2]));
   }
-  if (total === 0 || colorful / total < MIN_COLORFUL_SHARE) return [];
-  const order = w.map((v, k) => ({ v, k })).filter((x) => x.v > 0).sort((a, b) => b.v - a.v);
+  if (argb.length === 0) return [];
+  const population = QuantizerCelebi.quantize(argb, 128);
+  const ranked = Score.score(population, { desired: max + 2, fallbackColorARGB: FALLBACK, filter: true });
+  const real = ranked.filter((c) => c !== FALLBACK || population.has(FALLBACK));
+  /* Google 4'ü doldurmak için ton farkını 15°'ye kadar gevşetir; aynı gökyüzünün
+     iki mavi tonu ayrı "renk" gibi görünüyordu (yerel deneme). Göze aynı görünenler
+     (ton < 20° VE açıklık < 12) tek seçenek sayılır. */
+  const picked: Hct[] = [];
   const out: PhotoColor[] = [];
-  for (const { k } of order) {
+  for (const c of real) {
+    const h = Hct.fromInt(c);
+    const dup = picked.some((p) => {
+      const dh = Math.min(Math.abs(p.hue - h.hue), 360 - Math.abs(p.hue - h.hue));
+      return dh < 20 && Math.abs(p.tone - h.tone) < 12;
+    });
+    if (dup) continue;
+    picked.push(h);
+    out.push({ argb: c, hex: hexFromArgb(c) });
     if (out.length >= max) break;
-    const a = acc[k];
-    const avg = { r: Math.round(a.r / a.n), g: Math.round(a.g / a.n), b: Math.round(a.b / a.n), a: 1 };
-    const hsv = rgbToHsv(avg);
-    // Komşu tonlar (±30°) aynı renk sayılır — 3 kırmızı tonu yerine 3 farklı renk.
-    if (out.some((c) => Math.min(Math.abs(c.hue - hsv.h), 360 - Math.abs(c.hue - hsv.h)) < 30)) continue;
-    out.push({ hex: rgbaToHex(avg), hue: hsv.h, sat: hsv.s, share: a.n / colorful });
   }
   return out;
 }
 
-/** Vurgu olarak kullanılabilir canlılıkta (ekranda sönük kalmasın). */
-function vivid(c: PhotoColor, s = 0.78, v = 0.95): string {
-  return rgbaToHex(hsvToRgb({ h: c.hue, s: Math.max(c.sat, s), v, a: 1 }));
+const solid = (argb: number): Paint =>
+  ({ kind: 'solid', from: hexFromArgb(argb), to: null, angle: 180, stopA: 0, stopB: 100, alpha: 100 });
+
+/** Material şeması → CarOS tema yaması (rol eşlemesi). `accentFrom` verilirse vurgu oradan gelir. */
+function tokensOf(s: DynamicScheme, accentFrom: DynamicScheme = s): { tokens: Partial<GlobalTokens>; swatch: ColorPreset['swatch'] } {
+  const hex = hexFromArgb;
+  const accent = hex(accentFrom.primary);
+  const bg = s.surface; const card = s.surfaceContainerHigh;
+  return {
+    tokens: {
+      accentPrimary: accent,
+      accentSecondary: hex(accentFrom.secondary),
+      textPrimary: hex(s.onSurface),
+      textSecondary: hex(s.onSurfaceVariant),
+      borderColor: hex(s.outlineVariant),
+      glowColor: accent,
+      iconNav: accent,
+      iconMedia: accent,
+      iconDock: accent,
+      bgPrimary: solid(bg),
+      bgCard: solid(card),
+    },
+    swatch: [hex(bg), hex(card), accent, hex(s.onSurface)],
+  };
 }
 
-/** Baskın renklerden 4 palet: Canlı · Sade · Gece · Gündüz. Renk yoksa boş. */
-export function palettesFromPhoto(colors: readonly PhotoColor[]): ColorPreset[] {
-  const main = colors[0];
-  if (!main) return [];
-  const second = colors[1] ?? main;
+function preset(id: string, name: string, mood: string, mode: PresetMode,
+  built: { tokens: Partial<GlobalTokens>; swatch: ColorPreset['swatch'] }): ColorPreset {
+  // `ColorPreset` spec alanları (accent/hue/sat) bu yolda yalnız bilgi amaçlıdır.
+  return { id, name, mood, mode, accent: built.tokens.accentPrimary ?? '', hue: 0, sat: 0, ...built };
+}
+
+/** Seçilen renkten 4 stil: Canlı · Sade · Sürüş · Gündüz. */
+export function palettesFromColor(color: PhotoColor): ColorPreset[] {
+  const hct = Hct.fromInt(color.argb);
+  const vibrantDark = new SchemeVibrant(hct, true, 0);
   return [
-    buildColorPreset({ id: 'photo-canli', name: 'Canlı', mood: 'Fotoğrafın ana rengi, koyu zemin', mode: 'night',
-      accent: vivid(main), hue: main.hue, sat: Math.min(0.6, main.sat) }),
-    buildColorPreset({ id: 'photo-sade', name: 'Sade', mood: 'Aynı renk, yumuşak tonlar', mode: 'night',
-      accent: vivid(main, 0.45, 0.85), hue: main.hue, sat: Math.min(0.3, main.sat * 0.5) }),
-    buildColorPreset({ id: 'photo-gece', name: 'Gece', mood: 'Çok koyu zemin, renk yalnız vurguda', mode: 'night',
-      accent: vivid(main), hue: second.hue, sat: 0.12 }),
-    buildColorPreset({ id: 'photo-gunduz', name: 'Gündüz', mood: 'Açık zemin, güneşte okunur', mode: 'day',
-      accent: vivid(main, 0.85, 0.7), hue: main.hue, sat: Math.min(0.5, main.sat) }),
+    preset('photo-canli', 'Canlı', 'Rengin kendisi, koyu zemin', 'night', tokensOf(vibrantDark)),
+    preset('photo-sade', 'Sade', 'Aynı renk, yumuşak tonlar', 'night', tokensOf(new SchemeTonalSpot(hct, true, 0))),
+    /* Google'ın araç kuralı: "siyahtan kur" — gri tonlu koyu zemin, TEK vurgu rengi. */
+    preset('photo-surus', 'Sürüş', 'Koyu gri zemin, renk yalnız vurguda', 'night',
+      tokensOf(new SchemeNeutral(hct, true, 0.5), vibrantDark)),
+    preset('photo-gunduz', 'Gündüz', 'Açık zemin, yüksek kontrast', 'day', tokensOf(new SchemeTonalSpot(hct, false, 0.5))),
   ];
 }
 
 /**
- * Tarayıcıda: dosyayı küçük bir tuvale çizip pikselleri okur (en uzun kenar 96px).
- * Fotoğraf ağ'a GİTMEZ. Okunamayan dosya → `null`.
+ * Tarayıcıda: dosyayı küçük bir tuvale çizip pikselleri okur (en uzun kenar 112px).
+ * Fotoğraf ağa GİTMEZ. Okunamayan dosya → `null`.
  */
-export async function readPhotoPixels(file: Blob, edge = 96): Promise<Uint8ClampedArray | null> {
+export async function readPhotoPixels(file: Blob, edge = 112): Promise<Uint8ClampedArray | null> {
   try {
     const bmp = await createImageBitmap(file);
     const k = Math.min(1, edge / Math.max(bmp.width, bmp.height));

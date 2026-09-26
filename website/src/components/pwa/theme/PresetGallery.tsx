@@ -9,7 +9,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { GlobalTokens, ScreenOverride, ThemeBaseId, ThemeManifest } from '../../../lib/theme/themeManifest';
 import { colorPresetsFor, SHAPE_PRESETS, screenPatchOf, type ColorPreset, type ShapePreset } from '../../../lib/theme/themePresets';
-import { extractPhotoColors, palettesFromPhoto, readPhotoPixels } from '../../../lib/theme/photoPalette';
+import { extractPhotoColors, palettesFromColor, readPhotoPixels, type PhotoColor } from '../../../lib/theme/photoPalette';
 
 type Scope = 'theme' | 'screen';
 
@@ -51,23 +51,29 @@ export const PresetGallery = memo(function PresetGallery({
     if (scope === 'theme') onApplyPreset('color', p.tokens);
     else onPatchScreen(screenPatchOf(p));
   };
-  const [photo, setPhoto] = useState<{ url: string; presets: ColorPreset[] } | null>(null);
+  /* Google yöntemi: önce fotoğraftaki RENKLER (en fazla 4), kullanıcı rengi seçer, sonra stili. */
+  const [photo, setPhoto] = useState<{ url: string; colors: PhotoColor[]; pick: number } | null>(null);
+  const photoPresets = useMemo(
+    () => (photo ? palettesFromColor(photo.colors[photo.pick]) : []),
+    [photo],
+  );
   const [photoBusy, setPhotoBusy] = useState(false);
   const [photoNote, setPhotoNote] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
-  useEffect(() => () => { if (photo) URL.revokeObjectURL(photo.url); }, [photo]);
+  const photoUrl = photo?.url;
+  useEffect(() => () => { if (photoUrl) URL.revokeObjectURL(photoUrl); }, [photoUrl]);
   /* Fotoğraf CİHAZDA okunur (küçük tuval) — hiçbir yere yüklenmez. */
   const onPhoto = async (file: File | undefined) => {
     if (!file) return;
     setPhotoBusy(true); setPhotoNote(null);
     const px = await readPhotoPixels(file);
-    const presets = px ? palettesFromPhoto(extractPhotoColors(px)) : [];
+    const found = px ? extractPhotoColors(px) : [];
     setPhotoBusy(false);
-    if (presets.length === 0) {
+    if (found.length === 0) {
       setPhotoNote(px ? 'Bu fotoğrafta belirgin renk bulamadım — başka bir tane dener misin?' : 'Fotoğraf okunamadı.');
       return;
     }
-    setPhoto({ url: URL.createObjectURL(file), presets });
+    setPhoto({ url: URL.createObjectURL(file), colors: found, pick: 0 });
   };
 
   const applyShape = (p: ShapePreset) => {
@@ -106,17 +112,22 @@ export const PresetGallery = memo(function PresetGallery({
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={photo.url} alt="Seçilen fotoğraf" className="rounded-xl object-cover flex-shrink-0" style={{ width: 64, height: 64 }} />
             <div className="flex-1 min-w-0">
-              <p className="text-[12px] font-black" style={{ color: 'var(--pwa-text)' }}>Fotoğraftan {photo.presets.length} palet</p>
-              <div className="flex gap-1 mt-1">
-                {photo.presets.map((p) => (
-                  <span key={p.id} className="rounded-full" style={{ width: 14, height: 14, background: p.tokens.accentPrimary ?? undefined, border: '1px solid rgba(255,255,255,0.25)' }} />
+              <p className="text-[12px] font-black" style={{ color: 'var(--pwa-text)' }}>Fotoğraftaki renkler · birini seç</p>
+              <div className="flex gap-2 mt-1.5">
+                {photo.colors.map((c, i) => (
+                  <button key={c.hex} type="button" aria-label={`Renk ${c.hex}`} aria-pressed={i === photo.pick}
+                    onClick={() => setPhoto((ph) => (ph ? { ...ph, pick: i } : ph))}
+                    className="rounded-full active:scale-90"
+                    style={{ width: 34, height: 34, background: c.hex,
+                      border: i === photo.pick ? '3px solid #fff' : '2px solid rgba(255,255,255,0.2)',
+                      boxShadow: i === photo.pick ? `0 0 0 2px ${c.hex}` : 'none' }} />
                 ))}
               </div>
             </div>
           </div>
           <PaletteRail
-            presets={photo.presets}
-            resetKey={photo.url}
+            presets={photoPresets}
+            resetKey={`${photo.url}:${photo.pick}`}
             isActive={(p) => isColorActive(p, manifest, scope, surfaceId)}
             onApply={applyColor}
           />
