@@ -6,7 +6,7 @@
  * önizleme anında değişir, "Geri Al" tek adımda geri getirir, "Araca Gönder"
  * değişmeden çalışır. Kapsam: TÜM TEMA ya da yalnız SEÇİLİ EKRAN.
  */
-import { memo, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { GlobalTokens, ScreenOverride, ThemeBaseId, ThemeManifest } from '../../../lib/theme/themeManifest';
 import { colorPresetsFor, SHAPE_PRESETS, screenPatchOf, type ColorPreset, type ShapePreset } from '../../../lib/theme/themePresets';
 
@@ -50,6 +50,47 @@ export const PresetGallery = memo(function PresetGallery({
     if (scope === 'theme') onApplyPreset('color', p.tokens);
     else onPatchScreen(screenPatchOf(p));
   };
+  /* ── Kaydırarak seç (Apple kilit ekranı deseni) ──────────────────────
+     Kullanıcı kaydırıp bırakınca ORTADAKİ palet önizlemeye uygulanır. Yalnız
+     kullanıcı dokunup kaydırdıysa — ilk açılışta ya da programatik kaydırmada
+     hiçbir şey kendiliğinden uygulanmaz. Her uygulama tek "Geri Al" adımıdır. */
+  const railRef = useRef<HTMLDivElement | null>(null);
+  const userScroll = useRef(false);
+  const settleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [centerIdx, setCenterIdx] = useState(-1);
+  useEffect(() => () => { if (settleTimer.current) clearTimeout(settleTimer.current); }, []);
+  const onRailScroll = useCallback(() => {
+    if (settleTimer.current) clearTimeout(settleTimer.current);
+    settleTimer.current = setTimeout(() => {
+      const rail = railRef.current;
+      if (!rail) return;
+      const mid = rail.scrollLeft + rail.clientWidth / 2;
+      let best = -1; let bestD = Infinity;
+      rail.querySelectorAll<HTMLElement>('[data-idx]').forEach((e) => {
+        const d = Math.abs(e.offsetLeft + e.offsetWidth / 2 - mid);
+        if (d < bestD) { bestD = d; best = Number(e.dataset.idx); }
+      });
+      setCenterIdx(best);
+      if (!userScroll.current || best < 0) return;
+      userScroll.current = false;
+      const p = colors[best];
+      if (p && !isColorActive(p, manifest, scope, surfaceId)) applyColor(p);
+    }, 280);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [colors, manifest, scope, surfaceId]);
+  const markUser = () => { userScroll.current = true; };
+  /* Açılışta (ve tema/kapsam değişince) seçili paleti ORTAYA getir — UYGULAMADAN. */
+  useEffect(() => {
+    if (tab !== 'colors') return;
+    const rail = railRef.current;
+    if (!rail) return;
+    const idx = Math.max(0, colors.findIndex((p) => isColorActive(p, manifest, scope, surfaceId)));
+    const el = rail.querySelector<HTMLElement>(`[data-idx="${idx}"]`);
+    if (el) rail.scrollLeft = el.offsetLeft + el.offsetWidth / 2 - rail.clientWidth / 2;
+    setCenterIdx(idx);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, themeId, scope]);
+
   const applyShape = (p: ShapePreset) => {
     if (scope === 'theme') onApplyPreset('shape', p.tokens);
     else onPatchScreen({ radiusCard: p.tokens.radiusCard });
@@ -66,7 +107,7 @@ export const PresetGallery = memo(function PresetGallery({
     <div className="rounded-2xl p-3 flex flex-col gap-3" style={{ background: 'var(--pwa-surface-3)', border: '1px solid var(--pwa-border-soft)' }}>
       <div className="flex items-center justify-between gap-2">
         <p className={label} style={{ color: 'var(--pwa-text-3)', marginBottom: 0 }}>Hazır Taslaklar</p>
-        <span className="text-[9px] font-bold" style={{ color: 'var(--pwa-text-3)' }}>Dokun → uygula · Geri Al ile dön</span>
+        <span className="text-[9px] font-bold" style={{ color: 'var(--pwa-text-3)' }}>Kaydır ya da dokun · Geri Al ile dön</span>
       </div>
 
       {/* Tür: renk / şekil */}
@@ -95,16 +136,33 @@ export const PresetGallery = memo(function PresetGallery({
       )}
 
       {tab === 'colors' ? (
-        <div className="grid grid-cols-2 gap-2">
-          {colors.map((p) => {
+        <>
+        <div
+          ref={railRef}
+          onScroll={onRailScroll}
+          onPointerDown={markUser}
+          onTouchStart={markUser}
+          onWheel={markUser}
+          className="flex gap-2 overflow-x-auto snap-x snap-mandatory -mx-3"
+          style={{ scrollbarWidth: 'none' }}
+          data-testid="preset-rail"
+        >
+          {/* Kenar tutucular: ilk/son kart da ORTAYA oturabilsin (yüzde padding kartı küçültüyordu). */}
+          <span aria-hidden className="flex-shrink-0" style={{ width: '24%' }} />
+          {colors.map((p, i) => {
             const active = isColorActive(p, manifest, scope, surfaceId);
             const [bg, card, accent, ink] = p.swatch;
             return (
               <button
                 key={p.id} type="button" onClick={() => applyColor(p)}
                 aria-pressed={active}
-                className="flex flex-col gap-1.5 p-2 rounded-2xl text-left active:scale-[0.98]"
-                style={{ background: active ? `${accent}1f` : 'var(--pwa-surface)', border: `1.5px solid ${active ? accent : 'var(--pwa-border)'}` }}
+                data-idx={i}
+                className="snap-center flex-shrink-0 flex flex-col gap-1.5 p-2 rounded-2xl text-left active:scale-[0.98] transition-transform"
+                style={{
+                  width: '48%',
+                  transform: i === centerIdx ? 'scale(1)' : 'scale(0.94)',
+                  background: active ? `${accent}1f` : 'var(--pwa-surface)', border: `1.5px solid ${active ? accent : 'var(--pwa-border)'}`,
+                }}
               >
                 <div style={{ background: bg, borderRadius: 10, padding: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
                   <div style={{ background: card, borderRadius: 6, height: 18, display: 'flex', alignItems: 'center', paddingLeft: 6, gap: 5 }}>
@@ -129,7 +187,17 @@ export const PresetGallery = memo(function PresetGallery({
               </button>
             );
           })}
+          <span aria-hidden className="flex-shrink-0" style={{ width: '24%' }} />
         </div>
+        <div className="flex justify-center gap-1" aria-hidden>
+          {colors.map((p, i) => (
+            <span key={p.id} className="rounded-full" style={{
+              width: i === centerIdx ? 14 : 5, height: 5,
+              background: i === centerIdx ? '#60a5fa' : 'var(--pwa-border)', transition: 'width 160ms',
+            }} />
+          ))}
+        </div>
+        </>
       ) : (
         <div className="grid grid-cols-2 gap-2">
           {SHAPE_PRESETS.map((p) => {
