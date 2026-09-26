@@ -9,6 +9,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { GlobalTokens, ScreenOverride, ThemeBaseId, ThemeManifest } from '../../../lib/theme/themeManifest';
 import { colorPresetsFor, SHAPE_PRESETS, screenPatchOf, type ColorPreset, type ShapePreset } from '../../../lib/theme/themePresets';
+import { extractPhotoColors, palettesFromPhoto, readPhotoPixels } from '../../../lib/theme/photoPalette';
 
 type Scope = 'theme' | 'screen';
 
@@ -50,46 +51,24 @@ export const PresetGallery = memo(function PresetGallery({
     if (scope === 'theme') onApplyPreset('color', p.tokens);
     else onPatchScreen(screenPatchOf(p));
   };
-  /* ── Kaydırarak seç (Apple kilit ekranı deseni) ──────────────────────
-     Kullanıcı kaydırıp bırakınca ORTADAKİ palet önizlemeye uygulanır. Yalnız
-     kullanıcı dokunup kaydırdıysa — ilk açılışta ya da programatik kaydırmada
-     hiçbir şey kendiliğinden uygulanmaz. Her uygulama tek "Geri Al" adımıdır. */
-  const railRef = useRef<HTMLDivElement | null>(null);
-  const userScroll = useRef(false);
-  const settleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [centerIdx, setCenterIdx] = useState(-1);
-  useEffect(() => () => { if (settleTimer.current) clearTimeout(settleTimer.current); }, []);
-  const onRailScroll = useCallback(() => {
-    if (settleTimer.current) clearTimeout(settleTimer.current);
-    settleTimer.current = setTimeout(() => {
-      const rail = railRef.current;
-      if (!rail) return;
-      const mid = rail.scrollLeft + rail.clientWidth / 2;
-      let best = -1; let bestD = Infinity;
-      rail.querySelectorAll<HTMLElement>('[data-idx]').forEach((e) => {
-        const d = Math.abs(e.offsetLeft + e.offsetWidth / 2 - mid);
-        if (d < bestD) { bestD = d; best = Number(e.dataset.idx); }
-      });
-      setCenterIdx(best);
-      if (!userScroll.current || best < 0) return;
-      userScroll.current = false;
-      const p = colors[best];
-      if (p && !isColorActive(p, manifest, scope, surfaceId)) applyColor(p);
-    }, 280);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [colors, manifest, scope, surfaceId]);
-  const markUser = () => { userScroll.current = true; };
-  /* Açılışta (ve tema/kapsam değişince) seçili paleti ORTAYA getir — UYGULAMADAN. */
-  useEffect(() => {
-    if (tab !== 'colors') return;
-    const rail = railRef.current;
-    if (!rail) return;
-    const idx = Math.max(0, colors.findIndex((p) => isColorActive(p, manifest, scope, surfaceId)));
-    const el = rail.querySelector<HTMLElement>(`[data-idx="${idx}"]`);
-    if (el) rail.scrollLeft = el.offsetLeft + el.offsetWidth / 2 - rail.clientWidth / 2;
-    setCenterIdx(idx);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, themeId, scope]);
+  const [photo, setPhoto] = useState<{ url: string; presets: ColorPreset[] } | null>(null);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoNote, setPhotoNote] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement | null>(null);
+  useEffect(() => () => { if (photo) URL.revokeObjectURL(photo.url); }, [photo]);
+  /* Fotoğraf CİHAZDA okunur (küçük tuval) — hiçbir yere yüklenmez. */
+  const onPhoto = async (file: File | undefined) => {
+    if (!file) return;
+    setPhotoBusy(true); setPhotoNote(null);
+    const px = await readPhotoPixels(file);
+    const presets = px ? palettesFromPhoto(extractPhotoColors(px)) : [];
+    setPhotoBusy(false);
+    if (presets.length === 0) {
+      setPhotoNote(px ? 'Bu fotoğrafta belirgin renk bulamadım — başka bir tane dener misin?' : 'Fotoğraf okunamadı.');
+      return;
+    }
+    setPhoto({ url: URL.createObjectURL(file), presets });
+  };
 
   const applyShape = (p: ShapePreset) => {
     if (scope === 'theme') onApplyPreset('shape', p.tokens);
@@ -109,6 +88,44 @@ export const PresetGallery = memo(function PresetGallery({
         <p className={label} style={{ color: 'var(--pwa-text-3)', marginBottom: 0 }}>Hazır Taslaklar</p>
         <span className="text-[9px] font-bold" style={{ color: 'var(--pwa-text-3)' }}>Kaydır ya da dokun · Geri Al ile dön</span>
       </div>
+
+      {/* ── Fotoğraftan tema (Samsung Theme Park deseni) ── */}
+      <input ref={fileRef} type="file" accept="image/*" className="hidden" data-testid="photo-input"
+        onChange={(e) => { void onPhoto(e.target.files?.[0]); e.target.value = ''; }} />
+      {!photo && (
+        <button type="button" onClick={() => fileRef.current?.click()} disabled={photoBusy}
+          className="rounded-xl text-[12px] font-black active:scale-[0.98]"
+          style={{ minHeight: 46, background: 'rgba(96,165,250,0.14)', border: '1.5px solid rgba(96,165,250,0.4)', color: '#60a5fa' }}>
+          {photoBusy ? 'Renkler çıkarılıyor…' : '📷 Fotoğraftan tema'}
+        </button>
+      )}
+      {photoNote && <p className="text-[11px] leading-snug" style={{ color: '#fbbf24' }}>{photoNote}</p>}
+      {photo && (
+        <div className="rounded-2xl p-2.5 flex flex-col gap-2.5" style={{ background: 'var(--pwa-surface)', border: '1px solid var(--pwa-border)' }}>
+          <div className="flex items-center gap-3">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={photo.url} alt="Seçilen fotoğraf" className="rounded-xl object-cover flex-shrink-0" style={{ width: 64, height: 64 }} />
+            <div className="flex-1 min-w-0">
+              <p className="text-[12px] font-black" style={{ color: 'var(--pwa-text)' }}>Fotoğraftan {photo.presets.length} palet</p>
+              <div className="flex gap-1 mt-1">
+                {photo.presets.map((p) => (
+                  <span key={p.id} className="rounded-full" style={{ width: 14, height: 14, background: p.tokens.accentPrimary ?? undefined, border: '1px solid rgba(255,255,255,0.25)' }} />
+                ))}
+              </div>
+            </div>
+          </div>
+          <PaletteRail
+            presets={photo.presets}
+            resetKey={photo.url}
+            isActive={(p) => isColorActive(p, manifest, scope, surfaceId)}
+            onApply={applyColor}
+          />
+          <div className="grid grid-cols-2 gap-1.5">
+            <button type="button" onClick={() => fileRef.current?.click()} className="rounded-xl text-[11px] font-bold active:scale-95" style={pill(false)}>Başka fotoğraf</button>
+            <button type="button" onClick={() => setPhoto(null)} className="rounded-xl text-[11px] font-bold active:scale-95" style={pill(false)}>Kapat</button>
+          </div>
+        </div>
+      )}
 
       {/* Tür: renk / şekil */}
       <div className="grid grid-cols-2 gap-1.5">
@@ -136,68 +153,12 @@ export const PresetGallery = memo(function PresetGallery({
       )}
 
       {tab === 'colors' ? (
-        <>
-        <div
-          ref={railRef}
-          onScroll={onRailScroll}
-          onPointerDown={markUser}
-          onTouchStart={markUser}
-          onWheel={markUser}
-          className="flex gap-2 overflow-x-auto snap-x snap-mandatory -mx-3"
-          style={{ scrollbarWidth: 'none' }}
-          data-testid="preset-rail"
-        >
-          {/* Kenar tutucular: ilk/son kart da ORTAYA oturabilsin (yüzde padding kartı küçültüyordu). */}
-          <span aria-hidden className="flex-shrink-0" style={{ width: '24%' }} />
-          {colors.map((p, i) => {
-            const active = isColorActive(p, manifest, scope, surfaceId);
-            const [bg, card, accent, ink] = p.swatch;
-            return (
-              <button
-                key={p.id} type="button" onClick={() => applyColor(p)}
-                aria-pressed={active}
-                data-idx={i}
-                className="snap-center flex-shrink-0 flex flex-col gap-1.5 p-2 rounded-2xl text-left active:scale-[0.98] transition-transform"
-                style={{
-                  width: '48%',
-                  transform: i === centerIdx ? 'scale(1)' : 'scale(0.94)',
-                  background: active ? `${accent}1f` : 'var(--pwa-surface)', border: `1.5px solid ${active ? accent : 'var(--pwa-border)'}`,
-                }}
-              >
-                <div style={{ background: bg, borderRadius: 10, padding: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <div style={{ background: card, borderRadius: 6, height: 18, display: 'flex', alignItems: 'center', paddingLeft: 6, gap: 5 }}>
-                    <span style={{ width: 7, height: 7, borderRadius: 4, background: accent, display: 'inline-block' }} />
-                    <span style={{ height: 4, width: '55%', background: ink, opacity: 0.85, borderRadius: 2, display: 'inline-block' }} />
-                  </div>
-                  <div style={{ display: 'flex', gap: 4 }}>
-                    <span style={{ flex: 1, height: 11, background: card, borderRadius: 4, display: 'inline-block' }} />
-                    <span style={{ width: 24, height: 11, background: accent, borderRadius: 4, display: 'inline-block' }} />
-                  </div>
-                </div>
-                <div className="flex items-center justify-between gap-1">
-                  <span className="text-[10px] font-black truncate" style={{ color: active ? accent : 'var(--pwa-text-2)' }}>{p.name}</span>
-                  {p.mode === 'day' && (
-                    <span className="text-[8px] font-bold px-1.5 py-0.5 rounded" style={{ background: 'rgba(251,191,36,0.14)', color: '#fbbf24' }}>GÜNDÜZ</span>
-                  )}
-                  {p.mode === 'sun' && (
-                    <span className="text-[8px] font-bold px-1.5 py-0.5 rounded" style={{ background: 'rgba(249,115,22,0.16)', color: '#f97316' }}>☀ GÜNEŞ</span>
-                  )}
-                </div>
-                <span className="text-[9px] leading-tight" style={{ color: 'var(--pwa-text-3)' }}>{p.mood}</span>
-              </button>
-            );
-          })}
-          <span aria-hidden className="flex-shrink-0" style={{ width: '24%' }} />
-        </div>
-        <div className="flex justify-center gap-1" aria-hidden>
-          {colors.map((p, i) => (
-            <span key={p.id} className="rounded-full" style={{
-              width: i === centerIdx ? 14 : 5, height: 5,
-              background: i === centerIdx ? '#60a5fa' : 'var(--pwa-border)', transition: 'width 160ms',
-            }} />
-          ))}
-        </div>
-        </>
+        <PaletteRail
+          presets={colors}
+          resetKey={`${themeId}:${scope}`}
+          isActive={(p) => isColorActive(p, manifest, scope, surfaceId)}
+          onApply={applyColor}
+        />
       ) : (
         <div className="grid grid-cols-2 gap-2">
           {SHAPE_PRESETS.map((p) => {
@@ -230,5 +191,120 @@ export const PresetGallery = memo(function PresetGallery({
         </div>
       )}
     </div>
+  );
+});
+
+/**
+ * Kaydırmalı palet şeridi (Apple kilit ekranı deseni). Kullanıcı kaydırıp
+ * bırakınca ORTADAKİ palet uygulanır — yalnız kullanıcı kaydırdıysa; açılışta ya
+ * da programatik ortalamada hiçbir şey kendiliğinden uygulanmaz. Dokunmak da uygular.
+ */
+const PaletteRail = memo(function PaletteRail({ presets, resetKey, isActive, onApply }: {
+  presets: readonly ColorPreset[];
+  /** Değişince seçili palet yeniden ortalanır (tema/kapsam/fotoğraf). */
+  resetKey: string;
+  isActive: (p: ColorPreset) => boolean;
+  onApply: (p: ColorPreset) => void;
+}) {
+  const railRef = useRef<HTMLDivElement | null>(null);
+  const userScroll = useRef(false);
+  const settleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [centerIdx, setCenterIdx] = useState(-1);
+  const latest = useRef({ presets, isActive, onApply });
+  latest.current = { presets, isActive, onApply };
+  useEffect(() => () => { if (settleTimer.current) clearTimeout(settleTimer.current); }, []);
+  const onScroll = useCallback(() => {
+    if (settleTimer.current) clearTimeout(settleTimer.current);
+    settleTimer.current = setTimeout(() => {
+      const rail = railRef.current;
+      if (!rail) return;
+      const mid = rail.scrollLeft + rail.clientWidth / 2;
+      let best = -1; let bestD = Infinity;
+      rail.querySelectorAll<HTMLElement>('[data-idx]').forEach((e) => {
+        const d = Math.abs(e.offsetLeft + e.offsetWidth / 2 - mid);
+        if (d < bestD) { bestD = d; best = Number(e.dataset.idx); }
+      });
+      setCenterIdx(best);
+      if (!userScroll.current || best < 0) return;
+      userScroll.current = false;
+      const { presets: ps, isActive: act, onApply: apply } = latest.current;
+      const p = ps[best];
+      if (p && !act(p)) apply(p);
+    }, 280);
+  }, []);
+  const markUser = () => { userScroll.current = true; };
+  useEffect(() => {
+    const rail = railRef.current;
+    if (!rail) return;
+    const { presets: ps, isActive: act } = latest.current;
+    const idx = Math.max(0, ps.findIndex((p) => act(p)));
+    const el = rail.querySelector<HTMLElement>(`[data-idx="${idx}"]`);
+    if (el) rail.scrollLeft = el.offsetLeft + el.offsetWidth / 2 - rail.clientWidth / 2;
+    setCenterIdx(idx);
+  }, [resetKey]);
+
+  return (
+    <>
+      <div
+        ref={railRef}
+        onScroll={onScroll}
+        onPointerDown={markUser}
+        onTouchStart={markUser}
+        onWheel={markUser}
+        className="flex gap-2 overflow-x-auto snap-x snap-mandatory -mx-3"
+        style={{ scrollbarWidth: 'none' }}
+        data-testid="preset-rail"
+      >
+        {/* Kenar tutucular: ilk/son kart da ORTAYA oturabilsin. */}
+        <span aria-hidden className="flex-shrink-0" style={{ width: '24%' }} />
+        {presets.map((p, i) => {
+          const active = isActive(p);
+          const [bg, card, accent, ink] = p.swatch;
+          return (
+            <button
+              key={p.id} type="button" onClick={() => onApply(p)}
+              aria-pressed={active}
+              data-idx={i}
+              className="snap-center flex-shrink-0 flex flex-col gap-1.5 p-2 rounded-2xl text-left active:scale-[0.98] transition-transform"
+              style={{
+                width: '48%',
+                transform: i === centerIdx ? 'scale(1)' : 'scale(0.94)',
+                background: active ? `${accent}1f` : 'var(--pwa-surface)', border: `1.5px solid ${active ? accent : 'var(--pwa-border)'}`,
+              }}
+            >
+              <div style={{ background: bg, borderRadius: 10, padding: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <div style={{ background: card, borderRadius: 6, height: 18, display: 'flex', alignItems: 'center', paddingLeft: 6, gap: 5 }}>
+                  <span style={{ width: 7, height: 7, borderRadius: 4, background: accent, display: 'inline-block' }} />
+                  <span style={{ height: 4, width: '55%', background: ink, opacity: 0.85, borderRadius: 2, display: 'inline-block' }} />
+                </div>
+                <div style={{ display: 'flex', gap: 4 }}>
+                  <span style={{ flex: 1, height: 11, background: card, borderRadius: 4, display: 'inline-block' }} />
+                  <span style={{ width: 24, height: 11, background: accent, borderRadius: 4, display: 'inline-block' }} />
+                </div>
+              </div>
+              <div className="flex items-center justify-between gap-1">
+                <span className="text-[10px] font-black truncate" style={{ color: active ? accent : 'var(--pwa-text-2)' }}>{p.name}</span>
+                {p.mode === 'day' && (
+                  <span className="text-[8px] font-bold px-1.5 py-0.5 rounded" style={{ background: 'rgba(251,191,36,0.14)', color: '#fbbf24' }}>GÜNDÜZ</span>
+                )}
+                {p.mode === 'sun' && (
+                  <span className="text-[8px] font-bold px-1.5 py-0.5 rounded" style={{ background: 'rgba(249,115,22,0.16)', color: '#f97316' }}>☀ GÜNEŞ</span>
+                )}
+              </div>
+              <span className="text-[9px] leading-tight" style={{ color: 'var(--pwa-text-3)' }}>{p.mood}</span>
+            </button>
+          );
+        })}
+        <span aria-hidden className="flex-shrink-0" style={{ width: '24%' }} />
+      </div>
+      <div className="flex justify-center gap-1" aria-hidden>
+        {presets.map((p, i) => (
+          <span key={p.id} className="rounded-full" style={{
+            width: i === centerIdx ? 14 : 5, height: 5,
+            background: i === centerIdx ? '#60a5fa' : 'var(--pwa-border)', transition: 'width 160ms',
+          }} />
+        ))}
+      </div>
+    </>
   );
 });
