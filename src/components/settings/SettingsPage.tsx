@@ -41,6 +41,7 @@ import { HomeWorkAddressPanel } from './HomeWorkAddressPanel';
 import i18n from '../../i18n/config';
 import { MobileLinkWidget } from './MobileLinkWidget';
 import { CarOsConnectionPriorityCard } from './CarOsConnectionPriorityCard';
+import { PhoneInternetToggle } from './PhoneInternetToggle';
 import { OtaUpdateCard } from './OtaUpdateCard';
 import { SupportSnapshotCard } from './SupportSnapshotCard';
 import { DeviceDiagnosticCard } from './DeviceDiagnosticCard';
@@ -2094,6 +2095,7 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
               {/* ── Hotspot / İnternet Bağlantısı ── */}
               <Panel accent="#22d3ee">
                 <SectionTitle icon={Wifi} title="Bluetooth İnternet" sub="Telefondan Bluetooth ile internet paylaşımı" color="#22d3ee" />
+                <PhoneInternetToggle />
 
                 {/* Mode seçici */}
                 <div className="flex flex-col gap-2 mb-4">

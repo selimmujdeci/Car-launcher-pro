@@ -76,13 +76,27 @@ export async function executeAppControl(c: AppControl): Promise<AppControlOutcom
       ]);
       if (c.what === 'now_playing') {
         const m = getMediaState();
-        if (!m.track?.title || m.source === 'unknown') return { ok: false, text: 'Şu an çalan bir parça yok.' };
+        /* Radyo/akışın MediaSource karşılığı yok ('unknown') — ÇALIYORSA adı söylenir
+           (smoke 2026-09-26: Kral FM çalarken "çalan parça yok" diyordu). */
+        if (!m.track?.title || (m.source === 'unknown' && !m.playing)) return { ok: false, text: 'Şu an çalan bir parça yok.' };
         const who = m.track.artist ? `, ${m.track.artist}` : '';
         return { ok: true, text: m.playing ? `Çalan: ${m.track.title}${who}.` : `Duraklatıldı. Son parça: ${m.track.title}${who}.` };
       }
       if (c.what === 'eta' || c.what === 'remaining') {
         const n = nav.getNavigationState();
         if (n.status === nav.NavStatus.IDLE || n.status === nav.NavStatus.ERROR) return { ok: false, text: 'Şu an aktif bir rota yok.' };
+        /* Ön izleme: sürüş başlamadı, canlı ETA/kalan yok — ama kurulan rotanın ölçülen
+           toplamı var; onu "rota" diye söyle (smoke 2026-09-26: "hesaplayamadım" diyordu). */
+        if (n.status === nav.NavStatus.PREVIEW) {
+          const { getRouteState } = await import('../routingService');
+          const r = getRouteState();
+          const dm = r.totalDistanceMeters, ds = r.totalDurationSeconds;
+          if (dm > 0 && ds > 0) {
+            const km = dm / 1000;
+            const kmTxt = km < 1 ? `${Math.round(dm)} metre` : `${km.toFixed(km < 10 ? 1 : 0).replace('.', ',')} kilometre`;
+            return { ok: true, text: `Rota ${kmTxt}, yaklaşık ${Math.max(1, Math.round(ds / 60))} dakika. Henüz yola çıkılmadı.` };
+          }
+        }
         if (c.what === 'eta') {
           if (!(typeof n.etaSeconds === 'number' && n.etaSeconds > 0)) return { ok: false, text: 'Varış süresini henüz hesaplayamadım.' };
           return { ok: true, text: `Yaklaşık ${Math.max(1, Math.round(n.etaSeconds / 60))} dakika sonra varıyoruz.` };
