@@ -260,6 +260,7 @@ public class CarLauncherPlugin extends Plugin {
                     // Adres: sürücüyü telefonundan tanıma (ad çakışabilir, adres çakışmaz).
                     event.put("deviceAddress", dev != null ? dev.getAddress() : "");
                     notifyListeners("btChanged", event);
+                    if (phoneInternet != null) phoneInternet.onDeviceConnected(dev);
                 } else if (android.bluetooth.BluetoothDevice.ACTION_ACL_DISCONNECTED.equals(action)) {
                     event.put("connected", false);
                     event.put("deviceName", "");
@@ -272,6 +273,7 @@ public class CarLauncherPlugin extends Plugin {
         btFilter.addAction(android.bluetooth.BluetoothDevice.ACTION_ACL_CONNECTED);
         btFilter.addAction(android.bluetooth.BluetoothDevice.ACTION_ACL_DISCONNECTED);
         getContext().registerReceiver(btStateReceiver, btFilter);
+        try { phoneInternet = new com.cockpitos.pro.phonelink.PhoneBtInternet(getContext()); } catch (Exception ignored) {}
 
         // TextToSpeech motoru başlat
         ttsEngine = new android.speech.tts.TextToSpeech(getContext(), status -> {
@@ -430,6 +432,8 @@ public class CarLauncherPlugin extends Plugin {
 
     // ── Bluetooth connect/disconnect receiver ─────────────────────────────────
     private BroadcastReceiver btStateReceiver = null;
+    /** Telefonun internetini Bluetooth (PAN) ile kullan — kullanıcı açarsa. */
+    private com.cockpitos.pro.phonelink.PhoneBtInternet phoneInternet = null;
 
     // ── App exit (launcher'ı arka plana al) ────────────────────────────────
 
@@ -2489,6 +2493,27 @@ public class CarLauncherPlugin extends Plugin {
         } catch (SecurityException e) {
             ret.put("state", "NO_PERMISSION");
         }
+        call.resolve(ret);
+    }
+
+    /** Telefonun interneti (Bluetooth PAN): tercih + ölçülen durum. */
+    @PluginMethod
+    public void getPhoneInternet(PluginCall call) {
+        JSObject ret = new JSObject();
+        ret.put("enabled", phoneInternet != null && phoneInternet.isEnabled());
+        ret.put("state", phoneInternet != null ? phoneInternet.state() : "UNSUPPORTED");
+        call.resolve(ret);
+    }
+
+    /** Aç/kapat. Açınca eşleşmiş telefona hemen bağlanma İSTENİR; sonuç `attempt`'te. */
+    @PluginMethod
+    public void setPhoneInternet(PluginCall call) {
+        JSObject ret = new JSObject();
+        if (phoneInternet == null) { ret.put("attempt", "UNSUPPORTED"); call.resolve(ret); return; }
+        boolean on = Boolean.TRUE.equals(call.getBoolean("enabled", false));
+        phoneInternet.setEnabled(on);
+        ret.put("enabled", on);
+        if (on) ret.put("attempt", phoneInternet.connectPairedPhones());
         call.resolve(ret);
     }
 

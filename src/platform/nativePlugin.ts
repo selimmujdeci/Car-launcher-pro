@@ -1121,6 +1121,9 @@ export interface NativeExtendedPollEvidence {
   };
 }
 
+export type PhoneInternetState = 'CONNECTED' | 'CONNECTING' | 'DISCONNECTED' | 'UNSUPPORTED' | 'NO_PERMISSION';
+export type PhoneInternetAttempt = 'STARTED' | 'NO_PHONE' | 'NO_PERMISSION' | 'OFF' | 'UNSUPPORTED' | 'NOT_READY';
+
 export interface CarLauncherPlugin {
   /** OTA v1: cihazda KURULU gerçek sürüm (PackageManager — drift imkânsız) */
   getAppVersionInfo(): Promise<AppVersionInfo>;
@@ -2073,6 +2076,10 @@ export interface CarLauncherPlugin {
     state: 'NO_ADAPTER' | 'NO_PERMISSION' | 'OFF' | 'ON';
     phones?: Array<{ name: string; connected?: boolean }>;
   }>;
+  /** Telefonun interneti Bluetooth (PAN) ile — `state` ölçülür; UNSUPPORTED = ünite izin vermiyor. */
+  getPhoneInternet?(): Promise<{ enabled: boolean; state: PhoneInternetState }>;
+  /** Açınca eşleşmiş telefona bağlanma istenir; `attempt` isteğin sonucu (bağlandı DEĞİL). */
+  setPhoneInternet?(opts: { enabled: boolean }): Promise<{ enabled?: boolean; attempt?: PhoneInternetAttempt }>;
 
   /* ── Telefon Merkezi · bildirim aktarımı (NotificationMirror) ── */
   /** Kullanıcı "Bildirim erişimi" verdi mi — ölçülür. `connected` = dinleyici şu an
