@@ -25,6 +25,7 @@ export function readMaviEffects(): Record<string, unknown> {
     routeError: route.error,
     playing: media.playing,
     track: media.track?.title ?? null,
+    positionSec: Number.isFinite(media.track?.positionSec) ? Math.round(media.track.positionSec) : null,
     source: media.source,
     volume: s.volume,
     brightness: s.brightness,
