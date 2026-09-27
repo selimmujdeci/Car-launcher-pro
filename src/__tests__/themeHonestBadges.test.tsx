@@ -120,3 +120,10 @@ describe('tema kaynakları — sabit rozet regresyon kilidi', () => {
     expect(read('TeslaLayout.tsx')).toContain('useSpeedLimitSign()');
   });
 });
+
+describe('müzik ilerleme çubuğu — süre bilinmiyorsa sabit doluluk yok', () => {
+  it.each(['ProLayout.tsx', 'ExpeditionLayout.tsx', 'HorizonLayout.tsx'])('%s', (f) => {
+    const src = readFileSync(join(__dirname, '../components/themes', f), 'utf8');
+    expect(src).toMatch(/const pct = total > 0 \? Math\.min\(\(elapsed \/ total\) \* 100, 100\) : 0;/);
+  });
+});

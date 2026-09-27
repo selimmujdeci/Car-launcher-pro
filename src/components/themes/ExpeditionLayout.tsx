@@ -360,7 +360,7 @@ const MusicPlate = memo(function MusicPlate() {
   }, []);
   const total = track.durationSec || 0;
   const elapsed = track.positionSec || 0;
-  const pct = total > 0 ? Math.min((elapsed / total) * 100, 100) : 36;
+  const pct = total > 0 ? Math.min((elapsed / total) * 100, 100) : 0;   // süre bilinmiyorsa boş (sabit %36 UYDURMAYDI)
   const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
   // Play: oturum varsa duraklat/sürdür; boştaysa son parçayı sürdür, o da yoksa drawer aç.
   const handlePlay = () => {
