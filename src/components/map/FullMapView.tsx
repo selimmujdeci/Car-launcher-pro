@@ -1,4 +1,5 @@
 import { bindMapUserInteraction } from '../../platform/map/bindMapUserInteraction';
+import { MapAttribution } from './MapAttribution';
 import { syncRouteTrafficOverlay } from '../../platform/map/routeTrafficOverlay';
 import { useEffect, useRef, useState, useCallback, memo, lazy, Suspense } from 'react';
 import type { Map as MapLibreMap } from 'maplibre-gl';
@@ -2014,6 +2015,8 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
           transition: 'opacity 500ms ease, filter 5s ease',
         }}
       />
+      {/* Harita verisi lisans atfı — düz metin (MapLibre'nin HTML atfı güvenlik gereği kapalı). */}
+      <MapAttribution />
 
       {/* Vignette — HUD geçişi için hafif gradyan (koyu değil, sadece kenar yumuşatma) */}
       <div

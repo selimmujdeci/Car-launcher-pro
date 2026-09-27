@@ -1,4 +1,5 @@
 import { bindMapUserInteraction } from '../../platform/map/bindMapUserInteraction';
+import { MapAttribution } from './MapAttribution';
 import { CurveAdvisoryBadge } from './CurveAdvisoryBadge';
 import { useCurveAdvisory } from '../../platform/navigation/curveAdvisoryRuntime';
 import { isOverspeed } from '../../platform/navigation/core/overspeedModel';
@@ -1273,6 +1274,8 @@ export const MiniMapWidget = memo(function MiniMapWidget({
         {!hideOverlay && (
           <MapOverlay location={location} heading={heading} compact={true} speedKmh={speedKmh} />
         )}
+        {/* Harita verisi lisans atfı — düz metin (MapLibre'nin HTML atfı güvenlik gereği kapalı). */}
+        <MapAttribution compact />
 
         {/* ── Skeletal Loading — harita tile'ları yüklenene kadar AGAMA-tarzı placeholder ──
          *  mapReady=false: MapLibre canvas siyah gösterir; bu overlay boş ekranı saklar.
