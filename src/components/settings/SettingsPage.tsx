@@ -43,6 +43,7 @@ import { MobileLinkWidget } from './MobileLinkWidget';
 import { CarOsConnectionPriorityCard } from './CarOsConnectionPriorityCard';
 import { PhoneInternetToggle } from './PhoneInternetToggle';
 import { CockpitStylePicker } from './CockpitStylePicker';
+import { useMovingLock } from './useMovingLock';
 import { OtaUpdateCard } from './OtaUpdateCard';
 import { SupportSnapshotCard } from './SupportSnapshotCard';
 import { DeviceDiagnosticCard } from './DeviceDiagnosticCard';
@@ -1549,6 +1550,9 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
       return saved && TAB_IDS.includes(saved) ? saved : 'appearance';
     } catch { return 'appearance'; }
   });
+  /* Sürüşte kilit: yalnız Ses sekmesi açık kalır (hız kanonik araç deposundan). */
+  const movingLock = useMovingLock();
+  const shownTab: Tab | null = movingLock && tab !== 'sound' ? null : tab;
   useEffect(() => {
     try { sessionStorage.setItem(TAB_STORAGE_KEY, tab); } catch { /* quota / private mode */ }
   }, [tab]);
@@ -1853,7 +1857,26 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
           }}>
         <div className="max-w-[1600px] mx-auto flex flex-col gap-3">
 
-          {tab === 'navigation' && (
+          {/* Sürüşte kilit (Google/Tesla): hareket hâlinde yalnız Ses açık; gerisi park edince. */}
+          {shownTab === null && (
+            <Panel accent="var(--oem-warn)">
+              <div data-settings-driving-lock="" className="flex flex-col items-center text-center gap-3 py-6">
+                <Shield className="w-10 h-10" style={{ color: 'var(--oem-warn)' }} />
+                <p className="text-lg font-black" style={{ color: 'var(--oem-ink)' }}>Araç hareket halinde</p>
+                <p className="text-sm max-w-md" style={{ color: 'var(--oem-ink-3)' }}>
+                  Güvenliğin için bu ayarlar sürüşte kilitli; park edince açılır.
+                  Ses ve parlaklığı Mavi'ye söyleyerek değiştirebilirsin.
+                </p>
+                <button type="button" onClick={() => setTab('sound')}
+                  className="rounded-xl px-6 font-bold active:scale-95"
+                  style={{ minHeight: 56, background: 'var(--oem-accent)', color: 'var(--oem-accent-ink, #fff)' }}>
+                  Ses ayarlarına git
+                </button>
+              </div>
+            </Panel>
+          )}
+
+          {shownTab === 'navigation' && (
             <div className="flex flex-col gap-4 mx-auto w-full" style={{ maxWidth: 760 }}>
               <Panel accent="#60a5fa">
                 <SectionTitle icon={MapIcon} title="Harita" sub="Açılış davranışı ve harita verisinin kaynağı" color="#60a5fa" />
@@ -1879,7 +1902,7 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
             </div>
           )}
 
-          {tab === 'assistant' && (
+          {shownTab === 'assistant' && (
             <div className="flex flex-col gap-4 mx-auto w-full" style={{ maxWidth: 760 }}>
               <Panel accent="#a78bfa">
                 <SectionTitle icon={Mic} title="Sesli Asistan" sub="Uyandırma, akıllı mod ve yapay zekâ hizmetleri" color="#a78bfa" />
@@ -1899,7 +1922,7 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
             </div>
           )}
 
-          {tab === 'appearance' && (
+          {shownTab === 'appearance' && (
             <>
               {/* ── Tema Seçici ── */}
               <ThemePanel />
@@ -1957,7 +1980,7 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
             </>
           )}
 
-          {tab === 'maintenance' && (
+          {shownTab === 'maintenance' && (
             <div className="flex flex-col gap-4">
 
               {/* ── Ruhsat Sınıfı (uygulanabilir hız sınırını belirler) ── */}
@@ -2083,7 +2106,7 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
           )}
 
           {/* ── Phase 8 new tabs — Sound, Connect, Profiles ── */}
-          {tab === 'sound' && <SoundTabContent drivingMode={drivingMode} volumeSlot={
+          {shownTab === 'sound' && <SoundTabContent drivingMode={drivingMode} volumeSlot={
             nativeControls ? (
               <Panel accent="var(--oem-accent)">
                 <SectionTitle icon={Volume2} title="Ses Düzeyi" sub="Sistem ses seviyesi" color="var(--oem-accent)" />
@@ -2091,7 +2114,7 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
               </Panel>
             ) : null
           } />}
-          {tab === 'connect' && (
+          {shownTab === 'connect' && (
             <>
               <ConnectTabContent />
               <div className="flex flex-col gap-4 mx-auto w-full" style={{ maxWidth: 760 }}>
@@ -2190,8 +2213,8 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
               </div>
             </>
           )}
-          {tab === 'profiles' && <ProfilesTabContent />}
-          {tab === 'about' && (
+          {shownTab === 'profiles' && <ProfilesTabContent />}
+          {shownTab === 'about' && (
             <div className="flex flex-col gap-4">
               <Panel accent="#fbbf24">
                 <div className="flex items-center justify-between mb-4">
