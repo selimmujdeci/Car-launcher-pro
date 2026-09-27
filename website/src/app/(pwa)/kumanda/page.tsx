@@ -151,8 +151,9 @@ function PwaBootScreen() {
   return (
     <div
       data-testid="pwa-boot-screen"
+      data-pwa-theme="dark"
       className="h-[100dvh] flex items-center justify-center"
-      style={{ background: 'var(--pwa-bg, #060d1a)', color: 'var(--pwa-text-3, rgba(232,238,252,0.45))' }}
+      style={{ background: 'var(--md-surface)', color: 'var(--md-primary)' }}
     >
       <svg className="animate-spin w-6 h-6" viewBox="0 0 20 20" fill="none" aria-label="Yükleniyor">
         <circle cx="10" cy="10" r="7" stroke="currentColor" strokeWidth="1.5"
@@ -219,17 +220,22 @@ function PwaAuthErrorScreen() {
   return (
     <div
       data-testid="pwa-auth-error-screen"
+      data-pwa-theme="dark"
       className="h-[100dvh] flex flex-col items-center justify-center px-8 text-center"
-      style={{ background: 'var(--pwa-bg, #060d1a)', color: 'var(--pwa-text, #e8eefc)' }}
+      style={{ background: 'var(--md-surface)', color: 'var(--md-on-surface)' }}
     >
-      <p className="text-sm">
+      <span aria-hidden="true" className="flex items-center justify-center mb-6"
+        style={{ width: 88, height: 88, borderRadius: 'var(--md-shape-xl)', background: 'var(--md-surface-container-high)', color: 'var(--md-on-surface-variant)' }}>
+        <Icon name="sync" size={44} />
+      </span>
+      <p className="md-title-l">
         {resetNeeded
           ? 'Güvenli oturum temizliği tamamlanamamış.'
           : recoveryNeeded
             ? 'Güvenli oturum temizliği yarıda kalmış.'
             : 'Oturum bilgisi okunamadı.'}
       </p>
-      <p className="mt-2 text-[12px] opacity-55 leading-relaxed">
+      <p className="mt-2 md-body-m md-on-surface-variant max-w-sm">
         Araçlarınız ve kayıtlarınız hesabınızda duruyor.
         {resetNeeded
           ? ' Aşağıdaki düğme bu cihazdaki yerel verileri sıfırlar; sonra yeniden giriş yaparsınız.'
@@ -242,12 +248,8 @@ function PwaAuthErrorScreen() {
         onClick={() => { void handleRetry(); }}
         disabled={busy}
         data-testid="pwa-auth-recover-button"
-        className="mt-6 rounded-xl px-5 py-2.5 text-[13px] font-semibold transition-colors disabled:opacity-60"
-        style={{
-          background: 'rgba(59,130,246,0.14)',
-          border: '1px solid rgba(59,130,246,0.3)',
-          color: '#93c5fd',
-        }}
+        className="md-btn-filled md-state mt-8 disabled:opacity-60"
+        style={{ minHeight: 48 }}
       >
         {busy
           ? 'Tamamlanıyor…'
@@ -257,7 +259,7 @@ function PwaAuthErrorScreen() {
       </button>
       {/* Düğme, kanonik kurtarma tükenirse yerel sıfırlamaya düşer — bu
           yüzden kullanıcı ne olabileceğini ÖNCEDEN bilir. */}
-      <p className="mt-5 text-[11px] opacity-35 leading-relaxed max-w-xs">
+      <p className="mt-6 md-body-s md-on-surface-variant max-w-xs">
         Kurtarma tamamlanamazsa bu cihazdaki yerel veriler sıfırlanır ve
         yeniden giriş istenir. Araçlarınız hesabınızda kalır.
       </p>
