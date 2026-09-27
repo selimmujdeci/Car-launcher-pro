@@ -67,6 +67,7 @@ import { useCameraFollow } from '../../hooks/useCameraFollow';
 import { useGPSLocation, useGPSHeading, useGPSState } from '../../platform/gpsService';
 import { LAST_KNOWN_KEY } from '../../platform/gps/gpsUtils';
 // #618 — mesafe TEK otoriteden; elle Manhattan/derece aritmetiği YAPILMAZ.
+import { classifyMiniMapMotion } from './miniMapDrivingModel';
 import { _haversineMeters } from '../../platform/gps/gpsMath';
 import { safeGetRaw } from '../../utils/safeStorage';
 // #617 — park/duruş çerçevesinin TEK otoritesi. Buraya sabit sayı YAZILMAZ.
@@ -848,19 +849,20 @@ export const MiniMapWidget = memo(function MiniMapWidget({
      * çoklu-yol yansımasında bu mertebede sürüklenme normaldir. GPS'in KENDİ
      * hız bildirimi (`speedKmh`) bu kapıya tabi DEĞİLDİR — o ayrı bir kanıttır.
      */
-    const _accM    = Number.isFinite(location.accuracy) ? Math.abs(location.accuracy as number) : 0;
-    const _moveGate = Math.max(_accM, 8);
+    /* Karar saf modelde (`miniMapDrivingModel`): #618 kapısı korunur; kapının
+     * altındaki yer değiştirme "durdu" kanıtı sayılmaz (saha 2026-09-27: GPS hız
+     * bildirmeyen cihazda sürüş görünümü her birkaç fix'te kapanıyor, işaret
+     * mini haritadan çıkıyordu). */
     const _movedM  = _haversineMeters(
       lastAppliedLatRef.current, lastAppliedLngRef.current, latitude, longitude,
     );
-    const _dispKmh = (_dtSec > 0.15 && _dtSec < 30 && _movedM > _moveGate)
-      ? (_movedM / _dtSec) * 3.6
-      : 0;
-    const _effKmh  = Math.max(speedKmh, _dispKmh);
-    const isDriving = _effKmh > 5
-      ? true
-      : _effKmh < 3 ? false
-      : wasDrivingRef.current;
+    const _motion = classifyMiniMapMotion({
+      gpsSpeedKmh: speedKmh, movedM: _movedM,
+      accuracyM: Number.isFinite(location.accuracy) ? (location.accuracy as number) : 0,
+      dtSec: _dtSec, wasDriving: wasDrivingRef.current, lastEffKmh: lastEffKmhRef.current,
+    });
+    const _effKmh  = _motion.effKmh;
+    const isDriving = _motion.isDriving;
     lastEffKmhRef.current = _effKmh;
 
     /* ── KAMERA KAPISI (fail-closed) ────────────────────────────────────────
@@ -937,9 +939,14 @@ export const MiniMapWidget = memo(function MiniMapWidget({
         updateUserMarker(latitude, longitude, hdg);
       }
       wasDrivingRef.current = true;
-      lastAppliedLatRef.current = latitude;
-      lastAppliedLngRef.current = longitude;
-      lastAppliedTsRef.current  = _nowTs;
+      /* Çapa yalnız yer değiştirme kanıtı TÜKETİLİNCE ilerler; aksi hâlde mesafe
+         birikir ve hız doğru pencereden ölçülür (her fix'te sıfırlamak kapının
+         altındaki her adımı "0 km/h" yapıyordu). */
+      if (_motion.advanceAnchor) {
+        lastAppliedLatRef.current = latitude;
+        lastAppliedLngRef.current = longitude;
+        lastAppliedTsRef.current  = _nowTs;
+      }
     } else {
       // P2-B: Dur/park. Sürüşten YENİ çıktıysak bir kez kamerayı düzleştir (exitDrivingView);
       // aksi halde GPS titremesi (≈metre-altı) için hiçbir GL işi yapma — RenderThread burst'ü

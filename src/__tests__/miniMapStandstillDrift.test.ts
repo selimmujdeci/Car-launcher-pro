@@ -17,11 +17,14 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { _haversineMeters } from '../platform/gps/gpsMath';
+import { MINIMAP_MOVE_GATE_FLOOR_M } from '../components/map/miniMapDrivingModel';
 
+/* Karar 2026-09-27'de saf modele taşındı (`miniMapDrivingModel`); kilitler
+   aynı ifadeleri görünüm + model birlikte üzerinde arar (zayıflatma yok). */
 const SRC = readFileSync(
   join(process.cwd(), 'src/components/map/MiniMapWidget.tsx'),
   'utf8',
-);
+) + readFileSync(join(process.cwd(), 'src/components/map/miniMapDrivingModel.ts'), 'utf8');
 const code = SRC.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
 
 describe('#618 — durur hâlde GPS sürüklenmesi HAREKET sayılmaz', () => {
@@ -44,7 +47,8 @@ describe('#618 — durur hâlde GPS sürüklenmesi HAREKET sayılmaz', () => {
   it('🔒 yer değiştirme DOĞRULUK yarıçapını aşmadıkça hız üretilmez', () => {
     expect(code).toMatch(/_movedM\s*>\s*_moveGate/);
     // Kapı doğruluk ile taban arasından büyüğü olmalı (taban asla 0 olamaz).
-    expect(code).toMatch(/Math\.max\(_accM,\s*[1-9]\d*\)/);
+    expect(code).toMatch(/Math\.max\(_accM,\s*(?:[1-9]\d*|MINIMAP_MOVE_GATE_FLOOR_M)\)/);
+    expect(MINIMAP_MOVE_GATE_FLOOR_M).toBeGreaterThanOrEqual(8);
   });
 
   it('🔒 GPS\'in KENDİ hız bildirimi bu kapıya tabi değildir (ayrı kanıt)', () => {
