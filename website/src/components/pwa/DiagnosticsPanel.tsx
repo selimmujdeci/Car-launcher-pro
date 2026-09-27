@@ -34,10 +34,6 @@ const SEV_CONFIG = {
   info:     { label: 'BİLGİ',   color: 'var(--md-primary)', bg: 'var(--md-primary-container)', border: 'transparent' },
 };
 
-/** Rol rengini saydamlaştırır — hex'e alfa eklemek `var(--md-*)` ile çalışmaz. */
-function mix(color: string, pct: number): string {
-  return `color-mix(in srgb, ${color} ${pct}%, transparent)`;
-}
 
 // ── Battery voltage gauge ─────────────────────────────────────────────────────
 

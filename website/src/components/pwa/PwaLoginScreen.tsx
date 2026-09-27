@@ -16,10 +16,6 @@ import {
   type GoogleSignInFailureCode,
 } from '@/lib/pwaAuth';
 
-/** Rol rengini saydamlaştırır — hex'e alfa eklemek `var(--md-*)` ile çalışmaz. */
-function mix(color: string, pct: number): string {
-  return `color-mix(in srgb, ${color} ${pct}%, transparent)`;
-}
 
 export default function PwaLoginScreen({
   /** Cihazda eski anonim oturum var mı — araçların taşınacağını söyleriz. */

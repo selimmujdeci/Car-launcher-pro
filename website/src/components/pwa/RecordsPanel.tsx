@@ -14,10 +14,6 @@ import { useRecordsSync, queueFailureMessage } from '@/hooks/useRecordsSync';
 import { Icon, type IconName } from '@/components/pwa/ui/Icon';
 import { EmptyState, IconBadge, SegmentedButton, StatusPill, TONE_ROLES, type Tone } from '@/components/pwa/ui/primitives';
 
-/** Rol rengini saydamlaştırır — hex'e alfa eklemek `var(--md-*)` ile çalışmaz. */
-function mix(color: string, pct: number): string {
-  return `color-mix(in srgb, ${color} ${pct}%, transparent)`;
-}
 
 interface Props { vehicle: LiveVehicle | null }
 
