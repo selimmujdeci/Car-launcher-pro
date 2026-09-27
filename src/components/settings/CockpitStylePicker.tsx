@@ -1,5 +1,6 @@
 /**
- * Ayarlar · Ekran · Sürücü ekranı — görünüm (Yol · Sade · Analog · Retro · Dijital)
+ * Ayarlar · Ekran · Sürücü ekranı — görünüm (Yol · Sade · Analog · Retro · Dijital ·
+ * Neon · Spor · Lüks · Aurora)
  * ve vurgu rengi seçimi (kullanıcı isteği 2026-09-27: "isteyen istediği rengi,
  * istediği görüntüyü seçsin").
  *
@@ -23,6 +24,10 @@ const STYLE_HINTS: Record<(typeof COCKPIT_STYLE_IDS)[number], string> = {
   analog: 'Klasik ibreli kadranlar',
   retro: 'Eski usul krem kadranlar',
   digital: 'Tam dijital · çubuklar',
+  neon: 'CarOS imzası · ışıklı halkalar',
+  sport: 'Devir kadranı · vites ışıkları',
+  luxury: 'Krom kronograf · altın ibre',
+  aurora: 'Dev hız · cam kartlar',
 };
 
 export const CockpitStylePicker = memo(function CockpitStylePicker() {
@@ -44,7 +49,7 @@ export const CockpitStylePicker = memo(function CockpitStylePicker() {
       </div>
 
       <p className="text-[11px] font-black uppercase tracking-widest" style={{ color: 'var(--oem-ink-3)' }}>Görünüm</p>
-      <div className="grid grid-cols-5 gap-2">
+      <div className="grid grid-cols-3 gap-2">
         {COCKPIT_STYLE_IDS.map((id) => {
           const active = style === id;
           return (

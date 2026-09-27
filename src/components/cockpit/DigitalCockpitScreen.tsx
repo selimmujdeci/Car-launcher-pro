@@ -29,6 +29,7 @@ import {
 } from './cockpitDataModel';
 import carRearUrl from '../../assets/cockpit/car-rear.webp';
 import { ClassicCluster, DigitalCluster, LimitSign } from './cockpitClusters';
+import { ShowcaseCluster, type ShowcaseStyle } from './cockpitShowcase';
 import '../../styles/fonts.css';
 import './digitalCockpit.css';
 
@@ -436,11 +437,17 @@ export interface DigitalCockpitScreenProps {
 export const DigitalCockpitScreen = memo(function DigitalCockpitScreen({
   state, mode, clock, onMediaToggle, accent = 'blue', styleId = 'road',
 }: DigitalCockpitScreenProps) {
-  const t = cockpitTokensFor(mode, accent);
+  const showcase: ShowcaseStyle | null =
+    styleId === 'neon' || styleId === 'sport' || styleId === 'luxury' || styleId === 'aurora' ? styleId : null;
+  /* İmza görünümler gündüz de koyu çizilir → ortak bölgeler (üst çubuk, müzik,
+     dönüş kartı) gece renkleriyle okunur kalır. */
+  const t = cockpitTokensFor(showcase ? 'night' : mode, accent);
   const minimal = styleId === 'minimal';
   const classic = styleId === 'analog' || styleId === 'retro';
   const digital = styleId === 'digital';
-  const modern = !classic && !digital;
+  /* İmza görünümler (neon/spor/lüks/aurora) kendi kümesini ve arka planını çizer;
+     ortak kalan: dönüş kartı, müzik, üst çubuk. */
+  const modern = !classic && !digital && !showcase;
   const base = `cockpit-${useId().replace(/:/g, '')}`;
   const ids: Ids = {
     ring: `${base}-ring`, lane: `${base}-lane`, edge: `${base}-edge`,
@@ -500,15 +507,18 @@ export const DigitalCockpitScreen = memo(function DigitalCockpitScreen({
           </g>
         )}
         </>)}
-        {!digital && <CoolantDial coolant={state.coolantTempC} freshness={state.coolantFreshness} t={t} ids={ids} />}
+        {showcase && <ShowcaseCluster style={showcase} state={state} t={t} idBase={base} date={clock.date} />}
+        {!digital && !showcase && <CoolantDial coolant={state.coolantTempC} freshness={state.coolantFreshness} t={t} ids={ids} />}
         {classic && <ClassicCluster state={state} face={styleId === 'retro' ? 'retro' : 'analog'} mode={mode} t={t} idBase={base} />}
         {digital && <DigitalCluster state={state} t={t} />}
         {state.maneuver !== null ? <ManeuverZone {...state.maneuver} t={t} /> : <NoRouteCard t={t} />}
-        {!digital && <RangeZone range={state.rangeKm} fuelLevel={state.fuelLevelPct} consumption={state.avgConsumptionL100} t={t} ids={ids} />}
+        {!digital && !showcase && <RangeZone range={state.rangeKm} fuelLevel={state.fuelLevelPct} consumption={state.avgConsumptionL100} t={t} ids={ids} />}
         {/* Dijital görünümde sağda sıcaklık çubuğu var — kilometre biraz sola alınır. */}
-        <g transform={digital ? 'translate(-70 0)' : undefined}>
-          <OdoZone odometer={state.odometerKm} driveMode={state.driveMode} t={t} />
-        </g>
+        {!showcase && (
+          <g transform={digital ? 'translate(-70 0)' : undefined}>
+            <OdoZone odometer={state.odometerKm} driveMode={state.driveMode} t={t} />
+          </g>
+        )}
         <MediaZone {...state.media} t={t} onMediaToggle={onMediaToggle} />
         <TopBar time={clock.time} ambient={state.ambientTempC} t={t} />
       </g>

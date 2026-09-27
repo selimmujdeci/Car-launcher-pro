@@ -66,10 +66,11 @@ export const COCKPIT_ACCENT_LABELS: Readonly<Record<CockpitAccentId, string>> = 
   blue: 'Mavi', red: 'Kırmızı', green: 'Yeşil', orange: 'Turuncu', purple: 'Mor', ice: 'Buz',
 });
 
-export const COCKPIT_STYLE_IDS = ['road', 'minimal', 'analog', 'retro', 'digital'] as const;
+export const COCKPIT_STYLE_IDS = ['road', 'minimal', 'analog', 'retro', 'digital', 'neon', 'sport', 'luxury', 'aurora'] as const;
 export type CockpitStyleId = typeof COCKPIT_STYLE_IDS[number];
 export const COCKPIT_STYLE_LABELS: Readonly<Record<CockpitStyleId, string>> = Object.freeze({
   road: 'Yol', minimal: 'Sade', analog: 'Analog', retro: 'Retro', digital: 'Dijital',
+  neon: 'Neon', sport: 'Spor', luxury: 'Lüks', aurora: 'Aurora',
 });
 
 /** Sürüş ekranındaki "değiştir" düğmesi: sıradaki görünüm (sonda başa döner). */
