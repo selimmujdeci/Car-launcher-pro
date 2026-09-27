@@ -141,7 +141,10 @@ export function useCockpitData(): CockpitState {
       /* Ortalama tüketim araç profilinin YAPILANDIRILMIŞ değeridir (menzil hesabı
          da onu kullanır — `setObdFuelConfig`). Yapılandırılmamışsa `null` → `—`. */
       avgConsumptionL100: bandOrNull(profile?.avgConsumptionL100 ?? null, COCKPIT_BANDS.consum),
-      odometerKm: bandOrNull(odometerRaw, COCKPIT_BANDS.odo),
+      /* Deponun başlangıç değeri 0'dır ve "araçtan okunmadı" demektir; gerçek bir
+         araç sayacı 0 olmaz. 0 ölçüm DEĞİL → gizlenir (saha 2026-09-27: OBD yokken
+         gösterge ekranında "0 km" yazıyordu). */
+      odometerKm: odometerRaw > 0 ? bandOrNull(odometerRaw, COCKPIT_BANDS.odo) : null,
       ambientTempC: bandOrNull(ambientTempC, COCKPIT_BANDS.ambient),
       maneuver,
       media: {

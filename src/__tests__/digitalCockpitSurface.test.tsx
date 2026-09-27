@@ -529,3 +529,10 @@ describe('viraj ve hız aşımı (sürüş ekranı)', () => {
     expect(container.querySelector('[data-cockpit-curve]')).toBeNull();
   });
 });
+
+describe('kilometre sayacı — deponun başlangıç 0\'ı ölçüm değildir (saha 2026-09-27)', () => {
+  it('odometre 0 ise gösterge verisine null geçer (ekranda "0 km" çıkmaz)', () => {
+    const src = readFileSync(resolve('src/components/cockpit/useCockpitData.ts'), 'utf8');
+    expect(src).toMatch(/odometerKm: odometerRaw > 0 \? bandOrNull\(odometerRaw, COCKPIT_BANDS\.odo\) : null/);
+  });
+});
