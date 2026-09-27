@@ -1,7 +1,8 @@
 /**
  * Device Service — central state for Bluetooth, Wi-Fi, battery, and charging.
  *
- * Demo:  DEMO_STATUS mock, no timers.
+ * Web:   gerçek bir cihaz köprüsü yok → SAFE_DEFAULTS (ready=false → UI "—").
+ *        Eskiden web'de sahte "iPhone 14 bağlı · %87 şarjda" (DEMO_STATUS) basılıyordu.
  * Native migration:
  *   Network.addListener('networkStatusChange', s =>
  *     updateDeviceStatus({ wifiConnected: s.connected })
@@ -48,19 +49,9 @@ const SAFE_DEFAULTS: DeviceStatus = {
   charging: false,
 };
 
-const DEMO_STATUS: DeviceStatus = {
-  ready: true,
-  btConnected: true,
-  btDevice: 'iPhone 14',
-  wifiConnected: true,
-  wifiName: 'Araç Wi-Fi',
-  battery: 87,
-  charging: true,
-};
-
 /* ── Module-level state ──────────────────────────────────── */
 
-let _current: DeviceStatus = isNative ? { ...SAFE_DEFAULTS } : { ...DEMO_STATUS };
+let _current: DeviceStatus = { ...SAFE_DEFAULTS };
 const _listeners = new Set<(s: DeviceStatus) => void>();
 
 /* ── Push API ────────────────────────────────────────────── */
