@@ -72,6 +72,12 @@ export const COCKPIT_STYLE_LABELS: Readonly<Record<CockpitStyleId, string>> = Ob
   road: 'Yol', minimal: 'Sade', analog: 'Analog', retro: 'Retro', digital: 'Dijital',
 });
 
+/** Sürüş ekranındaki "değiştir" düğmesi: sıradaki görünüm (sonda başa döner). */
+export function nextCockpitStyle(id: CockpitStyleId): CockpitStyleId {
+  const i = COCKPIT_STYLE_IDS.indexOf(id);
+  return COCKPIT_STYLE_IDS[(i + 1) % COCKPIT_STYLE_IDS.length]!;
+}
+
 type Accent = Pick<CockpitTokens, 'accent' | 'accentHigh' | 'accentSoft' | 'glow'>;
 /** Vurgu setleri: gece parlak (koyu zemin), gündüz koyulaştırılmış (açık zeminde okunur). */
 const ACCENTS: Readonly<Record<CockpitAccentId, { night: Accent; day: Accent }>> = Object.freeze({
