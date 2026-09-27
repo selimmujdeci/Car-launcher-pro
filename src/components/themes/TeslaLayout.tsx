@@ -33,6 +33,7 @@ import { useNotificationState } from '../../platform/notificationService';
 import { openDrawer } from '../../platform/drawerBus';
 import { openMusicDrawer } from '../../platform/mediaUi';
 import { MiniMapWidget } from '../map/MiniMapWidget';
+import { useMapStore } from '../../platform/map/_mapState';
 import { TripMeterRow } from '../trip/TripMeterRow';
 import { useNavSummary } from '../../hooks/useNavSummary';
 import { type AppItem } from '../../data/apps';
@@ -348,18 +349,19 @@ const MapCard = memo(function MapCard({ onOpenMap, fullMapOpen }: { onOpenMap: (
           </div>
         ) : <div />}
         <div className="flex items-center gap-2 pointer-events-auto">
-          <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full" style={{ background: p.glass, border: p.glassBorder }}>
-            <span className="rounded-full" style={{ width: 6, height: 6, background: p.good, animation: 'exPulse 2s infinite' }} />
-            <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '0.1em', textTransform: 'uppercase', color: p.good }}>Online</span>
-          </div>
+          {/* Sabit "Online" çipi kaldırıldı (bağlantıya bakmıyordu; mini haritanın
+              gerçek kaynak rozeti zaten gösteriliyor). */}
           <div className="flex items-center justify-center rounded-xl" style={{ width: 34, height: 34, background: p.glass, border: p.glassBorder }}>
             <Maximize2 className="w-4 h-4" style={{ color: p.ink2 }} />
           </div>
         </div>
       </div>
       <div className="absolute right-3 top-1/2 -translate-y-1/2 flex flex-col gap-2 pointer-events-auto" onClick={e => e.stopPropagation()}>
+        {/* Eskiden onClick'siz (ölü) düğmelerdi — paylaşılan harita instance'ına gerçek zoom. */}
         {[Plus, Minus].map((Ic, i) => (
-          <button key={i} className="ex-btn flex items-center justify-center rounded-xl" style={{ width: 34, height: 34, background: p.glass, border: p.glassBorder, cursor: 'pointer' }}>
+          <button key={i} aria-label={i === 0 ? 'Yakınlaştır' : 'Uzaklaştır'}
+            onClick={() => { try { const m = useMapStore.getState().mapInstance; if (i === 0) m?.zoomIn(); else m?.zoomOut(); } catch { /* stil yükleniyor */ } }}
+            className="ex-btn flex items-center justify-center rounded-xl" style={{ width: 34, height: 34, background: p.glass, border: p.glassBorder, cursor: 'pointer' }}>
             <Ic className="w-4 h-4" style={{ color: p.ink2 }} />
           </button>
         ))}

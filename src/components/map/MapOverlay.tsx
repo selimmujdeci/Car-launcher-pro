@@ -32,7 +32,7 @@ export const MapOverlay = memo(function MapOverlay({
   speedKmh,
   compact = false,
 }: MapOverlayProps) {
-  const { servingFrom } = useMapNetworkStatus();
+  const { servingFrom, isOnline } = useMapNetworkStatus();
   const { unavailable: gpsUnavailable } = useGPSState();
   const isDriving = useDrivingMode();
   
@@ -43,8 +43,12 @@ export const MapOverlay = memo(function MapOverlay({
   const speedKnown = speedText !== SPEED_UNKNOWN_TEXT;
   const hasHeading = heading != null && isFinite(heading);
 
-  // Source badge — contextual color per serving mode
+  /* Kaynak rozeti — contextual color per serving mode.
+     Kaynak henüz bilinmiyorsa (`null`) rozet ÇİZİLMEZ; eskiden varsayılan dal
+     "ONLINE" basıyordu. Çevrimiçi kaynak seçili ama bağlantı yoksa "ONLINE"
+     değil "BAĞLANTI YOK" yazılır (karo gelmez). */
   const badge = (() => {
+    if (servingFrom === null) return null;
     if (servingFrom === 'local') {
       return {
         label: 'YEREL',
@@ -56,6 +60,14 @@ export const MapOverlay = memo(function MapOverlay({
     if (servingFrom === 'cached') {
       return {
         label: 'CACHE',
+        dot: 'bg-[var(--oem-warn)]',
+        wrap: 'bg-[var(--oem-warn-soft)] border-[var(--oem-warn)]',
+        text: 'text-[color:var(--oem-warn)]',
+      };
+    }
+    if (!isOnline) {
+      return {
+        label: 'BAĞLANTI YOK',
         dot: 'bg-[var(--oem-warn)]',
         wrap: 'bg-[var(--oem-warn-soft)] border-[var(--oem-warn)]',
         text: 'text-[color:var(--oem-warn)]',
@@ -75,27 +87,17 @@ export const MapOverlay = memo(function MapOverlay({
       <div className="absolute inset-0 pointer-events-none z-[var(--z-map-effect)]">
 
         {/* Source badge — top-right, küçük */}
-        <div className="absolute top-2 right-2">
-          <div className={`flex items-center gap-1.5 px-2 py-1 rounded-full bg-black/50 backdrop-blur-xl border ${badge.wrap} shadow-sm`}>
-            <div className={`w-1.5 h-1.5 rounded-full ${badge.dot}`} />
-            <span className={`text-[8px] font-black tracking-widest uppercase ${badge.text}`}>{badge.label}</span>
-          </div>
-        </div>
-
-        {/* GPS bekleniyor — kompakt */}
-        {!location && (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="flex flex-col items-center gap-2 bg-black/80 backdrop-blur-xl rounded-2xl px-4 py-3 border border-white/10">
-              <div className="relative w-7 h-7">
-                <div className="absolute inset-0 border-2 border-[#E0A23C]/20 border-t-[#E0A23C] rounded-full animate-spin" />
-                <Navigation2 className="absolute inset-0 m-auto w-3.5 h-3.5 text-[#E0A23C]" />
-              </div>
-              <span className="text-[color:var(--oem-ink)] text-[9px] font-black tracking-widest uppercase">
-                {gpsUnavailable ? 'GPS HATASI' : 'GPS BEKLENİYOR'}
-              </span>
+        {badge && (
+          <div className="absolute top-2 right-2" data-testid="map-source-badge">
+            <div className={`flex items-center gap-1.5 px-2 py-1 rounded-full bg-black/50 backdrop-blur-xl border ${badge.wrap} shadow-sm`}>
+              <div className={`w-1.5 h-1.5 rounded-full ${badge.dot}`} />
+              <span className={`text-[8px] font-black tracking-widest uppercase ${badge.text}`}>{badge.label}</span>
             </div>
           </div>
         )}
+
+        {/* GPS bekleniyor kartı compact modda ÇİZİLMEZ: tek sahibi MiniMapWidget'ın
+            kendi konum-yok katmanıdır (iki kart üst üste biniyordu). */}
 
         {/* Hız + yön — bottom-right, kompakt */}
         {location && (
@@ -137,12 +139,14 @@ export const MapOverlay = memo(function MapOverlay({
        *  [789,28,876,56] KAPAT'ın [796,17,887,61] tamamen ALTINDA kalıyordu —
        *  hiç görünmüyordu. Köşe düğmesi ≤ ~106 px + 12 px kenar → 8.25rem.
        *  Sürüşteki `translate-x-4` kaldırıldı: rozeti 16 px köşe düğmesine itiyordu. */}
-      <div style={{ top: 'calc(var(--sat, 0px) + 20px)' }} className={`absolute right-[8.25rem] transition-all duration-700 ${isDriving ? 'opacity-30 scale-90' : 'opacity-100'}`}>
-        <div className={`flex items-center gap-2.5 px-4 py-2 rounded-full bg-black/50 backdrop-blur-3xl border border-white/10 shadow-lg ${badge.text}`}>
-          <div className={`w-2 h-2 rounded-full animate-pulse ${badge.dot}`} />
-          <span className="text-[10px] font-black tracking-[0.2em] uppercase">{badge.label}</span>
+      {badge && (
+        <div style={{ top: 'calc(var(--sat, 0px) + 20px)' }} className={`absolute right-[8.25rem] transition-all duration-700 ${isDriving ? 'opacity-30 scale-90' : 'opacity-100'}`}>
+          <div className={`flex items-center gap-2.5 px-4 py-2 rounded-full bg-black/50 backdrop-blur-3xl border border-white/10 shadow-lg ${badge.text}`}>
+            <div className={`w-2 h-2 rounded-full animate-pulse ${badge.dot}`} />
+            <span className="text-[10px] font-black tracking-[0.2em] uppercase">{badge.label}</span>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* GPS Status Card — center */}
       {!location && (

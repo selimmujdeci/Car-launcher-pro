@@ -419,13 +419,8 @@ const HzMap = memo(function HzMap({ onOpenMap, fullMapOpen }: { onOpenMap: () =>
         </div>
       )}
 
-      {/* online */}
-      <div className="absolute" style={{ top: 15, right: 15 }}>
-        <div className="flex items-center" style={{ gap: 7, padding: '7px 12px', borderRadius: 999, ...chip }}>
-          <span style={{ width: 6, height: 6, borderRadius: '50%', background: p.ok, animation: 'hzPulse 2s infinite' }} />
-          <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.1em', textTransform: 'uppercase', color: p.ink2 }}>Online</span>
-        </div>
-      </div>
+      {/* Sabit "Online" çipi kaldırıldı: bağlantıya bakmadan yeşil basıyordu ve
+          mini haritanın kendi (gerçek) kaynak rozetinin üstüne biniyordu. */}
 
       {/* kontroller — paylaşılan harita instance'ına GERÇEK komut gönderir */}
       <div className="absolute flex flex-col" style={{ right: 15, top: '50%', transform: 'translateY(-50%)', gap: 9 }}>
