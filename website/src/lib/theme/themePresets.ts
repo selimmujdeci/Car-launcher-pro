@@ -8,13 +8,13 @@
  * `patch-tokens` / `patch-screen` eylemleriyle olur → geri al, önizleme ve
  * "Araca Gönder" hiçbir değişiklik olmadan çalışır.
  *
- * UYUM KURALI (el ile hex yığını yerine TÜRETİM): her renk taslağı bir vurgu
- * rengi + bir zemin tonundan (hue/doygunluk) oluşur; zemin, kart, kenarlık ve
- * yazı renkleri o tondan sabit parlaklık basamaklarıyla türetilir. Böylece 48
- * palet de aynı okunabilirlik disiplinini taşır (test: yazı/zemin ≥ 7:1,
- * ikincil yazı ≥ 4.5:1, vurgu/zemin ≥ 3:1).
+ * UYUM KURALI (v2, 2026-09-27): her taslak bir marka vurgusu + bir nötr
+ * zemin tonundan oluşur; zemin/kart/kenarlık/yazı HCT ton paletinin SABİT
+ * tone basamaklarından gelir (bkz. `TONES`). Tüm paletler aynı okunabilirlik
+ * disiplinini taşır (test: yazı/zemin ≥ 7:1, ikincil yazı ≥ 4.5:1,
+ * vurgu/kart ≥ 3:1; güneş altında 15 / 7 / 4.5).
  */
-import { contrastRatio, hslToRgba, parseColor, rgbaToHex, rgbToHsv, hsvToRgb } from './colorMath';
+import { Hct, TonalPalette, argbFromHex, hexFromArgb } from '@material/material-color-utilities';
 import type { GlobalTokens, Paint, ScreenOverride, ThemeBaseId } from './themeManifest';
 
 /** night: gece · day: gündüz · sun: GÜNEŞ ALTI — en yüksek kontrast (kullanıcı 2026-09-26). */
@@ -23,12 +23,12 @@ export type PresetMode = 'night' | 'day' | 'sun';
 export interface ColorPresetSpec {
   readonly id: string;
   readonly name: string;
-  /** Kısa his cümlesi (kart altında). */
+  /** Kısa, somut tarif (kart altında). */
   readonly mood: string;
   readonly mode: PresetMode;
-  /** Vurgu (düğme, ibre, seçili durum). */
+  /** Marka vurgusu (düğme, ibre, seçili durum). Tonu moda göre ayarlanır, RENGİ korunur. */
   readonly accent: string;
-  /** Zemin tonu (0-360) ve doygunluğu (0-1) — zemin/kart/kenarlık/yazı bundan türer. */
+  /** Nötr zemin tonu (0-360) ve tonlama gücü (0-1 → HCT kroması 0-16). */
   readonly hue: number;
   readonly sat: number;
 }
@@ -46,46 +46,56 @@ export interface ShapePreset {
   readonly tokens: Pick<GlobalTokens, 'radiusCard' | 'radiusBtn' | 'radiusTile' | 'radiusDock' | 'cardBlurPx' | 'glowIntensity'>;
 }
 
-/* ── Renk türetme ─────────────────────────────────────────────────────── */
+/* ── Renk türetme (v2 · 2026-09-27) ───────────────────────────────────────
+ * ESKİ YÖNTEM: HSL parlaklık basamakları + döngüyle kontrast zorlama. HSL
+ * algısal olarak düzgün değildir: aynı "parlaklık" sarıda parlak, mavide koyu
+ * görünür → paletler birbirinden farklı disiplinde ve yer yer "neon" çıkıyordu.
+ *
+ * YENİ YÖNTEM: Google Material Color Utilities · HCT (hue-chroma-tone). Tone
+ * algısal parlaklıktır ve kontrast doğrudan tone farkından gelir; bu yüzden
+ * zemin/kart/kenarlık/yazı her palette AYNI tone basamaklarında durur (OEM
+ * gösterge disiplini) ve vurgu yalnız TONU ayarlanarak okunur kılınır — marka
+ * rengi (hue + chroma) korunur. Kontrast eşikleri yapıdan gelir, döngüyle değil. */
 
-const hsl = (h: number, s: number, l: number): string => rgbaToHex(hslToRgba(h, s, l));
+interface ModeTones {
+  bg: number; card: number; border: number; text: number; text2: number;
+  /** Vurgu tonu aralığı: marka rengi bu aralığa kıstırılır. */
+  accentMin: number; accentMax: number; accent2: number;
+}
+
+const TONES: Record<PresetMode, ModeTones> = {
+  /* Gece: neredeyse siyah zemin (OLED'de yansıma yok), kart bir basamak açık. */
+  night: { bg: 6, card: 13, border: 26, text: 95, text2: 78, accentMin: 64, accentMax: 80, accent2: 50 },
+  /* Gündüz: kâğıt beyazı kart, çok açık zemin, mürekkep yazı. */
+  day:   { bg: 94, card: 99, border: 80, text: 10, text2: 32, accentMin: 34, accentMax: 46, accent2: 60 },
+  /* Güneş altı: saf beyaz kart, koyu kenarlık, en koyu yazı ve vurgu. */
+  sun:   { bg: 96, card: 100, border: 38, text: 4, text2: 22, accentMin: 28, accentMax: 38, accent2: 22 },
+};
+
+const hex = (argb: number): string => hexFromArgb(argb).toUpperCase();
 const solid = (c: string): Paint => ({ kind: 'solid', from: c, to: null, angle: 180, stopA: 0, stopB: 100, alpha: 100 });
-
-/** Vurguyu zemine karşı en az `min` kontrasta çeker (gündüzde koyulaştır, gecede aç). */
-function ensureContrast(accent: string, bg: string, min: number, mode: PresetMode): string {
-  const a = parseColor(accent); const b = parseColor(bg);
-  if (!a || !b) return accent;
-  let hsv = rgbToHsv(a);
-  for (let i = 0; i < 20 && contrastRatio(hsvToRgb(hsv), b) < min; i++) {
-    hsv = mode === 'day' ? { ...hsv, v: Math.max(0, hsv.v - 0.05) } : { ...hsv, v: Math.min(1, hsv.v + 0.05), s: Math.max(0, hsv.s - 0.03) };
-  }
-  return rgbaToHex(hsvToRgb(hsv));
-}
-
-/** Vurgunun eşlikçisi: gecede biraz koyu, gündüzde biraz açık ton. */
-function companion(accent: string, mode: PresetMode): string {
-  const c = parseColor(accent);
-  if (!c) return accent;
-  const hsv = rgbToHsv(c);
-  return rgbaToHex(hsvToRgb(mode === 'night'
-    ? { ...hsv, v: Math.max(0, hsv.v * 0.74) }
-    : { ...hsv, s: Math.max(0, hsv.s * 0.7), v: Math.min(1, hsv.v * 1.12) }));
-}
+const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
 
 export function buildColorPreset(spec: ColorPresetSpec): ColorPreset {
-  const { hue: h, sat: s, mode } = spec;
-  if (mode === 'sun') return buildSunPreset(spec);
-  const night = mode === 'night';
-  /* Ton BELİRGİN olsun (saha 2026-09-26: %6-14 parlaklıkta tüm paletler "aynı renk"
-     görünüyordu). Doygunluk yükseltildi, zemin/kart birkaç basamak açıldı. */
-  const sn = Math.min(1, s * 1.35);
-  const bgA = night ? hsl(h, sn, 0.11) : hsl(h, s * 0.45, 0.93);
-  const card = night ? hsl(h, sn * 0.85, 0.19) : hsl(h, s * 0.25, 0.995);
-  const border = night ? hsl(h, sn * 0.7, 0.32) : hsl(h, s * 0.3, 0.8);
-  const text = night ? hsl(h, 0.16, 0.93) : hsl(h, 0.3, 0.11);
-  const text2 = night ? hsl(h, 0.12, 0.7) : hsl(h, 0.18, 0.34);
-  const accent = ensureContrast(spec.accent, card, 3, mode);
-  const accent2 = companion(accent, mode);
+  const t = TONES[spec.mode];
+  /* Nötr palet: güneş altında tonlama yarıya iner (renkli zemin parlamada kirli görünür). */
+  const chroma = clamp(spec.sat, 0, 1) * (spec.mode === 'sun' ? 8 : 16);
+  const neutral = TonalPalette.fromHueAndChroma(spec.hue, chroma);
+  const bg = hex(neutral.tone(t.bg));
+  const card = spec.mode === 'sun' ? '#FFFFFF' : hex(neutral.tone(t.card));
+  const border = hex(neutral.tone(t.border));
+  const text = hex(TonalPalette.fromHueAndChroma(spec.hue, Math.min(chroma, 6)).tone(t.text));
+  const text2 = hex(TonalPalette.fromHueAndChroma(spec.hue, Math.min(chroma, 10)).tone(t.text2));
+
+  const brand = Hct.fromInt(argbFromHex(spec.accent));
+  /* Renkli vurgu soluklaşmasın (≥24 kroma); gümüş/grafit gibi NÖTR vurgu ise
+     nötr kalır — ona renk eklemek markayı değiştirir. */
+  const neutralAccent = brand.chroma < 12;
+  const accentHct = Hct.from(brand.hue, neutralAccent ? brand.chroma : Math.max(brand.chroma, 24),
+    clamp(brand.tone, t.accentMin, t.accentMax));
+  const accent = hex(accentHct.toInt());
+  const accent2 = hex(Hct.from(brand.hue, neutralAccent ? brand.chroma : Math.max(brand.chroma * 0.8, 20), t.accent2).toInt());
+
   const tokens: Partial<GlobalTokens> = {
     accentPrimary: accent,
     accentSecondary: accent2,
@@ -98,35 +108,6 @@ export function buildColorPreset(spec: ColorPresetSpec): ColorPreset {
     iconDock: accent,
     /* DÜZ renk: zayıf GPU modunda (`perf-low`) tüm background-image'lar kapatılır —
        gradyan zemin head unit'te TAMAMEN kayboluyordu (başsız Chrome'da ölçüldü). */
-    bgPrimary: solid(bgA),
-    bgCard: solid(card),
-  };
-  return { ...spec, tokens, swatch: [bgA, card, accent, text] };
-}
-
-/**
- * GÜNEŞ ALTI taslağı: parlak güneşte ekran yansıması kontrastı yer; bu yüzden
- * zemin neredeyse beyaz, yazı neredeyse siyah, vurgu koyu ve doygun, kenarlık
- * belirgin. Eşikler gündüzden SERT: yazı ≥ 15:1 · ikincil ≥ 7:1 · vurgu ≥ 4.5:1.
- */
-function buildSunPreset(spec: ColorPresetSpec): ColorPreset {
-  const { hue: h, sat: s } = spec;
-  const bg = hsl(h, s * 0.35, 0.96);
-  const card = '#FFFFFF';
-  const border = hsl(h, s * 0.4, 0.34);
-  const text = hsl(h, 0.35, 0.05);
-  const text2 = hsl(h, 0.25, 0.24);
-  const accent = ensureContrast(spec.accent, card, 4.5, 'day');
-  const tokens: Partial<GlobalTokens> = {
-    accentPrimary: accent,
-    accentSecondary: ensureContrast(companion(accent, 'night'), card, 4.5, 'day'),
-    textPrimary: text,
-    textSecondary: text2,
-    borderColor: border,
-    glowColor: accent,
-    iconNav: accent,
-    iconMedia: accent,
-    iconDock: accent,
     bgPrimary: solid(bg),
     bgCard: solid(card),
   };
@@ -143,83 +124,79 @@ export function screenPatchOf(p: ColorPreset): Partial<ScreenOverride> {
   };
 }
 
-/* ── Tema başına renk taslakları (her tema 12) ────────────────────────── */
+/* ── Tema başına renk taslakları (her tema 12: 7 gece · 2 gündüz · 3 güneş altı) ──
+ * KÜRATÖRLÜ LİSTE (2026-09-27): birbirine benzeyen ve "neon" taslaklar çıkarıldı;
+ * her taslak bir OEM kabin paletine karşılık gelir. İlk taslak temanın özgün
+ * paletidir. İsimler renk + malzeme; tarif tek cümle ve somut. */
 
 const C = (id: string, name: string, mood: string, accent: string, hue: number, sat: number, mode: PresetMode = 'night'): ColorPresetSpec =>
   ({ id, name, mood, accent, hue, sat, mode });
 
 const SPECS: Record<ThemeBaseId, readonly ColorPresetSpec[]> = {
   expedition: [
-    C('exp-zeytin-amber', 'Zeytin & Amber', 'Temanın ruhu, daha derin', '#F2871C', 95, 0.28),
-    C('exp-col-kumu', 'Çöl Kumu', 'Sıcak kum, güneşte yanmış turuncu', '#E8A04A', 36, 0.3),
-    C('exp-kanyon', 'Kanyon Kızılı', 'Kızıl kaya, bakır vurgu', '#E4572E', 14, 0.34),
-    C('exp-orman', 'Orman Yeşili', 'Çam gölgesi, taze yaprak', '#8BC34A', 120, 0.3),
-    C('exp-volkan', 'Volkanik Gri', 'Bazalt siyahı, lav turuncusu', '#FF6B2C', 20, 0.06),
-    C('exp-kamp-atesi', 'Kamp Ateşi', 'Kor kırmızısı, is kokusu', '#FF4F2E', 8, 0.26),
-    C('exp-buzul', 'Buzul Mavisi', 'Dağ gölü, soğuk sabah', '#5CC8FF', 205, 0.3),
-    C('exp-safari', 'Safari Haki', 'Haki kumaş, pirinç düğme', '#D9B44A', 60, 0.24),
-    C('exp-bakir', 'Bakır Toprak', 'Kızıl toprak, eskitilmiş bakır', '#C8733B', 24, 0.24),
-    C('exp-devriye', 'Gece Devriyesi', 'Taktik yeşil, düşük ışık', '#9BE15D', 150, 0.2),
-    C('exp-sis', 'Sabah Sisi', 'Gündüz · açık zeytin, net okunur', '#C46A12', 90, 0.22, 'day'),
-    C('exp-kumtasi', 'Kumtaşı', 'Gündüz · sıcak bej, kiremit vurgu', '#B5501F', 36, 0.3, 'day'),
-    C('exp-gunes-turuncu', 'Güneş · Turuncu', 'Güneş altı · beyaz zemin, koyu turuncu', '#C2410C', 30, 0.3, 'sun'),
-    C('exp-gunes-orman', 'Güneş · Orman', 'Güneş altı · beyaz zemin, koyu yeşil', '#166534', 120, 0.3, 'sun'),
-    C('exp-gunes-mavi', 'Güneş · Kobalt', 'Güneş altı · beyaz zemin, koyu mavi', '#1D4ED8', 215, 0.3, 'sun'),
+    C('exp-zeytin-amber', 'Zeytin · Amber', 'Temanın özgün paleti', '#F2871C', 110, 0.55),
+    C('exp-grafit-turuncu', 'Grafit · Turuncu', 'Nötr koyu gri, turuncu vurgu', '#F07A2A', 60, 0.08),
+    C('exp-kum-bakir', 'Kum · Bakır', 'Sıcak kum tonu, bakır vurgu', '#D98A4E', 60, 0.5),
+    C('exp-orman', 'Orman · Yosun', 'Koyu çam yeşili, yosun vurgu', '#8DB85A', 140, 0.6),
+    C('exp-buzul', 'Buzul · Gök', 'Soğuk gri, gök mavisi vurgu', '#5AAEE0', 230, 0.35),
+    C('exp-toprak', 'Toprak · Kiremit', 'Kahve zemin, kiremit vurgu', '#D2643C', 40, 0.45),
+    C('exp-gece-kirmizi', 'Gece · Kırmızı', 'Gece sürüşü: göz kamaştırmayan kırmızı', '#E04A3C', 20, 0.1),
+    C('exp-sabah', 'Sabah · Zeytin', 'Gündüz: açık zeytin, turuncu vurgu', '#C46A12', 110, 0.4, 'day'),
+    C('exp-kumtasi', 'Kumtaşı', 'Gündüz: sıcak bej, kiremit vurgu', '#B5501F', 60, 0.5, 'day'),
+    C('exp-gunes-turuncu', 'Güneş · Turuncu', 'Güneş altı: beyaz, koyu turuncu', '#C2410C', 60, 0.3, 'sun'),
+    C('exp-gunes-orman', 'Güneş · Orman', 'Güneş altı: beyaz, koyu yeşil', '#166534', 140, 0.3, 'sun'),
+    C('exp-gunes-mavi', 'Güneş · Kobalt', 'Güneş altı: beyaz, koyu mavi', '#1D4ED8', 250, 0.3, 'sun'),
   ],
   horizon: [
-    C('hor-gece-yarisi', 'Gece Yarısı', 'Temanın ruhu: lacivert + amber', '#F2871C', 218, 0.42),
-    C('hor-okyanus', 'Okyanus', 'Derin mavi, turkuaz ışık', '#2ED3C6', 200, 0.5),
-    C('hor-arktik', 'Arktik', 'Buz mavisi, beyaz nefes', '#7CC7FF', 210, 0.35),
-    C('hor-kraliyet', 'Kraliyet Moru', 'Mor kadife, lavanta vurgu', '#B38CFF', 262, 0.4),
-    C('hor-sampanya', 'Şampanya', 'Grafit zemin, altın kabarcık', '#E6C27A', 220, 0.18),
-    C('hor-grafit-turuncu', 'Grafit Turuncu', 'Nötr grafit, canlı turuncu', '#FF8A3D', 222, 0.12),
-    C('hor-nordik', 'Nordik', 'Fiyort mavisi, kuzey ışığı yeşili', '#5EE6A8', 196, 0.34),
-    C('hor-safir', 'Safir', 'Koyu safir, parlak kobalt', '#4D8BFF', 226, 0.5),
-    C('hor-zumrut', 'Zümrüt', 'Koyu petrol, zümrüt parıltı', '#2FD08A', 175, 0.4),
-    C('hor-gun-batimi', 'Gün Batımı', 'Mor akşam, mercan ufuk', '#FF7A6B', 250, 0.35),
-    C('hor-gumus-ay', 'Gümüş Ay', 'Gece mavisi, ay gümüşü', '#C9D6EA', 216, 0.3),
-    C('hor-buz-beyazi', 'Buz Beyazı', 'Gündüz · soğuk beyaz, lacivert yazı', '#1E5FD9', 214, 0.35, 'day'),
-    C('hor-gunes-lacivert', 'Güneş · Lacivert', 'Güneş altı · beyaz zemin, lacivert', '#1E3A8A', 220, 0.35, 'sun'),
-    C('hor-gunes-amber', 'Güneş · Amber', 'Güneş altı · beyaz zemin, koyu amber', '#B45309', 35, 0.3, 'sun'),
-    C('hor-gunes-petrol', 'Güneş · Petrol', 'Güneş altı · beyaz zemin, petrol mavisi', '#0F766E', 180, 0.3, 'sun'),
+    C('hor-gece-yarisi', 'Lacivert · Amber', 'Temanın özgün paleti', '#F2871C', 260, 0.7),
+    C('hor-okyanus', 'Okyanus · Turkuaz', 'Derin petrol, turkuaz vurgu', '#2EC4B6', 220, 0.6),
+    C('hor-arktik', 'Arktik · Buz', 'Soğuk gri-mavi, buz mavisi', '#7CB9F0', 250, 0.35),
+    C('hor-safir', 'Safir', 'Koyu lacivert, kobalt vurgu', '#4A7FF0', 265, 0.7),
+    C('hor-zumrut', 'Zümrüt', 'Koyu petrol, zümrüt vurgu', '#2FB57E', 190, 0.5),
+    C('hor-sampanya', 'Grafit · Şampanya', 'Grafit zemin, şampanya altını', '#D8B878', 260, 0.12),
+    C('hor-gece-kirmizi', 'Gece · Kırmızı', 'Gece sürüşü: göz kamaştırmayan kırmızı', '#E04A3C', 260, 0.15),
+    C('hor-buz-beyazi', 'Buz Beyazı', 'Gündüz: soğuk beyaz, lacivert vurgu', '#1E5FD9', 255, 0.45, 'day'),
+    C('hor-gunduz-kum', 'Gündüz · Kum', 'Gündüz: sıcak kâğıt, amber vurgu', '#B85C0A', 70, 0.4, 'day'),
+    C('hor-gunes-lacivert', 'Güneş · Lacivert', 'Güneş altı: beyaz, lacivert', '#1E3A8A', 260, 0.35, 'sun'),
+    C('hor-gunes-amber', 'Güneş · Amber', 'Güneş altı: beyaz, koyu amber', '#B45309', 70, 0.3, 'sun'),
+    C('hor-gunes-petrol', 'Güneş · Petrol', 'Güneş altı: beyaz, petrol mavisi', '#0F766E', 200, 0.3, 'sun'),
   ],
   tesla: [
-    C('tes-espresso', 'Espresso Amber', 'Temanın ruhu, koyu kavrulmuş', '#E0822E', 32, 0.28),
-    C('tes-kutup-kirmizi', 'Kırmızı Kutup', 'Karbon siyah, çok katmanlı kırmızı', '#E31937', 0, 0.04),
-    C('tes-ultra-red', 'Ultra Red', 'Şarap kırmızısı derinlik', '#FF3B4E', 350, 0.3),
-    C('tes-midnight-silver', 'Midnight Silver', 'Metalik gri, gümüş çizgi', '#C7CCD4', 215, 0.08),
-    C('tes-deep-blue', 'Deep Blue', 'Metalik lacivert, elektrik mavisi', '#3E8BFF', 222, 0.4),
-    C('tes-kahve-krema', 'Kahve Krema', 'Sütlü kahve, karamel vurgu', '#D9A066', 28, 0.22),
-    C('tes-yesil-grafit', 'Yeşil Grafit', 'Grafit zemin, elektrik yeşili', '#3DDC84', 160, 0.08),
-    C('tes-titanyum', 'Titanyum', 'Soğuk titanyum, buz mavisi', '#8FD3FF', 205, 0.1),
-    C('tes-obsidyen-altin', 'Obsidyen Altın', 'Volkanik cam, altın kenar', '#E8B84A', 40, 0.1),
-    C('tes-bordo', 'Bordo Deri', 'Koyu bordo deri, bakır dikiş', '#E07B4F', 355, 0.3),
-    C('tes-inci', 'İnci', 'Gündüz · inci beyazı, kırmızı vurgu', '#C8102E', 30, 0.15, 'day'),
-    C('tes-kum-beji', 'Kum Beji', 'Gündüz · sıcak bej, espresso yazı', '#A5541E', 34, 0.35, 'day'),
-    C('tes-gunes-kirmizi', 'Güneş · Kırmızı', 'Güneş altı · beyaz zemin, koyu kırmızı', '#B91C1C', 0, 0.2, 'sun'),
-    C('tes-gunes-grafit', 'Güneş · Grafit', 'Güneş altı · beyaz zemin, siyah vurgu', '#1F2937', 220, 0.1, 'sun'),
-    C('tes-gunes-mavi', 'Güneş · Mavi', 'Güneş altı · beyaz zemin, koyu mavi', '#1D4ED8', 215, 0.3, 'sun'),
+    C('tes-espresso', 'Espresso · Karamel', 'Temanın özgün paleti', '#E0822E', 50, 0.45),
+    C('tes-karbon-kirmizi', 'Karbon · Kırmızı', 'Saf siyah, yarış kırmızısı', '#E8324A', 0, 0),
+    C('tes-gece-gumusu', 'Gece Gümüşü', 'Metalik gri, gümüş vurgu', '#C3CAD4', 250, 0.15),
+    C('tes-derin-mavi', 'Derin Mavi', 'Metalik lacivert, elektrik mavisi', '#3E86F5', 260, 0.55),
+    C('tes-titanyum', 'Titanyum · Buz', 'Soğuk titanyum, buz mavisi', '#8CC8F0', 230, 0.12),
+    C('tes-obsidyen-altin', 'Obsidyen · Altın', 'Volkanik cam siyahı, altın', '#D9AE52', 60, 0.06),
+    C('tes-bordo', 'Bordo Deri', 'Koyu bordo deri, bakır dikiş', '#D97A55', 10, 0.55),
+    C('tes-inci', 'İnci', 'Gündüz: inci beyazı, kırmızı vurgu', '#C8102E', 60, 0.15, 'day'),
+    C('tes-kum-beji', 'Kum Beji', 'Gündüz: sıcak bej, espresso vurgu', '#A5541E', 60, 0.5, 'day'),
+    C('tes-gunes-kirmizi', 'Güneş · Kırmızı', 'Güneş altı: beyaz, koyu kırmızı', '#B91C1C', 20, 0.2, 'sun'),
+    C('tes-gunes-grafit', 'Güneş · Grafit', 'Güneş altı: beyaz, siyah vurgu', '#374151', 250, 0.1, 'sun'),
+    C('tes-gunes-mavi', 'Güneş · Mavi', 'Güneş altı: beyaz, koyu mavi', '#1D4ED8', 250, 0.3, 'sun'),
   ],
   pro: [
-    C('pro-buz-mavisi', 'Buz Mavisi', 'Temanın ruhu: antrasit + mavi', '#5B8DFF', 225, 0.14),
-    C('pro-ambiyans-mor', 'Ambiyans Mor', 'Gece ambiyans ışığı, mor', '#A77BFF', 262, 0.2),
-    C('pro-turkuaz', 'Turkuaz', 'Antrasit zemin, turkuaz çizgi', '#22D3EE', 190, 0.16),
-    C('pro-gul-altin', 'Gül Altın', 'Sıcak antrasit, gül altın', '#E8A38C', 15, 0.1),
-    C('pro-m-mavi', 'M Mavisi', 'Motor sporu mavisi, keskin', '#1C69D4', 218, 0.3),
-    C('pro-yesil-ambiyans', 'Yeşil Ambiyans', 'Sakin gece yeşili', '#34D399', 158, 0.14),
-    C('pro-kirmizi-spor', 'Kırmızı Spor', 'Karbon + yarış kırmızısı', '#FF3D3D', 0, 0.06),
-    C('pro-antrasit-altin', 'Antrasit Altın', 'Lüks: siyah + altın', '#D4AF37', 45, 0.08),
-    C('pro-neon-cyan', 'Neon Cyan', 'Gece şehri, neon', '#00E5FF', 200, 0.3),
-    C('pro-gece-pembe', 'Gece Pembesi', 'Koyu mor zemin, pembe ışık', '#FF6FB5', 300, 0.22),
-    C('pro-grafit-sade', 'Grafit Sade', 'En sade: gri üstüne beyaz', '#E6EAF0', 220, 0.05),
-    C('pro-kristal', 'Beyaz Kristal', 'Gündüz · parlak beyaz, mavi vurgu', '#2F6BFF', 220, 0.2, 'day'),
-    C('pro-gunes-mavi', 'Güneş · Mavi', 'Güneş altı · beyaz zemin, koyu mavi', '#1D4ED8', 220, 0.25, 'sun'),
-    C('pro-gunes-mor', 'Güneş · Mor', 'Güneş altı · beyaz zemin, koyu mor', '#6D28D9', 265, 0.25, 'sun'),
-    C('pro-gunes-yesil', 'Güneş · Yeşil', 'Güneş altı · beyaz zemin, koyu yeşil', '#047857', 160, 0.25, 'sun'),
+    C('pro-buz-mavisi', 'Antrasit · Buz Mavisi', 'Temanın özgün paleti', '#5B8DFF', 260, 0.3),
+    C('pro-ambiyans-mor', 'Ambiyans · Mor', 'Gece kabin ışığı, lavanta', '#A98AF5', 290, 0.35),
+    C('pro-turkuaz', 'Antrasit · Turkuaz', 'Antrasit zemin, turkuaz çizgi', '#2CC6DA', 220, 0.25),
+    C('pro-gul-altin', 'Gül Altın', 'Sıcak antrasit, gül altın', '#E0A28A', 30, 0.2),
+    C('pro-spor-mavi', 'Motor Sporu Mavisi', 'Keskin mavi, siyah zemin', '#2F6FE0', 260, 0.1),
+    C('pro-yesil-ambiyans', 'Ambiyans · Yeşil', 'Sakin gece yeşili', '#4CC792', 170, 0.25),
+    C('pro-grafit-sade', 'Grafit Sade', 'En sade: gri üstüne beyaz', '#E3E7EE', 250, 0.06),
+    C('pro-kristal', 'Beyaz Kristal', 'Gündüz: parlak beyaz, mavi vurgu', '#2F6BFF', 260, 0.3, 'day'),
+    C('pro-gunduz-gri', 'Gündüz · Gri', 'Gündüz: nötr gri, grafit vurgu', '#3F4A5A', 250, 0.08, 'day'),
+    C('pro-gunes-mavi', 'Güneş · Mavi', 'Güneş altı: beyaz, koyu mavi', '#1D4ED8', 260, 0.25, 'sun'),
+    C('pro-gunes-mor', 'Güneş · Mor', 'Güneş altı: beyaz, koyu mor', '#6D28D9', 290, 0.25, 'sun'),
+    C('pro-gunes-yesil', 'Güneş · Yeşil', 'Güneş altı: beyaz, koyu yeşil', '#047857', 170, 0.25, 'sun'),
   ],
 };
 
 const _cache: Partial<Record<ThemeBaseId, readonly ColorPreset[]>> = {};
+
+/** Galeride grup başlığı ve sırası. */
+export const PRESET_MODE_LABEL: Record<PresetMode, string> = {
+  night: 'Gece', day: 'Gündüz', sun: 'Güneş altı',
+};
 
 /** Temanın renk taslakları (türetilmiş, önbellekli). */
 export function colorPresetsFor(themeId: ThemeBaseId): readonly ColorPreset[] {
@@ -232,16 +209,16 @@ const S = (id: string, name: string, mood: string, card: number, btn: number, ti
   ({ id, name, mood, tokens: { radiusCard: card, radiusBtn: btn, radiusTile: tile, radiusDock: dock, cardBlurPx: blur, glowIntensity: glow } });
 
 export const SHAPE_PRESETS: readonly ShapePreset[] = [
-  S('shape-keskin', 'Keskin', 'Köşesiz, askeri düzen', 2, 2, 2, 4, 0, 0),
-  S('shape-endustriyel', 'Endüstriyel', 'Hafif pahlı metal plaka', 4, 3, 4, 6, 0, 10),
-  S('shape-minimal', 'Minimal Düz', 'Az yuvarlak, gölgesiz', 6, 6, 6, 8, 0, 0),
-  S('shape-kokpit', 'Kokpit', 'Gösterge paneli, hafif ışıma', 8, 4, 8, 12, 4, 60),
-  S('shape-klasik', 'Klasik', 'Dengeli, her temaya uyar', 12, 10, 12, 16, 8, 25),
-  S('shape-mat', 'Mat', 'Yumuşak köşe, parıltısız', 12, 10, 12, 16, 0, 0),
+  S('shape-klasik', 'Klasik', 'Dengeli köşeler, her temaya uyar', 12, 10, 12, 16, 8, 20),
+  S('shape-minimal', 'Minimal', 'Az yuvarlak, gölgesiz, düz', 6, 6, 6, 8, 0, 0),
+  S('shape-keskin', 'Keskin', 'Köşesiz teknik düzen', 2, 2, 2, 4, 0, 0),
+  S('shape-endustriyel', 'Teknik', 'Hafif pahlı metal plaka', 4, 4, 4, 6, 0, 10),
+  S('shape-kokpit', 'Kokpit', 'Gösterge paneli, hafif ışık', 8, 6, 8, 12, 4, 40),
+  S('shape-mat', 'Mat', 'Yumuşak köşe, ışımasız', 12, 10, 12, 16, 0, 0),
   S('shape-premium', 'Premium', 'İnce cam, zarif ışık', 14, 12, 14, 18, 16, 20),
-  S('shape-yumusak', 'Yumuşak', 'Oval kartlar, sakin', 18, 14, 18, 22, 12, 30),
-  S('shape-cam', 'Buzlu Cam', 'Kalın buzlu cam, derinlik', 16, 12, 16, 20, 24, 40),
-  S('shape-neon', 'Neon', 'Güçlü ışıma, gece için', 12, 10, 12, 16, 0, 100),
-  S('shape-balon', 'Balon', 'Çok yuvarlak, oyuncak gibi', 26, 20, 26, 28, 10, 25),
-  S('shape-kapsul', 'Kapsül', 'Hap düğmeler, oval dock', 22, 32, 22, 32, 8, 20),
+  S('shape-yumusak', 'Yumuşak', 'Geniş köşeler, sakin', 18, 14, 18, 22, 10, 20),
+  S('shape-cam', 'Buzlu Cam', 'Kalın buzlu cam, derinlik', 16, 12, 16, 20, 24, 30),
+  S('shape-kapsul', 'Kapsül', 'Hap düğmeler, oval dock', 20, 32, 20, 32, 8, 20),
+  S('shape-oval', 'Oval', 'En yuvarlak kartlar', 24, 20, 24, 28, 8, 20),
+  S('shape-gece-isigi', 'Gece Işığı', 'Belirgin vurgu ışıması', 12, 10, 12, 16, 0, 60),
 ];
