@@ -35,18 +35,30 @@ import WeeklySummaryCard from '@/components/pwa/WeeklySummaryCard';
 import { buildVehicleShareReport } from '@/lib/reports/vehicleShareReport';
 import { useVehicleHealth } from '@/hooks/useVehicleHealth';
 import { vehicleSubtitle, vehicleTitle } from '@/lib/vehicleDisplay';
+import { Icon, type IconName } from '@/components/pwa/ui/Icon';
+import { EmptyState } from '@/components/pwa/ui/primitives';
+
+/** Rol rengini saydamlaştırır — hex'e alfa eklemek `var(--md-*)` ile çalışmaz. */
+function mix(color: string, pct: number): string {
+  return `color-mix(in srgb, ${color} ${pct}%, transparent)`;
+}
 
 const SERVICE_LABELS: Readonly<Record<string, string>> = Object.fromEntries(
   SERVICE_DEFS.map((d) => [d.key, d.label]),
 );
 
 const TYPE_TINT: Record<VehicleMemoryEvent['type'], string> = {
-  TRIP:            '#60a5fa',
-  FUEL_RECORD:     '#34d399',
-  SERVICE_RECORD:  '#fbbf24',
+  TRIP:            'var(--md-primary)',
+  FUEL_RECORD:     'var(--md-success)',
+  SERVICE_RECORD:  'var(--md-warning)',
   /* Teşhis taraması nötr moru: tek başına "arıza var" RENGİ DEĞİLDİR —
      taramanın sonucunu metin söyler, renk olay TÜRÜNÜ ayırt eder. */
-  DIAGNOSTIC_SCAN: '#a78bfa',
+  DIAGNOSTIC_SCAN: 'var(--md-tertiary)',
+};
+
+/** Olay türü → ikon; tür rengiyle birlikte ayırt edici, anlamı metin taşır. */
+const TYPE_ICON: Record<VehicleMemoryEvent['type'], IconName> = {
+  TRIP: 'route', FUEL_RECORD: 'local_gas_station', SERVICE_RECORD: 'build', DIAGNOSTIC_SCAN: 'car_repair',
 };
 
 function dayLabel(key: string): string {
@@ -130,12 +142,12 @@ function VehicleMemoryPanelBase({ vehicle }: { vehicle: LiveVehicle | null }) {
   useEffect(() => { void load(); }, [load]);
 
   if (!vehicle) {
-    return <p className="py-6 text-center text-sm pwa-text-3">Araç seçilmedi</p>;
+    return <EmptyState icon="directions_car" title="Araç seçilmedi" />;
   }
 
   if (!memory) {
     return (
-      <p className="py-8 text-center text-sm pwa-text-3">
+      <p className="py-8 text-center md-body-m md-on-surface-variant" role="status">
         {loading ? 'Araç geçmişi okunuyor…' : 'Araç geçmişi okunamadı'}
       </p>
     );
@@ -152,9 +164,9 @@ function VehicleMemoryPanelBase({ vehicle }: { vehicle: LiveVehicle | null }) {
 
   return (
     <div className="flex flex-col gap-4">
-      <header className="px-1">
-        <h2 className="text-lg font-black pwa-text">Araç Hafızası</h2>
-        <p className="text-[11px] pwa-text-3 mt-0.5">
+      <header className="px-1 pt-2">
+        <h1 className="md-headline-m md-on-surface">Araç Hafızası</h1>
+        <p className="md-body-m md-on-surface-variant mt-1">
           Bu araç için kayıtlı geçmiş olaylar
         </p>
       </header>
@@ -171,30 +183,32 @@ function VehicleMemoryPanelBase({ vehicle }: { vehicle: LiveVehicle | null }) {
 
       {/* Okunamayan kaynak "kayıt yok" DEĞİLDİR — ayrıca söylenir. */}
       {memory.unreadableSources.length > 0 && (
-        <p className="text-[11px] px-3 py-2 rounded-xl"
-          style={{ background: 'var(--pwa-surface-3)', border: '1px solid var(--pwa-border-soft)', color: 'rgba(255,255,255,0.45)' }}>
-          Şu kaynaklar okunamadı: {memory.unreadableSources.join(', ')}
+        <p className="md-body-s px-4 py-3 flex items-start gap-2"
+          style={{ background: 'var(--md-warning-container)', color: 'var(--md-on-warning-container)', borderRadius: 'var(--md-shape-md)' }}>
+          <Icon name="warning" size={18} className="flex-shrink-0" />
+          <span>Şu kaynaklar okunamadı: {memory.unreadableSources.join(', ')}</span>
         </p>
       )}
 
       {memory.events.length === 0 ? (
         /* SAHTE OLAY ÜRETİLMEZ. */
-        <p className="py-10 text-center text-sm pwa-text-3">
-          Bu araç için henüz kayıtlı geçmiş yok.
-        </p>
+        <EmptyState icon="history" title="Bu araç için henüz kayıtlı geçmiş yok."
+          body="Yolculuk, yakıt, servis ve tarama kayıtları oluştukça burada gün gün görünür." />
       ) : (
         days.map(({ key, events }) => (
-          <section key={key} className="flex flex-col gap-2">
-            <h3 className="text-[10px] font-black uppercase tracking-[0.18em] pwa-text-3 px-1">
+          <section key={key} className="flex flex-col">
+            <h3 className="md-title-s md-on-surface-variant px-1 pb-2">
               {dayLabel(key)}
             </h3>
-            {events.map((e) => <MemoryRow key={e.id} event={e} />)}
+            <div className="md-card-elevated overflow-hidden">
+              {events.map((e, i) => <MemoryRow key={e.id} event={e} first={i === 0} />)}
+            </div>
           </section>
         ))
       )}
 
       {memory.truncated && (
-        <p className="text-[11px] text-center pwa-text-3">
+        <p className="md-body-s text-center md-on-surface-variant">
           Yalnız son {MEMORY_PAGE_SIZE} olay gösteriliyor.
         </p>
       )}
@@ -265,16 +279,13 @@ function ShareSummaryButton({
         onClick={() => { void share(); }}
         disabled={state === 'busy'}
         data-testid="share-vehicle-summary"
-        className="w-full min-h-[48px] rounded-2xl px-4 text-[13px] font-semibold transition-transform active:scale-[0.99] disabled:opacity-60"
-        style={{
-          background: 'rgba(59,130,246,0.12)',
-          border: '1px solid rgba(59,130,246,0.28)',
-          color: '#93c5fd',
-        }}
+        className="md-btn-outlined md-state w-full disabled:opacity-60"
+        style={{ minHeight: 48 }}
       >
+        <Icon name={state === 'copied' ? 'check_circle' : 'share'} size={18} />
         {state === 'busy' ? 'Hazırlanıyor…' : 'Araç Durum Özetini Paylaş'}
       </button>
-      <p className="text-[10px] pwa-text-3 px-1 leading-snug">
+      <p className="md-body-s md-on-surface-variant px-1">
         {state === 'copied'
           ? 'Özet panoya kopyalandı.'
           : state === 'failed'
@@ -285,35 +296,37 @@ function ShareSummaryButton({
   );
 }
 
-function MemoryRow({ event }: { event: VehicleMemoryEvent }) {
+function MemoryRow({ event, first }: { event: VehicleMemoryEvent; first: boolean }) {
   const tint = TYPE_TINT[event.type];
   return (
-    <article
-      className="rounded-2xl px-4 py-3 flex flex-col gap-1.5"
-      style={{ background: 'var(--pwa-surface-3)', border: '1px solid var(--pwa-border-soft)' }}
-    >
-      <div className="flex items-baseline gap-2">
-        <span aria-hidden="true" className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-          style={{ background: tint }} />
-        <span className="text-[13px] font-bold pwa-text flex-1 min-w-0">{event.title}</span>
-        {event.summary && (
-          <span className="text-[12px] pwa-text-2 flex-shrink-0">{event.summary}</span>
+    <article className="flex items-start gap-4 px-4 py-3"
+      style={first ? undefined : { borderTop: '1px solid var(--md-outline-variant)' }}>
+      <span aria-hidden="true" className="w-10 h-10 flex items-center justify-center flex-shrink-0"
+        style={{ borderRadius: 'var(--md-shape-full)', color: tint, background: 'color-mix(in srgb, currentColor 14%, transparent)' }}>
+        <Icon name={TYPE_ICON[event.type]} size={22} />
+      </span>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-baseline gap-2">
+          <span className="md-title-m md-on-surface flex-1 min-w-0">{event.title}</span>
+          {event.summary && (
+            <span className="md-body-m md-on-surface-variant flex-shrink-0 tabular-nums">{event.summary}</span>
+          )}
+        </div>
+
+        {event.measurements.length > 0 && (
+          <dl className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
+            {event.measurements.map((m) => (
+              <div key={m.label} className="flex items-baseline gap-1.5">
+                <dt className="md-body-s md-on-surface-variant">{m.label}</dt>
+                <dd className="md-body-s font-medium md-on-surface tabular-nums">{m.value}</dd>
+              </div>
+            ))}
+          </dl>
         )}
+
+        {/* Kaynağın ne olduğu düz Türkçeyle söylenir — teknik etiket dayatılmaz. */}
+        <p className="md-body-s md-on-surface-variant mt-0.5">{provenanceLabel(event.provenance)}</p>
       </div>
-
-      {event.measurements.length > 0 && (
-        <dl className="flex flex-wrap gap-x-4 gap-y-1 pl-3.5">
-          {event.measurements.map((m) => (
-            <div key={m.label} className="flex items-baseline gap-1.5">
-              <dt className="text-[10px] pwa-text-3">{m.label}</dt>
-              <dd className="text-[11px] font-semibold pwa-text-2">{m.value}</dd>
-            </div>
-          ))}
-        </dl>
-      )}
-
-      {/* Kaynağın ne olduğu düz Türkçeyle söylenir — teknik etiket dayatılmaz. */}
-      <p className="text-[10px] pwa-text-3 pl-3.5">{provenanceLabel(event.provenance)}</p>
     </article>
   );
 }

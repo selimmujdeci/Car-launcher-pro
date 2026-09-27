@@ -11,6 +11,13 @@ import {
   type FuelEntry, type ServiceEntry, type RecordsStorageMode, type EntrySync,
 } from '@/lib/recordsService';
 import { useRecordsSync, queueFailureMessage } from '@/hooks/useRecordsSync';
+import { Icon, type IconName } from '@/components/pwa/ui/Icon';
+import { EmptyState, IconBadge, SegmentedButton, StatusPill, TONE_ROLES, type Tone } from '@/components/pwa/ui/primitives';
+
+/** Rol rengini saydamlaştırır — hex'e alfa eklemek `var(--md-*)` ile çalışmaz. */
+function mix(color: string, pct: number): string {
+  return `color-mix(in srgb, ${color} ${pct}%, transparent)`;
+}
 
 interface Props { vehicle: LiveVehicle | null }
 
@@ -21,12 +28,12 @@ interface Props { vehicle: LiveVehicle | null }
  * Verinin NEREDE yaşadığı artık her zaman görünür.
  */
 const MODE_STYLE: Record<RecordsStorageMode, { color: string; bg: string; border: string }> = {
-  SERVER:       { color: '#34d399', bg: 'rgba(52,211,153,0.08)', border: 'rgba(52,211,153,0.22)' },
-  LOCAL_ONLY:   { color: '#fbbf24', bg: 'rgba(251,191,36,0.08)', border: 'rgba(251,191,36,0.25)' },
+  SERVER:       { color: 'var(--md-success)', bg: 'color-mix(in srgb, var(--md-success) 8%, transparent)', border: 'color-mix(in srgb, var(--md-success) 22%, transparent)' },
+  LOCAL_ONLY:   { color: 'var(--md-warning)', bg: 'color-mix(in srgb, var(--md-warning) 8%, transparent)', border: 'color-mix(in srgb, var(--md-warning) 25%, transparent)' },
   // Kuyrukta bekleyen kayıt YEŞİL olmaz — yeşil "hesabınızda" demektir ve
   // henüz hak edilmemiştir. Mavi: "iş sürüyor", hüküm verilmedi.
-  QUEUED:       { color: '#60a5fa', bg: 'rgba(96,165,250,0.08)', border: 'rgba(96,165,250,0.25)' },
-  SERVER_ERROR: { color: '#f87171', bg: 'rgba(239,68,68,0.08)',  border: 'rgba(239,68,68,0.25)' },
+  QUEUED:       { color: 'var(--md-primary)', bg: 'color-mix(in srgb, var(--md-primary) 8%, transparent)', border: 'color-mix(in srgb, var(--md-primary) 25%, transparent)' },
+  SERVER_ERROR: { color: 'var(--md-error)', bg: 'color-mix(in srgb, var(--md-error) 8%, transparent)',  border: 'color-mix(in srgb, var(--md-error) 25%, transparent)' },
 };
 
 /* ── Tek kaydın durum rozeti ──────────────────────────────────────────────
@@ -36,8 +43,8 @@ const MODE_STYLE: Record<RecordsStorageMode, { color: string; bg: string; border
  * diye "gönderildi" sanılmamalıdır.
  */
 const SYNC_STYLE: Record<Exclude<EntrySync, 'SERVER'>, { color: string; bg: string }> = {
-  QUEUED: { color: '#60a5fa', bg: 'rgba(96,165,250,0.12)' },
-  LOCAL:  { color: '#fbbf24', bg: 'rgba(251,191,36,0.12)' },
+  QUEUED: { color: 'var(--md-primary)', bg: 'color-mix(in srgb, var(--md-primary) 12%, transparent)' },
+  LOCAL:  { color: 'var(--md-warning)', bg: 'color-mix(in srgb, var(--md-warning) 12%, transparent)' },
 };
 
 /**
@@ -86,14 +93,16 @@ const DeleteButton = memo(function DeleteButton({
       data-testid="record-delete"
       data-armed={armed ? 'true' : 'false'}
       aria-label={label}
-      className="flex-shrink-0 px-2 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-widest transition-all active:scale-95 disabled:opacity-40"
+      className="md-state flex-shrink-0 inline-flex items-center justify-center gap-1 md-label-l disabled:opacity-40"
       style={{
-        color:      armed ? '#f87171' : 'var(--pwa-text-3)',
-        background: armed ? 'rgba(239,68,68,0.14)' : 'var(--pwa-border-soft)',
-        border:     `1px solid ${armed ? 'rgba(239,68,68,0.35)' : 'var(--pwa-border)'}`,
+        minWidth: 48, minHeight: 48, padding: armed ? '0 12px' : 0,
+        borderRadius: 'var(--md-shape-full)',
+        color:      armed ? 'var(--md-on-error-container)' : 'var(--md-on-surface-variant)',
+        background: armed ? 'var(--md-error-container)' : 'transparent',
       }}
     >
-      {busy ? '…' : armed ? 'Emin misin?' : 'Sil'}
+      {/* İlk dokunuş silmez; "Emin misin?" metni ikinci dokunuşu ister. */}
+      {busy ? '…' : armed ? 'Emin misin?' : <Icon name="delete" title="Sil" />}
     </button>
   );
 });
@@ -105,7 +114,7 @@ const EntrySyncBadge = memo(function EntrySyncBadge({ sync }: { sync?: EntrySync
     <span
       data-testid="entry-sync-badge"
       data-sync={sync}
-      className="px-1.5 py-0.5 rounded-md text-[7px] font-black uppercase tracking-widest flex-shrink-0"
+      className="px-1.5 py-0.5 rounded-md text-[11px] font-semibold flex-shrink-0"
       style={{ color: s.color, background: s.bg }}
     >
       {ENTRY_SYNC_LABEL[sync]}
@@ -119,18 +128,24 @@ const StorageBadge = memo(function StorageBadge({ mode }: { mode: RecordsStorage
     <div
       data-testid="records-storage-mode"
       data-mode={mode}
-      className="flex flex-col gap-1 px-3 py-2 rounded-xl"
-      style={{ background: s.bg, border: `1px solid ${s.border}` }}
+      className="flex items-start gap-3 px-1"
     >
-      <span className="text-[9px] font-black uppercase tracking-widest" style={{ color: s.color }}>
-        {STORAGE_MODE_LABEL[mode]}
+      <span className="flex-shrink-0 mt-0.5" style={{ color: s.color }}>
+        <Icon name={mode === 'SERVER' ? 'cloud_done' : 'cloud_off'} size={20} />
       </span>
-      <span className="text-[9px] leading-relaxed" style={{ color: 'var(--pwa-text-3)' }}>
-        {STORAGE_MODE_HINT[mode]}
+      <span className="flex-1 min-w-0">
+        <span className="block md-label-l" style={{ color: s.color }}>{STORAGE_MODE_LABEL[mode]}</span>
+        <span className="block md-body-s md-on-surface-variant">{STORAGE_MODE_HINT[mode]}</span>
       </span>
     </div>
   );
 });
+
+/** Servis kalemi → ikon (görünüm; `SERVICE_DEFS` sözlüğü DEĞİŞMEZ). */
+const SERVICE_ICON: Record<string, IconName> = {
+  oil: 'oil_barrel', tires: 'tire_repair', brakes: 'car_repair', filter: 'air', ac: 'ac_unit', timing: 'settings',
+};
+const STATUS_TONE: Record<ServiceStatus, Tone> = { ok: 'success', soon: 'warning', overdue: 'error', unknown: 'neutral' };
 
 /* ── Servis kalemleri ─────────────────────────────────────────────────────── */
 
@@ -298,46 +313,37 @@ function FuelTab({ vehicle }: { vehicle: LiveVehicle | null }) {
     <div className="flex flex-col gap-4">
       <StorageBadge mode={mode} />
 
-      {/* İstatistikler — ölçülemeyen değer SAYI olarak basılmaz */}
-      <div className="grid grid-cols-3 gap-2">
+      {/* İstatistikler — ölçülemeyen değer SAYI olarak basılmaz. Tek özet
+          kartı: üç sayı yan yana, ayraçla; renk anlam taşımaz. */}
+      <section className="md-card-filled grid grid-cols-3 py-4" aria-label="Yakıt özeti">
         {[
-          { label: 'Ort. Tüketim',   value: avg  != null ? avg.toFixed(1)  : null, unit: 'L/100km', color: '#60a5fa' },
-          { label: 'Toplam Litre',   value: log.length > 0 ? liters.toFixed(1) : null, unit: 'L',   color: '#34d399' },
-          { label: 'Toplam Harcama', value: cost != null ? String(Math.round(cost)) : null, unit: '₺', color: '#fbbf24' },
-        ].map(({ label, value, unit, color }) => (
-          <div key={label} className="flex flex-col items-center py-3 rounded-xl"
-            style={{
-              background: value != null ? `${color}09` : 'var(--pwa-surface-3)',
-              border: `1px solid ${value != null ? `${color}20` : 'var(--pwa-border-soft)'}`,
-            }}>
-            <span className="text-[7px] font-black uppercase tracking-widest pwa-text-3 mb-1 text-center leading-tight">{label}</span>
-            <span className="text-base font-black tabular-nums"
-              style={{ color: value != null ? color : 'var(--pwa-text-3)' }}>
-              {value ?? '—'}
-            </span>
-            <span className="text-[8px] font-mono mt-0.5"
-              style={{ color: value != null ? `${color}60` : 'var(--pwa-text-3)' }}>
-              {value != null ? unit : 'yeterli kayıt yok'}
-            </span>
+          { label: 'Ort. Tüketim',   value: avg  != null ? avg.toFixed(1)  : null, unit: 'L/100 km' },
+          { label: 'Toplam Litre',   value: log.length > 0 ? liters.toFixed(1) : null, unit: 'litre' },
+          { label: 'Toplam Harcama', value: cost != null ? Math.round(cost).toLocaleString('tr-TR') : null, unit: '₺' },
+        ].map(({ label, value, unit }, i) => (
+          <div key={label} className="flex flex-col items-center text-center px-2"
+            style={i > 0 ? { borderLeft: '1px solid var(--md-outline-variant)' } : undefined}>
+            <span className="md-label-m md-on-surface-variant">{label}</span>
+            <span className="mt-1 md-title-l md-on-surface tabular-nums" style={{ fontWeight: 500 }}>{value ?? '—'}</span>
+            <span className="md-body-s md-on-surface-variant">{value != null ? unit : 'yeterli kayıt yok'}</span>
           </div>
         ))}
-      </div>
+      </section>
 
       {saveMsg && (
-        <p data-testid="records-save-msg" className="text-[10px] px-1" style={{ color: 'var(--pwa-text-2)' }}>
+        <p data-testid="records-save-msg" className="text-xs px-1" style={{ color: 'var(--pwa-text-2)' }}>
           {saveMsg}
         </p>
       )}
 
       {/* Ekleme formu */}
       {adding ? (
-        <div className="flex flex-col gap-3 p-4 rounded-2xl"
-          style={{ background: 'rgba(96,165,250,0.05)', border: '1.5px solid rgba(96,165,250,0.18)' }}>
-          <p data-testid="fuel-form-title" className="text-[10px] font-black uppercase tracking-widest text-blue-400/60">
+        <div className="md-card-elevated flex flex-col gap-4 p-4">
+          <p data-testid="fuel-form-title" className="md-title-m md-on-surface">
             {editing ? 'Yakıt Kaydını Düzenle' : 'Yakıt Ekle'}
           </p>
 
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-2 gap-3">
             {[
               { key: 'date',      label: 'Tarih',              type: 'date',   placeholder: '' },
               { key: 'km',        label: 'Kilometre (ops.)',   type: 'number', placeholder: '85000' },
@@ -345,24 +351,23 @@ function FuelTab({ vehicle }: { vehicle: LiveVehicle | null }) {
               { key: 'pricePerL', label: '₺/Litre (ops.)',     type: 'number', placeholder: '45.50' },
             ].map(({ key, label, type, placeholder }) => (
               <div key={key} className="flex flex-col gap-1">
-                <label htmlFor={`${formId}-${key}`}
-                  className="text-[9px] font-black uppercase tracking-widest pwa-text-3">
+                <label htmlFor={`${formId}-${key}`} className="md-body-s md-on-surface-variant px-1">
                   {label}
                 </label>
                 <input
                   id={`${formId}-${key}`}
                   type={type}
+                  inputMode={type === 'number' ? 'decimal' : undefined}
                   placeholder={placeholder}
                   value={form[key as keyof typeof form]}
                   onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
-                  className="w-full px-3 py-2 rounded-xl text-sm pwa-text placeholder-white/15 outline-none tabular-nums"
-                  style={{ background: 'var(--pwa-border-soft)', border: '1px solid var(--pwa-border)' }}
+                  className="md-field"
                 />
               </div>
             ))}
           </div>
 
-          <p className="text-[9px] pwa-text-3">
+          <p className="md-body-s md-on-surface-variant">
             {/* Kaynak AÇIKÇA yazılır: türetilmiş değer elle girilmiş gibi gösterilmez. */}
             {vehicleKm !== null
               ? <>Kilometre <b>araçtan okundu</b> ({vehicleKm.toLocaleString('tr')} km) — yanlışsa değiştirebilirsiniz. </>
@@ -371,42 +376,25 @@ function FuelTab({ vehicle }: { vehicle: LiveVehicle | null }) {
             yalnız o kaydın hesaplamaları dışında kalır.
           </p>
 
-          <div className="flex gap-2">
+          <div className="flex justify-end gap-2">
+            <button onClick={closeForm} className="md-btn-text md-state min-h-12">İptal</button>
             <button
               onClick={() => void handleSubmit()}
               data-testid="fuel-form-save"
-              className="flex-1 py-2.5 rounded-xl font-black text-[11px] uppercase tracking-widest text-white transition-all active:scale-95"
-              style={{ background: 'linear-gradient(135deg,#3b82f6,#2563eb)', boxShadow: '0 4px 16px rgba(59,130,246,0.25)' }}
+              className="md-btn-filled md-state min-h-12"
             >
               Kaydet
-            </button>
-            <button
-              onClick={closeForm}
-              className="flex-1 py-2.5 rounded-xl font-black text-[11px] uppercase tracking-widest transition-all active:scale-95 pwa-text-3"
-              style={{ background: 'var(--pwa-surface-3)', border: '1px solid var(--pwa-border-soft)' }}
-            >
-              İptal
             </button>
           </div>
         </div>
       ) : (
+        /* Extended FAB — bu yüzeyin TEK birincil eylemi. */
         <button
           onClick={() => { setAdding(true); setSaveMsg(''); }}
-          className="w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl transition-all active:scale-[0.98]"
-          style={{ background: 'rgba(96,165,250,0.06)', border: '1.5px solid rgba(96,165,250,0.18)' }}
+          className="md-fab md-state"
         >
-          <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0"
-            style={{ background: 'rgba(96,165,250,0.12)', border: '1px solid rgba(96,165,250,0.22)' }}>
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path d="M8 2v12M2 8h12" stroke="#60a5fa" strokeWidth="1.8" strokeLinecap="round"/>
-            </svg>
-          </div>
-          <div className="text-left">
-            <p className="text-sm font-bold text-blue-300">Yakıt Doldurma Ekle</p>
-            <p className="text-[10px] mt-0.5" style={{ color: 'rgba(96,165,250,0.4)' }}>
-              Tarih, km, litre ve fiyat kaydet
-            </p>
-          </div>
+          <Icon name="add" />
+          Yakıt ekle
         </button>
       )}
 
@@ -414,34 +402,27 @@ function FuelTab({ vehicle }: { vehicle: LiveVehicle | null }) {
       {loading ? (
         <p className="py-6 text-center text-sm pwa-text-3">Kayıtlar yükleniyor…</p>
       ) : log.length > 0 ? (
-        <div className="flex flex-col gap-2">
-          {log.slice(0, 10).map((entry) => (
-            <div key={entry.id} className="flex items-center gap-3 px-3 py-2.5 rounded-xl"
-              style={{ background: 'var(--pwa-surface-3)', border: '1px solid var(--pwa-border-soft)' }}>
-              <div className="flex flex-col items-center gap-0.5 flex-shrink-0 w-12">
-                <span className="text-[8px] font-mono pwa-text-3">
-                  {new Date(entry.filledOn).toLocaleDateString('tr-TR', { day: '2-digit', month: 'short' })}
-                </span>
-                {/* Kilometre bilinmiyorsa em-dash — 0 km BASILMAZ. */}
-                <span className="text-[7px] font-mono pwa-text-3">
-                  {entry.odometerKm != null ? `${entry.odometerKm.toLocaleString('tr')} km` : '— km'}
-                </span>
+        <section className="md-card-elevated overflow-hidden" aria-label="Yakıt kayıtları">
+          {log.slice(0, 10).map((entry, i) => (
+            <div key={entry.id} className="flex items-center gap-3 pl-4 pr-1 py-2"
+              style={i > 0 ? { borderTop: '1px solid var(--md-outline-variant)' } : undefined}>
+              <IconBadge name="local_gas_station" />
+              <div className="flex-1 min-w-0">
+                <p className="md-body-l md-on-surface tabular-nums">
+                  {entry.liters.toFixed(1)} L
+                  <span className="md-on-surface-variant">
+                    {' · '}{entry.pricePerL != null
+                      ? `${Math.round(entry.liters * entry.pricePerL).toLocaleString('tr-TR')} ₺`
+                      : 'fiyat yok'}
+                  </span>
+                </p>
+                <p className="md-body-s md-on-surface-variant tabular-nums">
+                  {new Date(entry.filledOn).toLocaleDateString('tr-TR', { day: '2-digit', month: 'short', year: 'numeric' })}
+                  {/* Kilometre bilinmiyorsa em-dash — 0 km BASILMAZ. */}
+                  {' · '}{entry.odometerKm != null ? `${entry.odometerKm.toLocaleString('tr')} km` : '— km'}
+                </p>
+                <EntrySyncBadge sync={entry.sync} />
               </div>
-              <div className="flex-1 grid grid-cols-2 gap-2 text-center">
-                <div>
-                  <p className="text-sm font-black tabular-nums text-blue-300">{entry.liters.toFixed(1)}</p>
-                  <p className="text-[7px] font-mono pwa-text-3">litre</p>
-                </div>
-                <div>
-                  <p className="text-sm font-black tabular-nums text-yellow-300">
-                    {entry.pricePerL != null ? Math.round(entry.liters * entry.pricePerL) : '—'}
-                  </p>
-                  <p className="text-[7px] font-mono pwa-text-3">
-                    {entry.pricePerL != null ? '₺' : 'fiyat yok'}
-                  </p>
-                </div>
-              </div>
-              <EntrySyncBadge sync={entry.sync} />
               {/* Düzenleme: yanlış girilen litre/kilometre kaydı SİLMEDEN
                   düzeltilebilir — silip yeniden girmek sunucudaki kimliği ve
                   kaydın tarihçesini kaybettirirdi. */}
@@ -449,14 +430,9 @@ function FuelTab({ vehicle }: { vehicle: LiveVehicle | null }) {
                 onClick={() => startEdit(entry)}
                 data-testid="record-edit"
                 aria-label={`${entry.filledOn} tarihli yakıt kaydını düzenle`}
-                className="flex-shrink-0 px-2 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-widest transition-all active:scale-95"
-                style={{
-                  color:      'var(--pwa-text-3)',
-                  background: 'var(--pwa-border-soft)',
-                  border:     '1px solid var(--pwa-border)',
-                }}
+                className="md-icon-btn md-state flex-shrink-0"
               >
-                Düzenle
+                <Icon name="edit" />
               </button>
               <DeleteButton
                 busy={deleting === entry.id}
@@ -465,12 +441,15 @@ function FuelTab({ vehicle }: { vehicle: LiveVehicle | null }) {
               />
             </div>
           ))}
-        </div>
+        </section>
       ) : (
         !adding && (
-          <div className="text-center py-6 text-sm pwa-text-3">Henüz yakıt kaydı yok</div>
+          <EmptyState icon="local_gas_station" title="Henüz yakıt kaydı yok"
+            body="İlk dolumu eklediğinizde tüketim ve harcama burada hesaplanır." />
         )
       )}
+      {/* FAB son kaydın üstünü örtmesin. */}
+      {!adding && <div aria-hidden="true" style={{ height: 72 }} />}
     </div>
   );
 }
@@ -595,10 +574,10 @@ export function validateOdometerInput(raw: string, floorKm: number | null): Odom
 }
 
 const STATUS_CFG: Record<ServiceStatus, { color: string; label: string; bg: string; border: string }> = {
-  ok:      { color: '#34d399', label: 'İyi',        bg: 'rgba(52,211,153,0.08)', border: 'rgba(52,211,153,0.2)' },
-  soon:    { color: '#fbbf24', label: 'Yakında',    bg: 'rgba(251,191,36,0.08)', border: 'rgba(251,191,36,0.25)' },
-  overdue: { color: '#ef4444', label: 'Geçmiş',     bg: 'rgba(239,68,68,0.08)',  border: 'rgba(239,68,68,0.25)' },
-  unknown: { color: '#6b7280', label: 'Bilinmiyor', bg: 'var(--pwa-surface-3)',  border: 'var(--pwa-border-soft)' },
+  ok:      { color: 'var(--md-success)', label: 'İyi',        bg: 'color-mix(in srgb, var(--md-success) 8%, transparent)', border: 'color-mix(in srgb, var(--md-success) 20%, transparent)' },
+  soon:    { color: 'var(--md-warning)', label: 'Yakında',    bg: 'color-mix(in srgb, var(--md-warning) 8%, transparent)', border: 'color-mix(in srgb, var(--md-warning) 25%, transparent)' },
+  overdue: { color: 'var(--md-error)', label: 'Geçmiş',     bg: 'color-mix(in srgb, var(--md-error) 8%, transparent)',  border: 'color-mix(in srgb, var(--md-error) 25%, transparent)' },
+  unknown: { color: 'var(--md-outline)', label: 'Bilinmiyor', bg: 'var(--pwa-surface-3)',  border: 'var(--pwa-border-soft)' },
 };
 
 function ServiceTab({ vehicle }: { vehicle: LiveVehicle | null }) {
@@ -739,14 +718,22 @@ function ServiceTab({ vehicle }: { vehicle: LiveVehicle | null }) {
   }
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-3">
       <StorageBadge mode={mode} />
 
+      {/* Kilometre ölçülmemişse bunu AÇIKÇA söyler — bakım hükmü bu yüzden verilemez. */}
+      <p className="md-body-s md-on-surface-variant px-1 inline-flex items-center gap-1.5">
+        <Icon name="speed" size={18} />
+        {currentKm != null
+          ? `Mevcut km: ${currentKm.toLocaleString('tr')}`
+          : 'Araç kilometresi okunamadı — bakım durumu hesaplanamıyor'}
+      </p>
+
       {msg && (
-        <p data-testid="service-save-msg" className="text-[10px] px-1" style={{ color: 'var(--pwa-text-2)' }}>{msg}</p>
+        <p data-testid="service-save-msg" className="md-body-s md-on-surface-variant px-1">{msg}</p>
       )}
 
-      {loading && <p className="py-4 text-center text-sm pwa-text-3">Kayıtlar yükleniyor…</p>}
+      {loading && <p className="py-4 text-center md-body-m md-on-surface-variant" role="status">Kayıtlar yükleniyor…</p>}
 
       {SERVICE_DEFS.map((def) => {
         // Her kalem için EN SON kayıt (liste tarihe göre azalan gelir).
@@ -759,23 +746,19 @@ function ServiceTab({ vehicle }: { vehicle: LiveVehicle | null }) {
         const kmLeft  = kmSince != null ? def.intervalKm - kmSince : null;
 
         return (
-          <div key={def.key} className="flex flex-col gap-2">
-          <div className="flex items-center gap-3 px-3 py-3 rounded-xl transition-all"
-            style={{ background: cfg.bg, border: `1px solid ${cfg.border}` }}>
-            <span className="text-xl flex-shrink-0" role="img" aria-label={def.label}>{def.icon}</span>
+          <section key={def.key} className="md-card-elevated overflow-hidden" aria-label={def.label}>
+          <div className="flex items-start gap-4 px-4 pt-4 pb-2">
+            <IconBadge name={SERVICE_ICON[def.key] ?? 'build'} tone={st === 'unknown' ? 'neutral' : STATUS_TONE[st]} />
 
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <p className="text-xs font-bold pwa-text leading-tight">{def.label}</p>
-                <span className="text-[7px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-md flex-shrink-0"
-                  style={{ background: `${cfg.color}15`, color: cfg.color }}>
-                  {cfg.label}
-                </span>
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="md-title-m md-on-surface">{def.label}</p>
+                <StatusPill tone={STATUS_TONE[st]}>{cfg.label}</StatusPill>
                 {/* Son kayıt sunucuda değilse bunu söyler — bakım hükmü
                     gönderilmemiş bir kayda dayanıyor olabilir. */}
                 <EntrySyncBadge sync={last?.sync} />
               </div>
-              <p className="text-[9px] mt-0.5 font-mono pwa-text-3">
+              <p className="md-body-s mt-1 md-on-surface-variant">
                 {last
                   ? `Son: ${new Date(last.performedOn).toLocaleDateString('tr-TR', { day: '2-digit', month: 'short', year: '2-digit' })}`
                   : 'Kayıt yok'}
@@ -789,46 +772,73 @@ function ServiceTab({ vehicle }: { vehicle: LiveVehicle | null }) {
                 {currentKm === null && floorKm != null && last?.odometerKm != null &&
                   ` · araç ölçülemiyor, kayıtlara göre en az ${(floorKm - last.odometerKm).toLocaleString('tr')} km`}
               </p>
-            </div>
 
-            <div className="flex-shrink-0 flex items-center gap-1.5">
-              {/* Kayıt varsa DÜZELTİLEBİLİR ve geri alınabilir — yanlış
-                  kilometre yüzünden kaydı silmek zorunda kalınmaz. */}
-              {last && (
-                <button
-                  onClick={() => startEdit(last)}
-                  data-testid={`service-edit-${def.key}`}
-                  aria-label={`${def.label} son kaydını düzenle`}
-                  className="flex-shrink-0 px-2 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-widest transition-all active:scale-95"
-                  style={{
-                    color:      'var(--pwa-text-3)',
-                    background: 'var(--pwa-border-soft)',
-                    border:     '1px solid var(--pwa-border)',
-                  }}
-                >
-                  Düzenle
-                </button>
+              {/* ARALIK ÇUBUĞU — yalnız GERÇEK kilometre farkı biliniyorsa
+                  çizilir (ölçülmemiş ilerleme uydurulmaz). Bakım aralığının
+                  ne kadarının kullanıldığını tek bakışta gösterir. */}
+              {kmSince != null && kmSince >= 0 && (
+                <div className="mt-2.5" role="img"
+                  aria-label={`Bakım aralığının yüzde ${Math.min(100, Math.round((kmSince / def.intervalKm) * 100))} kullanıldı`}>
+                  <div style={{ height: 4, borderRadius: 2, background: 'var(--md-surface-container-highest)', overflow: 'hidden' }}>
+                    <div style={{
+                      height: '100%', borderRadius: 2,
+                      width: `${Math.min(100, (kmSince / def.intervalKm) * 100)}%`,
+                      background: TONE_ROLES[STATUS_TONE[st]].fg,
+                    }} />
+                  </div>
+                  <p className="md-label-m md-on-surface-variant mt-1 tabular-nums">
+                    {kmSince.toLocaleString('tr')} / {def.intervalKm.toLocaleString('tr')} km
+                  </p>
+                </div>
               )}
-              {last && (
-                <DeleteButton
-                  busy={deleting === def.key}
-                  label={`${def.label} son kaydını geri al`}
-                  onConfirm={() => { void undoLast(last); }}
-                />
-              )}
+            </div>
+          </div>
+
+          {!last && (
+            /* Kaydı olmayan kalemde tek eylem başlık satırının altında,
+               sağa yaslı ve kompakt — boş bir eylem satırı açılmaz. */
+            <div className="flex justify-end px-3 pb-3 -mt-10">
               <button
                 onClick={() => markDone(def.key)}
                 data-testid={`service-done-${def.key}`}
-                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all active:scale-95"
-                style={{ background: `${cfg.color}18`, border: `1px solid ${cfg.color}30`, color: cfg.color }}
+                className="md-btn-text md-state"
+                style={{ minHeight: 40 }}
               >
-                <svg width="9" height="9" viewBox="0 0 9 9" fill="none">
-                  <path d="M1.5 4.5l2.5 2.5 3.5-4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
+                <Icon name="done" size={18} />
                 Yapıldı
               </button>
             </div>
-          </div>
+          )}
+          {last && <div className="flex items-center justify-end gap-1 px-2 pb-2">
+            {/* Kayıt varsa DÜZELTİLEBİLİR ve geri alınabilir — yanlış
+                kilometre yüzünden kaydı silmek zorunda kalınmaz. */}
+            {last && (
+              <button
+                onClick={() => startEdit(last)}
+                data-testid={`service-edit-${def.key}`}
+                aria-label={`${def.label} son kaydını düzenle`}
+                className="md-icon-btn md-state"
+              >
+                <Icon name="edit" />
+              </button>
+            )}
+            {last && (
+              <DeleteButton
+                busy={deleting === def.key}
+                label={`${def.label} son kaydını geri al`}
+                onConfirm={() => { void undoLast(last); }}
+              />
+            )}
+            <button
+              onClick={() => markDone(def.key)}
+              data-testid={`service-done-${def.key}`}
+              className="md-btn-tonal md-state ml-1"
+              style={{ minHeight: 40 }}
+            >
+              <Icon name="done" size={18} />
+              Yapıldı
+            </button>
+          </div>}
 
           {/* ── KİLOMETRE FORMU ───────────────────────────────────────────
               İki mod, tek form: yeni kayıtta araçtan ölçüm ALINAMADIĞINDA
@@ -838,13 +848,13 @@ function ServiceTab({ vehicle }: { vehicle: LiveVehicle | null }) {
             <div
               data-testid="service-km-prompt"
               data-mode={sheet.mode}
-              className="flex flex-col gap-2 px-3 py-3 rounded-xl"
-              style={{ background: 'rgba(96,165,250,0.06)', border: '1px solid rgba(96,165,250,0.22)' }}
+              className="flex flex-col gap-3 px-4 py-4"
+              style={{ borderTop: '1px solid var(--md-outline-variant)', background: 'var(--md-surface-container)' }}
             >
-              <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: '#60a5fa' }}>
+              <p className="md-title-s md-on-surface">
                 {def.label} — {sheet.mode === 'EDIT' ? 'kaydı düzenle' : 'kilometre'}
               </p>
-              <p className="text-[9px] leading-relaxed" style={{ color: 'var(--pwa-text-3)' }}>
+              <p className="md-body-s md-on-surface-variant">
                 {sheet.mode === 'EDIT'
                   ? <>Bu kalemin son kaydını düzeltebilirsiniz. Kilometreyi bilmiyorsanız <b>boş bırakın</b> — kayıt korunur, yalnız bakım durumu hesaplanamaz.</>
                   : <>Araçtan kilometre okunamadı. Bakım durumunun hesaplanabilmesi için bakımın yapıldığı kilometreyi girin. <b>Bilmiyorsanız boş bırakın</b> — kayıt yine tutulur, yalnız bu kalem için "Bilinmiyor" görünür.</>}
@@ -859,8 +869,8 @@ function ServiceTab({ vehicle }: { vehicle: LiveVehicle | null }) {
                   data-testid="service-date-input"
                   value={dateDraft}
                   onChange={(e) => setDateDraft(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl text-sm pwa-text outline-none"
-                  style={{ background: 'var(--pwa-border-soft)', border: '1px solid var(--pwa-border)' }}
+                  aria-label="Bakım tarihi"
+                  className="md-field"
                 />
               )}
 
@@ -873,48 +883,29 @@ function ServiceTab({ vehicle }: { vehicle: LiveVehicle | null }) {
                 value={kmDraft}
                 onChange={(e) => setKmDraft(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter') submitSheet(); }}
-                className="w-full px-3 py-2 rounded-xl text-sm pwa-text placeholder-white/15 outline-none tabular-nums"
-                style={{ background: 'var(--pwa-border-soft)', border: '1px solid var(--pwa-border)' }}
+                aria-label="Bakım kilometresi"
+                className="md-field"
               />
-              <div className="flex gap-2">
-                <button
-                  onClick={submitSheet}
-                  data-testid="service-km-save"
-                  className="flex-1 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest text-white transition-all active:scale-95"
-                  style={{ background: 'linear-gradient(135deg,#3b82f6,#2563eb)' }}
-                >
-                  Kaydet
-                </button>
+              <div className="flex flex-wrap justify-end gap-2">
+                <button onClick={closeSheet} className="md-btn-text md-state min-h-12">Vazgeç</button>
                 {sheet.mode === 'ASK_KM' && (
                   <button
                     onClick={() => void saveDone(def.key, null)}
                     data-testid="service-km-unknown"
-                    className="flex-1 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all active:scale-95 pwa-text-3"
-                    style={{ background: 'var(--pwa-surface-3)', border: '1px solid var(--pwa-border-soft)' }}
+                    className="md-btn-outlined md-state min-h-12"
                   >
                     Bilmiyorum
                   </button>
                 )}
-                <button
-                  onClick={closeSheet}
-                  className="px-3 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all active:scale-95 pwa-text-3"
-                  style={{ background: 'var(--pwa-border-soft)', border: '1px solid var(--pwa-border)' }}
-                >
-                  Vazgeç
+                <button onClick={submitSheet} data-testid="service-km-save" className="md-btn-filled md-state min-h-12">
+                  Kaydet
                 </button>
               </div>
             </div>
           )}
-          </div>
+          </section>
         );
       })}
-
-      {/* Kilometre ölçülmemişse bunu AÇIKÇA söyler — bakım hükmü bu yüzden verilemez. */}
-      <p className="text-[9px] text-center font-mono mt-1 pwa-text-3">
-        {currentKm != null
-          ? `Mevcut km: ${currentKm.toLocaleString('tr')}`
-          : 'Araç kilometresi okunamadı — bakım durumu hesaplanamıyor'}
-      </p>
     </div>
   );
 }
@@ -951,15 +942,15 @@ const PendingQueueStrip = memo(function PendingQueueStrip() {
         data-pending={pending === null ? 'unknown' : String(pending)}
         data-failed={failed === null ? 'unknown' : String(failed)}
         className="flex items-center gap-3 px-3 py-2.5 rounded-xl"
-        style={{ background: 'rgba(96,165,250,0.06)', border: '1px solid rgba(96,165,250,0.2)' }}
+        style={{ background: 'color-mix(in srgb, var(--md-primary) 8%, transparent)', border: '1px solid color-mix(in srgb, var(--md-primary) 20%, transparent)' }}
       >
         <div className="flex-1">
-          <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: '#60a5fa' }}>
+          <p className="text-xs font-semibold" style={{ color: 'var(--md-primary)' }}>
             {unknown
               ? 'Sıra durumu okunamadı'
               : `${pending} kayıt gönderilmeyi bekliyor`}
           </p>
-          <p className="text-[9px] leading-relaxed mt-0.5" style={{ color: 'var(--pwa-text-3)' }}>
+          <p className="text-[11px] leading-relaxed mt-0.5" style={{ color: 'var(--pwa-text-3)' }}>
             {unknown
               ? 'Cihaz deposu okunamadı — bekleyen kayıt olup olmadığı bilinmiyor.'
               : 'Bağlantı geldiğinde otomatik gönderilir. Bu kayıtlar henüz hesabınıza işlenmedi.'}
@@ -968,8 +959,8 @@ const PendingQueueStrip = memo(function PendingQueueStrip() {
         <button
           onClick={() => void syncNow()}
           disabled={syncing}
-          className="px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest flex-shrink-0 transition-all active:scale-95 disabled:opacity-50"
-          style={{ background: 'rgba(96,165,250,0.14)', border: '1px solid rgba(96,165,250,0.3)', color: '#60a5fa' }}
+          className="px-3 py-2 rounded-xl text-xs font-semibold flex-shrink-0 transition-all active:scale-95 disabled:opacity-50"
+          style={{ background: 'color-mix(in srgb, var(--md-primary) 14%, transparent)', border: '1px solid color-mix(in srgb, var(--md-primary) 30%, transparent)', color: 'var(--md-primary)' }}
         >
           {syncing ? 'Gönderiliyor…' : 'Şimdi gönder'}
         </button>
@@ -986,27 +977,27 @@ const PendingQueueStrip = memo(function PendingQueueStrip() {
           data-testid="records-queue-failed"
           data-status={entry.status}
           className="flex items-center gap-3 px-3 py-2.5 rounded-xl"
-          style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.22)' }}
+          style={{ background: 'color-mix(in srgb, var(--md-error) 8%, transparent)', border: '1px solid color-mix(in srgb, var(--md-error) 22%, transparent)' }}
         >
           <div className="flex-1 min-w-0">
-            <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: '#f87171' }}>
+            <p className="text-xs font-semibold" style={{ color: 'var(--md-error)' }}>
               {QUEUE_TYPE_LABEL[entry.type]} gönderilemedi
             </p>
-            <p className="text-[9px] leading-relaxed mt-0.5" style={{ color: 'var(--pwa-text-3)' }}>
+            <p className="text-[11px] leading-relaxed mt-0.5" style={{ color: 'var(--pwa-text-3)' }}>
               {queueFailureMessage(entry)}
               {` · ${entry.attemptCount}/${entry.maxAttempts} deneme`}
             </p>
           </div>
           <button
             onClick={() => void retryItem(entry.id)}
-            className="px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest flex-shrink-0 transition-all active:scale-95"
-            style={{ background: 'rgba(96,165,250,0.14)', border: '1px solid rgba(96,165,250,0.3)', color: '#60a5fa' }}
+            className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold flex-shrink-0 transition-all active:scale-95"
+            style={{ background: 'color-mix(in srgb, var(--md-primary) 14%, transparent)', border: '1px solid color-mix(in srgb, var(--md-primary) 30%, transparent)', color: 'var(--md-primary)' }}
           >
             Yeniden dene
           </button>
           <button
             onClick={() => void discardItem(entry.id)}
-            className="px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest flex-shrink-0 transition-all active:scale-95 pwa-text-3"
+            className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold flex-shrink-0 transition-all active:scale-95 pwa-text-3"
             style={{ background: 'var(--pwa-border-soft)', border: '1px solid var(--pwa-border)' }}
           >
             Vazgeç
@@ -1023,28 +1014,16 @@ const RecordsPanel = memo(function RecordsPanel({ vehicle }: Props) {
   return (
     <div className="flex flex-col gap-4">
       <PendingQueueStrip />
-      {/* Alt sekme anahtarı */}
-      <div className="flex gap-1.5 p-1 rounded-2xl"
-        style={{ background: 'var(--pwa-surface-3)', border: '1px solid var(--pwa-border-soft)' }}>
-        {([
-          { id: 'fuel' as const,    icon: '⛽', label: 'Yakıt Takibi' },
-          { id: 'service' as const, icon: '🔧', label: 'Servis Takibi' },
-        ] as const).map(({ id, icon, label }) => (
-          <button
-            key={id}
-            onClick={() => setTab(id)}
-            className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-wider transition-all"
-            style={{
-              background: tab === id ? 'rgba(59,130,246,0.15)' : 'transparent',
-              color:      tab === id ? '#60a5fa' : 'var(--pwa-text-3)',
-              border:     tab === id ? '1px solid rgba(59,130,246,0.3)' : '1px solid transparent',
-            }}
-          >
-            <span role="img" aria-label={label}>{icon}</span>
-            {label}
-          </button>
-        ))}
-      </div>
+      {/* Alt sekme anahtarı — M3 segment düğmesi */}
+      <SegmentedButton<RecordsTab>
+        label="Kayıt türü"
+        value={tab}
+        onChange={setTab}
+        options={[
+          { id: 'fuel',    label: 'Yakıt',  icon: 'local_gas_station' },
+          { id: 'service', label: 'Servis', icon: 'build' },
+        ]}
+      />
 
       {tab === 'fuel'    && <FuelTab    vehicle={vehicle} />}
       {tab === 'service' && <ServiceTab vehicle={vehicle} />}

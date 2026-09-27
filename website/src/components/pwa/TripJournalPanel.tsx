@@ -33,6 +33,13 @@ import {
   UNKNOWN_LABEL,
   type JournalEntry, type JournalSurfaceState,
 } from '@/lib/tripJournalView';
+import { Icon, type IconName } from '@/components/pwa/ui/Icon';
+import { StatusPill } from '@/components/pwa/ui/primitives';
+
+/** Rol rengini saydamlaştırır — hex'e alfa eklemek `var(--md-*)` ile çalışmaz. */
+function mix(color: string, pct: number): string {
+  return `color-mix(in srgb, ${color} ${pct}%, transparent)`;
+}
 
 interface Props { vehicle: LiveVehicle | null }
 
@@ -41,13 +48,13 @@ const PAGE_LIMIT = 50;
 
 /* ── Durum ekranı ────────────────────────────────────────────────────── */
 
-const STATE_TONE: Record<Exclude<JournalSurfaceState, 'READY'>, string> = {
-  NO_VEHICLE:   'var(--pwa-text-3)',
-  LOADING:      'var(--pwa-text-3)',
-  EMPTY:        'var(--pwa-text-3)',
-  OFFLINE:      '#fbbf24',
-  UNAUTHORIZED: '#f87171',
-  ERROR:        '#f87171',
+const STATE_ICON: Record<Exclude<JournalSurfaceState, 'READY'>, IconName> = {
+  NO_VEHICLE:   'directions_car',
+  LOADING:      'route',
+  EMPTY:        'route',
+  OFFLINE:      'cloud_off',
+  UNAUTHORIZED: 'error',
+  ERROR:        'error',
 };
 
 const StateScreen = memo(function StateScreen({
@@ -57,38 +64,32 @@ const StateScreen = memo(function StateScreen({
      bir bağlantı sorunu değildir; oraya "Tekrar dene" koymak kullanıcıyı
      sonuçsuz bir döngüye sokar. */
   const retryable = state === 'OFFLINE' || state === 'ERROR';
+  const bad = state === 'UNAUTHORIZED' || state === 'ERROR';
 
   return (
     <div
       className="flex flex-col items-center justify-center gap-3 py-12 px-6 text-center"
       data-testid="journal-state"
       data-state={state}
+      role={state === 'LOADING' ? 'status' : undefined}
     >
-      {state === 'LOADING' ? (
-        <svg className="animate-spin w-5 h-5" viewBox="0 0 20 20" fill="none"
-          style={{ color: 'var(--pwa-text-3)' }} aria-hidden="true">
-          <circle cx="10" cy="10" r="7" stroke="currentColor" strokeWidth="1.5"
-            strokeDasharray="34" strokeDashoffset="11" opacity="0.4" />
-          <path d="M10 3a7 7 0 017 7" stroke="currentColor" strokeWidth="1.5"
-            strokeLinecap="round" />
-        </svg>
-      ) : null}
+      <span aria-hidden="true" className="flex items-center justify-center"
+        style={{ width: 88, height: 88, borderRadius: 'var(--md-shape-xl)',
+          background: bad ? 'var(--md-error-container)' : 'var(--md-surface-container-high)',
+          color: bad ? 'var(--md-on-error-container)' : 'var(--md-on-surface-variant)' }}>
+        {state === 'LOADING' ? (
+          <svg className="animate-spin w-8 h-8" viewBox="0 0 20 20" fill="none">
+            <circle cx="10" cy="10" r="7" stroke="currentColor" strokeWidth="2" strokeDasharray="34" strokeDashoffset="11" opacity="0.3" />
+            <path d="M10 3a7 7 0 017 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+          </svg>
+        ) : <Icon name={STATE_ICON[state]} size={44} />}
+      </span>
 
-      <p className="text-xs leading-relaxed" style={{ color: STATE_TONE[state] }}>
-        {journalSurfaceMessage(state)}
-      </p>
+      <p className="md-body-l md-on-surface max-w-xs mt-1">{journalSurfaceMessage(state)}</p>
 
       {retryable ? (
-        <button
-          onClick={onRetry}
-          data-testid="journal-retry"
-          className="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all active:scale-95"
-          style={{
-            color: 'var(--pwa-text-2)',
-            background: 'var(--pwa-border-soft)',
-            border: '1px solid var(--pwa-border)',
-          }}
-        >
+        <button onClick={onRetry} data-testid="journal-retry" className="md-btn-tonal md-state min-h-12 mt-1">
+          <Icon name="refresh" size={18} />
           Tekrar dene
         </button>
       ) : null}
@@ -99,8 +100,8 @@ const StateScreen = memo(function StateScreen({
 /* ── Liste satırı ────────────────────────────────────────────────────── */
 
 const JournalRow = memo(function JournalRow({
-  entry, expanded, onToggle,
-}: { entry: JournalEntry; expanded: boolean; onToggle: (key: string) => void }) {
+  entry, expanded, onToggle, first,
+}: { entry: JournalEntry; expanded: boolean; onToggle: (key: string) => void; first: boolean }) {
   const note = journalEndReasonNote(entry);
   const confidence = journalConfidenceLabel(entry);
   const score = formatJournalScore(entry.score);
@@ -110,61 +111,62 @@ const JournalRow = memo(function JournalRow({
       data-testid="journal-entry"
       data-trip-key={entry.tripKey}
       data-clean-end={entry.cleanEnd ? 'true' : 'false'}
-      className="rounded-2xl overflow-hidden"
-      style={{
-        background: 'var(--pwa-surface)',
-        border: '1px solid var(--pwa-border)',
-      }}
+      style={first ? undefined : { borderTop: '1px solid var(--md-outline-variant)' }}
     >
       <button
         onClick={() => onToggle(entry.tripKey)}
         aria-expanded={expanded}
-        className="w-full text-left px-4 py-3 transition-colors active:scale-[0.99]"
+        className="md-state w-full text-left flex items-start gap-4 px-4 py-3 md-on-surface"
       >
-        <div className="flex items-baseline justify-between gap-3">
-          <span className="text-[11px] font-semibold" style={{ color: 'var(--pwa-text-2)' }}>
-            {formatJournalDate(entry.startedAtMs)}
-          </span>
-          <span className="text-[10px] tabular-nums" style={{ color: 'var(--pwa-text-3)' }}>
-            {formatJournalTimeRange(entry)}
-          </span>
-        </div>
+        {/* Zaman çizelgesi işareti — rota başlangıç/varış */}
+        <span aria-hidden="true" className="flex flex-col items-center pt-1 flex-shrink-0" style={{ width: 24 }}>
+          <span style={{ width: 10, height: 10, borderRadius: 5, border: '2px solid var(--md-primary)' }} />
+          <span style={{ width: 2, height: 22, background: 'var(--md-outline-variant)' }} />
+          <span style={{ width: 10, height: 10, borderRadius: 5, background: 'var(--md-primary)' }} />
+        </span>
 
-        <div className="mt-1 text-sm font-bold truncate" style={{ color: 'var(--pwa-text)' }}>
-          {formatJournalRoute(entry)}
-        </div>
-
-        <div className="mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-[11px]"
-          style={{ color: 'var(--pwa-text-2)' }}>
-          <span className="font-bold" style={{ color: 'var(--pwa-text)' }}>
-            {formatJournalDistance(entry.distanceKm)}
+        <span className="flex-1 min-w-0">
+          {/* Güzergâh bilinmiyorsa başlık "Bilinmiyor" diye BAĞIRMAZ; nötr
+              "Yolculuk" der ve bilinmediğini ikinci satırda açıkça söyler. */}
+          {formatJournalRoute(entry) === UNKNOWN_LABEL ? (
+            <>
+              <span className="block md-title-m md-on-surface">Yolculuk</span>
+              <span className="block md-body-s md-on-surface-variant">Güzergâh: {UNKNOWN_LABEL}</span>
+            </>
+          ) : (
+            <span className="block md-title-m md-on-surface truncate">{formatJournalRoute(entry)}</span>
+          )}
+          <span className="block md-body-m md-on-surface-variant tabular-nums">
+            {formatJournalTimeRange(entry)} · {formatJournalDuration(entry.durationMin)}
           </span>
-          <span>{formatJournalDuration(entry.durationMin)}</span>
-          <span>Ort. {formatJournalSpeed(entry.avgSpeedKmh)}</span>
-          <span>Maks. {formatJournalSpeed(entry.maxSpeedKmh)}</span>
-          {/* Skor yoksa rozet HİÇ çizilmez — "0 puan" bir skor değildir. */}
-          {entry.score !== null ? (
-            <span data-testid="journal-score"
-              className="px-1.5 py-0.5 rounded-md text-[9px] font-black tracking-wider"
-              style={{ color: '#34d399', background: 'rgba(52,211,153,0.12)' }}>
-              SKOR {score}
+          <span className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 md-body-s md-on-surface-variant">
+            <span>Ort. {formatJournalSpeed(entry.avgSpeedKmh)}</span>
+            <span>Maks. {formatJournalSpeed(entry.maxSpeedKmh)}</span>
+            {/* Skor yoksa rozet HİÇ çizilmez — "0 puan" bir skor değildir. */}
+            {entry.score !== null ? (
+              <span data-testid="journal-score"><StatusPill tone="success">Skor {score}</StatusPill></span>
+            ) : null}
+          </span>
+          {note !== null ? (
+            <span data-testid="journal-note" className="mt-1.5 flex items-start gap-1 md-body-s"
+              style={{ color: 'var(--md-warning)' }}>
+              <Icon name="info" size={16} className="flex-shrink-0 mt-px" />{note}
             </span>
           ) : null}
-        </div>
+        </span>
 
-        {note !== null ? (
-          <p data-testid="journal-note" className="mt-2 text-[10px] leading-snug"
-            style={{ color: '#fbbf24' }}>
-            {note}
-          </p>
-        ) : null}
+        <span className="flex flex-col items-end flex-shrink-0">
+          <span className="md-title-m md-on-surface tabular-nums">{formatJournalDistance(entry.distanceKm)}</span>
+          <Icon name="expand_more" className="md-on-surface-variant mt-1"
+            style={{ transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform var(--md-dur-short) var(--md-ease-standard)' }} />
+        </span>
       </button>
 
       {expanded ? (
         <div
           data-testid="journal-detail"
-          className="px-4 pb-4 pt-1 grid grid-cols-2 gap-x-4 gap-y-2"
-          style={{ borderTop: '1px solid var(--pwa-border-soft)' }}
+          className="md-enter mx-4 mb-4 p-4 grid grid-cols-2 gap-x-4 gap-y-3"
+          style={{ background: 'var(--md-surface-container-high)', borderRadius: 'var(--md-shape-md)' }}
         >
           <Detail label="Başlangıç" value={entry.startArea ?? UNKNOWN_LABEL} />
           <Detail label="Varış"     value={entry.endArea ?? UNKNOWN_LABEL} />
@@ -181,8 +183,8 @@ const JournalRow = memo(function JournalRow({
 
           {/* Rota bulutta YOK — kullanıcıya bunu söylemek, boş bir harita
               göstermekten dürüsttür. */}
-          <p className="col-span-2 mt-1 text-[9px] leading-snug"
-            style={{ color: 'var(--pwa-text-3)' }}>
+          <p className="col-span-2 md-body-s md-on-surface-variant inline-flex items-start gap-1">
+            <Icon name="info" size={16} className="flex-shrink-0 mt-px" />
             Yolculuk rotası yalnız aracınızda saklanır; buraya gönderilmez.
           </p>
         </div>
@@ -194,16 +196,23 @@ const JournalRow = memo(function JournalRow({
 const Detail = memo(function Detail({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <div className="text-[8px] font-black uppercase tracking-widest"
-        style={{ color: 'var(--pwa-text-3)' }}>
-        {label}
-      </div>
-      <div className="text-[11px] font-semibold" style={{ color: 'var(--pwa-text)' }}>
-        {value}
-      </div>
+      <div className="md-label-m md-on-surface-variant">{label}</div>
+      <div className="md-body-m md-on-surface tabular-nums">{value}</div>
     </div>
   );
 });
+
+/** Ardışık aynı güne ait yolculukları toplar (sıra DEĞİŞMEZ). */
+function groupByDay(list: readonly JournalEntry[]): Array<{ key: string; label: string; items: JournalEntry[] }> {
+  const out: Array<{ key: string; label: string; items: JournalEntry[] }> = [];
+  for (const e of list) {
+    const label = formatJournalDate(e.startedAtMs);
+    const last = out[out.length - 1];
+    if (last && last.label === label) last.items.push(e);
+    else out.push({ key: `${label}-${e.tripKey}`, label, items: [e] });
+  }
+  return out;
+}
 
 /* ── Panel ───────────────────────────────────────────────────────────── */
 
@@ -267,44 +276,50 @@ export default function TripJournalPanel({ vehicle }: Props) {
   const showList = entries.length > 0 && (state === 'READY' || failure !== null);
 
   return (
-    <section className="px-4 py-3" data-testid="trip-journal">
-      <header className="flex items-baseline justify-between mb-3">
-        <h2 className="text-sm font-black tracking-tight" style={{ color: 'var(--pwa-text)' }}>
-          Seyir Defteri
-        </h2>
-        <span className="text-[9px] font-bold uppercase tracking-widest"
-          style={{ color: 'var(--pwa-text-3)' }}>
-          {entries.length > 0 ? `${entries.length} yolculuk` : ''}
-        </span>
-      </header>
+    <section data-testid="trip-journal">
+      {/* Sayfa başlığı zaten "Yolculuklar"; burada yalnız kapsam söylenir. */}
+      {entries.length > 0 && (
+        <p className="md-body-m md-on-surface-variant px-1 -mt-2 mb-3">
+          Son {entries.length} yolculuk · dokunarak ayrıntıyı açın
+        </p>
+      )}
 
       {showList ? (
         <>
           {failure !== null ? (
             <p
               data-testid="journal-stale-warning"
-              className="mb-3 px-3 py-2 rounded-xl text-[10px] leading-snug"
-              style={{
-                color: '#fbbf24',
-                background: 'rgba(251,191,36,0.08)',
-                border: '1px solid rgba(251,191,36,0.25)',
-              }}
+              className="mb-3 px-4 py-3 md-body-s flex items-start gap-2"
+              style={{ background: 'var(--md-warning-container)', color: 'var(--md-on-warning-container)', borderRadius: 'var(--md-shape-md)' }}
             >
-              {journalSurfaceMessage(state as Exclude<JournalSurfaceState, 'READY'>)}
-              {' '}Aşağıdaki liste son başarılı okumadan kalmadır.
+              <Icon name="history_toggle_off" size={18} className="flex-shrink-0" />
+              <span>
+                {journalSurfaceMessage(state as Exclude<JournalSurfaceState, 'READY'>)}
+                {' '}Aşağıdaki liste son başarılı okumadan kalmadır.
+              </span>
             </p>
           ) : null}
 
-          <ul className="flex flex-col gap-2">
-            {entries.map((e) => (
-              <JournalRow
-                key={e.tripKey}
-                entry={e}
-                expanded={expanded === e.tripKey}
-                onToggle={toggle}
-              />
+          {/* GÜNE GÖRE GRUPLAMA — yalnız görünüm; sıralama projeksiyondan
+              geldiği gibi korunur, gün başlığı ardışık aynı günü toplar. */}
+          <div className="flex flex-col gap-4">
+            {groupByDay(entries).map((g) => (
+              <div key={g.key}>
+                <h3 className="md-title-s md-on-surface-variant px-1 pb-2">{g.label}</h3>
+                <ul className="md-card-elevated overflow-hidden">
+                  {g.items.map((e, i) => (
+                    <JournalRow
+                      key={e.tripKey}
+                      entry={e}
+                      first={i === 0}
+                      expanded={expanded === e.tripKey}
+                      onToggle={toggle}
+                    />
+                  ))}
+                </ul>
+              </div>
             ))}
-          </ul>
+          </div>
         </>
       ) : (
         <StateScreen

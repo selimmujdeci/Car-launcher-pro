@@ -72,6 +72,13 @@ import {
 import { ComponentEditor, SurfaceEditor, TokensEditor } from './theme/ThemeEditors';
 import { ZoneReorder } from './theme/ZoneReorder';
 import { PresetGallery } from './theme/PresetGallery';
+import { Icon } from './ui/Icon';
+import { StatusPill, type Tone } from './ui/primitives';
+
+/** Rol rengini saydamlaştırır — hex'e alfa eklemek `var(--md-*)` ile çalışmaz. */
+function mix(color: string, pct: number): string {
+  return `color-mix(in srgb, ${color} ${pct}%, transparent)`;
+}
 
 /* ── Önizleme hedefi (gerçek araç uygulaması) ─────────────────────── */
 
@@ -408,7 +415,9 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
   );
 
   const touched = customizationCount(manifest);
-  const syncColor = sync === 'applied' ? '#34d399' : sync === 'fail' ? '#f87171' : sync === 'sending' || sync === 'waiting' ? '#60a5fa' : 'var(--pwa-text-3)';
+  const syncColor = sync === 'applied' ? 'var(--md-success)' : sync === 'fail' ? 'var(--md-error)' : sync === 'sending' || sync === 'waiting' ? 'var(--md-primary)' : 'var(--pwa-text-3)';
+  const syncTone: Tone = !vehicleId ? 'warning' : sync === 'applied' ? 'success' : sync === 'fail' ? 'error' : sync === 'sending' || sync === 'waiting' ? 'primary' : 'neutral';
+  const syncIcon = !vehicleId ? 'warning' as const : sync === 'applied' ? 'check_circle' as const : sync === 'fail' ? 'error' as const : sync === 'waiting' ? 'schedule' as const : sync === 'sending' ? 'sync' as const : 'cloud_done' as const;
 
   /* ── DÜZENLEYİCİ PANELİ — ÖNİZLEMEYİ KAPATMADAN ───────────────────
    * KULLANICI ŞİKÂYETİ (2026-08-18): *"yaptığım düzenlemeleri göremiyorum,
@@ -499,34 +508,40 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
       <div
         style={{
           position: 'sticky', top: 0, zIndex: 20,
-          marginTop: -20, paddingTop: 16, paddingBottom: 12, marginBottom: 4,
-          background: 'var(--pwa-panel)',
-          borderBottom: '1px solid var(--pwa-border-soft)',
-          boxShadow: '0 14px 22px -12px rgba(0,0,0,0.6)',
+          paddingTop: 8, paddingBottom: 12, marginBottom: 4,
+          background: 'var(--md-surface)',
+          borderBottom: '1px solid var(--md-outline-variant)',
         }}
       >
-        <div className="flex items-center justify-between mb-3 gap-2">
-          <div className="min-w-0">
-            <p className="text-sm font-black pwa-text">Tema Stüdyo</p>
-            <p className="text-[10px] mt-0.5 truncate" style={{ color: 'var(--pwa-text-3)' }}>
-              {preset.label} · {touched === 0 ? 'özelleştirme yok' : `${touched} özelleştirme`}
-            </p>
+        <div className="flex items-start justify-between mb-3 gap-2">
+          <div className="min-w-0 flex-1">
+            <h1 className="md-headline-s md-on-surface">Tema Stüdyo</h1>
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <span className="md-body-s md-on-surface-variant truncate">
+                {preset.label} · {touched === 0 ? 'özelleştirme yok' : `${touched} özelleştirme`}
+              </span>
+              <StatusPill tone={syncTone} icon={syncIcon}>
+                {!vehicleId ? 'Araç bağlı değil'
+                  : sync === 'applied' ? 'Araçta uygulandı'
+                  : sync === 'fail' ? 'Hata'
+                  : sync === 'waiting' ? 'Araç bekleniyor'
+                  : sync === 'sending' ? 'Gönderiliyor…'
+                  : 'Hazır'}
+              </StatusPill>
+            </div>
           </div>
-          <div
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[9px] font-bold flex-shrink-0"
-            style={{
-              background: sync !== 'idle' ? `${syncColor}15` : 'var(--pwa-surface)',
-              border: `1px solid ${syncColor}40`,
-              color: syncColor,
-            }}
-          >
-            {!vehicleId ? '⚠ Araç Bağlı Değil'
-              : sync === 'applied' ? '✓ Araçta uygulandı'
-              : sync === 'fail' ? '✗ Hata'
-              : sync === 'waiting' ? '◷ Araç bekleniyor'
-              : sync === 'sending' ? '● Gönderiliyor…'
-              : '● Hazır'}
-          </div>
+          {/* Geri al / Yinele — GLOBAL kapsam. Düzenleyici açıkken GİZLENİR:
+              panelin kendi başlığında KART KAPSAMLI geri al/yinele vardır ve iki
+              farklı kapsamı yan yana göstermek "hangisi neyi geri alıyor"
+              belirsizliği üretir. */}
+          {!editing && (
+            <div className="flex flex-shrink-0 -mr-2">
+              <button type="button" onClick={undo} disabled={!canUndo} aria-label="Geri Al" title="Geri Al"
+                className="md-icon-btn md-state disabled:opacity-30"><Icon name="undo" /></button>
+              <button type="button" onClick={redo} disabled={!canRedo} aria-label="Yinele" title="Yinele"
+                className="md-icon-btn md-state disabled:opacity-30"><Icon name="redo" /></button>
+            </div>
+          )}
         </div>
 
         {/* Canlı önizleme — gerçek araç uygulaması */}
@@ -589,8 +604,8 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
                       padding: 0,
                       borderRadius: 6,
                       background: active
-                        ? 'rgba(96,165,250,0.28)'
-                        : hot ? 'rgba(96,165,250,0.16)' : 'rgba(96,165,250,0.05)',
+                        ? 'color-mix(in srgb, var(--md-primary) 28%, transparent)'
+                        : hot ? 'color-mix(in srgb, var(--md-primary) 16%, transparent)' : 'color-mix(in srgb, var(--md-primary) 8%, transparent)',
                       border: `${active ? 2 : 1}px ${active ? 'solid' : 'dashed'} rgba(96,165,250,${active ? 0.95 : hot ? 0.8 : 0.45})`,
                       cursor: 'pointer',
                       transition: 'background 120ms ease',
@@ -601,7 +616,7 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
               {probe !== null && probe.length === 0 && (
                 <div
                   className="absolute inset-x-0 bottom-0 text-center"
-                  style={{ background: 'rgba(0,0,0,0.55)', color: '#fbbf24', fontSize: 9, padding: '4px 6px' }}
+                  style={{ background: 'var(--md-surface-container-high)', color: 'var(--md-warning)', fontSize: 9, padding: '4px 6px' }}
                 >
                   Ölçüm boş — bu araç sürümü Stüdyo ölçümünü desteklemiyor olabilir.
                   Bileşen listesinden düzenleyebilirsiniz.
@@ -613,7 +628,7 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
           <span
             style={{
               position: 'absolute', top: 6, left: 8, fontSize: 8, fontWeight: 700, letterSpacing: '0.1em',
-              color: 'rgba(255,255,255,0.65)', background: 'rgba(0,0,0,0.45)', borderRadius: 5,
+              color: 'var(--md-on-surface-variant)', background: 'var(--md-surface-container-high)', borderRadius: 5,
               padding: '2px 6px', pointerEvents: 'none',
             }}
           >
@@ -625,73 +640,38 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
           </span>
         </div>
 
-        {/* Dokun&Düzenle + Araca Gönder */}
-        <div className="flex gap-2 mt-2.5">
+        {/* Dokun&Düzenle + Araca Gönder — birincil eylem dolgulu, tek bakışta */}
+        <div className="flex gap-2 mt-3">
           <button
             type="button"
             onClick={() => setSelectMode((v) => !v)}
-            className="text-[11px] font-bold px-3 rounded-xl active:scale-95"
-            style={{
-              minHeight: 46,
-              background: selectMode ? 'rgba(96,165,250,0.18)' : 'var(--pwa-surface)',
-              border: `1.5px solid ${selectMode ? 'rgba(96,165,250,0.5)' : 'var(--pwa-border)'}`,
-              color: selectMode ? '#60a5fa' : 'var(--pwa-text-2)',
-            }}
+            aria-pressed={selectMode}
+            className="md-btn-tonal md-state flex-shrink-0"
+            style={{ minHeight: 48, padding: '0 16px',
+              ...(selectMode ? { background: 'var(--md-primary-container)', color: 'var(--md-on-primary-container)' } : {}) }}
           >
-            {selectMode ? '✓ Seçim Açık' : 'Dokun & Düzenle'}
+            <Icon name={selectMode ? 'check_circle' : 'touch_app'} size={20} />
+            {selectMode ? 'Seçim Açık' : 'Dokun & Düzenle'}
           </button>
           {selectMode && (
-            <button
-              type="button"
-              onClick={requestProbe}
-              aria-label="Ölçümü yenile"
-              className="text-[11px] font-bold px-3 rounded-xl active:scale-95"
-              style={{ minHeight: 46, background: 'var(--pwa-surface)', border: '1px solid var(--pwa-border)', color: 'var(--pwa-text-2)' }}
-            >
-              ↻
+            <button type="button" onClick={requestProbe} aria-label="Ölçümü yenile" className="md-icon-btn md-state flex-shrink-0">
+              <Icon name="refresh" />
             </button>
           )}
           <button
             type="button"
             onClick={sendToVehicle}
             disabled={!vehicleId || sync === 'sending'}
-            className="flex-1 text-[12px] font-black uppercase tracking-wider px-3 rounded-xl active:scale-[0.98]"
-            style={{
-              minHeight: 46,
-              background: `${syncColor}18`,
-              border: `1.5px solid ${syncColor}55`,
-              color: syncColor,
-              opacity: vehicleId ? 1 : 0.5,
-            }}
+            className="md-btn-filled md-state flex-1 disabled:opacity-40"
+            style={{ minHeight: 48, padding: '0 16px',
+              ...(sync === 'applied' ? { background: 'var(--md-success)', color: 'var(--md-on-success)' } : {}) }}
           >
-            {!vehicleId ? '⚠ Araç Bağlı Değil' : sync === 'applied' ? '✓ Araçta Uygulandı' : sync === 'waiting' ? '◷ Araç Bekleniyor' : 'Araca Gönder'}
+            <Icon name={sync === 'applied' ? 'check_circle' : sync === 'waiting' ? 'schedule' : 'send'} size={20} />
+            {!vehicleId ? 'Araç Bağlı Değil' : sync === 'applied' ? 'Araçta Uygulandı' : sync === 'waiting' ? 'Araç Bekleniyor' : 'Araca Gönder'}
           </button>
         </div>
         {syncNote && (
-          <p className="text-[10px] mt-1.5 px-1" style={{ color: syncColor }}>{syncNote}</p>
-        )}
-
-        {/* Geri al / Yinele — GLOBAL kapsam. Düzenleyici açıkken GİZLENİR:
-            panelin kendi başlığında KART KAPSAMLI geri al/yinele vardır ve iki
-            farklı kapsamı yan yana göstermek "hangisi neyi geri alıyor"
-            belirsizliği üretir. Ayrıca sticky başlık kısalır → panele yer açılır. */}
-        {!editing && (
-        <div className="flex gap-2 mt-2">
-          <button
-            type="button" onClick={undo} disabled={!canUndo}
-            className="flex-1 text-[11px] font-bold rounded-xl active:scale-95"
-            style={{ minHeight: 42, background: 'var(--pwa-surface)', border: '1px solid var(--pwa-border)', color: 'var(--pwa-text-2)', opacity: canUndo ? 1 : 0.35 }}
-          >
-            ↶ Geri Al
-          </button>
-          <button
-            type="button" onClick={redo} disabled={!canRedo}
-            className="flex-1 text-[11px] font-bold rounded-xl active:scale-95"
-            style={{ minHeight: 42, background: 'var(--pwa-surface)', border: '1px solid var(--pwa-border)', color: 'var(--pwa-text-2)', opacity: canRedo ? 1 : 0.35 }}
-          >
-            ↷ Yinele
-          </button>
-        </div>
+          <p className="md-body-s mt-2 px-1" style={{ color: syncColor }}>{syncNote}</p>
         )}
       </div>
 
@@ -699,6 +679,47 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
       {editorNode ?? (
       <div className="flex flex-col gap-4 pt-4 pb-6">
 
+        {/* ── TEMA SEÇİMİ — ince çip satırı: taslaklar İLK içerik kalır (kullanıcı
+            isteği), ama hangi temaya ait oldukları hemen üstte görünür. ── */}
+        <div>
+          <p className="md-title-s md-on-surface px-1 mb-2">Tema</p>
+          <div className="flex gap-2 overflow-x-auto -mx-4 px-4 pb-1" style={{ scrollbarWidth: 'none' }} role="radiogroup" aria-label="Tema">
+            {THEME_BASE_IDS.map((id) => {
+              const p = THEME_PRESETS[id];
+              const m = state.manifests[id];
+              const n = customizationCount(m);
+              const active = state.themeId === id;
+              const accent = m.tokens.accentPrimary ?? p.base.accentPrimary;
+              const bg = m.tokens.bgPrimary?.from ?? p.base.bgPrimary;
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  onClick={() => dispatch({ type: 'select-theme', themeId: id })}
+                  className="md-state md-label-l inline-flex items-center gap-2 pl-1.5 pr-3 flex-shrink-0"
+                  style={{
+                    minHeight: 40, borderRadius: 'var(--md-shape-full)',
+                    background: active ? 'var(--md-secondary-container)' : 'transparent',
+                    color: active ? 'var(--md-on-secondary-container)' : 'var(--md-on-surface)',
+                    border: active ? '1px solid transparent' : '1px solid var(--md-outline)',
+                  }}
+                >
+                  {/* temanın gerçek zemin + vurgu rengi */}
+                  <span aria-hidden="true" className="flex items-center justify-center flex-shrink-0"
+                    style={{ width: 28, height: 28, borderRadius: 14, background: bg, border: '1px solid var(--md-outline-variant)' }}>
+                    <span style={{ width: 10, height: 10, borderRadius: 5, background: accent }} />
+                  </span>
+                  {p.label}
+                  {n > 0 && <span className="md-label-m md-on-surface-variant">· {n}</span>}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <p className="md-title-s md-on-surface px-1 -mb-2">Hazır taslaklar</p>
         {/* ── Hazır renk / kart şekli taslakları — İLK görünen içerik (kullanıcı:
             "Geri Al/Yinele'nin hemen altında görünmeli"). Kapsam: tüm tema | seçili ekran. ── */}
         <PresetGallery
@@ -710,59 +731,6 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
           onPatchScreen={(p) => patchScreen(state.surface, p)}
         />
 
-        {/* ── 4 tema galerisi ── */}
-        <div>
-          <p className="text-[9px] font-black uppercase tracking-[0.35em] mb-2" style={{ color: 'var(--pwa-text-3)' }}>
-            Temalar
-          </p>
-          <div className="grid grid-cols-2 gap-2">
-            {THEME_BASE_IDS.map((id) => {
-              const p = THEME_PRESETS[id];
-              const m = state.manifests[id];
-              const n = customizationCount(m);
-              const active = state.themeId === id;
-              const accent = m.tokens.accentPrimary ?? p.base.accentPrimary;
-              const bg = m.tokens.bgPrimary?.from ?? p.base.bgPrimary;
-              const card = m.tokens.bgCard?.from ?? p.base.bgCard;
-              const ink = m.tokens.textPrimary ?? p.base.textPrimary;
-              return (
-                <button
-                  key={id}
-                  type="button"
-                  onClick={() => dispatch({ type: 'select-theme', themeId: id })}
-                  className="flex flex-col gap-2 p-2 rounded-2xl text-left active:scale-[0.98]"
-                  style={{
-                    background: active ? `${accent}14` : 'var(--pwa-surface)',
-                    border: `1.5px solid ${active ? accent : 'var(--pwa-border)'}`,
-                  }}
-                >
-                  {/* gerçek tema örneği */}
-                  <div style={{ background: bg, borderRadius: 10, padding: 7, display: 'flex', flexDirection: 'column', gap: 5 }}>
-                    <div style={{ background: card, borderRadius: 6, height: 20, display: 'flex', alignItems: 'center', paddingLeft: 6, gap: 5 }}>
-                      <span style={{ width: 7, height: 7, borderRadius: 4, background: accent, display: 'inline-block' }} />
-                      <span style={{ height: 4, width: '52%', background: ink, opacity: 0.7, borderRadius: 2, display: 'inline-block' }} />
-                    </div>
-                    <div style={{ display: 'flex', gap: 5 }}>
-                      <span style={{ flex: 1, height: 13, background: card, borderRadius: 5, display: 'inline-block' }} />
-                      <span style={{ width: 26, height: 13, background: accent, borderRadius: 5, display: 'inline-block' }} />
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between gap-1">
-                    <span className="text-[10px] font-black truncate" style={{ color: active ? accent : 'var(--pwa-text-2)' }}>
-                      {p.label}
-                    </span>
-                    {n > 0 && (
-                      <span className="text-[8px] font-bold px-1.5 py-0.5 rounded" style={{ background: 'var(--pwa-surface-3)', color: 'var(--pwa-text-3)' }}>
-                        {n}
-                      </span>
-                    )}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
         {/* ── GELİŞMİŞ AYARLAR (Samsung Good Lock deseni) — ince ayarlar silinmedi,
              yalnız varsayılan görünümden çekildi. Önizlemede Dokun&Düzenle yine
              doğrudan kartın editörünü açar (bu katlamadan bağımsız). ── */}
@@ -770,16 +738,18 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
           type="button"
           onClick={() => setAdvancedOpen((v) => !v)}
           aria-expanded={advancedOpen}
-          className="flex items-center gap-3 rounded-2xl px-4 text-left active:scale-[0.99]"
-          style={{ minHeight: 56, background: 'var(--pwa-surface-3)', border: '1px solid var(--pwa-border-soft)' }}
+          className="md-state md-card-elevated flex items-center gap-4 px-4 text-left md-on-surface"
+          style={{ minHeight: 64 }}
         >
-          <span className="text-[14px] font-black" style={{ color: 'var(--pwa-text-2)' }}>{advancedOpen ? '▾' : '▸'}</span>
+          <span className="md-on-surface-variant flex-shrink-0"><Icon name="settings" /></span>
           <span className="flex-1 min-w-0">
-            <span className="block text-[12px] font-black" style={{ color: 'var(--pwa-text)' }}>Gelişmiş ayarlar</span>
-            <span className="block text-[10px] truncate" style={{ color: 'var(--pwa-text-3)' }}>
+            <span className="block md-title-s md-on-surface">Gelişmiş ayarlar</span>
+            <span className="block md-body-s md-on-surface-variant truncate">
               Renkler tek tek · yazı tipi · kenarlık · ekranlar · bileşenler · yerleşim
             </span>
           </span>
+          <Icon name="expand_more" className="md-on-surface-variant flex-shrink-0"
+            style={{ transform: advancedOpen ? 'rotate(180deg)' : 'none', transition: 'transform var(--md-dur-short) var(--md-ease-standard)' }} />
         </button>
         {advancedOpen && (
         <div className="flex flex-col gap-4">
@@ -789,7 +759,7 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
               type="button"
               onClick={() => setEditor({ kind: 'tokens' })}
               className="text-[11px] font-bold rounded-xl active:scale-95"
-              style={{ minHeight: 46, background: 'rgba(96,165,250,0.14)', border: '1.5px solid rgba(96,165,250,0.4)', color: '#60a5fa' }}
+              style={{ minHeight: 46, background: 'color-mix(in srgb, var(--md-primary) 14%, transparent)', border: '1.5px solid color-mix(in srgb, var(--md-primary) 40%, transparent)', color: 'var(--md-primary)' }}
             >
               Tema Geneli Düzenle
             </button>
@@ -801,7 +771,7 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
 
           {/* ── Ekran seçimi ── */}
           <div>
-            <p className="text-[9px] font-black uppercase tracking-[0.35em] mb-2" style={{ color: 'var(--pwa-text-3)' }}>
+            <p className="text-[11px] font-semibold mb-2" style={{ color: 'var(--pwa-text-3)' }}>
               Ekranlar
             </p>
             <div className="flex gap-1.5 overflow-x-auto pb-1">
@@ -810,12 +780,12 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
                   key={s.id}
                   type="button"
                   onClick={() => dispatch({ type: 'select-surface', surface: s.id })}
-                  className="flex-shrink-0 px-3 rounded-xl text-[10px] font-black uppercase tracking-wider active:scale-95"
+                  className="flex-shrink-0 px-3 rounded-xl text-xs font-semibold active:scale-95"
                   style={{
                     minHeight: 40,
-                    background: state.surface === s.id ? 'rgba(96,165,250,0.18)' : 'var(--pwa-surface)',
-                    color: state.surface === s.id ? '#60a5fa' : 'var(--pwa-text-3)',
-                    border: `1px solid ${state.surface === s.id ? 'rgba(96,165,250,0.42)' : 'var(--pwa-border-soft)'}`,
+                    background: state.surface === s.id ? 'color-mix(in srgb, var(--md-primary) 18%, transparent)' : 'var(--pwa-surface)',
+                    color: state.surface === s.id ? 'var(--md-primary)' : 'var(--pwa-text-3)',
+                    border: `1px solid ${state.surface === s.id ? 'color-mix(in srgb, var(--md-primary) 42%, transparent)' : 'var(--pwa-border-soft)'}`,
                   }}
                 >
                   {s.label}
@@ -824,8 +794,8 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
             </div>
             {surfaceShown === false && (
               <p
-                className="mt-2 text-[10px] leading-snug font-semibold rounded-lg px-2.5 py-2"
-                style={{ background: 'rgba(251,191,36,0.10)', border: '1px solid rgba(251,191,36,0.30)', color: '#fbbf24' }}
+                className="mt-2 text-xs leading-snug font-semibold rounded-lg px-2.5 py-2"
+                style={{ background: 'color-mix(in srgb, var(--md-warning) 10%, transparent)', border: '1px solid color-mix(in srgb, var(--md-warning) 30%, transparent)', color: 'var(--md-warning)' }}
               >
                 Bu ekran önizlemede gösterilemiyor — araçta kullanıcı eylemiyle açılır
                 (geri vites, uzun basma). Değişiklikler yine de kaydedilir ve araca gider;
@@ -850,19 +820,19 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
               <div className="rounded-2xl p-3 flex flex-col gap-2"
                 style={{ background: 'var(--pwa-surface-3)', border: '1px solid var(--pwa-border-soft)' }}>
                 <div className="flex items-center justify-between gap-2">
-                  <p className="text-[10px] font-black uppercase tracking-[0.3em]" style={{ color: 'var(--pwa-text-3)' }}>
+                  <p className="text-xs font-semibold" style={{ color: 'var(--pwa-text-3)' }}>
                     Yerleşim (çözülmüş)
                   </p>
                   <button
                     type="button"
                     onClick={() => dispatch({ type: 'reset-all-layout' })}
-                    className="text-[9px] font-bold px-2 py-1.5 rounded-lg active:scale-95"
+                    className="text-[11px] font-bold px-2 py-1.5 rounded-lg active:scale-95"
                     style={{ background: 'var(--pwa-surface)', border: '1px solid var(--pwa-border)', color: 'var(--pwa-text-3)' }}
                   >
                     Yerleşimi Sıfırla
                   </button>
                 </div>
-                <p className="text-[10px]" style={{ color: 'var(--pwa-text-3)' }}>
+                <p className="text-xs" style={{ color: 'var(--pwa-text-3)' }}>
                   Aşağıdaki sıra <b>araçtaki yerleşim motorunun</b> (layoutSolver) bu manifestle
                   ürettiği gerçek sonuçtur. Bir kartın sırasını/boyutunu değiştirmek için
                   kartın kendi editörünü açın.
@@ -877,14 +847,14 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
                     kalan alanı alır; ölçeklemek anlamsız olurdu. */}
                 <div className="flex flex-col gap-1.5 pt-1"
                   style={{ borderTop: '1px solid var(--pwa-border-soft)' }}>
-                  <p className="text-[9px] font-bold uppercase tracking-wider" style={{ color: 'var(--pwa-text-3)' }}>
+                  <p className="text-[11px] font-bold" style={{ color: 'var(--pwa-text-3)' }}>
                     Sütun Genişliği
                   </p>
                   {SCALABLE_ZONES.map((z) => {
                     const deger = manifest.zoneWidths[z] ?? null;
                     return (
                       <div key={z} className="flex items-center gap-2">
-                        <span className="text-[10px] font-bold flex-1" style={{ color: 'var(--pwa-text-2)' }}>
+                        <span className="text-xs font-bold flex-1" style={{ color: 'var(--pwa-text-2)' }}>
                           {ZONE_LABEL[z]}
                         </span>
                         <input
@@ -898,8 +868,8 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
                           })}
                           style={{ flex: 2, minWidth: 0 }}
                         />
-                        <span className="text-[10px] font-black tabular-nums w-10 text-right"
-                          style={{ color: deger === null ? 'var(--pwa-text-3)' : '#60a5fa' }}>
+                        <span className="text-xs font-semibold tabular-nums w-10 text-right"
+                          style={{ color: deger === null ? 'var(--pwa-text-3)' : 'var(--md-primary)' }}>
                           {deger === null ? 'oto' : `${deger.toFixed(2)}×`}
                         </span>
                         {deger !== null && (
@@ -907,7 +877,7 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
                             type="button"
                             aria-label="Sütun genişliğini sıfırla"
                             onClick={() => dispatch({ type: 'patch-zone-width', zone: z, scale: null })}
-                            className="text-[9px] font-bold px-1.5 py-1 rounded-md active:scale-95"
+                            className="text-[11px] font-bold px-1.5 py-1 rounded-md active:scale-95"
                             style={{ background: 'var(--pwa-surface)', border: '1px solid var(--pwa-border)', color: 'var(--pwa-text-3)' }}
                           >
                             ↺
@@ -919,7 +889,7 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
                 </div>
                 {solved.zones.filter((z) => z.items.length > 0 || z.overflow.length > 0).map((z) => (
                   <div key={z.zone} className="flex flex-col gap-1">
-                    <p className="text-[9px] font-bold uppercase tracking-wider" style={{ color: 'var(--pwa-text-3)' }}>
+                    <p className="text-[11px] font-bold" style={{ color: 'var(--pwa-text-3)' }}>
                       {ZONE_LABEL[z.zone]}
                     </p>
                     {/* SÜRÜKLE-BIRAK (#658): sıra artık sayı girerek değil,
@@ -933,8 +903,8 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
                     <div className="flex flex-wrap gap-1.5">
                       {z.overflow.map((id) => (
                         <span key={id}
-                          className="text-[10px] font-semibold px-2 py-1 rounded-lg"
-                          style={{ background: 'rgba(251,191,36,0.12)', border: '1px solid rgba(251,191,36,0.35)', color: '#fbbf24' }}>
+                          className="text-xs font-semibold px-2 py-1 rounded-lg"
+                          style={{ background: 'color-mix(in srgb, var(--md-warning) 12%, transparent)', border: '1px solid color-mix(in srgb, var(--md-warning) 35%, transparent)', color: 'var(--md-warning)' }}>
                           {id} · TAŞTI
                         </span>
                       ))}
@@ -945,7 +915,7 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
             ) : (
               <div className="rounded-2xl p-3"
                 style={{ background: 'var(--pwa-surface-3)', border: '1px solid var(--pwa-border-soft)' }}>
-                <p className="text-[10px]" style={{ color: 'var(--pwa-text-3)' }}>
+                <p className="text-xs" style={{ color: 'var(--pwa-text-3)' }}>
                   <b>{preset.label}</b> sabit yerleşimle çizilir (araçta yerleşim motoruna
                   bağlı değildir) → bu temada kart sırası/boyutu <b>düzenlenemez</b>.
                   Renk, tipografi ve efekt düzenlemeleri tam çalışır.
@@ -956,7 +926,7 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
 
           {/* ── Bileşen listesi ── */}
           <div>
-            <p className="text-[9px] font-black uppercase tracking-[0.35em] mb-2" style={{ color: 'var(--pwa-text-3)' }}>
+            <p className="text-[11px] font-semibold mb-2" style={{ color: 'var(--pwa-text-3)' }}>
               Düzenlenebilir Bileşenler
             </p>
             <div className="flex flex-col gap-1.5">
@@ -972,24 +942,24 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
                     className="flex items-center justify-between gap-2 px-3 rounded-xl text-left active:scale-[0.99]"
                     style={{
                       minHeight: 52,
-                      background: edited ? 'rgba(52,211,153,0.08)' : 'var(--pwa-surface)',
-                      border: `1px solid ${edited ? 'rgba(52,211,153,0.3)' : 'var(--pwa-border)'}`,
+                      background: edited ? 'color-mix(in srgb, var(--md-success) 8%, transparent)' : 'var(--pwa-surface)',
+                      border: `1px solid ${edited ? 'color-mix(in srgb, var(--md-success) 30%, transparent)' : 'var(--pwa-border)'}`,
                     }}
                   >
                     <div className="min-w-0">
                       <p className="text-[12px] font-bold truncate" style={{ color: 'var(--pwa-text-2)' }}>{c.label}</p>
-                      <p className="text-[9px] font-mono truncate" style={{ color: 'var(--pwa-text-3)' }}>
+                      <p className="text-[11px] truncate" style={{ color: 'var(--pwa-text-3)' }}>
                         {c.id} · {c.type}{c.locked ? ' · kilitli' : ''}
                       </p>
                     </div>
                     <div className="flex items-center gap-1.5 flex-shrink-0">
                       {present === false && (
-                        <span className="text-[8px] font-bold px-1.5 py-0.5 rounded" style={{ background: 'rgba(251,191,36,0.14)', color: '#fbbf24' }}>
+                        <span className="text-[11px] font-bold px-1.5 py-0.5 rounded" style={{ background: 'color-mix(in srgb, var(--md-warning) 14%, transparent)', color: 'var(--md-warning)' }}>
                           EKRANDA YOK
                         </span>
                       )}
                       {edited && (
-                        <span className="text-[8px] font-bold px-1.5 py-0.5 rounded" style={{ background: 'rgba(52,211,153,0.16)', color: '#34d399' }}>
+                        <span className="text-[11px] font-bold px-1.5 py-0.5 rounded" style={{ background: 'color-mix(in srgb, var(--md-success) 16%, transparent)', color: 'var(--md-success)' }}>
                           DÜZENLENDİ
                         </span>
                       )}
@@ -1005,7 +975,7 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
               )}
             </div>
             {inventory !== null && (
-              <p className="text-[9px] mt-2 px-1" style={{ color: 'var(--pwa-text-3)' }}>
+              <p className="text-[11px] mt-2 px-1" style={{ color: 'var(--pwa-text-3)' }}>
                 Önizleme ölçümünde bulunan bileşen: {inventory.length}. &quot;EKRANDA YOK&quot; = o bileşen
                 önizlemenin şu anki görünümünde çizilmiyor (ör. çekmece kapalı) — stil yine kaydedilir.
               </p>
@@ -1015,10 +985,10 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
           {/* ── Seviyeli sıfırlama ── */}
           <div className="rounded-2xl p-3 flex flex-col gap-2"
             style={{ background: 'var(--pwa-surface-3)', border: '1px solid var(--pwa-border-soft)' }}>
-            <p className="text-[10px] font-black uppercase tracking-[0.3em]" style={{ color: 'var(--pwa-text-3)' }}>
+            <p className="text-xs font-semibold" style={{ color: 'var(--pwa-text-3)' }}>
               Sıfırlama
             </p>
-            <p className="text-[10px]" style={{ color: 'var(--pwa-text-3)' }}>
+            <p className="text-xs" style={{ color: 'var(--pwa-text-3)' }}>
               <b>Kartı Sıfırla</b> kartın editöründe, <b>Ekranı Sıfırla</b> ekran
               ayarındadır. Aşağıdaki işlem <b>seçili temanın tamamını</b> kapsar ve
               iki adım ister. Tek bir <b>Geri Al</b> ile iade edilebilir.
@@ -1040,11 +1010,11 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
             ) : (
               <>
                 <div className="rounded-xl p-2.5"
-                  style={{ background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.32)' }}>
-                  <p className="text-[11px] font-bold" style={{ color: '#f87171' }}>
+                  style={{ background: 'color-mix(in srgb, var(--md-error) 8%, transparent)', border: '1px solid color-mix(in srgb, var(--md-error) 32%, transparent)' }}>
+                  <p className="text-[11px] font-bold" style={{ color: 'var(--md-error)' }}>
                     Bu temadaki tüm Studio değişiklikleri geri alınacak.
                   </p>
-                  <p className="text-[10px] mt-1" style={{ color: 'var(--pwa-text-3)' }}>
+                  <p className="text-xs mt-1" style={{ color: 'var(--pwa-text-3)' }}>
                     <b>{preset.label}</b> başlangıç hâline döner (renk · yazı · bileşen ·
                     ekran · yerleşim). Diğer temalara <b>dokunulmaz</b>.
                   </p>
@@ -1061,8 +1031,8 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
                   <button
                     type="button"
                     onClick={() => { dispatch({ type: 'reset-theme' }); setConfirmReset(false); }}
-                    className="flex-1 text-[11px] font-black rounded-xl active:scale-95"
-                    style={{ minHeight: 44, background: 'rgba(248,113,113,0.14)', border: '1.5px solid rgba(248,113,113,0.42)', color: '#f87171' }}
+                    className="flex-1 text-[11px] font-semibold rounded-xl active:scale-95"
+                    style={{ minHeight: 44, background: 'color-mix(in srgb, var(--md-error) 14%, transparent)', border: '1.5px solid color-mix(in srgb, var(--md-error) 42%, transparent)', color: 'var(--md-error)' }}
                   >
                     Evet, {preset.label} sıfırlansın
                   </button>
@@ -1105,7 +1075,7 @@ const CopyFromMenu = memo(function CopyFromMenu({
   return (
     <div className="col-span-2 rounded-2xl p-2 flex flex-col gap-1.5"
       style={{ background: 'var(--pwa-surface-3)', border: '1px solid var(--pwa-border-soft)' }}>
-      <p className="text-[10px] px-1" style={{ color: 'var(--pwa-text-3)' }}>
+      <p className="text-xs px-1" style={{ color: 'var(--pwa-text-3)' }}>
         Seçilen temanın ÖZELLEŞTİRMELERİ bu temaya kopyalanır (temanın kendi kimliği korunur).
       </p>
       {others.map((id) => (
@@ -1122,7 +1092,7 @@ const CopyFromMenu = memo(function CopyFromMenu({
       <button
         type="button"
         onClick={() => setOpen(false)}
-        className="text-[10px] font-bold rounded-xl"
+        className="text-xs font-bold rounded-xl"
         style={{ minHeight: 38, background: 'transparent', color: 'var(--pwa-text-3)' }}
       >
         Vazgeç

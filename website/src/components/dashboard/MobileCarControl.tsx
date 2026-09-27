@@ -9,9 +9,16 @@ import {
 import { useCommandTracker } from '@/hooks/useCommandTracker';
 import type { CmdPhase, CommandResult } from '@/hooks/useCommandTracker';
 import type { CommandType, RoutePayload } from '@/lib/commandService';
-import { BODY_CONTROL_VERIFIED } from '@/lib/commandService';
+import { BODY_CONTROL_VERIFIED, COMMAND_TTL_MINUTES } from '@/lib/commandService';
 /* F0.3 · Komut sonucunun kanıt seviyesi — tek eşleme, ikinci otorite değil. */
 import { EVIDENCE_TITLE, EVIDENCE_DETAIL } from '@/lib/commandEvidence';
+import { Icon } from '@/components/pwa/ui/Icon';
+import { IconBadge, StatusPill as MdStatusPill } from '@/components/pwa/ui/primitives';
+
+/** Rol rengini saydamlaştırır — hex'e alfa eklemek `var(--md-*)` ile çalışmaz. */
+function mix(color: string, pct: number): string {
+  return `color-mix(in srgb, ${color} ${pct}%, transparent)`;
+}
 
 interface Props {
   vehicle:          LiveVehicle | null;
@@ -81,14 +88,16 @@ function phaseLabel(phase: CmdPhase, defaultLabel: string, defaultSub: string) {
 /* ── Offline banner ─────────────────────────────────────────────────────────── */
 
 function OfflineBanner({ plate }: { plate: string }) {
+  /* Çevrimdışı olmak bir ARIZA değildir (park etmiş araç çoğu zaman
+     çevrimdışıdır) → alarm kırmızısı yerine sakin tonal kart; ne olacağı
+     tek cümleyle söylenir. Süre kanonik `COMMAND_TTL_MINUTES`ten (N-7). */
   return (
-    <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl"
-      style={{ background: 'rgba(239,68,68,0.07)', border: '1px solid rgba(239,68,68,0.2)' }}>
-      <span className="w-2 h-2 rounded-full bg-red-400 flex-shrink-0" />
+    <div className="md-card-filled flex items-center gap-4 px-4 py-3" role="status">
+      <IconBadge name="cloud_off" />
       <div className="flex-1 min-w-0">
-        <p className="text-xs font-bold text-red-300/90 leading-tight">Araç bağlantısı kesildi</p>
-        <p className="text-[10px] text-red-400/50 mt-0.5 truncate">
-          {plate} · Komutlar sıraya alınır (5dk TTL)
+        <p className="md-title-s md-on-surface">Araç bağlantısı kesildi</p>
+        <p className="md-body-s md-on-surface-variant mt-0.5">
+          {plate} · Gönderdiğiniz komutlar {COMMAND_TTL_MINUTES} dakika sırada bekler
         </p>
       </div>
     </div>
@@ -112,9 +121,9 @@ const BigBtn = memo(function BigBtn({
   const { label: l, sub } = phaseLabel(phase, label, sublabel);
 
   const glow =
-    phase === 'ok'  ? `0 0 32px ${color}55, 0 0 12px ${color}30 inset` :
-    isErr           ? `0 0 20px rgba(239,68,68,0.3)` :
-                      `0 0 16px ${color}18`;
+    phase === 'ok'  ? `0 0 32px ${mix(color, 33)}, 0 0 12px ${mix(color, 19)} inset` :
+    isErr           ? `0 0 20px color-mix(in srgb, var(--md-error) 30%, transparent)` :
+                      `0 0 16px ${mix(color, 9)}`;
 
   return (
     <div className="relative flex flex-col gap-1 w-full">
@@ -123,25 +132,25 @@ const BigBtn = memo(function BigBtn({
         disabled={busy || queued}
         className="flex flex-col items-center justify-center gap-2 w-full aspect-square rounded-3xl transition-all duration-200 select-none active:scale-90 disabled:opacity-70"
         style={{
-          background:  isErr ? 'rgba(239,68,68,0.08)' : queued ? 'rgba(251,191,36,0.07)' : bgColor,
-          border:      `2px solid ${isErr ? 'rgba(239,68,68,0.35)' : queued ? 'rgba(251,191,36,0.3)' : phase === 'ok' ? color : borderColor}`,
+          background:  isErr ? 'color-mix(in srgb, var(--md-error) 8%, transparent)' : queued ? 'color-mix(in srgb, var(--md-warning) 8%, transparent)' : bgColor,
+          border:      `2px solid ${isErr ? 'color-mix(in srgb, var(--md-error) 35%, transparent)' : queued ? 'color-mix(in srgb, var(--md-warning) 30%, transparent)' : phase === 'ok' ? color : borderColor}`,
           boxShadow:   glow,
         }}
       >
-        <span style={{ color: isErr ? '#ef4444' : queued ? '#fbbf24' : color }}
+        <span style={{ color: isErr ? 'var(--md-error)' : queued ? 'var(--md-warning)' : color }}
           className="transition-transform duration-150">
           {busy ? <SpinIcon /> : queued ? <QueueIcon /> : children}
         </span>
-        <span className="text-[11px] font-black uppercase tracking-[0.3em]"
-          style={{ color: isErr ? '#ef4444' : queued ? '#fbbf24' : color }}>{l}</span>
-        <span className="text-[9px] font-medium"
-          style={{ color: `${isErr ? '#ef4444' : queued ? '#fbbf24' : color}70` }}>{sub}</span>
+        <span className="text-[11px] font-semibold"
+          style={{ color: isErr ? 'var(--md-error)' : queued ? 'var(--md-warning)' : color }}>{l}</span>
+        <span className="text-[11px] font-medium"
+          style={{ color: `${isErr ? 'var(--md-error)' : queued ? 'var(--md-warning)' : color}70` }}>{sub}</span>
       </button>
 
       {isErr && onRetry && (
         <button onClick={onRetry}
-          className="w-full py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-95"
-          style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)', color: '#f87171' }}>
+          className="w-full py-1.5 rounded-xl text-xs font-semibold transition-all active:scale-95"
+          style={{ background: 'color-mix(in srgb, var(--md-error) 10%, transparent)', border: '1px solid color-mix(in srgb, var(--md-error) 25%, transparent)', color: 'var(--md-error)' }}>
           ↺ Tekrar Dene
         </button>
       )}
@@ -170,23 +179,23 @@ const SmallBtn = memo(function SmallBtn({
         disabled={busy || queued}
         className="flex flex-col items-center justify-center gap-2 w-full py-4 rounded-2xl transition-all duration-200 select-none active:scale-90 disabled:opacity-70 min-h-[72px]"
         style={{
-          background:  isErr ? 'rgba(239,68,68,0.07)' : queued ? 'rgba(251,191,36,0.07)' : bgColor,
-          border:      `1.5px solid ${isErr ? 'rgba(239,68,68,0.3)' : queued ? 'rgba(251,191,36,0.3)' : phase === 'ok' ? color : borderColor}`,
-          boxShadow:   phase === 'ok' ? `0 0 18px ${color}40` : 'none',
+          background:  isErr ? 'color-mix(in srgb, var(--md-error) 8%, transparent)' : queued ? 'color-mix(in srgb, var(--md-warning) 8%, transparent)' : bgColor,
+          border:      `1.5px solid ${isErr ? 'color-mix(in srgb, var(--md-error) 30%, transparent)' : queued ? 'color-mix(in srgb, var(--md-warning) 30%, transparent)' : phase === 'ok' ? color : borderColor}`,
+          boxShadow:   phase === 'ok' ? `0 0 18px ${mix(color, 25)}` : 'none',
         }}
       >
-        <span style={{ color: isErr ? '#ef4444' : queued ? '#fbbf24' : color }}
+        <span style={{ color: isErr ? 'var(--md-error)' : queued ? 'var(--md-warning)' : color }}
           className={busy ? 'animate-pulse' : ''}>
           {busy ? <SpinIcon /> : queued ? <QueueIcon /> : children}
         </span>
-        <span className="text-[9px] font-black uppercase tracking-widest"
-          style={{ color: isErr ? '#ef4444' : queued ? '#fbbf24' : color }}>{l}</span>
+        <span className="text-[11px] font-semibold"
+          style={{ color: isErr ? 'var(--md-error)' : queued ? 'var(--md-warning)' : color }}>{l}</span>
       </button>
 
       {isErr && onRetry && (
         <button onClick={onRetry}
-          className="w-full py-1 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all active:scale-95"
-          style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', color: '#f87171' }}>
+          className="w-full py-1 rounded-lg text-[11px] font-semibold transition-all active:scale-95"
+          style={{ background: 'color-mix(in srgb, var(--md-error) 10%, transparent)', border: '1px solid color-mix(in srgb, var(--md-error) 20%, transparent)', color: 'var(--md-error)' }}>
           ↺ Tekrar
         </button>
       )}
@@ -196,68 +205,38 @@ const SmallBtn = memo(function SmallBtn({
 
 /* ── Command Toast ──────────────────────────────────────────────────────────── */
 
+/**
+ * M3 SNACKBAR — komut sonucu ekranın altında, gezinme çubuğunun üstünde
+ * görünür (içerik akışını itmez). Ters yüzey rengi her temada öne çıkar;
+ * sonuç türü ikon + metinle söylenir (renk tek başına anlam taşımaz).
+ * Metin kanıt dilinden gelir: `DELIVERED` üstünde bir iddia YOK (F0.3).
+ */
 function CommandToast({ result }: { result: CommandResult }) {
-  if (result.queued) {
-    return (
-      <div className="flex items-center gap-3.5 px-4 py-3.5 rounded-2xl"
-        style={{
-          background: 'linear-gradient(135deg, rgba(251,191,36,0.1), rgba(245,158,11,0.06))',
-          border: '1px solid rgba(251,191,36,0.3)',
-          animation: 'slideUp 0.25s cubic-bezier(0.34,1.56,0.64,1)',
-        }}>
-        <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0"
-          style={{ background: 'rgba(251,191,36,0.15)', border: '1px solid rgba(251,191,36,0.25)' }}>
-          <QueueIcon />
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-bold text-yellow-300 leading-tight truncate">Sıraya Alındı</p>
-          <p className="text-[10px] mt-0.5 text-yellow-400/55">{EVIDENCE_DETAIL.QUEUED}</p>
-        </div>
-      </div>
-    );
-  }
-
+  const kind: 'queued' | 'ok' | 'err' = result.queued ? 'queued' : result.ok ? 'ok' : 'err';
+  const title = kind === 'queued' ? 'Sıraya Alındı' : result.label;
+  const detail = kind === 'queued' ? EVIDENCE_DETAIL.QUEUED
+    : kind === 'ok' ? EVIDENCE_DETAIL.DELIVERED : EVIDENCE_DETAIL.FAILED;
+  const icon = kind === 'queued' ? 'schedule' : kind === 'ok' ? 'check_circle' : 'error';
   return (
-    <div className="flex items-center gap-3.5 px-4 py-3.5 rounded-2xl"
+    <div role="status" aria-live="polite"
+      className="md-enter fixed left-4 right-4 z-40 mx-auto max-w-lg flex items-center gap-3 px-4 py-3"
       style={{
-        background: result.ok
-          ? 'linear-gradient(135deg, rgba(52,211,153,0.1), rgba(16,185,129,0.06))'
-          : 'linear-gradient(135deg, rgba(239,68,68,0.1), rgba(220,38,38,0.06))',
-        border: `1px solid ${result.ok ? 'rgba(52,211,153,0.3)' : 'rgba(239,68,68,0.3)'}`,
-        animation: 'slideUp 0.25s cubic-bezier(0.34,1.56,0.64,1)',
+        bottom: 'calc(96px + env(safe-area-inset-bottom, 0px))',
+        background: 'var(--md-inverse-surface)', color: 'var(--md-inverse-on-surface)',
+        borderRadius: 'var(--md-shape-xs)', minHeight: 48,
+        boxShadow: '0 3px 6px color-mix(in srgb, var(--md-scrim) 20%, transparent)',
       }}>
-      {result.ok ? (
-        <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0"
-          style={{ background: 'rgba(52,211,153,0.15)', border: '1px solid rgba(52,211,153,0.25)' }}>
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <path d="M3 8l3.5 3.5L13 5" stroke="#34d399" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
-        </div>
-      ) : (
-        <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0"
-          style={{ background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.25)' }}>
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <circle cx="8" cy="8" r="6" stroke="#ef4444" strokeWidth="1.5"/>
-            <path d="M6 6l4 4M10 6l-4 4" stroke="#ef4444" strokeWidth="1.5" strokeLinecap="round"/>
-          </svg>
-        </div>
-      )}
+      <span className="flex-shrink-0" style={{ color: kind === 'err' ? 'var(--md-error-container)' : 'var(--md-inverse-primary)' }}>
+        <Icon name={icon} size={20} />
+      </span>
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-bold leading-tight truncate"
-          style={{ color: result.ok ? '#34d399' : '#f87171' }}>{result.label}</p>
-        {/* F0.3 · Buradaki eski metin araçta fiziksel doğrulama yapıldığını
-            ima ediyordu. Araç tarafında böyle bir ölçüm ÜRETİLMİYOR (donanım
-            ACK'i yok); en güçlü dürüst ifade `DELIVERED` seviyesidir. */}
-        <p className="text-[10px] mt-0.5"
-          style={{ color: result.ok ? 'rgba(52,211,153,0.55)' : 'rgba(248,113,113,0.5)' }}>
-          {result.ok ? EVIDENCE_DETAIL.DELIVERED : EVIDENCE_DETAIL.FAILED}
-        </p>
+        <p className="md-body-m font-medium truncate">{title}</p>
+        <p className="md-body-s" style={{ opacity: 0.85 }}>{detail}</p>
       </div>
-      {result.ok && result.durationMs > 0 && (
-        <div className="flex-shrink-0 px-2 py-1 rounded-lg text-[9px] font-mono font-bold"
-          style={{ background: 'rgba(52,211,153,0.12)', color: 'rgba(52,211,153,0.7)', border: '1px solid rgba(52,211,153,0.2)' }}>
-          {result.durationMs < 1000 ? `${result.durationMs}ms` : `${(result.durationMs / 1000).toFixed(1)}s`}
-        </div>
+      {kind === 'ok' && result.durationMs > 0 && (
+        <span className="md-label-m flex-shrink-0" style={{ opacity: 0.85 }}>
+          {result.durationMs < 1000 ? `${result.durationMs} ms` : `${(result.durationMs / 1000).toFixed(1)} sn`}
+        </span>
       )}
     </div>
   );
@@ -285,23 +264,32 @@ function ProviderRow({
   selected: NavProvider;
   onSelect: (p: NavProvider) => void;
 }) {
+  /* M3 filtre çipleri; marka rengi yalnız küçük bir nokta olarak kalır
+     (marka renkleri beyaz/koyu zeminde metin olarak AA sağlamıyordu). */
   return (
-    <div className="flex gap-2">
-      {PROVIDERS.map(({ id, label, color }) => (
-        <button
-          key={id}
-          onClick={() => onSelect(id)}
-          className="flex-1 py-2 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all active:scale-95"
-          style={{
-            background:  selected === id ? `${color}18` : 'var(--pwa-surface-3)',
-            border:      `1.5px solid ${selected === id ? `${color}60` : 'var(--pwa-border)'}`,
-            color:       selected === id ? color : 'var(--pwa-text-3)',
-            boxShadow:   selected === id ? `0 0 12px ${color}25` : 'none',
-          }}
-        >
-          {label}
-        </button>
-      ))}
+    <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Navigasyon uygulaması">
+      {PROVIDERS.map(({ id, label, color }) => {
+        const on = selected === id;
+        return (
+          <button
+            key={id}
+            role="radio"
+            aria-checked={on}
+            onClick={() => onSelect(id)}
+            className="md-state md-label-l inline-flex items-center gap-2 px-3"
+            style={{
+              minHeight: 32, borderRadius: 'var(--md-shape-sm)',
+              background: on ? 'var(--md-secondary-container)' : 'transparent',
+              color: on ? 'var(--md-on-secondary-container)' : 'var(--md-on-surface-variant)',
+              border: on ? '1px solid transparent' : '1px solid var(--md-outline)',
+            }}
+          >
+            {on ? <Icon name="check_circle" size={18} />
+              : <span aria-hidden="true" className="w-2.5 h-2.5 rounded-full" style={{ background: color }} />}
+            {label}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -418,28 +406,24 @@ function NavPanel({
     return (
       <button
         onClick={() => setStep('menu')}
-        className="w-full flex items-center justify-between px-4 py-3.5 rounded-2xl transition-all active:scale-[0.98]"
-        style={{
-          background: 'rgba(59,130,246,0.06)',
-          border: '1.5px solid rgba(59,130,246,0.18)',
-        }}
+        className="md-state md-card-elevated w-full flex items-center justify-between gap-4 px-4 py-4 text-left md-on-surface"
       >
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0"
-            style={{ background: 'rgba(59,130,246,0.12)', border: '1px solid rgba(59,130,246,0.25)' }}>
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <div className="flex items-center gap-4 min-w-0">
+          <div className="w-10 h-10 flex items-center justify-center flex-shrink-0"
+            style={{ borderRadius: 'var(--md-shape-full)', background: 'var(--md-primary-container)', color: 'var(--md-on-primary-container)' }}>
+            <svg width="18" height="18" viewBox="0 0 16 16" fill="none" aria-hidden="true">
               <path d="M8 1C5.24 1 3 3.24 3 6c0 3.75 5 9 5 9s5-5.25 5-9c0-2.76-2.24-5-5-5z"
-                stroke="#3b82f6" strokeWidth="1.4"/>
-              <circle cx="8" cy="6" r="1.8" stroke="#3b82f6" strokeWidth="1.4"/>
+                stroke="currentColor" strokeWidth="1.4"/>
+              <circle cx="8" cy="6" r="1.8" stroke="currentColor" strokeWidth="1.4"/>
             </svg>
           </div>
-          <div className="text-left">
-            <p className="text-xs font-bold pwa-text leading-tight">Navigasyon Gönder</p>
-            <p className="text-[10px] pwa-text-3 mt-0.5">Konum veya adres araca ilet</p>
+          <div className="min-w-0">
+            <p className="md-title-m md-on-surface">Navigasyon Gönder</p>
+            <p className="md-body-s md-on-surface-variant">Konum veya adres araca ilet</p>
           </div>
         </div>
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-          <path d="M5 3l4 4-4 4" stroke="var(--pwa-text-3)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true" className="md-on-surface-variant flex-shrink-0">
+          <path d="M9.5 6l6 6-6 6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
         </svg>
       </button>
     );
@@ -448,14 +432,12 @@ function NavPanel({
   // ── Locating ────────────────────────────────────────────────────────────────
   if (step === 'locating') {
     return (
-      <div className="flex items-center justify-center gap-3 py-5 rounded-2xl"
-        style={{ background: 'rgba(59,130,246,0.06)', border: '1.5px solid rgba(59,130,246,0.18)' }}>
-        <svg className="animate-spin w-5 h-5 text-blue-400" viewBox="0 0 20 20" fill="none">
-          <circle cx="10" cy="10" r="7" stroke="currentColor" strokeWidth="1.5"
-            strokeDasharray="32" strokeDashoffset="10" opacity="0.4"/>
-          <path d="M10 3a7 7 0 017 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+      <div className="md-card-elevated flex items-center justify-center gap-3 py-6" role="status">
+        <svg className="animate-spin w-5 h-5" style={{ color: 'var(--md-primary)' }} viewBox="0 0 20 20" fill="none" aria-hidden="true">
+          <circle cx="10" cy="10" r="7" stroke="currentColor" strokeWidth="2" strokeDasharray="32" strokeDashoffset="10" opacity="0.3"/>
+          <path d="M10 3a7 7 0 017 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
         </svg>
-        <span className="text-sm text-blue-300/80 font-medium">GPS konumu alınıyor…</span>
+        <span className="md-body-m md-on-surface">GPS konumu alınıyor…</span>
       </div>
     );
   }
@@ -463,168 +445,116 @@ function NavPanel({
   // ── Menu — choose mode ──────────────────────────────────────────────────────
   if (step === 'menu') {
     return (
-      <div className="flex flex-col gap-2 p-3 rounded-2xl"
-        style={{ background: 'rgba(59,130,246,0.06)', border: '1.5px solid rgba(59,130,246,0.18)' }}>
-        <div className="flex items-center justify-between mb-1">
-          <p className="text-[10px] font-black uppercase tracking-widest text-blue-400/70">Navigasyon</p>
-          <button onClick={() => setStep('closed')}
-            className="w-6 h-6 flex items-center justify-center rounded-lg"
-            style={{ background: 'var(--pwa-surface)' }}>
-            <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-              <path d="M2 2l6 6M8 2l-6 6" stroke="var(--pwa-text-3)" strokeWidth="1.5" strokeLinecap="round"/>
-            </svg>
+      <section className="md-card-elevated overflow-hidden" aria-label="Navigasyon gönder">
+        <div className="flex items-center justify-between pl-4 pr-1 pt-2">
+          <p className="md-title-m md-on-surface">Navigasyon gönder</p>
+          <button onClick={() => setStep('closed')} aria-label="Kapat" className="md-icon-btn md-state">
+            <Icon name="close" />
           </button>
         </div>
 
         {locErr && (
-          <p className="text-[10px] text-red-400/80 bg-red-500/10 rounded-lg px-3 py-2">{locErr}</p>
+          <p className="mx-4 mb-2 md-body-s px-3 py-2"
+            style={{ background: 'var(--md-error-container)', color: 'var(--md-on-error-container)', borderRadius: 'var(--md-shape-sm)' }}>
+            {locErr}
+          </p>
         )}
 
-        {/* Konumumu Gönder */}
-        <button
-          onClick={() => void handleLocate()}
-          className="flex items-center gap-3 w-full px-3 py-3 rounded-xl text-left transition-all active:scale-[0.98]"
-          style={{ background: 'rgba(52,211,153,0.07)', border: '1px solid rgba(52,211,153,0.2)' }}
-        >
-          <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
-            style={{ background: 'rgba(52,211,153,0.12)', border: '1px solid rgba(52,211,153,0.2)' }}>
-            <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-              <circle cx="9" cy="9" r="3" stroke="#34d399" strokeWidth="1.5"/>
-              <path d="M9 1v3M9 14v3M1 9h3M14 9h3" stroke="#34d399" strokeWidth="1.5" strokeLinecap="round"/>
-            </svg>
-          </div>
-          <div>
-            <p className="text-sm font-bold text-emerald-300 leading-tight">Konumumu Gönder</p>
-            <p className="text-[10px] text-emerald-400/50 mt-0.5">Telefon GPS konumunu araca ilet</p>
-          </div>
+        <button onClick={() => void handleLocate()} className="md-list-item md-state md-on-surface pb-3">
+          <IconBadge name="my_location" tone="primary" />
+          <span className="flex-1 min-w-0">
+            <span className="block md-body-l md-on-surface">Konumumu Gönder</span>
+            <span className="block md-body-m md-on-surface-variant">Telefon GPS konumunu araca ilet</span>
+          </span>
+          <Icon name="chevron_right" className="md-on-surface-variant flex-shrink-0" />
         </button>
-
-        {/* Adres Ara */}
-        <button
-          onClick={() => setStep('address')}
-          className="flex items-center gap-3 w-full px-3 py-3 rounded-xl text-left transition-all active:scale-[0.98]"
-          style={{ background: 'rgba(59,130,246,0.07)', border: '1px solid rgba(59,130,246,0.2)' }}
-        >
-          <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
-            style={{ background: 'rgba(59,130,246,0.12)', border: '1px solid rgba(59,130,246,0.2)' }}>
-            <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-              <circle cx="8" cy="8" r="5" stroke="#3b82f6" strokeWidth="1.5"/>
-              <path d="M12 12l3.5 3.5" stroke="#3b82f6" strokeWidth="1.5" strokeLinecap="round"/>
-            </svg>
-          </div>
-          <div>
-            <p className="text-sm font-bold text-blue-300 leading-tight">Adres Ara</p>
-            <p className="text-[10px] text-blue-400/50 mt-0.5">İsim veya adres yazarak seç</p>
-          </div>
+        <button onClick={() => setStep('address')} className="md-list-item md-state md-on-surface pb-3">
+          <IconBadge name="search" />
+          <span className="flex-1 min-w-0">
+            <span className="block md-body-l md-on-surface">Adres Ara</span>
+            <span className="block md-body-m md-on-surface-variant">İsim veya adres yazarak seç</span>
+          </span>
+          <Icon name="chevron_right" className="md-on-surface-variant flex-shrink-0" />
         </button>
-      </div>
+      </section>
     );
   }
 
   // ── Address search ──────────────────────────────────────────────────────────
   if (step === 'address') {
     return (
-      <div className="flex flex-col gap-2 p-3 rounded-2xl"
-        style={{ background: 'rgba(59,130,246,0.06)', border: '1.5px solid rgba(59,130,246,0.18)' }}>
-        <div className="flex items-center gap-2">
-          <button onClick={() => setStep('menu')}
-            className="w-7 h-7 flex items-center justify-center rounded-xl flex-shrink-0"
-            style={{ background: 'var(--pwa-surface)', border: '1px solid var(--pwa-border)' }}>
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-              <path d="M8 2L4 6l4 4" stroke="var(--pwa-text-2)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
+      <section className="md-card-elevated overflow-hidden" aria-label="Adres ara">
+        {/* M3 arama çubuğu: geri + alan + ilerleme */}
+        <div className="flex items-center gap-1 m-3 pr-3"
+          style={{ background: 'var(--md-surface-container-highest)', borderRadius: 'var(--md-shape-full)', minHeight: 56 }}>
+          <button onClick={() => setStep('menu')} aria-label="Geri" className="md-icon-btn md-state flex-shrink-0">
+            <Icon name="arrow_back" />
           </button>
-          <div className="flex-1 relative">
-            <input
-              ref={inputRef}
-              type="text"
-              placeholder="Adres, şehir veya yer adı girin…"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              className="w-full px-3 py-2.5 pr-8 rounded-xl text-sm pwa-text placeholder-white/20 outline-none"
-              style={{ background: 'var(--pwa-border-soft)', border: '1px solid var(--pwa-border)' }}
-            />
-            {searching && (
-              <div className="absolute right-2.5 top-1/2 -translate-y-1/2">
-                <svg className="animate-spin w-3.5 h-3.5 text-blue-400" viewBox="0 0 14 14" fill="none">
-                  <circle cx="7" cy="7" r="5" stroke="currentColor" strokeWidth="1.5"
-                    strokeDasharray="22" strokeDashoffset="7" opacity="0.4"/>
-                  <path d="M7 2a5 5 0 015 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                </svg>
-              </div>
-            )}
-          </div>
+          <input
+            ref={inputRef}
+            type="text"
+            placeholder="Adres, şehir veya yer adı"
+            aria-label="Adres ara"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            className="flex-1 min-w-0 bg-transparent outline-none md-body-l md-on-surface"
+          />
+          {searching && (
+            <svg className="animate-spin w-5 h-5 flex-shrink-0" style={{ color: 'var(--md-primary)' }} viewBox="0 0 20 20" fill="none" aria-label="Aranıyor">
+              <circle cx="10" cy="10" r="7" stroke="currentColor" strokeWidth="2" strokeDasharray="32" strokeDashoffset="10" opacity="0.3"/>
+              <path d="M10 3a7 7 0 017 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+            </svg>
+          )}
         </div>
 
         {results.length > 0 && (
-          <div className="flex flex-col gap-1 max-h-52 overflow-y-auto">
+          <div className="flex flex-col max-h-72 overflow-y-auto pb-2">
             {results.map((r, i) => (
-              <button
-                key={i}
-                onClick={() => handleSelectResult(r)}
-                className="flex items-start gap-2.5 px-3 py-2.5 rounded-xl text-left transition-all active:scale-[0.98]"
-                style={{ background: 'var(--pwa-surface-3)', border: '1px solid var(--pwa-border-soft)' }}
-              >
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="mt-0.5 flex-shrink-0">
-                  <path d="M7 1C4.79 1 3 2.79 3 5c0 2.94 4 8 4 8s4-5.06 4-8c0-2.21-1.79-4-4-4z"
-                    stroke="#3b82f6" strokeWidth="1.2"/>
-                  <circle cx="7" cy="5" r="1.2" stroke="#3b82f6" strokeWidth="1.2"/>
-                </svg>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-semibold pwa-text leading-tight truncate">{r.short_name}</p>
-                  <p className="text-[9px] pwa-text-3 mt-0.5 truncate">{r.display_name}</p>
-                </div>
+              <button key={i} onClick={() => handleSelectResult(r)} className="md-list-item md-state md-on-surface">
+                <span className="md-on-surface-variant flex-shrink-0"><Icon name="location_on" /></span>
+                <span className="flex-1 min-w-0">
+                  <span className="block md-body-l md-on-surface truncate">{r.short_name}</span>
+                  <span className="block md-body-s md-on-surface-variant truncate">{r.display_name}</span>
+                </span>
               </button>
             ))}
           </div>
         )}
 
         {query.trim().length >= 3 && !searching && results.length === 0 && (
-          <p className="text-center text-[11px] pwa-text-3 py-3">Sonuç bulunamadı</p>
+          <p className="text-center md-body-m md-on-surface-variant pb-5">Sonuç bulunamadı</p>
         )}
-      </div>
+      </section>
     );
   }
 
   // ── Confirm & send ──────────────────────────────────────────────────────────
   if (step === 'confirm' && selected) {
     return (
-      <div className="flex flex-col gap-3 p-3 rounded-2xl"
-        style={{ background: 'rgba(59,130,246,0.06)', border: '1.5px solid rgba(59,130,246,0.18)' }}>
-        <div className="flex items-start gap-2.5">
-          <button onClick={() => setStep('menu')}
-            className="w-7 h-7 flex items-center justify-center rounded-xl flex-shrink-0 mt-0.5"
-            style={{ background: 'var(--pwa-surface)', border: '1px solid var(--pwa-border)' }}>
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-              <path d="M8 2L4 6l4 4" stroke="var(--pwa-text-2)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
+      <section className="md-card-elevated overflow-hidden p-4 flex flex-col gap-4" aria-label="Rotayı onayla">
+        <div className="flex items-start gap-3">
+          <button onClick={() => setStep('menu')} aria-label="Geri" className="md-icon-btn md-state flex-shrink-0 -ml-3 -mt-2">
+            <Icon name="arrow_back" />
           </button>
           <div className="flex-1 min-w-0">
-            <p className="text-[9px] font-black uppercase tracking-widest text-blue-400/60 mb-1">Hedef Konum</p>
-            <p className="text-sm font-semibold pwa-text leading-snug line-clamp-2">{selected.short_name}</p>
-            <p className="text-[9px] pwa-text-3 mt-0.5 font-mono">
+            <p className="md-label-m md-on-surface-variant">Hedef</p>
+            <p className="md-title-m md-on-surface line-clamp-2">{selected.short_name}</p>
+            <p className="md-body-s md-on-surface-variant tabular-nums mt-0.5">
               {selected.lat.toFixed(5)}, {selected.lng.toFixed(5)}
             </p>
           </div>
         </div>
 
         <div>
-          <p className="text-[9px] font-black uppercase tracking-widest pwa-text-3 mb-1.5 px-1">Navigasyon Uygulaması</p>
+          <p className="md-label-m md-on-surface-variant mb-2">Hangi uygulamada açılsın</p>
           <ProviderRow selected={provider} onSelect={setProvider} />
         </div>
 
-        <button
-          onClick={handleSend}
-          disabled={busy}
-          className="w-full py-3.5 rounded-xl font-black text-sm uppercase tracking-widest pwa-text transition-all active:scale-[0.97] disabled:opacity-50"
-          style={{
-            background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
-            boxShadow:  '0 6px 20px rgba(59,130,246,0.3)',
-          }}
-        >
-          {busy ? 'Gönderiliyor…' : 'Araca Gönder →'}
+        <button onClick={handleSend} disabled={busy} className="md-btn-filled md-state w-full disabled:opacity-50" style={{ minHeight: 48 }}>
+          <Icon name="near_me" size={20} />
+          {busy ? 'Gönderiliyor…' : 'Araca Gönder'}
         </button>
-      </div>
+      </section>
     );
   }
 
@@ -717,98 +647,82 @@ function SpeedAlertPanel({ vehicleId }: { vehicleId: string | null }) {
   }, [cfg, handleSave]);
 
   return (
-    <div className="flex flex-col gap-0">
-      {/* Toggle header */}
-      <button
-        onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center justify-between px-4 py-3 rounded-2xl transition-all active:scale-[0.98]"
-        style={{
-          background: cfg.enabled ? 'rgba(239,68,68,0.06)' : 'var(--pwa-surface-3)',
-          border:     `1.5px solid ${cfg.enabled ? 'rgba(239,68,68,0.2)' : 'var(--pwa-border-soft)'}`,
-        }}
-      >
-        <div className="flex items-center gap-3">
-          <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
-            style={{
-              background: cfg.enabled ? 'rgba(239,68,68,0.12)' : 'var(--pwa-surface)',
-              border:     `1px solid ${cfg.enabled ? 'rgba(239,68,68,0.25)' : 'var(--pwa-border)'}`,
-            }}>
-            <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
-              <path d="M6.5 1L12 11H1L6.5 1Z" stroke={cfg.enabled ? '#ef4444' : 'var(--pwa-text-3)'} strokeWidth="1.2" strokeLinejoin="round"/>
-              <path d="M6.5 5v2.5M6.5 9v.5" stroke={cfg.enabled ? '#ef4444' : 'var(--pwa-text-3)'} strokeWidth="1.2" strokeLinecap="round"/>
-            </svg>
-          </div>
-          <div className="text-left">
-            <p className="text-xs font-bold leading-tight" style={{ color: cfg.enabled ? '#f87171' : 'var(--pwa-text-2)' }}>
-              Hız Uyarısı
-            </p>
-            <p className="text-[9px] mt-0.5" style={{ color: 'var(--pwa-text-3)' }}>
-              {cfg.enabled ? `${cfg.threshold} km/h üzerinde uyar` : 'Devre dışı'}
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          {/* Üç ayrı gerçek: araçta UYGULANDI · sıraya alındı · gönderilemedi. */}
-          {saved && (
-            <span className="text-[9px] font-black text-emerald-400">Araçta ✓</span>
-          )}
-          {queued && (
-            <span className="text-[9px] font-black text-yellow-400">Sırada</span>
-          )}
-          {saveErr && (
-            <span className="text-[9px] font-black text-red-400">Gönderilemedi</span>
-          )}
-          {saving && (
-            <svg className="animate-spin w-3 h-3 pwa-text-3" viewBox="0 0 12 12" fill="none">
-              <circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="1.2"
-                strokeDasharray="18" strokeDashoffset="6" opacity="0.4"/>
-              <path d="M6 1.5a4.5 4.5 0 014.5 4.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-            </svg>
-          )}
-          {/* On/Off toggle */}
-          <div
-            onClick={(e) => { e.stopPropagation(); update({ enabled: !cfg.enabled }); }}
-            className="w-9 h-5 rounded-full relative cursor-pointer transition-all"
-            style={{ background: cfg.enabled ? 'rgba(239,68,68,0.5)' : 'var(--pwa-border)' }}
-          >
-            <div className="absolute top-0.5 w-4 h-4 rounded-full transition-all duration-200"
-              style={{
-                background: cfg.enabled ? '#ef4444' : 'var(--pwa-text-3)',
-                left:       cfg.enabled ? '18px' : '2px',
-                boxShadow:  cfg.enabled ? '0 0 6px rgba(239,68,68,0.6)' : 'none',
-              }} />
-          </div>
-          <svg
-            className="transition-transform"
-            style={{ transform: open ? 'rotate(180deg)' : 'rotate(0deg)' }}
-            width="12" height="12" viewBox="0 0 12 12" fill="none"
-          >
-            <path d="M3 4.5l3 3 3-3" stroke="var(--pwa-text-3)" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
-        </div>
-      </button>
+    <section className="md-card-elevated overflow-hidden" aria-label="Hız uyarısı">
+      {/* Başlık satırı: genişletme alanı ve anahtar AYRI denetimlerdir
+          (iç içe etkileşimli öğe yok → klavye/ekran okuyucu erişilebilir). */}
+      <div className="flex items-center gap-2 pr-3">
+        <button
+          onClick={() => setOpen(o => !o)}
+          aria-expanded={open}
+          className="md-state flex-1 min-w-0 flex items-center gap-4 pl-4 pr-2 py-4 text-left md-on-surface"
+        >
+          <IconBadge name="speed" tone={cfg.enabled ? 'primary' : 'neutral'} />
+          <span className="flex-1 min-w-0">
+            <span className="block md-title-m md-on-surface">Hız uyarısı</span>
+            <span className="block md-body-s md-on-surface-variant">
+              {cfg.enabled ? `${cfg.threshold} km/sa üzerinde uyarır` : 'Kapalı'}
+            </span>
+          </span>
+          <Icon name="expand_more" className="md-on-surface-variant flex-shrink-0"
+            style={{ transform: open ? 'rotate(180deg)' : 'none', transition: 'transform var(--md-dur-short) var(--md-ease-standard)' }} />
+        </button>
+        <button
+          role="switch"
+          aria-checked={cfg.enabled}
+          aria-label="Hız uyarısı"
+          onClick={() => update({ enabled: !cfg.enabled })}
+          className="relative flex-shrink-0"
+          style={{ width: 52, height: 32, borderRadius: 16,
+            background: cfg.enabled ? 'var(--md-primary)' : 'var(--md-surface-container-highest)',
+            border: cfg.enabled ? 'none' : '2px solid var(--md-outline)' }}
+        >
+          <span className="absolute top-1/2 -translate-y-1/2" style={{
+            left: cfg.enabled ? 24 : 6, width: cfg.enabled ? 24 : 16, height: cfg.enabled ? 24 : 16,
+            borderRadius: '50%', transition: 'all var(--md-dur-short) var(--md-ease-standard)',
+            background: cfg.enabled ? 'var(--md-on-primary)' : 'var(--md-outline)' }} />
+        </button>
+      </div>
 
-      {/* Expanded threshold selector */}
-      {open && (
-        <div className="mt-1.5 flex gap-2 px-1">
-          {SPEED_PRESETS.map((spd) => (
-            <button
-              key={spd}
-              onClick={() => update({ threshold: spd, enabled: true })}
-              className="flex-1 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all active:scale-95"
-              style={{
-                background:  cfg.threshold === spd ? 'rgba(239,68,68,0.12)' : 'var(--pwa-surface-3)',
-                border:      `1.5px solid ${cfg.threshold === spd ? 'rgba(239,68,68,0.35)' : 'var(--pwa-border-soft)'}`,
-                color:       cfg.threshold === spd ? '#f87171' : 'var(--pwa-text-3)',
-                boxShadow:   cfg.threshold === spd ? '0 0 10px rgba(239,68,68,0.2)' : 'none',
-              }}
-            >
-              {spd}
-            </button>
-          ))}
+      {/* Üç ayrı gerçek: araçta UYGULANDI · sıraya alındı · gönderilemedi. */}
+      {(saved || queued || saveErr || saving) && (
+        <div className="flex flex-wrap gap-2 px-4 pb-3 -mt-1">
+          {saving && <MdStatusPill icon="sync">Gönderiliyor</MdStatusPill>}
+          {saved && <MdStatusPill tone="success" icon="check_circle">Araçta uygulandı</MdStatusPill>}
+          {queued && <MdStatusPill tone="warning" icon="schedule">Sırada — araç henüz uygulamadı</MdStatusPill>}
+          {saveErr && <MdStatusPill tone="error" icon="error">Gönderilemedi</MdStatusPill>}
         </div>
       )}
-    </div>
+
+      {/* Eşik seçimi — M3 filtre çipleri */}
+      {open && (
+        <div className="px-4 pb-4">
+          <p className="md-label-m md-on-surface-variant mb-2">Uyarı eşiği</p>
+          <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Uyarı eşiği">
+            {SPEED_PRESETS.map((spd) => {
+              const on = cfg.enabled && cfg.threshold === spd;
+              return (
+                <button
+                  key={spd}
+                  role="radio"
+                  aria-checked={on}
+                  onClick={() => update({ threshold: spd, enabled: true })}
+                  className="md-state md-label-l inline-flex items-center gap-1.5 px-3"
+                  style={{
+                    minHeight: 32, borderRadius: 'var(--md-shape-sm)',
+                    background: on ? 'var(--md-secondary-container)' : 'transparent',
+                    color: on ? 'var(--md-on-secondary-container)' : 'var(--md-on-surface-variant)',
+                    border: on ? '1px solid transparent' : '1px solid var(--md-outline)',
+                  }}
+                >
+                  {on && <Icon name="check_circle" size={18} />}
+                  {spd} km/sa
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -829,9 +743,9 @@ function SpeedAlertPanel({ vehicleId }: { vehicleId: string | null }) {
 
 type Tint = (v: number) => string;
 
-const speedTint: Tint = (v) => (v > 90 ? '#ef4444' : v > 60 ? '#fbbf24' : '#34d399');
-const fuelTint:  Tint = (v) => (v < 15 ? '#ef4444' : v < 30 ? '#fbbf24' : '#60a5fa');
-const tempTint:  Tint = (v) => (v > 100 ? '#ef4444' : v > 85 ? '#fbbf24' : '#34d399');
+const speedTint: Tint = (v) => (v > 90 ? 'var(--md-error)' : v > 60 ? 'var(--md-warning)' : 'var(--md-success)');
+const fuelTint:  Tint = (v) => (v < 15 ? 'var(--md-error)' : v < 30 ? 'var(--md-warning)' : 'var(--md-primary)');
+const tempTint:  Tint = (v) => (v > 100 ? 'var(--md-error)' : v > 85 ? 'var(--md-warning)' : 'var(--md-success)');
 
 /** Bilinmeyen/bayat veri için nötr renk — yeşil "iyi" anlamına gelir, hak edilmeden verilmez. */
 const UNKNOWN_TINT = 'var(--pwa-text-3)';
@@ -867,16 +781,16 @@ const TelemetryTile = memo(function TelemetryTile({
   return (
     <div className="flex flex-col items-center py-3 rounded-xl"
       style={{
-        background: known && isLive ? `${color}09` : 'var(--pwa-surface-3)',
-        border:     `1px solid ${known && isLive ? `${color}20` : 'var(--pwa-border-soft)'}`,
+        background: known && isLive ? `${mix(color, 4)}` : 'var(--pwa-surface-3)',
+        border:     `1px solid ${known && isLive ? `${mix(color, 13)}` : 'var(--pwa-border-soft)'}`,
       }}>
-      <span className="text-[8px] font-black uppercase tracking-widest pwa-text-3 mb-1">{label}</span>
+      <span className="text-[11px] font-semibold pwa-text-3 mb-1">{label}</span>
       {/* Bilinmeyen değer 0 diye BASILMAZ — em-dash bir sayı iddiası değildir. */}
-      <span className="text-lg font-black tabular-nums leading-none" style={{ color }}>
+      <span className="text-lg font-semibold tabular-nums leading-none" style={{ color }}>
         {known ? Math.round(value) : '—'}
       </span>
-      <span className="text-[9px] font-mono mt-0.5 text-center leading-tight"
-        style={{ color: known && isLive ? `${color}60` : 'var(--pwa-text-3)' }}>
+      <span className="text-[11px] mt-0.5 text-center leading-tight"
+        style={{ color: known && isLive ? color : 'var(--pwa-text-3)' }}>
         {known && !isLive ? `${unit} · ${note}` : note}
       </span>
     </div>
@@ -887,11 +801,11 @@ const TelemetryTile = memo(function TelemetryTile({
 
 function StatusPill({ status }: { status: LiveVehicle['status'] }) {
   const online = status !== 'offline';
-  const color  = status === 'alarm' ? '#f87171' : online ? '#34d399' : 'var(--pwa-text-3)';
-  const bg     = status === 'alarm' ? 'rgba(239,68,68,0.1)' : online ? 'rgba(52,211,153,0.1)' : 'var(--pwa-surface)';
-  const border = status === 'alarm' ? 'rgba(239,68,68,0.25)' : online ? 'rgba(52,211,153,0.25)' : 'var(--pwa-border)';
+  const color  = status === 'alarm' ? 'var(--md-error)' : online ? 'var(--md-success)' : 'var(--pwa-text-3)';
+  const bg     = status === 'alarm' ? 'color-mix(in srgb, var(--md-error) 10%, transparent)' : online ? 'color-mix(in srgb, var(--md-success) 10%, transparent)' : 'var(--pwa-surface)';
+  const border = status === 'alarm' ? 'color-mix(in srgb, var(--md-error) 25%, transparent)' : online ? 'color-mix(in srgb, var(--md-success) 25%, transparent)' : 'var(--pwa-border)';
   return (
-    <span className="text-[9px] font-black uppercase tracking-widest px-2.5 py-1 rounded-lg flex-shrink-0"
+    <span className="text-[11px] font-semibold px-2.5 py-1 rounded-lg flex-shrink-0"
       style={{ color, background: bg, border: `1px solid ${border}` }}>
       {status === 'online' ? 'Online' : status === 'alarm' ? 'Alarm' : 'Offline'}
     </span>
@@ -911,7 +825,7 @@ function VehicleSelectorSheet({
     <div className="fixed inset-0 z-50 flex items-end justify-center" role="dialog" aria-modal="true">
       <div
         className="absolute inset-0"
-        style={{ background: 'rgba(0,0,0,0.55)' }}
+        style={{ background: 'var(--md-surface-container-high)' }}
         onClick={onClose}
       />
       <div
@@ -919,14 +833,14 @@ function VehicleSelectorSheet({
         style={{
           background: 'linear-gradient(180deg, var(--pwa-card-a) 0%, var(--pwa-card-b) 100%)',
           border: '1px solid var(--pwa-border)',
-          boxShadow: '0 -20px 60px rgba(0,0,0,0.4)',
+          boxShadow: '0 -20px 60px var(--md-surface-container-high)',
           animation: 'slideUp 0.22s cubic-bezier(0.34,1.56,0.64,1)',
         }}
       >
         <div className="w-10 h-1 rounded-full mx-auto mb-4" style={{ background: 'var(--pwa-border)' }} />
 
         <div className="flex items-center justify-between mb-3 px-1">
-          <p className="text-[11px] font-black uppercase tracking-widest pwa-text-3">Araçlarım</p>
+          <p className="text-[11px] font-semibold pwa-text-3">Araçlarım</p>
           <button onClick={onClose}
             className="w-7 h-7 flex items-center justify-center rounded-lg"
             style={{ background: 'var(--pwa-surface)', border: '1px solid var(--pwa-border)' }}>
@@ -945,14 +859,14 @@ function VehicleSelectorSheet({
                 onClick={() => onSelect(v.id)}
                 className="flex items-center gap-3 px-4 py-3.5 rounded-2xl text-left transition-all active:scale-[0.98]"
                 style={{
-                  background: active ? 'rgba(59,130,246,0.1)' : 'var(--pwa-surface-3)',
-                  border: `1.5px solid ${active ? 'rgba(59,130,246,0.4)' : 'var(--pwa-border-soft)'}`,
+                  background: active ? 'color-mix(in srgb, var(--md-primary) 10%, transparent)' : 'var(--pwa-surface-3)',
+                  border: `1.5px solid ${active ? 'color-mix(in srgb, var(--md-primary) 40%, transparent)' : 'var(--pwa-border-soft)'}`,
                 }}
               >
                 <span
                   className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0"
                   style={{
-                    background: active ? '#3b82f6' : 'transparent',
+                    background: active ? 'var(--md-primary)' : 'transparent',
                     border: active ? 'none' : '1.5px solid var(--pwa-border)',
                   }}
                 >
@@ -964,7 +878,7 @@ function VehicleSelectorSheet({
                 </span>
                 <div className="flex-1 min-w-0">
                   <p className="font-mono font-bold pwa-text text-sm">{v.plate}</p>
-                  <p className="text-[10px] pwa-text-3 truncate">
+                  <p className="text-xs pwa-text-3 truncate">
                     {v.name}{v.driver && v.driver !== '—' ? ` · ${v.driver}` : ''}
                   </p>
                 </div>
@@ -976,8 +890,8 @@ function VehicleSelectorSheet({
 
         <button
           onClick={onAdd}
-          className="w-full mt-3 py-3.5 rounded-2xl text-sm font-black uppercase tracking-widest transition-all active:scale-[0.98]"
-          style={{ background: 'rgba(59,130,246,0.08)', border: '1.5px dashed rgba(59,130,246,0.3)', color: '#60a5fa' }}
+          className="w-full mt-3 py-3.5 rounded-2xl text-sm font-semibold transition-all active:scale-[0.98]"
+          style={{ background: 'color-mix(in srgb, var(--md-primary) 8%, transparent)', border: '1.5px dashed color-mix(in srgb, var(--md-primary) 30%, transparent)', color: 'var(--md-primary)' }}
         >
           + Araç Ekle
         </button>
@@ -1036,7 +950,7 @@ export default function MobileCarControl({
           <button
             onClick={() => setSelectorOpen(true)}
             className="mt-1 px-4 py-2 rounded-xl text-xs font-bold transition-all active:scale-95"
-            style={{ background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.3)', color: '#60a5fa' }}
+            style={{ background: 'color-mix(in srgb, var(--md-primary) 10%, transparent)', border: '1px solid color-mix(in srgb, var(--md-primary) 30%, transparent)', color: 'var(--md-primary)' }}
           >
             {vehicles.length} araçtan birini seç →
           </button>
@@ -1057,7 +971,7 @@ export default function MobileCarControl({
   const isOnline = vehicle.status !== 'offline';
 
   return (
-    <div className="flex flex-col gap-4 px-1">
+    <div className={`flex flex-col ${variant === 'embedded' ? 'gap-3' : 'gap-4 px-1'}`}>
 
       {/* Vehicle identity — birden fazla araç varsa dokunulabilir selector.
           Gömülü kullanımda TEK araç varken bu satır yalnız bir TEKRAR olurdu
@@ -1080,13 +994,13 @@ export default function MobileCarControl({
         }`} />
         <div className="flex-1 min-w-0">
           <p className="font-mono font-bold pwa-text text-sm">{vehicle.plate}</p>
-          <p className="text-[10px] pwa-text-3 truncate">{vehicle.name} · {vehicle.driver}</p>
+          <p className="text-xs pwa-text-3 truncate">{vehicle.name} · {vehicle.driver}</p>
         </div>
-        <span className="text-[9px] font-black uppercase tracking-widest px-2.5 py-1 rounded-lg"
+        <span className="text-[11px] font-semibold px-2.5 py-1 rounded-lg"
           style={{
-            color:      isOnline ? '#34d399' : 'var(--pwa-text-3)',
-            background: isOnline ? 'rgba(52,211,153,0.1)' : 'var(--pwa-surface)',
-            border:     `1px solid ${isOnline ? 'rgba(52,211,153,0.25)' : 'var(--pwa-border)'}`,
+            color:      isOnline ? 'var(--md-success)' : 'var(--pwa-text-3)',
+            background: isOnline ? 'color-mix(in srgb, var(--md-success) 10%, transparent)' : 'var(--pwa-surface)',
+            border:     `1px solid ${isOnline ? 'color-mix(in srgb, var(--md-success) 25%, transparent)' : 'var(--pwa-border)'}`,
           }}>
           {vehicle.status === 'online' ? 'Online' : vehicle.status === 'alarm' ? 'Alarm' : 'Offline'}
         </span>
@@ -1115,7 +1029,7 @@ export default function MobileCarControl({
       <div className="grid grid-cols-2 gap-4">
         <BigBtn
           label="Kilitle" sublabel="Kapat"
-          color="#ef4444" bgColor="rgba(239,68,68,0.07)" borderColor="rgba(239,68,68,0.25)"
+          color="var(--md-error)" bgColor="color-mix(in srgb, var(--md-error) 8%, transparent)" borderColor="color-mix(in srgb, var(--md-error) 25%, transparent)"
           phase={phases.lock ?? 'idle'}
           onClick={() => void dispatch('lock')}
           onRetry={() => void retry('lock')}
@@ -1129,7 +1043,7 @@ export default function MobileCarControl({
 
         <BigBtn
           label="Aç" sublabel="Kilidi Kaldır"
-          color="#34d399" bgColor="rgba(52,211,153,0.07)" borderColor="rgba(52,211,153,0.25)"
+          color="var(--md-success)" bgColor="color-mix(in srgb, var(--md-success) 8%, transparent)" borderColor="color-mix(in srgb, var(--md-success) 25%, transparent)"
           phase={phases.unlock ?? 'idle'}
           onClick={() => void dispatch('unlock')}
           onRetry={() => void retry('unlock')}
@@ -1144,8 +1058,8 @@ export default function MobileCarControl({
       {/* Horn + Alarm + Lights */}
       <div className="flex gap-3">
         <SmallBtn
-          label="Korna" color="#fbbf24"
-          bgColor="rgba(251,191,36,0.07)" borderColor="rgba(251,191,36,0.22)"
+          label="Korna" color="var(--md-warning)"
+          bgColor="color-mix(in srgb, var(--md-warning) 8%, transparent)" borderColor="color-mix(in srgb, var(--md-warning) 22%, transparent)"
           phase={phases.horn ?? 'idle'}
           onClick={() => void dispatch('horn')}
           onRetry={() => void retry('horn')}
@@ -1159,8 +1073,8 @@ export default function MobileCarControl({
         </SmallBtn>
 
         <SmallBtn
-          label="Alarm" color="#a78bfa"
-          bgColor="rgba(167,139,250,0.07)" borderColor="rgba(167,139,250,0.22)"
+          label="Alarm" color="var(--md-tertiary)"
+          bgColor="color-mix(in srgb, var(--md-tertiary) 8%, transparent)" borderColor="color-mix(in srgb, var(--md-tertiary) 22%, transparent)"
           phase={phases.alarm_on ?? 'idle'}
           onClick={() => void dispatch('alarm_on')}
           onRetry={() => void retry('alarm_on')}
