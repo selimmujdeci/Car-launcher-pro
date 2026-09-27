@@ -568,6 +568,17 @@
   }
   .md-field::placeholder { color: var(--md-on-surface-variant); opacity: 0.7; }
   .md-field:focus { border-bottom: 2px solid var(--md-primary); padding-bottom: 15px; }
+  /* Tek haneli kod kutusu (OTP) — 48×56, dolgulu; odakta 2px birincil çerçeve. */
+  .md-pin {
+    width: 48px; height: 56px; font-size: 24px; line-height: 32px; font-weight: 500;
+    background: var(--md-surface-container-highest); color: var(--md-on-surface);
+    border: 1px solid transparent; border-radius: var(--md-shape-sm); outline: none;
+    transition: border-color var(--md-dur-short) var(--md-ease-standard);
+  }
+  .md-pin[data-filled='true'] { border-color: var(--md-outline); }
+  .md-pin:focus { border: 2px solid var(--md-primary); }
+  .md-pin[data-error='true'] { border: 2px solid var(--md-error); }
+
   /* Extended FAB — tek birincil eylem; gezinme çubuğunun üstünde. */
   .md-fab {
     position: fixed; right: 16px; bottom: calc(96px + env(safe-area-inset-bottom, 0px)); z-index: 30;

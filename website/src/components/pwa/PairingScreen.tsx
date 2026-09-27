@@ -16,6 +16,8 @@ import {
 } from '@/lib/offline/pendingPairingService';
 import { statusLabel, type PendingPairing } from '@/lib/offline/offlinePairing';
 import { isFleetErrorCode } from '@/lib/fleet/errors';
+import { Icon } from '@/components/pwa/ui/Icon';
+import { StatusPill, type Tone } from '@/components/pwa/ui/primitives';
 
 /** Rol rengini saydamlaştırır — hex'e alfa eklemek `var(--md-*)` ile çalışmaz. */
 function mix(color: string, pct: number): string {
@@ -410,46 +412,26 @@ export default function PairingScreen({ onPaired }: Props) {
 
   /* ── Render ─────────────────────────────────────────────── */
   return (
-    <div className="relative flex flex-col items-center gap-5 py-6 px-4 text-center overflow-hidden">
+    <div className="relative flex flex-col items-center gap-5 py-4 text-center overflow-hidden">
       {success && <Confetti />}
 
-      {/* Vehicle / success icon */}
-      <div
-        className="w-16 h-16 rounded-2xl flex items-center justify-center transition-all duration-500"
+      {/* Hero ikon — başarıda onay */}
+      <span aria-hidden="true" className="flex items-center justify-center"
         style={{
-          background: success ? 'color-mix(in srgb, var(--md-success) 10%, transparent)' : 'color-mix(in srgb, var(--md-primary) 8%, transparent)',
-          border: `1px solid ${success ? 'color-mix(in srgb, var(--md-success) 35%, transparent)' : 'color-mix(in srgb, var(--md-primary) 20%, transparent)'}`,
-          boxShadow: success ? '0 0 40px color-mix(in srgb, var(--md-success) 20%, transparent)' : '0 0 32px color-mix(in srgb, var(--md-primary) 12%, transparent)',
+          width: 88, height: 88, borderRadius: 'var(--md-shape-xl)',
+          background: success ? 'var(--md-success-container)' : 'var(--md-primary-container)',
+          color: success ? 'var(--md-on-success-container)' : 'var(--md-on-primary-container)',
           animation: success ? 'successPulse 0.5s ease-out' : 'none',
-        }}
-      >
-        {success ? (
-          <svg width="30" height="30" viewBox="0 0 36 36" fill="none">
-            <circle cx="18" cy="18" r="14" stroke="var(--md-success)" strokeWidth="2" opacity="0.25"/>
-            <path d="M11 18l5 5 9-9" stroke="var(--md-success)" strokeWidth="2.5"
-              strokeLinecap="round" strokeLinejoin="round"
-              style={{ animation: 'drawCheck 0.4s ease-out 0.15s both' }}/>
-          </svg>
-        ) : (
-          <svg width="30" height="30" viewBox="0 0 38 38" fill="none">
-            <path d="M5 23V18L9 11Q10.5 8 13 8H25Q27.5 8 29 11L33 18V23"
-              stroke="var(--md-primary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-            <path d="M4 23h30v4.5A1.5 1.5 0 0132.5 29h-27A1.5 1.5 0 014 27.5V23z" stroke="var(--md-primary)" strokeWidth="2"/>
-            <circle cx="10" cy="23" r="2.5" stroke="var(--md-primary)" strokeWidth="2"/>
-            <circle cx="28" cy="23" r="2.5" stroke="var(--md-primary)" strokeWidth="2"/>
-            <circle cx="29" cy="10" r="7" fill="var(--md-surface)" stroke="color-mix(in srgb, var(--md-primary) 30%, transparent)" strokeWidth="1"/>
-            <rect x="26" y="7.5" width="6" height="5" rx="1" stroke="var(--md-primary)" strokeWidth="1.2"/>
-            <path d="M28 12.5v1.5M29 12.5v1.5M30 12.5v1.5" stroke="var(--md-primary)" strokeWidth="1" strokeLinecap="round"/>
-          </svg>
-        )}
-      </div>
+        }}>
+        <Icon name={success ? 'check_circle' : 'add_link'} size={44} />
+      </span>
 
       {/* Title */}
       <div>
-        <h2 className=" font-bold text-base leading-tight">
+        <h2 className="md-headline-s md-on-surface">
           {success ? 'Araç Eşleştirildi!' : 'Aracınızı Eşleştirin'}
         </h2>
-        <p className="md-on-surface-variant text-xs mt-1 leading-relaxed">
+        <p className="md-body-m md-on-surface-variant mt-1">
           {success
             ? 'Başarıyla bağlandı. Yönlendiriliyorsunuz…'
             : 'Araç ekranında görünen 6 haneli kodu buraya girin'}
@@ -464,61 +446,33 @@ export default function PairingScreen({ onPaired }: Props) {
        * eşleştirmeyi zaten destekler — filo üyeliği ŞART DEĞİLDİR.
        */}
       {!success && (
-        <div
-          className="w-full max-w-[280px] rounded-xl px-3 py-2.5 text-[11px] leading-relaxed"
-          style={{ background: 'color-mix(in srgb, var(--md-primary) 8%, transparent)', border: '1px solid color-mix(in srgb, var(--md-primary) 25%, transparent)', color: 'var(--md-on-surface)' }}
-        >
-          Araç ekranında <b>Ayarlar → Telefonumu Bağla</b>&apos;yı açın, orada görünen{' '}
-          <b>6 haneli kodu</b> buraya girin. Araç doğrudan <b>hesabınıza</b> bağlanır —
-          filo üyeliği gerekmez.
-        </div>
+        <ol className="md-card-filled w-full max-w-sm text-left px-4 py-3 flex flex-col gap-3" aria-label="Eşleştirme adımları">
+          {[
+            <>Araç ekranında <b>Ayarlar → Telefonumu Bağla</b>&apos;yı açın.</>,
+            <>Orada görünen <b>6 haneli kodu</b> aşağıya girin.</>,
+            <>Araç doğrudan <b>hesabınıza</b> bağlanır — filo üyeliği gerekmez.</>,
+          ].map((t, i) => (
+            <li key={i} className="flex items-start gap-3 md-body-m md-on-surface">
+              <span aria-hidden="true" className="md-label-l flex items-center justify-center flex-shrink-0"
+                style={{ width: 24, height: 24, borderRadius: 12, background: 'var(--md-primary)', color: 'var(--md-on-primary)' }}>
+                {i + 1}
+              </span>
+              <span className="pt-0.5">{t}</span>
+            </li>
+          ))}
+        </ol>
       )}
 
-      {/* Mode tabs — QR SEKMESİ KALDIRILDI: desteklenmeyen akış desteklenir gibi
-          gösterilmez (kod tarama `/api/pwa/pair`'e bağlıydı). */}
-      {!success && (
-        <div
-          className="flex w-full max-w-[280px] p-1 rounded-xl"
-          style={{ background: 'var(--md-surface-container-high)', border: '1px solid var(--md-outline-variant)' }}
-        >
+      {/* Mod sekmeleri yalnız 'pin' içerir (QR desteklenmez). Tek seçenekli
+          sekme bir karar sunmaz → yalnız GERÇEK bir seçim varken çizilir. */}
+      {!success && (['pin'] as Mode[]).length > 1 && (
+        <div role="tablist" className="flex gap-2">
           {(['pin'] as Mode[]).map((m) => (
-            <button
-              key={m}
-              onClick={() => setMode(m)}
-              className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-bold transition-all duration-200"
-              style={{
-                background: mode === m ? 'color-mix(in srgb, var(--md-primary) 20%, transparent)' : 'transparent',
-                color: mode === m ? 'var(--md-primary)' : 'var(--md-outline-variant)',
-                border: mode === m ? '1px solid color-mix(in srgb, var(--md-primary) 30%, transparent)' : '1px solid transparent',
-              }}
-            >
-              {m === 'qr' ? (
-                <>
-                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
-                    <rect x="1" y="1" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3"/>
-                    <rect x="10" y="1" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3"/>
-                    <rect x="1" y="10" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3"/>
-                    <rect x="2.5" y="2.5" width="2" height="2" fill="currentColor"/>
-                    <rect x="11.5" y="2.5" width="2" height="2" fill="currentColor"/>
-                    <rect x="2.5" y="11.5" width="2" height="2" fill="currentColor"/>
-                    <path d="M10 10h2v2h-2zM12 12h2v2h-2zM10 14h2M14 10v2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-                  </svg>
-                  QR Tara
-                </>
-              ) : (
-                <>
-                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
-                    <rect x="2" y="4" width="12" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.3"/>
-                    <path d="M5 8h6M8 6v4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-                  </svg>
-                  Kod Gir
-                </>
-              )}
-            </button>
+            <button key={m} role="tab" aria-selected={mode === m} onClick={() => setMode(m)}
+              className="md-btn-tonal md-state">{m === 'qr' ? 'QR Tara' : 'Kod Gir'}</button>
           ))}
         </div>
       )}
-
       {/* ── QR Mode ─────────────────────────────────────────── */}
       {/* QR modu KAPATILDI: /api/pwa/pair fail-closed olduğu için kod tarama
           desteklenen bir akış DEĞİL. Blok silinmedi ki kanonik akışa bağlanınca
@@ -585,8 +539,8 @@ export default function PairingScreen({ onPaired }: Props) {
 
       {/* ── PIN Mode ─────────────────────────────────────────── */}
       {!success && mode === 'pin' && (
-        <div className="w-full max-w-[280px] flex flex-col items-center gap-4">
-          <div className="flex gap-2" onPaste={handlePaste}>
+        <div className="w-full max-w-sm flex flex-col items-center gap-4">
+          <div className="flex gap-2 justify-center" onPaste={handlePaste}>
             {Array.from({ length: PIN_LEN }, (_, i) => (
               <input
                 key={i}
@@ -600,32 +554,25 @@ export default function PairingScreen({ onPaired }: Props) {
                 onKeyDown={(e) => handleKeyDown(e, i)}
                 onFocus={(e) => e.target.select()}
                 disabled={loading}
-                className="w-10 h-13 text-center text-lg font-bold rounded-xl transition-all focus:outline-none disabled:opacity-50"
-                style={{
-                  height: '52px',
-                  background: digits[i] ? 'color-mix(in srgb, var(--md-primary) 10%, transparent)' : 'var(--md-outline-variant)',
-                  border: error
-                    ? '1.5px solid color-mix(in srgb, var(--md-error) 50%, transparent)'
-                    : digits[i]
-                    ? '1.5px solid color-mix(in srgb, var(--md-primary) 50%, transparent)'
-                    : '1px solid var(--md-outline-variant)',
-                  color: '#fff',
-                  boxShadow: digits[i] ? '0 0 10px color-mix(in srgb, var(--md-primary) 18%, transparent)' : 'none',
-                }}
+                aria-label={`Kodun ${i + 1}. hanesi`}
+                className="md-pin text-center disabled:opacity-50"
+                data-filled={digits[i] ? 'true' : 'false'}
+                data-error={error ? 'true' : 'false'}
               />
             ))}
           </div>
 
-          {error && <p className="text-[color:var(--md-error)] text-xs -mt-1">{error}</p>}
+          {error && (
+            <p className="md-body-s inline-flex items-center gap-1 -mt-1" style={{ color: 'var(--md-error)' }} role="alert">
+              <Icon name="error" size={16} />{error}
+            </p>
+          )}
 
           <button
             onClick={() => void doPair(code)}
             disabled={loading || code.trim().length < 4}
-            className="w-full py-4 rounded-2xl font-bold  text-sm tracking-wide transition-all duration-150 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
-            style={{
-              background: 'var(--md-primary)', color: 'var(--md-on-primary)',
-              boxShadow: '0 8px 24px color-mix(in srgb, var(--md-primary) 25%, transparent)',
-            }}
+            className="md-btn-filled md-state w-full disabled:opacity-40 disabled:cursor-not-allowed"
+            style={{ minHeight: 56 }}
           >
             {loading ? (
               <span className="flex items-center justify-center gap-2">
@@ -643,58 +590,39 @@ export default function PairingScreen({ onPaired }: Props) {
 
       {/* ── Çevrimdışı bildirimi (dürüst: "eşleşti" DEMEZ) ──────────── */}
       {!success && notice && (
-        <div
-          className="w-full max-w-[280px] rounded-xl px-3 py-2.5 text-left"
-          style={{ background: 'color-mix(in srgb, var(--md-warning) 8%, transparent)', border: '1px solid color-mix(in srgb, var(--md-warning) 25%, transparent)' }}
-        >
-          <p className="text-[11px] leading-relaxed text-[color:var(--md-warning)]">{notice}</p>
+        <div className="w-full max-w-sm px-4 py-3 text-left flex items-start gap-2"
+          style={{ background: 'var(--md-warning-container)', color: 'var(--md-on-warning-container)', borderRadius: 'var(--md-shape-md)' }}>
+          <Icon name="cloud_off" size={18} className="flex-shrink-0" />
+          <p className="md-body-s">{notice}</p>
         </div>
       )}
 
       {/* ── Sunucu doğrulaması bekleyen talepler ─────────────────────── */}
       {!success && claims.length > 0 && (
-        <div className="w-full max-w-[280px] text-left">
-          <p className="mb-1.5 text-xs font-bold tracking-wide md-on-surface-variant">
-            Bekleyen eşleştirme talepleri
-          </p>
-          <div className="flex flex-col gap-1.5">
-            {claims.map((claim) => (
-              <div
-                key={claim.id}
-                className="flex items-center justify-between gap-2 rounded-lg px-2.5 py-2"
-                style={{ background: 'var(--md-surface-container-high)', border: '1px solid var(--md-outline-variant)' }}
-              >
-                <span className="text-[11px] md-on-surface-variant">
-                  {new Date(claim.requestedAt).toLocaleString('tr-TR')}
-                </span>
-                <span
-                  className="text-xs font-semibold"
-                  style={{
-                    color:
-                      claim.status === 'VERIFIED' ? 'var(--md-success)'
-                      : claim.status === 'REJECTED' ? 'var(--md-error)'
-                      : claim.status === 'EXPIRED' ? 'var(--md-outline-variant)'
-                      : 'var(--md-warning)',
-                  }}
-                >
-                  {statusLabel(claim.status)}
-                </span>
-              </div>
-            ))}
+        <div className="w-full max-w-sm text-left">
+          <p className="mb-2 md-title-s md-on-surface px-1">Bekleyen eşleştirme talepleri</p>
+          <div className="md-card-elevated overflow-hidden">
+            {claims.map((claim, i) => {
+              const tone: Tone = claim.status === 'VERIFIED' ? 'success'
+                : claim.status === 'REJECTED' ? 'error'
+                : claim.status === 'EXPIRED' ? 'neutral' : 'warning';
+              return (
+                <div key={claim.id} className="flex items-center justify-between gap-2 px-4 py-3"
+                  style={i > 0 ? { borderTop: '1px solid var(--md-outline-variant)' } : undefined}>
+                  <span className="md-body-m md-on-surface tabular-nums">
+                    {new Date(claim.requestedAt).toLocaleString('tr-TR')}
+                  </span>
+                  <StatusPill tone={tone}>{statusLabel(claim.status)}</StatusPill>
+                </div>
+              );
+            })}
           </div>
-          <p className="mt-1.5 text-xs leading-relaxed md-on-surface-variant">
+          <p className="mt-2 md-body-s md-on-surface-variant px-1">
             Bu talepler sunucu onaylamadan sahiplik oluşturmaz.
           </p>
         </div>
       )}
 
-      {!success && (
-        <p className="md-on-surface-variant text-xs max-w-[240px] leading-relaxed">
-          Araç ekranında{' '}
-          <span className="md-on-surface-variant">Ayarlar → Telefonumu Bağla</span>{' '}
-          seçeneğini açın.
-        </p>
-      )}
     </div>
   );
 }

@@ -30,7 +30,7 @@ function WeeklySummaryCardBase({
       )}
 
       {!compact && summary.facts.length > 0 && (
-        <dl className="mt-3 grid grid-cols-3 gap-2">
+        <dl className="mt-3 grid grid-cols-2 gap-2">
           {summary.facts.map((f) => (
             <div
               key={f.id}
