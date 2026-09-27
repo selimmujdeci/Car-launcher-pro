@@ -16,6 +16,7 @@ import {
   type GoogleSignInFailureCode,
 } from '@/lib/pwaAuth';
 
+
 export default function PwaLoginScreen({
   /** Cihazda eski anonim oturum var mı — araçların taşınacağını söyleriz. */
   hasPendingAnonymousData = false,
@@ -23,6 +24,15 @@ export default function PwaLoginScreen({
   hasPendingAnonymousData?: boolean;
 }) {
   const [busy, setBusy] = useState(false);
+  /* Kullanıcının seçtiği tema girişte de korunur (varsayılan gece). Yalnız
+     görünüm tercihi — oturum/giriş akışına etkisi yok. */
+  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('pwa-theme');
+      if (saved === 'light' || saved === 'dark') setTheme(saved);
+    } catch { /* depolama yok — gece kalır */ }
+  }, []);
   const [errorCode, setErrorCode] =
     useState<GoogleSignInFailureCode | null>(null);
 
@@ -52,31 +62,19 @@ export default function PwaLoginScreen({
 
   return (
     <div
-      data-pwa-theme="dark"
+      data-pwa-theme={theme}
       data-testid="pwa-login-screen"
       className="h-[100dvh] flex flex-col items-center justify-center px-6"
-      style={{ background: 'var(--pwa-bg, #060d1a)', color: 'var(--pwa-text, #e8eefc)' }}
+      style={{ background: 'var(--md-surface)', color: 'var(--md-on-surface)' }}
     >
-      <div className="fixed inset-0 pointer-events-none">
-        <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-96 h-64 rounded-full bg-blue-500/[0.07] blur-[90px]" />
-      </div>
-
       <div className="relative z-10 w-full max-w-sm flex flex-col items-center">
-        <div
-          className="w-16 h-16 rounded-2xl flex items-center justify-center mb-5"
-          style={{ background: 'rgba(59,130,246,0.15)', border: '1px solid rgba(59,130,246,0.3)' }}
-        >
-          <svg width="30" height="30" viewBox="0 0 18 18" fill="none" aria-hidden="true">
-            <path d="M2 11L4.5 6Q5.5 4 7 4H11Q12.5 4 13.5 6L16 11V13.5Q16 15 14.5 15H3.5Q2 15 2 13.5Z"
-              stroke="#3b82f6" strokeWidth="1.5" strokeLinejoin="round" />
-            <circle cx="5.5" cy="15" r="1.8" stroke="#3b82f6" strokeWidth="1.5" />
-            <circle cx="12.5" cy="15" r="1.8" stroke="#3b82f6" strokeWidth="1.5" />
-            <rect x="6.5" y="7.5" width="5" height="3.5" rx="1.2" stroke="#3b82f6" strokeWidth="1.2" />
-          </svg>
-        </div>
+        {/* Ürün logosu (yalnız tüketici yüzeyi — layout ikonuyla aynı dosya) */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/icons/arabam-cebimde-192.png" alt="" width={96} height={96}
+          className="mb-6" style={{ borderRadius: 'var(--md-shape-full)' }} />
 
-        <h1 className="text-xl font-bold">Arabam Cebimde</h1>
-        <p className="mt-2 text-center text-[13px] opacity-60">
+        <h1 className="md-headline-m md-on-surface">Arabam Cebimde</h1>
+        <p className="mt-2 text-center md-body-l md-on-surface-variant">
           Aracınızı avucunuzun içinden yönetin.
         </p>
 
@@ -84,8 +82,15 @@ export default function PwaLoginScreen({
           type="button"
           onClick={() => { void handleGoogle(); }}
           disabled={busy}
-          className="mt-8 w-full flex items-center justify-center gap-3 rounded-2xl py-3.5 font-semibold text-[15px] transition-colors disabled:opacity-60"
-          style={{ background: '#ffffff', color: '#1f2937' }}
+          /* Google marka kılavuzu renkleri (açık: beyaz/#747775 kenar ·
+             koyu: #131314/#8E918F kenar) — yalnız bu düğmede. */
+          className="md-state mt-10 w-full flex items-center justify-center gap-3 md-label-l disabled:opacity-60"
+          style={{
+            minHeight: 52, borderRadius: 'var(--md-shape-full)', fontSize: 16,
+            background: theme === 'dark' ? '#131314' : '#ffffff',
+            color: theme === 'dark' ? '#e3e3e3' : '#1f1f1f',
+            border: `1px solid ${theme === 'dark' ? '#8e918f' : '#747775'}`,
+          }}
         >
           <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
             <path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 01-1.8 2.72v2.26h2.91c1.71-1.57 2.69-3.89 2.69-6.62z" />
@@ -97,7 +102,7 @@ export default function PwaLoginScreen({
         </button>
 
         {hasPendingAnonymousData && (
-          <p className="mt-3 text-center text-[12px] opacity-55">
+          <p className="mt-3 text-center md-body-s md-on-surface-variant">
             Bu cihazdaki araçlarınız Google hesabınıza taşınacak.
           </p>
         )}
@@ -105,7 +110,7 @@ export default function PwaLoginScreen({
         {errorCode && (
           <p
             role="alert"
-            className="mt-4 text-center text-[12px] text-red-300/90 leading-relaxed"
+            className="mt-4 text-center md-body-s" style={{ color: 'var(--md-error)' }}
           >
             {describeGoogleSignInFailure(errorCode)}
           </p>
@@ -117,7 +122,7 @@ export default function PwaLoginScreen({
           <PwaInstallPrompt />
         </div>
 
-        <p className="mt-10 text-center text-[11px] opacity-35 leading-relaxed">
+        <p className="mt-10 text-center md-body-s md-on-surface-variant">
           Giriş yaptıktan sonra bir daha sorulmaz. Araçlarınız hesabınıza bağlı
           kalır; telefon değiştirseniz de aynı hesapla geri gelir.
         </p>

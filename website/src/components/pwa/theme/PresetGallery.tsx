@@ -6,9 +6,11 @@
  * önizleme anında değişir, "Geri Al" tek adımda geri getirir, "Araca Gönder"
  * değişmeden çalışır. Kapsam: TÜM TEMA ya da yalnız SEÇİLİ EKRAN.
  */
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { Icon } from '../ui/Icon';
+import { SegmentedButton } from '../ui/primitives';
 import type { GlobalTokens, ScreenOverride, ThemeBaseId, ThemeManifest } from '../../../lib/theme/themeManifest';
-import { colorPresetsFor, SHAPE_PRESETS, screenPatchOf, type ColorPreset, type ShapePreset } from '../../../lib/theme/themePresets';
+import { colorPresetsFor, PRESET_MODE_LABEL, SHAPE_PRESETS, screenPatchOf, type ColorPreset, type PresetMode, type ShapePreset } from '../../../lib/theme/themePresets';
 import { extractPhotoColors, palettesFromColor, readPhotoPixels, type PhotoColor } from '../../../lib/theme/photoPalette';
 
 type Scope = 'theme' | 'screen';
@@ -22,8 +24,6 @@ interface Props {
   onApplyPreset: (kind: 'color' | 'shape', tokens: Partial<GlobalTokens>) => void;
   onPatchScreen: (patch: Partial<ScreenOverride>) => void;
 }
-
-const label = 'text-[9px] font-black uppercase tracking-[0.35em] mb-2';
 
 function isColorActive(p: ColorPreset, m: ThemeManifest, scope: Scope, surfaceId: string): boolean {
   if (scope === 'screen') {
@@ -52,7 +52,8 @@ export const PresetGallery = memo(function PresetGallery({
     else onPatchScreen(screenPatchOf(p));
   };
   /* Google yöntemi: önce fotoğraftaki RENKLER (en fazla 4), kullanıcı rengi seçer, sonra stili. */
-  const [photo, setPhoto] = useState<{ url: string; colors: PhotoColor[]; pick: number } | null>(null);
+  /* Fotoğraf DOSYA olarak tutulur; önizleme için URL üretilmez (bkz. PhotoThumb). */
+  const [photo, setPhoto] = useState<{ file: File; colors: PhotoColor[]; pick: number } | null>(null);
   const photoPresets = useMemo(
     () => (photo ? palettesFromColor(photo.colors[photo.pick]) : []),
     [photo],
@@ -60,8 +61,6 @@ export const PresetGallery = memo(function PresetGallery({
   const [photoBusy, setPhotoBusy] = useState(false);
   const [photoNote, setPhotoNote] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
-  const photoUrl = photo?.url;
-  useEffect(() => () => { if (photoUrl) URL.revokeObjectURL(photoUrl); }, [photoUrl]);
   /* Fotoğraf CİHAZDA okunur (küçük tuval) — hiçbir yere yüklenmez. */
   const onPhoto = async (file: File | undefined) => {
     if (!file) return;
@@ -73,7 +72,7 @@ export const PresetGallery = memo(function PresetGallery({
       setPhotoNote(px ? 'Bu fotoğrafta belirgin renk bulamadım — başka bir tane dener misin?' : 'Fotoğraf okunamadı.');
       return;
     }
-    setPhoto({ url: URL.createObjectURL(file), colors: found, pick: 0 });
+    setPhoto({ file, colors: found, pick: 0 });
   };
 
   const applyShape = (p: ShapePreset) => {
@@ -81,241 +80,250 @@ export const PresetGallery = memo(function PresetGallery({
     else onPatchScreen({ radiusCard: p.tokens.radiusCard });
   };
 
-  const pill = (active: boolean) => ({
-    minHeight: 38,
-    background: active ? 'rgba(96,165,250,0.18)' : 'var(--pwa-surface)',
-    color: active ? '#60a5fa' : 'var(--pwa-text-3)',
-    border: `1px solid ${active ? 'rgba(96,165,250,0.42)' : 'var(--pwa-border-soft)'}`,
+  /* Kapsam çipi (M3 filter chip). */
+  const chip = (active: boolean): React.CSSProperties => ({
+    minHeight: 32, borderRadius: 'var(--md-shape-sm)',
+    background: active ? 'var(--md-secondary-container)' : 'transparent',
+    color: active ? 'var(--md-on-secondary-container)' : 'var(--md-on-surface-variant)',
+    border: active ? '1px solid transparent' : '1px solid var(--md-outline)',
   });
+  const shapeBg = manifest.tokens.bgPrimary?.from ?? '#1B1B1F';
+  const shapeCard = manifest.tokens.bgCard?.from ?? '#2A2A30';
+  const shapeAccent = manifest.tokens.accentPrimary ?? 'var(--md-primary)';
 
   return (
-    <div className="rounded-2xl p-3 flex flex-col gap-3" style={{ background: 'var(--pwa-surface-3)', border: '1px solid var(--pwa-border-soft)' }}>
-      <div className="flex items-center justify-between gap-2">
-        <p className={label} style={{ color: 'var(--pwa-text-3)', marginBottom: 0 }}>Hazır Taslaklar</p>
-        <span className="text-[9px] font-bold" style={{ color: 'var(--pwa-text-3)' }}>Kaydır ya da dokun · Geri Al ile dön</span>
-      </div>
-
-      {/* ── Fotoğraftan tema (Samsung Theme Park deseni) ── */}
-      <input ref={fileRef} type="file" accept="image/*" className="hidden" data-testid="photo-input"
-        onChange={(e) => { void onPhoto(e.target.files?.[0]); e.target.value = ''; }} />
-      {!photo && (
-        <button type="button" onClick={() => fileRef.current?.click()} disabled={photoBusy}
-          className="rounded-xl text-[12px] font-black active:scale-[0.98]"
-          style={{ minHeight: 46, background: 'rgba(96,165,250,0.14)', border: '1.5px solid rgba(96,165,250,0.4)', color: '#60a5fa' }}>
-          {photoBusy ? 'Renkler çıkarılıyor…' : '📷 Fotoğraftan tema'}
-        </button>
-      )}
-      {photoNote && <p className="text-[11px] leading-snug" style={{ color: '#fbbf24' }}>{photoNote}</p>}
-      {photo && (
-        <div className="rounded-2xl p-2.5 flex flex-col gap-2.5" style={{ background: 'var(--pwa-surface)', border: '1px solid var(--pwa-border)' }}>
-          <div className="flex items-center gap-3">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={photo.url} alt="Seçilen fotoğraf" className="rounded-xl object-cover flex-shrink-0" style={{ width: 64, height: 64 }} />
-            <div className="flex-1 min-w-0">
-              <p className="text-[12px] font-black" style={{ color: 'var(--pwa-text)' }}>Fotoğraftaki renkler · birini seç</p>
-              <div className="flex gap-2 mt-1.5">
-                {photo.colors.map((c, i) => (
-                  <button key={c.hex} type="button" aria-label={`Renk ${c.hex}`} aria-pressed={i === photo.pick}
-                    onClick={() => setPhoto((ph) => (ph ? { ...ph, pick: i } : ph))}
-                    className="rounded-full active:scale-90"
-                    style={{ width: 34, height: 34, background: c.hex,
-                      border: i === photo.pick ? '3px solid #fff' : '2px solid rgba(255,255,255,0.2)',
-                      boxShadow: i === photo.pick ? `0 0 0 2px ${c.hex}` : 'none' }} />
-                ))}
-              </div>
-            </div>
-          </div>
-          <PaletteRail
-            presets={photoPresets}
-            resetKey={`${photo.url}:${photo.pick}`}
-            isActive={(p) => isColorActive(p, manifest, scope, surfaceId)}
-            onApply={applyColor}
-          />
-          <div className="grid grid-cols-2 gap-1.5">
-            <button type="button" onClick={() => fileRef.current?.click()} className="rounded-xl text-[11px] font-bold active:scale-95" style={pill(false)}>Başka fotoğraf</button>
-            <button type="button" onClick={() => setPhoto(null)} className="rounded-xl text-[11px] font-bold active:scale-95" style={pill(false)}>Kapat</button>
-          </div>
-        </div>
-      )}
-
-      {/* Tür: renk / şekil */}
-      <div className="grid grid-cols-2 gap-1.5">
-        <button type="button" onClick={() => setTab('colors')} className="rounded-xl text-[10px] font-black uppercase tracking-wider active:scale-95" style={pill(tab === 'colors')}>
-          Renkler · {colors.length}
-        </button>
-        <button type="button" onClick={() => setTab('shapes')} className="rounded-xl text-[10px] font-black uppercase tracking-wider active:scale-95" style={pill(tab === 'shapes')}>
-          Kart Şekilleri · {SHAPE_PRESETS.length}
-        </button>
-      </div>
+    <section className="flex flex-col gap-4" aria-label="Renk ve kart şekli">
+      {/* Tür: renk / şekil — M3 segment */}
+      <SegmentedButton<'colors' | 'shapes'>
+        label="Taslak türü"
+        value={tab}
+        onChange={setTab}
+        options={[
+          { id: 'colors', label: 'Renkler', icon: 'palette' },
+          { id: 'shapes', label: 'Kart Şekilleri', icon: 'rounded_corner' },
+        ]}
+      />
 
       {/* Kapsam: tüm tema / yalnız bu ekran */}
-      <div className="grid grid-cols-2 gap-1.5">
-        <button type="button" onClick={() => setScope('theme')} className="rounded-xl text-[10px] font-bold active:scale-95" style={pill(scope === 'theme')}>
-          Tüm temaya
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="md-label-l md-on-surface-variant mr-1">Uygula:</span>
+        <button type="button" onClick={() => setScope('theme')} aria-pressed={scope === 'theme'}
+          className="md-state md-label-l inline-flex items-center gap-1.5 px-3" style={chip(scope === 'theme')}>
+          {scope === 'theme' && <Icon name="check_circle" size={18} />}Tüm temaya
         </button>
-        <button type="button" onClick={() => setScope('screen')} className="rounded-xl text-[10px] font-bold active:scale-95 truncate px-2" style={pill(scope === 'screen')}>
-          Sadece: {surfaceLabel}
+        <button type="button" onClick={() => setScope('screen')} aria-pressed={scope === 'screen'}
+          className="md-state md-label-l inline-flex items-center gap-1.5 px-3 max-w-[60%]" style={chip(scope === 'screen')}>
+          {scope === 'screen' && <Icon name="check_circle" size={18} />}
+          <span className="truncate">Sadece: {surfaceLabel}</span>
         </button>
       </div>
       {scope === 'screen' && tab === 'shapes' && (
-        <p className="text-[10px] leading-snug" style={{ color: 'var(--pwa-text-3)' }}>
+        <p className="md-body-s md-on-surface-variant -mt-2">
           Tek ekranda yalnız <b>kart köşesi</b> değişir; düğme, dock ve cam derinliği tüm temada ayarlanır.
         </p>
       )}
 
       {tab === 'colors' ? (
-        <PaletteRail
-          presets={colors}
-          resetKey={`${themeId}:${scope}`}
-          isActive={(p) => isColorActive(p, manifest, scope, surfaceId)}
-          onApply={applyColor}
-        />
+        <>
+          {/* ── Fotoğraftan tema — fotoğraf CİHAZDA okunur, yüklenmez ── */}
+          <input ref={fileRef} type="file" accept="image/*" className="hidden" data-testid="photo-input"
+            onChange={(e) => { void onPhoto(e.target.files?.[0]); e.target.value = ''; }} />
+          {!photo && (
+            <button type="button" onClick={() => fileRef.current?.click()} disabled={photoBusy}
+              className="md-state md-card-filled flex items-center gap-4 px-4 py-3 text-left md-on-surface disabled:opacity-60">
+              <span aria-hidden="true" className="w-10 h-10 flex items-center justify-center flex-shrink-0"
+                style={{ borderRadius: 'var(--md-shape-full)', background: 'var(--md-primary-container)', color: 'var(--md-on-primary-container)' }}>
+                <Icon name="add_photo_alternate" size={22} />
+              </span>
+              <span className="flex-1 min-w-0">
+                <span className="block md-title-s md-on-surface">{photoBusy ? 'Renkler çıkarılıyor…' : 'Fotoğraftan tema'}</span>
+                <span className="block md-body-s md-on-surface-variant">Aracınızın ya da sevdiğiniz bir fotoğrafın renkleriyle</span>
+              </span>
+              <Icon name="chevron_right" className="md-on-surface-variant flex-shrink-0" />
+            </button>
+          )}
+          {photoNote && <p className="md-body-s" style={{ color: 'var(--md-warning)' }}>{photoNote}</p>}
+          {photo && (
+            <div className="md-card-filled p-3 flex flex-col gap-3">
+              <div className="flex items-center gap-3">
+                <PhotoThumb file={photo.file} />
+                <div className="flex-1 min-w-0">
+                  <p className="md-title-s md-on-surface">Fotoğraftaki renkler · birini seçin</p>
+                  <div className="flex gap-2 mt-2">
+                    {photo.colors.map((c, i) => (
+                      <button key={c.hex} type="button" aria-label={`Renk ${c.hex}`} aria-pressed={i === photo.pick}
+                        onClick={() => setPhoto((ph) => (ph ? { ...ph, pick: i } : ph))}
+                        className="rounded-full flex items-center justify-center"
+                        style={{ width: 40, height: 40, background: c.hex,
+                          outline: i === photo.pick ? '2px solid var(--md-on-surface)' : 'none', outlineOffset: 2 }}>
+                        {i === photo.pick && <Icon name="check_circle" size={18} style={{ color: '#fff', filter: 'drop-shadow(0 0 2px rgba(0,0,0,.6))' }} />}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <PaletteGrid
+                presets={photoPresets}
+                isActive={(p) => isColorActive(p, manifest, scope, surfaceId)}
+                onApply={applyColor}
+              />
+              <div className="flex justify-end gap-2">
+                <button type="button" onClick={() => setPhoto(null)} className="md-btn-text md-state min-h-12">Kapat</button>
+                <button type="button" onClick={() => fileRef.current?.click()} className="md-btn-tonal md-state min-h-12">Başka fotoğraf</button>
+              </div>
+            </div>
+          )}
+
+          {/* ── Hazır renkler — gruplu ızgara (karşılaştırmak kolay) ── */}
+          {(['night', 'day', 'sun'] as PresetMode[]).map((mode) => {
+            const group = colors.filter((p) => p.mode === mode);
+            if (group.length === 0) return null;
+            return (
+              <div key={mode} className="flex flex-col gap-2">
+                <p className="md-title-s md-on-surface px-1 inline-flex items-center gap-1.5">
+                  <Icon name={mode === 'night' ? 'dark_mode' : mode === 'day' ? 'light_mode' : 'wb_sunny'} size={18} />
+                  {PRESET_MODE_LABEL[mode]}
+                  {mode === 'sun' && <span className="md-body-s md-on-surface-variant">· parlak güneşte en okunur</span>}
+                </p>
+                <PaletteGrid
+                  presets={group}
+                  isActive={(p) => isColorActive(p, manifest, scope, surfaceId)}
+                  onApply={applyColor}
+                />
+              </div>
+            );
+          })}
+        </>
       ) : (
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-2 gap-3">
           {SHAPE_PRESETS.map((p) => {
             const active = isShapeActive(p, manifest, scope, surfaceId);
             const t = p.tokens;
-            const accent = manifest.tokens.accentPrimary ?? '#60a5fa';
             return (
               <button
                 key={p.id} type="button" onClick={() => applyShape(p)}
                 aria-pressed={active}
-                className="flex flex-col gap-1.5 p-2 rounded-2xl text-left active:scale-[0.98]"
-                style={{ background: active ? 'rgba(96,165,250,0.12)' : 'var(--pwa-surface)', border: `1.5px solid ${active ? '#60a5fa' : 'var(--pwa-border)'}` }}
+                className="md-state relative flex flex-col gap-2 p-2 text-left"
+                style={{ borderRadius: 'var(--md-shape-lg)', background: 'var(--md-surface-container-low)',
+                  outline: active ? '2px solid var(--md-primary)' : '1px solid var(--md-outline-variant)', outlineOffset: active ? 0 : -1 }}
               >
-                {/* Gerçek geometri: kart köşesi, düğme köşesi ve ışıma ölçekli çizilir. */}
-                <div style={{ background: 'rgba(0,0,0,0.35)', borderRadius: 10, padding: 7, display: 'flex', gap: 5, alignItems: 'flex-end' }}>
+                {/* Gerçek geometri, bu temanın RENKLERİYLE: kart köşesi, düğme köşesi, ışıma. */}
+                <div style={{ background: shapeBg, borderRadius: 10, padding: 8, display: 'flex', gap: 6, alignItems: 'flex-end' }}>
                   <span style={{
-                    flex: 1, height: 30, display: 'inline-block',
+                    flex: 1, height: 34, display: 'inline-block',
                     borderRadius: Math.round((t.radiusCard ?? 0) * 0.6),
-                    background: 'rgba(255,255,255,0.10)', border: '1px solid rgba(255,255,255,0.14)',
-                    boxShadow: (t.glowIntensity ?? 0) > 0 ? `0 0 ${Math.round((t.glowIntensity ?? 0) / 8)}px ${accent}88` : 'none',
-                    backdropFilter: (t.cardBlurPx ?? 0) > 0 ? 'blur(4px)' : undefined,
+                    background: shapeCard,
+                    boxShadow: (t.glowIntensity ?? 0) > 0 ? `0 0 ${Math.round((t.glowIntensity ?? 0) / 6)}px ${shapeAccent}` : 'none',
                   }} />
-                  <span style={{ width: 30, height: 14, display: 'inline-block', borderRadius: Math.round((t.radiusBtn ?? 0) * 0.6), background: accent }} />
+                  <span style={{ width: 32, height: 16, display: 'inline-block', borderRadius: Math.round((t.radiusBtn ?? 0) * 0.6), background: shapeAccent }} />
                 </div>
-                <span className="text-[10px] font-black truncate" style={{ color: active ? '#60a5fa' : 'var(--pwa-text-2)' }}>{p.name}</span>
-                <span className="text-[9px] leading-tight" style={{ color: 'var(--pwa-text-3)' }}>{p.mood}</span>
+                <span className="px-1 pb-1">
+                  <span className="block md-title-s md-on-surface truncate">{p.name}</span>
+                  <span className="block md-body-s md-on-surface-variant">{p.mood}</span>
+                </span>
+                {active && (
+                  <span className="absolute top-3 right-3 flex" style={{ color: 'var(--md-primary)' }}>
+                    <Icon name="check_circle_fill" size={22} />
+                  </span>
+                )}
               </button>
             );
           })}
         </div>
       )}
+    </section>
+  );
+});
+
+/**
+ * Palet ızgarası — her kart gerçek bir mini gösterge paneli çizer (zemin,
+ * kart, vurgu ibresi, yazı). Dokunmak uygular; kaydırmak HİÇBİR ŞEY uygulamaz
+ * (eski şerit kaydırılınca kendiliğinden tema değiştiriyordu — şaşırtıcıydı).
+ */
+const PaletteGrid = memo(function PaletteGrid({ presets, isActive, onApply }: {
+  presets: readonly ColorPreset[];
+  isActive: (p: ColorPreset) => boolean;
+  onApply: (p: ColorPreset) => void;
+}) {
+  return (
+    <div className="grid grid-cols-2 gap-3">
+      {presets.map((p) => {
+        const active = isActive(p);
+        const [bg, card, accent, ink] = p.swatch;
+        const ink2 = p.tokens.textSecondary ?? ink;
+        return (
+          <button
+            key={p.id} type="button" onClick={() => onApply(p)}
+            aria-pressed={active}
+            className="md-state relative flex flex-col gap-2 p-2 text-left"
+            style={{ borderRadius: 'var(--md-shape-lg)', background: 'var(--md-surface-container-low)',
+              outline: active ? '2px solid var(--md-primary)' : '1px solid var(--md-outline-variant)', outlineOffset: active ? 0 : -1 }}
+          >
+            {/* Mini kabin ekranı */}
+            <div aria-hidden="true" style={{ background: bg, borderRadius: 10, padding: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <div style={{ flex: 1, background: card, borderRadius: 6, padding: '6px 7px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <span style={{ height: 5, width: '70%', background: ink, borderRadius: 2 }} />
+                  <span style={{ height: 4, width: '45%', background: ink2, borderRadius: 2, opacity: 0.9 }} />
+                </div>
+                <div style={{ width: 34, background: card, borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <span style={{ width: 18, height: 18, borderRadius: 9, border: `3px solid ${accent}`, borderRightColor: 'transparent' }} />
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                <span style={{ flex: 1, height: 4, background: card, borderRadius: 2, overflow: 'hidden', display: 'flex' }}>
+                  <span style={{ width: '62%', background: accent }} />
+                </span>
+                <span style={{ width: 26, height: 12, background: accent, borderRadius: 6 }} />
+              </div>
+            </div>
+            <span className="px-1 pb-1">
+              <span className="block md-title-s md-on-surface truncate">{p.name}</span>
+              <span className="block md-body-s md-on-surface-variant">{p.mood}</span>
+            </span>
+            {active && (
+              <span className="absolute top-3 right-3 flex rounded-full" style={{ color: 'var(--md-primary)', background: 'var(--md-surface-container-low)' }}>
+                <Icon name="check_circle_fill" size={22} />
+              </span>
+            )}
+          </button>
+        );
+      })}
     </div>
   );
 });
 
 /**
- * Kaydırmalı palet şeridi (Apple kilit ekranı deseni). Kullanıcı kaydırıp
- * bırakınca ORTADAKİ palet uygulanır — yalnız kullanıcı kaydırdıysa; açılışta ya
- * da programatik ortalamada hiçbir şey kendiliğinden uygulanmaz. Dokunmak da uygular.
+ * Seçilen fotoğrafın küçük resmi — dosya doğrudan <canvas>'a çizilir.
+ * `URL.createObjectURL` + `<img src>` KULLANILMAZ: kullanıcı girdisinden türeyen
+ * bir adresi DOM'a yazmamak (CodeQL js/xss-through-dom) ve temizlenmesi
+ * unutulabilecek bir blob URL'si bırakmamak için. Fotoğraf ağa GİTMEZ.
  */
-const PaletteRail = memo(function PaletteRail({ presets, resetKey, isActive, onApply }: {
-  presets: readonly ColorPreset[];
-  /** Değişince seçili palet yeniden ortalanır (tema/kapsam/fotoğraf). */
-  resetKey: string;
-  isActive: (p: ColorPreset) => boolean;
-  onApply: (p: ColorPreset) => void;
-}) {
-  const railRef = useRef<HTMLDivElement | null>(null);
-  const userScroll = useRef(false);
-  const settleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [centerIdx, setCenterIdx] = useState(-1);
-  const latest = useRef({ presets, isActive, onApply });
-  latest.current = { presets, isActive, onApply };
-  useEffect(() => () => { if (settleTimer.current) clearTimeout(settleTimer.current); }, []);
-  const onScroll = useCallback(() => {
-    if (settleTimer.current) clearTimeout(settleTimer.current);
-    settleTimer.current = setTimeout(() => {
-      const rail = railRef.current;
-      if (!rail) return;
-      const mid = rail.scrollLeft + rail.clientWidth / 2;
-      let best = -1; let bestD = Infinity;
-      rail.querySelectorAll<HTMLElement>('[data-idx]').forEach((e) => {
-        const d = Math.abs(e.offsetLeft + e.offsetWidth / 2 - mid);
-        if (d < bestD) { bestD = d; best = Number(e.dataset.idx); }
-      });
-      setCenterIdx(best);
-      if (!userScroll.current || best < 0) return;
-      userScroll.current = false;
-      const { presets: ps, isActive: act, onApply: apply } = latest.current;
-      const p = ps[best];
-      if (p && !act(p)) apply(p);
-    }, 280);
-  }, []);
-  const markUser = () => { userScroll.current = true; };
+const PhotoThumb = memo(function PhotoThumb({ file }: { file: File }) {
+  const ref = useRef<HTMLCanvasElement | null>(null);
   useEffect(() => {
-    const rail = railRef.current;
-    if (!rail) return;
-    const { presets: ps, isActive: act } = latest.current;
-    const idx = Math.max(0, ps.findIndex((p) => act(p)));
-    const el = rail.querySelector<HTMLElement>(`[data-idx="${idx}"]`);
-    if (el) rail.scrollLeft = el.offsetLeft + el.offsetWidth / 2 - rail.clientWidth / 2;
-    setCenterIdx(idx);
-  }, [resetKey]);
-
+    let alive = true;
+    void (async () => {
+      try {
+        const bmp = await createImageBitmap(file);
+        const c = ref.current;
+        if (!alive || !c) { bmp.close?.(); return; }
+        const size = 128;
+        c.width = size; c.height = size;
+        const ctx = c.getContext('2d');
+        if (ctx) {
+          /* object-fit: cover — kısa kenar kareyi doldurur */
+          const k = Math.max(size / bmp.width, size / bmp.height);
+          const w = bmp.width * k; const h = bmp.height * k;
+          ctx.drawImage(bmp, (size - w) / 2, (size - h) / 2, w, h);
+        }
+        bmp.close?.();
+      } catch { /* okunamadı — boş kare kalır */ }
+    })();
+    return () => { alive = false; };
+  }, [file]);
   return (
-    <>
-      <div
-        ref={railRef}
-        onScroll={onScroll}
-        onPointerDown={markUser}
-        onTouchStart={markUser}
-        onWheel={markUser}
-        className="flex gap-2 overflow-x-auto snap-x snap-mandatory -mx-3"
-        style={{ scrollbarWidth: 'none' }}
-        data-testid="preset-rail"
-      >
-        {/* Kenar tutucular: ilk/son kart da ORTAYA oturabilsin. */}
-        <span aria-hidden className="flex-shrink-0" style={{ width: '24%' }} />
-        {presets.map((p, i) => {
-          const active = isActive(p);
-          const [bg, card, accent, ink] = p.swatch;
-          return (
-            <button
-              key={p.id} type="button" onClick={() => onApply(p)}
-              aria-pressed={active}
-              data-idx={i}
-              className="snap-center flex-shrink-0 flex flex-col gap-1.5 p-2 rounded-2xl text-left active:scale-[0.98] transition-transform"
-              style={{
-                width: '48%',
-                transform: i === centerIdx ? 'scale(1)' : 'scale(0.94)',
-                background: active ? `${accent}1f` : 'var(--pwa-surface)', border: `1.5px solid ${active ? accent : 'var(--pwa-border)'}`,
-              }}
-            >
-              <div style={{ background: bg, borderRadius: 10, padding: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <div style={{ background: card, borderRadius: 6, height: 18, display: 'flex', alignItems: 'center', paddingLeft: 6, gap: 5 }}>
-                  <span style={{ width: 7, height: 7, borderRadius: 4, background: accent, display: 'inline-block' }} />
-                  <span style={{ height: 4, width: '55%', background: ink, opacity: 0.85, borderRadius: 2, display: 'inline-block' }} />
-                </div>
-                <div style={{ display: 'flex', gap: 4 }}>
-                  <span style={{ flex: 1, height: 11, background: card, borderRadius: 4, display: 'inline-block' }} />
-                  <span style={{ width: 24, height: 11, background: accent, borderRadius: 4, display: 'inline-block' }} />
-                </div>
-              </div>
-              <div className="flex items-center justify-between gap-1">
-                <span className="text-[10px] font-black truncate" style={{ color: active ? accent : 'var(--pwa-text-2)' }}>{p.name}</span>
-                {p.mode === 'day' && (
-                  <span className="text-[8px] font-bold px-1.5 py-0.5 rounded" style={{ background: 'rgba(251,191,36,0.14)', color: '#fbbf24' }}>GÜNDÜZ</span>
-                )}
-                {p.mode === 'sun' && (
-                  <span className="text-[8px] font-bold px-1.5 py-0.5 rounded" style={{ background: 'rgba(249,115,22,0.16)', color: '#f97316' }}>☀ GÜNEŞ</span>
-                )}
-              </div>
-              <span className="text-[9px] leading-tight" style={{ color: 'var(--pwa-text-3)' }}>{p.mood}</span>
-            </button>
-          );
-        })}
-        <span aria-hidden className="flex-shrink-0" style={{ width: '24%' }} />
-      </div>
-      <div className="flex justify-center gap-1" aria-hidden>
-        {presets.map((p, i) => (
-          <span key={p.id} className="rounded-full" style={{
-            width: i === centerIdx ? 14 : 5, height: 5,
-            background: i === centerIdx ? '#60a5fa' : 'var(--pwa-border)', transition: 'width 160ms',
-          }} />
-        ))}
-      </div>
-    </>
+    <canvas ref={ref} role="img" aria-label="Seçilen fotoğraf" className="flex-shrink-0"
+      style={{ width: 64, height: 64, borderRadius: 'var(--md-shape-md)', background: 'var(--md-surface-container-highest)' }} />
   );
 });

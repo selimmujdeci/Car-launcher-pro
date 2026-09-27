@@ -14,7 +14,7 @@
  */
 
 import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
-import { sendCommand as enqueueCommand, subscribeCommandStatus, COMMAND_TTL_MINUTES } from '@/lib/commandService';
+import { sendCommand as enqueueCommand, subscribeCommandStatus, COMMAND_TTL_MINUTES, BODY_CONTROL_VERIFIED } from '@/lib/commandService';
 import { verifyCriticalCommand } from '@/lib/criticalAuth';
 
 /* ── Types ──────────────────────────────────────────────── */
@@ -146,10 +146,6 @@ export function RemoteCommandPanel({ vehicleId }: Props) {
       return;
     }
 
-    // Optimistic lock state
-    if (type === 'lock')   setLockStatus('locked');
-    if (type === 'unlock') setLockStatus('unlocked');
-
     if (!res.commandId) {
       setCmdState((prev) => ({ ...prev, [type]: 'failed' }));
       setResult(res);
@@ -162,9 +158,10 @@ export function RemoteCommandPanel({ vehicleId }: Props) {
     cleanupFn = subscribeACK(res.commandId, (ackStatus, reason) => {
       if (cleanupFn) { cleanupSet.current.delete(cleanupFn); cleanupFn = null; }
       if (!mountedRef.current) return;
-      if (ackStatus !== 'completed') {
-        // Revert optimistic lock on failure/timeout
-        if (type === 'lock' || type === 'unlock') setLockStatus('unknown');
+      /* Kilit durumu YALNIZ araç onayından sonra değişir ve onay "MCU'ya iletildi"
+         demektir — kapının gerçekten kilitlendiği ölçülmez, etiket bunu söyler. */
+      if (type === 'lock' || type === 'unlock') {
+        setLockStatus(ackStatus === 'completed' ? (type === 'lock' ? 'locked' : 'unlocked') : 'unknown');
       }
       const ackMsg = ackStatus === 'completed'
         ? `${type} komutu başarıyla uygulandı`
@@ -187,12 +184,13 @@ export function RemoteCommandPanel({ vehicleId }: Props) {
 
   /* ── Lock state header ─────────────────────────────────── */
   const lockColor = lockStatus === 'locked' ? '#ef4444' : lockStatus === 'unlocked' ? '#34d399' : '#ffffff30';
-  const lockLabel = lockStatus === 'locked' ? 'KİLİTLİ' : lockStatus === 'unlocked' ? 'AÇIK' : 'BİLİNMİYOR';
+  const lockLabel = lockStatus === 'locked' ? 'KİLİT KOMUTU İLETİLDİ' : lockStatus === 'unlocked' ? 'AÇMA KOMUTU İLETİLDİ' : 'BİLİNMİYOR';
 
   return (
     <div className="flex flex-col gap-4">
 
-      {/* Lock state display */}
+      {/* Lock state + Kilitle / Aç / Korna — gerçek araçta kanıtlanana kadar gizli */}
+      {BODY_CONTROL_VERIFIED && (<>
       <div
         className="flex items-center gap-3 px-4 py-2.5 rounded-sm"
         style={{
@@ -247,6 +245,7 @@ export function RemoteCommandPanel({ vehicleId }: Props) {
           );
         })}
       </div>
+      </>)}
 
       {/* Send-to-Car navigasyon */}
       <div className="flex flex-col gap-2">
