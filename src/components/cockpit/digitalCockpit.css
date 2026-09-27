@@ -123,3 +123,17 @@ svg.caros-cockpit-screen {
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+
+/* Ayarlar sayfası tüm svg'leri ikon boyuna (28px !important) sabitler; sürücü ekranı
+   önizlemesi ikon DEĞİLDİR — kutusunu doldurur (saha 2026-09-27: önizleme 28px kalıyordu). */
+html [data-editable="settings-page"][data-editable] svg.caros-cockpit-screen {
+  width: 100% !important;
+  height: 100% !important;
+}
+/* Ayarlar sayfasının yazı tipi önizlemeye sızmasın — gösterge sayfasıyla birebir aynı görünsün.
+   Kendi `font-family` özniteliği olan metinler (Retro) etkilenmez. */
+html [data-editable="settings-page"][data-editable] svg.caros-cockpit-screen,
+html [data-editable="settings-page"][data-editable] svg.caros-cockpit-screen text:not([font-family]),
+html [data-editable="settings-page"][data-editable] svg.caros-cockpit-screen .caros-cockpit-copy {
+  font-family: 'Inter', 'Segoe UI', sans-serif !important;
+}

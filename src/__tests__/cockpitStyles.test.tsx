@@ -83,3 +83,10 @@ describe('ayar deposu ↔ ekran seçenekleri', () => {
     expect(page).toContain('accent={cockpitAccent}');
   });
 });
+
+describe('ayarlar önizlemesi ikon boyuna ezilmez (saha 2026-09-27)', () => {
+  it('sürücü ekranı svg\'si ayarlar sayfasının 28px ikon kuralını geçersiz kılar', () => {
+    const css = readFileSync(resolve('src/components/cockpit/digitalCockpit.css'), 'utf8');
+    expect(css).toMatch(/\[data-editable="settings-page"\]\[data-editable\] svg\.caros-cockpit-screen \{\s*width: 100% !important;\s*height: 100% !important;/);
+  });
+});
