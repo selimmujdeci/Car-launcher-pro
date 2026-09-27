@@ -19,10 +19,6 @@ import { isFleetErrorCode } from '@/lib/fleet/errors';
 import { Icon } from '@/components/pwa/ui/Icon';
 import { StatusPill, type Tone } from '@/components/pwa/ui/primitives';
 
-/** Rol rengini saydamlaştırır — hex'e alfa eklemek `var(--md-*)` ile çalışmaz. */
-function mix(color: string, pct: number): string {
-  return `color-mix(in srgb, ${color} ${pct}%, transparent)`;
-}
 
 const PIN_LEN = 6;
 type Mode = 'pin' | 'qr';

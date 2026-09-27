@@ -52,7 +52,8 @@ export const PresetGallery = memo(function PresetGallery({
     else onPatchScreen(screenPatchOf(p));
   };
   /* Google yöntemi: önce fotoğraftaki RENKLER (en fazla 4), kullanıcı rengi seçer, sonra stili. */
-  const [photo, setPhoto] = useState<{ url: string; colors: PhotoColor[]; pick: number } | null>(null);
+  /* Fotoğraf DOSYA olarak tutulur; önizleme için URL üretilmez (bkz. PhotoThumb). */
+  const [photo, setPhoto] = useState<{ file: File; colors: PhotoColor[]; pick: number } | null>(null);
   const photoPresets = useMemo(
     () => (photo ? palettesFromColor(photo.colors[photo.pick]) : []),
     [photo],
@@ -60,8 +61,6 @@ export const PresetGallery = memo(function PresetGallery({
   const [photoBusy, setPhotoBusy] = useState(false);
   const [photoNote, setPhotoNote] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
-  const photoUrl = photo?.url;
-  useEffect(() => () => { if (photoUrl) URL.revokeObjectURL(photoUrl); }, [photoUrl]);
   /* Fotoğraf CİHAZDA okunur (küçük tuval) — hiçbir yere yüklenmez. */
   const onPhoto = async (file: File | undefined) => {
     if (!file) return;
@@ -73,7 +72,7 @@ export const PresetGallery = memo(function PresetGallery({
       setPhotoNote(px ? 'Bu fotoğrafta belirgin renk bulamadım — başka bir tane dener misin?' : 'Fotoğraf okunamadı.');
       return;
     }
-    setPhoto({ url: URL.createObjectURL(file), colors: found, pick: 0 });
+    setPhoto({ file, colors: found, pick: 0 });
   };
 
   const applyShape = (p: ShapePreset) => {
@@ -147,9 +146,7 @@ export const PresetGallery = memo(function PresetGallery({
           {photo && (
             <div className="md-card-filled p-3 flex flex-col gap-3">
               <div className="flex items-center gap-3">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={photo.url} alt="Seçilen fotoğraf" className="object-cover flex-shrink-0"
-                  style={{ width: 64, height: 64, borderRadius: 'var(--md-shape-md)' }} />
+                <PhotoThumb file={photo.file} />
                 <div className="flex-1 min-w-0">
                   <p className="md-title-s md-on-surface">Fotoğraftaki renkler · birini seçin</p>
                   <div className="flex gap-2 mt-2">
@@ -293,5 +290,40 @@ const PaletteGrid = memo(function PaletteGrid({ presets, isActive, onApply }: {
         );
       })}
     </div>
+  );
+});
+
+/**
+ * Seçilen fotoğrafın küçük resmi — dosya doğrudan <canvas>'a çizilir.
+ * `URL.createObjectURL` + `<img src>` KULLANILMAZ: kullanıcı girdisinden türeyen
+ * bir adresi DOM'a yazmamak (CodeQL js/xss-through-dom) ve temizlenmesi
+ * unutulabilecek bir blob URL'si bırakmamak için. Fotoğraf ağa GİTMEZ.
+ */
+const PhotoThumb = memo(function PhotoThumb({ file }: { file: File }) {
+  const ref = useRef<HTMLCanvasElement | null>(null);
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const bmp = await createImageBitmap(file);
+        const c = ref.current;
+        if (!alive || !c) { bmp.close?.(); return; }
+        const size = 128;
+        c.width = size; c.height = size;
+        const ctx = c.getContext('2d');
+        if (ctx) {
+          /* object-fit: cover — kısa kenar kareyi doldurur */
+          const k = Math.max(size / bmp.width, size / bmp.height);
+          const w = bmp.width * k; const h = bmp.height * k;
+          ctx.drawImage(bmp, (size - w) / 2, (size - h) / 2, w, h);
+        }
+        bmp.close?.();
+      } catch { /* okunamadı — boş kare kalır */ }
+    })();
+    return () => { alive = false; };
+  }, [file]);
+  return (
+    <canvas ref={ref} role="img" aria-label="Seçilen fotoğraf" className="flex-shrink-0"
+      style={{ width: 64, height: 64, borderRadius: 'var(--md-shape-md)', background: 'var(--md-surface-container-highest)' }} />
   );
 });

@@ -38,10 +38,6 @@ import { vehicleSubtitle, vehicleTitle } from '@/lib/vehicleDisplay';
 import { Icon, type IconName } from '@/components/pwa/ui/Icon';
 import { EmptyState } from '@/components/pwa/ui/primitives';
 
-/** Rol rengini saydamlaştırır — hex'e alfa eklemek `var(--md-*)` ile çalışmaz. */
-function mix(color: string, pct: number): string {
-  return `color-mix(in srgb, ${color} ${pct}%, transparent)`;
-}
 
 const SERVICE_LABELS: Readonly<Record<string, string>> = Object.fromEntries(
   SERVICE_DEFS.map((d) => [d.key, d.label]),

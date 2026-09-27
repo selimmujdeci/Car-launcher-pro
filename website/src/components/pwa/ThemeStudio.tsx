@@ -75,10 +75,6 @@ import { PresetGallery } from './theme/PresetGallery';
 import { Icon } from './ui/Icon';
 import { StatusPill, type Tone } from './ui/primitives';
 
-/** Rol rengini saydamlaştırır — hex'e alfa eklemek `var(--md-*)` ile çalışmaz. */
-function mix(color: string, pct: number): string {
-  return `color-mix(in srgb, ${color} ${pct}%, transparent)`;
-}
 
 /* ── Önizleme hedefi (gerçek araç uygulaması) ─────────────────────── */
 
