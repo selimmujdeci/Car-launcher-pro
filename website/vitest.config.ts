@@ -30,7 +30,7 @@ export default defineConfig({
       react:       fileURLToPath(new URL('./node_modules/react', import.meta.url)),
       'react-dom': fileURLToPath(new URL('./node_modules/react-dom', import.meta.url)),
       // `next/font` yalnız Next derleyicisinde çalışır → testte şekil stub'ı.
-      'next/font/google': fileURLToPath(new URL('./src/__tests__/stubs/nextFontGoogle.ts', import.meta.url)),
+      'next/font/local': fileURLToPath(new URL('./src/__tests__/stubs/nextFontLocal.ts', import.meta.url)),
     },
   },
   test: {

@@ -1,12 +1,16 @@
 import type { Metadata } from 'next';
-import { Roboto_Flex } from 'next/font/google';
+import localFont from 'next/font/local';
 
-/* Material 3 tip ölçeğinin yüzü (2026-09-27). Google Sans Flex, Next 14'ün
-   font listesinde yok; Roboto Flex aynı ailenin (Android sistem yazısı)
-   SIL OFL 1.1 lisanslı değişken sürümüdür — ticari kullanım serbest. Yalnız
-   tüketici route grubuna yüklenir; filo/pazarlama yazıları DEĞİŞMEZ. */
-const robotoFlex = Roboto_Flex({
-  subsets: ['latin', 'latin-ext'],
+/* Material 3 tip ölçeğinin yüzü (2026-09-27): Roboto Flex (SIL OFL 1.1, lisans
+   ./fonts/OFL-RobotoFlex.txt). Google Sans Flex Next 14 listesinde yok; Roboto
+   Flex Android'in sistem yazısının değişken sürümüdür. REPODA barınır: build
+   sırasında Google Fonts'a gidilmez (loader aralıklı olarak "Cannot read
+   properties of null (reading '1')" ile build düşürüyordu — kök layout ile aynı
+   çözüm). Dosya latin + latin-ext alt kümesi (Türkçe ğ ş ı İ ve ₺ dahil),
+   yalnız wght 300–700 ve opsz eksenleri. Yalnız tüketici route grubuna yüklenir. */
+const robotoFlex = localFont({
+  src: './fonts/RobotoFlex-Variable.woff2',
+  weight: '300 700',
   display: 'swap',
   variable: '--font-pwa',
 });
