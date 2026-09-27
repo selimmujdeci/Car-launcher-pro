@@ -20,6 +20,12 @@ import {
 } from '@/lib/diagnostics/vehicleHealth';
 import { useVehicleHealth } from '@/hooks/useVehicleHealth';
 import type { Verdict } from '@/lib/console/evidenceModel';
+import { Icon, type IconName } from '@/components/pwa/ui/Icon';
+
+const VERDICT_ICON: Record<Verdict, IconName> = {
+  VERIFIED: 'check_circle_fill', WARNING: 'warning_fill', CRITICAL: 'error_fill', NO_EVIDENCE: 'info',
+};
+const EVIDENCE_ICON: Record<string, IconName> = { dtc: 'car_repair', engineTemp: 'thermostat', battery: 'battery_full' };
 
 /* ── Görsel dil ────────────────────────────────────────────────────────────
    Korkutucu kırmızı YALNIZ `CRITICAL`de. `NO_EVIDENCE` sakin gri: "bilmiyoruz"
@@ -93,11 +99,11 @@ export function HealthCardView({
       <div className="px-5 py-5 flex items-start gap-4"
         style={{ background: tone.bg, color: tone.onBg, borderRadius: 'var(--md-shape-xl)' }}>
         <div
-          className="w-12 h-12 flex items-center justify-center flex-shrink-0 text-xl font-medium"
+          className="w-12 h-12 flex items-center justify-center flex-shrink-0"
           style={{ borderRadius: 'var(--md-shape-lg)', background: 'color-mix(in srgb, currentColor 12%, transparent)' }}
           aria-hidden="true"
         >
-          {tone.glyph}
+          <Icon name={VERDICT_ICON[summary.verdict]} size={28} />
         </div>
         <div className="flex-1 min-w-0">
           <p className="md-label-m" style={{ opacity: 0.8 }}>Aracınızın durumu</p>
@@ -124,13 +130,18 @@ export function HealthCardView({
       )}
 
       {/* ── Kanıtlar: veri yoksa SAHTE KART DOLDURULMAZ ─────────────────── */}
-      <ul className="grid grid-cols-3 gap-2" aria-label="Sağlık kanıtları">
-        {summary.evidence.map((e) => {
+      <ul className="md-card-elevated overflow-hidden" aria-label="Sağlık kanıtları">
+        {summary.evidence.map((e, i) => {
           const t = HEALTH_TONE[e.verdict];
           return (
-            <li key={e.id} className="md-card-elevated px-3 py-3 flex flex-col gap-1">
-              <span className="md-label-m md-on-surface-variant">{e.label}</span>
-              <span className="md-body-s font-medium" style={{ color: t.fg }}>{e.detail}</span>
+            <li key={e.id} className="flex items-center gap-4 px-4 py-3"
+              style={i > 0 ? { borderTop: '1px solid var(--md-outline-variant)' } : undefined}>
+              <span className="flex-shrink-0 md-on-surface-variant"><Icon name={EVIDENCE_ICON[e.id] ?? 'info'} /></span>
+              <span className="flex-1 md-body-l md-on-surface">{e.label}</span>
+              <span className="md-body-m text-right inline-flex items-center gap-1.5" style={{ color: e.verdict === 'NO_EVIDENCE' ? 'var(--md-on-surface-variant)' : t.fg }}>
+                {e.verdict !== 'NO_EVIDENCE' && <Icon name={VERDICT_ICON[e.verdict]} size={18} />}
+                {e.detail}
+              </span>
             </li>
           );
         })}
@@ -138,14 +149,18 @@ export function HealthCardView({
 
       {/* ── Kapsam sınırları: hükmün NEYİ kapsamadığı ───────────────────── */}
       {summary.limitations.length > 0 && (
-        <ul className="flex flex-col gap-1 px-1" aria-label="Değerlendirme sınırları">
-          {summary.limitations.map((l) => (
-            <li key={l} className="md-body-s md-on-surface-variant pl-3 relative">
-              <span aria-hidden="true" className="absolute left-0">·</span>
-              {l}
-            </li>
-          ))}
-        </ul>
+        <div className="px-4 py-3 flex items-start gap-3"
+          style={{ background: 'var(--md-surface-container)', borderRadius: 'var(--md-shape-md)' }}>
+          <Icon name="info" size={20} className="md-on-surface-variant flex-shrink-0 mt-px" />
+          <div className="flex-1 min-w-0">
+            <p className="md-label-l md-on-surface">Bu değerlendirmenin sınırları</p>
+            <ul className="mt-1 flex flex-col gap-0.5" aria-label="Değerlendirme sınırları">
+              {summary.limitations.map((l) => (
+                <li key={l} className="md-body-s md-on-surface-variant">{l}</li>
+              ))}
+            </ul>
+          </div>
+        </div>
       )}
 
       {/* ── BAĞLANTI: sağlıkla KARIŞTIRILMAZ (§11) ──────────────────────── */}
