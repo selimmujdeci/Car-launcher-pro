@@ -45,9 +45,10 @@ import { noteCehShadowTick, resetCehShadow } from './shadow/cehShadowRuntime';
    sağlayıcıyı yalnız bileşim kökü görür) ve CEH'e SONRADAN bağlanır —
    CEH bu portun ARKASINDAKİ hiçbir modülü import ETMEZ. */
 import { createEnforcementHorizonAttributePorts } from './enforcementHorizonPort';
-import {
-  getRouteState, getNavigationCoreSnapshot, REROUTE_THRESHOLD_M,
-} from '../routingService';
+import { getRouteState, getNavigationCoreSnapshot } from '../routingService';
+/* Yaprak modülden: routingService ile döngüsel import var; üst düzey okuma
+   dev sunucusunda TDZ ile açılışı çökertiyordu (bkz. routeThresholds.ts). */
+import { REROUTE_THRESHOLD_M } from './routeThresholds';
 import { getNavSessionId } from '../navigationService';
 
 /* ══════════════════════════════════════════════════════════════════════════
