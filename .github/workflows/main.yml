@@ -3,7 +3,7 @@
 #
 # CLAUDE.md §Automotive Grade Engineering Standards — Zero-Defect Deployment
 #
-# Triggers : push → main, dev  |  pull_request → main, dev
+# Triggers : push → main, dev, ci/**, feat/**  |  pull_request → main, dev, feat/**
 # Jobs     : lint-typecheck → test → build  (serial fail-fast)
 #            android_unit_tests                (PARALEL — ayrı dil zinciri)
 #
@@ -30,7 +30,9 @@ on:
     # koşabilir (push + pull_request); kör kalmaktan ucuzdur.
     branches: [main, dev, 'ci/**', 'feat/**']
   pull_request:
-    branches: [main, dev]
+    # `feat/**` (2026-09-27): feat'e açılan PR'lar (#133, #134, #135) hiç CI
+    # almıyordu; push tetikleyicisi yalnız feat dalının kendisini kapsıyor.
+    branches: [main, dev, 'feat/**']
 
 # Cancel in-flight runs for the same branch/PR to save minutes
 concurrency:
