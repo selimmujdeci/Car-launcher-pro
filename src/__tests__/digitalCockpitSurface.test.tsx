@@ -210,20 +210,25 @@ describe('fail-closed biçimlendirme — sahte 0 YASAK', () => {
 });
 
 describe('ekran — ölçüm yokken hiçbir sayı UYDURMAZ', () => {
-  it('boş durumda sahte sayı YOK: hız "—", ölçülmeyen modüller HİÇ çizilmez (OEM: veri yoksa gizle)', () => {
+  it('boş durumda ekran DOLU ama sahte sayı YOK: tüm göstergeler "—", hiçbir yerde "0" yok', () => {
     const { container } = render(
       <DigitalCockpitScreen state={EMPTY_COCKPIT_STATE} mode="night"
         clock={{ time: '--:--', date: '' }} />,
     );
     const all = measurementTexts(container);
-    expect(container.querySelector('[data-cockpit-value="speed"]')?.textContent).toBe(EM_DASH);
+    for (const v of ['speed', 'rpm', 'range', 'coolant']) {
+      expect(container.querySelector(`[data-cockpit-value="${v}"]`)?.textContent, v).toBe(EM_DASH);
+    }
+    expect(container.querySelector('[data-cockpit-value="odometer"]')?.textContent).toBe(`${EM_DASH} km`);
+    expect(container.querySelector('[data-cockpit-value="ambient"]')?.textContent).toBe(`${EM_DASH}°C`);
+    for (const region of ['speedCluster', 'rightCluster', 'leftCluster']) {
+      expect(container.querySelector(`[data-cockpit-region="${region}"]`), region).not.toBeNull();
+    }
     expect(all).not.toContain('0');
     expect(all).not.toContain('0 km');
     expect(all).not.toContain('0°C');
-    for (const region of ['rightCluster', 'leftCluster', 'maneuverBar', 'musicCard']) {
-      expect(container.querySelector(`[data-cockpit-region="${region}"]`), region).toBeNull();
-    }
-    expect(container.querySelector('[data-cockpit-value="odometer"], [data-cockpit-value="ambient"]')).toBeNull();
+    expect(texts(container)).toContain('Rota yok');
+    expect(texts(container)).toContain('Müzik çalmıyor');
   });
 
   it('hız limiti hükmü yoksa LEVHA HİÇ ÇİZİLMEZ', () => {

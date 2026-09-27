@@ -11,9 +11,10 @@
  * Tasarım 1280×720 referans koordinatlarında yazılır ve 1024×600 tuvale tek
  * `scale(0.8)` ile oturur (daire/yazı bozulmaz).
  *
- * FAIL-CLOSED: ölçülmemiş modül "—" ile boş kadran olarak DEĞİL, hiç çizilmez
- * (OEM kuralı: veri yoksa göstergeyi gizle). Hız her zaman görünür; bilinmiyorsa
- * "—". Sahte 0/değer ÜRETİLMEZ. Kırmızı bölge yalnız araçtan gelen devir
+ * FAIL-CLOSED: ekran HER ZAMAN dolu (kullanıcı kararı 2026-09-27: "ekran boş
+ * olmasın, veri gelince dolsun"). Ölçülmemiş değer "—" yazılır, ibre/dolgu
+ * çizilmez; "0" YAZILMAZ (motor çalışırken 0 devir, yakıt varken 0 km menzil
+ * sürücüyü yanıltır). Sahte 0/değer ÜRETİLMEZ. Kırmızı bölge yalnız araçtan gelen devir
  * sınırıyla çizilir. Işıma SVG filtresiyle DEĞİL, katmanlı çizgilerle (zayıf GPU).
  */
 import { memo, useId } from 'react';
@@ -151,7 +152,7 @@ const SpeedZone = memo(function SpeedZone({ speed, limit, definitive, over, curv
   );
 });
 
-/** Devir kadranı — YALNIZ devir ya da vites ölçülüyorsa çizilir. */
+/** Devir kadranı — her zaman çizilir; devir bilinmiyorsa "—", ibre/dolgu yok. */
 const EngineZone = memo(function EngineZone({ rpm, redline, gear, coolant, freshness, t, ids }: PaletteProps & {
   rpm: number | null; redline: number | null; gear: string | null; coolant: number | null;
   freshness: CockpitState['coolantFreshness'];
@@ -192,7 +193,7 @@ const EngineZone = memo(function EngineZone({ rpm, redline, gear, coolant, fresh
         <text data-cockpit-value="gear" x={1056} y={404} textAnchor="middle" className="caros-cockpit-numeral"
           fontSize={44} fontWeight={600} fill={t.accentHigh}>{gear}</text>
       )}
-      {(liveCoolant !== null || freshness === 'STALE') && (
+      {(
         <g data-cockpit-coolant="">
           <text x={986} y={478} fontSize={15} fill={t.textSecondary}>Motor</text>
           <text data-cockpit-value="coolant" x={1126} y={478} textAnchor="end" fontSize={17} fontWeight={600}
@@ -206,7 +207,7 @@ const EngineZone = memo(function EngineZone({ rpm, redline, gear, coolant, fresh
   );
 });
 
-/** Menzil + yakıt (sol alt) — YALNIZ ölçüm varsa. */
+/** Menzil + yakıt (sol alt) — her zaman; bilinmiyorsa "—", çubuk boş. */
 const RangeZone = memo(function RangeZone({ range, fuelLevel, consumption, t, ids }: PaletteProps & {
   range: number | null; fuelLevel: number | null; consumption: number | null;
 }) {
@@ -217,7 +218,8 @@ const RangeZone = memo(function RangeZone({ range, fuelLevel, consumption, t, id
     <g data-cockpit-region="leftCluster">
       <text data-cockpit-value="range" x={78} y={642} fontSize={30} fontWeight={600} className="caros-cockpit-numeral"
         fill={rangeText === EM_DASH ? t.muted : t.textPrimary}>{rangeText}</text>
-      <text x={78 + rangeText.length * 18 + 8} y={642} fontSize={18} fill={t.textSecondary}>km menzil</text>
+      {/* Rakam ≈18 px (30 px tnum); "—" daha geniş — birim metni üstüne binmesin. */}
+      <text x={78 + (rangeText === EM_DASH ? 34 : rangeText.length * 18) + 10} y={642} fontSize={18} fill={t.textSecondary}>km menzil</text>
       {fuel !== null && (
         <text data-cockpit-value="fuel" x={358} y={642} textAnchor="end" fontSize={17} fontWeight={600}
           className="caros-cockpit-numeral" fill={t.textSecondary}>{`%${Math.round(fuel * 100)}`}</text>
@@ -237,7 +239,7 @@ const RangeZone = memo(function RangeZone({ range, fuelLevel, consumption, t, id
   );
 });
 
-/** Kilometre + sürüş modu (sağ alt) — YALNIZ ölçüm varsa. */
+/** Kilometre + sürüş modu (sağ alt) — kilometre her zaman ("— km"), mod yalnız ölçülürse. */
 const OdoZone = memo(function OdoZone({ odometer, driveMode, t }: Omit<PaletteProps, 'ids'> & {
   odometer: number | null; driveMode: string | null;
 }) {
@@ -248,10 +250,9 @@ const OdoZone = memo(function OdoZone({ odometer, driveMode, t }: Omit<PalettePr
         <text data-cockpit-value="driveMode" x={1202} y={606} textAnchor="end" fontSize={16} fontWeight={700}
           letterSpacing={2} fill={t.accentHigh}>{driveMode}</text>
       )}
-      {odoText !== EM_DASH && (
-        <text data-cockpit-value="odometer" x={1202} y={646} textAnchor="end" fontSize={26} fontWeight={600}
-          className="caros-cockpit-numeral" fill={t.textPrimary}>{odoText}</text>
-      )}
+      <text data-cockpit-value="odometer" x={1202} y={646} textAnchor="end" fontSize={26} fontWeight={600}
+        className="caros-cockpit-numeral" fill={odoText === EM_DASH ? t.muted : t.textPrimary}>
+        {odoText === EM_DASH ? `${EM_DASH} km` : odoText}</text>
     </g>
   );
 });
@@ -347,10 +348,29 @@ const ManeuverZone = memo(function ManeuverZone({ distanceMeters, label, type, m
   );
 });
 
+/** Rota yokken üst kart — ESKİ adım GÖSTERİLMEZ, yalnız durum söylenir. */
+const NoRouteCard = memo(function NoRouteCard({ t }: Omit<PaletteProps, 'ids'>) {
+  return (
+    <g data-cockpit-navigation="unavailable">
+      <rect x={530} y={26} width={220} height={60} rx={16} fill={t.accentSoft} fillOpacity={0.35}
+        stroke={t.border} />
+      <text x={640} y={64} textAnchor="middle" fontSize={20} fill={t.muted}>Rota yok</text>
+    </g>
+  );
+});
+
 /** Alt orta müzik satırı — dokununca çal/duraklat (tek büyük dokunma hedefi). */
 const MediaZone = memo(function MediaZone({ title, artist, playing, available, onMediaToggle, t }: Omit<PaletteProps, 'ids'> &
   CockpitState['media'] & Pick<DigitalCockpitScreenProps, 'onMediaToggle'>) {
-  if (!title) return null;
+  // Dokunma hedefi gerçek ekranda ≥56 px: tasarım ölçeği (0.8) telafi edilir.
+  const hIdle = Math.ceil(COCKPIT_MIN_TOUCH_PX / DESIGN_SCALE);
+  if (!title) {
+    return (
+      <g data-cockpit-media="idle">
+        <text x={640} y={720 - hIdle / 2 + 6} textAnchor="middle" fontSize={18} fill={t.muted}>Müzik çalmıyor</text>
+      </g>
+    );
+  }
   const line = artist ? `${title} · ${artist}` : title;
   // Dokunma hedefi gerçek ekranda ≥56 px: tasarım ölçeği (0.8) telafi edilir.
   const h = Math.ceil(COCKPIT_MIN_TOUCH_PX / DESIGN_SCALE);
@@ -376,10 +396,8 @@ const TopBar = memo(function TopBar({ time, ambient, t }: Omit<PaletteProps, 'id
   return (
     <g data-cockpit-region="topBar">
       <text x={64} y={46} fontSize={22} fontWeight={500} className="caros-cockpit-numeral" fill={t.textSecondary}>{time}</text>
-      {ambText !== EM_DASH && (
-        <text data-cockpit-value="ambient" x={1216} y={46} textAnchor="end" fontSize={22} fontWeight={500}
-          fill={t.textSecondary}>{ambText}</text>
-      )}
+      <text data-cockpit-value="ambient" x={1216} y={46} textAnchor="end" fontSize={22} fontWeight={500}
+        fill={ambText === EM_DASH ? t.muted : t.textSecondary}>{ambText === EM_DASH ? `${EM_DASH}°C` : ambText}</text>
     </g>
   );
 });
@@ -403,8 +421,6 @@ export const DigitalCockpitScreen = memo(function DigitalCockpitScreen({
     ring: `${base}-ring`, lane: `${base}-lane`, edge: `${base}-edge`,
     floor: `${base}-floor`, bg: `${base}-bg`, shadow: `${base}-shadow`,
   };
-  const showEngine = bandOrNull(state.rpm, COCKPIT_BANDS.rpm) !== null || state.gear !== null;
-  const showRange = bandOrNull(state.rangeKm, COCKPIT_BANDS.range) !== null || fuelFill(state.fuelLevelPct) !== null;
   return (
     <svg data-caros-cockpit="screen" data-cockpit-mode={mode} className="caros-cockpit-screen"
       width="100%" height="100%" viewBox={`0 0 ${COCKPIT_CANVAS.width} ${COCKPIT_CANVAS.height}`}
@@ -444,14 +460,10 @@ export const DigitalCockpitScreen = memo(function DigitalCockpitScreen({
         <DecorativeRoad ids={ids} />
         <SpeedZone speed={state.speedKmh} limit={state.speedLimitKmh} definitive={state.speedLimitDefinitive}
           over={state.speedOverLimit === true} curve={state.curve ?? null} t={t} ids={ids} />
-        {showEngine && (
-          <EngineZone rpm={state.rpm} redline={state.rpmRedline} gear={state.gear} coolant={state.coolantTempC}
-            freshness={state.coolantFreshness} t={t} ids={ids} />
-        )}
-        {state.maneuver !== null && <ManeuverZone {...state.maneuver} t={t} />}
-        {showRange && (
-          <RangeZone range={state.rangeKm} fuelLevel={state.fuelLevelPct} consumption={state.avgConsumptionL100} t={t} ids={ids} />
-        )}
+        <EngineZone rpm={state.rpm} redline={state.rpmRedline} gear={state.gear} coolant={state.coolantTempC}
+          freshness={state.coolantFreshness} t={t} ids={ids} />
+        {state.maneuver !== null ? <ManeuverZone {...state.maneuver} t={t} /> : <NoRouteCard t={t} />}
+        <RangeZone range={state.rangeKm} fuelLevel={state.fuelLevelPct} consumption={state.avgConsumptionL100} t={t} ids={ids} />
         <OdoZone odometer={state.odometerKm} driveMode={state.driveMode} t={t} />
         <MediaZone {...state.media} t={t} onMediaToggle={onMediaToggle} />
         <TopBar time={clock.time} ambient={state.ambientTempC} t={t} />
