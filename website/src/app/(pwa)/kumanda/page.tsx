@@ -580,7 +580,7 @@ function KumandaApp() {
       >
         {/* Büyük başlık görünürken (kaydırılmamış iç yüzey) çubuk yalnız eylem taşır. */}
         <div className="flex-1 min-w-0 py-2"
-          style={{ visibility: activeTab === 'aracim' || scrolled ? 'visible' : 'hidden' }}>
+          style={{ visibility: activeTab === 'aracim' || activeTab === 'harita' || scrolled ? 'visible' : 'hidden' }}>
           <p className="md-title-l md-on-surface truncate">{TAB_TITLES[activeTab]}</p>
           {/* F5 · BAŞLIK CANLILIK İDDİA EDEMEZ.
               ÖLÇÜLEN KUSUR: burada araç eşleşmiş olduğu SÜRECE "Canlı
