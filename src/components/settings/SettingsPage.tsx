@@ -3,6 +3,7 @@ const SecureAccessModal = lazy(() => import('../admin/SecureAccessModal').then(m
 import { useCarTheme, isDay, baseOf, toDay, toNight, type BaseTheme } from '../../store/useCarTheme';
 import { allowsConnectivity } from '../../platform/connectivity/connectivityGate';
 import expeditionEmblem from '../../assets/expedition/emblem.png';
+import { useCarosLabAllowed } from '../../hooks/useCarosLabAllowed';
 import {
   Sun, Smartphone, Zap, Palette, Layout, Check, PenTool as Tool, Volume2,
   Wifi, HardDrive, Database, ArrowLeft, X,
@@ -156,14 +157,42 @@ function PremiumToggle({ label, desc, value, onChange, icon: Icon }: {
    THEME PANEL — Ayarlar içi tema seçici
 ════════════════════════════════════════ */
 /** dn dolu olan kartlar (carOS Expedition ailesi) gün/gece varyantını da seçer. */
-type ThemeOpt = { id: BaseTheme; dn?: 'day' | 'night'; label: string; sub: string; accent: string; preview: string; emblem?: boolean };
+/** Önizleme tel-çerçevesi: sütun oranları (%) + dock'ta saat madalyonu var mı. */
+type ThemeWire = { cols: [number, number, number]; medallion: boolean };
+type ThemeOpt = { id: BaseTheme; dn?: 'day' | 'night'; label: string; sub: string; accent: string; preview: string; emblem?: boolean; wire?: ThemeWire };
+/* Horizon/Tesla/Pro kartları eskiden yalnız neredeyse siyah bir gradyandı (boş
+   kutu gibi görünüyordu); alt yazılar da temayı anlatmıyordu ("Model S",
+   "Dark Automotive" — Pro gündüz/gece uyumlu). Artık yerleşimin tel-çerçevesi. */
 const THEME_OPTIONS: ThemeOpt[] = [
-  { id: 'horizon',  label: 'HORIZON',  sub: 'Expedition · Pivi Pro', accent: '#F2871C', preview: 'linear-gradient(135deg,#473d2c 0%,#221d15 52%,#0c0906 100%)' },
+  { id: 'horizon',  label: 'HORIZON',  sub: 'Pusula · Kompakt panolar', accent: '#F2871C', preview: 'linear-gradient(135deg,#473d2c 0%,#221d15 52%,#0c0906 100%)', wire: { cols: [18, 51, 26], medallion: true } },
   { id: 'expedition', dn: 'day',   label: 'EXPEDITION DAY',   sub: 'Kum · Gündüz', accent: '#E07B14', preview: 'linear-gradient(135deg,#FBF7EF,#DED3C0)', emblem: true },
   { id: 'expedition', dn: 'night', label: 'EXPEDITION NIGHT', sub: 'Pas · Gece',   accent: '#F2871C', preview: 'linear-gradient(135deg,#2c2216,#0f0c09)', emblem: true },
-  { id: 'tesla',    label: 'TESLA',    sub: 'Model S',          accent: '#E31937', preview: 'linear-gradient(135deg,#0a0a0a,#1a1a1a)' },
-  { id: 'pro',      label: 'PRO',      sub: 'Dark Automotive',  accent: '#D4AF37', preview: 'linear-gradient(135deg,#0a0c10,#12151d)' },
+  { id: 'tesla',    label: 'TESLA',    sub: 'Metal plaka · Arazi',     accent: '#E31937', preview: 'linear-gradient(135deg,#1a1712,#0a0a0a)', wire: { cols: [22, 44, 30], medallion: true } },
+  { id: 'pro',      label: 'PRO',      sub: 'Cam kartlar · Gün/Gece',  accent: '#D4AF37', preview: 'linear-gradient(135deg,#141a26,#0a0c10)', wire: { cols: [20, 52, 26], medallion: false } },
 ];
+
+function ThemeWireframe({ wire, accent }: { wire: ThemeWire; accent: string }) {
+  const panel = 'rgba(255,255,255,0.10)';
+  const [l, m, r] = wire.cols;
+  const gap = (100 - l - m - r) / 2;
+  return (
+    <div data-testid="theme-wireframe" aria-hidden style={{ position: 'absolute', top: '12%', left: '5%', right: '5%', bottom: '10%' }}>
+      <div style={{ position: 'absolute', top: 0, bottom: '30%', left: 0, width: `${l}%`, display: 'flex', flexDirection: 'column', gap: '6%' }}>
+        <div style={{ flex: 1, background: panel, borderRadius: 3 }} />
+        <div style={{ flex: 1.4, background: panel, borderRadius: 3 }} />
+      </div>
+      <div style={{ position: 'absolute', top: 0, bottom: '30%', left: `${l + gap}%`, width: `${m}%`, background: `${accent}2e`, border: `1px solid ${accent}55`, borderRadius: 3 }} />
+      <div style={{ position: 'absolute', top: 0, bottom: '30%', right: 0, width: `${r}%`, display: 'flex', flexDirection: 'column', gap: '6%' }}>
+        <div style={{ flex: 1, background: panel, borderRadius: 3 }} />
+        <div style={{ flex: 1, background: panel, borderRadius: 3 }} />
+      </div>
+      <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: '22%', background: panel, borderRadius: 3 }} />
+      {wire.medallion && (
+        <div style={{ position: 'absolute', left: '50%', bottom: '2%', width: '17%', paddingBottom: '17%', transform: 'translateX(-50%)', borderRadius: '50%', border: `2px solid ${accent}`, background: 'rgba(0,0,0,0.55)' }} />
+      )}
+    </div>
+  );
+}
 
 function ThemePanel() {
   const { theme, setTheme } = useCarTheme();
@@ -253,6 +282,7 @@ function ThemePanel() {
                 <div className="relative w-full aspect-video rounded-xl overflow-hidden" style={{ background: preview }}>
                   <div style={{ position: 'absolute', bottom: 6, left: 6, right: 6, height: 3, background: `${t.accent}70`, borderRadius: 2 }} />
                   <div style={{ position: 'absolute', top: 6, left: 6, width: 16, height: 3, background: `${t.accent}50`, borderRadius: 2 }} />
+                  {t.wire && <ThemeWireframe wire={t.wire} accent={t.accent} />}
                   {t.emblem && (
                     <img src={expeditionEmblem} alt="" style={{ position: 'absolute', top: '50%', left: '50%', width: '38%', transform: 'translate(-50%,-55%)', opacity: 0.92, filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.5))', pointerEvents: 'none' }} />
                   )}
@@ -1602,6 +1632,7 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
   const sense = useScreenSense();
   // Telefon/kompakt ekran tespiti: yükseklik < 500 veya genişlik < 800
   const isCompactScreen   = sense.height < 500 || sense.width < 800;
+  const devTelemetry      = useCarosLabAllowed();
   const nativeControls    = isSystemControlSupported();
 
   const handleBrightness = useCallback((v: number) => {
@@ -1709,15 +1740,17 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
             </span>
           </div>
 
-          {/* Live stats — yalnızca geniş ekranlarda (HU / tablet) */}
-          {!isCompactScreen && (
+          {/* Live stats (YÜK/BAT/RAM/NET) — GELİŞTİRİCİ telemetrisi: satış build'inde
+              sürücüye anlamsız sayılar gösteriyordu. CAROS LAB ile aynı derleme
+              kapısı; yalnızca geniş ekranlarda (HU / tablet). */}
+          {!isCompactScreen && devTelemetry && (
             <div className="flex-1 flex items-center justify-end gap-1.5 overflow-x-auto no-scrollbar">
               <LiveStatsRow />
             </div>
           )}
 
-          {/* Kompakt ekranda boşluk doldurucu */}
-          {isCompactScreen && <div className="flex-1" />}
+          {/* Boşluk doldurucu (kompakt ekran ya da telemetri kapalı) */}
+          {(isCompactScreen || !devTelemetry) && <div className="flex-1" />}
 
           <button onClick={onClose}
             className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-xl active:scale-90 transition-all ml-1"

@@ -23,6 +23,19 @@
 /* Eski head unit WebView (Chrome<87) inset shorthand fallback — EN SON yüklenir */
 @import "./styles/webview-compat.css";
 
+/* Uygulama kabuğu — head unit'te uzun basış metin seçimi/callout açıyordu
+   (dokunmatik kontrol yüzeyinde seçim tutamaçları). Metin girişleri ve
+   bilinçli seçilebilir alanlar (`.select-text` / `.select-all`) muaf. */
+html, body {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+input, textarea, [contenteditable="true"] {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
 /* ═══════════════════════════════════════════════════════════
    SUNLIGHT MODE — autoBrightnessService.ts tarafından yönetilir
    Gündüz (morning/afternoon) fazında documentElement'e eklenir.

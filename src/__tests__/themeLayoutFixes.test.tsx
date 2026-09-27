@@ -80,3 +80,24 @@ describe('güneş modu SVG kuralları', () => {
     expect(css).toMatch(/\.sunlight-mode svg\.lucide \*\[fill\] \{\s*stroke-width: 0 !important;/);
   });
 });
+
+describe('uygulama kabuğu metin seçimi', () => {
+  const css = readFileSync(join(__dirname, '../index.css'), 'utf8');
+  it('kabukta seçim kapalı, giriş alanlarında açık', () => {
+    expect(css).toMatch(/html, body \{[^}]*user-select: none;/);
+    expect(css).toMatch(/input, textarea, \[contenteditable="true"\] \{[^}]*user-select: text;/);
+  });
+});
+
+describe('Ayarlar', () => {
+  const src = readFileSync(join(__dirname, '../components/settings/SettingsPage.tsx'), 'utf8');
+  it('YÜK/RAM/NET telemetrisi geliştirici kapısının arkasında', () => {
+    expect(src).toContain('const devTelemetry      = useCarosLabAllowed();');
+    expect(src).toMatch(/!isCompactScreen && devTelemetry && \(/);
+  });
+  it('Horizon/Tesla/Pro kartlarında tel-çerçeve önizleme var', () => {
+    for (const id of ['horizon', 'tesla', 'pro']) {
+      expect(src).toMatch(new RegExp(`\\{ id: '${id}',[^\\n]*wire: \\{ cols:`));
+    }
+  });
+});
