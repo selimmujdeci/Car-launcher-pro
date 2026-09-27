@@ -1931,6 +1931,14 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
                 <SectionTitle icon={Gauge} title="Sürücü Ekranı" sub="Gösterge görünümü ve rengi — gündüz/gece otomatik" color="var(--oem-accent)" />
                 <CockpitStylePicker />
               </Panel>
+              {/* Sürüşte video — kullanıcı kararı 2026-09-27 ("çocuklar izleyebilir").
+                  Bu sekme sürüşte kilitli → yalnız park hâlinde değiştirilebilir. */}
+              <Panel accent="var(--oem-warn)">
+                <PremiumToggle icon={Shield} label="Sürüşte videoyu durdurma"
+                  desc="Açıkken sinema modu araç hareket edince kapanmaz. Sürücü sorumluluğundadır: sürücü sürüş sırasında ekrana bakmamalıdır."
+                  value={settings.videoWhileDriving === true}
+                  onChange={(v) => updateSettings({ videoWhileDriving: v })} />
+              </Panel>
               {nativeControls && (
                 <Panel accent="var(--oem-accent)">
                   <SectionTitle icon={Sun} title="Parlaklık" sub="Ekran parlaklığı (sistem)" color="var(--oem-warn)" />

@@ -209,6 +209,8 @@ export interface AppSettings {
   /** Sürücü ekranı görünümü ve vurgu rengi (kullanıcı seçimi; gündüz/gece `dayNightMode`'dan). */
   cockpitStyle: 'road' | 'minimal' | 'analog' | 'retro' | 'digital';
   cockpitAccent: 'blue' | 'red' | 'green' | 'orange' | 'purple' | 'ice';
+  /** Sürüşte sinema modunu (video) KAPATMA — sürücü sorumluluğunda, bilinçli açılır (varsayılan kapalı). */
+  videoWhileDriving: boolean;
   theme: 'dark' | 'oled' | 'light';
   themePack: ThemePack;
   themeStyle: ThemeStyle;
@@ -407,6 +409,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   volumeStyle: 'tesla_ultra',
   cockpitStyle: 'road',
   cockpitAccent: 'blue',
+  videoWhileDriving: false,
   theme: 'light',
   themePack: 'tesla',
   themeStyle: 'glass',

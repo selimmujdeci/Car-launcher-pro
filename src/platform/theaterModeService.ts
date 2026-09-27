@@ -23,6 +23,7 @@
 
 import { useUnifiedVehicleStore as useVehicleStore }    from './vehicleDataLayer/UnifiedVehicleStore';
 import { useSystemStore }                               from '../store/useSystemStore';
+import { useStore }                                     from '../store/useStore';
 
 // ── Sabitler ─────────────────────────────────────────────────────────────────
 
@@ -60,7 +61,10 @@ export function startTheaterService(): () => void {
   // Yalnızca araç hareket ederse manuel açılmış modu güvenlik gereği kapatır.
   _unsubSpeed = useVehicleStore.subscribe((state) => {
     const spd = state.speed ?? 0;
-    if (spd > EXIT_SPEED_KMH) {
+    /* Kullanıcı kararı 2026-09-27 ("çocuklar izleyebilir"): ayarlardan BİLİNÇLİ
+       açılırsa (varsayılan kapalı, park hâlinde değiştirilebilir, sürücü
+       sorumluluğunda) güvenlik çıkışı uygulanmaz. */
+    if (spd > EXIT_SPEED_KMH && !useStore.getState().settings.videoWhileDriving) {
       _exitTheaterMode();
     }
   });
