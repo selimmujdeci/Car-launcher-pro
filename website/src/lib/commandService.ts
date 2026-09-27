@@ -85,6 +85,15 @@ export interface SendResult {
 }
 
 /**
+ * Kapı kilidi / korna / alarm / far (MCU gövde komutları) GERÇEK ARAÇTA KANITLANMADI:
+ * head unit bunları `McuCommandFactory`nin kendi tanımladığı `0xBB…0xEE` çerçevesiyle
+ * MCU'ya yollar ve bu çerçevenin herhangi bir aracın kapı/korna hattını sürdüğüne dair
+ * cihaz/saha kanıtı yoktur. Kanıt gelene kadar arayüz bu düğmeleri GÖSTERMEZ —
+ * çalışmayan düğme sunmak "komut tamamlandı" yalanı üretir.
+ */
+export const BODY_CONTROL_VERIFIED = false;
+
+/**
  * Komutun ürünce vaat edilen geçerlilik süresi — `vehicle_commands.ttl`.
  * Araç tarafındaki kripto kabul penceresiyle (`COMMAND_VALIDITY_WINDOW_MS`)
  * BİREBİR aynı olmak ZORUNDADIR; iki sayı ayrışırsa "sıraya alındı" yalan olur.

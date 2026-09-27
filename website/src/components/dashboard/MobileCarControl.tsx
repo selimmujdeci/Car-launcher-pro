@@ -9,6 +9,7 @@ import {
 import { useCommandTracker } from '@/hooks/useCommandTracker';
 import type { CmdPhase, CommandResult } from '@/hooks/useCommandTracker';
 import type { CommandType, RoutePayload } from '@/lib/commandService';
+import { BODY_CONTROL_VERIFIED } from '@/lib/commandService';
 /* F0.3 · Komut sonucunun kanıt seviyesi — tek eşleme, ikinci otorite değil. */
 import { EVIDENCE_TITLE, EVIDENCE_DETAIL } from '@/lib/commandEvidence';
 
@@ -1109,7 +1110,8 @@ export default function MobileCarControl({
       {/* Offline banner */}
       {!isOnline && <OfflineBanner plate={vehicle.plate} />}
 
-      {/* Lock / Unlock */}
+      {/* Lock / Unlock + Horn / Alarm / Lights — gerçek araçta kanıtlanana kadar gizli */}
+      {BODY_CONTROL_VERIFIED && (<>
       <div className="grid grid-cols-2 gap-4">
         <BigBtn
           label="Kilitle" sublabel="Kapat"
@@ -1184,6 +1186,7 @@ export default function MobileCarControl({
           </svg>
         </SmallBtn>
       </div>
+      </>)}
 
       {/* Navigation panel */}
       <NavPanel onSendRoute={handleSendRoute} busy={navBusy} />
