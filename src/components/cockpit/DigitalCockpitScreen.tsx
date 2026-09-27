@@ -413,7 +413,8 @@ const TopBar = memo(function TopBar({ time, ambient, t }: Omit<PaletteProps, 'id
   const ambText = fmtAmbient(ambient);
   return (
     <g data-cockpit-region="topBar">
-      <text x={64} y={46} fontSize={22} fontWeight={500} className="caros-cockpit-numeral" fill={t.textSecondary}>{time}</text>
+      {/* Saat, sol üstteki "görünüm değiştir" düğmesinin (sayfa katmanı, ~100 px) sağında başlar. */}
+      <text x={150} y={46} fontSize={22} fontWeight={500} className="caros-cockpit-numeral" fill={t.textSecondary}>{time}</text>
       <text data-cockpit-value="ambient" x={1216} y={46} textAnchor="end" fontSize={22} fontWeight={500}
         fill={ambText === EM_DASH ? t.muted : t.textSecondary}>{ambText === EM_DASH ? `${EM_DASH}°C` : ambText}</text>
     </g>
