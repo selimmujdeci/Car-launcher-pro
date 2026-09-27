@@ -4,9 +4,9 @@ import { openApp } from '../../platform/appLauncher';
 import { APP_MAP } from '../../data/apps';
 import {
   useBreakReminderState, enableBreakReminder, disableBreakReminder,
-  setBreakInterval, dismissBreakAlert, updateBreakReminder,
+  setBreakInterval, dismissBreakAlert,
 } from '../../platform/breakReminderService';
-import { useOBDState } from '../../platform/obdService';
+import { useDisplaySpeed } from '../../hooks/useDisplaySpeed';
 
 const CARD = { background: 'var(--oem-surface-2)', border: '1px solid var(--oem-line)', borderRadius: 24, padding: 20 };
 const DARK_BG = 'rgba(10,14,26,0.95)';
@@ -208,9 +208,12 @@ export const BreakAlertOverlay = memo(function BreakAlertOverlay() {
 
 /* ── Ana Portal ─── */
 export const EntertainmentPortal = memo(function EntertainmentPortal() {
-  const obd = useOBDState();
-  useEffect(() => { updateBreakReminder(obd.speed); }, [obd.speed]);
-  const isParked = obd.speed === 0;
+  /* Kanonik hız (null = bilinmiyor). Eskiden ham `obd.speed` okunuyordu; OBD
+     yokken başlangıç değeri 0 olduğu için araç hareket ederken bile "AKTİF/park"
+     görünüyordu. Bilinmeyen hız ne park ne hareket sayılır. */
+  const speed = useDisplaySpeed();
+  const isParked = speed !== null && speed < 3;
+  const isMoving = speed !== null && speed >= 3;
 
   return (
     <div data-theme-surface="entertainment" data-editable="entertainment.screen" data-editable-type="panel"
@@ -234,11 +237,11 @@ export const EntertainmentPortal = memo(function EntertainmentPortal() {
 
       {/* İçerik */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '20px 20px 88px', display: 'flex', flexDirection: 'column', gap: 16 }}>
-        {!isParked && (
+        {isMoving && (
           <div style={{ borderRadius: 16, background: 'rgba(251,191,36,0.10)', border: '1px solid rgba(251,191,36,0.30)', padding: '12px 20px', display: 'flex', alignItems: 'center', gap: 12 }}>
             <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#fbbf24', flexShrink: 0 }} />
             <span style={{ color: '#fbbf24', fontSize: 13, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
-              ARAÇ HAREKET EDİYOR — {Math.round(obd.speed)} KM/H
+              ARAÇ HAREKET EDİYOR — {Math.round(speed)} KM/H
             </span>
           </div>
         )}
