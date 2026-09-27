@@ -153,9 +153,8 @@ const SpeedZone = memo(function SpeedZone({ speed, limit, definitive, over, curv
 });
 
 /** Devir kadranı — her zaman çizilir; devir bilinmiyorsa "—", ibre/dolgu yok. */
-const EngineZone = memo(function EngineZone({ rpm, redline, gear, coolant, freshness, t, ids }: PaletteProps & {
-  rpm: number | null; redline: number | null; gear: string | null; coolant: number | null;
-  freshness: CockpitState['coolantFreshness'];
+const EngineZone = memo(function EngineZone({ rpm, redline, gear, t, ids }: PaletteProps & {
+  rpm: number | null; redline: number | null; gear: string | null;
 }) {
   // 8000 yalnız skala tabanı; kırmızı bölge YALNIZ araçtan gelen sınırla çizilir.
   const knownRedline = bandOrNull(redline, COCKPIT_BANDS.rpm);
@@ -165,9 +164,6 @@ const EngineZone = memo(function EngineZone({ rpm, redline, gear, coolant, fresh
   const tip = fill === null ? null : polar(RPM_C.x, RPM_C.y, DIAL_R, DIAL_FROM + DIAL_SWEEP * fill);
   const validRpm = bandOrNull(rpm, COCKPIT_BANDS.rpm);
   const rpmText = validRpm === null ? EM_DASH : Math.round(validRpm).toLocaleString('tr-TR');
-  const liveCoolant = freshness === 'LIVE' ? coolant : null;
-  const cool = coolantFill(liveCoolant);
-  const coolText = fmtCoolant(liveCoolant);
   const labels = Array.from({ length: scaleMax / 1000 + 1 }, (_, i) =>
     ({ v: i, p: polar(RPM_C.x, RPM_C.y, 124, DIAL_FROM + (DIAL_SWEEP * i * 1000) / scaleMax) }));
   const redArc = redFrac !== null
@@ -193,48 +189,77 @@ const EngineZone = memo(function EngineZone({ rpm, redline, gear, coolant, fresh
         <text data-cockpit-value="gear" x={1056} y={404} textAnchor="middle" className="caros-cockpit-numeral"
           fontSize={44} fontWeight={600} fill={t.accentHigh}>{gear}</text>
       )}
-      {(
-        <g data-cockpit-coolant="">
-          <text x={986} y={478} fontSize={15} fill={t.textSecondary}>Motor</text>
-          <text data-cockpit-value="coolant" x={1126} y={478} textAnchor="end" fontSize={17} fontWeight={600}
-            className="caros-cockpit-numeral" fill={coolText === EM_DASH ? t.muted : t.textPrimary}>{coolText}</text>
-          {freshness === 'STALE' && <text x={1056} y={506} textAnchor="middle" fontSize={13} fill={t.textSecondary}>Veri güncel değil</text>}
-          <rect x={986} y={486} width={140} height={4} rx={2} fill={t.track} />
-          {cool !== null && <rect data-cockpit-coolant-fill="" x={986} y={486} width={140 * cool} height={4} rx={2} fill={`url(#${ids.ring})`} />}
-        </g>
+    </g>
+  );
+});
+
+/* Küçük yarım kadranlar (alt köşeler): üstte 180° yay, r=58. */
+const MINI_R = 58;
+const MINI_ARC = (cx: number, cy: number) => arcPath(cx, cy, MINI_R, 180, 180);
+
+/** Menzil + yakıt kadranı (sol alt) — yakıt yayı, ortada menzil; bilinmiyorsa "—", yay boş. */
+const RangeZone = memo(function RangeZone({ range, fuelLevel, consumption, t, ids }: PaletteProps & {
+  range: number | null; fuelLevel: number | null; consumption: number | null;
+}) {
+  const cx = 150; const cy = 650;
+  const fuel = fuelFill(fuelLevel);
+  const rangeText = fmtRange(range);
+  const consText = fmtConsumption(consumption);
+  const arc = MINI_ARC(cx, cy);
+  const tip = fuel === null ? null : polar(cx, cy, MINI_R, 180 + 180 * fuel);
+  return (
+    <g data-cockpit-region="leftCluster">
+      <path d={arc} fill="none" stroke={t.track} strokeWidth={8} strokeLinecap="round" />
+      {fuel !== null && (
+        <path data-cockpit-fuel-fill={Math.round(fuel * 100)} d={arc} pathLength={100} fill="none" strokeWidth={8}
+          strokeLinecap="round" strokeDasharray={`${fuel * 100} 100`} opacity={fuel > 0 ? 1 : 0}
+          stroke={fuel < 0.15 ? t.warningRed : `url(#${ids.ring})`} />
+      )}
+      {tip && <circle cx={tip.x} cy={tip.y} r={5} fill={t.textPrimary} />}
+      <text x={cx - MINI_R} y={cy + 24} textAnchor="middle" fontSize={14} fill={t.muted}>E</text>
+      <text x={cx + MINI_R} y={cy + 24} textAnchor="middle" fontSize={14} fill={t.muted}>F</text>
+      <text data-cockpit-value="range" x={cx} y={cy - 8} textAnchor="middle" fontSize={26} fontWeight={600}
+        className="caros-cockpit-numeral" fill={rangeText === EM_DASH ? t.muted : t.textPrimary}>{rangeText}</text>
+      <text x={cx} y={cy + 14} textAnchor="middle" fontSize={14} fill={t.textSecondary}>km menzil</text>
+      {fuel !== null && (
+        <text data-cockpit-value="fuel" x={cx + MINI_R + 18} y={cy - 36} fontSize={15} fontWeight={600}
+          className="caros-cockpit-numeral" fill={t.textSecondary}>{`%${Math.round(fuel * 100)}`}</text>
+      )}
+      {consumption !== null && consText !== EM_DASH && (
+        <text data-cockpit-value="consumption" x={cx} y={cy + 44} textAnchor="middle" fontSize={13}
+          className="caros-cockpit-numeral" fill={t.textSecondary}>{`Ort. ${consText}`}</text>
       )}
     </g>
   );
 });
 
-/** Menzil + yakıt (sol alt) — her zaman; bilinmiyorsa "—", çubuk boş. */
-const RangeZone = memo(function RangeZone({ range, fuelLevel, consumption, t, ids }: PaletteProps & {
-  range: number | null; fuelLevel: number | null; consumption: number | null;
+/** Motor sıcaklığı kadranı (sağ alt, kilometrenin solunda) — yalnız CANLI ölçüm; bayatsa "—" + not. */
+const CoolantDial = memo(function CoolantDial({ coolant, freshness, t, ids }: PaletteProps & {
+  coolant: number | null; freshness: CockpitState['coolantFreshness'];
 }) {
-  const fuel = fuelFill(fuelLevel);
-  const rangeText = fmtRange(range);
-  const consText = fmtConsumption(consumption);
+  const cx = 1130; const cy = 650;
+  const live = freshness === 'LIVE' ? coolant : null;
+  const cool = coolantFill(live);
+  const text = fmtCoolant(live);
+  const arc = MINI_ARC(cx, cy);
+  const tip = cool === null ? null : polar(cx, cy, MINI_R, 180 + 180 * cool);
   return (
-    <g data-cockpit-region="leftCluster">
-      <text data-cockpit-value="range" x={78} y={642} fontSize={30} fontWeight={600} className="caros-cockpit-numeral"
-        fill={rangeText === EM_DASH ? t.muted : t.textPrimary}>{rangeText}</text>
-      {/* Rakam ≈18 px (30 px tnum); "—" daha geniş — birim metni üstüne binmesin. */}
-      <text x={78 + (rangeText === EM_DASH ? 34 : rangeText.length * 18) + 10} y={642} fontSize={18} fill={t.textSecondary}>km menzil</text>
-      {fuel !== null && (
-        <text data-cockpit-value="fuel" x={358} y={642} textAnchor="end" fontSize={17} fontWeight={600}
-          className="caros-cockpit-numeral" fill={t.textSecondary}>{`%${Math.round(fuel * 100)}`}</text>
+    <g data-cockpit-coolant="">
+      <path d={arc} fill="none" stroke={t.track} strokeWidth={8} strokeLinecap="round" />
+      <path d={arcPath(cx, cy, MINI_R, 180 + 180 * 0.85, 180 * 0.15)} fill="none" stroke={t.warningRed}
+        strokeWidth={8} strokeLinecap="round" opacity={0.55} />
+      {cool !== null && (
+        <path data-cockpit-coolant-fill={Math.round(cool * 100)} d={arc} pathLength={100} fill="none"
+          stroke={`url(#${ids.ring})`} strokeWidth={8} strokeLinecap="round"
+          strokeDasharray={`${cool * 100} 100`} opacity={cool > 0 ? 1 : 0} />
       )}
-      <rect x={78} y={656} width={280} height={6} rx={3} fill={t.track} />
-      {fuel !== null && (
-        <rect data-cockpit-fuel-fill="" x={78} y={656} width={280 * fuel} height={6} rx={3}
-          fill={fuel < 0.15 ? t.warningRed : `url(#${ids.ring})`} />
-      )}
-      <text x={78} y={684} fontSize={14} fill={t.muted}>E</text>
-      <text x={358} y={684} textAnchor="end" fontSize={14} fill={t.muted}>F</text>
-      {consumption !== null && consText !== EM_DASH && (
-        <text data-cockpit-value="consumption" x={218} y={684} textAnchor="middle" fontSize={14}
-          className="caros-cockpit-numeral" fill={t.textSecondary}>{`Ort. ${consText}`}</text>
-      )}
+      {tip && <circle cx={tip.x} cy={tip.y} r={5} fill={t.textPrimary} />}
+      <text x={cx - MINI_R} y={cy + 24} textAnchor="middle" fontSize={14} fill={t.muted}>C</text>
+      <text x={cx + MINI_R} y={cy + 24} textAnchor="middle" fontSize={14} fill={t.muted}>H</text>
+      <text data-cockpit-value="coolant" x={cx} y={cy - 8} textAnchor="middle" fontSize={26} fontWeight={600}
+        className="caros-cockpit-numeral" fill={text === EM_DASH ? t.muted : t.textPrimary}>{text}</text>
+      <text x={cx} y={cy + 14} textAnchor="middle" fontSize={14} fill={t.textSecondary}>
+        {freshness === 'STALE' ? 'Veri güncel değil' : 'Motor'}</text>
     </g>
   );
 });
@@ -247,10 +272,10 @@ const OdoZone = memo(function OdoZone({ odometer, driveMode, t }: Omit<PalettePr
   return (
     <g data-cockpit-region="assistCard">
       {driveMode && (
-        <text data-cockpit-value="driveMode" x={1202} y={606} textAnchor="end" fontSize={16} fontWeight={700}
+        <text data-cockpit-value="driveMode" x={1216} y={96} textAnchor="end" fontSize={16} fontWeight={700}
           letterSpacing={2} fill={t.accentHigh}>{driveMode}</text>
       )}
-      <text data-cockpit-value="odometer" x={1202} y={646} textAnchor="end" fontSize={26} fontWeight={600}
+      <text data-cockpit-value="odometer" x={1216} y={560} textAnchor="end" fontSize={20} fontWeight={600}
         className="caros-cockpit-numeral" fill={odoText === EM_DASH ? t.muted : t.textPrimary}>
         {odoText === EM_DASH ? `${EM_DASH} km` : odoText}</text>
     </g>
@@ -460,8 +485,8 @@ export const DigitalCockpitScreen = memo(function DigitalCockpitScreen({
         <DecorativeRoad ids={ids} />
         <SpeedZone speed={state.speedKmh} limit={state.speedLimitKmh} definitive={state.speedLimitDefinitive}
           over={state.speedOverLimit === true} curve={state.curve ?? null} t={t} ids={ids} />
-        <EngineZone rpm={state.rpm} redline={state.rpmRedline} gear={state.gear} coolant={state.coolantTempC}
-          freshness={state.coolantFreshness} t={t} ids={ids} />
+        <EngineZone rpm={state.rpm} redline={state.rpmRedline} gear={state.gear} t={t} ids={ids} />
+        <CoolantDial coolant={state.coolantTempC} freshness={state.coolantFreshness} t={t} ids={ids} />
         {state.maneuver !== null ? <ManeuverZone {...state.maneuver} t={t} /> : <NoRouteCard t={t} />}
         <RangeZone range={state.rangeKm} fuelLevel={state.fuelLevelPct} consumption={state.avgConsumptionL100} t={t} ids={ids} />
         <OdoZone odometer={state.odometerKm} driveMode={state.driveMode} t={t} />

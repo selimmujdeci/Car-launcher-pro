@@ -283,8 +283,9 @@ describe('ekran — ölçüm yokken hiçbir sayı UYDURMAZ', () => {
   it('sıfır yakıt/sıcaklık sıfır doluluk taşır; unknown doluluk ve RPM işaretçisi çizmez', () => {
     const zero = render(<DigitalCockpitScreen state={{ ...COCKPIT_REFERENCE_STATE, fuelLevelPct: 0, coolantTempC: 0, rpm: 0 }} mode="day" clock={COCKPIT_REFERENCE_CLOCK} />).container;
     expect(zero.querySelector('[data-cockpit-value="fuel"]')?.textContent).toBe('%0');
-    expect(zero.querySelector('[data-cockpit-fuel-fill]')?.getAttribute('width')).toBe('0');
-    expect(zero.querySelector('[data-cockpit-coolant-fill]')?.getAttribute('width')).toBe('0');
+    // Mini kadran yayı: doluluk yüzdesi özniteliktedir; 0 ölçümü "0", bilinmeyen hiç çizilmez.
+    expect(zero.querySelector('[data-cockpit-fuel-fill]')?.getAttribute('data-cockpit-fuel-fill')).toBe('0');
+    expect(zero.querySelector('[data-cockpit-coolant-fill]')?.getAttribute('data-cockpit-coolant-fill')).toBe('0');
     expect(zero.querySelector('[data-cockpit-rpm-marker]')).not.toBeNull();
     const unknown = render(<DigitalCockpitScreen state={EMPTY_COCKPIT_STATE} mode="day" clock={COCKPIT_REFERENCE_CLOCK} />).container;
     expect(unknown.querySelector('[data-cockpit-fuel-fill], [data-cockpit-coolant-fill], [data-cockpit-rpm-marker]')).toBeNull();
