@@ -37,7 +37,7 @@ vi.mock('../utils/safeStorage', () => ({
 vi.mock('../platform/crashLogger', () => ({ logError: vi.fn() }));
 
 import {
-  maybeStartAutoDidDiscovery, getAutoDiscoveredDids, _resetAutoDidForTest,
+  maybeStartAutoDidDiscovery, getAutoDiscoveredDids, _resetAutoDidForTest, setAutoDidPreemption,
 } from '../platform/obd/autoDidDiscovery';
 
 /** VIN F190 → hex ('WVW…' değil, basit ASCII hex). */
@@ -193,5 +193,47 @@ describe('autoDidDiscovery — VIN yoklama bütçesi (hat boğulmasın)', () => 
 
     await maybeStartAutoDidDiscovery();
     expect(_startDiscovery).toHaveBeenCalledOnce();
+  });
+});
+
+describe('autoDidDiscovery — tek aktif tarama otoritesi (didLearning kapısı)', () => {
+  function arrangeScannable(): void {
+    _readObdDid.mockResolvedValue({ supported: true, data: vinHex('VF1CDACIA0000009') });
+    _discoverEcus.mockResolvedValue({ ecus: [{ txHeader: '7E0', rxHeader: '7E8' }] });
+    _startDiscovery.mockResolvedValue({
+      results: [], summary: { scanned: 256, positive: 0, negative: 256, stopReason: 'completed' },
+    });
+  }
+
+  it('didLearning AKTİFKEN hat hiç kullanılmaz (ECU keşfi/VIN/tarama yok)', async () => {
+    arrangeScannable();
+    setAutoDidPreemption(() => true);
+    await maybeStartAutoDidDiscovery();
+    expect(_discoverEcus).not.toHaveBeenCalled();
+    expect(_readObdDid).not.toHaveBeenCalled();
+    expect(_startDiscovery).not.toHaveBeenCalled();
+  });
+
+  it('kapı fırlatırsa fail-closed: tarama başlamaz', async () => {
+    arrangeScannable();
+    setAutoDidPreemption(() => { throw new Error('x'); });
+    await maybeStartAutoDidDiscovery();
+    expect(_discoverEcus).not.toHaveBeenCalled();
+  });
+
+  it('didLearning KAPALIYSA (kapı false) eski tarayıcı çalışır — regresyon yok', async () => {
+    arrangeScannable();
+    setAutoDidPreemption(() => false);
+    await maybeStartAutoDidDiscovery();
+    expect(_startDiscovery).toHaveBeenCalledTimes(1);
+  });
+
+  it('kapı sökülünce (null) tarama yeniden mümkün', async () => {
+    arrangeScannable();
+    setAutoDidPreemption(() => true);
+    await maybeStartAutoDidDiscovery();
+    setAutoDidPreemption(null);
+    await maybeStartAutoDidDiscovery();
+    expect(_startDiscovery).toHaveBeenCalledTimes(1);
   });
 });
