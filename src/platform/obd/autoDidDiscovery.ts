@@ -77,6 +77,22 @@ let _watcherUnsub: (() => void) | null = null;
 let _vinProbeAttempts = 0;
 let _vinProbeBlockedUntil = 0;
 
+/* ── TEK AKTİF TARAMA OTORİTESİ (2026-09-27) ──────────────────────────────
+ * Aktif DID taramasının sahibi artık didLearning motorudur (discoveryLive).
+ * Bu eski kör tarayıcı (2200-22FF) onunla AYNI ELM hattını eşzamanlı kullanırsa
+ * çekirdek poll boğulur. Kapı DIŞARIDAN verilir (discoveryLive bu modülü zaten
+ * ithal ediyor → ters import döngü olurdu); `true` = yeni motor aktif, tarama yok. */
+let _preemptedBy: (() => boolean) | null = null;
+
+/** Aktif tarama otoritesi (didLearning) kendini kaydeder; `null` kaydı söker. */
+export function setAutoDidPreemption(check: (() => boolean) | null): void {
+  _preemptedBy = check;
+}
+
+function isPreempted(): boolean {
+  try { return _preemptedBy?.() === true; } catch { return true; } // belirsiz → hattı meşgul etme
+}
+
 /** FNV-1a — VIN → kısa cache anahtarı (ham VIN ASLA saklanmaz). */
 function hashVin(vin: string): string {
   let h = 0x811c9dc5;
@@ -160,7 +176,7 @@ export function getAutoDiscoveredDids(): AutoDidRecord[] {
  * Yalnız STABİL sağlıklıyken; taramada sağlık bozulursa abort (core poll boğulmaz).
  */
 export async function maybeStartAutoDidDiscovery(): Promise<void> {
-  if (_running || _sessionDone || !isHealthy()) return;
+  if (_running || _sessionDone || !isHealthy() || isPreempted()) return;
   // VIN yoklama bütçesi — bkz. VIN_PROBE_MAX_ATTEMPTS notu (hat boğulmasın).
   if (_vinProbeAttempts >= VIN_PROBE_MAX_ATTEMPTS) return;
   if (Date.now() < _vinProbeBlockedUntil) return;
@@ -201,7 +217,7 @@ export async function maybeStartAutoDidDiscovery(): Promise<void> {
     const all: AutoDidRecord[] = [];
     try {
       for (const ecu of ecus) {
-        if (ctrl.signal.aborted || !isHealthy()) break;
+        if (ctrl.signal.aborted || !isHealthy() || isPreempted()) break;
         const outcome = await startDiscovery({
           tx: ecu.tx, rx: ecu.rx, from: DID_FROM, to: DID_TO, service: '22', signal: ctrl.signal,
         });
@@ -258,5 +274,6 @@ export function _resetAutoDidForTest(): void {
   _lastResult = [];
   _vinProbeAttempts = 0;
   _vinProbeBlockedUntil = 0;
+  _preemptedBy = null;
   if (_watcherUnsub) { _watcherUnsub(); _watcherUnsub = null; }
 }

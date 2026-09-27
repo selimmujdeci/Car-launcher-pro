@@ -278,8 +278,17 @@ const useRouteStore = create<RouteState>(() => INITIAL);
 export const REROUTE_THRESHOLD_M        = 55; // metre — rota sapma reroute eşiği (STEP_ADVANCE+25m güvenli bölge)
 export const STEP_ADVANCE_THRESHOLD_M   = 30;  // metre — advance to next turn instruction
 export const MANEUVER_STACK_THRESHOLD_M = 50;  // metre — back-to-back turns shown together
-const HEADERS_TIMEOUT_MS   = 2_000; // Fail-Fast: headers alınamazsa offline katmana geç
+/* HEADERS zaman aşımı 2 → 4 sn (2026-09-27): 2 sn, yavaş mobil veride sağlıklı
+ * sunucuyu da düşürüyordu — soğuk bağlantı DNS+TCP+TLS (3-4 RTT; zayıf 3G/LTE'de
+ * RTT 300-600 ms) + OSRM'in `alternatives=3` hesap süresi birlikte 2 sn'yi aşar.
+ * Toplam bütçe korunur: ilk ıskalamadan sonra zincirdeki sonraki sunucular eski
+ * 2 sn fail-fast ile denenir (ağ zaten yavaş/ölü — ölü ağda offline'a düşüş
+ * yalnız +2 sn uzar); TomTom toplamı ayrı sabitle 7 sn'de kalır. */
+const HEADERS_TIMEOUT_MS   = 4_000; // İlk sunucu: headers alınamazsa sonraki sunucuya geç
+const HEADERS_TIMEOUT_AFTER_MISS_MS = 2_000; // Aynı zincirde ıskalamadan sonra Fail-Fast
 const BODY_TIMEOUT_MS      = 5_000; // Otomotiv standardı: maksimum 5s route indirme bekleme
+/** TomTom tek istek toplam süresi — önceki HEADERS+BODY (2+5) bütçesi AYNEN korunur. */
+const TOMTOM_TIMEOUT_MS    = 7_000;
 
 let _rerouteCtx:       { toLat: number; toLon: number } | null = null;
 let _lastRerouteMs   = 0;
@@ -367,7 +376,8 @@ export function registerReroutingCallback(cb: (val: boolean) => void): () => voi
  * Kullanılacak OSRM sunucuları — öncelik sırasıyla.
  *
  * Offline katman mimarisi:
- *   Katman 0: localhost:5000 — native OSRM daemon (CarLauncherPlugin.startOsrmDaemon)
+ *   Katman 0: localhost:5000 — native OSRM daemon — PLANLI, native tarafı YOK
+ *             (`startOsrmDaemon` yazılmadı); `tryLocalDaemon` ağa çıkmadan null döner
  *   Katman 1: VITE_ROUTING_SERVER env (özel sunucu)
  *   Katman 2: routing.openstreetmap.de, osrm.route.at (uzak OSRM)
  *   Katman 3: WebWorker A* — /maps/routing-graph.bin (tam offline)
@@ -425,7 +435,7 @@ function _maybeCheckBetterRoute(now: number, fix: MapMatchFix, geometry: [number
   const from = { lat: fix.snappedLat, lon: fix.snappedLon };
   const to = { ..._rerouteCtx };
   const remaining: [number, number][] = [[from.lon, from.lat], ...geometry.slice(fix.segIdx + 1)];
-  void fetchTomTomBetterRoute(key, remaining, _currentHeadingDeg(), HEADERS_TIMEOUT_MS + BODY_TIMEOUT_MS)
+  void fetchTomTomBetterRoute(key, remaining, _currentHeadingDeg(), TOMTOM_TIMEOUT_MS)
     .then(async ({ referenceS, bestAlternativeS }) => {
       if (bestAlternativeS === null) return;
       const saving = betterRouteSaving(referenceS, bestAlternativeS);
@@ -457,7 +467,7 @@ async function _tryTomTom(
   let routes: TomTomRoute[];
   try {
     routes = await fetchTomTomRoutes(key, fromLat, fromLon, toLat, toLon, headingDeg,
-      HEADERS_TIMEOUT_MS + BODY_TIMEOUT_MS);
+      TOMTOM_TIMEOUT_MS);
   } catch (e) {
     _tomtomFailures++;
     _tomtomSkipUntil = Date.now()
@@ -668,6 +678,7 @@ async function _tryServer(
   fromLon: number, fromLat: number,
   toLon: number,   toLat: number,
   headingDeg?: number | null,
+  headersTimeoutMs: number = HEADERS_TIMEOUT_MS,
 ): Promise<{ steps: RouteStep[]; altSteps: RouteStep[][]; geometry: [number, number][]; alternatives: [number, number][][]; altDistances: number[]; altDurations: number[]; altHasToll: boolean[]; distance: number; duration: number; hasToll: boolean;
   /** Ana + alternatif rotaların OSRM segment süreleri (sn). `null` = sağlayıcı göndermedi. */
   annotationDurations: (number[] | null)[];
@@ -690,10 +701,10 @@ async function _tryServer(
   const ctrl = new AbortController();
 
   // ── Phase 1: Headers (Fail-Fast) ─────────────────────────────────────────
-  // HEADERS_TIMEOUT_MS içinde sunucu yanıt vermezse → HEADERS_TIMEOUT hatası.
-  // fetchRoute bu mesajı yakalayarak kalan tüm sunucuları keser ve offline'a geçer.
+  // headersTimeoutMs içinde sunucu yanıt vermezse → HEADERS_TIMEOUT hatası.
+  // fetchRoute bunu yakalar, sonraki sunucuyu kısaltılmış süreyle dener.
   let headersTimer: ReturnType<typeof setTimeout> | null =
-    setTimeout(() => ctrl.abort(), HEADERS_TIMEOUT_MS);
+    setTimeout(() => ctrl.abort(), headersTimeoutMs);
 
   let _res: Response;
   try {
@@ -1271,8 +1282,8 @@ export async function fetchRoute(
 
   // ── Katman 1-2: Uzak OSRM (Fail-Fast) ──────────────────────────────────────
   // Kanonik bağlantı kapısı → uzak sunucu denemesi yapmadan offline katmana geç.
-  // İlk OSRM isteği HEADERS_TIMEOUT_MS içinde yanıt vermezse → tüm sunucular kesilir,
-  // anında Katman 3'e (A* Worker) düşülür. Kullanıcı "Hesaplanıyor..." ekranında beklemez.
+  // İlk sunucu HEADERS_TIMEOUT_MS (4 sn) içinde yanıt vermezse sonrakiler
+  // HEADERS_TIMEOUT_AFTER_MISS_MS (2 sn) ile denenir; hepsi düşerse Katman 3'e (A* Worker).
   //
   // F7-B: rota İSTEĞİ küçük ve tekrar denenebilir → `LIGHTWEIGHT_INTERNET`.
   // `UNKNOWN`/`DEGRADED`da AYNEN denenir (davranış korunur); `CAPTIVE` ve
@@ -1285,6 +1296,7 @@ export async function fetchRoute(
     console.warn(`[ROUTE] Fail-Fast: ${getConnectivitySnapshot().state} → offline katmana geç`);
   } else {
     const servers = getRoutingServers();
+    let headersMs = HEADERS_TIMEOUT_MS;
     for (const server of servers) {
       /* Bayat istek zinciri SÜRDÜRMEZ: yerine yenisi başladıysa sonraki
          sunucuları denemek yalnız süre yakar ve "istek uçuşta" bayrağını
@@ -1299,7 +1311,7 @@ export async function fetchRoute(
       try {
         const result = server === TOMTOM_ROUTING_SERVER
           ? await _tryTomTom(fromLon, fromLat, toLon, toLat, headingDeg)
-          : await _tryServer(server, fromLon, fromLat, toLon, toLat, headingDeg);
+          : await _tryServer(server, fromLon, fromLat, toLon, toLat, headingDeg, headersMs);
         recordResponse(reqId, performance.now(), server);
 
         // ── ROTA DOĞRULUK KAPISI ────────────────────────────────────────────
@@ -1403,7 +1415,8 @@ export async function fetchRoute(
         _note('REMOTE_OSRM', classifyRouteError(_errMsg), server, _t0Server);
         if (_errMsg === 'HEADERS_TIMEOUT') {
           // Tek sunucu yavaş → diğerlerini de dene, hepsi timeout'a girerse offline'a geç
-          console.warn(`[ROUTE] Fail-Fast: ${server} ${HEADERS_TIMEOUT_MS}ms içinde yanıt vermedi → sonraki sunucuya geç`);
+          console.warn(`[ROUTE] Fail-Fast: ${server} ${headersMs}ms içinde yanıt vermedi → sonraki sunucuya geç`);
+          headersMs = HEADERS_TIMEOUT_AFTER_MISS_MS;
           continue;
         }
         console.warn(`[ROUTE] server ${server} failed:`, _errMsg);

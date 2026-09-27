@@ -2,7 +2,7 @@
  * Offline Routing Service — WebWorker tabanlı A* yönlendirme motoru.
  *
  * Mimari (3 katman, öncelik sırasıyla):
- *   1. localhost:5000    — Android native OSRM daemon (CarLauncherPlugin.startOsrmDaemon)
+ *   1. localhost:5000    — Android native OSRM daemon (PLANLI — native tarafı yok, atlanır)
  *   2. Uzak OSRM        — routing.openstreetmap.de (mevcut routingService)
  *   3. Bu servis        — WebWorker A* (ağ olmadan son çare)
  *
@@ -101,10 +101,15 @@ function _toTR(type: string, mod: string, name: string, exit?: number | null): s
 /* ── Local daemon (native OSRM) ──────────────────────────────── */
 
 /**
- * CarLauncherPlugin.startOsrmDaemon() çağrısından sonra
- * http://localhost:5000 adresinde OSRM HTTP API açılır.
+ * PLANLI KATMAN — NATIVE TARAFI YOK (2026-09-27 doğrulandı): repoda
+ * `startOsrmDaemon` ya da 5000 portunu dinleyen bir sunucu yazılmadı
+ * (Android kaynağında yalnız DIAG 8899 ve PhoneLink rastgele port var).
+ * Bu yüzden yoklama bile yapılmaz: oturumun İLK rotası (en kritik an) artık
+ * boş bir localhost isteğini (≤ LOCAL_PROBE_TIMEOUT_MS) beklemez. Native
+ * daemon yazıldığında `LOCAL_DAEMON_NATIVE_SUPPORT` açılır; alttaki tek-yoklama
+ * mantığı aynen devreye girer.
  *
- * Native tarafta yapılacaklar:
+ * Native tarafta yapılacaklar (plan):
  *   - Android Service olarak çalıştır (foreground service)
  *   - /data/data/com.cockpitos.pro/files/osrm/ dizininden .osrm binary oku
  *   - NanoHTTPD ile 5000 portunda OSRM HTTP API sun
@@ -112,6 +117,8 @@ function _toTR(type: string, mod: string, name: string, exit?: number | null): s
  * Bu fonksiyon, daemon ayakta ise rota döner; değilse null döner.
  */
 const LOCAL_DAEMON_URL        = 'http://localhost:5000/route/v1/driving';
+/** Native OSRM daemon yazılana kadar `false` — yukarıdaki nota bakın. */
+export const LOCAL_DAEMON_NATIVE_SUPPORT: boolean = false;
 /**
  * ── ÖLÜ KATMAN KAPATILDI (denetim §4.2, cihazda ölçüldü) ────────────────────
  * Eski değer 3 000 ms idi ve bu istek **her rotada** atılıyordu. Android'de
@@ -127,6 +134,7 @@ export async function tryLocalDaemon(
   toLon:   number, toLat:   number,
 ): Promise<OfflineRouteResult | null> {
   if (!Capacitor.isNativePlatform()) return null;
+  if (!LOCAL_DAEMON_NATIVE_SUPPORT) return null; // native daemon yok → ağa çıkılmaz
 
   // Hazırlığı bilinmiyorsa TEK sınırlı yoklama; bilinip yoksa hiç deneme.
   const readiness = getProviderReadinessSnapshot().localState;

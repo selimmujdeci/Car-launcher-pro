@@ -13,7 +13,7 @@
 import { Capacitor } from '@capacitor/core';
 import { CarLauncher } from '../../nativePlugin';
 import { getOBDDataSnapshot, getHandshakeDiagnostics, onOBDData } from '../../obdService';
-import { getAutoDiscoveredDids } from '../autoDidDiscovery';
+import { getAutoDiscoveredDids, setAutoDidPreemption } from '../autoDidDiscovery';
 import { MANUFACTURER_DID_PROFILES, setLearnedDidOverlay } from '../profiles';
 import { DidLearningEngine } from '../didLearning/didLearningEngine';
 import type { ReferenceKey } from '../didLearning/referenceCatalog';
@@ -168,6 +168,8 @@ let _learnWatcherUnsub: (() => void) | null = null;
  */
 export function startDidLearningWatcher(): () => void {
   if (_learnWatcherUnsub) return _learnWatcherUnsub;
+  // Tek aktif tarama otoritesi: öğrenme AÇIKKEN eski 2200-22FF tarayıcısı hattı kullanmaz.
+  setAutoDidPreemption(isDidLearningEnabled);
   let healthySince = 0;
   let running = false;
   const unsub = onOBDData(() => {
@@ -182,6 +184,8 @@ export function startDidLearningWatcher(): () => void {
       .catch((e: unknown) => logError('OBD:DidLearning', e))
       .finally(() => { running = false; healthySince = 0; });
   });
-  _learnWatcherUnsub = () => { unsub(); _learnEngine?.stop(); _learnWatcherUnsub = null; };
+  _learnWatcherUnsub = () => {
+    unsub(); _learnEngine?.stop(); setAutoDidPreemption(null); _learnWatcherUnsub = null;
+  };
   return _learnWatcherUnsub;
 }
