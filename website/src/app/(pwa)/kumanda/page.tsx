@@ -636,8 +636,8 @@ function KumandaApp() {
         >
           {/* M3 büyük başlık: Aracım'da araç adı ana ekranın kendisidir;
               diğer yüzeylerde başlık burada durur ve kaydırınca çubuğa küçülür. */}
-          {/* Araç Hafızası kendi başlığını (aynı adla) taşır → çift başlık olmaz. */}
-          {activeTab !== 'aracim' && activeTab !== 'hafiza' && (
+          {/* Araç Hafızası ve Tema Stüdyo kendi başlığını taşır → çift başlık olmaz. */}
+          {activeTab !== 'aracim' && activeTab !== 'hafiza' && activeTab !== 'tema' && (
             <h1 className="md-headline-m md-on-surface px-1 pt-2 pb-4">{TAB_TITLES[activeTab]}</h1>
           )}
           {/* Kart içinde kart YOK: yüzeyler doğrudan zemin üstünde durur. */}
