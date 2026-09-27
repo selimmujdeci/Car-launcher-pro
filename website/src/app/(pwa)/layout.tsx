@@ -1,4 +1,15 @@
 import type { Metadata } from 'next';
+import { Roboto_Flex } from 'next/font/google';
+
+/* Material 3 tip ölçeğinin yüzü (2026-09-27). Google Sans Flex, Next 14'ün
+   font listesinde yok; Roboto Flex aynı ailenin (Android sistem yazısı)
+   SIL OFL 1.1 lisanslı değişken sürümüdür — ticari kullanım serbest. Yalnız
+   tüketici route grubuna yüklenir; filo/pazarlama yazıları DEĞİŞMEZ. */
+const robotoFlex = Roboto_Flex({
+  subsets: ['latin', 'latin-ext'],
+  display: 'swap',
+  variable: '--font-pwa',
+});
 
 /**
  * "Arabam Cebimde" tüketici ürününün KENDİ kimliği — ve TEK kurulum yüzeyi.
@@ -41,5 +52,5 @@ export const metadata: Metadata = {
 
 // Minimal layout for PWA full-screen pages — no Navbar or Footer
 export default function PwaLayout({ children }: { children: React.ReactNode }) {
-  return <>{children}</>;
+  return <div className={robotoFlex.variable}>{children}</div>;
 }

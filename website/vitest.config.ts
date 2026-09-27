@@ -29,6 +29,8 @@ export default defineConfig({
       // React'in TEK kopyası website'inki olsun (kök 19 ≠ website 18).
       react:       fileURLToPath(new URL('./node_modules/react', import.meta.url)),
       'react-dom': fileURLToPath(new URL('./node_modules/react-dom', import.meta.url)),
+      // `next/font` yalnız Next derleyicisinde çalışır → testte şekil stub'ı.
+      'next/font/google': fileURLToPath(new URL('./src/__tests__/stubs/nextFontGoogle.ts', import.meta.url)),
     },
   },
   test: {

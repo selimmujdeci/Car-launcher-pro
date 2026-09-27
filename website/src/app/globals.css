@@ -81,44 +81,139 @@
     color-scheme: light;
   }
 
-  /* ── PWA tema katmanı (gece varsayılan / gündüz override) ──────────────────
-     Yalnız NÖTRLER değişkenlenir; vurgu/durum renkleri (mavi/kırmızı/amber/
-     yeşil) iki temada da aynı kalır. Bileşenler var(--pwa-*) kullanır. */
+  /* ── PWA tema katmanı — MATERIAL 3 RENK ROLLERİ (2026-09-27) ────────────
+     Tek kaynak: `--md-*` rolleri, Material Color Utilities `SchemeTonalSpot`
+     ile tohum #2f6fdf'ten üretildi (açık + koyu). Başarı/uyarı rolleri aynı
+     araçla tohuma harmonize edilmiş ton paletinden (40/100/90/10 · 80/20/30/90).
+     Eski `--pwa-*` adları KORUNUR ama artık M3 rollerine bağlıdır → tüm
+     paneller tek yerden M3 yüzeylerine geçer; ikinci palet YOKTUR.
+     Yükseklik gölgeyle değil tonal yüzeyle (surface-container-*) anlatılır. */
   :root, [data-pwa-theme='dark'] {
-    --pwa-bg:          #060d1a;
-    --pwa-card-a:      #0c1a2e;   /* kart gradient üst */
-    --pwa-card-b:      #070f1d;   /* kart gradient alt */
-    --pwa-panel:       #0b1626;   /* opak panel/sticky */
-    --pwa-surface:     rgba(255,255,255,0.04);
-    --pwa-surface-2:   rgba(255,255,255,0.08);
-    --pwa-surface-3:   rgba(255,255,255,0.02);
-    --pwa-border:      rgba(255,255,255,0.08);
-    --pwa-border-soft: rgba(255,255,255,0.06);
-    --pwa-text:        #ffffff;
-    --pwa-text-2:      rgba(255,255,255,0.60);
-    --pwa-text-3:      rgba(255,255,255,0.30);
-    --pwa-nav-bg:      rgba(6,13,26,0.90);
-    --pwa-glow:        rgba(59,130,246,0.06);
-    --pwa-grid:        rgba(255,255,255,0.022);
+    --md-primary: #afc6ff;
+    --md-on-primary: #142f60;
+    --md-primary-container: #2d4578;
+    --md-on-primary-container: #d9e2ff;
+    --md-secondary: #bfc6dc;
+    --md-on-secondary: #293042;
+    --md-secondary-container: #404659;
+    --md-on-secondary-container: #dbe2f9;
+    --md-tertiary: #dfbbde;
+    --md-tertiary-container: #593e5a;
+    --md-on-tertiary-container: #fdd7fb;
+    --md-error: #ffb4ab;
+    --md-on-error: #690005;
+    --md-error-container: #93000a;
+    --md-on-error-container: #ffdad6;
+    --md-success: #67dbb0;
+    --md-on-success: #003828;
+    --md-success-container: #00513b;
+    --md-on-success-container: #85f8cb;
+    --md-warning: #ffb782;
+    --md-on-warning: #4f2500;
+    --md-warning-container: #703800;
+    --md-on-warning-container: #ffdcc5;
+    --md-surface: #121318;
+    --md-on-surface: #e2e2e9;
+    --md-on-surface-variant: #c5c6d0;
+    --md-surface-container-lowest: #0c0e13;
+    --md-surface-container-low: #1a1b20;
+    --md-surface-container: #1e1f25;
+    --md-surface-container-high: #282a2f;
+    --md-surface-container-highest: #33353a;
+    --md-outline: #8f9099;
+    --md-outline-variant: #44464f;
+    --md-inverse-surface: #e2e2e9;
+    --md-inverse-on-surface: #2f3036;
+    --md-inverse-primary: #465d91;
+    --md-scrim: #000000;
+
+    --pwa-bg:          var(--md-surface);
+    --pwa-card-a:      var(--md-surface);
+    --pwa-card-b:      var(--md-surface);
+    --pwa-panel:       var(--md-surface-container);
+    --pwa-surface:     var(--md-surface-container-high);
+    --pwa-surface-2:   var(--md-surface-container-highest);
+    --pwa-surface-3:   var(--md-surface-container-low);
+    --pwa-border:      var(--md-outline-variant);
+    --pwa-border-soft: transparent;
+    --pwa-text:        var(--md-on-surface);
+    --pwa-text-2:      var(--md-on-surface-variant);
+    --pwa-text-3:      var(--md-outline);          /* AA: ~5.6:1 surface üstünde */
+    --pwa-nav-bg:      var(--md-surface-container);
+    --pwa-glow:        transparent;
+    --pwa-grid:        transparent;
     color-scheme: dark;
   }
   [data-pwa-theme='light'] {
-    --pwa-bg:          #d7dee9;   /* daha gri zemin → beyaz kartlar ayrışsın */
-    --pwa-card-a:      #ffffff;
-    --pwa-card-b:      #eef2f8;
-    --pwa-panel:       #f4f7fb;
-    --pwa-surface:     rgba(15,27,45,0.065);
-    --pwa-surface-2:   rgba(15,27,45,0.14);
-    --pwa-surface-3:   rgba(15,27,45,0.045);
-    --pwa-border:      rgba(15,27,45,0.17);
-    --pwa-border-soft: rgba(15,27,45,0.11);
-    --pwa-text:        #0b1622;   /* neredeyse siyah — okunur */
-    --pwa-text-2:      rgba(11,22,34,0.76);
-    --pwa-text-3:      rgba(11,22,34,0.58);
-    --pwa-nav-bg:      rgba(244,247,251,0.94);
-    --pwa-glow:        rgba(37,99,235,0.10);
-    --pwa-grid:        rgba(15,27,45,0.045);
+    --md-primary: #465d91;
+    --md-on-primary: #ffffff;
+    --md-primary-container: #d9e2ff;
+    --md-on-primary-container: #2d4578;
+    --md-secondary: #575e71;
+    --md-on-secondary: #ffffff;
+    --md-secondary-container: #dbe2f9;
+    --md-on-secondary-container: #404659;
+    --md-tertiary: #725572;
+    --md-tertiary-container: #fdd7fb;
+    --md-on-tertiary-container: #593e5a;
+    --md-error: #ba1a1a;
+    --md-on-error: #ffffff;
+    --md-error-container: #ffdad6;
+    --md-on-error-container: #93000a;
+    --md-success: #006c50;
+    --md-on-success: #ffffff;
+    --md-success-container: #85f8cb;
+    --md-on-success-container: #002116;
+    --md-warning: #934b00;
+    --md-on-warning: #ffffff;
+    --md-warning-container: #ffdcc5;
+    --md-on-warning-container: #301400;
+    --md-surface: #faf8ff;
+    --md-on-surface: #1a1b20;
+    --md-on-surface-variant: #44464f;
+    --md-surface-container-lowest: #ffffff;
+    --md-surface-container-low: #f4f3fa;
+    --md-surface-container: #eeedf4;
+    --md-surface-container-high: #e8e7ef;
+    --md-surface-container-highest: #e2e2e9;
+    --md-outline: #757780;
+    --md-outline-variant: #c5c6d0;
+    --md-inverse-surface: #2f3036;
+    --md-inverse-on-surface: #f1f0f7;
+    --md-inverse-primary: #afc6ff;
+    --md-scrim: #000000;
+
+    --pwa-bg:          var(--md-surface);
+    --pwa-card-a:      var(--md-surface);
+    --pwa-card-b:      var(--md-surface);
+    --pwa-panel:       var(--md-surface-container);
+    --pwa-surface:     var(--md-surface-container-high);
+    --pwa-surface-2:   var(--md-surface-container-highest);
+    --pwa-surface-3:   var(--md-surface-container-low);
+    --pwa-border:      var(--md-outline-variant);
+    --pwa-border-soft: transparent;
+    --pwa-text:        var(--md-on-surface);
+    --pwa-text-2:      var(--md-on-surface-variant);
+    --pwa-text-3:      var(--md-outline);          /* AA: ~4.6:1 surface üstünde */
+    --pwa-nav-bg:      var(--md-surface-container);
+    --pwa-glow:        transparent;
+    --pwa-grid:        transparent;
     color-scheme: light;
+  }
+  /* M3 şekil · hareket · durum katmanı (tema bağımsız). */
+  :root {
+    --md-shape-xs: 4px;
+    --md-shape-sm: 8px;
+    --md-shape-md: 12px;
+    --md-shape-lg: 16px;
+    --md-shape-xl: 28px;
+    --md-shape-full: 9999px;
+    --md-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+    --md-ease-emphasized-decel: cubic-bezier(0.05, 0.7, 0.1, 1);
+    --md-ease-emphasized-accel: cubic-bezier(0.3, 0, 0.8, 0.15);
+    --md-dur-short: 200ms;
+    --md-dur-medium: 300ms;
+    --md-dur-long: 400ms;
   }
 
   * {
@@ -397,6 +492,77 @@
 }
 
 @layer components {
+  /* ── MATERIAL 3 · Arabam Cebimde bileşen katmanı (yalnız [data-pwa-theme]) ──
+     Tip ölçeği (M3 baseline, sp→px), tonal kartlar, durum katmanı (%8/%12),
+     gezinme çubuğu göstergesi. Renk yalnız `--md-*` rollerinden okunur. */
+  [data-pwa-theme] {
+    font-family: var(--font-pwa), 'Roboto Flex', Roboto, system-ui, sans-serif;
+    background-color: var(--md-surface);
+    color: var(--md-on-surface);
+  }
+  .md-display-s  { font-size: 36px; line-height: 44px; font-weight: 400; letter-spacing: 0; }
+  .md-headline-m { font-size: 28px; line-height: 36px; font-weight: 400; letter-spacing: 0; }
+  .md-headline-s { font-size: 24px; line-height: 32px; font-weight: 400; letter-spacing: 0; }
+  .md-title-l    { font-size: 22px; line-height: 28px; font-weight: 400; letter-spacing: 0; }
+  .md-title-m    { font-size: 16px; line-height: 24px; font-weight: 500; letter-spacing: 0.15px; }
+  .md-title-s    { font-size: 14px; line-height: 20px; font-weight: 500; letter-spacing: 0.1px; }
+  .md-body-l     { font-size: 16px; line-height: 24px; font-weight: 400; letter-spacing: 0.5px; }
+  .md-body-m     { font-size: 14px; line-height: 20px; font-weight: 400; letter-spacing: 0.25px; }
+  .md-body-s     { font-size: 12px; line-height: 16px; font-weight: 400; letter-spacing: 0.4px; }
+  .md-label-l    { font-size: 14px; line-height: 20px; font-weight: 500; letter-spacing: 0.1px; }
+  .md-label-m    { font-size: 12px; line-height: 16px; font-weight: 500; letter-spacing: 0.5px; }
+  .md-on-surface         { color: var(--md-on-surface); }
+  .md-on-surface-variant { color: var(--md-on-surface-variant); }
+  .md-primary-text       { color: var(--md-primary); }
+
+  /* Kartlar — yükseklik gölge değil TON farkıdır. */
+  .md-card-filled   { background-color: var(--md-surface-container-highest); border-radius: var(--md-shape-md); }
+  .md-card-elevated { background-color: var(--md-surface-container-low); border-radius: var(--md-shape-md); }
+  .md-card-outlined { background-color: var(--md-surface); border: 1px solid var(--md-outline-variant); border-radius: var(--md-shape-md); }
+
+  /* Durum katmanı: hover %8, basılı %12 — içerik rengiyle (currentColor). */
+  .md-state { position: relative; overflow: hidden; isolation: isolate; }
+  .md-state::after {
+    content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+    background-color: currentColor; opacity: 0;
+    transition: opacity var(--md-dur-short) var(--md-ease-standard);
+  }
+  @media (hover: hover) { .md-state:hover::after { opacity: 0.08; } }
+  .md-state:active::after { opacity: 0.12; }
+  .md-state:focus-visible { outline: 2px solid var(--md-primary); outline-offset: 2px; }
+
+  /* Düğmeler — ≥48dp dokunma alanı (40dp görsel + dolgu). */
+  .md-btn-filled, .md-btn-tonal, .md-btn-text, .md-btn-outlined {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    min-height: 40px; padding: 0 24px; border-radius: var(--md-shape-full);
+    font-size: 14px; line-height: 20px; font-weight: 500; letter-spacing: 0.1px;
+  }
+  .md-btn-filled   { background-color: var(--md-primary); color: var(--md-on-primary); }
+  .md-btn-tonal    { background-color: var(--md-secondary-container); color: var(--md-on-secondary-container); }
+  .md-btn-text     { color: var(--md-primary); padding: 0 12px; }
+  .md-btn-outlined { color: var(--md-primary); border: 1px solid var(--md-outline); }
+  .md-icon-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 48px; height: 48px; border-radius: var(--md-shape-full); color: var(--md-on-surface-variant);
+  }
+
+  /* Gezinme çubuğu — 80dp, aktif gösterge 64×32 hap. */
+  .md-nav-bar { background-color: var(--md-surface-container); }
+  .md-nav-indicator {
+    display: flex; align-items: center; justify-content: center;
+    width: 64px; height: 32px; border-radius: var(--md-shape-full);
+    transition: background-color var(--md-dur-short) var(--md-ease-standard);
+  }
+  [aria-current='page'] > .md-nav-indicator { background-color: var(--md-secondary-container); color: var(--md-on-secondary-container); }
+
+  /* Liste öğesi (Daha Fazla, ayarlar) — 56/72dp satır. */
+  .md-list-item { display: flex; align-items: center; gap: 16px; min-height: 56px; padding: 8px 16px; text-align: left; width: 100%; }
+
+  @media (prefers-reduced-motion: reduce) {
+    [data-pwa-theme] *, [data-pwa-theme] *::before, [data-pwa-theme] *::after {
+      transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important;
+    }
+  }
   /* Panel — keskin köşe, kıl payı çizgi, gölge yerine iç ışık. */
   .cn-panel {
     background-color: var(--cn-bg-panel);
