@@ -650,7 +650,10 @@ function KumandaApp() {
               sahadaki çoğu durumda YALANDI (STALE → CURRENT).
               Artık hüküm kanonik tazelik otoritesinden okunur; burada
               eşik/karar ÜRETİLMEZ. */}
-          <p className="md-body-s md-on-surface-variant truncate" data-testid="pwa-connection-label">
+          {/* Aracım'da aynı bilgi ana ekran durum çipinde yazılı → görsel tekrar
+              olmasın diye yalnız ekran okuyucuya kalır (içerik AYNI kaynaktan). */}
+          <p className={`md-body-s md-on-surface-variant truncate ${activeTab === 'aracim' ? 'sr-only' : ''}`}
+            data-testid="pwa-connection-label">
             {headerStatusLabel}
           </p>
         </div>

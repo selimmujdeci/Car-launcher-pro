@@ -9,7 +9,7 @@ import {
 import { useCommandTracker } from '@/hooks/useCommandTracker';
 import type { CmdPhase, CommandResult } from '@/hooks/useCommandTracker';
 import type { CommandType, RoutePayload } from '@/lib/commandService';
-import { BODY_CONTROL_VERIFIED } from '@/lib/commandService';
+import { BODY_CONTROL_VERIFIED, COMMAND_TTL_MINUTES } from '@/lib/commandService';
 /* F0.3 · Komut sonucunun kanıt seviyesi — tek eşleme, ikinci otorite değil. */
 import { EVIDENCE_TITLE, EVIDENCE_DETAIL } from '@/lib/commandEvidence';
 
@@ -81,14 +81,16 @@ function phaseLabel(phase: CmdPhase, defaultLabel: string, defaultSub: string) {
 /* ── Offline banner ─────────────────────────────────────────────────────────── */
 
 function OfflineBanner({ plate }: { plate: string }) {
+  /* M3 tonal uyarı kabı (error-container) — açık/koyu temada AA. Süre metni
+     kanonik `COMMAND_TTL_MINUTES`ten gelir (vaat == gerçek pencere, N-7). */
   return (
-    <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl"
-      style={{ background: 'rgba(239,68,68,0.07)', border: '1px solid rgba(239,68,68,0.2)' }}>
-      <span className="w-2 h-2 rounded-full bg-red-400 flex-shrink-0" />
+    <div className="flex items-center gap-3 px-4 py-3"
+      style={{ background: 'var(--md-error-container)', color: 'var(--md-on-error-container)', borderRadius: 'var(--md-shape-md)' }}>
+      <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: 'currentColor' }} aria-hidden="true" />
       <div className="flex-1 min-w-0">
-        <p className="text-xs font-bold text-red-300/90 leading-tight">Araç bağlantısı kesildi</p>
-        <p className="text-[10px] text-red-400/50 mt-0.5 truncate">
-          {plate} · Komutlar sıraya alınır (5dk TTL)
+        <p className="md-title-s">Araç bağlantısı kesildi</p>
+        <p className="md-body-s mt-0.5" style={{ opacity: 0.86 }}>
+          {plate} · Gönderdiğiniz komutlar {COMMAND_TTL_MINUTES} dakika sırada bekler
         </p>
       </div>
     </div>
@@ -418,28 +420,24 @@ function NavPanel({
     return (
       <button
         onClick={() => setStep('menu')}
-        className="w-full flex items-center justify-between px-4 py-3.5 rounded-2xl transition-all active:scale-[0.98]"
-        style={{
-          background: 'rgba(59,130,246,0.06)',
-          border: '1.5px solid rgba(59,130,246,0.18)',
-        }}
+        className="md-state md-card-elevated w-full flex items-center justify-between gap-4 px-4 py-4 text-left md-on-surface"
       >
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0"
-            style={{ background: 'rgba(59,130,246,0.12)', border: '1px solid rgba(59,130,246,0.25)' }}>
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <div className="flex items-center gap-4 min-w-0">
+          <div className="w-10 h-10 flex items-center justify-center flex-shrink-0"
+            style={{ borderRadius: 'var(--md-shape-full)', background: 'var(--md-primary-container)', color: 'var(--md-on-primary-container)' }}>
+            <svg width="18" height="18" viewBox="0 0 16 16" fill="none" aria-hidden="true">
               <path d="M8 1C5.24 1 3 3.24 3 6c0 3.75 5 9 5 9s5-5.25 5-9c0-2.76-2.24-5-5-5z"
-                stroke="#3b82f6" strokeWidth="1.4"/>
-              <circle cx="8" cy="6" r="1.8" stroke="#3b82f6" strokeWidth="1.4"/>
+                stroke="currentColor" strokeWidth="1.4"/>
+              <circle cx="8" cy="6" r="1.8" stroke="currentColor" strokeWidth="1.4"/>
             </svg>
           </div>
-          <div className="text-left">
-            <p className="text-xs font-bold pwa-text leading-tight">Navigasyon Gönder</p>
-            <p className="text-[10px] pwa-text-3 mt-0.5">Konum veya adres araca ilet</p>
+          <div className="min-w-0">
+            <p className="md-title-m md-on-surface">Navigasyon Gönder</p>
+            <p className="md-body-s md-on-surface-variant">Konum veya adres araca ilet</p>
           </div>
         </div>
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-          <path d="M5 3l4 4-4 4" stroke="var(--pwa-text-3)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true" className="md-on-surface-variant flex-shrink-0">
+          <path d="M9.5 6l6 6-6 6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
         </svg>
       </button>
     );

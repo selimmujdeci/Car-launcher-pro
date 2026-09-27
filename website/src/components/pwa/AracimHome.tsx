@@ -125,7 +125,7 @@ function AracimHomeBase({
   });
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-3">
       <HomeHeader home={home} />
       <HealthHero home={home} loading={loading} onOpen={onOpenHealth} />
       {home.alert && <ImportantAlert home={home} onOpen={onOpenHealth} />}
@@ -149,22 +149,51 @@ function AracimHomeBase({
   );
 }
 
+/* ── Ortak parçalar (yalnız görünüm) ───────────────────────────────────── */
+
+/** M3 ikon kabı — 40dp tonal daire; ikon anlam TAŞIMAZ, metin taşır. */
+function IconBadge({ children, tone = 'secondary' }: { children: React.ReactNode; tone?: 'secondary' | 'primary' }) {
+  return (
+    <span
+      aria-hidden="true"
+      className="w-10 h-10 flex items-center justify-center flex-shrink-0"
+      style={{
+        borderRadius: 'var(--md-shape-full)',
+        background: tone === 'primary' ? 'var(--md-primary-container)' : 'var(--md-secondary-container)',
+        color: tone === 'primary' ? 'var(--md-on-primary-container)' : 'var(--md-on-secondary-container)',
+      }}
+    >
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none">{children}</svg>
+    </span>
+  );
+}
+
+function Chevron() {
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true"
+      className="md-on-surface-variant flex-shrink-0">
+      <path d="M9.5 6l6 6-6 6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 /* ── Son yolculuk ──────────────────────────────────────────────────────── */
 
 function RecentTripCard({ home }: { home: HomeModel }) {
   const t = home.recentTrip!;
   return (
-    <section className="rounded-2xl px-4 py-3.5 flex items-center gap-3"
-      style={{ background: 'var(--pwa-surface-3)', border: '1px solid var(--pwa-border-soft)' }}>
+    <section className="md-card-elevated px-4 py-4 flex items-center gap-4" aria-label="Son yolculuk">
+      <IconBadge>
+        <path d="M6 19a2 2 0 100-4 2 2 0 000 4zM18 9a2 2 0 100-4 2 2 0 000 4z" stroke="currentColor" strokeWidth="1.6" />
+        <path d="M8 17h6.5a3.5 3.5 0 000-7h-5a3.5 3.5 0 010-7H16" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      </IconBadge>
       <span className="flex-1 min-w-0">
-        <span className="block text-[9px] font-black uppercase tracking-widest pwa-text-3">
-          Son yolculuk
-        </span>
-        <span className="block text-[13px] font-bold pwa-text mt-0.5">
+        <span className="block md-label-m md-on-surface-variant">Son yolculuk</span>
+        <span className="block md-title-m md-on-surface">
           {t.distanceLabel}{t.durationLabel ? ` · ${t.durationLabel}` : ''}
         </span>
       </span>
-      <span className="text-[11px] pwa-text-3 flex-shrink-0">{t.whenLabel}</span>
+      <span className="md-body-s md-on-surface-variant flex-shrink-0">{t.whenLabel}</span>
     </section>
   );
 }
@@ -174,18 +203,24 @@ function RecentTripCard({ home }: { home: HomeModel }) {
 function HomeHeader({ home }: { home: HomeModel }) {
   const { identity, connection } = home;
   return (
-    <header className="px-1">
-      <h1 className="text-2xl font-black leading-tight pwa-text">{identity.title}</h1>
+    <header className="px-1 pt-2 pb-2">
+      <h1 className="md-display-s md-on-surface" style={{ fontWeight: 500 }}>{identity.title}</h1>
       {identity.subtitle && (
-        <p className="text-sm pwa-text-2 mt-0.5">{identity.subtitle}</p>
+        <p className="md-title-m md-on-surface-variant mt-1">{identity.subtitle}</p>
       )}
-      {/* Bağlantı ≠ sağlık. Nokta tek başına anlam taşımaz, metinle birlikte
-          okunur (renk körlüğü: §21). */}
-      <p className="mt-2 flex items-center gap-2 text-xs pwa-text-3">
+      {/* TEK CÜMLE DURUM ÖZETİ — bağlantı ≠ sağlık. Nokta tek başına anlam
+          taşımaz, metinle birlikte okunur (renk körlüğü: §21). */}
+      <p className="mt-3 inline-flex items-center gap-2 md-label-l px-3"
+        style={{
+          minHeight: 32,
+          borderRadius: 'var(--md-shape-sm)',
+          border: '1px solid var(--md-outline-variant)',
+          color: 'var(--md-on-surface-variant)',
+        }}>
         <span
           aria-hidden="true"
           className="w-2 h-2 rounded-full flex-shrink-0"
-          style={{ background: connection.isOnline ? '#34d399' : 'rgba(255,255,255,0.25)' }}
+          style={{ background: connection.isOnline ? 'var(--md-success)' : 'var(--md-outline)' }}
         />
         {connection.isOnline
           ? `Son veri · ${connection.lastDataLabel}`
@@ -205,15 +240,10 @@ function HealthHero({
   /* LOADING ≠ UNKNOWN: veri henüz okunuyorken "kanıt yok" DENMEZ (§19). */
   if (!s) {
     return (
-      <section
-        className="rounded-3xl px-5 py-6"
-        style={{ background: 'var(--pwa-surface-3)', border: '1px solid var(--pwa-border-soft)' }}
-        aria-label="Aracınızın durumu"
-      >
-        <p className="text-[10px] font-black uppercase tracking-[0.18em] pwa-text-3">
-          Aracınızın durumu
-        </p>
-        <p className="mt-2 text-sm pwa-text-2">
+      <section className="md-card-filled px-5 py-6" style={{ borderRadius: 'var(--md-shape-xl)' }}
+        aria-label="Aracınızın durumu">
+        <p className="md-label-m md-on-surface-variant">Aracınızın durumu</p>
+        <p className="mt-2 md-body-l md-on-surface">
           {loading ? 'Araç durumu okunuyor…' : 'Araç durumu okunamadı'}
         </p>
       </section>
@@ -224,24 +254,23 @@ function HealthHero({
   return (
     <button
       onClick={onOpen}
-      className="rounded-3xl px-5 py-5 text-left w-full transition-transform active:scale-[0.99]"
-      style={{ background: tone.bg, border: `1.5px solid ${tone.border}` }}
+      className="md-state px-5 py-5 text-left w-full"
+      style={{ background: tone.bg, color: tone.onBg, borderRadius: 'var(--md-shape-xl)' }}
       aria-label={`Aracınızın durumu: ${s.headline}. Detaylar için dokunun.`}
     >
-      <div className="flex items-start gap-3.5">
+      <div className="flex items-start gap-4">
         <span
-          className="w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0 text-xl font-black"
-          style={{ background: `${tone.fg}1f`, border: `1px solid ${tone.fg}3d`, color: tone.fg }}
+          className="w-12 h-12 flex items-center justify-center flex-shrink-0 text-xl font-medium"
+          style={{ borderRadius: 'var(--md-shape-lg)', background: 'color-mix(in srgb, currentColor 12%, transparent)' }}
           aria-hidden="true"
         >
           {tone.glyph}
         </span>
         <div className="flex-1 min-w-0">
-          <h2 className="text-xl font-black leading-tight" style={{ color: tone.fg }}>
-            {s.headline}
-          </h2>
-          <p className="mt-1.5 text-[13px] leading-snug pwa-text-2">{s.explanation}</p>
-          <p className="mt-2 text-[11px] pwa-text-3">
+          <p className="md-label-m" style={{ opacity: 0.8 }}>Aracınızın durumu</p>
+          <h2 className="mt-0.5 md-title-l">{s.headline}</h2>
+          <p className="mt-1.5 md-body-m" style={{ opacity: 0.86 }}>{s.explanation}</p>
+          <p className="mt-3 md-body-s" style={{ opacity: 0.8 }}>
             {healthMeasuredAtLabel(s, Date.now())}
           </p>
         </div>
@@ -258,24 +287,21 @@ function ImportantAlert({ home, onOpen }: { home: HomeModel; onOpen: () => void 
   return (
     <button
       onClick={onOpen}
-      className="rounded-2xl px-4 py-3.5 w-full flex items-center gap-3 text-left transition-transform active:scale-[0.99]"
-      style={{ background: 'var(--pwa-surface-3)', border: `1px solid ${tone.border}` }}
+      className="md-state md-card-outlined px-4 py-3 w-full flex items-center gap-3 text-left"
+      style={{ borderColor: tone.fg, minHeight: 64 }}
     >
       {/* Durum yalnız renkle anlatılmaz; metin de taşır (§21). */}
       <span
-        className="text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-lg flex-shrink-0"
-        style={{ color: tone.fg, background: `${tone.fg}1a`, border: `1px solid ${tone.fg}33` }}
+        className="md-label-m px-2 flex-shrink-0 inline-flex items-center"
+        style={{ minHeight: 24, borderRadius: 'var(--md-shape-sm)', background: tone.bg, color: tone.onBg }}
       >
         {a.verdict === 'CRITICAL' ? 'Acil' : 'Uyarı'}
       </span>
       <span className="flex-1 min-w-0">
-        <span className="block text-[13px] font-bold pwa-text">{a.detail}</span>
-        <span className="block text-[11px] pwa-text-3 mt-0.5">{a.actionLabel}</span>
+        <span className="block md-title-s md-on-surface">{a.detail}</span>
+        <span className="block md-body-s md-on-surface-variant mt-0.5">{a.actionLabel}</span>
       </span>
-      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true" className="flex-shrink-0">
-        <path d="M5 3l4 4-4 4" stroke="currentColor" strokeWidth="1.6"
-          strokeLinecap="round" strokeLinejoin="round" className="pwa-text-3" />
-      </svg>
+      <Chevron />
     </button>
   );
 }
@@ -286,42 +312,39 @@ function FuelRangeRow({ home }: { home: HomeModel }) {
   const { fuel, range } = home;
   return (
     <section className="grid grid-cols-2 gap-3" aria-label="Yakıt ve menzil">
-      <div className="rounded-2xl px-4 py-3.5"
-        style={{ background: 'var(--pwa-surface-3)', border: '1px solid var(--pwa-border-soft)' }}>
-        <p className="text-[9px] font-black uppercase tracking-widest pwa-text-3">Yakıt</p>
+      <div className="md-card-elevated px-4 py-4 flex flex-col" style={{ borderRadius: 'var(--md-shape-lg)' }}>
+        <p className="md-label-l md-on-surface-variant">Yakıt</p>
         {fuel.kind === 'MEASURED' ? (
           <>
-            <p className="mt-1 text-2xl font-black tabular-nums pwa-text">
-              {Math.round(fuel.percent)}<span className="text-base">%</span>
+            <p className="mt-1 md-headline-m md-on-surface tabular-nums" style={{ fontWeight: 500 }}>
+              {Math.round(fuel.percent)}<span className="md-title-m">%</span>
             </p>
-            <p className="mt-0.5 text-[10px] pwa-text-3">
+            <p className="mt-0.5 md-body-s md-on-surface-variant">
               {fuel.freshness === 'LIVE' ? fuel.ageLabel : fuel.display}
             </p>
             {fuel.low && (
-              <p className="mt-1 text-[10px] font-bold" style={{ color: '#fbbf24' }}>
+              <p className="mt-2 md-label-m self-start px-2 inline-flex items-center"
+                style={{ minHeight: 24, borderRadius: 'var(--md-shape-sm)', background: 'var(--md-warning-container)', color: 'var(--md-on-warning-container)' }}>
                 Yakıt azalıyor
               </p>
             )}
           </>
         ) : (
           /* Ölçüm yoksa sayı UYDURULMAZ. */
-          <p className="mt-2 text-sm pwa-text-3">{fuel.reason}</p>
+          <p className="mt-2 md-body-m md-on-surface-variant">{fuel.reason}</p>
         )}
       </div>
 
-      <div className="rounded-2xl px-4 py-3.5"
-        style={{ background: 'var(--pwa-surface-3)', border: '1px solid var(--pwa-border-soft)' }}>
-        <p className="text-[9px] font-black uppercase tracking-widest pwa-text-3">
-          Tahmini menzil
-        </p>
+      <div className="md-card-elevated px-4 py-4" style={{ borderRadius: 'var(--md-shape-lg)' }}>
+        <p className="md-label-l md-on-surface-variant">Tahmini menzil</p>
         {range.kind === 'ESTIMATE' ? (
           <>
-            <p className="mt-1 text-2xl font-black tabular-nums pwa-text">{range.display}</p>
+            <p className="mt-1 md-headline-m md-on-surface tabular-nums" style={{ fontWeight: 500 }}>{range.display}</p>
             {/* Tahmin, ÖLÇÜM gibi sunulmaz — kaynağı hep yazılır. */}
-            <p className="mt-0.5 text-[10px] pwa-text-3 leading-snug">{range.provenance}</p>
+            <p className="mt-0.5 md-body-s md-on-surface-variant">{range.provenance}</p>
           </>
         ) : (
-          <p className="mt-2 text-sm pwa-text-3 leading-snug">{range.reason}</p>
+          <p className="mt-2 md-body-m md-on-surface-variant">{range.reason}</p>
         )}
       </div>
     </section>
@@ -330,15 +353,24 @@ function FuelRangeRow({ home }: { home: HomeModel }) {
 
 /* ── Konum ─────────────────────────────────────────────────────────────── */
 
+const PIN_ICON = (
+  <>
+    <path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0113 0c0 5.4-6.5 11-6.5 11z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+    <circle cx="12" cy="10" r="2.3" stroke="currentColor" strokeWidth="1.6" />
+  </>
+);
+
 function LocationCard({ home, onOpenMap }: { home: HomeModel; onOpenMap: () => void }) {
   const l = home.location;
 
   if (l.kind === 'UNAVAILABLE') {
     return (
-      <section className="rounded-2xl px-4 py-3.5"
-        style={{ background: 'var(--pwa-surface-3)', border: '1px solid var(--pwa-border-soft)' }}>
-        <p className="text-[9px] font-black uppercase tracking-widest pwa-text-3">Konum</p>
-        <p className="mt-2 text-sm pwa-text-3">{l.reason}</p>
+      <section className="md-card-elevated px-4 py-4 flex items-center gap-4" aria-label="Konum">
+        <IconBadge>{PIN_ICON}</IconBadge>
+        <span className="flex-1 min-w-0">
+          <span className="block md-label-m md-on-surface-variant">Konum</span>
+          <span className="block md-body-m md-on-surface-variant">{l.reason}</span>
+        </span>
       </section>
     );
   }
@@ -346,17 +378,15 @@ function LocationCard({ home, onOpenMap }: { home: HomeModel; onOpenMap: () => v
   return (
     <button
       onClick={onOpenMap}
-      className="rounded-2xl px-4 py-3.5 w-full flex items-center gap-3 text-left transition-transform active:scale-[0.99]"
-      style={{ background: 'var(--pwa-surface-3)', border: '1px solid var(--pwa-border-soft)' }}
+      className="md-state md-card-elevated px-4 py-4 w-full flex items-center gap-4 text-left md-on-surface"
     >
+      <IconBadge tone="primary">{PIN_ICON}</IconBadge>
       <span className="flex-1 min-w-0">
         {/* "Park yeri" İDDİA EDİLMEZ: deterministic park kanıtı yok (§10). */}
-        <span className="block text-[13px] font-bold pwa-text">{l.label}</span>
-        <span className="block text-[11px] pwa-text-3 mt-0.5">{l.ageLabel}</span>
+        <span className="block md-title-m md-on-surface">{l.label}</span>
+        <span className="block md-body-s md-on-surface-variant">{l.ageLabel}</span>
       </span>
-      <span className="text-[11px] font-bold flex-shrink-0" style={{ color: '#60a5fa' }}>
-        Haritada Göster
-      </span>
+      <span className="md-label-l md-primary-text flex-shrink-0">Haritada Göster</span>
     </button>
   );
 }
