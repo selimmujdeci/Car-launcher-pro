@@ -204,6 +204,9 @@ export interface AppSettings {
   brightness: number;
   volume: number;
   volumeStyle: VolumeStyle;
+  /** Sürücü ekranı görünümü ve vurgu rengi (kullanıcı seçimi; gündüz/gece `dayNightMode`'dan). */
+  cockpitStyle: 'road' | 'minimal' | 'analog' | 'retro' | 'digital';
+  cockpitAccent: 'blue' | 'red' | 'green' | 'orange' | 'purple' | 'ice';
   theme: 'dark' | 'oled' | 'light';
   themePack: ThemePack;
   themeStyle: ThemeStyle;
@@ -400,6 +403,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   brightness: 100,
   volume: 60,
   volumeStyle: 'tesla_ultra',
+  cockpitStyle: 'road',
+  cockpitAccent: 'blue',
   theme: 'light',
   themePack: 'tesla',
   themeStyle: 'glass',

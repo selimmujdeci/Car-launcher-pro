@@ -42,6 +42,7 @@ import i18n from '../../i18n/config';
 import { MobileLinkWidget } from './MobileLinkWidget';
 import { CarOsConnectionPriorityCard } from './CarOsConnectionPriorityCard';
 import { PhoneInternetToggle } from './PhoneInternetToggle';
+import { CockpitStylePicker } from './CockpitStylePicker';
 import { OtaUpdateCard } from './OtaUpdateCard';
 import { SupportSnapshotCard } from './SupportSnapshotCard';
 import { DeviceDiagnosticCard } from './DeviceDiagnosticCard';
@@ -1902,6 +1903,11 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
             <>
               {/* ── Tema Seçici ── */}
               <ThemePanel />
+              {/* ── Sürücü ekranı: görünüm + renk ── */}
+              <Panel accent="var(--oem-accent)">
+                <SectionTitle icon={Gauge} title="Sürücü Ekranı" sub="Gösterge görünümü ve rengi — gündüz/gece otomatik" color="var(--oem-accent)" />
+                <CockpitStylePicker />
+              </Panel>
               {nativeControls && (
                 <Panel accent="var(--oem-accent)">
                   <SectionTitle icon={Sun} title="Parlaklık" sub="Ekran parlaklığı (sistem)" color="var(--oem-warn)" />

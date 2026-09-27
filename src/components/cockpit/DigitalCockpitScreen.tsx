@@ -20,7 +20,7 @@
 import { memo, useId } from 'react';
 import {
   COCKPIT_CANVAS, COCKPIT_MIN_TOUCH_PX, COCKPIT_DESIGN_SCALE as DESIGN_SCALE, COCKPIT_DESIGN_OFFSET_Y as DESIGN_OFFSET_Y,
-  cockpitTokensFor, type CockpitTokens,
+  cockpitTokensFor, type CockpitTokens, type CockpitAccentId, type CockpitStyleId,
 } from './cockpitLayout';
 import {
   EM_DASH, fmtSpeed, fmtCoolant, fmtRange, fmtConsumption, fmtOdometer, fmtAmbient,
@@ -28,6 +28,7 @@ import {
   type CockpitState, type CockpitManeuver,
 } from './cockpitDataModel';
 import carRearUrl from '../../assets/cockpit/car-rear.webp';
+import { ClassicCluster, DigitalCluster, LimitSign } from './cockpitClusters';
 import '../../styles/fonts.css';
 import './digitalCockpit.css';
 
@@ -75,18 +76,18 @@ function Copy({ x, y, width, height = 26, children, size = 18, weight = 400, col
  * Yol + kendi aracımız — YALNIZ DEKORASYON: şerit, rota, trafik ya da algılanmış
  * araç DEĞİLDİR (ADAS sinyali yok). Başka araç çizilmez.
  */
-const DecorativeRoad = memo(function DecorativeRoad({ ids }: { ids: Ids }) {
+const DecorativeRoad = memo(function DecorativeRoad({ ids, t }: { ids: Ids; t: CockpitTokens }) {
   return (
     <g data-cockpit-region="roadScene" data-cockpit-decoration="abstract-horizon" aria-hidden="true" pointerEvents="none">
       <polygon points="600,250 680,250 1010,720 270,720" fill={`url(#${ids.floor})`} />
       <polygon points="618,300 662,300 820,720 460,720" fill={`url(#${ids.lane})`} />
       <line x1={618} y1={300} x2={460} y2={720} stroke={`url(#${ids.edge})`} strokeWidth={5} />
       <line x1={662} y1={300} x2={820} y2={720} stroke={`url(#${ids.edge})`} strokeWidth={5} />
-      <g stroke="#9fb0c8" strokeOpacity={0.35} strokeWidth={3} strokeDasharray="26 30">
+      <g stroke={t.muted} strokeOpacity={0.45} strokeWidth={3} strokeDasharray="26 30">
         <line x1={596} y1={270} x2={330} y2={720} />
         <line x1={684} y1={270} x2={950} y2={720} />
       </g>
-      <g stroke="#5fb4ff" strokeOpacity={0.22} strokeWidth={2}>
+      <g stroke={t.accentHigh} strokeOpacity={0.22} strokeWidth={2}>
         <line x1={566} y1={420} x2={714} y2={420} />
         <line x1={540} y1={500} x2={740} y2={500} />
       </g>
@@ -100,7 +101,6 @@ const SpeedZone = memo(function SpeedZone({ speed, limit, definitive, over, curv
   speed: number | null; limit: number | null; definitive: boolean; over: boolean;
   curve: CockpitState['curve'];
 }) {
-  const validLimit = bandOrNull(limit, COCKPIT_BANDS.speed);
   const validSpeed = bandOrNull(speed, COCKPIT_BANDS.speed);
   const fill = validSpeed === null ? null : Math.min(1, Math.max(0, validSpeed / SPEED_MAX));
   const dash = fill === null ? null : `${fill * 100} 100`;
@@ -124,17 +124,7 @@ const SpeedZone = memo(function SpeedZone({ speed, limit, definitive, over, curv
         fontSize={132} fontWeight={300} letterSpacing={-6}
         fill={over ? t.warningRed : speedText === EM_DASH ? t.muted : t.textPrimary}>{speedText}</text>
       <text x={224} y={380} textAnchor="middle" fontSize={20} letterSpacing={1} fill={t.textSecondary}>km/h</text>
-      {validLimit !== null && (
-        /* Aşımda levha KIRMIZIYA döner — karar veri katmanında (overspeedModel). */
-        <g data-cockpit-speedlimit={definitive ? 'definitive' : 'uncertain'}
-          data-cockpit-overspeed={over ? 'true' : undefined}
-          aria-label={`${definitive ? 'Hız sınırı' : 'Kesin olmayan hız sınırı'}: ${Math.round(validLimit)} km/h`}>
-          <circle cx={362} cy={442} r={28} fill={over ? t.warningRed : t.sign} stroke={t.warningRed} strokeWidth={8}
-            strokeDasharray={definitive ? undefined : '8 5'} />
-          <text x={362} y={451} fontSize={validLimit >= 100 ? 22 : 26} textAnchor="middle"
-            fontWeight={800} fill={over ? '#ffffff' : '#111'}>{Math.round(validLimit)}</text>
-        </g>
-      )}
+      <LimitSign limit={limit} definitive={definitive} over={over} cx={362} cy={442} r={28} t={t} />
       {curve && (
         /* Öndeki viraj — hız sınırı levhasının yanında sarı uyarı levhası. */
         <g data-cockpit-curve={curve.direction}
@@ -275,6 +265,8 @@ const OdoZone = memo(function OdoZone({ odometer, driveMode, t }: Omit<PalettePr
         <text data-cockpit-value="driveMode" x={1216} y={96} textAnchor="end" fontSize={16} fontWeight={700}
           letterSpacing={2} fill={t.accentHigh}>{driveMode}</text>
       )}
+      {/* GPS ile CarOS'un saydığı yol — aracın kendi sayacı DEĞİL (etiket bunu söyler). */}
+      <text x={1216} y={534} textAnchor="end" fontSize={13} fill={t.muted}>Toplam yol (CarOS)</text>
       <text data-cockpit-value="odometer" x={1216} y={560} textAnchor="end" fontSize={20} fontWeight={600}
         className="caros-cockpit-numeral" fill={odoText === EM_DASH ? t.muted : t.textPrimary}>
         {odoText === EM_DASH ? `${EM_DASH} km` : odoText}</text>
@@ -435,12 +427,20 @@ export interface DigitalCockpitScreenProps {
   readonly onMediaPrevious?: () => void;
   readonly onMediaToggle?: () => void;
   readonly onMediaNext?: () => void;
+  /** Sürücünün seçtiği vurgu rengi (varsayılan mavi). */
+  readonly accent?: CockpitAccentId;
+  /** Görünüm: yol · sade · analog · retro · dijital (cockpitLayout.COCKPIT_STYLE_IDS). */
+  readonly styleId?: CockpitStyleId;
 }
 
 export const DigitalCockpitScreen = memo(function DigitalCockpitScreen({
-  state, mode, clock, onMediaToggle,
+  state, mode, clock, onMediaToggle, accent = 'blue', styleId = 'road',
 }: DigitalCockpitScreenProps) {
-  const t = cockpitTokensFor(mode);
+  const t = cockpitTokensFor(mode, accent);
+  const minimal = styleId === 'minimal';
+  const classic = styleId === 'analog' || styleId === 'retro';
+  const digital = styleId === 'digital';
+  const modern = !classic && !digital;
   const base = `cockpit-${useId().replace(/:/g, '')}`;
   const ids: Ids = {
     ring: `${base}-ring`, lane: `${base}-lane`, edge: `${base}-edge`,
@@ -482,14 +482,33 @@ export const DigitalCockpitScreen = memo(function DigitalCockpitScreen({
       </defs>
       <rect x={0} y={0} width={COCKPIT_CANVAS.width} height={COCKPIT_CANVAS.height} fill={`url(#${ids.bg})`} />
       <g transform={`translate(0 ${DESIGN_OFFSET_Y}) scale(${DESIGN_SCALE})`}>
-        <DecorativeRoad ids={ids} />
-        <SpeedZone speed={state.speedKmh} limit={state.speedLimitKmh} definitive={state.speedLimitDefinitive}
-          over={state.speedOverLimit === true} curve={state.curve ?? null} t={t} ids={ids} />
-        <EngineZone rpm={state.rpm} redline={state.rpmRedline} gear={state.gear} t={t} ids={ids} />
-        <CoolantDial coolant={state.coolantTempC} freshness={state.coolantFreshness} t={t} ids={ids} />
+        {modern && !minimal && <DecorativeRoad ids={ids} t={t} />}
+        {modern && (<>
+        {/* Sade: hız ortada büyük, devir solda, sağda büyük saat. Aynı bileşenler, yalnız yer/ölçek. */}
+        <g transform={minimal ? 'translate(349 -60) scale(1.3)' : undefined}>
+          <SpeedZone speed={state.speedKmh} limit={state.speedLimitKmh} definitive={state.speedLimitDefinitive}
+            over={state.speedOverLimit === true} curve={state.curve ?? null} t={t} ids={ids} />
+        </g>
+        <g transform={minimal ? 'translate(-832 0)' : undefined}>
+          <EngineZone rpm={state.rpm} redline={state.rpmRedline} gear={state.gear} t={t} ids={ids} />
+        </g>
+        {minimal && (
+          <g data-cockpit-bigclock="">
+            <text x={1056} y={320} textAnchor="middle" fontSize={84} fontWeight={300} letterSpacing={-2}
+              className="caros-cockpit-numeral" fill={t.textPrimary}>{clock.time}</text>
+            {clock.date && <text x={1056} y={362} textAnchor="middle" fontSize={20} fill={t.textSecondary}>{clock.date}</text>}
+          </g>
+        )}
+        </>)}
+        {!digital && <CoolantDial coolant={state.coolantTempC} freshness={state.coolantFreshness} t={t} ids={ids} />}
+        {classic && <ClassicCluster state={state} face={styleId === 'retro' ? 'retro' : 'analog'} mode={mode} t={t} idBase={base} />}
+        {digital && <DigitalCluster state={state} t={t} />}
         {state.maneuver !== null ? <ManeuverZone {...state.maneuver} t={t} /> : <NoRouteCard t={t} />}
-        <RangeZone range={state.rangeKm} fuelLevel={state.fuelLevelPct} consumption={state.avgConsumptionL100} t={t} ids={ids} />
-        <OdoZone odometer={state.odometerKm} driveMode={state.driveMode} t={t} />
+        {!digital && <RangeZone range={state.rangeKm} fuelLevel={state.fuelLevelPct} consumption={state.avgConsumptionL100} t={t} ids={ids} />}
+        {/* Dijital görünümde sağda sıcaklık çubuğu var — kilometre biraz sola alınır. */}
+        <g transform={digital ? 'translate(-70 0)' : undefined}>
+          <OdoZone odometer={state.odometerKm} driveMode={state.driveMode} t={t} />
+        </g>
         <MediaZone {...state.media} t={t} onMediaToggle={onMediaToggle} />
         <TopBar time={clock.time} ambient={state.ambientTempC} t={t} />
       </g>
