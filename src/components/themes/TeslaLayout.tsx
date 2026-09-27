@@ -4,7 +4,7 @@ import type { ReactNode, PointerEvent as ReactPointerEvent, MouseEvent as ReactM
 import {
   Navigation, Music2, Mic, Wind, Settings, Car, Bell,
   Plus, Minus, SkipBack, SkipForward, Play, Pause,
-  ChevronRight, Maximize2, CornerUpRight,
+  ChevronRight, CornerUpRight,
   Thermometer, BatteryCharging, Gauge, Fuel,
   Phone, Cloud, AlertTriangle, Camera, Route, ShieldAlert, Shield, Tv2, Zap,
   FlaskConical,
@@ -201,8 +201,10 @@ const StatusCluster = memo(function StatusCluster() {
         )}
       </button>
       <StatusControls palette={{ ink: p.ink, ink2: p.ink2, accent: p.accent, surface: p.cardSolid }} size={15} />
-      <span style={{ fontSize: 12, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: p.ink }}>{device.ready ? `${device.battery}%` : '—'}</span>
-      <span style={{ fontSize: 12, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: p.ink }}>{ambient != null ? `${Math.round(ambient)}°C` : '—'}</span>
+      {/* Cihaz pili yoksa (head unit / web) etiketsiz "—" basılmaz; dış sıcaklık
+          bilinmiyorsa birimiyle "—°C" (iki anlamsız çizgi yan yana duruyordu). */}
+      {device.ready && <span style={{ fontSize: 12, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: p.ink }}>{`${device.battery}%`}</span>}
+      <span style={{ fontSize: 12, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: p.ink }}>{ambient != null ? `${Math.round(ambient)}°C` : '—°C'}</span>
     </div>
   );
 });
@@ -313,7 +315,7 @@ const FuelCard = memo(function FuelCard() {
       </div>
       <TripMeterRow
         palette={{ ink: p.ink, ink2: p.ink2, ink3: p.ink3, accent: p.accent, tile: p.tile, edge: p.tile }}
-        valueSize={24} unitSize={13} labelSize={11} iconSize={20} gap={8}
+        valueSize={22} unitSize={13} labelSize={10} iconSize={20} gap={6}
         showTopBorder
         style={{ marginTop: 8 }}
       />
@@ -351,9 +353,8 @@ const MapCard = memo(function MapCard({ onOpenMap, fullMapOpen }: { onOpenMap: (
         <div className="flex items-center gap-2 pointer-events-auto">
           {/* Sabit "Online" çipi kaldırıldı (bağlantıya bakmıyordu; mini haritanın
               gerçek kaynak rozeti zaten gösteriliyor). */}
-          <div className="flex items-center justify-center rounded-xl" style={{ width: 34, height: 34, background: p.glass, border: p.glassBorder }}>
-            <Maximize2 className="w-4 h-4" style={{ color: p.ink2 }} />
-          </div>
+          {/* Ayrı "genişlet" kutusu kaldırıldı: mini haritanın kendi genişlet
+              düğmesiyle aynı köşede üst üste biniyordu. */}
         </div>
       </div>
       <div className="absolute right-3 top-1/2 -translate-y-1/2 flex flex-col gap-2 pointer-events-auto" onClick={e => e.stopPropagation()}>
@@ -525,9 +526,11 @@ function Stat({ icon, value, label, warn }: { icon: React.ReactNode; value: stri
 function DockPlate({ Icon, label, onClick, active }: { Icon: typeof Navigation; label: string; onClick: () => void; active?: boolean }) {
   const p = usePal();
   return (
-    <button onClick={onClick} className="ex-btn relative flex items-center justify-center flex-shrink-0" style={{ flex: '0 0 31%', minWidth: 0, scrollSnapAlign: 'start', height: 108, borderRadius: 'var(--radius-tile, 18px)', background: active ? p.plateActive : p.plate, backgroundColor: active ? p.accent : p.cardSolid, border: active ? `1px solid ${p.accent}` : p.plateBorder, boxShadow: p.plateShadow, gap: 13, padding: '0 15px', cursor: 'pointer' }}>
-      <Icon className="w-[37px] h-[37px] flex-shrink-0" style={{ color: active ? '#241405' : p.accent2 }} />
-      <span className="uppercase truncate" style={{ fontSize: 18, fontWeight: 800, letterSpacing: '0.05em', color: active ? (p.night ? '#FBC892' : '#241405') : p.ink2 }}>{label}</span>
+    /* Simge üstte, etiket altta: yatay düzende 1280px'te plaka ~125px kalıyor ve
+       18px etiket "NA…", "M…", "AS…" diye kesiliyordu (etiketsiz dock). */
+    <button onClick={onClick} className="ex-btn relative flex flex-col items-center justify-center flex-shrink-0" style={{ flex: '0 0 31%', minWidth: 0, scrollSnapAlign: 'start', height: 108, borderRadius: 'var(--radius-tile, 18px)', background: active ? p.plateActive : p.plate, backgroundColor: active ? p.accent : p.cardSolid, border: active ? `1px solid ${p.accent}` : p.plateBorder, boxShadow: p.plateShadow, gap: 8, padding: '0 6px', cursor: 'pointer' }}>
+      <Icon className="w-[32px] h-[32px] flex-shrink-0" style={{ color: active ? '#241405' : p.accent2 }} />
+      <span className="uppercase truncate" style={{ maxWidth: '100%', fontSize: 13.5, fontWeight: 800, letterSpacing: '0.04em', color: active ? (p.night ? '#FBC892' : '#241405') : p.ink2 }}>{label}</span>
     </button>
   );
 }
