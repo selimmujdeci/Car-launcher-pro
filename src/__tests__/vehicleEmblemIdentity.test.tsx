@@ -237,6 +237,18 @@ describe('amblem CSS — animasyon kapalıyken görünür kalır', () => {
     }
     expect(css).not.toMatch(/@keyframes ve-(in|rise|aura-in|ring-in|refl-in|draw|sweep)\s*\{\s*to\b/);
   });
+
+  it('🔒 açılış sahnesi düşük kademe kurallarından muaf (kullanıcı kararı); ana ekran rozeti muaf değil', () => {
+    const css = readFileSync(resolve(__dirname, '../components/vehicle/vehicleEmblem.css'), 'utf8');
+    for (const sel of ['.ve-aura', '.ve-ring i', '.ve-svg.ve-glow-neon', '.ve-hello', '.ve-scene .ve-edge', '.ve-dust i']) {
+      const block = css.match(new RegExp('html \\.ve-boot ' + sel.replace(/[.]/g, '\\.') + '\\s*\\{([^}]*)\\}'))?.[1];
+      expect(block, sel).toMatch(/!important/);
+    }
+    expect(css).not.toMatch(/html \.ve-boot \.ve-badge|html \.ve-badge/);
+    // reduced-motion muafiyetten sonra gelir ve daha özgül seçici kullanır
+    expect(css.lastIndexOf('prefers-reduced-motion')).toBeGreaterThan(css.lastIndexOf('html .ve-boot .ve-dust i'));
+    expect(css).toMatch(/html \.ve-boot\.ve-boot\.ve-boot \*/);
+  });
 });
 
 describe('amblem SVG — gündüz modu global kuralından etkilenmez', () => {

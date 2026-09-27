@@ -33,7 +33,7 @@ export interface EmblemBootInfo {
   /** Yalnız bilinen veri; bilinmeyen alan verilmez (gösterilmez). */
   driverName?: string;
   line?: string;
-  /** Düşük performans kademesinde ışık tozları çizilmez. */
+  /** Işık tozları (güç koruma/kurtarma modunda kapalı). */
   particles: boolean;
 }
 

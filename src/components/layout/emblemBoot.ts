@@ -8,7 +8,6 @@
 import { useStore } from '../../store/useStore';
 import { getBrand } from '../../platform/vehicle/brandCatalog';
 import { onWeatherState, type WeatherState } from '../../platform/weatherService';
-import { getPerformanceMode } from '../../platform/performanceMode';
 import { runtimeManager } from '../../core/runtime/AdaptiveRuntimeManager';
 import { resolveEmblem } from '../vehicle/VehicleEmblem';
 import type { EmblemBootInfo } from './BootSplash';
@@ -47,6 +46,9 @@ export function buildEmblemBoot(nowMs: number = Date.now()): EmblemBootInfo | nu
     treatment: vehicle.emblemTreatment ?? 'neon',
     driverName: driver?.name?.trim() || undefined,
     line: line || undefined,
-    particles: getPerformanceMode() !== 'lite' && (mode === 'PERFORMANCE' || mode === 'BALANCED'),
+    /* Kullanıcı kararı (2026-09-27): açılış sahnesi düşük kademede de TAM oynar
+       (~4 sn, yalnız açılışta). Işık tozları yalnız güç koruma/kurtarma modunda kapalı;
+       reduced-motion BootSplash'te ayrıca kapatılır. */
+    particles: mode !== 'POWER_SAVE' && mode !== 'SAFE_MODE',
   };
 }

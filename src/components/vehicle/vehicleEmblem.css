@@ -1,5 +1,5 @@
 /* Araç amblemi — C · Cam/Neon (kullanıcı onaylı önizleme, 2026-09-27).
-   Yalnız CSS/SVG; WebGL yok. Parçacıklar `.ve-dust` ayrı ve düşük kademede çizilmez.
+   Yalnız CSS/SVG; WebGL yok. Açılış sahnesi düşük kademeden muaf (dosya sonu); rozet değil.
    KURAL: temel stil = SON (görünür) durum; animasyonlar yalnız `from` karesinden
    başlar (fill-mode both). Uygulama düşük kademede `animation: none` basar
    (index.css .perf-low vb.) — o zaman sahne statik ama TAM görünür kalır.
@@ -69,12 +69,39 @@
   100% { opacity: 0; transform: translate(var(--tx), var(--ty)) scale(.4); }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .ve-boot *, .ve-badge * { animation-delay: 0s !important; animation-duration: 1ms !important; animation-iteration-count: 1 !important; }
-  .ve-dust { display: none; }
-}
 
 /* Düşük kademe (compat): uygulama filter/box-shadow'u kapatır → neon parıltı yok.
    Amblem sönük kalmasın diye yalnız kenar kalınlaşır (GPU maliyeti yok). */
-html[data-compat-mode="true"] .ve-emblem,
 html[data-compat-mode="true"] .ve-badge { --ve-edge-w: .6px; }
+
+/* ── AÇILIŞ SAHNESİ DÜŞÜK KADEME MUAFİYETİ (kullanıcı kararı, 2026-09-27) ──
+   Düşük kademe/compat kuralları (index.css `.perf-low *`, `[data-compat-mode] *`,
+   base.css `html[data-compat-mode] *`) animasyon/filter/gradient'i !important ile
+   kapatır. Sahne yalnız açılışta ~4 sn oynar → burada daha yüksek özgüllükle
+   (`html .ve-boot …`) geri açılır. Ana ekran rozeti (.ve-badge) MUAF DEĞİL. */
+html .ve-boot .ve-aura {
+  background-image: radial-gradient(circle, var(--ve-brand-a) 0%, var(--ve-brand-b) 38%, transparent 68%) !important;
+  animation: ve-aura-in .7s 1s ease-out both, ve-breathe 3.2s 1.7s ease-in-out infinite !important; }
+html .ve-boot .ve-ring { animation: ve-ring-in .8s .9s ease-out both !important; }
+html .ve-boot .ve-ring i {
+  background-image: conic-gradient(transparent 0deg, #2f7bff 50deg, transparent 120deg,
+    transparent 180deg, #ff7a1a 230deg, transparent 300deg) !important;
+  animation: ve-spin 5s .9s linear infinite !important; }
+html .ve-boot .ve-reflection { filter: blur(1.2px) !important; animation: ve-refl-in .7s 1s ease-out both !important; }
+html .ve-boot .ve-vignette { background-image: radial-gradient(ellipse at 50% 42%, transparent 35%, #000 85%) !important; }
+html .ve-boot .ve-hello { animation: ve-rise .5s 1.6s ease-out both !important; }
+html .ve-boot .ve-meta { animation: ve-rise .5s 1.75s ease-out both !important; }
+html .ve-boot .ve-mark { animation: ve-rise .5s 1.9s both !important; }
+html .ve-boot .ve-svg.ve-glow-neon { filter: drop-shadow(0 0 .5px #fff) drop-shadow(0 0 2.5px #4f8dff) drop-shadow(0 0 6px rgba(255,122,26,.6)) !important; }
+html .ve-boot .ve-svg.ve-glow-orig { filter: drop-shadow(0 0 3px rgba(255,255,255,.25)) !important; }
+html .ve-boot .ve-scene .ve-edge { animation: ve-draw .8s .15s cubic-bezier(.6,0,.2,1) both !important; }
+html .ve-boot .ve-scene .ve-face { animation: ve-in .6s .8s ease-out both !important; }
+html .ve-boot .ve-scene .ve-sweep { animation: ve-sweep 1s 1.3s cubic-bezier(.45,0,.25,1) both !important; }
+html .ve-boot .ve-dust i { box-shadow: 0 0 6px 1px var(--c) !important;
+  animation: ve-gather 1s var(--d) cubic-bezier(.55,0,.3,1) forwards !important; }
+
+@media (prefers-reduced-motion: reduce) {
+  /* Muafiyetten (0,3,1) SONRA ve daha yüksek özgüllükle: reduced-motion her zaman kazanır. */
+  html .ve-boot.ve-boot.ve-boot *, .ve-badge * { animation-delay: 0s !important; animation-duration: 1ms !important; animation-iteration-count: 1 !important; }
+  .ve-dust { display: none; }
+}
