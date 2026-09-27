@@ -558,6 +558,25 @@
   /* Liste öğesi (Daha Fazla, ayarlar) — 56/72dp satır. */
   .md-list-item { display: flex; align-items: center; gap: 16px; min-height: 56px; padding: 8px 16px; text-align: left; width: 100%; }
 
+  /* M3 dolgulu metin alanı — alt çizgi göstergesi; odakta 2px birincil. */
+  .md-field {
+    width: 100%; min-height: 56px; padding: 16px; font-size: 16px; line-height: 24px;
+    background: var(--md-surface-container-highest); color: var(--md-on-surface);
+    border: 0; border-bottom: 1px solid var(--md-on-surface-variant);
+    border-radius: var(--md-shape-xs) var(--md-shape-xs) 0 0; outline: none;
+    font-variant-numeric: tabular-nums;
+  }
+  .md-field::placeholder { color: var(--md-on-surface-variant); opacity: 0.7; }
+  .md-field:focus { border-bottom: 2px solid var(--md-primary); padding-bottom: 15px; }
+  /* Extended FAB — tek birincil eylem; gezinme çubuğunun üstünde. */
+  .md-fab {
+    position: fixed; right: 16px; bottom: calc(96px + env(safe-area-inset-bottom, 0px)); z-index: 30;
+    display: inline-flex; align-items: center; gap: 12px; min-height: 56px; padding: 0 20px 0 16px;
+    border-radius: var(--md-shape-lg); background: var(--md-primary-container); color: var(--md-on-primary-container);
+    font-size: 14px; line-height: 20px; font-weight: 500; letter-spacing: 0.1px;
+    box-shadow: 0 3px 5px color-mix(in srgb, var(--md-scrim) 18%, transparent), 0 1px 18px color-mix(in srgb, var(--md-scrim) 10%, transparent);
+  }
+
   /* Alt sayfa girişi — M3 emphasized decelerate, 400ms. */
   .md-sheet { animation: md-sheet-in var(--md-dur-long) var(--md-ease-emphasized-decel); }
   .md-sheet-scrim { animation: md-fade-in var(--md-dur-medium) var(--md-ease-standard); }
