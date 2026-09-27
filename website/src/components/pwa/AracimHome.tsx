@@ -32,6 +32,14 @@ import {
 import { buildWeeklySummary } from '@/lib/home/weeklySummary';
 import WeeklySummaryCard from '@/components/pwa/WeeklySummaryCard';
 import { ALERT_THRESHOLDS } from '@/lib/constants';
+import { Icon, type IconName } from '@/components/pwa/ui/Icon';
+import { IconBadge } from '@/components/pwa/ui/primitives';
+import type { Verdict } from '@/lib/console/evidenceModel';
+
+/** Hüküm → ikon (glif yerine Material Symbol; anlamı metin taşır). */
+const VERDICT_ICON: Record<Verdict, IconName> = {
+  VERIFIED: 'check_circle_fill', WARNING: 'warning_fill', CRITICAL: 'error_fill', NO_EVIDENCE: 'info',
+};
 
 /** PostgREST `numeric`i metin döndürür; boş metin `0` TUZAĞINA düşülmez. */
 function finite(v: number | string | null | undefined): number | null {
@@ -151,30 +159,8 @@ function AracimHomeBase({
 
 /* ── Ortak parçalar (yalnız görünüm) ───────────────────────────────────── */
 
-/** M3 ikon kabı — 40dp tonal daire; ikon anlam TAŞIMAZ, metin taşır. */
-function IconBadge({ children, tone = 'secondary' }: { children: React.ReactNode; tone?: 'secondary' | 'primary' }) {
-  return (
-    <span
-      aria-hidden="true"
-      className="w-10 h-10 flex items-center justify-center flex-shrink-0"
-      style={{
-        borderRadius: 'var(--md-shape-full)',
-        background: tone === 'primary' ? 'var(--md-primary-container)' : 'var(--md-secondary-container)',
-        color: tone === 'primary' ? 'var(--md-on-primary-container)' : 'var(--md-on-secondary-container)',
-      }}
-    >
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none">{children}</svg>
-    </span>
-  );
-}
-
 function Chevron() {
-  return (
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true"
-      className="md-on-surface-variant flex-shrink-0">
-      <path d="M9.5 6l6 6-6 6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
+  return <Icon name="chevron_right" className="md-on-surface-variant flex-shrink-0" />;
 }
 
 /* ── Son yolculuk ──────────────────────────────────────────────────────── */
@@ -183,10 +169,7 @@ function RecentTripCard({ home }: { home: HomeModel }) {
   const t = home.recentTrip!;
   return (
     <section className="md-card-elevated px-4 py-4 flex items-center gap-4" aria-label="Son yolculuk">
-      <IconBadge>
-        <path d="M6 19a2 2 0 100-4 2 2 0 000 4zM18 9a2 2 0 100-4 2 2 0 000 4z" stroke="currentColor" strokeWidth="1.6" />
-        <path d="M8 17h6.5a3.5 3.5 0 000-7h-5a3.5 3.5 0 010-7H16" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-      </IconBadge>
+      <IconBadge name="route" />
       <span className="flex-1 min-w-0">
         <span className="block md-label-m md-on-surface-variant">Son yolculuk</span>
         <span className="block md-title-m md-on-surface">
@@ -251,6 +234,30 @@ function HealthHero({
   }
 
   const tone = HEALTH_TONE[s.verdict];
+
+  /* KANIT YOKKEN kart ekranı İŞGAL ETMEZ: "bilmiyoruz" bir alarm değildir;
+     kompakt satır olarak durur, ayrıntı tek dokunuşla açılır. */
+  if (s.verdict === 'NO_EVIDENCE') {
+    return (
+      <button
+        onClick={onOpen}
+        className="md-state md-card-elevated px-4 py-4 w-full flex items-center gap-4 text-left md-on-surface"
+        aria-label={`Aracınızın durumu: ${s.headline}. Detaylar için dokunun.`}
+      >
+        <span className="w-10 h-10 flex items-center justify-center flex-shrink-0" aria-hidden="true"
+          style={{ borderRadius: 'var(--md-shape-full)', background: tone.bg, color: tone.fg }}>
+          <Icon name={VERDICT_ICON[s.verdict]} size={22} />
+        </span>
+        <span className="flex-1 min-w-0">
+          <span className="block md-label-m md-on-surface-variant">Aracınızın durumu</span>
+          <span className="block md-title-m md-on-surface">{s.headline}</span>
+          <span className="block md-body-s md-on-surface-variant mt-0.5">{healthMeasuredAtLabel(s, Date.now())}</span>
+        </span>
+        <Icon name="chevron_right" className="md-on-surface-variant flex-shrink-0" />
+      </button>
+    );
+  }
+
   return (
     <button
       onClick={onOpen}
@@ -260,18 +267,19 @@ function HealthHero({
     >
       <div className="flex items-start gap-4">
         <span
-          className="w-12 h-12 flex items-center justify-center flex-shrink-0 text-xl font-medium"
+          className="w-12 h-12 flex items-center justify-center flex-shrink-0"
           style={{ borderRadius: 'var(--md-shape-lg)', background: 'color-mix(in srgb, currentColor 12%, transparent)' }}
           aria-hidden="true"
         >
-          {tone.glyph}
+          <Icon name={VERDICT_ICON[s.verdict]} size={28} />
         </span>
         <div className="flex-1 min-w-0">
           <p className="md-label-m" style={{ opacity: 0.8 }}>Aracınızın durumu</p>
           <h2 className="mt-0.5 md-title-l">{s.headline}</h2>
           <p className="mt-1.5 md-body-m" style={{ opacity: 0.86 }}>{s.explanation}</p>
-          <p className="mt-3 md-body-s" style={{ opacity: 0.8 }}>
+          <p className="mt-3 md-body-s inline-flex items-center gap-1" style={{ opacity: 0.8 }}>
             {healthMeasuredAtLabel(s, Date.now())}
+            <Icon name="chevron_right" size={18} />
           </p>
         </div>
       </div>
@@ -313,15 +321,22 @@ function FuelRangeRow({ home }: { home: HomeModel }) {
   return (
     <section className="grid grid-cols-2 gap-3" aria-label="Yakıt ve menzil">
       <div className="md-card-elevated px-4 py-4 flex flex-col" style={{ borderRadius: 'var(--md-shape-lg)' }}>
-        <p className="md-label-l md-on-surface-variant">Yakıt</p>
+        <p className="md-label-l md-on-surface-variant inline-flex items-center gap-1.5">
+          <Icon name="local_gas_station" size={18} />Yakıt
+        </p>
         {fuel.kind === 'MEASURED' ? (
           <>
             <p className="mt-1 md-headline-m md-on-surface tabular-nums" style={{ fontWeight: 500 }}>
               {Math.round(fuel.percent)}<span className="md-title-m">%</span>
             </p>
-            <p className="mt-0.5 md-body-s md-on-surface-variant">
-              {fuel.freshness === 'LIVE' ? fuel.ageLabel : fuel.display}
-            </p>
+            {/* Canlı değilse değer TEKRAR yazılmaz; bayatlık açıkça yaşla söylenir. */}
+            {fuel.freshness === 'LIVE' ? (
+              <p className="mt-0.5 md-body-s md-on-surface-variant">{fuel.ageLabel}</p>
+            ) : (
+              <p className="mt-0.5 md-body-s md-on-surface-variant inline-flex items-center gap-1">
+                <Icon name="history_toggle_off" size={16} />Son bilinen · {fuel.ageLabel}
+              </p>
+            )}
             {fuel.low && (
               <p className="mt-2 md-label-m self-start px-2 inline-flex items-center"
                 style={{ minHeight: 24, borderRadius: 'var(--md-shape-sm)', background: 'var(--md-warning-container)', color: 'var(--md-on-warning-container)' }}>
@@ -331,12 +346,17 @@ function FuelRangeRow({ home }: { home: HomeModel }) {
           </>
         ) : (
           /* Ölçüm yoksa sayı UYDURULMAZ. */
-          <p className="mt-2 md-body-m md-on-surface-variant">{fuel.reason}</p>
+          <>
+            <p className="mt-1 md-headline-m md-on-surface-variant" aria-hidden="true">—</p>
+            <p className="mt-0.5 md-body-s md-on-surface-variant">{fuel.reason}</p>
+          </>
         )}
       </div>
 
       <div className="md-card-elevated px-4 py-4" style={{ borderRadius: 'var(--md-shape-lg)' }}>
-        <p className="md-label-l md-on-surface-variant">Tahmini menzil</p>
+        <p className="md-label-l md-on-surface-variant inline-flex items-center gap-1.5">
+          <Icon name="speed" size={18} />Tahmini menzil
+        </p>
         {range.kind === 'ESTIMATE' ? (
           <>
             <p className="mt-1 md-headline-m md-on-surface tabular-nums" style={{ fontWeight: 500 }}>{range.display}</p>
@@ -344,7 +364,11 @@ function FuelRangeRow({ home }: { home: HomeModel }) {
             <p className="mt-0.5 md-body-s md-on-surface-variant">{range.provenance}</p>
           </>
         ) : (
-          <p className="mt-2 md-body-m md-on-surface-variant">{range.reason}</p>
+          /* Tahmin yoksa sayı UYDURULMAZ: "—" ve kısa gerekçe (yakıt kartıyla aynı hiza). */
+          <>
+            <p className="mt-1 md-headline-m md-on-surface-variant" aria-hidden="true">—</p>
+            <p className="mt-0.5 md-body-s md-on-surface-variant">{range.reason}</p>
+          </>
         )}
       </div>
     </section>
@@ -353,20 +377,13 @@ function FuelRangeRow({ home }: { home: HomeModel }) {
 
 /* ── Konum ─────────────────────────────────────────────────────────────── */
 
-const PIN_ICON = (
-  <>
-    <path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0113 0c0 5.4-6.5 11-6.5 11z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
-    <circle cx="12" cy="10" r="2.3" stroke="currentColor" strokeWidth="1.6" />
-  </>
-);
-
 function LocationCard({ home, onOpenMap }: { home: HomeModel; onOpenMap: () => void }) {
   const l = home.location;
 
   if (l.kind === 'UNAVAILABLE') {
     return (
       <section className="md-card-elevated px-4 py-4 flex items-center gap-4" aria-label="Konum">
-        <IconBadge>{PIN_ICON}</IconBadge>
+        <IconBadge name="location_on" />
         <span className="flex-1 min-w-0">
           <span className="block md-label-m md-on-surface-variant">Konum</span>
           <span className="block md-body-m md-on-surface-variant">{l.reason}</span>
@@ -380,13 +397,15 @@ function LocationCard({ home, onOpenMap }: { home: HomeModel; onOpenMap: () => v
       onClick={onOpenMap}
       className="md-state md-card-elevated px-4 py-4 w-full flex items-center gap-4 text-left md-on-surface"
     >
-      <IconBadge tone="primary">{PIN_ICON}</IconBadge>
+      <IconBadge name="location_on" tone="primary" />
       <span className="flex-1 min-w-0">
         {/* "Park yeri" İDDİA EDİLMEZ: deterministic park kanıtı yok (§10). */}
         <span className="block md-title-m md-on-surface">{l.label}</span>
         <span className="block md-body-s md-on-surface-variant">{l.ageLabel}</span>
       </span>
-      <span className="md-label-l md-primary-text flex-shrink-0">Haritada Göster</span>
+      <span className="md-label-l md-primary-text flex-shrink-0 inline-flex items-center gap-0.5">
+        Haritada Göster<Icon name="chevron_right" size={18} />
+      </span>
     </button>
   );
 }
