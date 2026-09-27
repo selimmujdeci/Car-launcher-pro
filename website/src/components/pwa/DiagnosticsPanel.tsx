@@ -5,6 +5,8 @@ import type { LiveVehicle } from '@/types/realtime';
 import { sendCommand, subscribeCommandStatus } from '@/lib/commandService';
 import { describeDtcOutcome, type DtcCode, type DtcOutcome } from '@/lib/diagnostics/dtcResultContract';
 import { judge, BATTERY_RULE, type Verdict } from '@/lib/console/evidenceModel';
+import { Icon } from '@/components/pwa/ui/Icon';
+import { IconBadge, StatusPill, type Tone } from '@/components/pwa/ui/primitives';
 import {
   readDtcOutcome,
   readDtcOutcomeForType,
@@ -16,9 +18,9 @@ interface Props { vehicle: LiveVehicle | null }
 // ── Türkçe DTC kod sistemi arayüzü ───────────────────────────────────────────
 
 const DTC_SYSTEM_COLORS: Record<string, string> = {
-  'Yakıt':      '#fbbf24',
+  'Yakıt':      'var(--md-warning)',
   'Egzoz':      '#f97316',
-  'Elektrik':   '#ef4444',
+  'Elektrik':   'var(--md-error)',
   'İgnisyon':   '#a78bfa',
   'Emisyon':    '#60a5fa',
   'Şanzıman':   '#34d399',
@@ -27,10 +29,11 @@ const DTC_SYSTEM_COLORS: Record<string, string> = {
 };
 
 const SEV_CONFIG = {
-  critical: { label: 'KRİTİK',  color: '#ef4444', bg: 'rgba(239,68,68,0.10)',    border: 'rgba(239,68,68,0.30)' },
-  warning:  { label: 'UYARI',   color: '#f59e0b', bg: 'rgba(245,158,11,0.10)',   border: 'rgba(245,158,11,0.30)' },
-  info:     { label: 'BİLGİ',   color: '#60a5fa', bg: 'rgba(96,165,250,0.10)',   border: 'rgba(96,165,250,0.30)' },
+  critical: { label: 'KRİTİK',  color: 'var(--md-error)',   bg: 'var(--md-error-container)',   border: 'transparent' },
+  warning:  { label: 'UYARI',   color: 'var(--md-warning)', bg: 'var(--md-warning-container)', border: 'transparent' },
+  info:     { label: 'BİLGİ',   color: 'var(--md-primary)', bg: 'var(--md-primary-container)', border: 'transparent' },
 };
+
 
 // ── Battery voltage gauge ─────────────────────────────────────────────────────
 
@@ -49,9 +52,9 @@ function voltageVerdict(v: number): Verdict {
 
 function voltageColor(v: number): string {
   const verdict = voltageVerdict(v);
-  if (verdict === 'CRITICAL') return '#ef4444';
-  if (verdict === 'WARNING')  return '#f59e0b';
-  return v < 12.7 ? '#34d399' : '#60a5fa';
+  if (verdict === 'CRITICAL') return 'var(--md-error)';
+  if (verdict === 'WARNING')  return 'var(--md-warning)';
+  return v < 12.7 ? 'var(--md-success)' : 'var(--md-primary)';
 }
 
 function voltageLabel(v: number): string {
@@ -81,85 +84,55 @@ const BatteryGauge = memo(function BatteryGauge({
   onRefresh: () => void;
 }) {
   const v     = voltage ?? 0;
-  const color = voltage != null ? voltageColor(v) : '#6b7280';
+  const color = voltage != null ? voltageColor(v) : 'var(--md-outline)';
   const pct   = voltage != null ? voltagePct(v)   : 0;
 
+  const verdict = voltage != null ? voltageVerdict(v) : null;
+  const tone: Tone = verdict === 'CRITICAL' ? 'error' : verdict === 'WARNING' ? 'warning' : verdict ? 'success' : 'neutral';
+
   return (
-    <div className="flex flex-col gap-3 px-4 py-4 rounded-2xl"
-      style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-lg flex items-center justify-center"
-            style={{ background: `${color}18`, border: `1px solid ${color}30` }}>
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-              <rect x="1" y="3" width="11" height="8" rx="1.5" stroke={color} strokeWidth="1.3"/>
-              <path d="M12 5.5v3" stroke={color} strokeWidth="1.5" strokeLinecap="round"/>
-              <path d="M4.5 7h5M7 4.5v5" stroke={color} strokeWidth="1.3" strokeLinecap="round"/>
-            </svg>
-          </div>
-          <span className="text-xs font-black uppercase tracking-widest" style={{ color: 'rgba(255,255,255,0.5)' }}>
-            Akü Voltajı
-          </span>
-        </div>
-        <button
-          onClick={onRefresh}
-          disabled={loading}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all active:scale-95 disabled:opacity-40"
-          style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.09)', color: 'rgba(255,255,255,0.4)' }}
-        >
+    <section className="md-card-elevated px-4 py-4 flex flex-col gap-3" aria-label="Akü voltajı">
+      <div className="flex items-center gap-4">
+        <IconBadge name="battery_full" tone={tone === 'neutral' ? 'neutral' : tone} />
+        <p className="flex-1 md-title-m md-on-surface">Akü Voltajı</p>
+        <button onClick={onRefresh} disabled={loading} className="md-btn-tonal md-state disabled:opacity-50" style={{ minHeight: 40, padding: '0 16px' }}>
           {loading ? (
-            <svg className="animate-spin w-3 h-3" viewBox="0 0 12 12" fill="none">
-              <circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="1.2" strokeDasharray="18" strokeDashoffset="6" opacity="0.4"/>
-              <path d="M6 1.5a4.5 4.5 0 014.5 4.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+            <svg className="animate-spin w-4 h-4" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+              <circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="1.4" strokeDasharray="18" strokeDashoffset="6" opacity="0.4"/>
+              <path d="M6 1.5a4.5 4.5 0 014.5 4.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
             </svg>
-          ) : (
-            <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-              <path d="M8.5 5A3.5 3.5 0 112.2 2.8M1.5 1v2.5h2.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-          )}
+          ) : <Icon name="refresh" size={18} />}
           {loading ? 'Ölçülüyor' : 'OBD Oku'}
         </button>
       </div>
 
       {voltage != null ? (
         <>
-          <div className="flex items-end gap-2">
-            <span className="text-4xl font-black tabular-nums leading-none" style={{ color }}>
-              {v.toFixed(1)}
-            </span>
-            <span className="text-lg font-mono mb-1" style={{ color: `${color}70` }}>V</span>
-            <span className="ml-auto text-[10px] font-semibold pb-1" style={{ color: `${color}90` }}>
-              {voltageLabel(v)}
-            </span>
+          <div className="flex items-end gap-2 flex-wrap">
+            <span className="md-display-s md-on-surface tabular-nums" style={{ fontWeight: 500 }}>{v.toFixed(1)}</span>
+            <span className="md-title-l md-on-surface-variant mb-1">V</span>
+            <span className="ml-auto mb-1.5"><StatusPill tone={tone}>{voltageLabel(v)}</StatusPill></span>
           </div>
 
-          {/* Bar */}
-          <div className="h-2 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.06)' }}>
-            <div
-              className="h-full rounded-full transition-all duration-700"
-              style={{ width: `${pct}%`, background: `linear-gradient(90deg, ${color}80, ${color})` }}
-            />
+          {/* Ölçek çubuğu — değer 10–15 V aralığına yerleştirilir */}
+          <div aria-hidden="true">
+            <div className="h-2 rounded-full overflow-hidden" style={{ background: 'var(--md-surface-container-highest)' }}>
+              <div className="h-full rounded-full" style={{ width: `${pct}%`, background: color, transition: 'width var(--md-dur-long) var(--md-ease-emphasized-decel)' }} />
+            </div>
+            <div className="flex justify-between md-label-m md-on-surface-variant mt-1 tabular-nums">
+              <span>10</span><span>11</span><span>12</span><span>13</span><span>14</span><span>15 V</span>
+            </div>
           </div>
 
-          {/* Scale ticks */}
-          <div className="flex justify-between text-[8px] font-mono" style={{ color: 'rgba(255,255,255,0.18)' }}>
-            <span>10V</span><span>11V</span><span>12V</span><span>13V</span><span>14V</span><span>15V</span>
-          </div>
-
-          {/* Alert banner */}
-          {voltageVerdict(v) !== 'VERIFIED' && (() => {
-            const critical = voltageVerdict(v) === 'CRITICAL';
+          {verdict !== 'VERIFIED' && (() => {
+            const critical = verdict === 'CRITICAL';
             return (
-              <div className="flex items-center gap-2 px-3 py-2 rounded-xl"
-                style={{
-                  background: critical ? 'rgba(239,68,68,0.08)' : 'rgba(245,158,11,0.08)',
-                  border: `1px solid ${critical ? 'rgba(239,68,68,0.3)' : 'rgba(245,158,11,0.3)'}`,
-                }}>
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                  <path d="M7 1L13 12H1L7 1Z" stroke={critical ? '#ef4444' : '#f59e0b'} strokeWidth="1.3" strokeLinejoin="round"/>
-                  <path d="M7 5.5v3M7 10v.5" stroke={critical ? '#ef4444' : '#f59e0b'} strokeWidth="1.3" strokeLinecap="round"/>
-                </svg>
-                <p className="text-[10px] font-semibold" style={{ color: critical ? '#f87171' : '#fbbf24' }}>
+              <div className="flex items-start gap-3 px-4 py-3"
+                style={{ borderRadius: 'var(--md-shape-md)',
+                  background: critical ? 'var(--md-error-container)' : 'var(--md-warning-container)',
+                  color: critical ? 'var(--md-on-error-container)' : 'var(--md-on-warning-container)' }}>
+                <Icon name={critical ? 'error' : 'warning'} size={20} className="flex-shrink-0" />
+                <p className="md-body-m">
                   {critical
                     ? 'Akü kritik seviyede! Aracı çalıştırın veya acil şarj edin.'
                     : 'Akü düşük. En yakın fırsatta şarj edin.'}
@@ -169,45 +142,41 @@ const BatteryGauge = memo(function BatteryGauge({
           })()}
         </>
       ) : (
-        <div className="flex items-center justify-center gap-2 py-4 text-sm text-center"
-          style={{ color: errorMsg ? 'rgba(248,113,113,0.75)' : 'rgba(255,255,255,0.2)' }}>
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="flex-shrink-0">
-            <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.3" strokeDasharray="4 2"/>
-          </svg>
+        <p className="flex items-center gap-2 md-body-m" style={{ color: errorMsg ? 'var(--md-error)' : 'var(--md-on-surface-variant)' }}>
+          <Icon name={errorMsg ? 'error' : 'info'} size={20} className="flex-shrink-0" />
           {/* Ölçüm yoksa SAYI UYDURULMAZ; araç gerekçe bildirdiyse o gösterilir. */}
           {errorMsg || 'OBD bağlantısı için araç motorunu çalıştırın'}
-        </div>
+        </p>
       )}
-    </div>
+    </section>
   );
 });
 
 // ── DTC code card ─────────────────────────────────────────────────────────────
 
-const DtcCard = memo(function DtcCard({ dtc }: { dtc: DtcCode }) {
+const SEV_TONE: Record<keyof typeof SEV_CONFIG, Tone> = { critical: 'error', warning: 'warning', info: 'primary' };
+
+const DtcCard = memo(function DtcCard({ dtc, first }: { dtc: DtcCode; first?: boolean }) {
   const sev  = SEV_CONFIG[dtc.severity];
   const sysColor = DTC_SYSTEM_COLORS[dtc.system] ?? DTC_SYSTEM_COLORS['Bilinmeyen'];
 
   return (
-    <div className="flex items-start gap-3 px-3 py-3 rounded-xl"
-      style={{ background: sev.bg, border: `1px solid ${sev.border}` }}>
-      <div className="flex-shrink-0 flex flex-col items-center gap-1 pt-0.5">
-        <span className="font-mono font-black text-xs tracking-widest leading-none" style={{ color: sev.color }}>
-          {dtc.code}
-        </span>
-        <span className="text-[7px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-md"
-          style={{ background: `${sev.color}20`, color: sev.color }}>
-          {sev.label}
-        </span>
-      </div>
+    <li className="flex items-start gap-3 px-4 py-3"
+      style={first ? undefined : { borderTop: '1px solid var(--md-outline-variant)' }}>
+      <span className="md-title-m tabular-nums flex-shrink-0 pt-px" style={{ color: sev.color, minWidth: 64 }}>
+        {dtc.code}
+      </span>
       <div className="flex-1 min-w-0">
-        <p className="text-xs font-semibold text-white/80 leading-snug">{dtc.desc}</p>
-        <span className="inline-block mt-1 text-[8px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md"
-          style={{ background: `${sysColor}15`, color: sysColor, border: `1px solid ${sysColor}25` }}>
-          {dtc.system}
-        </span>
+        <p className="md-body-m md-on-surface">{dtc.desc}</p>
+        <div className="mt-1.5 flex flex-wrap items-center gap-2">
+          <StatusPill tone={SEV_TONE[dtc.severity]}>{sev.label}</StatusPill>
+          <span className="md-label-m md-on-surface-variant inline-flex items-center gap-1.5">
+            <span aria-hidden="true" className="w-2 h-2 rounded-full" style={{ background: sysColor }} />
+            {dtc.system}
+          </span>
+        </div>
       </div>
-    </div>
+    </li>
   );
 });
 
@@ -429,19 +398,19 @@ export default function DiagnosticsPanel({ vehicle }: Props) {
 
   if (!vehicle) {
     return (
-      <div className="flex flex-col items-center justify-center gap-3 py-10">
-        <div className="w-12 h-12 rounded-2xl bg-white/[0.03] border border-white/[0.06] flex items-center justify-center">
-          <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
-            <circle cx="11" cy="11" r="8" stroke="rgba(255,255,255,0.2)" strokeWidth="1.5" strokeDasharray="5 3"/>
-          </svg>
-        </div>
-        <p className="text-sm text-white/25">Araç bağlı değil</p>
+      <div className="flex flex-col items-center justify-center gap-3 py-10 text-center">
+        <span aria-hidden="true" className="flex items-center justify-center"
+          style={{ width: 88, height: 88, borderRadius: 'var(--md-shape-xl)', background: 'var(--md-surface-container-high)', color: 'var(--md-on-surface-variant)' }}>
+          <Icon name="directions_car" size={44} />
+        </span>
+        <p className="md-body-l md-on-surface">Araç bağlı değil</p>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-3">
+      <h2 className="md-title-m md-on-surface px-1 pt-3">Araçtan oku</h2>
 
       {/* Battery Voltage */}
       <BatteryGauge
@@ -451,272 +420,169 @@ export default function DiagnosticsPanel({ vehicle }: Props) {
         onRefresh={() => void handleReadVoltage()}
       />
 
-      {/* DTC Section */}
-      <div className="flex flex-col gap-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg flex items-center justify-center"
-              style={{ background: 'rgba(251,191,36,0.12)', border: '1px solid rgba(251,191,36,0.25)' }}>
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                <path d="M7 1L13 12H1L7 1Z" stroke="#fbbf24" strokeWidth="1.3" strokeLinejoin="round"/>
-                <path d="M7 5v3M7 9.5v.5" stroke="#fbbf24" strokeWidth="1.3" strokeLinecap="round"/>
-              </svg>
-            </div>
-            <span className="text-xs font-black uppercase tracking-widest" style={{ color: 'rgba(255,255,255,0.5)' }}>
-              Arıza Kodları (DTC)
-            </span>
-            {dtcs.length > 0 && (
-              <span className="text-[9px] font-black px-2 py-0.5 rounded-full"
-                style={{ background: 'rgba(239,68,68,0.12)', color: '#f87171', border: '1px solid rgba(239,68,68,0.25)' }}>
-                {dtcs.length} KOD
-              </span>
-            )}
-          </div>
-
-          {/* Actions */}
-          <div className="flex gap-2">
-            {phase === 'done' && dtcs.length > 0 && (
-              <button
-                onClick={() => void clearDtc()}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all active:scale-95"
-                style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', color: '#f87171' }}
-              >
-                <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                  <path d="M2 2l6 6M8 2l-6 6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-                </svg>
-                Temizle
-              </button>
-            )}
-            {(phase === 'done' || phase === 'error') && (
-              <button
-                onClick={reset}
-                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all active:scale-95"
-                style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.35)' }}
-              >
-                Sıfırla
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Read button — idle state */}
-        {phase === 'idle' && (
-          <button
-            onClick={() => void readDtc()}
-            className="w-full flex items-center gap-4 px-4 py-4 rounded-2xl transition-all active:scale-[0.98]"
-            style={{
-              background: 'linear-gradient(135deg, rgba(251,191,36,0.08), rgba(245,158,11,0.04))',
-              border: '1.5px solid rgba(251,191,36,0.25)',
-            }}
-          >
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-              style={{ background: 'rgba(251,191,36,0.12)', border: '1px solid rgba(251,191,36,0.25)' }}>
-              <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
-                <circle cx="11" cy="11" r="8" stroke="#fbbf24" strokeWidth="1.5"/>
-                <path d="M11 7v4l2.5 2" stroke="#fbbf24" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            </div>
-            <div className="text-left">
-              <p className="text-sm font-bold text-yellow-300 leading-tight">OBD Arıza Kodu Tara</p>
-              <p className="text-[10px] mt-0.5" style={{ color: 'rgba(251,191,36,0.45)' }}>
-                Araç bilgisayarından DTC kodları okunur
-              </p>
-            </div>
-            <svg className="ml-auto" width="14" height="14" viewBox="0 0 14 14" fill="none">
-              <path d="M5 3l4 4-4 4" stroke="rgba(251,191,36,0.4)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-          </button>
-        )}
-
-        {/* Sending */}
-        {phase === 'sending' && (
-          <div className="flex items-center justify-center gap-3 py-5 rounded-2xl"
-            style={{ background: 'rgba(251,191,36,0.05)', border: '1.5px solid rgba(251,191,36,0.15)' }}>
-            <svg className="animate-spin w-5 h-5 text-yellow-400" viewBox="0 0 20 20" fill="none">
-              <circle cx="10" cy="10" r="7" stroke="currentColor" strokeWidth="1.5"
-                strokeDasharray="32" strokeDashoffset="10" opacity="0.4"/>
-              <path d="M10 3a7 7 0 017 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-            </svg>
-            <span className="text-sm text-yellow-300/70 font-medium">Komut gönderiliyor…</span>
-          </div>
-        )}
-
-        {/* Waiting for car */}
-        {phase === 'waiting' && (
-          <div className="flex flex-col items-center gap-3 py-6 rounded-2xl"
-            style={{ background: 'rgba(251,191,36,0.04)', border: '1.5px solid rgba(251,191,36,0.12)' }}>
-            <div className="relative w-10 h-10">
-              <svg className="animate-spin absolute inset-0 w-10 h-10 text-yellow-400" viewBox="0 0 40 40" fill="none">
-                <circle cx="20" cy="20" r="16" stroke="currentColor" strokeWidth="2"
-                  strokeDasharray="72" strokeDashoffset="24" opacity="0.3"/>
-                <path d="M20 4a16 16 0 0116 16" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-              </svg>
-              <div className="absolute inset-0 flex items-center justify-center">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                  <path d="M8 1L15 13H1L8 1Z" stroke="#fbbf24" strokeWidth="1.3" strokeLinejoin="round"/>
-                  <path d="M8 6v3M8 10.5v.5" stroke="#fbbf24" strokeWidth="1.3" strokeLinecap="round"/>
-                </svg>
-              </div>
-            </div>
-            <div className="text-center">
-              <p className="text-sm font-bold text-yellow-300/80">Araç OBD Tarıyor</p>
-              <p className="text-[10px] mt-1" style={{ color: 'rgba(251,191,36,0.35)' }}>
-                Araç sistemlerini okumak birkaç saniye alabilir
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* Clearing */}
-        {phase === 'clearing' && (
-          <div className="flex items-center justify-center gap-3 py-5 rounded-2xl"
-            style={{ background: 'rgba(239,68,68,0.05)', border: '1.5px solid rgba(239,68,68,0.15)' }}>
-            <svg className="animate-spin w-5 h-5 text-red-400" viewBox="0 0 20 20" fill="none">
-              <circle cx="10" cy="10" r="7" stroke="currentColor" strokeWidth="1.5"
-                strokeDasharray="32" strokeDashoffset="10" opacity="0.4"/>
-              <path d="M10 3a7 7 0 017 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-            </svg>
-            <span className="text-sm text-red-300/70 font-medium">Arıza kodları temizleniyor…</span>
-          </div>
-        )}
-
-        {/* Error */}
-        {phase === 'error' && (
-          <div className="flex flex-col gap-2">
-            <div className="flex items-center gap-3 px-3 py-3 rounded-xl"
-              style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)' }}>
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <circle cx="8" cy="8" r="6" stroke="#ef4444" strokeWidth="1.3"/>
-                <path d="M6 6l4 4M10 6l-4 4" stroke="#ef4444" strokeWidth="1.3" strokeLinecap="round"/>
-              </svg>
-              <p className="text-xs text-red-300/80">{errMsg || 'Arıza kodu okuması başarısız.'}</p>
-            </div>
-            <button
-              onClick={() => void readDtc()}
-              className="w-full py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-95"
-              style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.22)', color: '#f87171' }}
-            >
-              ↺ Tekrar Tara
-            </button>
-          </div>
-        )}
-
-        {/* Results */}
-        {phase === 'done' && (
-          <div className="flex flex-col gap-2">
-            {/* Timestamp */}
-            {readAt && (
-              <p className="text-[9px] font-mono text-white/20 px-1">
+      {/* DTC Section — tek kart; faz içeriği kartın gövdesidir */}
+      <section className="md-card-elevated overflow-hidden" aria-label="Arıza kodları">
+        <div className="flex items-center gap-4 px-4 pt-4 pb-3">
+          <IconBadge name="car_repair" tone={dtcs.length > 0 ? 'error' : 'neutral'} />
+          <div className="flex-1 min-w-0">
+            <p className="md-title-m md-on-surface">Arıza Kodları (DTC)</p>
+            {readAt && phase === 'done' ? (
+              <p className="md-body-s md-on-surface-variant tabular-nums">
                 Son okuma: {new Date(readAt).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
               </p>
-            )}
-
-            {/* Temizleme/okuma gerekçesi — `done` fazında da görünmeli, yoksa
-                reddedilen silme sessizce başarılı sanılır. */}
-            {errMsg && (
-              <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl"
-                style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)' }}>
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="flex-shrink-0">
-                  <circle cx="7" cy="7" r="5.5" stroke="#ef4444" strokeWidth="1.3"/>
-                  <path d="M5.2 5.2l3.6 3.6M8.8 5.2l-3.6 3.6" stroke="#ef4444" strokeWidth="1.3" strokeLinecap="round"/>
-                </svg>
-                <p className="text-[10px] font-semibold text-red-300/85">{errMsg}</p>
-              </div>
-            )}
-
-            {/* Demo verisi rozeti — gerçek araç okuması DEĞİL. */}
-            {demo && (
-              <div className="flex items-center gap-2 px-3 py-2 rounded-xl"
-                style={{ background: 'rgba(167,139,250,0.08)', border: '1px solid rgba(167,139,250,0.28)' }}>
-                <span className="text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded"
-                  style={{ background: 'rgba(167,139,250,0.18)', color: '#c4b5fd' }}>DEMO</span>
-                <p className="text-[10px]" style={{ color: 'rgba(196,181,253,0.75)' }}>
-                  Bu sonuç örnek veridir — hiçbir araçtan okunmadı.
-                </p>
-              </div>
-            )}
-
-            {/* Kısmi tarama — boş liste "temiz" DEĞİLDİR. */}
-            {partial && (
-              <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl"
-                style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.3)' }}>
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="flex-shrink-0">
-                  <path d="M7 1L13 12H1L7 1Z" stroke="#f59e0b" strokeWidth="1.3" strokeLinejoin="round"/>
-                  <path d="M7 5.5v3M7 10v.5" stroke="#f59e0b" strokeWidth="1.3" strokeLinecap="round"/>
-                </svg>
-                <p className="text-[10px] font-semibold" style={{ color: '#fbbf24' }}>
-                  Tarama tamamlanamadı — en az bir sistem okunamadı. Bu liste eksik olabilir.
-                </p>
-              </div>
-            )}
-
-            {dtcs.length === 0 ? (
-              partial ? (
-                /* Kısmi taramada "Arıza Kodu Yok" YAZILAMAZ — okunamayan sistem,
-                   arızası olmayan sistemle aynı şey değildir (fail-closed). */
-                <div className="flex flex-col items-center gap-2 py-6 rounded-2xl"
-                  style={{ background: 'rgba(245,158,11,0.05)', border: '1px solid rgba(245,158,11,0.18)' }}>
-                  <div className="w-10 h-10 rounded-xl flex items-center justify-center"
-                    style={{ background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.22)' }}>
-                    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-                      <circle cx="9" cy="9" r="7" stroke="#f59e0b" strokeWidth="1.6" strokeDasharray="4 3"/>
-                    </svg>
-                  </div>
-                  <p className="text-sm font-bold" style={{ color: '#fbbf24' }}>Sonuç Belirsiz</p>
-                  <p className="text-[10px] text-center px-4" style={{ color: 'rgba(251,191,36,0.5)' }}>
-                    Okunabilen sistemlerde kod bulunamadı, ancak tarama eksik kaldı.
-                    Kontak açıkken tekrar deneyin.
-                  </p>
-                </div>
-              ) : (
-              <div className="flex flex-col items-center gap-2 py-6 rounded-2xl"
-                style={{ background: 'rgba(52,211,153,0.06)', border: '1px solid rgba(52,211,153,0.18)' }}>
-                <div className="w-10 h-10 rounded-xl flex items-center justify-center"
-                  style={{ background: 'rgba(52,211,153,0.12)', border: '1px solid rgba(52,211,153,0.22)' }}>
-                  <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-                    <path d="M3 9l4.5 4.5L15 5" stroke="#34d399" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
-                </div>
-                <p className="text-sm font-bold text-emerald-300">Arıza Kodu Yok</p>
-                <p className="text-[10px] text-emerald-400/40">Sistemler normal çalışıyor</p>
-              </div>
-              )
             ) : (
-              <>
-                {/* Summary bar */}
-                <div className="flex gap-2 px-1">
-                  {(['critical', 'warning', 'info'] as const).map((sev) => {
-                    const count = dtcs.filter((d) => d.severity === sev).length;
-                    if (!count) return null;
-                    const cfg = SEV_CONFIG[sev];
-                    return (
-                      <div key={sev} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg"
-                        style={{ background: cfg.bg, border: `1px solid ${cfg.border}` }}>
-                        <span className="text-base font-black leading-none" style={{ color: cfg.color }}>{count}</span>
-                        <span className="text-[8px] font-black uppercase tracking-wider" style={{ color: cfg.color }}>{cfg.label}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {/* Code list */}
-                <div className="flex flex-col gap-2">
-                  {dtcs.map((dtc) => <DtcCard key={dtc.code} dtc={dtc} />)}
-                </div>
-
-                {/* Clear all button */}
-                <button
-                  onClick={() => void clearDtc()}
-                  className="w-full py-3 rounded-xl font-black text-[11px] uppercase tracking-widest text-red-300 transition-all active:scale-95 mt-1"
-                  style={{ background: 'rgba(239,68,68,0.07)', border: '1.5px solid rgba(239,68,68,0.22)' }}
-                >
-                  Tüm Arıza Kodlarını Temizle
-                </button>
-              </>
+              <p className="md-body-s md-on-surface-variant">Araç bilgisayarından DTC kodları okunur</p>
             )}
           </div>
-        )}
-      </div>
+          {dtcs.length > 0 && <StatusPill tone="error">{dtcs.length} kod</StatusPill>}
+        </div>
+
+        <div className="px-4 pb-4 flex flex-col gap-3">
+          {/* Read button — idle state */}
+          {phase === 'idle' && (
+            <button onClick={() => void readDtc()} className="md-btn-filled md-state w-full" style={{ minHeight: 48 }}>
+              <Icon name="search" size={20} />
+              OBD Arıza Kodu Tara
+            </button>
+          )}
+
+          {/* Sending */}
+          {phase === 'sending' && (
+            <div className="flex items-center gap-3 py-2 md-on-surface" role="status">
+              <span style={{ color: 'var(--md-primary)' }}><svg className="animate-spin w-5 h-5 flex-shrink-0" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+              <circle cx="10" cy="10" r="7" stroke="currentColor" strokeWidth="2" strokeDasharray="32" strokeDashoffset="10" opacity="0.3"/>
+              <path d="M10 3a7 7 0 017 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+            </svg></span>
+              <span className="md-body-m">Komut gönderiliyor…</span>
+            </div>
+          )}
+
+          {/* Waiting for car */}
+          {phase === 'waiting' && (
+            <div className="flex items-start gap-3 py-2 md-on-surface" role="status">
+              <span className="mt-0.5" style={{ color: 'var(--md-primary)' }}><svg className="animate-spin w-5 h-5 flex-shrink-0" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+              <circle cx="10" cy="10" r="7" stroke="currentColor" strokeWidth="2" strokeDasharray="32" strokeDashoffset="10" opacity="0.3"/>
+              <path d="M10 3a7 7 0 017 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+            </svg></span>
+              <div>
+                <p className="md-body-l">Araç OBD Tarıyor</p>
+                <p className="md-body-s md-on-surface-variant">Araç sistemlerini okumak birkaç saniye alabilir</p>
+              </div>
+            </div>
+          )}
+
+          {/* Clearing */}
+          {phase === 'clearing' && (
+            <div className="flex items-center gap-3 py-2 md-on-surface" role="status">
+              <span style={{ color: 'var(--md-error)' }}><svg className="animate-spin w-5 h-5 flex-shrink-0" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+              <circle cx="10" cy="10" r="7" stroke="currentColor" strokeWidth="2" strokeDasharray="32" strokeDashoffset="10" opacity="0.3"/>
+              <path d="M10 3a7 7 0 017 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+            </svg></span>
+              <span className="md-body-m">Arıza kodları temizleniyor…</span>
+            </div>
+          )}
+
+          {/* Error */}
+          {phase === 'error' && (
+            <>
+              <div className="flex items-start gap-3 px-4 py-3"
+                style={{ borderRadius: 'var(--md-shape-md)', background: 'var(--md-error-container)', color: 'var(--md-on-error-container)' }}>
+                <Icon name="error" size={20} className="flex-shrink-0" />
+                <p className="md-body-m">{errMsg || 'Arıza kodu okuması başarısız.'}</p>
+              </div>
+              <div className="flex justify-end gap-2">
+                <button onClick={reset} className="md-btn-text md-state min-h-12">Sıfırla</button>
+                <button onClick={() => void readDtc()} className="md-btn-tonal md-state min-h-12">
+                  <Icon name="refresh" size={18} />
+                  Tekrar Tara
+                </button>
+              </div>
+            </>
+          )}
+
+          {/* Results */}
+          {phase === 'done' && (
+            <>
+              {/* Temizleme/okuma gerekçesi — `done` fazında da görünmeli, yoksa
+                  reddedilen silme sessizce başarılı sanılır. */}
+              {errMsg && (
+                <div className="flex items-start gap-3 px-4 py-3"
+                  style={{ borderRadius: 'var(--md-shape-md)', background: 'var(--md-error-container)', color: 'var(--md-on-error-container)' }}>
+                  <Icon name="error" size={20} className="flex-shrink-0" />
+                  <p className="md-body-m">{errMsg}</p>
+                </div>
+              )}
+
+              {/* Demo verisi rozeti — gerçek araç okuması DEĞİL. */}
+              {demo && (
+                <div className="flex items-center gap-3 px-4 py-3"
+                  style={{ borderRadius: 'var(--md-shape-md)', background: 'var(--md-tertiary-container)', color: 'var(--md-on-tertiary-container)' }}>
+                  <span className="md-label-m px-2 py-0.5" style={{ borderRadius: 'var(--md-shape-xs)', border: '1px solid currentColor' }}>DEMO</span>
+                  <p className="md-body-m">Bu sonuç örnek veridir — hiçbir araçtan okunmadı.</p>
+                </div>
+              )}
+
+              {/* Kısmi tarama — boş liste "temiz" DEĞİLDİR. */}
+              {partial && (
+                <div className="flex items-start gap-3 px-4 py-3"
+                  style={{ borderRadius: 'var(--md-shape-md)', background: 'var(--md-warning-container)', color: 'var(--md-on-warning-container)' }}>
+                  <Icon name="warning" size={20} className="flex-shrink-0" />
+                  <p className="md-body-m">Tarama tamamlanamadı — en az bir sistem okunamadı. Bu liste eksik olabilir.</p>
+                </div>
+              )}
+
+              {dtcs.length === 0 ? (
+                partial ? (
+                  /* Kısmi taramada "Arıza Kodu Yok" YAZILAMAZ — okunamayan sistem,
+                     arızası olmayan sistemle aynı şey değildir (fail-closed). */
+                  <div className="flex flex-col items-center text-center gap-2 py-4">
+                    <IconBadge name="info" tone="warning" size={56} />
+                    <p className="md-title-m md-on-surface mt-1">Sonuç Belirsiz</p>
+                    <p className="md-body-m md-on-surface-variant max-w-xs">
+                      Okunabilen sistemlerde kod bulunamadı, ancak tarama eksik kaldı.
+                      Kontak açıkken tekrar deneyin.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center text-center gap-2 py-4">
+                    <IconBadge name="check_circle" tone="success" size={56} />
+                    <p className="md-title-m md-on-surface mt-1">Arıza Kodu Yok</p>
+                    <p className="md-body-m md-on-surface-variant">Sistemler normal çalışıyor</p>
+                  </div>
+                )
+              ) : (
+                <>
+                  {/* Summary bar */}
+                  <div className="flex flex-wrap gap-2">
+                    {(['critical', 'warning', 'info'] as const).map((sev) => {
+                      const count = dtcs.filter((d) => d.severity === sev).length;
+                      if (!count) return null;
+                      return <StatusPill key={sev} tone={SEV_TONE[sev]}>{count} {SEV_CONFIG[sev].label}</StatusPill>;
+                    })}
+                  </div>
+
+                  {/* Code list */}
+                  <ul className="-mx-4" style={{ borderTop: '1px solid var(--md-outline-variant)', borderBottom: '1px solid var(--md-outline-variant)' }}>
+                    {dtcs.map((dtc, i) => <DtcCard key={dtc.code} dtc={dtc} first={i === 0} />)}
+                  </ul>
+                </>
+              )}
+
+              <div className="flex flex-wrap justify-end gap-2">
+                <button onClick={reset} className="md-btn-text md-state min-h-12">Sıfırla</button>
+                {dtcs.length > 0 && (
+                  /* Clear all button */
+                  <button onClick={() => void clearDtc()} className="md-btn-outlined md-state min-h-12"
+                    style={{ color: 'var(--md-error)', borderColor: 'var(--md-error)' }}>
+                    <Icon name="delete" size={18} />
+                    Tüm Arıza Kodlarını Temizle
+                  </button>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      </section>
     </div>
   );
 }

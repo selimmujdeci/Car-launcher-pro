@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import type { LiveVehicle } from '@/types/realtime';
 /* Konum tazeliği KANONİK otoriteden okunur — bu bileşen hüküm üretmez. */
 import { ageLabel } from '@/lib/fleet/vehicleTelemetryFreshness';
+import { Icon } from '@/components/pwa/ui/Icon';
 
 /* ── Parking spot storage ─────────────────────────────────────────────────── */
 
@@ -390,168 +391,153 @@ export default function VehicleMapView({ vehicle }: Props) {
       <div ref={containerRef} className="flex-1 w-full" style={{ minHeight: 0 }} />
 
       {initErr && (
-        <div className="absolute inset-0 flex items-center justify-center bg-[#060d1a]">
-          <p className="text-sm text-white/40">{initErr}</p>
+        <div className="absolute inset-0 flex items-center justify-center px-8 text-center"
+          style={{ background: 'var(--md-surface)' }}>
+          <p className="md-body-m md-on-surface-variant">{initErr}</p>
         </div>
       )}
 
-      {/* Mode toggle — top left */}
-      <div className="absolute top-3 left-3 z-10 flex gap-1.5 p-1 rounded-xl"
-        style={{ background: 'rgba(6,13,26,0.85)', backdropFilter: 'blur(12px)', border: '1px solid rgba(255,255,255,0.08)' }}>
-        {(['vehicle', 'parking'] as MapMode[]).map((m) => (
-          <button
-            key={m}
-            onClick={() => switchMode(m)}
-            className="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all"
-            style={{
-              background: mode === m ? 'rgba(59,130,246,0.25)' : 'transparent',
-              color:       mode === m ? '#60a5fa' : 'rgba(255,255,255,0.3)',
-              border:      mode === m ? '1px solid rgba(59,130,246,0.4)' : '1px solid transparent',
-            }}
-          >
-            {m === 'vehicle' ? 'Araç' : 'Parkım'}
-          </button>
-        ))}
+      {/* Mod seçimi — üstte, haritanın üzerinde tonal segment */}
+      <div role="tablist" aria-label="Harita modu"
+        className="absolute top-3 left-3 z-10 flex p-1 gap-1"
+        style={{ background: 'var(--md-surface-container-high)', borderRadius: 'var(--md-shape-full)',
+          boxShadow: '0 1px 3px color-mix(in srgb, var(--md-scrim) 25%, transparent)' }}>
+        {(['vehicle', 'parking'] as MapMode[]).map((m) => {
+          const on = mode === m;
+          return (
+            <button
+              key={m}
+              role="tab"
+              aria-selected={on}
+              onClick={() => switchMode(m)}
+              className="md-state md-label-l inline-flex items-center gap-1.5 px-4"
+              style={{
+                minHeight: 40, borderRadius: 'var(--md-shape-full)',
+                background: on ? 'var(--md-secondary-container)' : 'transparent',
+                color: on ? 'var(--md-on-secondary-container)' : 'var(--md-on-surface-variant)',
+              }}
+            >
+              <Icon name={m === 'vehicle' ? 'directions_car' : 'location_on'} size={18} />
+              {m === 'vehicle' ? 'Araç' : 'Parkım'}
+            </button>
+          );
+        })}
       </div>
 
-      {/* Top right controls */}
-      <div className="absolute top-3 right-3 z-10 flex flex-col gap-2">
-        {/* Locate me */}
+      {/* Sağ üst — küçük yüzen düğmeler */}
+      <div className="absolute top-3 right-3 z-10 flex flex-col gap-3">
         <button
           onClick={locatePhone}
-          className="w-9 h-9 rounded-xl flex items-center justify-center transition-all active:scale-90"
-          style={{ background: 'rgba(6,13,26,0.85)', backdropFilter: 'blur(12px)', border: '1px solid rgba(255,255,255,0.1)' }}
+          aria-label="Konumumu göster"
+          className="md-state flex items-center justify-center"
+          style={{ width: 48, height: 48, borderRadius: 'var(--md-shape-md)', background: 'var(--md-surface-container-high)', color: 'var(--md-primary)',
+            boxShadow: '0 1px 3px color-mix(in srgb, var(--md-scrim) 25%, transparent)' }}
         >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <circle cx="8" cy="8" r="3" stroke="#3b82f6" strokeWidth="1.5"/>
-            <path d="M8 1v2M8 13v2M1 8h2M13 8h2" stroke="#3b82f6" strokeWidth="1.5" strokeLinecap="round"/>
-          </svg>
+          <Icon name="my_location" />
         </button>
-        {/* Share location */}
         {vehicle?.lat !== 0 && (
           <button
             onClick={() => void handleShareLocation()}
-            className="w-9 h-9 rounded-xl flex items-center justify-center transition-all active:scale-90"
+            aria-label={shareCopied ? 'Kopyalandı!' : 'Konumu Paylaş'}
             title={shareCopied ? 'Kopyalandı!' : 'Konumu Paylaş'}
-            style={{
-              background:  shareCopied ? 'rgba(52,211,153,0.2)' : 'rgba(6,13,26,0.85)',
-              backdropFilter: 'blur(12px)',
-              border:      shareCopied ? '1px solid rgba(52,211,153,0.4)' : '1px solid rgba(255,255,255,0.1)',
-            }}
+            className="md-state flex items-center justify-center"
+            style={{ width: 48, height: 48, borderRadius: 'var(--md-shape-md)',
+              background: shareCopied ? 'var(--md-success-container)' : 'var(--md-surface-container-high)',
+              color: shareCopied ? 'var(--md-on-success-container)' : 'var(--md-on-surface-variant)',
+              boxShadow: '0 1px 3px color-mix(in srgb, var(--md-scrim) 25%, transparent)' }}
           >
-            {shareCopied ? (
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                <path d="M2 7l4 4 6-6" stroke="#34d399" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            ) : (
-              <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
-                <circle cx="12" cy="3" r="2" stroke="rgba(255,255,255,0.5)" strokeWidth="1.3"/>
-                <circle cx="3"  cy="7.5" r="2" stroke="rgba(255,255,255,0.5)" strokeWidth="1.3"/>
-                <circle cx="12" cy="12" r="2" stroke="rgba(255,255,255,0.5)" strokeWidth="1.3"/>
-                <path d="M5 6.5l5.5-3M5 8.5l5.5 3" stroke="rgba(255,255,255,0.5)" strokeWidth="1.3" strokeLinecap="round"/>
-              </svg>
-            )}
+            <Icon name={shareCopied ? 'check_circle' : 'share'} />
           </button>
         )}
       </div>
 
-      {/* Bottom info + controls */}
-      <div className="absolute bottom-0 left-0 right-0 z-10 px-3 pb-3 pt-2 flex flex-col gap-2"
-        style={{ background: 'linear-gradient(to top, rgba(6,13,26,0.95) 60%, transparent)' }}>
+      {/* Alt bilgi kartı — Google Haritalar'daki yer kartı gibi; koyu gradyan YOK */}
+      <div className="absolute bottom-0 left-0 right-0 z-10 px-4 pt-4 pb-4 flex flex-col gap-3"
+        style={{ background: 'var(--md-surface-container-low)', borderRadius: 'var(--md-shape-xl) var(--md-shape-xl) 0 0',
+          boxShadow: '0 -2px 8px color-mix(in srgb, var(--md-scrim) 12%, transparent)' }}>
 
         {/* Distance badge */}
         {mode === 'vehicle' && vehicle?.lat && distVeh && (
-          <div className="px-3 py-2 rounded-xl"
-            style={{ background: 'rgba(52,211,153,0.08)', border: '1px solid rgba(52,211,153,0.2)' }}>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 min-w-0">
-                <span className={`w-2 h-2 rounded-full shrink-0 ${vehicle.status === 'online' ? 'bg-emerald-400' : 'bg-white/20'}`}/>
-                <span className="text-xs font-bold text-white/80 truncate">{vehicle.name} · {vehicle.plate}</span>
+          <div className="flex items-start gap-3">
+            <span aria-hidden="true" className="w-10 h-10 flex items-center justify-center flex-shrink-0"
+              style={{ borderRadius: 'var(--md-shape-full)', background: 'var(--md-primary-container)', color: 'var(--md-on-primary-container)' }}>
+              <Icon name="directions_car" size={22} />
+            </span>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="md-title-m md-on-surface truncate">{vehicle.name} · {vehicle.plate}</span>
+                <span className="md-title-m md-on-surface flex-shrink-0 tabular-nums">{distVeh} uzakta</span>
               </div>
-              <span className="text-xs font-black text-emerald-400 shrink-0">{distVeh} uzakta</span>
+              {/* ── KONUM TAZELİĞİ (V1 dürüstlük kapanışı) ────────────────────
+                  ÖLÇÜLEN KUSUR: pin ve "x km uzakta" tazelik BELİRTİLMEDEN
+                  gösteriliyordu. Günler önce alınmış bir konum, ekranda
+                  "araç şu anda burada" gibi okunuyordu (STALE ≠ LIVE).
+                  Hüküm ÜRETİLMEZ: kanonik `vehicleTelemetryFreshness`
+                  (`locationIsLive` · `locationAgeMs`) OKUNUR — Aracım
+                  ekranının `HomeLocation`ı ile BİREBİR aynı kaynak ve aynı
+                  dil. Yaş bilinmiyorsa "Bilinmiyor" denir, "şimdi" DENMEZ. */}
+              <p className="md-body-s mt-0.5 inline-flex items-center gap-1 truncate"
+                style={{ color: vehicle.telemetry?.locationIsLive ? 'var(--md-success)' : 'var(--md-on-surface-variant)' }}>
+                <Icon name={vehicle.telemetry?.locationIsLive ? 'check_circle' : 'history_toggle_off'} size={16} />
+                {vehicle.telemetry?.locationIsLive ? 'Aracın güncel konumu' : 'Aracın son bilinen konumu'}
+                {' · '}{ageLabel(vehicle.telemetry?.locationAgeMs ?? null)}
+              </p>
             </div>
-            {/* ── KONUM TAZELİĞİ (V1 dürüstlük kapanışı) ────────────────────
-                ÖLÇÜLEN KUSUR: pin ve "x km uzakta" tazelik BELİRTİLMEDEN
-                gösteriliyordu. Günler önce alınmış bir konum, ekranda
-                "araç şu anda burada" gibi okunuyordu (STALE ≠ LIVE).
-                Hüküm ÜRETİLMEZ: kanonik `vehicleTelemetryFreshness`
-                (`locationIsLive` · `locationAgeMs`) OKUNUR — Aracım
-                ekranının `HomeLocation`ı ile BİREBİR aynı kaynak ve aynı
-                dil. Yaş bilinmiyorsa "Bilinmiyor" denir, "şimdi" DENMEZ. */}
-            <p className="text-[10px] mt-1 truncate"
-              style={{ color: vehicle.telemetry?.locationIsLive ? 'rgba(52,211,153,0.7)' : 'rgba(255,255,255,0.35)' }}>
-              {vehicle.telemetry?.locationIsLive ? 'Aracın güncel konumu' : 'Aracın son bilinen konumu'}
-              {' · '}{ageLabel(vehicle.telemetry?.locationAgeMs ?? null)}
-            </p>
           </div>
         )}
 
         {mode === 'vehicle' && vehicle?.lat === 0 && (
-          <div className="px-3 py-2 rounded-xl text-center"
-            style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}>
-            <p className="text-xs text-white/30">Araç konumu henüz alınmadı</p>
-          </div>
+          <p className="md-body-m md-on-surface-variant flex items-center gap-2">
+            <Icon name="info" size={20} />Araç konumu henüz alınmadı
+          </p>
         )}
 
         {mode === 'parking' && parking && (
-          <div className="px-3 py-2 rounded-xl"
-            style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)' }}>
-            <div className="flex items-start justify-between gap-2">
-              <div className="flex-1 min-w-0">
-                <p className="text-xs font-bold text-amber-300 truncate">{parking.address}</p>
-                <p className="text-[10px] text-amber-400/50 mt-0.5">{savedAgo} kaydedildi{distPark ? ` · ${distPark} uzakta` : ''}</p>
-              </div>
-              <button
-                onClick={() => { clearParking(); setParking(null); }}
-                className="text-[10px] text-white/25 hover:text-red-400/60 transition-colors flex-shrink-0 mt-0.5"
-              >
-                Sil
-              </button>
+          <div className="flex items-start gap-3">
+            <span aria-hidden="true" className="w-10 h-10 flex items-center justify-center flex-shrink-0"
+              style={{ borderRadius: 'var(--md-shape-full)', background: 'var(--md-warning-container)', color: 'var(--md-on-warning-container)' }}>
+              <Icon name="location_on" size={22} />
+            </span>
+            <div className="flex-1 min-w-0">
+              <p className="md-title-m md-on-surface truncate">{parking.address}</p>
+              <p className="md-body-s md-on-surface-variant mt-0.5">{savedAgo} kaydedildi{distPark ? ` · ${distPark} uzakta` : ''}</p>
             </div>
+            <button
+              onClick={() => { clearParking(); setParking(null); }}
+              aria-label="Park yerini sil"
+              className="md-icon-btn md-state flex-shrink-0 -mt-2 -mr-2"
+            >
+              <Icon name="delete" />
+            </button>
           </div>
         )}
 
         {mode === 'parking' && !parking && (
-          <div className="px-3 py-2 rounded-xl text-center"
-            style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}>
-            <p className="text-xs text-white/30">Henüz park yeri kaydedilmedi</p>
-          </div>
+          <p className="md-body-m md-on-surface-variant flex items-center gap-2">
+            <Icon name="info" size={20} />Henüz park yeri kaydedilmedi
+          </p>
         )}
 
-        {/* Action buttons */}
+        {/* Eylemler — birincil "Park Ettim", yol tarifi ikincil */}
         <div className="flex gap-2">
           <button
             onClick={handleSaveParking}
             disabled={savingPark}
-            className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all active:scale-[0.97] disabled:opacity-50"
-            style={{ background: 'rgba(245,158,11,0.15)', border: '1.5px solid rgba(245,158,11,0.3)', color: '#fbbf24' }}
+            className="md-btn-filled md-state flex-1 disabled:opacity-50"
+            style={{ minHeight: 48 }}
           >
             {savingPark ? (
-              <svg className="animate-spin w-3.5 h-3.5" viewBox="0 0 14 14" fill="none">
-                <circle cx="7" cy="7" r="5" stroke="currentColor" strokeWidth="1.5"
-                  strokeDasharray="22" strokeDashoffset="7" opacity="0.4"/>
+              <svg className="animate-spin w-4 h-4" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                <circle cx="7" cy="7" r="5" stroke="currentColor" strokeWidth="1.5" strokeDasharray="22" strokeDashoffset="7" opacity="0.4"/>
                 <path d="M7 2a5 5 0 015 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
               </svg>
-            ) : (
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                <path d="M7 1C4.79 1 3 2.79 3 5c0 2.94 4 8 4 8s4-5.06 4-8c0-2.21-1.79-4-4-4z"
-                  stroke="currentColor" strokeWidth="1.3"/>
-                <circle cx="7" cy="5" r="1.2" fill="currentColor"/>
-              </svg>
-            )}
+            ) : <Icon name="location_on" size={20} />}
             {savingPark ? 'Kaydediliyor…' : 'Park Ettim'}
           </button>
 
           {parking && (
-            <button
-              onClick={handleNavigateToParking}
-              className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all active:scale-[0.97]"
-              style={{ background: 'rgba(59,130,246,0.15)', border: '1.5px solid rgba(59,130,246,0.3)', color: '#60a5fa' }}
-            >
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                <path d="M2 7l4-4 4 4M6 3v8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"
-                  transform="rotate(90 7 7)"/>
-              </svg>
+            <button onClick={handleNavigateToParking} className="md-btn-tonal md-state flex-1" style={{ minHeight: 48 }}>
+              <Icon name="near_me" size={20} />
               Yol Tarifi Al
             </button>
           )}
@@ -559,13 +545,11 @@ export default function VehicleMapView({ vehicle }: Props) {
           {vehicle?.lat !== 0 && mode === 'parking' && (
             <button
               onClick={() => vehicle?.lat && panTo(vehicle.lat, vehicle.lng)}
-              className="w-11 flex items-center justify-center py-3 rounded-xl transition-all active:scale-[0.97]"
-              style={{ background: 'rgba(52,211,153,0.1)', border: '1.5px solid rgba(52,211,153,0.25)', color: '#34d399' }}
+              aria-label="Aracı göster"
+              className="md-state flex items-center justify-center flex-shrink-0"
+              style={{ width: 48, height: 48, borderRadius: 'var(--md-shape-full)', border: '1px solid var(--md-outline)', color: 'var(--md-on-surface-variant)' }}
             >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <path d="M2 10L4.5 5.5Q5.5 4 7 4H9Q10.5 4 11.5 5.5L14 10V12.5Q14 14 12.5 14H3.5Q2 14 2 12.5Z"
-                  stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
-              </svg>
+              <Icon name="directions_car" />
             </button>
           )}
         </div>
