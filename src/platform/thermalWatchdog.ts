@@ -267,9 +267,16 @@ function _computeLevel(tempC: number, cur: ThermalLevel): ThermalLevel {
  * Not: Downgrade anında, upgrade 30s stabilite bekler (ARM hysteresis).
  */
 function _notifyRuntime(level: ThermalLevel): void {
-  if (level >= 2) {
-    // L2 / L3: yüksek ısı → anlık SAFE_MODE downgrade
+  if (level >= 3) {
+    // L3 (≥65°C): kritik → SAFE_MODE (minimum kaynak tüketimi)
     runtimeManager.setMode(RuntimeMode.SAFE_MODE, 'High Temperature');
+  } else if (level === 2) {
+    /* L2 (≥55°C): BASIC_JS — belgelenen sözleşme. Eskiden burada SAFE_MODE vardı:
+       şarjdaki telefon / yazın araçtaki ünite 55°C'yi kolayca görür, SAFE_MODE'a düşer
+       ve crash-recovery bir SONRAKİ açılışı da SAFE_MODE'da başlatırdı (saha 2026-09-27:
+       telefonda 56°C uyarısının ardından "previous session ended in SAFE_MODE").
+       L2'nin kendi önlemleri (parlaklık %50, radar senkronu durdurma) zaten devrede. */
+    runtimeManager.setMode(RuntimeMode.BASIC_JS, 'thermal-hot');
   } else if (level === 1) {
     // L1: hafif ısınma → blur/anim kapalı, GPU tasarrufu
     runtimeManager.setMode(RuntimeMode.BASIC_JS, 'thermal-warm');
