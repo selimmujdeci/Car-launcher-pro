@@ -558,6 +558,15 @@
   /* Liste öğesi (Daha Fazla, ayarlar) — 56/72dp satır. */
   .md-list-item { display: flex; align-items: center; gap: 16px; min-height: 56px; padding: 8px 16px; text-align: left; width: 100%; }
 
+  /* Alt sayfa girişi — M3 emphasized decelerate, 400ms. */
+  .md-sheet { animation: md-sheet-in var(--md-dur-long) var(--md-ease-emphasized-decel); }
+  .md-sheet-scrim { animation: md-fade-in var(--md-dur-medium) var(--md-ease-standard); }
+  /* Yüzey (sekme) değişiminde içerik yumuşakça gelir — dikkat dağıtmayacak kadar kısa. */
+  .md-enter { animation: md-enter var(--md-dur-medium) var(--md-ease-emphasized-decel); }
+  @keyframes md-sheet-in { from { transform: translateY(100%); } to { transform: none; } }
+  @keyframes md-fade-in { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes md-enter { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
   @media (prefers-reduced-motion: reduce) {
     [data-pwa-theme] *, [data-pwa-theme] *::before, [data-pwa-theme] *::after {
       transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important;

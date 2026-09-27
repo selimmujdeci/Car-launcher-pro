@@ -19,6 +19,8 @@ import { useAccountCleanupRuntime } from '@/security/accountCleanup/useAccountCl
 import { performLocalSecurityReset } from '@/security/accountCleanup/localSecurityReset';
 import { clearLocalVehicle, getLocalVehicle, unpairVehicle } from '@/lib/pairingService';
 import { freshnessLabel } from '@/lib/fleet/vehicleTelemetryFreshness';
+import { Icon, type IconName } from '@/components/pwa/ui/Icon';
+import { BottomSheet, ListRow } from '@/components/pwa/ui/primitives';
 
 const VehicleMapView     = lazy(() => import('@/components/pwa/VehicleMapView'));
 const DiagnosticsPanel   = lazy(() => import('@/components/pwa/DiagnosticsPanel'));
@@ -48,59 +50,12 @@ type Tab = PrimaryTab | SecondaryTab;
    Simgeler mevcut görsel dilden AYNEN taşındı; yeni bir ikon seti
    getirilmedi. Etiketler ürün diline çevrildi: "Kumanda" bir kontrol
    panelini anlatıyordu, "Aracım" ise kullanıcının sorduğu soruyu. */
-const PRIMARY_TABS: ReadonlyArray<{ id: PrimaryTab; label: string; icon: React.ReactNode }> = [
-  {
-    id: 'aracim', label: 'Aracım',
-    icon: (
-      <>
-        <path d="M3 12l1.6-4.2A2 2 0 016.5 6.5h7a2 2 0 011.9 1.3L17 12v4.5a1 1 0 01-1 1h-1a1 1 0 01-1-1V16H6v.5a1 1 0 01-1 1H4a1 1 0 01-1-1V12z"
-          stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
-        <path d="M3.5 12h13M6 14h1.5M12.5 14H14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-      </>
-    ),
-  },
-  {
-    id: 'yolculuklar', label: 'Yolculuklar',
-    icon: (
-      <>
-        <path d="M4 4.5A1.5 1.5 0 015.5 3H15a1 1 0 011 1v12a1 1 0 01-1 1H5.5A1.5 1.5 0 014 15.5v-11z"
-          stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
-        <path d="M4 14.5A1.5 1.5 0 015.5 13H16" stroke="currentColor" strokeWidth="1.5"/>
-        <path d="M7.5 6.5h5M7.5 9.5h3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-      </>
-    ),
-  },
-  {
-    id: 'saglik', label: 'Sağlık',
-    icon: (
-      <>
-        <path d="M10 17s-6-3.8-6-8a3.5 3.5 0 016-2.4A3.5 3.5 0 0116 9c0 4.2-6 8-6 8z"
-          stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
-        <path d="M4.5 10.5h3L9 8.5l1.5 4L12 10h3.5" stroke="currentColor" strokeWidth="1.4"
-          strokeLinecap="round" strokeLinejoin="round"/>
-      </>
-    ),
-  },
-  {
-    id: 'harita', label: 'Harita',
-    icon: (
-      <>
-        <path d="M2 5l5.5-2.5 5 2.5 5-2.5V15l-5 2.5-5-2.5L2 17.5V5z"
-          stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
-        <path d="M7.5 2.5V15M12.5 5V17.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-      </>
-    ),
-  },
-  {
-    id: 'daha', label: 'Daha Fazla',
-    icon: (
-      <>
-        <circle cx="4.5" cy="10" r="1.3" fill="currentColor"/>
-        <circle cx="10"  cy="10" r="1.3" fill="currentColor"/>
-        <circle cx="15.5" cy="10" r="1.3" fill="currentColor"/>
-      </>
-    ),
-  },
+const PRIMARY_TABS: ReadonlyArray<{ id: PrimaryTab; label: string; icon: IconName; iconActive: IconName }> = [
+  { id: 'aracim',      label: 'Aracım',      icon: 'directions_car', iconActive: 'directions_car_fill' },
+  { id: 'yolculuklar', label: 'Yolculuklar', icon: 'route',          iconActive: 'route_fill' },
+  { id: 'saglik',      label: 'Sağlık',      icon: 'ecg_heart',      iconActive: 'ecg_heart_fill' },
+  { id: 'harita',      label: 'Harita',      icon: 'map',            iconActive: 'map_fill' },
+  { id: 'daha',        label: 'Daha Fazla',  icon: 'more_horiz',     iconActive: 'more_horiz' },
 ];
 
 /** Üst uygulama çubuğu başlıkları — yalnız görünüm; route modeli DEĞİŞMEZ. */
@@ -125,52 +80,34 @@ function MoreMenu({
   unpairBusy: boolean;
   unpairError: string | null;
 }) {
-  const items: ReadonlyArray<{ id: SecondaryTab; label: string; hint: string }> = [
-    { id: 'eslestir', label: hasVehicle ? 'Araç Ekle / Değiştir' : 'Aracınızı Bağlayın', hint: 'Eşleştirme' },
-    { id: 'hafiza',   label: 'Araç Hafızası', hint: 'Geçmiş yolculuk ve kayıtlar' },
-    { id: 'kayitlar', label: 'Kayıtlar',  hint: 'Yakıt · servis · masraf' },
-    { id: 'tema',     label: 'Görünüm',   hint: 'Tema ve renkler' },
+  const items: ReadonlyArray<{ id: SecondaryTab; label: string; hint: string; icon: IconName }> = [
+    { id: 'eslestir', label: hasVehicle ? 'Araç Ekle / Değiştir' : 'Aracınızı Bağlayın', hint: 'Eşleştirme', icon: 'add_link' },
+    { id: 'hafiza',   label: 'Araç Hafızası', hint: 'Geçmiş yolculuk ve kayıtlar', icon: 'history' },
+    { id: 'kayitlar', label: 'Kayıtlar',  hint: 'Yakıt · servis · masraf', icon: 'receipt_long' },
+    { id: 'tema',     label: 'Görünüm',   hint: 'Tema ve renkler', icon: 'palette' },
   ];
 
   return (
     <div className="flex flex-col gap-4">
       {/* M3 liste — tek kart, satırlar ayraçla; her satır ≥56dp. */}
-      <div className="md-card-elevated overflow-hidden" role="list">
-        {items.map((it, i) => (
-          <button
-            key={it.id}
-            role="listitem"
-            onClick={() => onOpen(it.id)}
-            className="md-list-item md-state md-on-surface"
-            style={i > 0 ? { borderTop: '1px solid var(--md-outline-variant)' } : undefined}
-          >
-            <span className="flex-1 min-w-0">
-              <span className="block md-body-l md-on-surface">{it.label}</span>
-              <span className="block md-body-m md-on-surface-variant">{it.hint}</span>
-            </span>
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true"
-              className="md-on-surface-variant flex-shrink-0">
-              <path d="M9.5 6l6 6-6 6" stroke="currentColor" strokeWidth="1.8"
-                strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-          </button>
+      <div className="md-card-elevated overflow-hidden py-1" role="list">
+        {items.map((it) => (
+          <div role="listitem" key={it.id}>
+            <ListRow icon={it.icon} label={it.label} supporting={it.hint} onClick={() => onOpen(it.id)}
+              trailing={<Icon name="chevron_right" className="md-on-surface-variant flex-shrink-0" />} />
+          </div>
         ))}
       </div>
 
       {hasVehicle && (
-        <div className="flex flex-col items-center gap-2">
-          <button
-            onClick={onUnpair}
-            disabled={unpairBusy}
-            className="md-btn-text md-state min-h-12 disabled:opacity-50"
-            style={{ color: 'var(--md-error)' }}
-          >
-            {unpairBusy ? 'Ayrılıyor…' : 'Araç bağlantısını kes'}
-          </button>
+        <div className="md-card-elevated overflow-hidden py-1">
+          <ListRow icon="link_off" tone="error" onClick={onUnpair} disabled={unpairBusy}
+            label={unpairBusy ? 'Ayrılıyor…' : 'Araç bağlantısını kes'}
+            supporting="Araç bu hesaptan ayrılır; kayıtlar hesabınızda kalır" />
           {/* Sunucu reddettiyse/ulaşılamadıysa araç HÂLÂ bağlıdır; bunu
               sessizce geçmek eski kusurun ta kendisiydi. */}
           {unpairError && (
-            <p className="text-center md-body-s" style={{ color: 'var(--md-error)' }}>{unpairError}</p>
+            <p className="px-6 pb-3 md-body-s" style={{ color: 'var(--md-error)' }}>{unpairError}</p>
           )}
         </div>
       )}
@@ -349,6 +286,9 @@ function KumandaApp() {
   /* M3 büyük üst çubuk: içerik kaydırılınca başlık çubuğa küçülür ve çubuk
      tonal yüzeye geçer. Yalnız görünüm durumu. */
   const [scrolled, setScrolled] = useState(false);
+  /* Hesap alt sayfası: tema · filo paneli · çıkış tek yerde (Google hesap menüsü deseni). */
+  const [accountOpen, setAccountOpen] = useState(false);
+  const closeAccount = useCallback(() => setAccountOpen(false), []);
   useEffect(() => { setScrolled(false); }, [activeTab]);
 
   // Tema tercihi (gece/gündüz) — localStorage'dan; SSR default gece, mount'ta oku.
@@ -658,43 +598,13 @@ function KumandaApp() {
           </p>
         </div>
 
-        {/* Gece / Gündüz teması */}
         <button
-          onClick={togglePwaTheme}
-          aria-label={pwaTheme === 'dark' ? 'Gündüz moduna geç' : 'Gece moduna geç'}
+          onClick={() => setAccountOpen(true)}
+          aria-label="Hesap ve ayarlar"
+          aria-haspopup="dialog"
           className="md-icon-btn md-state flex-shrink-0"
         >
-          {pwaTheme === 'dark' ? (
-            /* Güneş — gündüze geç */
-            <svg width="24" height="24" viewBox="0 0 20 20" fill="none">
-              <circle cx="10" cy="10" r="3.5" stroke="currentColor" strokeWidth="1.5" />
-              <path d="M10 1.5v2M10 16.5v2M1.5 10h2M16.5 10h2M4 4l1.4 1.4M14.6 14.6L16 16M16 4l-1.4 1.4M5.4 14.6L4 16"
-                stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-            </svg>
-          ) : (
-            /* Ay — geceye geç */
-            <svg width="24" height="24" viewBox="0 0 20 20" fill="none">
-              <path d="M16 11.5A6.5 6.5 0 018.5 4a6.5 6.5 0 100 12 6.5 6.5 0 007.5-4.5z"
-                stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
-            </svg>
-          )}
-        </button>
-
-        {/* ÜRÜN SINIRI: kurulu uygulamada filo paneli GÖRÜNMEZ (manifest
-            scope'u da oraya izin vermez). Web tarayıcısında açıkken kalır —
-            filo müşterisi aynı siteden panele geçebilsin. */}
-        <Link href="/dashboard" className="hide-in-standalone md-btn-text md-state min-h-12 flex-shrink-0">
-          Panel
-        </Link>
-
-        <button
-          onClick={() => { void handleLogout(); }}
-          disabled={logoutBusy}
-          data-testid="pwa-logout-button"
-          className="md-btn-text md-state min-h-12 flex-shrink-0 disabled:opacity-50"
-          style={{ color: 'var(--md-on-surface-variant)' }}
-        >
-          {logoutBusy ? '…' : 'Çıkış'}
+          <Icon name="account_circle" size={28} />
         </button>
       </header>
 
@@ -729,10 +639,48 @@ function KumandaApp() {
             <h1 className="md-headline-m md-on-surface px-1 pt-2 pb-4">{TAB_TITLES[activeTab]}</h1>
           )}
           {/* Kart içinde kart YOK: yüzeyler doğrudan zemin üstünde durur. */}
-          {renderMain()}
+          <div key={activeTab} className="md-enter">{renderMain()}</div>
         </main>
       )}
 
+
+      <BottomSheet open={accountOpen} onClose={closeAccount} title="Hesap">
+        {/* Gece / Gündüz teması */}
+        <ListRow
+          icon={pwaTheme === 'dark' ? 'dark_mode' : 'light_mode'}
+          label="Karanlık tema"
+          supporting={pwaTheme === 'dark' ? 'Açık' : 'Kapalı'}
+          onClick={togglePwaTheme}
+          trailing={
+            <span role="switch" aria-checked={pwaTheme === 'dark'}
+              aria-label={pwaTheme === 'dark' ? 'Gündüz moduna geç' : 'Gece moduna geç'}
+              className="relative flex-shrink-0" style={{ width: 52, height: 32, borderRadius: 16,
+                background: pwaTheme === 'dark' ? 'var(--md-primary)' : 'var(--md-surface-container-highest)',
+                border: pwaTheme === 'dark' ? 'none' : '2px solid var(--md-outline)' }}>
+              <span className="absolute top-1/2 -translate-y-1/2" style={{
+                left: pwaTheme === 'dark' ? 24 : 6, width: pwaTheme === 'dark' ? 24 : 16, height: pwaTheme === 'dark' ? 24 : 16,
+                borderRadius: '50%', transition: 'all var(--md-dur-short) var(--md-ease-standard)',
+                background: pwaTheme === 'dark' ? 'var(--md-on-primary)' : 'var(--md-outline)' }} />
+            </span>
+          }
+        />
+        {/* ÜRÜN SINIRI: kurulu uygulamada filo paneli GÖRÜNMEZ (manifest
+            scope'u da oraya izin vermez). Web tarayıcısında açıkken kalır —
+            filo müşterisi aynı siteden panele geçebilsin. */}
+        <Link href="/dashboard" className="hide-in-standalone md-list-item md-state px-6">
+          <span className="md-on-surface-variant flex-shrink-0"><Icon name="dashboard" /></span>
+          <span className="flex-1 md-body-l md-on-surface">Filo paneline git</span>
+        </Link>
+        <div className="mx-6 my-2" style={{ height: 1, background: 'var(--md-outline-variant)' }} />
+        <ListRow
+          icon="logout"
+          label={logoutBusy ? 'Çıkış yapılıyor…' : 'Çıkış'}
+          supporting="Araçlarınız hesabınızda kalır"
+          onClick={() => { void handleLogout(); }}
+          disabled={logoutBusy}
+          testId="pwa-logout-button"
+        />
+      </BottomSheet>
 
       {/* M3 gezinme çubuğu — 80dp, aktif hedef tonal hap göstergesiyle. */}
       <nav className="md-nav-bar relative z-10 pb-safe" aria-label="Ana gezinme">
@@ -748,9 +696,7 @@ function KumandaApp() {
                 style={{ color: active ? 'var(--md-on-surface)' : 'var(--md-on-surface-variant)' }}
               >
                 <span className="md-nav-indicator md-state">
-                  <svg width="24" height="24" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-                    {t.icon}
-                  </svg>
+                  <Icon name={active ? t.iconActive : t.icon} />
                 </span>
                 <span className="md-label-m truncate max-w-full px-1"
                   style={{ fontWeight: active ? 700 : 500 }}>
