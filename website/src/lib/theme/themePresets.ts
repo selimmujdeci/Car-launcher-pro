@@ -124,7 +124,7 @@ export function screenPatchOf(p: ColorPreset): Partial<ScreenOverride> {
   };
 }
 
-/* ── Tema başına renk taslakları (her tema 12: 7 gece · 2 gündüz · 3 güneş altı) ──
+/* ── Tema başına renk taslakları (her tema 14: 8 gece · 2 gündüz · 4 güneş altı) ──
  * KÜRATÖRLÜ LİSTE (2026-09-27): birbirine benzeyen ve "neon" taslaklar çıkarıldı;
  * her taslak bir OEM kabin paletine karşılık gelir. İlk taslak temanın özgün
  * paletidir. İsimler renk + malzeme; tarif tek cümle ve somut. */
@@ -141,11 +141,13 @@ const SPECS: Record<ThemeBaseId, readonly ColorPresetSpec[]> = {
     C('exp-buzul', 'Buzul · Gök', 'Soğuk gri, gök mavisi vurgu', '#5AAEE0', 230, 0.35),
     C('exp-toprak', 'Toprak · Kiremit', 'Kahve zemin, kiremit vurgu', '#D2643C', 40, 0.45),
     C('exp-gece-kirmizi', 'Gece · Kırmızı', 'Gece sürüşü: göz kamaştırmayan kırmızı', '#E04A3C', 20, 0.1),
+    C('exp-gece-mavi', 'Gece · Çelik Mavisi', 'Nötr koyu gri, çelik mavisi vurgu', '#6FA3D8', 60, 0.08),
     C('exp-sabah', 'Sabah · Zeytin', 'Gündüz: açık zeytin, turuncu vurgu', '#C46A12', 110, 0.4, 'day'),
     C('exp-kumtasi', 'Kumtaşı', 'Gündüz: sıcak bej, kiremit vurgu', '#B5501F', 60, 0.5, 'day'),
     C('exp-gunes-turuncu', 'Güneş · Turuncu', 'Güneş altı: beyaz, koyu turuncu', '#C2410C', 60, 0.3, 'sun'),
     C('exp-gunes-orman', 'Güneş · Orman', 'Güneş altı: beyaz, koyu yeşil', '#166534', 140, 0.3, 'sun'),
     C('exp-gunes-mavi', 'Güneş · Kobalt', 'Güneş altı: beyaz, koyu mavi', '#1D4ED8', 250, 0.3, 'sun'),
+    C('exp-gunes-kirmizi', 'Güneş · Kırmızı', 'Güneş altı: beyaz, koyu kırmızı', '#B91C1C', 20, 0.2, 'sun'),
   ],
   horizon: [
     C('hor-gece-yarisi', 'Lacivert · Amber', 'Temanın özgün paleti', '#F2871C', 260, 0.7),
@@ -155,11 +157,13 @@ const SPECS: Record<ThemeBaseId, readonly ColorPresetSpec[]> = {
     C('hor-zumrut', 'Zümrüt', 'Koyu petrol, zümrüt vurgu', '#2FB57E', 190, 0.5),
     C('hor-sampanya', 'Grafit · Şampanya', 'Grafit zemin, şampanya altını', '#D8B878', 260, 0.12),
     C('hor-gece-kirmizi', 'Gece · Kırmızı', 'Gece sürüşü: göz kamaştırmayan kırmızı', '#E04A3C', 260, 0.15),
+    C('hor-grafit-mavi', 'Grafit · Elektrik Mavisi', 'Nötr grafit, net mavi vurgu', '#4F8CFF', 250, 0.08),
     C('hor-buz-beyazi', 'Buz Beyazı', 'Gündüz: soğuk beyaz, lacivert vurgu', '#1E5FD9', 255, 0.45, 'day'),
     C('hor-gunduz-kum', 'Gündüz · Kum', 'Gündüz: sıcak kâğıt, amber vurgu', '#B85C0A', 70, 0.4, 'day'),
     C('hor-gunes-lacivert', 'Güneş · Lacivert', 'Güneş altı: beyaz, lacivert', '#1E3A8A', 260, 0.35, 'sun'),
     C('hor-gunes-amber', 'Güneş · Amber', 'Güneş altı: beyaz, koyu amber', '#B45309', 70, 0.3, 'sun'),
     C('hor-gunes-petrol', 'Güneş · Petrol', 'Güneş altı: beyaz, petrol mavisi', '#0F766E', 200, 0.3, 'sun'),
+    C('hor-gunes-grafit', 'Güneş · Grafit', 'Güneş altı: beyaz, siyah vurgu', '#374151', 260, 0.1, 'sun'),
   ],
   tesla: [
     C('tes-espresso', 'Espresso · Karamel', 'Temanın özgün paleti', '#E0822E', 50, 0.45),
@@ -169,11 +173,13 @@ const SPECS: Record<ThemeBaseId, readonly ColorPresetSpec[]> = {
     C('tes-titanyum', 'Titanyum · Buz', 'Soğuk titanyum, buz mavisi', '#8CC8F0', 230, 0.12),
     C('tes-obsidyen-altin', 'Obsidyen · Altın', 'Volkanik cam siyahı, altın', '#D9AE52', 60, 0.06),
     C('tes-bordo', 'Bordo Deri', 'Koyu bordo deri, bakır dikiş', '#D97A55', 10, 0.55),
+    C('tes-grafit-yesil', 'Grafit · Yeşil', 'Grafit zemin, sakin elektrik yeşili', '#4CC38A', 250, 0.08),
     C('tes-inci', 'İnci', 'Gündüz: inci beyazı, kırmızı vurgu', '#C8102E', 60, 0.15, 'day'),
     C('tes-kum-beji', 'Kum Beji', 'Gündüz: sıcak bej, espresso vurgu', '#A5541E', 60, 0.5, 'day'),
     C('tes-gunes-kirmizi', 'Güneş · Kırmızı', 'Güneş altı: beyaz, koyu kırmızı', '#B91C1C', 20, 0.2, 'sun'),
     C('tes-gunes-grafit', 'Güneş · Grafit', 'Güneş altı: beyaz, siyah vurgu', '#374151', 250, 0.1, 'sun'),
     C('tes-gunes-mavi', 'Güneş · Mavi', 'Güneş altı: beyaz, koyu mavi', '#1D4ED8', 250, 0.3, 'sun'),
+    C('tes-gunes-yesil', 'Güneş · Yeşil', 'Güneş altı: beyaz, koyu yeşil', '#047857', 170, 0.25, 'sun'),
   ],
   pro: [
     C('pro-buz-mavisi', 'Antrasit · Buz Mavisi', 'Temanın özgün paleti', '#5B8DFF', 260, 0.3),
@@ -183,11 +189,13 @@ const SPECS: Record<ThemeBaseId, readonly ColorPresetSpec[]> = {
     C('pro-spor-mavi', 'Motor Sporu Mavisi', 'Keskin mavi, siyah zemin', '#2F6FE0', 260, 0.1),
     C('pro-yesil-ambiyans', 'Ambiyans · Yeşil', 'Sakin gece yeşili', '#4CC792', 170, 0.25),
     C('pro-grafit-sade', 'Grafit Sade', 'En sade: gri üstüne beyaz', '#E3E7EE', 250, 0.06),
+    C('pro-gece-kirmizi', 'Gece · Kırmızı', 'Gece sürüşü: göz kamaştırmayan kırmızı', '#E04A3C', 260, 0.1),
     C('pro-kristal', 'Beyaz Kristal', 'Gündüz: parlak beyaz, mavi vurgu', '#2F6BFF', 260, 0.3, 'day'),
     C('pro-gunduz-gri', 'Gündüz · Gri', 'Gündüz: nötr gri, grafit vurgu', '#3F4A5A', 250, 0.08, 'day'),
     C('pro-gunes-mavi', 'Güneş · Mavi', 'Güneş altı: beyaz, koyu mavi', '#1D4ED8', 260, 0.25, 'sun'),
     C('pro-gunes-mor', 'Güneş · Mor', 'Güneş altı: beyaz, koyu mor', '#6D28D9', 290, 0.25, 'sun'),
     C('pro-gunes-yesil', 'Güneş · Yeşil', 'Güneş altı: beyaz, koyu yeşil', '#047857', 170, 0.25, 'sun'),
+    C('pro-gunes-grafit', 'Güneş · Grafit', 'Güneş altı: beyaz, siyah vurgu', '#374151', 260, 0.1, 'sun'),
   ],
 };
 
