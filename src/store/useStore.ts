@@ -5,6 +5,7 @@ import type { RuntimeOverride } from '../core/runtime/runtimeTypes';
 import { RuntimeMode }           from '../core/runtime/runtimeTypes';
 import { runtimeManager }        from '../core/runtime/AdaptiveRuntimeManager';
 import { setObdVehicleType } from '../platform/obdService';
+import type { VehicleIdentitySource } from '../platform/vehicle/brandCatalog';
 import { safeStorage } from '../utils/safeStorage';
 import { OwnerCommandEvidence, type CommandMessage } from '../platform/message';
 import type { ManufacturerDidProfileId } from '../platform/obd/profiles';
@@ -149,6 +150,18 @@ export interface VehicleProfile {
   driveMode?: 'comfort' | 'sport' | 'eco';
   /** ESKİ — sabit 21 °C yazılıyordu; uygulamanın araca iklim komutu yolu YOK. */
   climateTempC?: number;
+  /** OBD'siz araç kimliği — `brandCatalog` kimliği (ör. 'renault'). */
+  brandId?: string;
+  model?: string;
+  modelYear?: number;
+  /** Marka/modelin KAYNAĞI. Kullanıcı seçimi VIN kanıtı gibi sunulmaz. */
+  identitySource?: VehicleIdentitySource;
+  /** Kullanıcının kendi amblemi — yalnız cihazda (PNG data URL, ≤256 px). */
+  customEmblem?: string;
+  /** Amblem işleme: CarOS neon/cam (varsayılan) veya orijinal renk. */
+  emblemTreatment?: 'neon' | 'original';
+  /** Kullanıcının "seçimim doğru" dediği VIN — aynı VIN için çelişki tekrar sorulmaz. */
+  vinBrandConflictDismissedFor?: string;
 }
 
 /* ── SÜRÜCÜ PROFİLİ (2026-09-24) ─────────────────────────────────────────────
@@ -288,6 +301,8 @@ export interface AppSettings {
   activeDriverProfileId: string | null;
   /** İlk kurulum sihirbazı tamamlandı/atlandı mı (yeni kurulumda false). */
   setupCompleted: boolean;
+  /** Açılış ekranı: bugünkü CarOS Pro animasyonu (varsayılan) veya araç amblemli. */
+  bootSplashStyle: 'caros' | 'emblem';
   autoNavOnStart: boolean;
   /** Açılışta, kapanmadan önce ÇALAN ve kullanıcının DURAKLATMADIĞI müziğe devam et (varsayılan kapalı). */
   resumeMusicOnStart: boolean;
@@ -480,6 +495,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   driverProfiles: [],
   activeDriverProfileId: null,
   setupCompleted: false,
+  bootSplashStyle: 'caros',
   autoNavOnStart: false,
   resumeMusicOnStart: false,
   speedVolumeLevel: 'OFF',
