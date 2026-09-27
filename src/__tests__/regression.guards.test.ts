@@ -1397,7 +1397,8 @@ describe('Hareket tespiti hız-bağımsız kilidi — Doppler 0 saplanması', ()
   });
 
   it('YAPISAL: MiniMapWidget isDriving yer değiştirme hızı + histerezis kullanır', () => {
-    const src = read('src/components/map/MiniMapWidget.tsx');
+    // Karar 2026-09-27'de saf modele taşındı; kilit görünüm + model üzerinde (aynı ifadeler).
+    const src = read('src/components/map/MiniMapWidget.tsx') + read('src/components/map/miniMapDrivingModel.ts');
     expect(src, 'isDriving yalnız Doppler hıza dönmüş — Doppler=0 cihazda sürüş görünümü hiç açılmaz').toMatch(/Math\.max\(speedKmh, _dispKmh\)/);
     expect(src, 'histerezis (giriş >5 / çıkış <3) kaldırılmış — stop-and-go flicker döner').toMatch(/_effKmh < 3 \? false/);
   });

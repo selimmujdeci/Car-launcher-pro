@@ -314,6 +314,7 @@ describe('Kapsam kilitleri — bu PR yalnız compass demand-gating', () => {
     expect(MINI_SRC).toMatch(/_setCompassDemand\(isDriving\)/);
     expect(MINI_SRC).toMatch(/releaseCompassDemand\(MINI_MAP_COMPASS_OWNER\)/);
     // yeni hız eşiği eklenmedi — mevcut 5/3 km/h histerezisi kullanılıyor
-    expect(MINI_SRC).toMatch(/_effKmh > 5[\s\S]{0,80}_effKmh < 3/);
+    // (karar 2026-09-27'den beri saf modelde: miniMapDrivingModel)
+    expect(MINI_SRC + read('src', 'components', 'map', 'miniMapDrivingModel.ts')).toMatch(/_effKmh > 5[\s\S]{0,80}_effKmh < 3/);
   });
 });
