@@ -165,6 +165,8 @@ export const DRIVER_PREF_KEYS = [
   'companionPersonality', 'companionChattiness',
   'companionWakeWordEnabled', 'companionWakeMode', 'companionWakePhrase', 'companionWakeEnrollment',
   'wakeWordEnabled',
+  /* Sürücü ekranı görünümü + rengi — telefonla tanınan sürücüye kendiliğinden gelir (2026-09-27). */
+  'cockpitStyle', 'cockpitAccent',
 ] as const;
 export type DriverPrefKey = typeof DRIVER_PREF_KEYS[number];
 
