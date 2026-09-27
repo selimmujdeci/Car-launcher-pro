@@ -22,6 +22,9 @@ import { useGPSLocation } from '../../platform/gpsService';
 import { useDisplaySpeed, formatDisplaySpeed } from '../../hooks/useDisplaySpeed';
 import { useBatteryVoltage } from '../../hooks/useBatteryVoltage';
 import { useLivingThemeState } from '../../hooks/useLivingThemeState';
+import {
+  useVehicleStatusBadge, vehicleStatusColor, useGearLabel,
+} from '../../hooks/useThemeVehicleBadges';
 import { useAmbientTemp } from '../../hooks/useCanonicalVehicleSignal';
 import { VehicleTellTales } from '../vehicle/VehicleTellTales';
 import { useEngineReadout } from '../../hooks/useEngineReadout';
@@ -251,14 +254,24 @@ const HzTopBar = memo(function HzTopBar() {
 });
 
 /* ─── SOL: SÜRÜŞ MODU ────────────────────────────────────────────── */
+/* Eskiden sabit "4WD · High / Normal" basıyordu — araçtan okunan bir değer değildi.
+   Artık: sağ üst = canlı vites (CAN; yoksa hiç çizilmez), alt satır = profildeki
+   sürüş modu TERCİHİ (ayarlanmamışsa "—"). */
 const HzDriveModeCard = memo(function HzDriveModeCard() {
   const p = usePalH();
+  const gear = useGearLabel();
+  const mode = useStore((s) =>
+    s.settings.vehicleProfiles.find((v) => v.id === s.settings.activeVehicleProfileId)?.driveMode ?? null);
+  const modeLabel = mode === 'eco' ? 'Eko' : mode === 'sport' ? 'Spor' : mode === 'comfort' ? 'Konfor' : null;
   return (
     <Panel editId="horizon.drivemode" style={{ padding: '13px 15px' }}>
-      <div className="flex items-center justify-between"><HzLabel>Sürüş Modu</HzLabel><HzLabel>4WD · High</HzLabel></div>
+      <div className="flex items-center justify-between">
+        <HzLabel>Sürüş Modu</HzLabel>
+        {gear !== null && <span data-testid="horizon-gear" style={{ fontWeight: 800, fontSize: 13, color: p.accent }}>{gear}</span>}
+      </div>
       <div className="flex items-center" style={{ gap: 9, marginTop: 8 }}>
-        <span style={{ width: 8, height: 8, borderRadius: '50%', background: p.ok, boxShadow: `0 0 8px ${p.ok}` }} />
-        <span style={{ fontWeight: 700, fontSize: 18, color: p.ink }}>Normal</span>
+        <span style={{ width: 8, height: 8, borderRadius: '50%', background: modeLabel ? p.ok : p.ink3, boxShadow: modeLabel ? `0 0 8px ${p.ok}` : 'none' }} />
+        <span data-testid="horizon-drive-mode" style={{ fontWeight: 700, fontSize: 18, color: modeLabel ? p.ink : p.ink3 }}>{modeLabel ?? '—'}</span>
       </div>
     </Panel>
   );
@@ -594,13 +607,15 @@ const HzVehicleStatus = memo(function HzVehicleStatus({ onOpenSettings }: { onOp
   const motor = eng.engineTemp != null ? Math.round(eng.engineTemp) : null;
   const rpm = eng.rpm;
   const fuel = eng.fuel != null ? Math.round(eng.fuel) : null;
+  const status = useVehicleStatusBadge();   // sabit "Normal" UYDURMAYDI
+  const statusColor = vehicleStatusColor(status.tone, p.ok, p.ink3);
   return (
     <Panel editId="horizon.vehicle" style={{ padding: '13px 15px', display: 'flex', flexDirection: 'column', minHeight: 0 }} onClick={onOpenSettings}>
       <div className="flex items-center justify-between">
         <HzLabel>Araç Durumu</HzLabel>
         <div className="flex items-center" style={{ gap: 5 }}>
-          <span style={{ width: 7, height: 7, borderRadius: '50%', background: p.ok }} />
-          <span style={{ fontWeight: 700, fontSize: 13, color: p.ink }}>Normal</span>
+          <span style={{ width: 7, height: 7, borderRadius: '50%', background: statusColor }} />
+          <span data-testid="horizon-vehicle-status" data-status={status.status} style={{ fontWeight: 700, fontSize: 13, color: status.tone === 'ok' ? p.ink : statusColor, whiteSpace: 'nowrap' }}>{status.label}</span>
           <ChevronRight className="w-4 h-4" style={{ color: p.ink3 }} />
         </div>
       </div>

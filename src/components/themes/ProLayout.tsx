@@ -19,6 +19,7 @@ import { useDeviceStatus } from '../../platform/deviceApi';
 import { StatusControls } from '../common/StatusControls';
 import { useOBDState } from '../../platform/obdService';
 import { useDisplaySpeed, formatDisplaySpeed } from '../../hooks/useDisplaySpeed';
+import { useGearLabel, useSpeedLimitSign } from '../../hooks/useThemeVehicleBadges';
 import { useMediaState, togglePlayPause, startMediaHub, stopMediaHub } from '../../platform/mediaService';
 import { next, previous, resumeLastMedia, previewLastMedia, seek } from '../../platform/media/carosMediaLayer';
 import { preloadYouTubeIfAffordable } from '../../platform/youtubeService';
@@ -201,6 +202,12 @@ const GaugeCard = memo(function GaugeCard() {
   const range = isObdReadingLive(obd) && obd.estimatedRangeKm != null && obd.estimatedRangeKm >= 0
     ? Math.round(obd.estimatedRangeKm)
     : null;
+  /* Limit + vites kanonik kaynaktan (kokpitle AYNI hüküm). Bilinmiyorsa levha/vites
+     hiç çizilmez — sabit "90" ve "D AUTO" UYDURMAYDI. */
+  const limitSign = useSpeedLimitSign();
+  const limitKmh = limitSign?.kmh ?? null;
+  const limitDefinitive = limitSign?.definitive === true;
+  const gear = useGearLabel();
 
   const R = 52, cx = 64, cy = 64, START = 135, SPAN = 270;
   const arc = useMemo(() => {
@@ -227,20 +234,27 @@ const GaugeCard = memo(function GaugeCard() {
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
           <span style={{ fontSize: 40, fontWeight: 800, color: p.inkCritical, lineHeight: 1, fontVariantNumeric: 'tabular-nums', letterSpacing: '-1px' }}>{formatDisplaySpeed(rawSpeed)}</span>
-          <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.22em', color: p.ink3, marginTop: 2 }}>KM/S</span>
+          <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.22em', color: p.ink3, marginTop: 2 }}>KM/H</span>
         </div>
       </div>
 
-      {/* Sürüş modu + limit */}
-      <div className="w-full flex items-center justify-between" style={{ marginTop: 4 }}>
-        <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl" style={{ background: p.tile }}>
-          <span style={{ fontSize: 13, fontWeight: 800, color: p.accent }}>D</span>
-          <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.14em', color: p.ink2 }}>AUTO</span>
+      {/* Vites + limit — ikisi de yalnız kanıtlıysa */}
+      {(gear !== null || limitKmh !== null) && (
+        <div className="w-full flex items-center justify-between" style={{ marginTop: 4, minHeight: 34 }}>
+          {gear !== null ? (
+            <div data-testid="pro-gauge-gear" className="flex items-center px-2.5 py-1.5 rounded-xl" style={{ background: p.tile }}>
+              <span style={{ fontSize: 13, fontWeight: 800, color: p.accent }}>{gear}</span>
+            </div>
+          ) : <span />}
+          {limitKmh !== null && (
+            <div data-testid="pro-gauge-limit" data-definitive={limitDefinitive ? 'true' : 'false'}
+              className="flex flex-col items-center justify-center rounded-full"
+              style={{ width: 34, height: 34, border: `2.5px ${limitDefinitive ? 'solid' : 'dashed'} #E0322B`, background: p.cardSolid }}>
+              <span style={{ fontSize: 13, fontWeight: 800, color: p.ink, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{limitKmh}</span>
+            </div>
+          )}
         </div>
-        <div className="flex flex-col items-center justify-center rounded-full" style={{ width: 34, height: 34, border: '2.5px solid #E0322B', background: p.cardSolid }}>
-          <span style={{ fontSize: 13, fontWeight: 800, color: p.ink, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>90</span>
-        </div>
-      </div>
+      )}
 
       {/* Menzil */}
       <div className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl" style={{ background: p.tile }}>

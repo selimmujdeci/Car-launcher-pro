@@ -22,6 +22,9 @@ import { useOBDState } from '../../platform/obdService';
 import { useDisplaySpeed, formatDisplaySpeed } from '../../hooks/useDisplaySpeed';
 import { useBatteryVoltage } from '../../hooks/useBatteryVoltage';
 import { useLivingThemeState } from '../../hooks/useLivingThemeState';
+import {
+  useVehicleStatusBadge, vehicleStatusColor, useGearLabel, useSpeedLimitSign,
+} from '../../hooks/useThemeVehicleBadges';
 import { useAmbientTemp, useLiveVehicleSignal } from '../../hooks/useCanonicalVehicleSignal';
 import { useClock } from '../../hooks/useClock';
 import { useDeviceStatus } from '../../platform/deviceApi';
@@ -226,6 +229,8 @@ const SpeedGauge = memo(function SpeedGauge() {
      yuvarlanmadan basılınca göstergeyi taşırır (saha 2026-08-12). */
   const rawSpeed = useDisplaySpeed();
   const speed = rawSpeed ?? 0;   // yalnız yay/oran hesabı için
+  const gear = useGearLabel();
+  const limitSign = useSpeedLimitSign();
   const R = 52, cx = 64, cy = 64, START = 135, SPAN = 270;
   const arc = useMemo(() => {
     const rad = (d: number) => (d * Math.PI) / 180;
@@ -247,15 +252,23 @@ const SpeedGauge = memo(function SpeedGauge() {
           <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.22em', color: p.ink3, marginTop: 3 }}>KM/H</span>
         </div>
       </div>
-      <div className="w-full flex items-center justify-between px-1">
-        <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl" style={{ background: p.tile }}>
-          <span style={{ fontSize: 17, fontWeight: 800, color: p.accent2 }}>D</span>
-          <span style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: '0.12em', color: p.ink2 }}>AUTO</span>
+      {/* Vites + limit — yalnız kanıtlıysa (sabit "D AUTO" / "4WD" UYDURMAYDI) */}
+      {(gear !== null || limitSign !== null) && (
+        <div className="w-full flex items-center justify-between px-1">
+          {gear !== null ? (
+            <div data-testid="tesla-gauge-gear" className="flex items-center px-2.5 py-1.5 rounded-xl" style={{ background: p.tile }}>
+              <span style={{ fontSize: 17, fontWeight: 800, color: p.accent2 }}>{gear}</span>
+            </div>
+          ) : <span />}
+          {limitSign !== null && (
+            <div data-testid="tesla-gauge-limit" data-definitive={limitSign.definitive ? 'true' : 'false'}
+              className="flex items-center justify-center rounded-full"
+              style={{ width: 38, height: 38, border: `3px ${limitSign.definitive ? 'solid' : 'dashed'} #E0322B`, background: p.cardSolid }}>
+              <span style={{ fontSize: 14.5, fontWeight: 900, color: p.ink, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{limitSign.kmh}</span>
+            </div>
+          )}
         </div>
-        <div className="px-2.5 py-1.5 rounded-xl" style={{ background: p.accentSoft, border: `1px solid ${p.accentA33}` }}>
-          <span style={{ fontSize: 14.5, fontWeight: 900, letterSpacing: '0.06em', color: p.accent2 }}>4WD</span>
-        </div>
-      </div>
+      )}
     </div>
   );
 });
@@ -475,6 +488,7 @@ const VehicleCard = memo(function VehicleCard({ onOpenSettings }: { onOpenSettin
   const motorC = useLiveVehicleSignal('coolantTemp');
   const motor = motorC != null ? `${Math.round(motorC)}°C` : '—';
   const aku = volt != null ? `${volt.toFixed(1)}V` : '—';
+  const status = useVehicleStatusBadge();   // sabit "Normal" UYDURMAYDI
   return (
     <div data-editable="tesla.vehicle" data-editable-type="card" style={{ ...card(p, { solid: true, pad: 15 }) }} className="flex-1 min-h-0 flex flex-col" onClick={onOpenSettings}>
       <Screws />
@@ -482,7 +496,8 @@ const VehicleCard = memo(function VehicleCard({ onOpenSettings }: { onOpenSettin
         <Label>Araç Durumu</Label>
         <ChevronRight className="w-3.5 h-3.5" style={{ color: p.ink3 }} />
       </div>
-      <div style={{ fontSize: 26, fontWeight: 800, color: p.ink, marginTop: 4 }}>Normal</div>
+      <div data-testid="tesla-vehicle-status" data-status={status.status} className="truncate"
+        style={{ fontSize: 26, fontWeight: 800, color: vehicleStatusColor(status.tone, p.ink, p.ink3), marginTop: 4 }}>{status.short}</div>
       <div className="flex-1 min-h-0 flex items-center justify-center my-1"><RuggedSUV /></div>
       <div className="flex items-stretch gap-2" onClick={e => e.stopPropagation()}>
         <Stat icon={<Thermometer className="w-5 h-5" style={{ color: p.accent2 }} />} value={motor} label="Motor" />

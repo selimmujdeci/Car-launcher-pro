@@ -19,6 +19,7 @@ import { isLowEndDevice } from '../../platform/headUnitCompat';
 import { useDisplaySpeed, formatDisplaySpeed } from '../../hooks/useDisplaySpeed';
 import { useBatteryVoltage } from '../../hooks/useBatteryVoltage';
 import { useLivingThemeState } from '../../hooks/useLivingThemeState';
+import { useVehicleStatusBadge, vehicleStatusColor } from '../../hooks/useThemeVehicleBadges';
 import { useAmbientTemp } from '../../hooks/useCanonicalVehicleSignal';
 import { VehicleTellTales } from '../vehicle/VehicleTellTales';
 import { useEngineReadout } from '../../hooks/useEngineReadout';
@@ -435,12 +436,13 @@ const VehiclePlate = memo(function VehiclePlate({ onOpenSettings }: { onOpenSett
   const rawSpeed = useDisplaySpeed();
   const motor = eng.engineTemp != null ? Math.round(eng.engineTemp) : null;
   const rpm = eng.rpm;
+  const status = useVehicleStatusBadge();   // sabit "Normal" UYDURMAYDI
   return (
     <Plate editId="expedition.vehicle" style={{ padding: '18px 20px 0', display: 'flex', flexDirection: 'column', overflow: 'hidden' }} onClick={onOpenSettings}>
       <div className="flex items-baseline justify-between">
         <Label>Araç Durumu</Label>
         <div className="flex items-center" style={{ gap: 4 }}>
-          <span style={{ fontWeight: 700, fontSize: 32, lineHeight: 1, color: p.ink }}>Normal</span>
+          <span data-testid="expedition-vehicle-status" data-status={status.status} style={{ fontWeight: 700, fontSize: 32, lineHeight: 1, color: vehicleStatusColor(status.tone, p.ink, p.ink3), whiteSpace: 'nowrap' }}>{status.short}</span>
           <ChevronRight className="w-5 h-5" style={{ color: p.ink3 }} />
         </div>
       </div>
