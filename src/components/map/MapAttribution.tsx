@@ -19,7 +19,7 @@ export const MapAttribution = memo(function MapAttribution({ compact = false }: 
       data-map-attribution=""
       aria-label="Harita verisi atfı"
       style={{
-        position: 'absolute', left: 6, bottom: 4, zIndex: 5, pointerEvents: 'none',
+        position: 'absolute', left: 6, bottom: 4, zIndex: 'var(--z-map-honesty)', pointerEvents: 'none',
         maxWidth: 'calc(100% - 12px)', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis',
         fontSize: compact ? 8 : 10, lineHeight: 1.4, padding: '1px 5px', borderRadius: 4,
         color: 'rgba(255,255,255,0.78)', background: 'rgba(0,0,0,0.38)', fontFamily: 'Inter, "Segoe UI", sans-serif',
