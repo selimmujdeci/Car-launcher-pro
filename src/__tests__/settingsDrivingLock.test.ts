@@ -15,10 +15,11 @@ describe('sürüşte kilit kararı (histerezis)', () => {
     expect(nextMovingLock(true, UNLOCK_KMH)).toBe(true);
     expect(nextMovingLock(true, UNLOCK_KMH - 0.5)).toBe(false);
   });
-  it('hız bilinmiyorsa kilit KONMAZ (sinema modu ile aynı kabul)', () => {
+  it('hız bilinmiyorsa önceki karar korunur (parkta kilit yok, tünelde kilit açılmaz)', () => {
     expect(nextMovingLock(false, null)).toBe(false);
-    expect(nextMovingLock(true, undefined)).toBe(false);
-    expect(nextMovingLock(true, Number.NaN)).toBe(false);
+    expect(nextMovingLock(true, null)).toBe(true);
+    expect(nextMovingLock(true, undefined)).toBe(true);
+    expect(nextMovingLock(true, Number.NaN)).toBe(true);
   });
   it('ayarlar sayfası: kilitteyken yalnız Ses sekmesi gösterilir', () => {
     const src = readFileSync(resolve('src/components/settings/SettingsPage.tsx'), 'utf8');

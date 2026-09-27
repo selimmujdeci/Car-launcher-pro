@@ -4,7 +4,8 @@
  * Kaynak: kanonik araç hızı (`UnifiedVehicleStore.speed`) — sinema modunun güvenlik
  * çıkışıyla AYNI kaynak, ikinci bir hız otoritesi kurulmaz. Titremesin diye
  * histerezis: ≥ LOCK_KMH kilitler, < UNLOCK_KMH açar. Hız bilinmiyorsa (`null`)
- * kilit KONMAZ — sinema modu da bilinmeyeni duruyor sayar.
+ * ÖNCEKİ karar korunur: parkta bilinmeyen hız kilit koymaz, ama sürüşte GPS/OBD
+ * düşmesi (tünel) kilidi AÇMAZ — "bilinmiyor" duruş kanıtı değildir.
  */
 import { useEffect, useRef, useState } from 'react';
 import { useUnifiedVehicleStore } from '../../platform/vehicleDataLayer/UnifiedVehicleStore';
@@ -14,7 +15,7 @@ export const UNLOCK_KMH = 3;
 
 /** Saf karar: önceki kilit + hız → yeni kilit. */
 export function nextMovingLock(prev: boolean, speedKmh: number | null | undefined): boolean {
-  if (typeof speedKmh !== 'number' || !Number.isFinite(speedKmh)) return false;
+  if (typeof speedKmh !== 'number' || !Number.isFinite(speedKmh)) return prev;
   if (prev) return speedKmh >= UNLOCK_KMH;
   return speedKmh >= LOCK_KMH;
 }
