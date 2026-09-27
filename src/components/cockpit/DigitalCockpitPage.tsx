@@ -53,6 +53,8 @@ export function DigitalCockpitPage() {
     toastTimer.current = setTimeout(() => setToast(null), STYLE_TOAST_MS);
   }, []);
   const night = mode === 'night';
+  // Bilinmeyen/eski bir görünüm kimliği etiketsiz kalmasın (ekran zaten 'road'a düşer).
+  const styleLabel = COCKPIT_STYLE_LABELS[cockpitStyle] ?? COCKPIT_STYLE_LABELS.road;
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
@@ -68,7 +70,7 @@ export function DigitalCockpitPage() {
     />
     <button type="button" data-no-page-swipe data-testid="cockpit-style-switch"
       onClick={cycleStyle} onPointerDown={(e) => e.stopPropagation()}
-      aria-label={`Sürüş ekranı görünümünü değiştir (şu an ${COCKPIT_STYLE_LABELS[cockpitStyle]})`}
+      aria-label={`Sürüş ekranı görünümünü değiştir (şu an ${styleLabel})`}
       className="active:scale-95"
       style={{
         position: 'absolute', left: '2.2%', top: '3.5%', width: 72, height: 72, borderRadius: 22,
@@ -78,7 +80,7 @@ export function DigitalCockpitPage() {
         color: night ? 'rgba(255,255,255,0.86)' : 'rgba(0,0,0,0.78)', cursor: 'pointer',
       }}>
       <Layers style={{ width: 28, height: 28 }} aria-hidden="true" />
-      <span style={{ fontSize: 12, fontWeight: 700, lineHeight: 1 }}>{COCKPIT_STYLE_LABELS[cockpitStyle]}</span>
+      <span style={{ fontSize: 12, fontWeight: 700, lineHeight: 1 }}>{styleLabel}</span>
     </button>
     {toast && (
       <div role="status" data-testid="cockpit-style-toast"

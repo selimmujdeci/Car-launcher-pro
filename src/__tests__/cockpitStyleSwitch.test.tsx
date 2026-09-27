@@ -40,4 +40,12 @@ describe('sürüş ekranı görünüm düğmesi', () => {
     act(() => { vi.advanceTimersByTime(1500); });
     expect(host.querySelector('[data-testid="cockpit-style-toast"]')).toBeNull();
   });
+
+  it('bilinmeyen/eski görünüm kimliğinde etiket "undefined" olmaz', () => {
+    useStore.getState().updateSettings({ cockpitStyle: 'eski-bir-gorunum' as never });
+    act(() => root.render(<DigitalCockpitPage />));
+    const btn = host.querySelector('[data-testid="cockpit-style-switch"]') as HTMLButtonElement;
+    expect(btn.getAttribute('aria-label')).toBe('Sürüş ekranı görünümünü değiştir (şu an Yol)');
+    expect(btn.textContent).not.toContain('undefined');
+  });
 });
