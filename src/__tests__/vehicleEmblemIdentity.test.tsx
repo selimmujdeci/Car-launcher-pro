@@ -5,6 +5,8 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 import { useStore } from '../store/useStore';
 import {
@@ -12,7 +14,7 @@ import {
 } from '../platform/vehicle/brandCatalog';
 import { checkBrandAgainstVin, saveVehicleIdentity } from '../platform/vehicle/vehicleBrandIdentity';
 import { removeFlatBackground } from '../platform/vehicle/emblemImage';
-import { resolveEmblem, readableOnDark } from '../components/vehicle/VehicleEmblem';
+import { resolveEmblem, readableOnDark, VehicleEmblem } from '../components/vehicle/VehicleEmblem';
 import { BootSplash, BOOT_SHOW_MS, EMBLEM_BOOT_SHOW_MS } from '../components/layout/BootSplash';
 import { buildEmblemBoot, freshTemperature, BOOT_WEATHER_MAX_AGE_MS } from '../components/layout/emblemBoot';
 import type { WeatherState } from '../platform/weatherService';
@@ -219,5 +221,38 @@ describe('amblemli açılış', () => {
     expect(freshTemperature(w(60_000), 1_000_000)).toBe(18);
     expect(freshTemperature(w(BOOT_WEATHER_MAX_AGE_MS + 1), 1_000_000)).toBeNull();
     expect(freshTemperature(null, 1_000_000)).toBeNull();
+  });
+});
+
+describe('amblem CSS — animasyon kapalıyken görünür kalır', () => {
+  it('🔒 sahne öğelerinin temel stili gizli (opacity:0) değil; animasyonlar yalnız from karesinden başlar', () => {
+    /* Uygulama düşük kademede `animation: none !important` basar (index.css .perf-low vb.).
+       Temel stil opacity:0 olursa sahne SİYAH kalır (production'da ölçüldü, 2026-09-27). */
+    const css = readFileSync(resolve(__dirname, '../components/vehicle/vehicleEmblem.css'), 'utf8');
+    for (const sel of ['.ve-hello', '.ve-meta', '.ve-mark', '.ve-aura', '.ve-ring', '.ve-reflection', '.ve-scene .ve-face']) {
+      const block = css.match(new RegExp(sel.replace(/[.]/g, '\\.') + '\\s*\\{([^}]*)\\}'))?.[1];
+      expect(block, sel).toBeDefined();
+      expect(block, sel).not.toMatch(/opacity:\s*0[;\s]/);
+      expect(block, sel).not.toMatch(/forwards/);
+    }
+    expect(css).not.toMatch(/@keyframes ve-(in|rise|aura-in|ring-in|refl-in|draw|sweep)\s*\{\s*to\b/);
+  });
+});
+
+describe('amblem SVG — gündüz modu global kuralından etkilenmez', () => {
+  it('🔒 kenar/gövde fill-stroke ÖZNİTELİK taşımaz (index.css .sunlight-mode svg *[fill]{stroke-width:0})', () => {
+    const host = document.createElement('div'); document.body.appendChild(host);
+    const root = createRoot(host);
+    (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    for (const brandId of ['renault', 'togg']) {
+      act(() => root.render(<VehicleEmblem emblem={resolveEmblem({ brandId })!} variant="scene" />));
+      const shapes = host.querySelectorAll('.ve-face, .ve-edge');
+      expect(shapes.length, brandId).toBeGreaterThan(0);
+      shapes.forEach((g) => {
+        expect(g.hasAttribute('fill'), brandId).toBe(false);
+        expect(g.hasAttribute('stroke'), brandId).toBe(false);
+      });
+    }
+    act(() => root.unmount()); host.remove();
   });
 });

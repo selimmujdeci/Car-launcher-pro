@@ -85,8 +85,11 @@ export const VehicleEmblem = memo(function VehicleEmblem({
             className="ve-face" style={neon ? { filter: 'grayscale(1) brightness(1.35) contrast(1.1)' } : undefined} />
         ) : (
           <>
-            <g className="ve-face" fill={face}>{shape}</g>
-            <g className={emblem.kind === 'logo' ? 've-edge' : 've-face'} fill="none" stroke={edge} strokeWidth={neon ? 0.32 : 0.2} strokeLinejoin="round">
+            {/* fill/stroke ÖZNİTELİK değil style: gündüz modu `svg *[fill]{stroke-width:0!important}`
+                ve `*[stroke]{stroke-width:3!important}` (index.css) kenarı siliyordu. */}
+            <g className="ve-face" style={{ fill: face }}>{shape}</g>
+            <g className={emblem.kind === 'logo' ? 've-edge' : 've-face'}
+              style={{ fill: 'none', stroke: edge, strokeWidth: `var(--ve-edge-w, ${neon ? 0.32 : 0.2}px)`, strokeLinejoin: 'round' }}>
               {emblem.kind === 'logo' ? <path d={emblem.path} pathLength={1} /> : shape}
             </g>
           </>

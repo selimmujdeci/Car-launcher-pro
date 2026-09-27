@@ -93,6 +93,13 @@ const CarOsBootSplash = memo(function CarOsBootSplash({ phase }: { phase: BootPh
 
 const DUST_COUNT = 56;
 
+/** '#RRGGBB' → rgba() (color-mix chrome61'de yok). */
+function hexAlpha(hex: string, a: number): string {
+  const n = parseInt(hex.slice(1, 7), 16);
+  if (!Number.isFinite(n)) return `rgba(164,170,174,${a})`;
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+}
+
 /** Işık tozlarının hedefleri: logo yolunun kenarı (ölçülebilirse), yoksa halka. */
 function dustTargets(emblem: ResolvedEmblem, box: number): Array<[number, number]> {
   const k = box / 28;
@@ -154,9 +161,9 @@ const EmblemBootSplash = memo(function EmblemBootSplash({ phase, info, onSkip }:
             opacity: !scene && i === idx ? 1 : 0, transition: 'opacity 320ms ease' }} />
       ))}
       {scene && (
-        <div className="ve-boot" style={{ '--ve-brand': info.emblem.hex } as React.CSSProperties}>
+        <div className="ve-boot" style={{ '--ve-brand-a': hexAlpha(info.emblem.hex, 0.38), '--ve-brand-b': hexAlpha(info.emblem.hex, 0.1) } as React.CSSProperties}>
           <div className="ve-aura" />
-          <div className="ve-floor"><div className="ve-ring" /></div>
+          <div className="ve-floor"><div className="ve-ring"><i /></div></div>
           <div className="ve-reflection"><VehicleEmblem emblem={info.emblem} treatment={info.treatment} variant="static" /></div>
           {dust.length > 0 && <div className="ve-dust">{dust.map((st, i) => <i key={i} style={st} />)}</div>}
           <div className="ve-emblem"><VehicleEmblem emblem={info.emblem} treatment={info.treatment} variant="scene" /></div>
