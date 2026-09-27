@@ -16,6 +16,11 @@ import {
   type GoogleSignInFailureCode,
 } from '@/lib/pwaAuth';
 
+/** Rol rengini saydamlaştırır — hex'e alfa eklemek `var(--md-*)` ile çalışmaz. */
+function mix(color: string, pct: number): string {
+  return `color-mix(in srgb, ${color} ${pct}%, transparent)`;
+}
+
 export default function PwaLoginScreen({
   /** Cihazda eski anonim oturum var mı — araçların taşınacağını söyleriz. */
   hasPendingAnonymousData = false,
@@ -64,14 +69,14 @@ export default function PwaLoginScreen({
       <div className="relative z-10 w-full max-w-sm flex flex-col items-center">
         <div
           className="w-16 h-16 rounded-2xl flex items-center justify-center mb-5"
-          style={{ background: 'rgba(59,130,246,0.15)', border: '1px solid rgba(59,130,246,0.3)' }}
+          style={{ background: 'color-mix(in srgb, var(--md-primary) 15%, transparent)', border: '1px solid color-mix(in srgb, var(--md-primary) 30%, transparent)' }}
         >
           <svg width="30" height="30" viewBox="0 0 18 18" fill="none" aria-hidden="true">
             <path d="M2 11L4.5 6Q5.5 4 7 4H11Q12.5 4 13.5 6L16 11V13.5Q16 15 14.5 15H3.5Q2 15 2 13.5Z"
-              stroke="#3b82f6" strokeWidth="1.5" strokeLinejoin="round" />
-            <circle cx="5.5" cy="15" r="1.8" stroke="#3b82f6" strokeWidth="1.5" />
-            <circle cx="12.5" cy="15" r="1.8" stroke="#3b82f6" strokeWidth="1.5" />
-            <rect x="6.5" y="7.5" width="5" height="3.5" rx="1.2" stroke="#3b82f6" strokeWidth="1.2" />
+              stroke="var(--md-primary)" strokeWidth="1.5" strokeLinejoin="round" />
+            <circle cx="5.5" cy="15" r="1.8" stroke="var(--md-primary)" strokeWidth="1.5" />
+            <circle cx="12.5" cy="15" r="1.8" stroke="var(--md-primary)" strokeWidth="1.5" />
+            <rect x="6.5" y="7.5" width="5" height="3.5" rx="1.2" stroke="var(--md-primary)" strokeWidth="1.2" />
           </svg>
         </div>
 
@@ -105,7 +110,7 @@ export default function PwaLoginScreen({
         {errorCode && (
           <p
             role="alert"
-            className="mt-4 text-center text-[12px] text-red-300/90 leading-relaxed"
+            className="mt-4 text-center text-[12px] text-[color:var(--md-error)] leading-relaxed"
           >
             {describeGoogleSignInFailure(errorCode)}
           </p>

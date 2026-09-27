@@ -34,6 +34,11 @@ import {
   type JournalEntry, type JournalSurfaceState,
 } from '@/lib/tripJournalView';
 
+/** Rol rengini saydamlaştırır — hex'e alfa eklemek `var(--md-*)` ile çalışmaz. */
+function mix(color: string, pct: number): string {
+  return `color-mix(in srgb, ${color} ${pct}%, transparent)`;
+}
+
 interface Props { vehicle: LiveVehicle | null }
 
 /** Tek seferde çekilen azami yolculuk — sunucu tavanı 200. */
@@ -45,9 +50,9 @@ const STATE_TONE: Record<Exclude<JournalSurfaceState, 'READY'>, string> = {
   NO_VEHICLE:   'var(--pwa-text-3)',
   LOADING:      'var(--pwa-text-3)',
   EMPTY:        'var(--pwa-text-3)',
-  OFFLINE:      '#fbbf24',
-  UNAUTHORIZED: '#f87171',
-  ERROR:        '#f87171',
+  OFFLINE:      'var(--md-warning)',
+  UNAUTHORIZED: 'var(--md-error)',
+  ERROR:        'var(--md-error)',
 };
 
 const StateScreen = memo(function StateScreen({
@@ -82,7 +87,7 @@ const StateScreen = memo(function StateScreen({
         <button
           onClick={onRetry}
           data-testid="journal-retry"
-          className="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all active:scale-95"
+          className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all active:scale-95"
           style={{
             color: 'var(--pwa-text-2)',
             background: 'var(--pwa-border-soft)',
@@ -125,7 +130,7 @@ const JournalRow = memo(function JournalRow({
           <span className="text-[11px] font-semibold" style={{ color: 'var(--pwa-text-2)' }}>
             {formatJournalDate(entry.startedAtMs)}
           </span>
-          <span className="text-[10px] tabular-nums" style={{ color: 'var(--pwa-text-3)' }}>
+          <span className="text-xs tabular-nums" style={{ color: 'var(--pwa-text-3)' }}>
             {formatJournalTimeRange(entry)}
           </span>
         </div>
@@ -145,16 +150,16 @@ const JournalRow = memo(function JournalRow({
           {/* Skor yoksa rozet HİÇ çizilmez — "0 puan" bir skor değildir. */}
           {entry.score !== null ? (
             <span data-testid="journal-score"
-              className="px-1.5 py-0.5 rounded-md text-[9px] font-black tracking-wider"
-              style={{ color: '#34d399', background: 'rgba(52,211,153,0.12)' }}>
+              className="px-1.5 py-0.5 rounded-md text-[11px] font-semibold tracking-wider"
+              style={{ color: 'var(--md-success)', background: 'color-mix(in srgb, var(--md-success) 12%, transparent)' }}>
               SKOR {score}
             </span>
           ) : null}
         </div>
 
         {note !== null ? (
-          <p data-testid="journal-note" className="mt-2 text-[10px] leading-snug"
-            style={{ color: '#fbbf24' }}>
+          <p data-testid="journal-note" className="mt-2 text-xs leading-snug"
+            style={{ color: 'var(--md-warning)' }}>
             {note}
           </p>
         ) : null}
@@ -181,7 +186,7 @@ const JournalRow = memo(function JournalRow({
 
           {/* Rota bulutta YOK — kullanıcıya bunu söylemek, boş bir harita
               göstermekten dürüsttür. */}
-          <p className="col-span-2 mt-1 text-[9px] leading-snug"
+          <p className="col-span-2 mt-1 text-[11px] leading-snug"
             style={{ color: 'var(--pwa-text-3)' }}>
             Yolculuk rotası yalnız aracınızda saklanır; buraya gönderilmez.
           </p>
@@ -194,7 +199,7 @@ const JournalRow = memo(function JournalRow({
 const Detail = memo(function Detail({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <div className="text-[8px] font-black uppercase tracking-widest"
+      <div className="text-[11px] font-semibold"
         style={{ color: 'var(--pwa-text-3)' }}>
         {label}
       </div>
@@ -269,10 +274,10 @@ export default function TripJournalPanel({ vehicle }: Props) {
   return (
     <section className="px-4 py-3" data-testid="trip-journal">
       <header className="flex items-baseline justify-between mb-3">
-        <h2 className="text-sm font-black tracking-tight" style={{ color: 'var(--pwa-text)' }}>
+        <h2 className="text-sm font-semibold tracking-tight" style={{ color: 'var(--pwa-text)' }}>
           Seyir Defteri
         </h2>
-        <span className="text-[9px] font-bold uppercase tracking-widest"
+        <span className="text-[11px] font-bold"
           style={{ color: 'var(--pwa-text-3)' }}>
           {entries.length > 0 ? `${entries.length} yolculuk` : ''}
         </span>
@@ -283,11 +288,11 @@ export default function TripJournalPanel({ vehicle }: Props) {
           {failure !== null ? (
             <p
               data-testid="journal-stale-warning"
-              className="mb-3 px-3 py-2 rounded-xl text-[10px] leading-snug"
+              className="mb-3 px-3 py-2 rounded-xl text-xs leading-snug"
               style={{
-                color: '#fbbf24',
-                background: 'rgba(251,191,36,0.08)',
-                border: '1px solid rgba(251,191,36,0.25)',
+                color: 'var(--md-warning)',
+                background: 'color-mix(in srgb, var(--md-warning) 8%, transparent)',
+                border: '1px solid color-mix(in srgb, var(--md-warning) 25%, transparent)',
               }}
             >
               {journalSurfaceMessage(state as Exclude<JournalSurfaceState, 'READY'>)}

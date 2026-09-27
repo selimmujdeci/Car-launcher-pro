@@ -36,17 +36,22 @@ import { buildVehicleShareReport } from '@/lib/reports/vehicleShareReport';
 import { useVehicleHealth } from '@/hooks/useVehicleHealth';
 import { vehicleSubtitle, vehicleTitle } from '@/lib/vehicleDisplay';
 
+/** Rol rengini saydamlaştırır — hex'e alfa eklemek `var(--md-*)` ile çalışmaz. */
+function mix(color: string, pct: number): string {
+  return `color-mix(in srgb, ${color} ${pct}%, transparent)`;
+}
+
 const SERVICE_LABELS: Readonly<Record<string, string>> = Object.fromEntries(
   SERVICE_DEFS.map((d) => [d.key, d.label]),
 );
 
 const TYPE_TINT: Record<VehicleMemoryEvent['type'], string> = {
-  TRIP:            '#60a5fa',
-  FUEL_RECORD:     '#34d399',
-  SERVICE_RECORD:  '#fbbf24',
+  TRIP:            'var(--md-primary)',
+  FUEL_RECORD:     'var(--md-success)',
+  SERVICE_RECORD:  'var(--md-warning)',
   /* Teşhis taraması nötr moru: tek başına "arıza var" RENGİ DEĞİLDİR —
      taramanın sonucunu metin söyler, renk olay TÜRÜNÜ ayırt eder. */
-  DIAGNOSTIC_SCAN: '#a78bfa',
+  DIAGNOSTIC_SCAN: 'var(--md-tertiary)',
 };
 
 function dayLabel(key: string): string {
@@ -153,7 +158,7 @@ function VehicleMemoryPanelBase({ vehicle }: { vehicle: LiveVehicle | null }) {
   return (
     <div className="flex flex-col gap-4">
       <header className="px-1">
-        <h2 className="text-lg font-black pwa-text">Araç Hafızası</h2>
+        <h2 className="text-lg font-semibold pwa-text">Araç Hafızası</h2>
         <p className="text-[11px] pwa-text-3 mt-0.5">
           Bu araç için kayıtlı geçmiş olaylar
         </p>
@@ -172,7 +177,7 @@ function VehicleMemoryPanelBase({ vehicle }: { vehicle: LiveVehicle | null }) {
       {/* Okunamayan kaynak "kayıt yok" DEĞİLDİR — ayrıca söylenir. */}
       {memory.unreadableSources.length > 0 && (
         <p className="text-[11px] px-3 py-2 rounded-xl"
-          style={{ background: 'var(--pwa-surface-3)', border: '1px solid var(--pwa-border-soft)', color: 'rgba(255,255,255,0.45)' }}>
+          style={{ background: 'var(--pwa-surface-3)', border: '1px solid var(--pwa-border-soft)', color: 'var(--md-on-surface-variant)' }}>
           Şu kaynaklar okunamadı: {memory.unreadableSources.join(', ')}
         </p>
       )}
@@ -185,7 +190,7 @@ function VehicleMemoryPanelBase({ vehicle }: { vehicle: LiveVehicle | null }) {
       ) : (
         days.map(({ key, events }) => (
           <section key={key} className="flex flex-col gap-2">
-            <h3 className="text-[10px] font-black uppercase tracking-[0.18em] pwa-text-3 px-1">
+            <h3 className="text-xs font-semibold pwa-text-3 px-1">
               {dayLabel(key)}
             </h3>
             {events.map((e) => <MemoryRow key={e.id} event={e} />)}
@@ -267,14 +272,14 @@ function ShareSummaryButton({
         data-testid="share-vehicle-summary"
         className="w-full min-h-[48px] rounded-2xl px-4 text-[13px] font-semibold transition-transform active:scale-[0.99] disabled:opacity-60"
         style={{
-          background: 'rgba(59,130,246,0.12)',
-          border: '1px solid rgba(59,130,246,0.28)',
-          color: '#93c5fd',
+          background: 'color-mix(in srgb, var(--md-primary) 12%, transparent)',
+          border: '1px solid color-mix(in srgb, var(--md-primary) 28%, transparent)',
+          color: 'var(--md-primary)',
         }}
       >
         {state === 'busy' ? 'Hazırlanıyor…' : 'Araç Durum Özetini Paylaş'}
       </button>
-      <p className="text-[10px] pwa-text-3 px-1 leading-snug">
+      <p className="text-xs pwa-text-3 px-1 leading-snug">
         {state === 'copied'
           ? 'Özet panoya kopyalandı.'
           : state === 'failed'
@@ -305,7 +310,7 @@ function MemoryRow({ event }: { event: VehicleMemoryEvent }) {
         <dl className="flex flex-wrap gap-x-4 gap-y-1 pl-3.5">
           {event.measurements.map((m) => (
             <div key={m.label} className="flex items-baseline gap-1.5">
-              <dt className="text-[10px] pwa-text-3">{m.label}</dt>
+              <dt className="text-xs pwa-text-3">{m.label}</dt>
               <dd className="text-[11px] font-semibold pwa-text-2">{m.value}</dd>
             </div>
           ))}
@@ -313,7 +318,7 @@ function MemoryRow({ event }: { event: VehicleMemoryEvent }) {
       )}
 
       {/* Kaynağın ne olduğu düz Türkçeyle söylenir — teknik etiket dayatılmaz. */}
-      <p className="text-[10px] pwa-text-3 pl-3.5">{provenanceLabel(event.provenance)}</p>
+      <p className="text-xs pwa-text-3 pl-3.5">{provenanceLabel(event.provenance)}</p>
     </article>
   );
 }

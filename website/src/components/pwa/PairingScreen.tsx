@@ -17,6 +17,11 @@ import {
 import { statusLabel, type PendingPairing } from '@/lib/offline/offlinePairing';
 import { isFleetErrorCode } from '@/lib/fleet/errors';
 
+/** Rol rengini saydamlaştırır — hex'e alfa eklemek `var(--md-*)` ile çalışmaz. */
+function mix(color: string, pct: number): string {
+  return `color-mix(in srgb, ${color} ${pct}%, transparent)`;
+}
+
 const PIN_LEN = 6;
 type Mode = 'pin' | 'qr';
 
@@ -60,7 +65,7 @@ function parseQRValue(raw: string): string | null {
 }
 
 /* ── Confetti ───────────────────────────────────────────────── */
-const CONFETTI_COLORS = ['#34d399', '#60a5fa', '#fbbf24', '#a78bfa', '#f472b6', '#fb923c'];
+const CONFETTI_COLORS = ['var(--md-success)', 'var(--md-primary)', 'var(--md-warning)', 'var(--md-tertiary)', '#f472b6', '#fb923c'];
 
 function Confetti() {
   return (
@@ -97,7 +102,7 @@ function Confetti() {
 
 /* ── QR Viewfinder overlay ──────────────────────────────────── */
 function QRFrame({ found }: { found: boolean }) {
-  const c = found ? '#34d399' : '#3b82f6';
+  const c = found ? 'var(--md-success)' : 'var(--md-primary)';
   return (
     <svg
       className="absolute inset-0 w-full h-full pointer-events-none"
@@ -121,7 +126,7 @@ function QRFrame({ found }: { found: boolean }) {
         />
       )}
       {found && (
-        <path d="M80 110 l24 24 36-36" stroke="#34d399" strokeWidth="4"
+        <path d="M80 110 l24 24 36-36" stroke="var(--md-success)" strokeWidth="4"
           strokeLinecap="round" strokeLinejoin="round"
           style={{ animation: 'drawCheck 0.4s ease-out both' }}
         />
@@ -412,39 +417,39 @@ export default function PairingScreen({ onPaired }: Props) {
       <div
         className="w-16 h-16 rounded-2xl flex items-center justify-center transition-all duration-500"
         style={{
-          background: success ? 'rgba(52,211,153,0.1)' : 'rgba(59,130,246,0.08)',
-          border: `1px solid ${success ? 'rgba(52,211,153,0.35)' : 'rgba(59,130,246,0.2)'}`,
-          boxShadow: success ? '0 0 40px rgba(52,211,153,0.2)' : '0 0 32px rgba(59,130,246,0.12)',
+          background: success ? 'color-mix(in srgb, var(--md-success) 10%, transparent)' : 'color-mix(in srgb, var(--md-primary) 8%, transparent)',
+          border: `1px solid ${success ? 'color-mix(in srgb, var(--md-success) 35%, transparent)' : 'color-mix(in srgb, var(--md-primary) 20%, transparent)'}`,
+          boxShadow: success ? '0 0 40px color-mix(in srgb, var(--md-success) 20%, transparent)' : '0 0 32px color-mix(in srgb, var(--md-primary) 12%, transparent)',
           animation: success ? 'successPulse 0.5s ease-out' : 'none',
         }}
       >
         {success ? (
           <svg width="30" height="30" viewBox="0 0 36 36" fill="none">
-            <circle cx="18" cy="18" r="14" stroke="#34d399" strokeWidth="2" opacity="0.25"/>
-            <path d="M11 18l5 5 9-9" stroke="#34d399" strokeWidth="2.5"
+            <circle cx="18" cy="18" r="14" stroke="var(--md-success)" strokeWidth="2" opacity="0.25"/>
+            <path d="M11 18l5 5 9-9" stroke="var(--md-success)" strokeWidth="2.5"
               strokeLinecap="round" strokeLinejoin="round"
               style={{ animation: 'drawCheck 0.4s ease-out 0.15s both' }}/>
           </svg>
         ) : (
           <svg width="30" height="30" viewBox="0 0 38 38" fill="none">
             <path d="M5 23V18L9 11Q10.5 8 13 8H25Q27.5 8 29 11L33 18V23"
-              stroke="#3b82f6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-            <path d="M4 23h30v4.5A1.5 1.5 0 0132.5 29h-27A1.5 1.5 0 014 27.5V23z" stroke="#3b82f6" strokeWidth="2"/>
-            <circle cx="10" cy="23" r="2.5" stroke="#3b82f6" strokeWidth="2"/>
-            <circle cx="28" cy="23" r="2.5" stroke="#3b82f6" strokeWidth="2"/>
-            <circle cx="29" cy="10" r="7" fill="#0c1a2e" stroke="rgba(59,130,246,0.3)" strokeWidth="1"/>
-            <rect x="26" y="7.5" width="6" height="5" rx="1" stroke="#60a5fa" strokeWidth="1.2"/>
-            <path d="M28 12.5v1.5M29 12.5v1.5M30 12.5v1.5" stroke="#60a5fa" strokeWidth="1" strokeLinecap="round"/>
+              stroke="var(--md-primary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            <path d="M4 23h30v4.5A1.5 1.5 0 0132.5 29h-27A1.5 1.5 0 014 27.5V23z" stroke="var(--md-primary)" strokeWidth="2"/>
+            <circle cx="10" cy="23" r="2.5" stroke="var(--md-primary)" strokeWidth="2"/>
+            <circle cx="28" cy="23" r="2.5" stroke="var(--md-primary)" strokeWidth="2"/>
+            <circle cx="29" cy="10" r="7" fill="var(--md-surface)" stroke="color-mix(in srgb, var(--md-primary) 30%, transparent)" strokeWidth="1"/>
+            <rect x="26" y="7.5" width="6" height="5" rx="1" stroke="var(--md-primary)" strokeWidth="1.2"/>
+            <path d="M28 12.5v1.5M29 12.5v1.5M30 12.5v1.5" stroke="var(--md-primary)" strokeWidth="1" strokeLinecap="round"/>
           </svg>
         )}
       </div>
 
       {/* Title */}
       <div>
-        <h2 className="text-white font-bold text-base leading-tight">
+        <h2 className=" font-bold text-base leading-tight">
           {success ? 'Araç Eşleştirildi!' : 'Aracınızı Eşleştirin'}
         </h2>
-        <p className="text-white/40 text-xs mt-1 leading-relaxed">
+        <p className="md-on-surface-variant text-xs mt-1 leading-relaxed">
           {success
             ? 'Başarıyla bağlandı. Yönlendiriliyorsunuz…'
             : 'Araç ekranında görünen 6 haneli kodu buraya girin'}
@@ -461,7 +466,7 @@ export default function PairingScreen({ onPaired }: Props) {
       {!success && (
         <div
           className="w-full max-w-[280px] rounded-xl px-3 py-2.5 text-[11px] leading-relaxed"
-          style={{ background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.25)', color: '#bfdbfe' }}
+          style={{ background: 'color-mix(in srgb, var(--md-primary) 8%, transparent)', border: '1px solid color-mix(in srgb, var(--md-primary) 25%, transparent)', color: 'var(--md-on-surface)' }}
         >
           Araç ekranında <b>Ayarlar → Telefonumu Bağla</b>&apos;yı açın, orada görünen{' '}
           <b>6 haneli kodu</b> buraya girin. Araç doğrudan <b>hesabınıza</b> bağlanır —
@@ -474,7 +479,7 @@ export default function PairingScreen({ onPaired }: Props) {
       {!success && (
         <div
           className="flex w-full max-w-[280px] p-1 rounded-xl"
-          style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}
+          style={{ background: 'var(--md-surface-container-high)', border: '1px solid var(--md-outline-variant)' }}
         >
           {(['pin'] as Mode[]).map((m) => (
             <button
@@ -482,9 +487,9 @@ export default function PairingScreen({ onPaired }: Props) {
               onClick={() => setMode(m)}
               className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-bold transition-all duration-200"
               style={{
-                background: mode === m ? 'rgba(59,130,246,0.2)' : 'transparent',
-                color: mode === m ? '#60a5fa' : 'rgba(255,255,255,0.3)',
-                border: mode === m ? '1px solid rgba(59,130,246,0.3)' : '1px solid transparent',
+                background: mode === m ? 'color-mix(in srgb, var(--md-primary) 20%, transparent)' : 'transparent',
+                color: mode === m ? 'var(--md-primary)' : 'var(--md-outline-variant)',
+                border: mode === m ? '1px solid color-mix(in srgb, var(--md-primary) 30%, transparent)' : '1px solid transparent',
               }}
             >
               {m === 'qr' ? (
@@ -523,8 +528,8 @@ export default function PairingScreen({ onPaired }: Props) {
           {!scanning && !loading && (
             <button
               onClick={() => void startQR()}
-              className="w-full py-4 rounded-2xl font-bold text-white text-sm tracking-wide transition-all duration-150 active:scale-95 flex items-center justify-center gap-2"
-              style={{ background: 'linear-gradient(135deg, #3b82f6, #2563eb)', boxShadow: '0 8px 24px rgba(59,130,246,0.25)' }}
+              className="w-full py-4 rounded-2xl font-bold  text-sm tracking-wide transition-all duration-150 active:scale-95 flex items-center justify-center gap-2"
+              style={{ background: 'var(--md-primary)', color: 'var(--md-on-primary)' }}
             >
               <svg width="18" height="18" viewBox="0 0 16 16" fill="none">
                 <circle cx="8" cy="8" r="5" stroke="white" strokeWidth="1.5"/>
@@ -536,7 +541,7 @@ export default function PairingScreen({ onPaired }: Props) {
 
           {scanning && (
             <div className="relative w-full aspect-square rounded-2xl overflow-hidden"
-              style={{ background: '#000', border: '1.5px solid rgba(59,130,246,0.3)' }}>
+              style={{ background: '#000', border: '1.5px solid color-mix(in srgb, var(--md-primary) 30%, transparent)' }}>
               <video
                 ref={videoRef}
                 className="w-full h-full object-cover"
@@ -545,14 +550,14 @@ export default function PairingScreen({ onPaired }: Props) {
               />
               <QRFrame found={qrFound} />
               <div className="absolute bottom-2 inset-x-0 flex justify-center">
-                <span className="text-[10px] font-semibold text-white/60 bg-black/50 px-2 py-1 rounded-md backdrop-blur-sm">
+                <span className="text-xs font-semibold md-on-surface-variant bg-black/50 px-2 py-1 rounded-md backdrop-blur-sm">
                   QR kodu kareye getirin
                 </span>
               </div>
               <button
                 onClick={stopCamera}
                 className="absolute top-2 right-2 w-7 h-7 rounded-lg flex items-center justify-center"
-                style={{ background: 'rgba(0,0,0,0.6)', border: '1px solid rgba(255,255,255,0.15)' }}
+                style={{ background: 'var(--md-surface-container-high)', border: '1px solid var(--md-outline-variant)' }}
               >
                 <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
                   <path d="M2 2l8 8M10 2l-8 8" stroke="white" strokeWidth="1.5" strokeLinecap="round"/>
@@ -562,7 +567,7 @@ export default function PairingScreen({ onPaired }: Props) {
           )}
 
           {loading && (
-            <div className="flex items-center justify-center gap-2 py-6 text-sm text-white/50">
+            <div className="flex items-center justify-center gap-2 py-6 text-sm md-on-surface-variant">
               <svg className="animate-spin w-4 h-4" viewBox="0 0 16 16" fill="none">
                 <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.5"
                   strokeDasharray="28" strokeDashoffset="10" opacity="0.4"/>
@@ -573,7 +578,7 @@ export default function PairingScreen({ onPaired }: Props) {
           )}
 
           {cameraErr && (
-            <p className="text-red-400/90 text-xs text-center">{cameraErr}</p>
+            <p className="text-[color:var(--md-error)] text-xs text-center">{cameraErr}</p>
           )}
         </div>
       )}
@@ -595,31 +600,31 @@ export default function PairingScreen({ onPaired }: Props) {
                 onKeyDown={(e) => handleKeyDown(e, i)}
                 onFocus={(e) => e.target.select()}
                 disabled={loading}
-                className="w-10 h-13 text-center text-lg font-mono font-bold rounded-xl transition-all focus:outline-none disabled:opacity-50"
+                className="w-10 h-13 text-center text-lg font-bold rounded-xl transition-all focus:outline-none disabled:opacity-50"
                 style={{
                   height: '52px',
-                  background: digits[i] ? 'rgba(59,130,246,0.1)' : 'rgba(255,255,255,0.04)',
+                  background: digits[i] ? 'color-mix(in srgb, var(--md-primary) 10%, transparent)' : 'var(--md-outline-variant)',
                   border: error
-                    ? '1.5px solid rgba(239,68,68,0.5)'
+                    ? '1.5px solid color-mix(in srgb, var(--md-error) 50%, transparent)'
                     : digits[i]
-                    ? '1.5px solid rgba(59,130,246,0.5)'
-                    : '1.5px solid rgba(255,255,255,0.1)',
+                    ? '1.5px solid color-mix(in srgb, var(--md-primary) 50%, transparent)'
+                    : '1px solid var(--md-outline-variant)',
                   color: '#fff',
-                  boxShadow: digits[i] ? '0 0 10px rgba(59,130,246,0.18)' : 'none',
+                  boxShadow: digits[i] ? '0 0 10px color-mix(in srgb, var(--md-primary) 18%, transparent)' : 'none',
                 }}
               />
             ))}
           </div>
 
-          {error && <p className="text-red-400/90 text-xs -mt-1">{error}</p>}
+          {error && <p className="text-[color:var(--md-error)] text-xs -mt-1">{error}</p>}
 
           <button
             onClick={() => void doPair(code)}
             disabled={loading || code.trim().length < 4}
-            className="w-full py-4 rounded-2xl font-bold text-white text-sm tracking-wide transition-all duration-150 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full py-4 rounded-2xl font-bold  text-sm tracking-wide transition-all duration-150 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
             style={{
-              background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
-              boxShadow: '0 8px 24px rgba(59,130,246,0.25)',
+              background: 'var(--md-primary)', color: 'var(--md-on-primary)',
+              boxShadow: '0 8px 24px color-mix(in srgb, var(--md-primary) 25%, transparent)',
             }}
           >
             {loading ? (
@@ -640,16 +645,16 @@ export default function PairingScreen({ onPaired }: Props) {
       {!success && notice && (
         <div
           className="w-full max-w-[280px] rounded-xl px-3 py-2.5 text-left"
-          style={{ background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.25)' }}
+          style={{ background: 'color-mix(in srgb, var(--md-warning) 8%, transparent)', border: '1px solid color-mix(in srgb, var(--md-warning) 25%, transparent)' }}
         >
-          <p className="text-[11px] leading-relaxed text-amber-200/90">{notice}</p>
+          <p className="text-[11px] leading-relaxed text-[color:var(--md-warning)]">{notice}</p>
         </div>
       )}
 
       {/* ── Sunucu doğrulaması bekleyen talepler ─────────────────────── */}
       {!success && claims.length > 0 && (
         <div className="w-full max-w-[280px] text-left">
-          <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-white/35">
+          <p className="mb-1.5 text-xs font-bold tracking-wide md-on-surface-variant">
             Bekleyen eşleştirme talepleri
           </p>
           <div className="flex flex-col gap-1.5">
@@ -657,19 +662,19 @@ export default function PairingScreen({ onPaired }: Props) {
               <div
                 key={claim.id}
                 className="flex items-center justify-between gap-2 rounded-lg px-2.5 py-2"
-                style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}
+                style={{ background: 'var(--md-surface-container-high)', border: '1px solid var(--md-outline-variant)' }}
               >
-                <span className="text-[11px] text-white/60">
+                <span className="text-[11px] md-on-surface-variant">
                   {new Date(claim.requestedAt).toLocaleString('tr-TR')}
                 </span>
                 <span
-                  className="text-[10px] font-semibold"
+                  className="text-xs font-semibold"
                   style={{
                     color:
-                      claim.status === 'VERIFIED' ? '#34d399'
-                      : claim.status === 'REJECTED' ? '#f87171'
-                      : claim.status === 'EXPIRED' ? 'rgba(255,255,255,0.35)'
-                      : '#fbbf24',
+                      claim.status === 'VERIFIED' ? 'var(--md-success)'
+                      : claim.status === 'REJECTED' ? 'var(--md-error)'
+                      : claim.status === 'EXPIRED' ? 'var(--md-outline-variant)'
+                      : 'var(--md-warning)',
                   }}
                 >
                   {statusLabel(claim.status)}
@@ -677,16 +682,16 @@ export default function PairingScreen({ onPaired }: Props) {
               </div>
             ))}
           </div>
-          <p className="mt-1.5 text-[10px] leading-relaxed text-white/30">
+          <p className="mt-1.5 text-xs leading-relaxed md-on-surface-variant">
             Bu talepler sunucu onaylamadan sahiplik oluşturmaz.
           </p>
         </div>
       )}
 
       {!success && (
-        <p className="text-white/20 text-[10px] max-w-[240px] leading-relaxed">
+        <p className="md-on-surface-variant text-xs max-w-[240px] leading-relaxed">
           Araç ekranında{' '}
-          <span className="text-white/35">Ayarlar → Telefonumu Bağla</span>{' '}
+          <span className="md-on-surface-variant">Ayarlar → Telefonumu Bağla</span>{' '}
           seçeneğini açın.
         </p>
       )}
