@@ -12,6 +12,11 @@ import {
 } from '@/lib/recordsService';
 import { useRecordsSync, queueFailureMessage } from '@/hooks/useRecordsSync';
 
+/** Rol rengini saydamlaştırır — hex'e alfa eklemek `var(--md-*)` ile çalışmaz. */
+function mix(color: string, pct: number): string {
+  return `color-mix(in srgb, ${color} ${pct}%, transparent)`;
+}
+
 interface Props { vehicle: LiveVehicle | null }
 
 /* ── Depo modu rozeti ─────────────────────────────────────────────────────────
@@ -21,12 +26,12 @@ interface Props { vehicle: LiveVehicle | null }
  * Verinin NEREDE yaşadığı artık her zaman görünür.
  */
 const MODE_STYLE: Record<RecordsStorageMode, { color: string; bg: string; border: string }> = {
-  SERVER:       { color: '#34d399', bg: 'rgba(52,211,153,0.08)', border: 'rgba(52,211,153,0.22)' },
-  LOCAL_ONLY:   { color: '#fbbf24', bg: 'rgba(251,191,36,0.08)', border: 'rgba(251,191,36,0.25)' },
+  SERVER:       { color: 'var(--md-success)', bg: 'color-mix(in srgb, var(--md-success) 8%, transparent)', border: 'color-mix(in srgb, var(--md-success) 22%, transparent)' },
+  LOCAL_ONLY:   { color: 'var(--md-warning)', bg: 'color-mix(in srgb, var(--md-warning) 8%, transparent)', border: 'color-mix(in srgb, var(--md-warning) 25%, transparent)' },
   // Kuyrukta bekleyen kayıt YEŞİL olmaz — yeşil "hesabınızda" demektir ve
   // henüz hak edilmemiştir. Mavi: "iş sürüyor", hüküm verilmedi.
-  QUEUED:       { color: '#60a5fa', bg: 'rgba(96,165,250,0.08)', border: 'rgba(96,165,250,0.25)' },
-  SERVER_ERROR: { color: '#f87171', bg: 'rgba(239,68,68,0.08)',  border: 'rgba(239,68,68,0.25)' },
+  QUEUED:       { color: 'var(--md-primary)', bg: 'color-mix(in srgb, var(--md-primary) 8%, transparent)', border: 'color-mix(in srgb, var(--md-primary) 25%, transparent)' },
+  SERVER_ERROR: { color: 'var(--md-error)', bg: 'color-mix(in srgb, var(--md-error) 8%, transparent)',  border: 'color-mix(in srgb, var(--md-error) 25%, transparent)' },
 };
 
 /* ── Tek kaydın durum rozeti ──────────────────────────────────────────────
@@ -36,8 +41,8 @@ const MODE_STYLE: Record<RecordsStorageMode, { color: string; bg: string; border
  * diye "gönderildi" sanılmamalıdır.
  */
 const SYNC_STYLE: Record<Exclude<EntrySync, 'SERVER'>, { color: string; bg: string }> = {
-  QUEUED: { color: '#60a5fa', bg: 'rgba(96,165,250,0.12)' },
-  LOCAL:  { color: '#fbbf24', bg: 'rgba(251,191,36,0.12)' },
+  QUEUED: { color: 'var(--md-primary)', bg: 'color-mix(in srgb, var(--md-primary) 12%, transparent)' },
+  LOCAL:  { color: 'var(--md-warning)', bg: 'color-mix(in srgb, var(--md-warning) 12%, transparent)' },
 };
 
 /**
@@ -86,11 +91,11 @@ const DeleteButton = memo(function DeleteButton({
       data-testid="record-delete"
       data-armed={armed ? 'true' : 'false'}
       aria-label={label}
-      className="flex-shrink-0 px-2 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-widest transition-all active:scale-95 disabled:opacity-40"
+      className="flex-shrink-0 px-2 py-1.5 rounded-lg text-[11px] font-semibold transition-all active:scale-95 disabled:opacity-40"
       style={{
-        color:      armed ? '#f87171' : 'var(--pwa-text-3)',
-        background: armed ? 'rgba(239,68,68,0.14)' : 'var(--pwa-border-soft)',
-        border:     `1px solid ${armed ? 'rgba(239,68,68,0.35)' : 'var(--pwa-border)'}`,
+        color:      armed ? 'var(--md-error)' : 'var(--pwa-text-3)',
+        background: armed ? 'color-mix(in srgb, var(--md-error) 14%, transparent)' : 'var(--pwa-border-soft)',
+        border:     `1px solid ${armed ? 'color-mix(in srgb, var(--md-error) 35%, transparent)' : 'var(--pwa-border)'}`,
       }}
     >
       {busy ? '…' : armed ? 'Emin misin?' : 'Sil'}
@@ -105,7 +110,7 @@ const EntrySyncBadge = memo(function EntrySyncBadge({ sync }: { sync?: EntrySync
     <span
       data-testid="entry-sync-badge"
       data-sync={sync}
-      className="px-1.5 py-0.5 rounded-md text-[7px] font-black uppercase tracking-widest flex-shrink-0"
+      className="px-1.5 py-0.5 rounded-md text-[11px] font-semibold flex-shrink-0"
       style={{ color: s.color, background: s.bg }}
     >
       {ENTRY_SYNC_LABEL[sync]}
@@ -122,10 +127,10 @@ const StorageBadge = memo(function StorageBadge({ mode }: { mode: RecordsStorage
       className="flex flex-col gap-1 px-3 py-2 rounded-xl"
       style={{ background: s.bg, border: `1px solid ${s.border}` }}
     >
-      <span className="text-[9px] font-black uppercase tracking-widest" style={{ color: s.color }}>
+      <span className="text-[11px] font-semibold" style={{ color: s.color }}>
         {STORAGE_MODE_LABEL[mode]}
       </span>
-      <span className="text-[9px] leading-relaxed" style={{ color: 'var(--pwa-text-3)' }}>
+      <span className="text-[11px] leading-relaxed" style={{ color: 'var(--pwa-text-3)' }}>
         {STORAGE_MODE_HINT[mode]}
       </span>
     </div>
@@ -301,22 +306,22 @@ function FuelTab({ vehicle }: { vehicle: LiveVehicle | null }) {
       {/* İstatistikler — ölçülemeyen değer SAYI olarak basılmaz */}
       <div className="grid grid-cols-3 gap-2">
         {[
-          { label: 'Ort. Tüketim',   value: avg  != null ? avg.toFixed(1)  : null, unit: 'L/100km', color: '#60a5fa' },
-          { label: 'Toplam Litre',   value: log.length > 0 ? liters.toFixed(1) : null, unit: 'L',   color: '#34d399' },
-          { label: 'Toplam Harcama', value: cost != null ? String(Math.round(cost)) : null, unit: '₺', color: '#fbbf24' },
+          { label: 'Ort. Tüketim',   value: avg  != null ? avg.toFixed(1)  : null, unit: 'L/100km', color: 'var(--md-primary)' },
+          { label: 'Toplam Litre',   value: log.length > 0 ? liters.toFixed(1) : null, unit: 'L',   color: 'var(--md-success)' },
+          { label: 'Toplam Harcama', value: cost != null ? String(Math.round(cost)) : null, unit: '₺', color: 'var(--md-warning)' },
         ].map(({ label, value, unit, color }) => (
           <div key={label} className="flex flex-col items-center py-3 rounded-xl"
             style={{
-              background: value != null ? `${color}09` : 'var(--pwa-surface-3)',
-              border: `1px solid ${value != null ? `${color}20` : 'var(--pwa-border-soft)'}`,
+              background: value != null ? `${mix(color, 4)}` : 'var(--pwa-surface-3)',
+              border: `1px solid ${value != null ? `${mix(color, 13)}` : 'var(--pwa-border-soft)'}`,
             }}>
-            <span className="text-[7px] font-black uppercase tracking-widest pwa-text-3 mb-1 text-center leading-tight">{label}</span>
-            <span className="text-base font-black tabular-nums"
+            <span className="text-[11px] font-semibold pwa-text-3 mb-1 text-center leading-tight">{label}</span>
+            <span className="text-base font-semibold tabular-nums"
               style={{ color: value != null ? color : 'var(--pwa-text-3)' }}>
               {value ?? '—'}
             </span>
-            <span className="text-[8px] font-mono mt-0.5"
-              style={{ color: value != null ? `${color}60` : 'var(--pwa-text-3)' }}>
+            <span className="text-[11px] mt-0.5"
+              style={{ color: value != null ? color : 'var(--pwa-text-3)' }}>
               {value != null ? unit : 'yeterli kayıt yok'}
             </span>
           </div>
@@ -324,7 +329,7 @@ function FuelTab({ vehicle }: { vehicle: LiveVehicle | null }) {
       </div>
 
       {saveMsg && (
-        <p data-testid="records-save-msg" className="text-[10px] px-1" style={{ color: 'var(--pwa-text-2)' }}>
+        <p data-testid="records-save-msg" className="text-xs px-1" style={{ color: 'var(--pwa-text-2)' }}>
           {saveMsg}
         </p>
       )}
@@ -332,8 +337,8 @@ function FuelTab({ vehicle }: { vehicle: LiveVehicle | null }) {
       {/* Ekleme formu */}
       {adding ? (
         <div className="flex flex-col gap-3 p-4 rounded-2xl"
-          style={{ background: 'rgba(96,165,250,0.05)', border: '1.5px solid rgba(96,165,250,0.18)' }}>
-          <p data-testid="fuel-form-title" className="text-[10px] font-black uppercase tracking-widest text-blue-400/60">
+          style={{ background: 'color-mix(in srgb, var(--md-primary) 8%, transparent)', border: '1.5px solid color-mix(in srgb, var(--md-primary) 18%, transparent)' }}>
+          <p data-testid="fuel-form-title" className="text-xs font-semibold text-[color:var(--md-primary)]">
             {editing ? 'Yakıt Kaydını Düzenle' : 'Yakıt Ekle'}
           </p>
 
@@ -346,7 +351,7 @@ function FuelTab({ vehicle }: { vehicle: LiveVehicle | null }) {
             ].map(({ key, label, type, placeholder }) => (
               <div key={key} className="flex flex-col gap-1">
                 <label htmlFor={`${formId}-${key}`}
-                  className="text-[9px] font-black uppercase tracking-widest pwa-text-3">
+                  className="text-[11px] font-semibold pwa-text-3">
                   {label}
                 </label>
                 <input
@@ -362,7 +367,7 @@ function FuelTab({ vehicle }: { vehicle: LiveVehicle | null }) {
             ))}
           </div>
 
-          <p className="text-[9px] pwa-text-3">
+          <p className="text-[11px] pwa-text-3">
             {/* Kaynak AÇIKÇA yazılır: türetilmiş değer elle girilmiş gibi gösterilmez. */}
             {vehicleKm !== null
               ? <>Kilometre <b>araçtan okundu</b> ({vehicleKm.toLocaleString('tr')} km) — yanlışsa değiştirebilirsiniz. </>
@@ -375,14 +380,14 @@ function FuelTab({ vehicle }: { vehicle: LiveVehicle | null }) {
             <button
               onClick={() => void handleSubmit()}
               data-testid="fuel-form-save"
-              className="flex-1 py-2.5 rounded-xl font-black text-[11px] uppercase tracking-widest text-white transition-all active:scale-95"
-              style={{ background: 'linear-gradient(135deg,#3b82f6,#2563eb)', boxShadow: '0 4px 16px rgba(59,130,246,0.25)' }}
+              className="flex-1 py-2.5 rounded-xl font-semibold text-[11px]  transition-all active:scale-95"
+              style={{ background: 'var(--md-primary)', color: 'var(--md-on-primary)' }}
             >
               Kaydet
             </button>
             <button
               onClick={closeForm}
-              className="flex-1 py-2.5 rounded-xl font-black text-[11px] uppercase tracking-widest transition-all active:scale-95 pwa-text-3"
+              className="flex-1 py-2.5 rounded-xl font-semibold text-[11px] transition-all active:scale-95 pwa-text-3"
               style={{ background: 'var(--pwa-surface-3)', border: '1px solid var(--pwa-border-soft)' }}
             >
               İptal
@@ -393,17 +398,17 @@ function FuelTab({ vehicle }: { vehicle: LiveVehicle | null }) {
         <button
           onClick={() => { setAdding(true); setSaveMsg(''); }}
           className="w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl transition-all active:scale-[0.98]"
-          style={{ background: 'rgba(96,165,250,0.06)', border: '1.5px solid rgba(96,165,250,0.18)' }}
+          style={{ background: 'color-mix(in srgb, var(--md-primary) 8%, transparent)', border: '1.5px solid color-mix(in srgb, var(--md-primary) 18%, transparent)' }}
         >
           <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0"
-            style={{ background: 'rgba(96,165,250,0.12)', border: '1px solid rgba(96,165,250,0.22)' }}>
+            style={{ background: 'color-mix(in srgb, var(--md-primary) 12%, transparent)', border: '1px solid color-mix(in srgb, var(--md-primary) 22%, transparent)' }}>
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path d="M8 2v12M2 8h12" stroke="#60a5fa" strokeWidth="1.8" strokeLinecap="round"/>
+              <path d="M8 2v12M2 8h12" stroke="var(--md-primary)" strokeWidth="1.8" strokeLinecap="round"/>
             </svg>
           </div>
           <div className="text-left">
-            <p className="text-sm font-bold text-blue-300">Yakıt Doldurma Ekle</p>
-            <p className="text-[10px] mt-0.5" style={{ color: 'rgba(96,165,250,0.4)' }}>
+            <p className="text-sm font-bold text-[color:var(--md-primary)]">Yakıt Doldurma Ekle</p>
+            <p className="text-xs mt-0.5" style={{ color: 'var(--md-on-surface-variant)' }}>
               Tarih, km, litre ve fiyat kaydet
             </p>
           </div>
@@ -419,24 +424,24 @@ function FuelTab({ vehicle }: { vehicle: LiveVehicle | null }) {
             <div key={entry.id} className="flex items-center gap-3 px-3 py-2.5 rounded-xl"
               style={{ background: 'var(--pwa-surface-3)', border: '1px solid var(--pwa-border-soft)' }}>
               <div className="flex flex-col items-center gap-0.5 flex-shrink-0 w-12">
-                <span className="text-[8px] font-mono pwa-text-3">
+                <span className="text-[11px] pwa-text-3">
                   {new Date(entry.filledOn).toLocaleDateString('tr-TR', { day: '2-digit', month: 'short' })}
                 </span>
                 {/* Kilometre bilinmiyorsa em-dash — 0 km BASILMAZ. */}
-                <span className="text-[7px] font-mono pwa-text-3">
+                <span className="text-[11px] pwa-text-3">
                   {entry.odometerKm != null ? `${entry.odometerKm.toLocaleString('tr')} km` : '— km'}
                 </span>
               </div>
               <div className="flex-1 grid grid-cols-2 gap-2 text-center">
                 <div>
-                  <p className="text-sm font-black tabular-nums text-blue-300">{entry.liters.toFixed(1)}</p>
-                  <p className="text-[7px] font-mono pwa-text-3">litre</p>
+                  <p className="text-sm font-semibold tabular-nums text-[color:var(--md-primary)]">{entry.liters.toFixed(1)}</p>
+                  <p className="text-[11px] pwa-text-3">litre</p>
                 </div>
                 <div>
-                  <p className="text-sm font-black tabular-nums text-yellow-300">
+                  <p className="text-sm font-semibold tabular-nums text-[color:var(--md-warning)]">
                     {entry.pricePerL != null ? Math.round(entry.liters * entry.pricePerL) : '—'}
                   </p>
-                  <p className="text-[7px] font-mono pwa-text-3">
+                  <p className="text-[11px] pwa-text-3">
                     {entry.pricePerL != null ? '₺' : 'fiyat yok'}
                   </p>
                 </div>
@@ -449,7 +454,7 @@ function FuelTab({ vehicle }: { vehicle: LiveVehicle | null }) {
                 onClick={() => startEdit(entry)}
                 data-testid="record-edit"
                 aria-label={`${entry.filledOn} tarihli yakıt kaydını düzenle`}
-                className="flex-shrink-0 px-2 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-widest transition-all active:scale-95"
+                className="flex-shrink-0 px-2 py-1.5 rounded-lg text-[11px] font-semibold transition-all active:scale-95"
                 style={{
                   color:      'var(--pwa-text-3)',
                   background: 'var(--pwa-border-soft)',
@@ -595,10 +600,10 @@ export function validateOdometerInput(raw: string, floorKm: number | null): Odom
 }
 
 const STATUS_CFG: Record<ServiceStatus, { color: string; label: string; bg: string; border: string }> = {
-  ok:      { color: '#34d399', label: 'İyi',        bg: 'rgba(52,211,153,0.08)', border: 'rgba(52,211,153,0.2)' },
-  soon:    { color: '#fbbf24', label: 'Yakında',    bg: 'rgba(251,191,36,0.08)', border: 'rgba(251,191,36,0.25)' },
-  overdue: { color: '#ef4444', label: 'Geçmiş',     bg: 'rgba(239,68,68,0.08)',  border: 'rgba(239,68,68,0.25)' },
-  unknown: { color: '#6b7280', label: 'Bilinmiyor', bg: 'var(--pwa-surface-3)',  border: 'var(--pwa-border-soft)' },
+  ok:      { color: 'var(--md-success)', label: 'İyi',        bg: 'color-mix(in srgb, var(--md-success) 8%, transparent)', border: 'color-mix(in srgb, var(--md-success) 20%, transparent)' },
+  soon:    { color: 'var(--md-warning)', label: 'Yakında',    bg: 'color-mix(in srgb, var(--md-warning) 8%, transparent)', border: 'color-mix(in srgb, var(--md-warning) 25%, transparent)' },
+  overdue: { color: 'var(--md-error)', label: 'Geçmiş',     bg: 'color-mix(in srgb, var(--md-error) 8%, transparent)',  border: 'color-mix(in srgb, var(--md-error) 25%, transparent)' },
+  unknown: { color: 'var(--md-outline)', label: 'Bilinmiyor', bg: 'var(--pwa-surface-3)',  border: 'var(--pwa-border-soft)' },
 };
 
 function ServiceTab({ vehicle }: { vehicle: LiveVehicle | null }) {
@@ -743,7 +748,7 @@ function ServiceTab({ vehicle }: { vehicle: LiveVehicle | null }) {
       <StorageBadge mode={mode} />
 
       {msg && (
-        <p data-testid="service-save-msg" className="text-[10px] px-1" style={{ color: 'var(--pwa-text-2)' }}>{msg}</p>
+        <p data-testid="service-save-msg" className="text-xs px-1" style={{ color: 'var(--pwa-text-2)' }}>{msg}</p>
       )}
 
       {loading && <p className="py-4 text-center text-sm pwa-text-3">Kayıtlar yükleniyor…</p>}
@@ -767,15 +772,15 @@ function ServiceTab({ vehicle }: { vehicle: LiveVehicle | null }) {
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
                 <p className="text-xs font-bold pwa-text leading-tight">{def.label}</p>
-                <span className="text-[7px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-md flex-shrink-0"
-                  style={{ background: `${cfg.color}15`, color: cfg.color }}>
+                <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded-md flex-shrink-0"
+                  style={{ background: `${mix(cfg.color, 8)}`, color: cfg.color }}>
                   {cfg.label}
                 </span>
                 {/* Son kayıt sunucuda değilse bunu söyler — bakım hükmü
                     gönderilmemiş bir kayda dayanıyor olabilir. */}
                 <EntrySyncBadge sync={last?.sync} />
               </div>
-              <p className="text-[9px] mt-0.5 font-mono pwa-text-3">
+              <p className="text-[11px] mt-0.5 pwa-text-3">
                 {last
                   ? `Son: ${new Date(last.performedOn).toLocaleDateString('tr-TR', { day: '2-digit', month: 'short', year: '2-digit' })}`
                   : 'Kayıt yok'}
@@ -799,7 +804,7 @@ function ServiceTab({ vehicle }: { vehicle: LiveVehicle | null }) {
                   onClick={() => startEdit(last)}
                   data-testid={`service-edit-${def.key}`}
                   aria-label={`${def.label} son kaydını düzenle`}
-                  className="flex-shrink-0 px-2 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-widest transition-all active:scale-95"
+                  className="flex-shrink-0 px-2 py-1.5 rounded-lg text-[11px] font-semibold transition-all active:scale-95"
                   style={{
                     color:      'var(--pwa-text-3)',
                     background: 'var(--pwa-border-soft)',
@@ -819,8 +824,8 @@ function ServiceTab({ vehicle }: { vehicle: LiveVehicle | null }) {
               <button
                 onClick={() => markDone(def.key)}
                 data-testid={`service-done-${def.key}`}
-                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all active:scale-95"
-                style={{ background: `${cfg.color}18`, border: `1px solid ${cfg.color}30`, color: cfg.color }}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition-all active:scale-95"
+                style={{ background: `${mix(cfg.color, 9)}`, border: `1px solid ${mix(cfg.color, 19)}`, color: cfg.color }}
               >
                 <svg width="9" height="9" viewBox="0 0 9 9" fill="none">
                   <path d="M1.5 4.5l2.5 2.5 3.5-4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
@@ -839,12 +844,12 @@ function ServiceTab({ vehicle }: { vehicle: LiveVehicle | null }) {
               data-testid="service-km-prompt"
               data-mode={sheet.mode}
               className="flex flex-col gap-2 px-3 py-3 rounded-xl"
-              style={{ background: 'rgba(96,165,250,0.06)', border: '1px solid rgba(96,165,250,0.22)' }}
+              style={{ background: 'color-mix(in srgb, var(--md-primary) 8%, transparent)', border: '1px solid color-mix(in srgb, var(--md-primary) 22%, transparent)' }}
             >
-              <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: '#60a5fa' }}>
+              <p className="text-xs font-semibold" style={{ color: 'var(--md-primary)' }}>
                 {def.label} — {sheet.mode === 'EDIT' ? 'kaydı düzenle' : 'kilometre'}
               </p>
-              <p className="text-[9px] leading-relaxed" style={{ color: 'var(--pwa-text-3)' }}>
+              <p className="text-[11px] leading-relaxed" style={{ color: 'var(--pwa-text-3)' }}>
                 {sheet.mode === 'EDIT'
                   ? <>Bu kalemin son kaydını düzeltebilirsiniz. Kilometreyi bilmiyorsanız <b>boş bırakın</b> — kayıt korunur, yalnız bakım durumu hesaplanamaz.</>
                   : <>Araçtan kilometre okunamadı. Bakım durumunun hesaplanabilmesi için bakımın yapıldığı kilometreyi girin. <b>Bilmiyorsanız boş bırakın</b> — kayıt yine tutulur, yalnız bu kalem için "Bilinmiyor" görünür.</>}
@@ -880,8 +885,8 @@ function ServiceTab({ vehicle }: { vehicle: LiveVehicle | null }) {
                 <button
                   onClick={submitSheet}
                   data-testid="service-km-save"
-                  className="flex-1 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest text-white transition-all active:scale-95"
-                  style={{ background: 'linear-gradient(135deg,#3b82f6,#2563eb)' }}
+                  className="flex-1 py-2 rounded-xl font-semibold text-xs  transition-all active:scale-95"
+                  style={{ background: 'var(--md-primary)', color: 'var(--md-on-primary)' }}
                 >
                   Kaydet
                 </button>
@@ -889,7 +894,7 @@ function ServiceTab({ vehicle }: { vehicle: LiveVehicle | null }) {
                   <button
                     onClick={() => void saveDone(def.key, null)}
                     data-testid="service-km-unknown"
-                    className="flex-1 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all active:scale-95 pwa-text-3"
+                    className="flex-1 py-2 rounded-xl font-semibold text-xs transition-all active:scale-95 pwa-text-3"
                     style={{ background: 'var(--pwa-surface-3)', border: '1px solid var(--pwa-border-soft)' }}
                   >
                     Bilmiyorum
@@ -897,7 +902,7 @@ function ServiceTab({ vehicle }: { vehicle: LiveVehicle | null }) {
                 )}
                 <button
                   onClick={closeSheet}
-                  className="px-3 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all active:scale-95 pwa-text-3"
+                  className="px-3 py-2 rounded-xl font-semibold text-xs transition-all active:scale-95 pwa-text-3"
                   style={{ background: 'var(--pwa-border-soft)', border: '1px solid var(--pwa-border)' }}
                 >
                   Vazgeç
@@ -910,7 +915,7 @@ function ServiceTab({ vehicle }: { vehicle: LiveVehicle | null }) {
       })}
 
       {/* Kilometre ölçülmemişse bunu AÇIKÇA söyler — bakım hükmü bu yüzden verilemez. */}
-      <p className="text-[9px] text-center font-mono mt-1 pwa-text-3">
+      <p className="text-[11px] text-center mt-1 pwa-text-3">
         {currentKm != null
           ? `Mevcut km: ${currentKm.toLocaleString('tr')}`
           : 'Araç kilometresi okunamadı — bakım durumu hesaplanamıyor'}
@@ -951,15 +956,15 @@ const PendingQueueStrip = memo(function PendingQueueStrip() {
         data-pending={pending === null ? 'unknown' : String(pending)}
         data-failed={failed === null ? 'unknown' : String(failed)}
         className="flex items-center gap-3 px-3 py-2.5 rounded-xl"
-        style={{ background: 'rgba(96,165,250,0.06)', border: '1px solid rgba(96,165,250,0.2)' }}
+        style={{ background: 'color-mix(in srgb, var(--md-primary) 8%, transparent)', border: '1px solid color-mix(in srgb, var(--md-primary) 20%, transparent)' }}
       >
         <div className="flex-1">
-          <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: '#60a5fa' }}>
+          <p className="text-xs font-semibold" style={{ color: 'var(--md-primary)' }}>
             {unknown
               ? 'Sıra durumu okunamadı'
               : `${pending} kayıt gönderilmeyi bekliyor`}
           </p>
-          <p className="text-[9px] leading-relaxed mt-0.5" style={{ color: 'var(--pwa-text-3)' }}>
+          <p className="text-[11px] leading-relaxed mt-0.5" style={{ color: 'var(--pwa-text-3)' }}>
             {unknown
               ? 'Cihaz deposu okunamadı — bekleyen kayıt olup olmadığı bilinmiyor.'
               : 'Bağlantı geldiğinde otomatik gönderilir. Bu kayıtlar henüz hesabınıza işlenmedi.'}
@@ -968,8 +973,8 @@ const PendingQueueStrip = memo(function PendingQueueStrip() {
         <button
           onClick={() => void syncNow()}
           disabled={syncing}
-          className="px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest flex-shrink-0 transition-all active:scale-95 disabled:opacity-50"
-          style={{ background: 'rgba(96,165,250,0.14)', border: '1px solid rgba(96,165,250,0.3)', color: '#60a5fa' }}
+          className="px-3 py-2 rounded-xl text-xs font-semibold flex-shrink-0 transition-all active:scale-95 disabled:opacity-50"
+          style={{ background: 'color-mix(in srgb, var(--md-primary) 14%, transparent)', border: '1px solid color-mix(in srgb, var(--md-primary) 30%, transparent)', color: 'var(--md-primary)' }}
         >
           {syncing ? 'Gönderiliyor…' : 'Şimdi gönder'}
         </button>
@@ -986,27 +991,27 @@ const PendingQueueStrip = memo(function PendingQueueStrip() {
           data-testid="records-queue-failed"
           data-status={entry.status}
           className="flex items-center gap-3 px-3 py-2.5 rounded-xl"
-          style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.22)' }}
+          style={{ background: 'color-mix(in srgb, var(--md-error) 8%, transparent)', border: '1px solid color-mix(in srgb, var(--md-error) 22%, transparent)' }}
         >
           <div className="flex-1 min-w-0">
-            <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: '#f87171' }}>
+            <p className="text-xs font-semibold" style={{ color: 'var(--md-error)' }}>
               {QUEUE_TYPE_LABEL[entry.type]} gönderilemedi
             </p>
-            <p className="text-[9px] leading-relaxed mt-0.5" style={{ color: 'var(--pwa-text-3)' }}>
+            <p className="text-[11px] leading-relaxed mt-0.5" style={{ color: 'var(--pwa-text-3)' }}>
               {queueFailureMessage(entry)}
               {` · ${entry.attemptCount}/${entry.maxAttempts} deneme`}
             </p>
           </div>
           <button
             onClick={() => void retryItem(entry.id)}
-            className="px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest flex-shrink-0 transition-all active:scale-95"
-            style={{ background: 'rgba(96,165,250,0.14)', border: '1px solid rgba(96,165,250,0.3)', color: '#60a5fa' }}
+            className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold flex-shrink-0 transition-all active:scale-95"
+            style={{ background: 'color-mix(in srgb, var(--md-primary) 14%, transparent)', border: '1px solid color-mix(in srgb, var(--md-primary) 30%, transparent)', color: 'var(--md-primary)' }}
           >
             Yeniden dene
           </button>
           <button
             onClick={() => void discardItem(entry.id)}
-            className="px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest flex-shrink-0 transition-all active:scale-95 pwa-text-3"
+            className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold flex-shrink-0 transition-all active:scale-95 pwa-text-3"
             style={{ background: 'var(--pwa-border-soft)', border: '1px solid var(--pwa-border)' }}
           >
             Vazgeç
@@ -1033,11 +1038,11 @@ const RecordsPanel = memo(function RecordsPanel({ vehicle }: Props) {
           <button
             key={id}
             onClick={() => setTab(id)}
-            className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-wider transition-all"
+            className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-[11px] font-semibold transition-all"
             style={{
-              background: tab === id ? 'rgba(59,130,246,0.15)' : 'transparent',
-              color:      tab === id ? '#60a5fa' : 'var(--pwa-text-3)',
-              border:     tab === id ? '1px solid rgba(59,130,246,0.3)' : '1px solid transparent',
+              background: tab === id ? 'color-mix(in srgb, var(--md-primary) 15%, transparent)' : 'transparent',
+              color:      tab === id ? 'var(--md-primary)' : 'var(--pwa-text-3)',
+              border:     tab === id ? '1px solid color-mix(in srgb, var(--md-primary) 30%, transparent)' : '1px solid transparent',
             }}
           >
             <span role="img" aria-label={label}>{icon}</span>
