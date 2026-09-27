@@ -101,3 +101,12 @@ describe('Ayarlar', () => {
     }
   });
 });
+
+describe('müzik boş durumu', () => {
+  const src = readFileSync(join(__dirname, '../components/media/MediaScreen.tsx'), 'utf8');
+  it('pasif oynat düğmesiyle çelişen "Oynat\'a dokun" yok; gerçek kısayollar var', () => {
+    expect(src).toContain("playAvailable ? 'Oynat\\'a dokun' : 'Cihaz ya da kaynak seçin'");
+    expect(src).toContain('disabled={!playAvailable}');
+    expect(src).toMatch(/data-testid="media-empty-actions"[\s\S]{0,400}onClick=\{onTabLibrary\}/);
+  });
+});

@@ -420,6 +420,7 @@ export const MediaScreen = memo(function MediaScreen({ defaultMusic, ...props }:
             onToggleVideo={() => toggleVideoMode()}
             activeSourceKey={activeMediaSourceKey}
             onTabSources={() => setTab('sources')}
+            onTabLibrary={() => setTab('library')}
             onPlay={handleBigPlay}
             nowPlaying={nowPlaying}
             layout={nowPlayingLayout}
@@ -535,6 +536,8 @@ interface PlayerViewProps {
   onToggleVideo:   () => void;
   activeSourceKey: string;
   onTabSources:    () => void;
+  /** Boş durum kısayolu → Cihaz (yerel kütüphane) sekmesi. */
+  onTabLibrary:    () => void;
   onPlay:          () => void;
   /** F4 · tek saf sunum kaynağı. */
   nowPlaying:      NowPlayingPresentation;
@@ -726,9 +729,13 @@ function VideoFullscreenChrome({
 
 function PlayerView({
   hasSession, playing, track, srcMeta, displayName,
-  shuffle, repeat, isStream, isYouTube, canResume, videoMode, onToggleVideo, onTabSources, onPlay,
+  shuffle, repeat, isStream, isYouTube, canResume, videoMode, onToggleVideo, onTabSources, onTabLibrary, onPlay,
   nowPlaying, layout, alignment, queueOpen, onOpenQueue, onCloseQueue,
 }: PlayerViewProps) {
+  /* Büyük oynat düğmesi ile AYNI koşul: web'de oturum/sürdürülecek medya yokken
+     düğme pasifti ama alt yazı yine "Oynat'a dokun" diyordu. */
+  const playAvailable = isNative || isStream || isYouTube || canResume;
+  const emptyState = !hasSession && !canResume;
   const progress = nowPlaying.progress;
   const controls = nowPlaying.controls;
   /* Kapak F2 ArtworkCache'ten `now-playing` boyutunda gelir; bileşen kendi
@@ -936,8 +943,23 @@ function PlayerView({
             </div>
             <div className="font-bold truncate mt-1 tracking-wide uppercase opacity-80"
               style={{ color: 'var(--oem-ink-2)', fontSize: layout.artistFontPx }}>
-              {track.artist || (hasSession ? 'Sanatçı bilinmiyor' : 'Oynat\'a dokun')}
+              {track.artist || (hasSession ? 'Sanatçı bilinmiyor' : playAvailable ? 'Oynat\'a dokun' : 'Cihaz ya da kaynak seçin')}
             </div>
+            {/* Boş durum: müziğin NEREDEN açılacağını gösteren gerçek kısayollar. */}
+            {emptyState && (
+              <div data-testid="media-empty-actions" className="flex items-center gap-2 mt-3">
+                <button onClick={onTabLibrary}
+                  className="h-11 px-4 rounded-xl flex items-center gap-2 glass-card active:scale-95 transition-all text-sm font-bold"
+                  style={{ color: 'var(--oem-ink)' }}>
+                  <HardDrive className="w-4 h-4" /> Cihazdaki müzik
+                </button>
+                <button onClick={onTabSources}
+                  className="h-11 px-4 rounded-xl flex items-center gap-2 glass-card active:scale-95 transition-all text-sm font-bold"
+                  style={{ color: 'var(--oem-ink)' }}>
+                  <Layers className="w-4 h-4" /> Kaynaklar
+                </button>
+              </div>
+            )}
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
             {isYouTube && (
@@ -1124,7 +1146,7 @@ function PlayerView({
           {/* Premium Play Button — cinematic amber gradient + heavy shadows.
               Oturum yokken oynat → arka planda çalmayı başlatır (uygulamayı öne almaz).
               Stream (özel kaynak) web'de de kontrol edilebilir. */}
-          <button onClick={hasSession ? () => requestPlayPause(playing) : onPlay} disabled={!isNative && !isStream && !isYouTube && !canResume}
+          <button onClick={hasSession ? () => requestPlayPause(playing) : onPlay} disabled={!playAvailable}
             aria-label={playing ? 'Duraklat' : 'Çal'}
             className="rounded-full flex items-center justify-center active:scale-95 transition-all relative disabled:opacity-40"
             style={{
