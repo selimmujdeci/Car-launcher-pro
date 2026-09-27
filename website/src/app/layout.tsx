@@ -1,29 +1,36 @@
 import type { Metadata, Viewport } from 'next';
-import { Inter, JetBrains_Mono, Fraunces } from 'next/font/google';
+import localFont from 'next/font/local';
 import './globals.css';
 import PWARegistration from '@/components/layout/PWARegistration';
 import { AuthRecoveryHandler } from '@/components/auth/AuthRecoveryHandler';
 import { CONSOLE_THEME_BOOT_SCRIPT } from '@/lib/console/consoleTheme';
 
-const inter = Inter({
-  subsets: ['latin'],
+/* Fontlar repoda (./fonts, SIL OFL 1.1) — build sırasında Google Fonts'a
+   gidilmez. Google loader'ının build-time fetch'i aralıklı olarak
+   "Cannot read properties of null (reading '1')" ile build'i düşürüyordu.
+   Dosyalar google/fonts değişken fontlarının latin + latin-ext alt kümesi
+   (Türkçe ğ ş ı İ ç ö ü dahil). Aileler: Inter · JetBrains Mono · Fraunces. */
+const inter = localFont({
+  src: './fonts/Inter-Variable.woff2',
+  weight: '100 900',
   display: 'swap',
   variable: '--font-sans',
 });
-const jetbrainsMono = JetBrains_Mono({
-  subsets: ['latin'],
-  weight: ['400', '500', '600', '700'],
+const jetbrainsMono = localFont({
+  src: './fonts/JetBrainsMono-Variable.woff2',
+  weight: '400 700',
   display: 'swap',
   variable: '--font-mono',
 });
 /* KANIT KONSOLU başlık/marka/plaka yüzü — serif ağırlık, enstrüman paneli
    kimliği. Yalnız konsol yüzeylerinde kullanılır; pazarlama sayfaları Inter
    ile kalır (mevcut kimlik DEĞİŞMEZ). */
-const fraunces = Fraunces({
-  subsets: ['latin'],
-  weight: ['500', '600', '700'],
+const fraunces = localFont({
+  src: './fonts/Fraunces-Variable.woff2',
+  weight: '500 700',
   display: 'swap',
   variable: '--font-display',
+  adjustFontFallback: 'Times New Roman',
 });
 
 // İlk boyamadan önce temayı uygula → flash yok. Varsayılan koyu (marka kimliği).
