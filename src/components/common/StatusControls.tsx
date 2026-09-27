@@ -73,6 +73,7 @@ function StatusControlsInner({ palette, size = 15 }: { palette: StatusPalette; s
         Icon={device.wifiConnected ? Wifi : WifiOff}
         state={device.wifiConnected ? 'ok' : 'off'}
         caption="Wi-Fi"
+        captionLang="en"
         label={device.wifiConnected ? `Wi-Fi bağlı: ${device.wifiName || 'ağ'}` : 'Wi-Fi bağlı değil — ayarları aç'}
         onClick={openWifi}
         palette={palette}

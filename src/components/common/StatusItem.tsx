@@ -49,12 +49,17 @@ export function flashFor(prev: StatusItemState, next: StatusItemState): 'drop' |
 type StatusIcon = ComponentType<{ style?: CSSProperties; 'aria-hidden'?: boolean }>;
 
 export const StatusItem = memo(function StatusItem({
-  Icon, state, caption, label, onClick, palette, size, pulseClassName,
+  Icon, state, caption, captionLang, label, onClick, palette, size, pulseClassName,
 }: {
   Icon: StatusIcon;
   state: StatusItemState;
   /** Öğenin altındaki kısa etiket (ör. "OBD", "V-LINK", "45%"). */
   caption: string;
+  /**
+   * Etiketin dili. Belge `lang="tr"` olduğundan CSS `uppercase` Türkçe kuralla
+   * çalışır: "Wi-Fi" → "Wİ-Fİ". İngilizce sabit etiketler için `'en'` verilir.
+   */
+  captionLang?: string;
   /** Tam durum cümlesi — aria-label + title. */
   label: string;
   onClick?: () => void;
@@ -107,7 +112,7 @@ export const StatusItem = memo(function StatusItem({
           />
         )}
       </span>
-      <span style={{
+      <span lang={captionLang} style={{
         fontSize: 9, fontWeight: 800, letterSpacing: '0.07em', lineHeight: 1, textTransform: 'uppercase',
         color: captionColor, opacity: off ? 0.55 : 1,
         maxWidth: 58, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',

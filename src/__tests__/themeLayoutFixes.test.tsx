@@ -71,3 +71,12 @@ describe('tema kaynak kilitleri', () => {
     expect(theme('ExpeditionLayout.tsx')).toMatch(/<text x="116" y="124"[^>]*>\{formatDisplaySpeed\(rawSpeed\)\}<\/text>/);
   });
 });
+
+describe('güneş modu SVG kuralları', () => {
+  const css = readFileSync(join(__dirname, '../index.css'), 'utf8');
+  it('alt-öğe stroke kuralları yalnız ikon setine iner (gösterge yayları gündüz kaybolmaz)', () => {
+    expect(css).not.toMatch(/\.sunlight-mode svg:not\(\.caros-cockpit-screen\) \*\[fill\]/);
+    expect(css).not.toMatch(/\.sunlight-mode svg:not\(\.caros-cockpit-screen\) \*\[stroke\]/);
+    expect(css).toMatch(/\.sunlight-mode svg\.lucide \*\[fill\] \{\s*stroke-width: 0 !important;/);
+  });
+});
