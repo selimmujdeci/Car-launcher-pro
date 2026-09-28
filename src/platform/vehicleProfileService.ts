@@ -10,7 +10,9 @@
  */
 
 import { CarLauncher } from './nativePlugin';
-import { isNative } from './bridge';
+/* bridge.isNative yerine doğrudan Capacitor: bridge → headUnitPlatform →
+   vehicleProfileService → bridge import döngüsünü kapatıyordu (importCycleGuard). */
+import { Capacitor } from '@capacitor/core';
 import { logError } from './crashLogger';
 import { useStore } from '../store/useStore';
 import type { VehicleProfile, AppSettings } from '../store/useStore';
@@ -146,7 +148,7 @@ async function _detectProfile(): Promise<void> {
   let btDevice = '';
   let wifiName = '';
 
-  if (isNative) {
+  if (Capacitor.isNativePlatform()) {
     try {
       const status = await CarLauncher.getDeviceStatus();
       btDevice = status.btConnected ? (status.btDevice ?? '') : '';
