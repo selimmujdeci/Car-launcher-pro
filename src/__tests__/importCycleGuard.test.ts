@@ -19,7 +19,7 @@ import { join, relative } from 'node:path';
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 
-const MAX_CYCLE_FILES = 72;
+const MAX_CYCLE_FILES = 27;
 
 const ROOT = join(__dirname, '../..');
 const SRC = join(ROOT, 'src');
