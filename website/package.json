@@ -9,13 +9,13 @@
     "start": "next start"
   },
   "dependencies": {
-    "@material/material-color-utilities": "^0.3.0",
-    "@supabase/auth-js": "2.110.1",
-    "@supabase/ssr": "^0.12.0",
+    "@material/material-color-utilities": "^0.4.0",
+    "@supabase/auth-js": "2.117.2",
+    "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.104.0",
-    "lucide-react": "^1.23.0",
+    "lucide-react": "^1.48.0",
     "maplibre-gl": "^5.24.0",
-    "msedge-tts": "^2.0.6",
+    "msedge-tts": "^2.0.8",
     "next": "^14.2.0",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
