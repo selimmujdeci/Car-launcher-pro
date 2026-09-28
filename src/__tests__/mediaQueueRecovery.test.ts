@@ -139,6 +139,8 @@ describe('KİLİT — dış kaynakta otomatik kurtarma YAPILMAZ', () => {
       getGeneration: () => 1,
       alignUiIndex: align,
       clearUiQueue: vi.fn(),
+      getProjectedQueueView,
+      noteProjectedIndex,
       now: () => 1000,
     });
     const res = runQueueRecovery();
@@ -173,6 +175,8 @@ describe('KİLİT — kullanıcı komutuyla yarışta kurtarma ERTELENİR', () =
       getGeneration: () => 1,
       alignUiIndex: align,
       clearUiQueue: vi.fn(),
+      getProjectedQueueView,
+      noteProjectedIndex,
       now: () => 1000,
     });
     const res = runQueueRecovery();
@@ -188,6 +192,8 @@ describe('KİLİT — kullanıcı komutuyla yarışta kurtarma ERTELENİR', () =
       getGeneration: () => 1,
       alignUiIndex: vi.fn(),
       clearUiQueue: vi.fn(),
+      getProjectedQueueView,
+      noteProjectedIndex,
       now: () => 1000,
     });
     runQueueRecovery();
@@ -307,6 +313,8 @@ describe('KİLİT — bayat kurtarma yeni durumu ESKİYE çekemez', () => {
       getGeneration: () => generation++,
       alignUiIndex: align,
       clearUiQueue: vi.fn(),
+      getProjectedQueueView,
+      noteProjectedIndex,
       now: () => 1000,
     });
 
@@ -421,6 +429,8 @@ describe('KİLİT — uzlaştırma GÖNDERİLEN pencereyle yapılır', () => {
       getGeneration: () => 1,
       alignUiIndex: align,
       clearUiQueue: vi.fn(),
+      getProjectedQueueView,
+      noteProjectedIndex,
       now: () => 1000,
     });
     // Revizyonlar eşitlenmediği sürece sapma olabilir; burada eşitliyoruz.
