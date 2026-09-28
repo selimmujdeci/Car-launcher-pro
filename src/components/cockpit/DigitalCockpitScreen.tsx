@@ -20,7 +20,7 @@
 import { memo, useId } from 'react';
 import {
   COCKPIT_CANVAS, COCKPIT_MIN_TOUCH_PX, COCKPIT_DESIGN_SCALE as DESIGN_SCALE, COCKPIT_DESIGN_OFFSET_Y as DESIGN_OFFSET_Y,
-  cockpitTokensFor, type CockpitTokens, type CockpitAccentId, type CockpitStyleId,
+  cockpitSurfaceMode, cockpitTokensFor, type CockpitTokens, type CockpitAccentId, type CockpitStyleId,
 } from './cockpitLayout';
 import {
   EM_DASH, fmtSpeed, fmtCoolant, fmtRange, fmtConsumption, fmtOdometer, fmtAmbient,
@@ -442,7 +442,7 @@ export const DigitalCockpitScreen = memo(function DigitalCockpitScreen({
     styleId === 'neon' || styleId === 'sport' || styleId === 'luxury' || styleId === 'aurora' ? styleId : null;
   /* İmza görünümler gündüz de koyu çizilir → ortak bölgeler (üst çubuk, müzik,
      dönüş kartı) gece renkleriyle okunur kalır. */
-  const t = cockpitTokensFor(showcase ? 'night' : mode, accent);
+  const t = cockpitTokensFor(cockpitSurfaceMode(styleId, mode), accent);
   const minimal = styleId === 'minimal';
   const classic = styleId === 'analog' || styleId === 'retro';
   const digital = styleId === 'digital';

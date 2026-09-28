@@ -42,7 +42,6 @@ import i18n from '../../i18n/config';
 import { MobileLinkWidget } from './MobileLinkWidget';
 import { CarOsConnectionPriorityCard } from './CarOsConnectionPriorityCard';
 import { PhoneInternetToggle } from './PhoneInternetToggle';
-import { CockpitStylePicker } from './CockpitStylePicker';
 import { useMovingLock } from './useMovingLock';
 import { OtaUpdateCard } from './OtaUpdateCard';
 import { SupportSnapshotCard } from './SupportSnapshotCard';
@@ -1926,11 +1925,8 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
             <>
               {/* ── Tema Seçici ── */}
               <ThemePanel />
-              {/* ── Sürücü ekranı: görünüm + renk ── */}
-              <Panel accent="var(--oem-accent)">
-                <SectionTitle icon={Gauge} title="Sürücü Ekranı" sub="Gösterge görünümü ve rengi — gündüz/gece otomatik" color="var(--oem-accent)" />
-                <CockpitStylePicker />
-              </Panel>
+              {/* Sürücü ekranı görünümü ve rengi burada DEĞİL: sürüş ekranındaki
+                  "görünüm" ve "renk" düğmeleriyle tek dokunuşla değişir (2026-09-28). */}
               {/* Sürüşte video — kullanıcı kararı 2026-09-27 ("çocuklar izleyebilir").
                   Bu sekme sürüşte kilitli → yalnız park hâlinde değiştirilebilir. */}
               <Panel accent="var(--oem-warn)">
