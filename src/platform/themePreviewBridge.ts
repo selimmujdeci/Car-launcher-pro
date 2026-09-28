@@ -8,6 +8,7 @@
  *   caros-theme-manifest   (v3 manifest)       caros-preview-ready
  *   caros-theme-preview    (v1 CSS var)        caros-preview-manifest-ack
  *   caros-preview-probe    (geometri iste)     caros-preview-probe-result
+ *   caros-preview-mode     (gündüz/gece)
  *
  * "DOKUNDUĞUM YERİ DÜZENLE" — TASARIM KARARI (önceki turdan DEĞİŞTİ):
  * Araç tarafı dokunuşu YAKALAMAZ, `preventDefault` ÇAĞIRMAZ, DOM'a vurgu
@@ -32,6 +33,8 @@
  */
 import { useLayoutStore } from '../store/useLayoutStore';
 import { useCarTheme, type CarTheme } from '../store/useCarTheme';
+import { useStore } from '../store/useStore';
+import { useSystemStore } from '../store/useSystemStore';
 import { applyIncomingThemeManifest } from './theme/themeRuntime';
 import { THEME_BASE_IDS } from './theme/themeManifest';
 import { THEME_COMPONENTS, type ThemeSurfaceId } from './theme/themeComponentRegistry';
@@ -207,6 +210,8 @@ export function initThemePreviewBridge(): void {
       manifest?: unknown;
       /** `caros-preview-surface`: Stüdyo'da seçilen ekranın kayıt defteri kimliği. */
       surface?: unknown;
+      /** `caros-preview-mode`: Stüdyo'da düzenlenen mod ('day' | 'night'). */
+      mode?: unknown;
     } | null;
     if (!data || typeof data.type !== 'string') return;
 
@@ -275,6 +280,22 @@ export function initThemePreviewBridge(): void {
              Diğer yüzeylere geçilirken KAPATILIR, yoksa harita üstte kalıp
              seçilen ekranı örter ve ölçüm yanlış kutuları bildirir. */
           try { setFullMapView(sid === 'nav'); } catch { /* fail-soft */ }
+          scheduleProbe();
+          break;
+        }
+
+        /* ── Önizleme modu: Stüdyo'da düzenlenen gündüz/gece ──
+           Aynı yol, kullanıcının Ayarlar'da elle seçmesiyle aynıdır: kullanıcı
+           kararı kilidi + `dayNightMode` (tek otorite). Kilit kurulmazsa saat
+           tabanlı otomatik geçiş önizlemeyi geri çevirirdi. Tema çalışma zamanı
+           mod değişimini dinler → etkin manifest kendiliğinden yeniden uygulanır. */
+        case 'caros-preview-mode': {
+          const mode = data.mode;
+          if (mode !== 'day' && mode !== 'night') break;
+          try { useSystemStore.getState().setUserOverride(30 * 60_000); } catch { /* fail-soft */ }
+          if (useStore.getState().settings.dayNightMode !== mode) {
+            useStore.getState().updateSettings({ dayNightMode: mode });
+          }
           scheduleProbe();
           break;
         }
