@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Uygulama ikonu zemini: gece mavisi degrade (üst #1C284E → alt #080C1C). -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <gradient
+        android:angle="270"
+        android:startColor="#1C284E"
+        android:endColor="#080C1C" />
+</shape>
