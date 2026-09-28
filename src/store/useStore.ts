@@ -158,6 +158,10 @@ export interface VehicleProfile {
   identitySource?: VehicleIdentitySource;
   /** Kullanıcının kendi amblemi — yalnız cihazda (PNG data URL, ≤256 px). */
   customEmblem?: string;
+  /** Gösterilecek amblem: marka logosu mu kendi görsel mi. Görsel seçim
+   *  değişince SİLİNMEZ (tek dokunuşla geri dönülür). Tanımsız + görsel var
+   *  → görsel (alan eklenmeden önce yükleyenlerin davranışı korunur). */
+  emblemSource?: 'brand' | 'custom';
   /** Amblem işleme: CarOS neon/cam (varsayılan) veya orijinal renk. */
   emblemTreatment?: 'neon' | 'original';
   /** Kullanıcının "seçimim doğru" dediği VIN — aynı VIN için çelişki tekrar sorulmaz. */

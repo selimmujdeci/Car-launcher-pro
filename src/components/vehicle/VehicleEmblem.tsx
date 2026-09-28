@@ -20,12 +20,14 @@ export type ResolvedEmblem =
 const NEUTRAL = '#A4AAAE';
 
 /** Profilden amblem çözümü. Hiçbir kimlik yoksa `null` (uydurma yok). */
-export function resolveEmblem(p: Pick<VehicleProfile, 'brandId' | 'customEmblem' | 'model'> | null): ResolvedEmblem | null {
+export function resolveEmblem(
+  p: Pick<VehicleProfile, 'brandId' | 'customEmblem' | 'model' | 'emblemSource'> | null,
+): ResolvedEmblem | null {
   if (!p) return null;
   const brand = getBrand(p.brandId);
   const hex = brand?.hex ?? NEUTRAL;
   const name = brand?.name ?? p.model ?? '';
-  if (p.customEmblem?.startsWith('data:image/')) return { kind: 'image', src: p.customEmblem, hex, name };
+  if (p.emblemSource !== 'brand' && p.customEmblem?.startsWith('data:image/')) return { kind: 'image', src: p.customEmblem, hex, name };
   const path = brandLogoPath(brand);
   if (path) return { kind: 'logo', path, hex, name };
   const letter = monogramOf(brand?.name ?? p.model);

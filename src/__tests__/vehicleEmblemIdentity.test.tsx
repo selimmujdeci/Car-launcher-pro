@@ -12,9 +12,10 @@ import { useStore } from '../store/useStore';
 import {
   CAR_BRANDS, BRAND_LOGOS_ENABLED, brandFromWmi, brandLogoPath, getBrand, monogramOf, searchBrands,
 } from '../platform/vehicle/brandCatalog';
-import { checkBrandAgainstVin, saveVehicleIdentity } from '../platform/vehicle/vehicleBrandIdentity';
+import { checkBrandAgainstVin, getActiveVehicleProfile, saveVehicleIdentity } from '../platform/vehicle/vehicleBrandIdentity';
 import { removeFlatBackground } from '../platform/vehicle/emblemImage';
 import { resolveEmblem, readableOnDark, VehicleEmblem } from '../components/vehicle/VehicleEmblem';
+import { VehicleIdentityPanel } from '../components/settings/VehicleIdentityPanel';
 import { BootSplash, BOOT_SHOW_MS, EMBLEM_BOOT_SHOW_MS } from '../components/layout/BootSplash';
 import { buildEmblemBoot, freshTemperature, BOOT_WEATHER_MAX_AGE_MS } from '../components/layout/emblemBoot';
 import type { WeatherState } from '../platform/weatherService';
@@ -151,6 +152,9 @@ describe('kendi amblem görseli', () => {
 describe('amblem çözümü', () => {
   it('öncelik: kendi görselin → logo → monogram → yok', () => {
     expect(resolveEmblem({ brandId: 'renault', customEmblem: 'data:image/png;base64,AA' })?.kind).toBe('image');
+    // Kendi görsel saklıyken marka amblemi seçilebilir (görsel silinmez).
+    expect(resolveEmblem({ brandId: 'renault', customEmblem: 'data:image/png;base64,AA', emblemSource: 'brand' })?.kind).toBe('logo');
+    expect(resolveEmblem({ brandId: 'renault', customEmblem: 'data:image/png;base64,AA', emblemSource: 'custom' })?.kind).toBe('image');
     expect(resolveEmblem({ brandId: 'renault' })?.kind).toBe('logo');
     expect(resolveEmblem({ brandId: 'togg' })).toMatchObject({ kind: 'mono', letter: 'T' });
     expect(resolveEmblem({ model: 'Doblo' })).toMatchObject({ kind: 'mono', letter: 'D' });
@@ -266,5 +270,61 @@ describe('amblem SVG — gündüz modu global kuralından etkilenmez', () => {
       });
     }
     act(() => root.unmount()); host.remove();
+  });
+});
+
+/* Saha 2026-09-28 (telefon): galeriden görsel seçtikten sonra "Değiştir" ile
+   marka seçip kaydetmek görseli değiştirmiyordu — kendi görsel her zaman
+   önce geliyordu ve marka amblemine dönmenin açık bir yolu yoktu. */
+describe('Ayarlar > Araç: amblem kaynağı seçimi', () => {
+  let root: Root; let host: HTMLDivElement;
+  const IMG = 'data:image/png;base64,AA';
+  const btn = (label: string) => [...host.querySelectorAll('button')].find((b) => b.textContent?.trim() === label) as HTMLButtonElement | undefined;
+  const active = () => getActiveVehicleProfile()!;
+  beforeEach(() => {
+    (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    resetVehicles();
+    saveVehicleIdentity({ brandId: 'renault', model: 'megane', modelYear: 2017, source: 'user_selected' });
+    useStore.getState().updateVehicleProfile(active().id, { customEmblem: IMG });   // alan eklenmeden önceki kayıt
+    host = document.createElement('div'); document.body.appendChild(host);
+    root = createRoot(host);
+    act(() => root.render(<VehicleIdentityPanel />));
+  });
+  afterEach(() => { act(() => root.unmount()); host.remove(); });
+
+  it('eski kayıt: görsel gösterilir; marka amblemine tek dokunuşla geçilir, görsel saklı kalır ve geri alınır', () => {
+    expect(btn('Kendi görselim')!.getAttribute('aria-checked')).toBe('true');
+    act(() => btn('Renault amblemi')!.click());
+    expect(active().emblemSource).toBe('brand');
+    expect(active().customEmblem).toBe(IMG);
+    expect(resolveEmblem(active())?.kind).toBe('logo');
+    expect(btn('Renault amblemi')!.getAttribute('aria-checked')).toBe('true');
+    act(() => btn('Kendi görselim')!.click());
+    expect(resolveEmblem(active())?.kind).toBe('image');
+  });
+
+  it('"Değiştir" ile marka kaydedince marka amblemi gösterilir', () => {
+    act(() => btn('Değiştir')!.click());
+    act(() => btn('Kaydet')!.click());
+    expect(active().brandId).toBe('renault');
+    expect(resolveEmblem(active())?.kind).toBe('logo');
+    expect(active().customEmblem).toBe(IMG);
+  });
+
+  it('görseli sil: görsel ve seçim temizlenir, marka amblemine düşülür', () => {
+    act(() => btn('Görseli sil')!.click());
+    expect(active().customEmblem).toBeUndefined();
+    expect(active().emblemSource).toBeUndefined();
+    expect(resolveEmblem(active())?.kind).toBe('logo');
+    expect(btn('Görseli sil')).toBeUndefined();
+  });
+
+  it('marka yokken marka amblemi seçilemez', () => {
+    act(() => root.unmount());
+    resetVehicles();
+    saveVehicleIdentity({ brandId: null, model: 'Doblo', source: 'user_selected' });
+    root = createRoot(host);
+    act(() => root.render(<VehicleIdentityPanel />));
+    expect(btn('Marka amblemi')!.disabled).toBe(true);
   });
 });

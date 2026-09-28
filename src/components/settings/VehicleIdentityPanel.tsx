@@ -40,6 +40,7 @@ export const VehicleIdentityPanel = memo(function VehicleIdentityPanel() {
   const check = checkBrandAgainstVin(vin, profile);
   const emblem = resolveEmblem(profile);
   const brand = getBrand(profile?.brandId);
+  const usingCustom = emblem?.kind === 'image';
 
   const [editing, setEditing] = useState(!profile?.brandId && !profile?.model);
   const [draft, setDraft] = useState<VehicleIdentityDraft>(() => ({
@@ -53,6 +54,10 @@ export const VehicleIdentityPanel = memo(function VehicleIdentityPanel() {
 
   const save = () => {
     saveVehicleIdentity({ ...draftToIdentity(draft), source: 'user_selected' });
+    // Marka seçip kaydetmek "marka amblemini kullan" demektir; kendi görsel
+    // silinmez, "Kendi görselim" ile tek dokunuşla geri gelinir.
+    const target = getActiveVehicleProfile();
+    if (draft.brandId && target?.customEmblem) useStore.getState().updateVehicleProfile(target.id, { emblemSource: 'brand' });
     setEditing(false);
   };
 
@@ -62,7 +67,7 @@ export const VehicleIdentityPanel = memo(function VehicleIdentityPanel() {
       const src = await prepareEmblemImage(f);
       if (!getActiveVehicleProfile()) saveVehicleIdentity({ brandId: null, source: 'user_selected' });
       const target = getActiveVehicleProfile();
-      if (target) useStore.getState().updateVehicleProfile(target.id, { customEmblem: src });
+      if (target) useStore.getState().updateVehicleProfile(target.id, { customEmblem: src, emblemSource: 'custom' });
     } catch {
       showToast({ type: 'error', title: 'Görsel okunamadı', message: 'PNG, JPG veya WebP bir görsel seç.' });
     }
@@ -134,27 +139,53 @@ export const VehicleIdentityPanel = memo(function VehicleIdentityPanel() {
       </div>
 
       <div className="flex flex-col gap-2">
-          <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--oem-ink)' }}>Amblem</div>
+        <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--oem-ink)' }}>Amblem</div>
+        {/* Hangi amblem: marka logosu mu kendi görsel mi — açık seçim. Kendi görsel
+            yüklüyken marka amblemine dönmenin tek yolu eskiden "Görseli kaldır"dı. */}
+        <div className="flex gap-2 flex-wrap" role="radiogroup" aria-label="Amblem kaynağı">
+          <button type="button" role="radio" aria-checked={!usingCustom} style={chip(!usingCustom)}
+            disabled={!brand}
+            onClick={() => profile && useStore.getState().updateVehicleProfile(profile.id, { emblemSource: 'brand' })}>
+            {brand ? `${brand.name} amblemi` : 'Marka amblemi'}
+          </button>
+          <button type="button" role="radio" aria-checked={usingCustom} style={chip(usingCustom)}
+            onClick={() => (profile?.customEmblem
+              ? useStore.getState().updateVehicleProfile(profile.id, { emblemSource: 'custom' })
+              : fileRef.current?.click())}>
+            Kendi görselim
+          </button>
+        </div>
+        {!brand && <div style={{ fontSize: 13, color: 'var(--oem-ink-3)' }}>Marka amblemi için önce "Değiştir" ile marka seç.</div>}
+        {profile?.customEmblem && (
           <div className="flex gap-2 flex-wrap">
-            {profile && (['neon', 'original'] as const).map((t) => {
+            <button type="button" style={btn} onClick={() => fileRef.current?.click()}>Görseli değiştir</button>
+            <button type="button" style={btn}
+              onClick={() => useStore.getState().updateVehicleProfile(profile.id, { customEmblem: undefined, emblemSource: undefined })}>
+              Görseli sil
+            </button>
+          </div>
+        )}
+        <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" hidden
+          onChange={(e) => { void onFile(e.target.files?.[0]); e.target.value = ''; }} />
+        <div style={{ fontSize: 12, color: 'var(--oem-ink-3)' }}>Görsel yalnız bu cihazda saklanır.</div>
+      </div>
+
+      {profile && (
+        <div className="flex flex-col gap-2">
+          <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--oem-ink)' }}>Amblem stili</div>
+          <div className="flex gap-2 flex-wrap" role="radiogroup" aria-label="Amblem stili">
+            {(['neon', 'original'] as const).map((t) => {
               const on = (profile.emblemTreatment ?? 'neon') === t;
               return (
-                <button key={t} type="button" aria-pressed={on} style={chip(on)}
+                <button key={t} type="button" role="radio" aria-checked={on} style={chip(on)}
                   onClick={() => useStore.getState().updateVehicleProfile(profile.id, { emblemTreatment: t })}>
                   {t === 'neon' ? 'Cam / Neon' : 'Orijinal renk'}
                 </button>
               );
             })}
-            <button type="button" style={chip(false)} onClick={() => fileRef.current?.click()}>Kendi görselini ekle</button>
-            {profile?.customEmblem && (
-              <button type="button" style={chip(false)}
-                onClick={() => useStore.getState().updateVehicleProfile(profile.id, { customEmblem: undefined })}>Görseli kaldır</button>
-            )}
           </div>
-          <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" hidden
-            onChange={(e) => { void onFile(e.target.files?.[0]); e.target.value = ''; }} />
-          <div style={{ fontSize: 12, color: 'var(--oem-ink-3)' }}>Görsel yalnız bu cihazda saklanır.</div>
-      </div>
+        </div>
+      )}
 
       <div style={{ fontSize: 12, color: 'var(--oem-ink-3)' }}>{BRAND_TRADEMARK_NOTICE}</div>
     </div>
