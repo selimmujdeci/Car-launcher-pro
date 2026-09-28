@@ -4,7 +4,7 @@ import type { MusicOptionKey } from '../data/apps';
 import type { RuntimeOverride } from '../core/runtime/runtimeTypes';
 import { RuntimeMode }           from '../core/runtime/runtimeTypes';
 import { runtimeManager }        from '../core/runtime/AdaptiveRuntimeManager';
-import { setObdVehicleType } from '../platform/obdService';
+import { noteActiveVehicleType } from '../platform/obd/activeVehicleTypeSink';
 import { safeStorage } from '../utils/safeStorage';
 import { OwnerCommandEvidence, type CommandMessage } from '../platform/message';
 import type { ManufacturerDidProfileId } from '../platform/obd/profiles';
@@ -573,7 +573,7 @@ export const useStore = create<StoreState>()(
         set((state) => {
           if (id !== null) {
             const profile = state.settings.vehicleProfiles.find((p) => p.id === id);
-            if (profile?.vehicleType) setObdVehicleType(profile.vehicleType);
+            if (profile?.vehicleType) noteActiveVehicleType(profile.vehicleType);
           }
           return { settings: { ...state.settings, activeVehicleProfileId: id } };
         }),
