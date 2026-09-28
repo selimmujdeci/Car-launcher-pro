@@ -24,6 +24,7 @@ import {
 import { sendCommand, subscribeCommandStatus, fetchCommandStatus, COMMAND_TTL_MINUTES, type CommandStatus } from '@/lib/commandService';
 import {
   manifestToCssVars,
+  resolveManifestForMode,
   THEME_BASE_IDS,
   THEME_PRESETS,
   type CardLayout,
@@ -68,12 +69,13 @@ import {
   studioReducer,
   STUDIO_LEGACY_KEY,
   STUDIO_STORAGE_KEY,
+  type EditMode,
 } from '@/lib/theme/themeStudioState';
 import { ComponentEditor, SurfaceEditor, TokensEditor } from './theme/ThemeEditors';
 import { ZoneReorder } from './theme/ZoneReorder';
 import { PresetGallery } from './theme/PresetGallery';
 import { Icon } from './ui/Icon';
-import { StatusPill, type Tone } from './ui/primitives';
+import { SegmentedButton, StatusPill, type Tone } from './ui/primitives';
 
 
 /* ── Önizleme hedefi (gerçek araç uygulaması) ─────────────────────── */
@@ -96,7 +98,9 @@ type EditorTarget =
 interface Props { vehicleId: string | null }
 
 export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
-  const [state, dispatch] = useReducer(studioReducer, undefined, createStudioState);
+  /* Varsayılan düzenleme katmanı GÜNDÜZ (kullanıcı isteği 2026-09-28: "gündüz
+     ayrı gece ayrı") — düzenleme gece görünümünü kendiliğinden değiştirmez. */
+  const [state, dispatch] = useReducer(studioReducer, undefined, () => ({ ...createStudioState(), editMode: 'day' as EditMode }));
   const [editor, setEditor] = useState<EditorTarget>({ kind: 'none' });
   const [sync, setSync] = useState<SyncState>('idle');
   const [syncNote, setSyncNote] = useState<string | null>(null);
@@ -133,6 +137,9 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
   const [scale, setScale] = useState(0.3);
 
   const manifest = state.manifests[state.themeId];
+  /** Düzenleyicilerin GÖSTERDİĞİ değer: seçili modda o an geçerli olan (ortak + mod
+   *  katmanı). Yazım reducer'da seçili katmana gider; araçla AYNI birleştirme kuralı. */
+  const shown = state.editMode === 'both' ? manifest : resolveManifestForMode(manifest, state.editMode);
   const preset = THEME_PRESETS[state.themeId];
   const surfaces = useMemo(() => surfacesForTheme(state.themeId), [state.themeId]);
   const components = useMemo(
@@ -204,6 +211,17 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
   useEffect(() => {
     if (previewReady) postPreview(manifest);
   }, [manifest, previewReady, postPreview]);
+
+  /* Önizleme, düzenlenen modda gösterilir (araç manifesti o modun katmanıyla
+     uygular). 'İkisi' seçiliyken önizleme kendi saatine bırakılır. */
+  useEffect(() => {
+    if (!previewReady || state.editMode === 'both') return;
+    try {
+      iframeRef.current?.contentWindow?.postMessage(
+        { type: 'caros-preview-mode', mode: state.editMode }, PREVIEW_ORIGIN,
+      );
+    } catch { /* ignore */ }
+  }, [state.editMode, previewReady]);
 
   /** Araçtan güncel geometri iste (araç DOM'una hiçbir şey yazmaz). */
   const requestProbe = useCallback(() => {
@@ -434,14 +452,14 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
     return (
       <TokensEditor
         themeId={state.themeId}
-        tokens={manifest.tokens}
+        tokens={shown.tokens}
         onPatch={patchTokens}
         onResetTheme={() => { dispatch({ type: 'reset-theme' }); setEditor({ kind: 'none' }); }}
         onClose={() => setEditor({ kind: 'none' })}
-        onUndo={() => undoScoped(tokensScope(state.themeId))}
-        onRedo={() => redoScoped(tokensScope(state.themeId))}
-        canUndo={canUndoScoped(state, tokensScope(state.themeId))}
-        canRedo={canRedoScoped(state, tokensScope(state.themeId))}
+        onUndo={() => undoScoped(tokensScope(state.themeId, state.editMode))}
+        onRedo={() => redoScoped(tokensScope(state.themeId, state.editMode))}
+        canUndo={canUndoScoped(state, tokensScope(state.themeId, state.editMode))}
+        canRedo={canRedoScoped(state, tokensScope(state.themeId, state.editMode))}
       />
     );
   }
@@ -451,14 +469,14 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
       <SurfaceEditor
         surfaceLabel={info?.label ?? editor.surface}
         surfaceId={editor.surface}
-        override={screenOverrideOf(manifest, editor.surface)}
+        override={screenOverrideOf(shown, editor.surface)}
         onPatch={(p) => patchScreen(editor.surface, p)}
         onResetSurface={() => { dispatch({ type: 'reset-surface', surface: editor.surface }); setEditor({ kind: 'none' }); }}
         onClose={() => setEditor({ kind: 'none' })}
-        onUndo={() => undoScoped(screenScope(state.themeId, editor.surface))}
-        onRedo={() => redoScoped(screenScope(state.themeId, editor.surface))}
-        canUndo={canUndoScoped(state, screenScope(state.themeId, editor.surface))}
-        canRedo={canRedoScoped(state, screenScope(state.themeId, editor.surface))}
+        onUndo={() => undoScoped(screenScope(state.themeId, editor.surface, state.editMode))}
+        onRedo={() => redoScoped(screenScope(state.themeId, editor.surface, state.editMode))}
+        canUndo={canUndoScoped(state, screenScope(state.themeId, editor.surface, state.editMode))}
+        canRedo={canRedoScoped(state, screenScope(state.themeId, editor.surface, state.editMode))}
       />
     );
   }
@@ -467,14 +485,14 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
     if (info) {
       // Kartın kapsamı = bileşen stili + (varsa) solver yerleşim kartı.
       const lcId = layoutCardIdFor(info, state.themeId);
-      const scope = cardScope(state.themeId, info.id, lcId);
+      const scope = cardScope(state.themeId, info.id, lcId, state.editMode);
       return (
         <ComponentEditor
           info={info}
           themeId={state.themeId}
-          style={componentStyleOf(manifest, info.id)}
+          style={componentStyleOf(shown, info.id)}
           layout={cardLayoutOf(manifest, lcId ?? '')}
-          hasChanges={cardHasChanges(manifest, info.id, lcId)}
+          hasChanges={cardHasChanges(manifest, info.id, lcId, state.editMode)}
           onPatch={(p) => patchComponent(info.id, p)}
           onPatchState={(k, p) => patchComponentState(info.id, k, p)}
           onPatchLayout={patchLayout}
@@ -538,6 +556,34 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
                 className="md-icon-btn md-state disabled:opacity-30"><Icon name="redo" /></button>
             </div>
           )}
+        </div>
+
+        {/* Düzenlenen mod — gündüz ve gece ayrı düzenlenir (kullanıcı isteği
+            2026-09-28). Renk/stil seçili moda yazılır; yerleşim iki modda ortak. */}
+        <div className="mb-3 flex flex-col gap-1.5">
+          <SegmentedButton<EditMode>
+            label="Düzenlenen mod"
+            value={state.editMode}
+            onChange={(mode) => dispatch({ type: 'select-mode', mode })}
+            options={[
+              { id: 'day', label: 'Gündüz', icon: 'light_mode' },
+              { id: 'night', label: 'Gece', icon: 'dark_mode' },
+              { id: 'both', label: 'İkisi', icon: 'palette' },
+            ]}
+          />
+          <div className="flex flex-wrap items-center justify-between gap-2 px-1">
+            <span className="md-body-s md-on-surface-variant">
+              {state.editMode === 'day' ? 'Renkler yalnız gündüz geçerli · yerleşim ortak'
+                : state.editMode === 'night' ? 'Renkler yalnız gece geçerli · yerleşim ortak'
+                : 'Değişiklik gündüz ve gece ortak'}
+            </span>
+            {state.editMode !== 'both' && (
+              <button type="button" className="md-state md-label-l px-2" style={{ color: 'var(--md-primary)', minHeight: 32 }}
+                onClick={() => dispatch({ type: 'copy-mode', from: state.editMode as 'day' | 'night', to: state.editMode === 'day' ? 'night' : 'day' })}>
+                {state.editMode === 'day' ? 'Gündüzü geceye kopyala' : 'Geceyi gündüze kopyala'}
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Canlı önizleme — gerçek araç uygulaması */}
@@ -720,7 +766,7 @@ export const ThemeStudio = memo(function ThemeStudio({ vehicleId }: Props) {
             "Geri Al/Yinele'nin hemen altında görünmeli"). Kapsam: tüm tema | seçili ekran. ── */}
         <PresetGallery
           themeId={state.themeId}
-          manifest={state.manifests[state.themeId]}
+          manifest={shown}
           surfaceId={state.surface}
           surfaceLabel={surfaces.find((x) => x.id === state.surface)?.label ?? 'Bu ekran'}
           onApplyPreset={(kind, tokens) => dispatch({ type: 'apply-preset', kind, tokens })}
