@@ -26,7 +26,6 @@ import {
 }                                   from '../obdService';
 import { showToast, dismissToast }  from '../errorBus';
 import { logError }                 from '../crashLogger';
-import { capturePanicSnapshot }     from './SystemPanicHandler';
 import { thermalJournal }           from './ThermalJournal';
 import { getEmmcWriteCount }        from '../../utils/safeStorage';
 import { getAppVersionInfo }        from '../nativeCommandBridge';
@@ -422,7 +421,12 @@ class SystemHealthMonitor {
         console.warn(`[HealthMonitor:Escalation] Step 0: UI Thread Freeze Detected (${freezeSec}s)`);
         logError('HealthMonitor:UIFreeze', new Error(`UI thread frozen for ${freezeSec}s`));
         thermalJournal.addPanicMarker(`ui_freeze:${freezeSec}s`);
-        void capturePanicSnapshot(`ui_freeze:${freezeSec}s`);
+        /* Dinamik import: statik SystemPanicHandler bağımlılığı SystemHealthMonitor →
+           SystemPanicHandler → vehicleDataLayer → … → SystemHealthMonitor döngüsünü
+           kapatıyordu (importCycleGuard). Yakalama zaten fire-and-forget async idi. */
+        void import('./SystemPanicHandler')
+          .then((m) => m.capturePanicSnapshot(`ui_freeze:${freezeSec}s`))
+          .catch(() => { /* panik yakalama watchdog'u asla düşürmez */ });
       }
     }, UI_FREEZE_CHECK_INTERVAL_MS);
   }

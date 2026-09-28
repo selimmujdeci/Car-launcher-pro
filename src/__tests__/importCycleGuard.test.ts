@@ -12,14 +12,16 @@
  * `export … from`. Sayılmayanlar (değerlendirme sırasına etkisi yok):
  * `import type`, yalnız type specifier'lı import, dinamik `import()`.
  *
- * MAX_CYCLE_FILES yalnız AŞAĞI çekilir; döngü kırıldıkça düşürülür.
+ * MAX_CYCLE_FILES = 0: src'de statik runtime import döngüsü YOKTUR; yeni döngü
+ * açan değişiklik bu testte kırmızıya döner. Kırmak için tercih sırası: yaprak
+ * modül → mevcut DI/bind kalıbı → (async çağrıda) dinamik import.
  */
 import { readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 
-const MAX_CYCLE_FILES = 11;
+const MAX_CYCLE_FILES = 0;
 
 const ROOT = join(__dirname, '../..');
 const SRC = join(ROOT, 'src');
