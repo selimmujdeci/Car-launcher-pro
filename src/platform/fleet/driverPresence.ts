@@ -42,21 +42,17 @@ import {
   type PresenceSnapshotDecodeReason,
 } from './driverPresencePersistence';
 import { safeGetRaw, safeSetRaw, safeRemoveRaw } from '../../utils/safeStorage';
+import {
+  PRESENCE_SOURCES, PRESENCE_CONFIDENCES, isPresenceSource, isPresenceConfidence,
+  type PresenceSource, type PresenceConfidence,
+} from './driverPresenceVocabulary';
+
+export {
+  PRESENCE_SOURCES, PRESENCE_CONFIDENCES, isPresenceSource, isPresenceConfidence,
+  type PresenceSource, type PresenceConfidence,
+};
 
 /* ── Kaynak ────────────────────────────────────────────────────────────── */
-
-export const PRESENCE_SOURCES = [
-  'UNKNOWN',
-  'HEAD_UNIT',
-  'PHONE',
-  'BLUETOOTH',
-  'NFC',
-] as const;
-export type PresenceSource = (typeof PRESENCE_SOURCES)[number];
-
-export function isPresenceSource(v: unknown): v is PresenceSource {
-  return typeof v === 'string' && (PRESENCE_SOURCES as readonly string[]).includes(v);
-}
 
 /**
  * KİMLİK DOĞRULAYAN kaynaklar.
@@ -81,16 +77,8 @@ export function isIdentityVerifying(s: PresenceSource): boolean {
 
 /* ── Güven ─────────────────────────────────────────────────────────────── */
 
-export const PRESENCE_CONFIDENCES =
-  ['VERY_HIGH', 'HIGH', 'MEDIUM', 'LOW', 'UNKNOWN'] as const;
-export type PresenceConfidence = (typeof PRESENCE_CONFIDENCES)[number];
-
 const CONFIDENCE_ORDER: readonly PresenceConfidence[] =
   ['UNKNOWN', 'LOW', 'MEDIUM', 'HIGH', 'VERY_HIGH'];
-
-export function isPresenceConfidence(v: unknown): v is PresenceConfidence {
-  return typeof v === 'string' && (PRESENCE_CONFIDENCES as readonly string[]).includes(v);
-}
 
 /** İki güvenin DAHA ZAYIFINI verir (en zayıf kritik kanıt kuralı). */
 export function weakestPresenceConfidence(
