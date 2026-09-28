@@ -11,7 +11,7 @@
  * Referans: CLAUDE.md §CROSS-DOMAIN ARCHITECTURE RULES §1 · §5 · §7 · §8 · §15.
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 
 import {
@@ -254,13 +254,27 @@ describe('ARCH-06/F7/E · Mavi bağlam doğruluğu korundu', () => {
   });
 
   it('E5 · sayaç adları PII taşımaz (alan adı/değeri/metin YOK)', () => {
+    // Worker'ın ilk saniyesi: saat değeri 3 haneli ondalık (CI'daki kenar durumu).
+    const clock = vi.spyOn(performance, 'now').mockReturnValue(812.781012);
     const snap = getPerformanceDiagnosticsSnapshot();
+    clock.mockRestore();
     const sec = snap.sections.find((s) => s.sectionId === 'mavi_context');
     expect(sec, 'mavi_context bölümü kayıp').toBeDefined();
     const blob = JSON.stringify(sec);
     expect(blob).not.toMatch(/[A-HJ-NPR-Z0-9]{17}/);          // VIN
-    expect(blob).not.toMatch(/\b\d{1,3}\.\d{5,}\b/);          // koordinat
     expect(blob).not.toMatch(/apiKey|token|Bearer|transcript/i);
+    /* Koordinat kontrolü monotonik saat alanlarını DIŞLAR: `observedAt`
+       (performance.now) ve `sampleWindowMs` (oturum süresi) worker'ın ilk
+       saniyesinde `812.78101` gibi 3 haneli ondalık olur ve regex'i yanlış
+       tetikler (CI'da bağımsız PR'larda kırmızı: #136, #138). Tanım gereği
+       koordinat taşıyamazlar; tipleri ayrıca kilitlenir. Ad/değer/metin
+       alanlarının tamamı kontrol edilmeye devam eder. */
+    for (const m of sec!.metrics) {
+      expect(m.observedAt === null || typeof m.observedAt === 'number').toBe(true);
+      expect(m.sampleWindowMs === null || typeof m.sampleWindowMs === 'number').toBe(true);
+    }
+    const nonClock = JSON.stringify(sec, (k, v) => (k === 'observedAt' || k === 'sampleWindowMs' ? 0 : v));
+    expect(nonClock).not.toMatch(/\b\d{1,3}\.\d{5,}\b/);      // koordinat
   });
 });
 
