@@ -9,7 +9,7 @@ import {
   Cpu, Shield, ShieldCheck, Gauge, Settings2,
   Mic, Loader,
   Star, Users, Map as MapIcon, ChevronRight, Info, MessageCircle, AlertTriangle, type LucideIcon,
-  Home, Fuel,
+  Home, Fuel, Car,
 } from 'lucide-react';
 import {
   sanitizeAssistantName, sanitizeUserCallsign, sanitizeWakePhrase,
@@ -35,6 +35,7 @@ import { setBrightness, setVolume, isSystemControlSupported } from '../../platfo
 import { MaintenancePanel } from '../obd/MaintenancePanel';
 import { FuelCalibrationPanel } from './FuelCalibrationPanel';
 import { VehicleClassSettings } from './VehicleClassSettings';
+import { VehicleIdentityPanel } from './VehicleIdentityPanel';
 import { ExpertModePanel } from './ExpertModePanel';
 import { OfflineDataPanel } from './OfflineDataPanel';
 import { HomeWorkAddressPanel } from './HomeWorkAddressPanel';
@@ -1990,6 +1991,15 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
 
           {shownTab === 'maintenance' && (
             <div className="flex flex-col gap-4">
+
+              {/* ── Araç kimliği + amblem + açılış ekranı (OBD gerekmez) ── */}
+              <Panel accent="#60a5fa">
+                <div className="mb-3">
+                  <SectionTitle icon={Car} title="Aracım"
+                    sub="Marka, model, amblem ve açılış ekranı" color="#60a5fa" />
+                </div>
+                <VehicleIdentityPanel />
+              </Panel>
 
               {/* ── Ruhsat Sınıfı (uygulanabilir hız sınırını belirler) ── */}
               <Panel accent="#60a5fa">

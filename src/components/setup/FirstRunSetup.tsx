@@ -2,21 +2,27 @@
  * FirstRunSetup — ilk kurulum sihirbazı (yalnız yeni kurulumda, bir kez).
  *
  * Yeni mantık yok: her adım mevcut kanonik yolu kullanır — sürücü profili
- * (`addDriver`), telefon tanıma (`DriverPhoneLink`), Ev/İş (`HomeWorkAddressPanel`),
+ * (`addDriver`), araç kimliği (`saveVehicleIdentity` → aktif araç profili),
+ * telefon tanıma (`DriverPhoneLink`), Ev/İş (`HomeWorkAddressPanel`),
  * OBD (`OBDConnectModal`). Her adım atlanabilir; "Kurulumu atla" tek dokunuş.
  * Araç hareket hâlindeyse görünmez (sürücüyü meşgul etmez), durunca döner.
  */
 import { memo, useEffect, useState } from 'react';
-import { ChevronRight, Plug, Smartphone, Home, User, Check } from 'lucide-react';
+import { ChevronRight, Plug, Smartphone, Home, User, Check, Car } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { addDriver } from '../../platform/driverProfileService';
 import { isVehicleMovingNow } from '../../platform/driverPhoneRecognition';
 import { DriverPhoneLink } from '../settings/DriverPhoneLink';
 import { HomeWorkAddressPanel } from '../settings/HomeWorkAddressPanel';
 import { OBDConnectModal } from '../obd/OBDConnectModal';
+import { VehicleIdentityFields, draftToIdentity, type VehicleIdentityDraft } from '../vehicle/VehicleIdentityFields';
+import { saveVehicleIdentity, currentCanonicalVin } from '../../platform/vehicle/vehicleBrandIdentity';
+import { brandFromWmi } from '../../platform/vehicle/brandCatalog';
+import { VehicleEmblem, resolveEmblem } from '../vehicle/VehicleEmblem';
 
 const STEPS = [
   { icon: User,       title: 'Merhaba! Adın ne?',           sub: 'Tema, ses, müzik ve adres tercihlerin sana özel saklanır.' },
+  { icon: Car,        title: 'Aracın',                      sub: 'Markayı seç; amblemi açılışta ve ana ekranda görünsün. OBD gerekmez.' },
   { icon: Smartphone, title: 'Telefonunu tanıyalım',        sub: 'Telefonun araca bağlanınca profilin kendiliğinden gelir.' },
   { icon: Home,       title: 'Ev ve iş adresin',            sub: '"Eve götür" demen yeterli olsun.' },
   { icon: Plug,       title: 'OBD adaptörü',                sub: 'Hız, yakıt, arıza ve motor bilgileri için. Adaptörün yoksa atlayabilirsin.' },
@@ -45,12 +51,22 @@ function FirstRunSetupInner() {
   const [step, setStep] = useState(0);
   const [name, setName] = useState('');
   const [obdOpen, setObdOpen] = useState(false);
+  // VIN okunmuşsa marka ÖNERİ olarak ön-seçilir; kullanıcı değiştirebilir.
+  const [vinBrand] = useState(() => brandFromWmi(currentCanonicalVin()));
+  const [car, setCar] = useState<VehicleIdentityDraft>(() => ({ brandId: vinBrand?.id ?? null, model: '', year: '' }));
+  const [emblemBoot, setEmblemBoot] = useState(true);
+  const carEmblem = resolveEmblem({ brandId: car.brandId ?? undefined, model: car.model.trim() || undefined });
 
   if (done || !hydrated || moving) return null;
 
   const finish = () => useStore.getState().updateSettings({ setupCompleted: true });
   const next = () => {
     if (step === 0 && name.trim() && !active) addDriver(name);
+    if (step === 1 && (car.brandId || car.model.trim())) {
+      saveVehicleIdentity({ ...draftToIdentity(car),
+        source: vinBrand && car.brandId === vinBrand.id ? 'vin_proven' : 'user_selected' });
+      if (emblemBoot && carEmblem) useStore.getState().updateSettings({ bootSplashStyle: 'emblem' });
+    }
     if (step >= STEPS.length - 1) finish(); else setStep(step + 1);
   };
   const S = STEPS[step];
@@ -91,11 +107,29 @@ function FirstRunSetupInner() {
               style={{ background: 'var(--oem-surface-2, #303749)', border: '1px solid var(--oem-line)', borderRadius: 16,
                 padding: '16px 18px', fontSize: 20, color: 'var(--oem-ink)' }} />
           ))}
-          {step === 1 && (active
+          {step === 1 && (
+            <div className="flex flex-col gap-3">
+              {carEmblem && (
+                <div className="flex items-center gap-4 rounded-2xl p-3" style={{ background: 'var(--oem-surface-2, #303749)' }}>
+                  <span className="grid place-items-center rounded-2xl flex-shrink-0" style={{ width: 88, height: 88, background: '#05070b' }}>
+                    <VehicleEmblem key={car.brandId ?? car.model} emblem={carEmblem} variant="scene" size={64} />
+                  </span>
+                  <label className="flex-1 flex items-center justify-between gap-3" style={{ minHeight: 48, color: 'var(--oem-ink)', fontSize: 16, fontWeight: 700 }}>
+                    Açılışta bu amblemi kullan
+                    <input type="checkbox" role="switch" checked={emblemBoot} onChange={(e) => setEmblemBoot(e.target.checked)}
+                      aria-label="Açılışta bu amblemi kullan" style={{ width: 28, height: 28, accentColor: 'var(--oem-accent)' }} />
+                  </label>
+                </div>
+              )}
+              <VehicleIdentityFields value={car} onChange={setCar}
+                hint={vinBrand ? `OBD'den okunan VIN ${vinBrand.name} gösteriyor.` : null} />
+            </div>
+          )}
+          {step === 2 && (active
             ? <DriverPhoneLink driver={active} />
             : <div style={{ fontSize: 15, color: 'var(--oem-ink-3)' }}>Telefon tanıma için bir sürücü profili gerekir; ilk adımda adını yazabilirsin.</div>)}
-          {step === 2 && <HomeWorkAddressPanel />}
-          {step === 3 && (
+          {step === 3 && <HomeWorkAddressPanel />}
+          {step === 4 && (
             <button type="button" onClick={() => setObdOpen(true)} className="active:scale-95"
               style={{ ...btn, background: 'var(--oem-surface-2, #303749)', color: 'var(--oem-ink)', border: '1px solid var(--oem-line)' }}>
               Adaptörü bağla

@@ -37,6 +37,7 @@ import type { SmartSnapshot } from '../../platform/smartEngine';
 import { MagicContextCard } from '../common/MagicContextCard';
 import { useLayoutIntent, useZoneWidths } from '../../store/useLayoutStore';
 import { solveLayout, normalizeIntent, TESLA_MANIFEST, type Zone } from '../../platform/theme/layoutSolver';
+import { ActiveVehicleBadge } from '../vehicle/VehicleEmblem';
 
 const VoiceAssistant = lazy(() => import('../modals/VoiceAssistant').then(m => ({ default: m.VoiceAssistant })));
 
@@ -481,6 +482,7 @@ const VehicleCard = memo(function VehicleCard({ onOpenSettings }: { onOpenSettin
       <div className="flex items-center gap-2">
         <Label>Araç Durumu</Label>
         <ChevronRight className="w-3.5 h-3.5" style={{ color: p.ink3 }} />
+        <span className="ml-auto"><ActiveVehicleBadge size={36} /></span>
       </div>
       <div style={{ fontSize: 26, fontWeight: 800, color: p.ink, marginTop: 4 }}>Normal</div>
       <div className="flex-1 min-h-0 flex items-center justify-center my-1"><RuggedSUV /></div>

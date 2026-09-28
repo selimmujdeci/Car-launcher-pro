@@ -24,7 +24,9 @@ import {
 import { RuntimeMode } from '../../core/runtime/runtimeTypes';
 import { runtimeManager } from '../../core/runtime/AdaptiveRuntimeManager';
 // ── Extracted layout components ──────────────────────────────
-import { BootSplash, type BootPhase, BOOT_SHOW_MS, BOOT_FADE_MS } from './BootSplash';
+import { BootSplash, type BootPhase, BOOT_SHOW_MS, BOOT_FADE_MS, EMBLEM_BOOT_SHOW_MS } from './BootSplash';
+import { buildEmblemBoot } from './emblemBoot';
+import { isVehicleMovingNow } from '../../platform/driverPhoneRecognition';
 import { GoldenHourAccent } from './GoldenHourAccent';
 import { SleepOverlay } from './SleepOverlay';
 import type { DrawerType } from './DockBar';
@@ -87,7 +89,11 @@ export default function MainLayout() {
   const obdSource = useOBDSource();
   const location  = useGPSLocation();
 
-  const [bootPhase,     setBootPhase]     = useState<BootPhase>('show');
+  /* Amblemli açılış (ayar) — açılış anında bir kez karar verilir. Sürüşte veya
+     geri viteste oynamaz; varsayılan CarOS Pro açılışı bu karardan etkilenmez. */
+  const [bootEmblem] = useState(() => buildEmblemBoot());
+  const [bootPhase,     setBootPhase]     = useState<BootPhase>(() =>
+    bootEmblem && (isVehicleMovingNow() || useUnifiedVehicleStore.getState().reverse === true) ? 'done' : 'show');
   const [drawer,        setDrawer]        = useState<DrawerType>('none');
   const [favorites,     setFavorites]     = useState<string[]>(() => load<string[]>('favorites', []));
   const [perfMode,      setPerfMode]      = useState<PerformanceMode>(() => getPerformanceMode());
@@ -144,9 +150,16 @@ export default function MainLayout() {
   }, []);
 
   useEffect(() => {
-    const t1 = setTimeout(() => setBootPhase('fade'), BOOT_SHOW_MS);
-    const t2 = setTimeout(() => setBootPhase('done'), BOOT_SHOW_MS + BOOT_FADE_MS);
+    const showMs = bootEmblem ? EMBLEM_BOOT_SHOW_MS : BOOT_SHOW_MS;
+    const t1 = setTimeout(() => setBootPhase((p) => (p === 'show' ? 'fade' : p)), showMs);
+    const t2 = setTimeout(() => setBootPhase('done'), showMs + BOOT_FADE_MS);
     return () => { clearTimeout(t1); clearTimeout(t2); };
+  }, [bootEmblem]);
+
+  // Amblemli açılış dokununca atlanır.
+  const skipBoot = useCallback(() => {
+    setBootPhase((p) => (p === 'show' ? 'fade' : p));
+    setTimeout(() => setBootPhase('done'), BOOT_FADE_MS);
   }, []);
 
   // ── Otomatik navigasyon açılışı (Tesla mantığı) ───────────
@@ -427,7 +440,7 @@ export default function MainLayout() {
         </div>
       )}
 
-      <BootSplash phase={bootPhase} />
+      <BootSplash phase={bootPhase} emblem={bootEmblem} onSkip={bootEmblem ? skipBoot : undefined} />
       <ErrorToast />
       <VolumeOverlay />
       {/* Saha doğrulama göstergesi — oturum AKTİF DEĞİLKEN null render eder,

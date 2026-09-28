@@ -1,0 +1,107 @@
+/* Araç amblemi — C · Cam/Neon (kullanıcı onaylı önizleme, 2026-09-27).
+   Yalnız CSS/SVG; WebGL yok. Açılış sahnesi düşük kademeden muaf (dosya sonu); rozet değil.
+   KURAL: temel stil = SON (görünür) durum; animasyonlar yalnız `from` karesinden
+   başlar (fill-mode both). Uygulama düşük kademede `animation: none` basar
+   (index.css .perf-low vb.) — o zaman sahne statik ama TAM görünür kalır.
+   HEDEF chrome61 (vite cssTarget): `translate`/`scale` özelliği, color-mix ve
+   @property KULLANILMAZ — yalnız transform; marka tonu JS'ten rgba gelir. */
+
+.ve-svg { width: 100%; height: 100%; overflow: visible; }
+.ve-glow-neon { filter: drop-shadow(0 0 .5px #fff) drop-shadow(0 0 2.5px #4f8dff) drop-shadow(0 0 6px rgba(255,122,26,.6)); }
+.ve-glow-orig { filter: drop-shadow(0 0 3px rgba(255,255,255,.25)); }
+
+/* ── Sahne (açılış) ─────────────────────────────────────────────────────── */
+.ve-sweep { transform: translateX(34px); }
+.ve-scene .ve-edge { stroke-dasharray: 1; stroke-dashoffset: 0; animation: ve-draw .8s .15s cubic-bezier(.6,0,.2,1) both; }
+.ve-scene .ve-face { animation: ve-in .6s .8s ease-out both; }
+.ve-scene .ve-sweep { animation: ve-sweep 1s 1.3s cubic-bezier(.45,0,.25,1) both; }
+@keyframes ve-draw { from { stroke-dashoffset: 1; } }
+@keyframes ve-in { from { opacity: 0; } }
+@keyframes ve-sweep { from { transform: translateX(-30px); } }
+
+/* ── Rozet (ana ekran): ara sıra ince ışık kayması ─────────────────────── */
+.ve-badge .ve-sweep { animation: ve-shimmer 9s 3s ease-in-out infinite; }
+@keyframes ve-shimmer { 0%, 88% { transform: translateX(-30px); } 100% { transform: translateX(34px); } }
+
+/* ── Açılış sahnesi çevresi ─────────────────────────────────────────────── */
+.ve-boot { position: absolute; top: 0; right: 0; bottom: 0; left: 0; background: #000; overflow: hidden; }
+.ve-aura { position: absolute; left: 50%; top: 35%; width: 44vmin; height: 44vmin; margin: -22vmin 0 0 -22vmin; border-radius: 50%;
+  background: radial-gradient(circle, var(--ve-brand-a) 0%, var(--ve-brand-b) 38%, transparent 68%);
+  opacity: .75; animation: ve-aura-in .7s 1s ease-out both, ve-breathe 3.2s 1.7s ease-in-out infinite; }
+@keyframes ve-aura-in { from { opacity: 0; } }
+@keyframes ve-breathe { 0%, 100% { opacity: .75; transform: scale(1); } 50% { opacity: 1; transform: scale(1.07); } }
+.ve-emblem { position: absolute; left: 50%; top: 35%; width: 33vmin; height: 33vmin; margin: -16.5vmin 0 0 -16.5vmin; }
+.ve-floor { position: absolute; left: 50%; top: calc(35% + 9.7vmin); width: 86vmin; height: 18vmin; margin-left: -43vmin; }
+.ve-ring { position: absolute; top: 0; right: 0; bottom: 0; left: 0; border-radius: 50%; overflow: hidden;
+  -webkit-mask: radial-gradient(closest-side, transparent 88%, #000 90%, #000 96%, transparent 98%);
+          mask: radial-gradient(closest-side, transparent 88%, #000 90%, #000 96%, transparent 98%);
+  transform: rotateX(72deg); opacity: .9; animation: ve-ring-in .8s .9s ease-out both; }
+.ve-ring i { position: absolute; top: 50%; left: 0; width: 100%; padding-top: 100%; margin-top: -50%; border-radius: 50%;
+  background: conic-gradient(transparent 0deg, #2f7bff 50deg, transparent 120deg,
+    transparent 180deg, #ff7a1a 230deg, transparent 300deg);
+  animation: ve-spin 5s .9s linear infinite; }
+@keyframes ve-ring-in { from { opacity: 0; } }
+@keyframes ve-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+.ve-reflection { position: absolute; left: 50%; top: calc(35% + 15.5vmin); width: 33vmin; height: 33vmin;
+  margin-left: -16.5vmin; transform: scaleY(-1); opacity: .2; filter: blur(1.2px);
+  -webkit-mask: linear-gradient(to top, #000 0%, transparent 55%); mask: linear-gradient(to top, #000 0%, transparent 55%);
+  animation: ve-refl-in .7s 1s ease-out both; }
+@keyframes ve-refl-in { from { opacity: 0; } }
+.ve-copy { position: absolute; left: 0; right: 0; top: calc(35% + 30vmin); text-align: center; color: #fff; }
+.ve-hello { font-size: 4.7vmin; font-weight: 300; animation: ve-rise .5s 1.6s ease-out both; }
+.ve-hello b { font-weight: 600; }
+.ve-meta { margin-top: 1.1vmin; font-size: 2.5vmin; color: #b9c2d6; letter-spacing: .06em;
+  animation: ve-rise .5s 1.75s ease-out both; }
+.ve-mark { position: absolute; bottom: 3.6vmin; left: 0; right: 0; text-align: center; font-size: 1.7vmin;
+  letter-spacing: .38em; color: #6f7890; animation: ve-rise .5s 1.9s both; }
+.ve-mark span { color: #ff7a1a; }
+@keyframes ve-rise { from { opacity: 0; transform: translateY(10px); } }
+.ve-vignette { position: absolute; top: 0; right: 0; bottom: 0; left: 0; pointer-events: none;
+  background: radial-gradient(ellipse at 50% 42%, transparent 35%, #000 85%); }
+
+/* Işık tozları → amblem */
+.ve-dust { position: absolute; left: 50%; top: 35%; width: 0; height: 0; }
+.ve-dust i { position: absolute; width: 3px; height: 3px; border-radius: 50%; background: var(--c); box-shadow: 0 0 6px 1px var(--c);
+  opacity: 0; transform: translate(var(--x), var(--y)); animation: ve-gather 1s var(--d) cubic-bezier(.55,0,.3,1) forwards; }
+@keyframes ve-gather {
+  0% { opacity: 0; transform: translate(var(--x), var(--y)); }
+  25% { opacity: 1; }
+  100% { opacity: 0; transform: translate(var(--tx), var(--ty)) scale(.4); }
+}
+
+
+/* Düşük kademe (compat): uygulama filter/box-shadow'u kapatır → neon parıltı yok.
+   Amblem sönük kalmasın diye yalnız kenar kalınlaşır (GPU maliyeti yok). */
+html[data-compat-mode="true"] .ve-badge { --ve-edge-w: .6px; }
+
+/* ── AÇILIŞ SAHNESİ DÜŞÜK KADEME MUAFİYETİ (kullanıcı kararı, 2026-09-27) ──
+   Düşük kademe/compat kuralları (index.css `.perf-low *`, `[data-compat-mode] *`,
+   base.css `html[data-compat-mode] *`) animasyon/filter/gradient'i !important ile
+   kapatır. Sahne yalnız açılışta ~4 sn oynar → burada daha yüksek özgüllükle
+   (`html .ve-boot …`) geri açılır. Ana ekran rozeti (.ve-badge) MUAF DEĞİL. */
+html .ve-boot .ve-aura {
+  background-image: radial-gradient(circle, var(--ve-brand-a) 0%, var(--ve-brand-b) 38%, transparent 68%) !important;
+  animation: ve-aura-in .7s 1s ease-out both, ve-breathe 3.2s 1.7s ease-in-out infinite !important; }
+html .ve-boot .ve-ring { animation: ve-ring-in .8s .9s ease-out both !important; }
+html .ve-boot .ve-ring i {
+  background-image: conic-gradient(transparent 0deg, #2f7bff 50deg, transparent 120deg,
+    transparent 180deg, #ff7a1a 230deg, transparent 300deg) !important;
+  animation: ve-spin 5s .9s linear infinite !important; }
+html .ve-boot .ve-reflection { filter: blur(1.2px) !important; animation: ve-refl-in .7s 1s ease-out both !important; }
+html .ve-boot .ve-vignette { background-image: radial-gradient(ellipse at 50% 42%, transparent 35%, #000 85%) !important; }
+html .ve-boot .ve-hello { animation: ve-rise .5s 1.6s ease-out both !important; }
+html .ve-boot .ve-meta { animation: ve-rise .5s 1.75s ease-out both !important; }
+html .ve-boot .ve-mark { animation: ve-rise .5s 1.9s both !important; }
+html .ve-boot .ve-svg.ve-glow-neon { filter: drop-shadow(0 0 .5px #fff) drop-shadow(0 0 2.5px #4f8dff) drop-shadow(0 0 6px rgba(255,122,26,.6)) !important; }
+html .ve-boot .ve-svg.ve-glow-orig { filter: drop-shadow(0 0 3px rgba(255,255,255,.25)) !important; }
+html .ve-boot .ve-scene .ve-edge { animation: ve-draw .8s .15s cubic-bezier(.6,0,.2,1) both !important; }
+html .ve-boot .ve-scene .ve-face { animation: ve-in .6s .8s ease-out both !important; }
+html .ve-boot .ve-scene .ve-sweep { animation: ve-sweep 1s 1.3s cubic-bezier(.45,0,.25,1) both !important; }
+html .ve-boot .ve-dust i { box-shadow: 0 0 6px 1px var(--c) !important;
+  animation: ve-gather 1s var(--d) cubic-bezier(.55,0,.3,1) forwards !important; }
+
+@media (prefers-reduced-motion: reduce) {
+  /* Muafiyetten (0,3,1) SONRA ve daha yüksek özgüllükle: reduced-motion her zaman kazanır. */
+  html .ve-boot.ve-boot.ve-boot *, .ve-badge * { animation-delay: 0s !important; animation-duration: 1ms !important; animation-iteration-count: 1 !important; }
+  .ve-dust { display: none; }
+}
