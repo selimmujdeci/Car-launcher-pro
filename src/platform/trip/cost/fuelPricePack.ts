@@ -40,8 +40,8 @@ export interface FuelPricePack {
   readonly pricePerLiter: Readonly<Partial<Record<PackFuelType, number>>>;
 }
 
-/** Tablo bu kadar günden eskiyse fiyat BAYAT sayılır (vizyon: "ayda bir tazelenir"). */
-export const FUEL_PRICE_STALE_AFTER_DAYS = 45;
+/** Tablo bu kadar günden eskiyse fiyat BAYAT sayılır — pompa fiyatı ayda birkaç kez değişir. */
+export const FUEL_PRICE_STALE_AFTER_DAYS = 14;
 
 /**
  * Tablo kaynaklı kalemin güveni. Tüketim bir varsayımdır (araçtan ölçülmedi)
