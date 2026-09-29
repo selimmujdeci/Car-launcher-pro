@@ -139,6 +139,9 @@ public final class LinkSession {
     private final LinkHandshake handshake;
     private volatile SessionCrypto crypto;
     private volatile boolean awaitingUserConfirm;
+    /** El sıkışma geçişlerini (kullanıcı onayı ↔ okuyucu thread'inin CONFIRM'ü) sıralar.
+     *  LinkHandshake thread-safe değildir; iki thread aynı anda stage yazarsa geçiş kaybolur. */
+    private final Object handshakeLock = new Object();
 
     /** Art arda bozuk çerçeve tavanı — tek gürültü değil, ISRAR oturumu kapatır. */
     public static final int MAX_CONSECUTIVE_MALFORMED = 5;
@@ -262,18 +265,22 @@ public final class LinkSession {
     public boolean confirmPairing(boolean accepted) {
         if (disposed.get() || !awaitingUserConfirm) return false;
 
-        LinkHandshake.Step step = handshake.confirmByUser(accepted, clock.nowMs());
-        if (!step.ok()) {
-            record(LinkDiagnosticEvent.Category.PAIRING, "user-confirm", step.error,
-                LinkDiagnosticEvent.Severity.WARN, "onay reddedildi veya gecersiz");
-            failWith(step.error, "eslestirme onaylanmadi");
-            close(step.error);
-            return false;
+        LinkHandshake.Step step;
+        synchronized (handshakeLock) {
+            if (!awaitingUserConfirm) return false;
+            step = handshake.confirmByUser(accepted, clock.nowMs());
+            if (step.ok()) {
+                awaitingUserConfirm = false;
+                crypto = handshake.crypto();
+                sendConfirm();
+                return true;
+            }
         }
-        awaitingUserConfirm = false;
-        crypto = handshake.crypto();
-        sendConfirm();
-        return true;
+        record(LinkDiagnosticEvent.Category.PAIRING, "user-confirm", step.error,
+            LinkDiagnosticEvent.Severity.WARN, "onay reddedildi veya gecersiz");
+        failWith(step.error, "eslestirme onaylanmadi");
+        close(step.error);
+        return false;
     }
 
     /* ══════════════════════════════════════════════════════════════════════
@@ -482,6 +489,10 @@ public final class LinkSession {
     }
 
     private void onConfirm(byte[] body) {
+        synchronized (handshakeLock) { onConfirmLocked(body); }
+    }
+
+    private void onConfirmLocked(byte[] body) {
         LinkHandshake.Step step = handshake.onConfirm(body);
         if (!step.ok()) { failAndClose(step.error, "confirm dogrulanamadi"); return; }
 

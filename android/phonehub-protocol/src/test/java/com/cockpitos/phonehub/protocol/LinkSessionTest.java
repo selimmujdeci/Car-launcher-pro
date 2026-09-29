@@ -176,6 +176,52 @@ public class LinkSessionTest {
             new String(p.clientEvents.messages.get(0), StandardCharsets.UTF_8));
     }
 
+    /**
+     * EŞ ZAMANLI KULLANICI ONAYI OTURUMU KAYBETMEMELİ.
+     *
+     * `confirmPairing` (kullanıcı thread'i) ile karşı tarafın CONFIRM/ACK'ını
+     * işleyen okuyucu thread'i aynı `LinkHandshake` aşamasını yazıyordu. ACK,
+     * `confirmByUser` ile `sendConfirm` arasına düşerse okuyucu kendi
+     * `sendConfirm`'ünü yollayıp ESTABLISHED yazıyor, kullanıcı thread'i ardından
+     * CONFIRM_EXCHANGED ile eziyordu → oturum CONNECTED'a hiç geçmiyordu
+     * (CI: applicationMessagesFlowBothWays, satır 165, mesajsız AssertionError).
+     * İki uç aynı anda onaylanır ve tekrar edilir; her turda iki uç da kurulmalı
+     * ve uygulama mesajı gönderebilmelidir.
+     */
+    @Test
+    public void concurrentUserConfirmsNeverLoseEstablishment() throws Exception {
+        for (int round = 0; round < 200; round++) {
+            Pair p = connect(null, null, 10_000L, 30_000L);
+            assertTrue(p.clientEvents.codeReady.await(WAIT_MS, TimeUnit.MILLISECONDS));
+            assertTrue(p.serverEvents.codeReady.await(WAIT_MS, TimeUnit.MILLISECONDS));
+
+            CountDownLatch go = new CountDownLatch(1);
+            AtomicReference<Boolean> serverOk = new AtomicReference<>();
+            Thread serverUser = new Thread(() -> {
+                try { go.await(); } catch (InterruptedException e) { return; }
+                serverOk.set(p.server.confirmPairing(true));
+            });
+            serverUser.start();
+            go.countDown();
+            boolean clientOk = p.client.confirmPairing(true);
+            serverUser.join(WAIT_MS);
+
+            assertTrue("tur " + round + ": istemci onayı", clientOk);
+            assertEquals("tur " + round + ": sunucu onayı", Boolean.TRUE, serverOk.get());
+            assertTrue("tur " + round + ": istemci kurulmalı",
+                p.clientEvents.established.await(WAIT_MS, TimeUnit.MILLISECONDS));
+            assertTrue("tur " + round + ": sunucu kurulmalı",
+                p.serverEvents.established.await(WAIT_MS, TimeUnit.MILLISECONDS));
+            assertTrue("tur " + round + ": istemci gönderebilmeli",
+                p.client.sendApplicationMessage("{}".getBytes(StandardCharsets.UTF_8)));
+            assertTrue("tur " + round + ": sunucu gönderebilmeli",
+                p.server.sendApplicationMessage("{}".getBytes(StandardCharsets.UTF_8)));
+
+            p.client.close(LinkErrorCode.SOCKET_CLOSED);
+            p.server.close(LinkErrorCode.SOCKET_CLOSED);
+        }
+    }
+
     /** El sıkışma bitmeden uygulama mesajı GÖNDERİLEMEZ. */
     @Test
     public void applicationMessageRejectedBeforeEstablishment() throws Exception {
