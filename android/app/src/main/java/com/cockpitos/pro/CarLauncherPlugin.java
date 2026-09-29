@@ -5847,8 +5847,9 @@ public class CarLauncherPlugin extends Plugin {
                 sendHttpResponse(out, 200, "application/json; charset=utf-8", "{\"cleared\":true}");
                 return;
             }
-            // Root testi: su var mı? (adb açmadan önce kontrol) — YALNIZ debug build.
-            if (BuildConfig.DEBUG && "/root-check".equals(path)) {
+            // Root testi: su var mı? (adb açmadan önce kontrol) — YALNIZ debug build VE
+            // açık opt-in (-PcarosRootDiag=true): dağıtılan APK debug build'dir.
+            if (BuildConfig.DEBUG && BuildConfig.ROOT_DIAG_ENABLED && "/root-check".equals(path)) {
                 String r = runRootShell("id");
                 sendHttpResponse(out, 200, "application/json; charset=utf-8",
                     "{\"hasRoot\":" + (r.contains("uid=0") ? "true" : "false")
@@ -5858,7 +5859,8 @@ public class CarLauncherPlugin extends Plugin {
             // Ağ ADB'sini aç (root gerektirir): adbd'yi 5555'te dinlet → PC 'adb connect'
             // ile TAM kontrol alır. Root yoksa 'su' bulunamaz → hata döner. YALNIZ debug build:
             // release'te BuildConfig.DEBUG=false → R8 bu blok + runRootShell'i tamamen siler.
-            if (BuildConfig.DEBUG && "/enable-adb".equals(path)) {
+            // Debug APK'da da varsayılan KAPALI: ROOT_DIAG_ENABLED yalnız -PcarosRootDiag=true.
+            if (BuildConfig.DEBUG && BuildConfig.ROOT_DIAG_ENABLED && "/enable-adb".equals(path)) {
                 String r = runRootShell("setprop service.adb.tcp.port 5555; stop adbd; start adbd; echo DONE");
                 boolean ok = r.contains("DONE");
                 sendHttpResponse(out, 200, "application/json; charset=utf-8",
