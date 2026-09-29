@@ -1,9 +1,12 @@
 /**
  * liveFuelPrice — carospro.com/api/fuel-prices'tan CANLI il fiyatı (EPDK).
  *
- * ÖNCELİK: canlı fiyat (tarihli) > APK'daki tablo (`BUNDLED_FUEL_PRICE_PACK`).
- * Tek istisna: APK tablosunun gözlem günü canlı fiyattan YENİYSE tablo kullanılır
- * (eski bir canlı kayıt, daha yeni beyanlı tabloyu ezmesin).
+ * ÖNCELİK: canlı fiyat (tarihli, aracın İLİ) > APK'daki tablo (`BUNDLED_FUEL_PRICE_PACK`).
+ * Canlı fiyat bayat değilse (≤ `FUEL_PRICE_STALE_AFTER_DAYS`) HER ZAMAN kazanır:
+ * EPDK `observedOn`'u kullanılan satırların en eski günüdür (temkinli) ve APK
+ * tablosu başka bir ilin fiyatıdır — yalnız tarihe bakmak, birkaç gün "yeni"
+ * diye başka ilin fiyatını öne geçirirdi. Canlı kayıt da bayatsa daha yeni günlü
+ * olan kullanılır (eski bir canlı kayıt, daha yeni beyanlı tabloyu ezmesin).
  *
  * AĞ YOKSA: son geçerli canlı cevap yerel depoda saklanır ve kullanılır. Bayatlık
  * AYRI hesaplanmaz — `resolveFuelCategory` gözlem gününe bakıp 14 günü geçeni
@@ -19,6 +22,7 @@ import { getGPSState } from '../../gpsService';
 import { nearestProvince } from './data/trProvinceCenters';
 import {
   BUNDLED_FUEL_PRICE_PACK,
+  FUEL_PRICE_STALE_AFTER_DAYS,
   parseFuelPricePack,
   type FuelPricePack,
 } from './fuelPricePack';
@@ -77,10 +81,12 @@ export function createLiveFuelPriceClient(deps: LiveFuelDeps) {
     return pack;
   }
 
-  /** Canlı > APK tablosu; APK tablosu daha yeni günlüyse tablo. */
+  /** Taze canlı fiyat > APK tablosu; canlı da bayatsa daha yeni günlü olan. */
   function getEffectivePack(bundled: FuelPricePack | null = BUNDLED_FUEL_PRICE_PACK): FuelPricePack | null {
     const live = getLivePack();
     if (!live) return bundled;
+    const liveFresh = deps.now() - live.observedAtMs <= FUEL_PRICE_STALE_AFTER_DAYS * 86_400_000;
+    if (liveFresh) return live;
     if (bundled && bundled.observedAtMs > live.observedAtMs) return bundled;
     return live;
   }

@@ -62,7 +62,17 @@ describe('canlı yakıt fiyatı istemcisi', () => {
     expect(eff.source).toContain('EPDK');
   });
 
-  it('APK tablosu canlı kayıttan daha yeni günlüyse tablo kullanılır', async () => {
+  it('taze canlı fiyat, daha YENİ tarihli APK tablosuna rağmen kazanır (tablo başka ilin fiyatı)', async () => {
+    const newerBundled = parseFuelPricePack({
+      schema: 1, currency: 'TRY', source: 'APK tablosu (İstanbul)', observedOn: '2026-09-29',
+      pricePerLiter: { petrol: 80.4, diesel: 93.5 },
+    })!;
+    const { client } = setup([json(LIVE_ANKARA)]);
+    await client.refresh('Ankara');
+    expect(client.getEffectivePack(newerBundled)!.source).toContain('Ankara');
+  });
+
+  it('canlı kayıt BAYATSA ve APK tablosu daha yeni günlüyse tablo kullanılır', async () => {
     const { client } = setup([json({ ...LIVE_ANKARA, observedOn: '2026-09-01' })]);
     await client.refresh('Ankara');
     expect(client.getEffectivePack(BUNDLED)).toBe(BUNDLED);

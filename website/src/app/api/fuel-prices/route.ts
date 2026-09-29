@@ -21,22 +21,17 @@ import {
 export const runtime = 'nodejs';
 export const maxDuration = 30;
 
-/* /api/tts ile aynı kapı: yalnız head unit WebView'ı ve kendi alanımız; IP başına
-   dakikalık sınır (örnek başına — tam koruma değil, açık proxy olmayı engeller). */
-const ALLOWED_ORIGINS = new Set([
-  'https://localhost', 'http://localhost', 'capacitor://localhost',
-  'https://carospro.com', 'https://www.carospro.com',
-]);
+/* CORS: herkese AYNI cevap (`*`). Veri kamuya açık EPDK fiyatıdır ve cevap CDN'de
+   6 saat önbelleklenir; origin'e göre değişen izin başlığı önbellekle birleşince
+   bir istekçinin cevabı (başka ya da hiç izin başlığı) araç WebView'ine
+   (https://localhost) gider ve tarayıcı onu ENGELLER — canlı fiyat hiç gelmezdi.
+   /api/tts'ten farkı bu: orada POST, önbellek yok ve servis maliyetli. Kötüye
+   kullanıma karşı IP başına dakikalık sınır kalır (yalnız önbellek ıskasında
+   çalışır; ıska olmayan istek EPDK'ya da gitmez). */
+const CORS = { 'Access-Control-Allow-Origin': '*' } as const;
 const RATE_WINDOW_MS = 60_000;
 const RATE_MAX = 30;
 const _hits = new Map<string, { n: number; resetAt: number }>();
-
-function corsHeaders(req: NextRequest): Record<string, string> {
-  const origin = req.headers.get('origin');
-  return origin && ALLOWED_ORIGINS.has(origin)
-    ? { 'Access-Control-Allow-Origin': origin, Vary: 'Origin' }
-    : {};
-}
 
 /** true → sınır aşıldı. */
 function rateLimited(req: NextRequest): boolean {
@@ -55,10 +50,7 @@ function rateLimited(req: NextRequest): boolean {
 const cache = createEpdkFuelCache({ fetchFn: (u, i) => fetch(u, i), now: () => Date.now() });
 
 export async function GET(req: NextRequest) {
-  const cors = corsHeaders(req);
-  if (req.headers.get('origin') && !cors['Access-Control-Allow-Origin']) {
-    return NextResponse.json({ error: 'origin izinli değil' }, { status: 403 });
-  }
+  const cors = CORS;
   if (rateLimited(req)) {
     return NextResponse.json({ error: 'çok fazla istek' }, { status: 429, headers: { ...cors, 'Retry-After': '60' } });
   }
@@ -83,11 +75,11 @@ export async function GET(req: NextRequest) {
   });
 }
 
-export async function OPTIONS(req: NextRequest) {
+export async function OPTIONS() {
   return new NextResponse(null, {
     status: 204,
     headers: {
-      ...corsHeaders(req),
+      ...CORS,
       'Access-Control-Allow-Methods': 'GET, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type',
     },
