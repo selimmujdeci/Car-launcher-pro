@@ -790,10 +790,13 @@ public class CarLauncherPlugin extends Plugin {
 
         IntentFilter ifilter = new IntentFilter(Intent.ACTION_BATTERY_CHANGED);
         Intent bat = getContext().registerReceiver(null, ifilter);
-        int level = bat != null ? bat.getIntExtra(BatteryManager.EXTRA_LEVEL, 0)  : 0;
-        int scale = bat != null ? bat.getIntExtra(BatteryManager.EXTRA_SCALE, 100): 100;
-        int pct   = scale > 0 ? (int) ((level / (float) scale) * 100) : 0;
-        result.put("battery", pct);
+        /* Pil yok (head unit) ya da okunamadı → null (UNKNOWN); sahte 0 YAZILMAZ. */
+        boolean present = bat != null && (!bat.hasExtra(BatteryManager.EXTRA_PRESENT)
+            || bat.getBooleanExtra(BatteryManager.EXTRA_PRESENT, true));
+        int level = bat != null ? bat.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) : -1;
+        int scale = bat != null ? bat.getIntExtra(BatteryManager.EXTRA_SCALE, -1) : -1;
+        Integer pct = DeviceBattery.percentOrNull(present, level, scale);
+        result.put("battery", pct != null ? pct : org.json.JSONObject.NULL);
 
         int status = bat != null ? bat.getIntExtra(BatteryManager.EXTRA_STATUS, -1) : -1;
         result.put("charging",

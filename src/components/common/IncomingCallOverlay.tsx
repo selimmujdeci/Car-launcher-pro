@@ -145,7 +145,7 @@ export const IncomingCallOverlay = memo(function IncomingCallOverlay() {
       <div style={{
         width: 420,
         borderRadius: 32,
-        background: 'linear-gradient(160deg, #0d1f0f 0%, #0a1a0c 100%)',
+        backgroundColor: '#0d1f0f', backgroundImage: 'linear-gradient(160deg, #0d1f0f 0%, #0a1a0c 100%)',
         border: '1px solid rgba(34,197,94,0.25)',
         boxShadow: '0 0 60px rgba(34,197,94,0.15), 0 32px 80px rgba(0,0,0,0.6)',
         padding: '44px 36px 36px',

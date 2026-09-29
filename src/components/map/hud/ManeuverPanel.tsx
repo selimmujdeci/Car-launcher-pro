@@ -87,7 +87,7 @@ export const ManeuverPanel = memo(function ManeuverPanel({
           padding: big ? '14px 18px' : '11px 15px',
           background: 'var(--oem-surface-1, rgba(38,44,60,0.86))',
           border: `1px solid ${hud.tone === 'FOCUS'
-            ? 'var(--oem-line-warm, oklch(66% 0.10 55 / 0.45))'
+            ? 'var(--oem-line-warm, rgba(193,129,84,0.45))'
             : 'var(--oem-line-strong, rgba(255,240,210,0.18))'}`,
           boxShadow: 'var(--oem-shadow-raised, 0 28px 56px -26px rgba(0,0,0,0.62))',
           backdropFilter: 'blur(calc(var(--rt-blur, 1) * 20px)) saturate(118%)',

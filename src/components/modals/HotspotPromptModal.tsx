@@ -93,7 +93,7 @@ export const HotspotPromptModal = memo(function HotspotPromptModal({
             onClick={handleOpen}
             className="w-full py-3.5 rounded-2xl font-bold text-white text-sm tracking-wide transition-all active:scale-95"
             style={{
-              background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
+              backgroundColor: '#3b82f6', backgroundImage: 'linear-gradient(135deg, #3b82f6, #2563eb)',
               boxShadow: '0 6px 20px rgba(59,130,246,0.3)',
             }}
           >

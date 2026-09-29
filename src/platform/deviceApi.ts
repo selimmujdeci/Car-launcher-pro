@@ -33,7 +33,8 @@ export interface DeviceStatus {
   btDevice: string;      // connected device name; '' when disconnected
   wifiConnected: boolean;
   wifiName: string;      // SSID; '' when disconnected or unavailable
-  battery: number;       // 0–100
+  /** 0–100; `null` = pil yok (head unit) ya da okunamadı — UNKNOWN, sahte 0 değil. */
+  battery: number | null;
   charging: boolean;     // true when plugged in / charging
 }
 
@@ -45,7 +46,7 @@ const SAFE_DEFAULTS: DeviceStatus = {
   btDevice: '',
   wifiConnected: false,
   wifiName: '',
-  battery: 0,
+  battery: null,
   charging: false,
 };
 
@@ -68,12 +69,15 @@ export function updateDeviceStatus(partial: Partial<DeviceStatus>): void {
     wifiName: typeof partial.wifiName === 'string' ? partial.wifiName : _current.wifiName,
     battery:  typeof partial.battery  === 'number'
       ? Math.max(0, Math.min(100, Math.round(partial.battery)))
-      : _current.battery,
+      : partial.battery === null ? null : _current.battery,
   };
 
-  // Batarya kritik uyarısı — %10 altına ilk düşüşte bir kez göster
+  // Batarya kritik uyarısı — %10 altına ilk düşüşte bir kez göster.
+  // Yalnız iki GERÇEK okuma arasında: bilinmeyen (null) pil uyarı üretmez.
   if (
     !_current.charging &&
+    _current.battery !== null &&
+    prevBattery !== null &&
     _current.battery <= 10 &&
     _current.battery < prevBattery &&
     !_lowBatteryWarned

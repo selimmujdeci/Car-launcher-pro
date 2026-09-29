@@ -1284,7 +1284,7 @@ export const MiniMapWidget = memo(function MiniMapWidget({
           <div
             className="absolute inset-0 z-[var(--z-map-effect)] rounded-[inherit] overflow-hidden"
             style={{
-              background: 'linear-gradient(160deg, rgba(8,12,28,0.97) 0%, rgba(14,20,42,0.97) 100%)',
+              backgroundColor: 'rgba(8,12,28,0.97)', background: 'linear-gradient(160deg, rgba(8,12,28,0.97) 0%, rgba(14,20,42,0.97) 100%)',
               transition: 'opacity 400ms cubic-bezier(0.4,0,0.2,1)',
             }}
           >

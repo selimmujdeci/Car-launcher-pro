@@ -203,7 +203,7 @@ const StatusCluster = memo(function StatusCluster() {
       <StatusControls palette={{ ink: p.ink, ink2: p.ink2, accent: p.accent, surface: p.cardSolid }} size={15} />
       {/* Cihaz pili yoksa (head unit / web) etiketsiz "—" basılmaz; dış sıcaklık
           bilinmiyorsa birimiyle "—°C" (iki anlamsız çizgi yan yana duruyordu). */}
-      {device.ready && <span style={{ fontSize: 12, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: p.ink }}>{`${device.battery}%`}</span>}
+      {device.ready && device.battery !== null && <span style={{ fontSize: 12, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: p.ink }}>{`${device.battery}%`}</span>}
       <span style={{ fontSize: 12, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: p.ink }}>{ambient != null ? `${Math.round(ambient)}°C` : '—°C'}</span>
     </div>
   );
@@ -218,7 +218,7 @@ const HeaderClock = memo(function HeaderClock() {
   const use24Hour = useStore(s => s.settings.use24Hour);
   const { time, date } = useClock(use24Hour, false);
   return (
-    <div data-editable="tesla.clock" data-editable-type="card" className="absolute" style={{ left: '50%', top: '50%', transform: 'translate(-50%,-50%)', textAlign: 'center', pointerEvents: 'none' }}>
+    <div data-editable="tesla.clock" data-editable-type="card" style={{ flex: 'none', margin: '0 12px', textAlign: 'center', pointerEvents: 'none' }}>
       <div style={{ fontSize: 24, fontWeight: 800, lineHeight: 1, color: p.ink, letterSpacing: '-0.3px', fontVariantNumeric: 'tabular-nums' }}>{time}</div>
       <div style={{ fontSize: 11, fontWeight: 500, color: p.ink2, marginTop: 2 }}>{date}</div>
     </div>
@@ -316,7 +316,7 @@ const FuelCard = memo(function FuelCard() {
       <TripMeterRow
         palette={{ ink: p.ink, ink2: p.ink2, ink3: p.ink3, accent: p.accent, tile: p.tile, edge: p.tile }}
         valueSize={22} unitSize={13} labelSize={10} iconSize={20} gap={6}
-        showTopBorder
+        showTopBorder compact
         style={{ marginTop: 8 }}
       />
     </div>
@@ -403,16 +403,22 @@ const MusicCard = memo(function MusicCard() {
       <button onClick={() => openMusicDrawer()} className="rounded-2xl overflow-hidden flex items-center justify-center flex-shrink-0" style={{ width: 66, height: 66, background: p.accentSoft, border: `1px solid ${p.accentA20}`, cursor: 'pointer' }}>
         {track.albumArt ? <img src={track.albumArt} className="w-full h-full object-cover" alt="" /> : <Music2 className="w-7 h-7" style={{ color: p.accent }} />}
       </button>
-      <div className="flex-1 min-w-0">
-        <div className="truncate" style={{ fontSize: 17, fontWeight: 800, color: p.ink }}>{track.title || 'Çalmıyor'}</div>
-        <div className="truncate" style={{ fontSize: 14, color: p.ink2, marginTop: 3 }}>{track.artist || 'Oynatmak için dokun'}</div>
-      </div>
-      <div className="flex items-center gap-3 flex-shrink-0">
-        <button onClick={() => previous()} className="ex-btn" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: p.ink2 }}><SkipBack className="w-6 h-6" /></button>
-        <button onClick={() => handlePlay()} className="ex-btn flex items-center justify-center rounded-full" style={{ width: 48, height: 48, background: p.accent, boxShadow: `0 5px 16px ${p.accentGlow}`, border: 'none', cursor: 'pointer' }}>
-          {playing ? <Pause className="w-6 h-6" style={{ color: '#fff' }} /> : <Play className="w-6 h-6 ml-0.5" style={{ color: '#fff' }} />}
-        </button>
-        <button onClick={() => next()} className="ex-btn" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: p.ink2 }}><SkipForward className="w-6 h-6" /></button>
+      {/* 1024×600'de sağ ray 287px: albüm + üç kontrol (157px) metne 12px bırakıyor,
+          başlık "Ç / o" diye eziliyordu. Metin 72px'in altına düşecekse kontroller alt
+          satıra sarılır; geniş rayda (1280) tek satır aynen kalır. Container query
+          kullanılmadı: cihaz WebView'ı (Chrome 101) desteklemiyor. */}
+      <div data-testid="tesla-music-body" className="flex-1 min-w-0 flex flex-wrap items-center" style={{ columnGap: 12, rowGap: 6 }}>
+        <div className="min-w-0" style={{ flex: '1 1 72px' }}>
+          <div className="truncate" style={{ fontSize: 17, fontWeight: 800, color: p.ink }}>{track.title || 'Çalmıyor'}</div>
+          <div className="truncate" style={{ fontSize: 14, color: p.ink2, marginTop: 3 }}>{track.artist || 'Oynatmak için dokun'}</div>
+        </div>
+        <div className="flex items-center gap-3 flex-shrink-0">
+          <button onClick={() => previous()} className="ex-btn" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: p.ink2 }}><SkipBack className="w-6 h-6" /></button>
+          <button onClick={() => handlePlay()} className="ex-btn flex items-center justify-center rounded-full" style={{ width: 48, height: 48, background: p.accent, boxShadow: `0 5px 16px ${p.accentGlow}`, border: 'none', cursor: 'pointer' }}>
+            {playing ? <Pause className="w-6 h-6" style={{ color: '#fff' }} /> : <Play className="w-6 h-6 ml-0.5" style={{ color: '#fff' }} />}
+          </button>
+          <button onClick={() => next()} className="ex-btn" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: p.ink2 }}><SkipForward className="w-6 h-6" /></button>
+        </div>
       </div>
     </div>
   );
@@ -698,6 +704,13 @@ const ExpeditionDock = memo(function ExpeditionDock({ onOpenMap, onOpenApps, onO
 });
 
 /* ─── ROOT ───────────────────────────────────────────────────────── */
+/** Başlık yan alanı: eşit paylaşım saati ortalar; içerik yarıya sığmazsa alan
+    genişler (asla içeriğin altına inmez) ve saat karşı tarafa kayar. */
+const HEADER_SIDE: React.CSSProperties = { flex: '1 1 0', minWidth: 'max-content', display: 'flex', alignItems: 'center' };
+
+/** Sütunda kalan alanı dolduran kartlar (kendi içleri esner); diğerleri doğal boyludur. */
+const TS_FILL_CARDS: ReadonlySet<string> = new Set(['speed', 'vehicle']);
+
 interface Props {
   onOpenMap:      () => void;
   onOpenApps:     () => void;
@@ -747,11 +760,17 @@ export const TeslaLayout = memo(function TeslaLayout(props: Props) {
   };
 
   /* Sütunlar flex; elle boyut verilmemişse kartlar doğal boylarında kalır —
-     yani bugünkü ekran. */
+     yani bugünkü ekran. Sütunun ASIL flex öğesi bu sarmalayıcıdır: kartın kendi
+     `flex-1` / `flex-shrink-0` sınıfı dağıtıma ulaşmıyordu → doğal boylu kart
+     (müzik/yakıt) küçülüp sonraki kartın ALTINDA kalıyordu (1024×600: müzik ∩ araç
+     11px, sürüşte 18px; yakıt kartı dock'a taşıyordu). Doğal kart küçülmez,
+     dolduran kart (hız/araç) kalan alanı alır. */
   const tsItemStyle = (id: string): React.CSSProperties => {
     const gc = intent[id]?.growCustom;
     if (gc != null) return { flexGrow: gc, flexBasis: 0, flexShrink: 1, minHeight: 0, display: 'flex', flexDirection: 'column' };
-    return { display: 'flex', flexDirection: 'column', minHeight: 0 };
+    return TS_FILL_CARDS.has(id)
+      ? { flex: '1 1 0', display: 'flex', flexDirection: 'column', minHeight: 0 }
+      : { flexShrink: 0, display: 'flex', flexDirection: 'column' };
   };
 
   /* Tek elemanlı grup da BURADAN geçer — ikinci kod yolu yok. */
@@ -760,7 +779,9 @@ export const TeslaLayout = memo(function TeslaLayout(props: Props) {
       return <div key={key} style={tsItemStyle(g[0].id)}>{renderTsCard(g[0].id)}</div>;
     }
     return (
-      <div key={key} data-merged="true" style={{ display: 'flex', flexDirection: 'column', gap: 0, minHeight: 0 }}>
+      <div key={key} data-merged="true" style={g.some((it) => TS_FILL_CARDS.has(it.id))
+        ? { flex: '1 1 0', display: 'flex', flexDirection: 'column', gap: 0, minHeight: 0 }
+        : { flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 0 }}>
         {g.map((it) => (
           <div key={it.id} style={tsItemStyle(it.id)}>{renderTsCard(it.id)}</div>
         ))}
@@ -781,9 +802,12 @@ export const TeslaLayout = memo(function TeslaLayout(props: Props) {
         <TopoBackground />
         {voiceOpen && <Suspense fallback={null}><VoiceAssistant onClose={() => setVoiceOpen(false)} minimal /></Suspense>}
         <div className="relative flex flex-col w-full h-full">
-          <div className="relative flex items-center justify-end px-5 pt-2.5 pb-1 flex-shrink-0" style={{ minHeight: 40 }}>
+          {/* Saat ortada; sağ küme yarıya sığmazsa (sürüşte düğmeler 56px) saat sola
+              kayar — eskiden mutlak konumluydu ve kümenin ALTINDA kalıyordu. */}
+          <div className="relative flex items-center px-5 pt-2.5 pb-1 flex-shrink-0" style={{ minHeight: 40 }}>
+            <div style={HEADER_SIDE} />
             <HeaderClock />
-            <StatusCluster />
+            <div style={{ ...HEADER_SIDE, justifyContent: 'flex-end' }}><StatusCluster /></div>
           </div>
           <div className="flex-1 min-h-0 flex" style={{ gap: 12, padding: '4px 14px 8px' }}>
             <div className="flex flex-col min-h-0" style={{ gap: 12, width: tsColWidth('left-rail'), flexShrink: 0 }}>

@@ -100,7 +100,7 @@ const Header = memo(function Header({ onOpenApps, onOpenSettings, onVoice }: { o
       {/* Sol: Logo + Saat */}
       <div className="flex items-center gap-4">
         <div className="w-11 h-11 rounded-2xl flex items-center justify-center"
-          style={{ background: 'linear-gradient(135deg, var(--oem-accent), var(--oem-accent-strong))', boxShadow: '0 4px 20px var(--oem-accent-glow)' }}>
+          style={{ backgroundColor: 'var(--oem-accent)', backgroundImage: 'linear-gradient(135deg, var(--oem-accent), var(--oem-accent-strong))', boxShadow: '0 4px 20px var(--oem-accent-glow)' }}>
           <Navigation className="w-5 h-5" style={{ color: 'var(--oem-accent-ink)' }} />
         </div>
         <div>
@@ -112,7 +112,7 @@ const Header = memo(function Header({ onOpenApps, onOpenSettings, onVoice }: { o
       {/* Orta: Durum hapları */}
       <div className="flex items-center gap-2">
         <HPill emoji="☀️" value="21°C" label="Güneşli" />
-        <HPill emoji="🔋" value={device.ready ? `${device.battery}%` : '—'} label="Batarya" />
+        <HPill emoji="🔋" value={device.ready && device.battery !== null ? `${device.battery}%` : '—'} label="Batarya" />
         <HPill emoji={isEV ? '⚡' : '⛽'} value={rangeKm != null ? `${rangeKm} km` : '— km'} label="Menzil" />
         <HPill emoji="🛣️" value={`${Math.round(odometer)} km`} label="Kilometre" />
       </div>
@@ -328,7 +328,7 @@ const SpeedCard = memo(function SpeedCard() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden relative"
-      style={{ ...GLASS_CARD, background: 'linear-gradient(160deg,#070e1c 0%,#0d1e38 40%,#091628 80%,#060d1a 100%)' }}>
+      style={{ ...GLASS_CARD, backgroundColor: '#070e1c', backgroundImage: 'linear-gradient(160deg,#070e1c 0%,#0d1e38 40%,#091628 80%,#060d1a 100%)' }}>
 
       {/* Top shimmer */}
       <div className="absolute top-0 left-8 right-8 pointer-events-none" style={{ height: 1, background: 'linear-gradient(90deg,transparent,rgba(224,162,60,0.40),transparent)' }} />
@@ -439,7 +439,7 @@ const MusicCard = memo(function MusicCard() {
         <div className="rounded-3xl overflow-hidden flex-shrink-0 flex items-center justify-center relative"
           style={{
             width: 'var(--lp-album, 120px)', height: 'var(--lp-album, 120px)',
-            background: 'linear-gradient(135deg, var(--oem-accent), var(--oem-accent-strong))',
+            backgroundColor: 'var(--oem-accent)', backgroundImage: 'linear-gradient(135deg, var(--oem-accent), var(--oem-accent-strong))',
             boxShadow: '0 16px 40px var(--oem-accent-glow), 0 4px 12px rgba(0,0,0,0.40)',
           }}>
           {track.albumArt
@@ -469,7 +469,7 @@ const MusicCard = memo(function MusicCard() {
         <button onClick={() => togglePlayPause()}
           className="w-14 h-14 rounded-2xl flex items-center justify-center active:scale-90 transition-all"
           style={{
-            background: 'linear-gradient(135deg, var(--oem-accent), var(--oem-accent-strong))',
+            backgroundColor: 'var(--oem-accent)', backgroundImage: 'linear-gradient(135deg, var(--oem-accent), var(--oem-accent-strong))',
             boxShadow: '0 8px 24px var(--oem-accent-glow), 0 2px 8px rgba(0,0,0,0.30)',
           }}>
           {playing
