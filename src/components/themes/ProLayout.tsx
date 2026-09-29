@@ -5,7 +5,7 @@ import {
   Navigation, SkipBack, SkipForward, Play, Pause,
   Phone, Mic, Bell, Wind, Settings, LayoutGrid,
   Map as MapIcon, Music2, ChevronRight,
-  CornerUpRight, Snowflake, BatteryCharging, Plus, Check, X,
+  CornerUpRight, Snowflake, Fuel, Plus, Check, X,
   AlertTriangle, Camera, Route, ShieldAlert, Shield, Tv2, Zap, Wrench,
   FlaskConical,
 } from 'lucide-react';
@@ -262,7 +262,8 @@ const GaugeCard = memo(function GaugeCard() {
 
       {/* Menzil */}
       <div className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl" style={{ background: p.tile }}>
-        <BatteryCharging className="w-3.5 h-3.5" style={{ color: p.good }} />
+        {/* Menzil yakıttan hesaplanır (estimatedRangeKm) — şarj ikonu yanlış anlam veriyordu. */}
+        <Fuel className="w-3.5 h-3.5" style={{ color: p.good }} />
         <span style={{ fontSize: 15, fontWeight: 800, color: p.ink, fontVariantNumeric: 'tabular-nums' }}>{range ?? '—'}</span>
         <span style={{ fontSize: 11, fontWeight: 600, color: p.ink2 }}>km</span>
       </div>
@@ -558,7 +559,9 @@ const VehicleCard = memo(function VehicleCard({ onOpenSettings, onLaunch }: { on
       <div className="flex-1 min-h-0 flex items-center gap-3 my-1">
         <div className="flex-1 flex items-center justify-center min-w-0"><VehicleSVG p={p} /></div>
         <div className="flex flex-col gap-2 flex-shrink-0" style={{ minWidth: 88 }}>
-          <Stat p={p} icon={<BatteryCharging className="w-4 h-4" style={{ color: p.good }} />} value={battery != null ? `${battery}%` : '—'} label="Batarya" />
+          {/* Değer OBD YAKIT DEPOSU seviyesidir (PID 0x2F) — "Batarya" + şarj ikonu
+              içten yanmalı araçta akü şarjı sanılıyordu. */}
+          <Stat p={p} icon={<Fuel className="w-4 h-4" style={{ color: p.good }} />} value={battery != null ? `${battery}%` : '—'} label="Yakıt" />
           {/* Lastik basıncı: "2.5 bar" SABİT YAZILMIŞTI — hiçbir TPMS kaynağına bağlı değil,
               düpedüz uydurma. Gerçek TPMS okuması bağlanana dek dürüstçe '—'. */}
           <Stat p={p} icon={<Snowflake className="w-4 h-4" style={{ color: p.accent }} />} value="—" label="Lastik" />
