@@ -106,6 +106,10 @@ export function OBDConnectModal({ open, onClose }: Props) {
       setPinValue('');
       endSession('failed');        // teşhis oturumunu kalıcı yaz
     }
+    // Bilinçli: yalnız bağlantı durumu geçişine tepki verilir. devices eklenirse
+    // tarama listesi yenilendiğinde 'connected' dalı yeniden koşar (endSession iki kez,
+    // ikinci kapanış zamanlayıcısı). devices o geçişin render'ındaki güncel listedir.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [obdConnectionState, connecting]);
 
   useEffect(() => {

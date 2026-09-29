@@ -680,7 +680,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
     redrawDirtyRef.current    = true;
     wakeLoopRef.current?.();
     completeRecenter();
-  }, []);
+  }, [entryBearingArgs]);
 
 
   useEffect(() => {
@@ -1439,7 +1439,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
     };
 
     return bindMapUserInteraction(map, notifyUserPanStart, () => notifyUserPanEnd(applyRecenter));
-  }, [mapStatus]);
+  }, [mapStatus, entryBearingArgs]);
 
   /* Otorite → yerel ayna. Sıcak yol (rAF/GPS tick) `isFollowingRef`i okur;
    * her karede modül çağırmak gereksiz maliyet olurdu. */
