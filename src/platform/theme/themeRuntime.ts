@@ -26,13 +26,16 @@ import {
   manifestToLayoutIntent,
   collectUnsupportedKeys,
   parseIncomingManifest,
+  resolveManifestForMode,
   THEME_BASE_IDS,
   type ThemeBaseId,
   type ThemeManifest,
+  type ThemeMode,
 } from './themeManifest';
 import { isLayoutCapableTheme } from './themeComponentRegistry';
 import { useCarTheme, baseOf, type CarTheme } from '../../store/useCarTheme';
 import { useLayoutStore } from '../../store/useLayoutStore';
+import { useStore } from '../../store/useStore';
 import { safeGetRaw, safeSetRaw } from '../../utils/safeStorage';
 
 const STORE_KEY = 'caros-theme-manifests-v2';
@@ -116,6 +119,14 @@ const STATE: {
 
 /** Bir önceki uygulamada set edilen değişkenler — bayat var bırakmamak için. */
 let appliedVarNames: string[] = [];
+/** Son uygulanan TAM manifest (mod katmanları dahil) — gündüz/gece geçişinde
+ *  aynı manifest yeni modda yeniden uygulanır (önizleme de korunur). */
+let lastApplied: ThemeManifest | null = null;
+
+/** Gündüz/gece TEK otoritesi: `settings.dayNightMode` (useDayNightManager yazar). */
+function currentMode(): ThemeMode {
+  try { return useStore.getState().settings.dayNightMode === 'day' ? 'day' : 'night'; } catch { return 'night'; }
+}
 
 /* ── Kalıcı depo ──────────────────────────────────────────────────── */
 
@@ -248,11 +259,16 @@ export function applyThemeManifest(
     }
   } catch { /* fail-soft */ }
 
+  /* Gündüz/gece: ortak katman + o anki modun katmanı. Saklanan/kalıcı olan TAM
+     manifesttir; DOM'a yalnız etkin hâli yazılır. */
+  lastApplied = m;
+  const eff = resolveManifestForMode(m, currentMode());
+
   let varCount = 0;
   try {
     if (typeof document !== 'undefined') {
       const root = document.documentElement;
-      const vars = manifestToCssVars(m);
+      const vars = manifestToCssVars(eff);
       // Önce bu manifest'in DOKUNMADIĞI ama önceden set edilmiş var'ları temizle.
       for (const name of appliedVarNames) {
         if (!(name in vars)) root.style.removeProperty(name);
@@ -274,7 +290,7 @@ export function applyThemeManifest(
   try {
     const tag = styleTag();
     if (tag) {
-      const css = manifestToCss(m);
+      const css = manifestToCss(eff);
       tag.textContent = css;
       cssBytes = css.length;
     }
@@ -308,8 +324,8 @@ export function applyThemeManifest(
   STATE.lastAppliedAt = nowIso();
   STATE.lastSource = source;
   STATE.appliedVarCount = varCount;
-  STATE.appliedComponentCount = Object.keys(m.componentOverrides).length;
-  STATE.appliedScreenCount = Object.keys(m.screenOverrides).length;
+  STATE.appliedComponentCount = Object.keys(eff.componentOverrides).length;
+  STATE.appliedScreenCount = Object.keys(eff.screenOverrides).length;
   STATE.appliedCssBytes = cssBytes;
   STATE.applyCount++;
 }
@@ -402,6 +418,15 @@ export function initThemeRuntime(): void {
       applyForTheme(s.theme);
     });
   } catch { /* fail-soft */ }
+
+  /* Gündüz ↔ gece: aynı manifest yeni modun katmanıyla yeniden uygulanır.
+     Kalıcı depoya YAZMAZ, baz temayı DEĞİŞTİRMEZ. */
+  try {
+    useStore.subscribe((s, prev) => {
+      if (s.settings.dayNightMode === prev?.settings.dayNightMode) return;
+      if (lastApplied) applyThemeManifest(lastApplied, 'restore', { setBaseTheme: false, persist: false });
+    });
+  } catch { /* fail-soft */ }
 }
 
 /** Uygulanmış tüm tema özelleştirmesini DOM'dan kaldırır (fabrika görünümü). */
@@ -415,6 +440,7 @@ export function clearAppliedDom(): void {
       if (tag) tag.textContent = '';
     }
   } catch { /* fail-soft */ }
+  lastApplied = null;
   STATE.appliedVarCount = 0;
   STATE.appliedComponentCount = 0;
   STATE.appliedScreenCount = 0;
@@ -452,6 +478,7 @@ export function __resetThemeRuntimeForTest(): void {
   installed = false;
   memoryStore = null;
   appliedVarNames = [];
+  lastApplied = null;
   STATE.lastThemeId = null;
   STATE.lastThemeVersion = null;
   STATE.lastSchemaVersion = null;
