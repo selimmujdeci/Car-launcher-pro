@@ -64,7 +64,7 @@ export interface LayoutConfig {
 export const THEME_LAYOUTS: Record<ThemePack, LayoutConfig> = {
   tesla: {
     variant:     'map-first',
-    label:       'Tesla',
+    label:       'Terra',
     description: 'Geniş harita, ince speedo, sıfır gürültü',
     mapBasis:    '45%',
     speedoBasis: '13rem',
@@ -79,7 +79,7 @@ export const THEME_LAYOUTS: Record<ThemePack, LayoutConfig> = {
   },
   bmw: {
     variant:     'cockpit',
-    label:       'BMW M',
+    label:       'Sport',
     description: 'Speedo egemen, agresif cockpit',
     mapBasis:    '26%',
     speedoBasis: '22rem',
@@ -94,7 +94,7 @@ export const THEME_LAYOUTS: Record<ThemePack, LayoutConfig> = {
   },
   mercedes: {
     variant:     'glass',
-    label:       'Mercedes',
+    label:       'Glass',
     description: 'Dengeli 2-sütun, altın cam efekti',
     mapBasis:    '38%',
     speedoBasis: '18rem',
@@ -108,7 +108,7 @@ export const THEME_LAYOUTS: Record<ThemePack, LayoutConfig> = {
   },
   audi: {
     variant:     'sport',
-    label:       'Audi',
+    label:       'Precision',
     description: 'Teknik hassasiyet, net grid',
     mapBasis:    '36%',
     speedoBasis: '20rem',

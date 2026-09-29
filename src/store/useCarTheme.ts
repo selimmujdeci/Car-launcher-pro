@@ -57,7 +57,7 @@ export function isDayTime(): boolean {
 export const CORE_THEMES: { id: CoreTheme; label: string; desc: string }[] = [
   { id: 'expedition', label: 'CarOS Expedition', desc: 'Ana tema · Offroad · Day (kum) / Night (pas-metal)' },
   { id: 'horizon',    label: 'CarOS Horizon', desc: 'Premium · harita-odaklı · Day / Night' },
-  { id: 'tesla',    label: 'Tesla',      desc: 'Minimalist, premium his' },
+  { id: 'tesla',    label: 'CarOS Terra', desc: 'Minimalist, premium his' },
   { id: 'pro',      label: 'Glass Pro',  desc: 'Düşük güç, Hiworld optimize' },
   { id: 'sunlight', label: 'Sunlight',   desc: 'Güneş altı okunabilirlik' },
 ];

@@ -494,7 +494,7 @@ export const THEME_PRESETS: Record<ThemeBaseId, ThemePresetInfo> = {
   },
   tesla: {
     id: 'tesla',
-    label: 'Tesla',
+    label: 'Terra',
     desc: 'Minimalist premium · koyu espresso + amber',
     base: {
       accentPrimary: '#E0822E',
@@ -510,7 +510,7 @@ export const THEME_PRESETS: Record<ThemeBaseId, ThemePresetInfo> = {
   pro: {
     id: 'pro',
     label: 'Glass Pro',
-    desc: 'Düşük güç · MBUX/BMW antrasit · en sade',
+    desc: 'Düşük güç · antrasit · en sade',
     base: {
       accentPrimary: '#5B8DFF',
       accentSecondary: '#2F6BFF',

@@ -167,7 +167,7 @@ const THEME_OPTIONS: ThemeOpt[] = [
   { id: 'horizon',  label: 'HORIZON',  sub: 'Pusula · Kompakt panolar', accent: '#F2871C', preview: 'linear-gradient(135deg,#473d2c 0%,#221d15 52%,#0c0906 100%)', wire: { cols: [18, 51, 26], medallion: true } },
   { id: 'expedition', dn: 'day',   label: 'EXPEDITION DAY',   sub: 'Kum · Gündüz', accent: '#E07B14', preview: 'linear-gradient(135deg,#FBF7EF,#DED3C0)', emblem: true },
   { id: 'expedition', dn: 'night', label: 'EXPEDITION NIGHT', sub: 'Pas · Gece',   accent: '#F2871C', preview: 'linear-gradient(135deg,#2c2216,#0f0c09)', emblem: true },
-  { id: 'tesla',    label: 'TESLA',    sub: 'Metal plaka · Arazi',     accent: '#E31937', preview: 'linear-gradient(135deg,#1a1712,#0a0a0a)', wire: { cols: [22, 44, 30], medallion: true } },
+  { id: 'tesla',    label: 'TERRA',    sub: 'Metal plaka · Arazi',     accent: '#E31937', preview: 'linear-gradient(135deg,#1a1712,#0a0a0a)', wire: { cols: [22, 44, 30], medallion: true } },
   { id: 'pro',      label: 'PRO',      sub: 'Cam kartlar · Gün/Gece',  accent: '#D4AF37', preview: 'linear-gradient(135deg,#141a26,#0a0c10)', wire: { cols: [20, 52, 26], medallion: false } },
 ];
 
@@ -1302,7 +1302,7 @@ function ConnectTabContent() {
    Tek otorite: platform/driverProfileService (yakala · uygula · otomatik hafıza).
 ════════════════════════════════════════ */
 const THEME_LABEL: Record<string, string> = {
-  expedition: 'Expedition', horizon: 'Horizon', tesla: 'Tesla', pro: 'Pro', oled: 'OLED',
+  expedition: 'Expedition', horizon: 'Horizon', tesla: 'Terra', pro: 'Pro', oled: 'OLED',
 };
 
 /** Profilde GERÇEKTEN kayıtlı olan tercihlerin özeti (kayıtsız alan yazılmaz). */
@@ -1676,10 +1676,10 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
     { id: 'ocean-deep',     label: 'Derin Okyanus', url: 'linear-gradient(160deg,#010b14 0%,#0c3a5e 55%,#0369a1 100%)',                         type: 'gradient' },
     { id: 'aurora',         label: 'Aurora',        url: 'linear-gradient(135deg,#021a12 0%,#054d30 35%,#1a1040 65%,#2e1f6e 100%)',             type: 'gradient' },
     { id: 'neon-sunset',    label: 'Neon Gün Batımı',url:'linear-gradient(145deg,#0d0117 0%,#3b0764 35%,#9f1239 70%,#c2410c 100%)',             type: 'gradient' },
-    { id: 'ferrari-red',    label: 'Ferrari',       url: 'linear-gradient(145deg,#0c0101 0%,#3b0000 40%,#7f1d1d 75%,#991b1b 100%)',             type: 'gradient' },
-    { id: 'bugatti',        label: 'Bugatti Gece',  url: 'linear-gradient(135deg,#020417 0%,#0a0f3d 40%,#1a0a3d 70%,#2d1b69 100%)',             type: 'gradient' },
-    { id: 'lamborghini',    label: 'Lamborghini',   url: 'linear-gradient(150deg,#0a0500 0%,#1a0800 35%,#431407 65%,#7c2d12 100%)',             type: 'gradient' },
-    { id: 'mclaren',        label: 'McLaren',       url: 'linear-gradient(145deg,#0a0400 0%,#291200 35%,#7c2d12 65%,#c2410c 100%)',             type: 'gradient' },
+    { id: 'ferrari-red',    label: 'Yarış Kırmızısı', url: 'linear-gradient(145deg,#0c0101 0%,#3b0000 40%,#7f1d1d 75%,#991b1b 100%)',             type: 'gradient' },
+    { id: 'bugatti',        label: 'Mor Gece',      url: 'linear-gradient(135deg,#020417 0%,#0a0f3d 40%,#1a0a3d 70%,#2d1b69 100%)',             type: 'gradient' },
+    { id: 'lamborghini',    label: 'Kor Turuncu',   url: 'linear-gradient(150deg,#0a0500 0%,#1a0800 35%,#431407 65%,#7c2d12 100%)',             type: 'gradient' },
+    { id: 'mclaren',        label: 'Papaya',        url: 'linear-gradient(145deg,#0a0400 0%,#291200 35%,#7c2d12 65%,#c2410c 100%)',             type: 'gradient' },
     { id: 'asfalt',         label: 'Asfalt Gri',    url: 'linear-gradient(160deg,#0a0a0a 0%,#1c1c1e 40%,#2c2c2e 75%,#1c1c1e 100%)',            type: 'gradient' },
     { id: 'akgam-altin',    label: 'Akşam Altını',  url: 'linear-gradient(145deg,#0c0700 0%,#1c1100 30%,#431c00 60%,#78350f 85%,#92400e 100%)', type: 'gradient' },
     { id: 'polar',          label: 'Polar Gece',    url: 'linear-gradient(135deg,#010b14 0%,#023047 40%,#054d60 70%,#0e7490 100%)',             type: 'gradient' },
