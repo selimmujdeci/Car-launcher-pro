@@ -22,10 +22,10 @@ import { getRouteState } from '../routingService';
 import { getNavigationState } from '../navigationService';
 import { useStore } from '../../store/useStore';
 import {
-  BUNDLED_FUEL_PRICE_PACK,
   resolveFuelCategory,
   type FuelCategoryResolution,
 } from '../trip/cost/fuelPricePack';
+import { getEffectiveFuelPricePack } from '../trip/cost/liveFuelPrice';
 import {
   buildTripCostOutcome,
   type RouteCostSnapshot,
@@ -117,7 +117,7 @@ export function readTripCostObservation(): TripCostObservationRow {
   const declaration = readDeclaration();
   const fuel = resolveFuelCategory({
     vehicleType:    readVehicleType(),
-    pack:           BUNDLED_FUEL_PRICE_PACK,
+    pack:           getEffectiveFuelPricePack(),
     nowMs:          Date.now(),
     reportCurrency: declaration.currency ?? 'TRY',
   });
