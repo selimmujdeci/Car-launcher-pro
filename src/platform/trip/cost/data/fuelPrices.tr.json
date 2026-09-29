@@ -1,0 +1,10 @@
+{
+  "schema": 1,
+  "currency": "TRY",
+  "source": null,
+  "observedOn": null,
+  "pricePerLiter": {
+    "petrol": null,
+    "diesel": null
+  }
+}

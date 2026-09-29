@@ -40,6 +40,9 @@ export interface FuelCostInput {
    *  normalize edilir (bkz. `makeCostItem`) — burada verilen değer YOK SAYILIR. */
   confidence?:         number;
   editable?:           boolean;
+  /** Fiyat kaynağı tazelik süresini aştı mı — `true` ise hesaplanan kalem
+   *  `stale` olur (toplama girer, ayrıca işaretlenir). `unknown` kalemi etkilemez. */
+  stale?:              boolean;
 }
 
 /** Şeffaflık kırılımı — mesafe×tüketim×fiyat hesabının nasıl türetildiği. */
@@ -125,7 +128,7 @@ export function computeFuelCost(input: FuelCostInput): CostItem {
     source,
     confidence: input.confidence ?? (source === 'user' ? 0.9 : 0.7),
     editable,
-    status:     'known',
+    status:     input.stale === true ? 'stale' : 'known',
     breakdown,
   });
 }

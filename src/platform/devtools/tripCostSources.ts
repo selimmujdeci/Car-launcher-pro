@@ -20,6 +20,12 @@
 
 import { getRouteState } from '../routingService';
 import { getNavigationState } from '../navigationService';
+import { useStore } from '../../store/useStore';
+import {
+  BUNDLED_FUEL_PRICE_PACK,
+  resolveFuelCategory,
+  type FuelCategoryResolution,
+} from '../trip/cost/fuelPricePack';
 import {
   buildTripCostOutcome,
   type RouteCostSnapshot,
@@ -39,6 +45,8 @@ export interface TripCostObservationRow {
   readonly destinationDeclared: boolean;
   /** Başlangıç beyan edildi mi — ADI TAŞINMAZ. */
   readonly originDeclared:    boolean;
+  /** Yakıt kaleminin fiyat/tüketim girdisi ve fiyatın neden verildiği/verilmediği. */
+  readonly fuel:              FuelCategoryResolution;
   /** Saf composition çıktısı (plan/rapor/kategoriler). */
   readonly outcome:           TripCostOutcome;
 }
@@ -94,12 +102,27 @@ function readDeclaration(): TripCostDeclaration {
   };
 }
 
+/** Aktif araç profilinin türü (EcoReportCard ile aynı okuma) — profil yoksa `undefined`. */
+function readVehicleType(): string | undefined {
+  return safe(() => {
+    const s = useStore.getState().settings;
+    const id = s.activeVehicleProfileId;
+    return id ? s.vehicleProfiles.find((x) => x.id === id)?.vehicleType : undefined;
+  }, undefined);
+}
+
 /** LAB gözlemi — tek okuma, yan etkisiz. */
 export function readTripCostObservation(): TripCostObservationRow {
   const route = readRouteSnapshot();
   const declaration = readDeclaration();
+  const fuel = resolveFuelCategory({
+    vehicleType:    readVehicleType(),
+    pack:           BUNDLED_FUEL_PRICE_PACK,
+    nowMs:          Date.now(),
+    reportCurrency: declaration.currency ?? 'TRY',
+  });
   const outcome = safe(
-    () => buildTripCostOutcome(route, declaration),
+    () => buildTripCostOutcome(route, declaration, { fuel: fuel.input }),
     {
       planBuilt: false,
       blockedBy: ['ROTA_YOK'] as const,
@@ -116,6 +139,7 @@ export function readTripCostObservation(): TripCostObservationRow {
     routeHasToll:         route ? route.hasToll : null,
     destinationDeclared:  declaration.destination !== undefined,
     originDeclared:       declaration.origin !== undefined,
+    fuel,
     outcome,
   };
 }

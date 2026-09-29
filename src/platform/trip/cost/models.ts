@@ -69,6 +69,7 @@ export type CostItemSource =
   | 'osm'         // OpenStreetMap statik veri (ör. toll=yes)
   | 'user'        // kullanıcının kendi girdiği/override ettiği değer
   | 'calculated'  // mesafe×tüketim×fiyat gibi türetilmiş hesap
+  | 'estimate'    // kaynağı + tarihi beyanlı tablo ya da beyanlı varsayım — ÖLÇÜM DEĞİL
   | 'unknown';    // kaynak yok — değer UYDURULMADI
 
 /** Kalemin bilgi durumu. */
