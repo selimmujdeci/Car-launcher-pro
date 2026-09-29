@@ -159,7 +159,7 @@ export function VolumeGestureLayer() {
       <div style={{ position: 'relative', width: 8, height: 150, borderRadius: 9999, background: 'rgba(255,255,255,0.16)', overflow: 'hidden' }}>
         <div style={{
           position: 'absolute', left: 0, right: 0, bottom: 0, height: `${overlayPct}%`,
-          background: 'linear-gradient(to top, #3b82f6, #06b6d4)', borderRadius: 9999,
+          backgroundColor: '#3b82f6', backgroundImage: 'linear-gradient(to top, #3b82f6, #06b6d4)', borderRadius: 9999,
           transition: 'height 0.08s linear',
         }} />
       </div>

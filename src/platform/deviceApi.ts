@@ -1,7 +1,8 @@
 /**
  * Device Service — central state for Bluetooth, Wi-Fi, battery, and charging.
  *
- * Demo:  DEMO_STATUS mock, no timers.
+ * Web:   gerçek bir cihaz köprüsü yok → SAFE_DEFAULTS (ready=false → UI "—").
+ *        Eskiden web'de sahte "iPhone 14 bağlı · %87 şarjda" (DEMO_STATUS) basılıyordu.
  * Native migration:
  *   Network.addListener('networkStatusChange', s =>
  *     updateDeviceStatus({ wifiConnected: s.connected })
@@ -32,7 +33,8 @@ export interface DeviceStatus {
   btDevice: string;      // connected device name; '' when disconnected
   wifiConnected: boolean;
   wifiName: string;      // SSID; '' when disconnected or unavailable
-  battery: number;       // 0–100
+  /** 0–100; `null` = pil yok (head unit) ya da okunamadı — UNKNOWN, sahte 0 değil. */
+  battery: number | null;
   charging: boolean;     // true when plugged in / charging
 }
 
@@ -44,23 +46,13 @@ const SAFE_DEFAULTS: DeviceStatus = {
   btDevice: '',
   wifiConnected: false,
   wifiName: '',
-  battery: 0,
+  battery: null,
   charging: false,
-};
-
-const DEMO_STATUS: DeviceStatus = {
-  ready: true,
-  btConnected: true,
-  btDevice: 'iPhone 14',
-  wifiConnected: true,
-  wifiName: 'Araç Wi-Fi',
-  battery: 87,
-  charging: true,
 };
 
 /* ── Module-level state ──────────────────────────────────── */
 
-let _current: DeviceStatus = isNative ? { ...SAFE_DEFAULTS } : { ...DEMO_STATUS };
+let _current: DeviceStatus = { ...SAFE_DEFAULTS };
 const _listeners = new Set<(s: DeviceStatus) => void>();
 
 /* ── Push API ────────────────────────────────────────────── */
@@ -77,12 +69,15 @@ export function updateDeviceStatus(partial: Partial<DeviceStatus>): void {
     wifiName: typeof partial.wifiName === 'string' ? partial.wifiName : _current.wifiName,
     battery:  typeof partial.battery  === 'number'
       ? Math.max(0, Math.min(100, Math.round(partial.battery)))
-      : _current.battery,
+      : partial.battery === null ? null : _current.battery,
   };
 
-  // Batarya kritik uyarısı — %10 altına ilk düşüşte bir kez göster
+  // Batarya kritik uyarısı — %10 altına ilk düşüşte bir kez göster.
+  // Yalnız iki GERÇEK okuma arasında: bilinmeyen (null) pil uyarı üretmez.
   if (
     !_current.charging &&
+    _current.battery !== null &&
+    prevBattery !== null &&
     _current.battery <= 10 &&
     _current.battery < prevBattery &&
     !_lowBatteryWarned

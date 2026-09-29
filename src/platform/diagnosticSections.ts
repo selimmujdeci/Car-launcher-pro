@@ -44,6 +44,7 @@ import { getEventBusStatus } from './system/platformCoreEventBusWiring';
 import { getVehicleHalWiringStatus } from './system/platformCoreVehicleHalWiring';
 import { getVehicleHalBridgeStatus } from './system/platformCoreVehicleHalBridgeWiring';
 import { getAiRuntimeStatus } from './system/platformCoreAiRuntimeWiring';
+import type { DiagnosticsProviderResult } from './aiCore/runtime/aiCoreRuntime';
 
 /* ── OBD DERİN ───────────────────────────────────────────────── */
 
@@ -788,4 +789,23 @@ export function buildPlatformRuntimeSnapshot(): PlatformRuntimeSnapshot {
 
 function _safe<T>(fn: () => T, fallback: T): T {
   try { return fn(); } catch { return fallback; }
+}
+
+/**
+ * AI Core VARSAYILAN tanı sağlayıcı (Faz-2.5; SystemBoot wiring'e geçirir) — edge çalışmasında mevcut Diagnostics V2 anlık
+ * görüntüsünü OKUR (yeni poll YOK; `buildObdDeepSnapshot`/`buildPlatformRuntimeSnapshot`
+ * fail-soft `_safe`-sarmalı okuyuculardır). Freeze-frame CANLI sorgu gerektirdiğinden
+ * DAHİL EDİLMEZ (yalnız cache-varsa; snapshot taşımıyorsa builder "yakalanmadı" işaretler).
+ * memoryLimits geçilmez — orchestrator Vehicle Memory'yi zaten kendi içinde hatırlar (çift
+ * temsil YOK). Hata → null (runtime minimal bağlama düşer).
+ */
+export function readAiDiagnosticsContext(): DiagnosticsProviderResult | null {
+  try {
+    const obdDeep = buildObdDeepSnapshot();
+    let sourceHealth: DiagnosticsProviderResult['sourceHealth'] = null;
+    try { sourceHealth = buildPlatformRuntimeSnapshot().sourceHealth; } catch { sourceHealth = null; }
+    return { obdDeep, sourceHealth };
+  } catch {
+    return null;   // tanı okuması başarısız → zenginleştirme yok (fail-soft)
+  }
 }

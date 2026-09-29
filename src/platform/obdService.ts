@@ -87,6 +87,7 @@ import {
 } from './obd/linkLossLedger';
 import { setActiveObdProtocol } from './obd/activeProtocol';
 import { bindDiagnosticLinkActivitySink, bindObdSessionEpochReader } from './obd/obdEpochReader';
+import { bindActiveVehicleTypeSink } from './obd/activeVehicleTypeSink';
 
 /**
  * Doğrulanmamış (oturum başı / modal tahmini) bağlantıda BLE ÖNCE denenirken verilen
@@ -201,6 +202,7 @@ let _nativeGeneration = 0;
    generic PDU → obdService → VDK/PDU routing module initialization cycles. */
 bindObdSessionEpochReader(() => _nativeGeneration);
 bindDiagnosticLinkActivitySink(_noteDiagnosticLinkActivity);
+bindActiveVehicleTypeSink(setObdVehicleType);
 
 // stopOBD() + startOBD() arasındaki native disconnect/connect race'ini önler.
 // _startNative() bu promise'i await ederek önceki disconnectOBD() tamamlanmadan

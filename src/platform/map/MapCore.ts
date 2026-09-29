@@ -250,7 +250,24 @@ async function _initCore(
       maxPitch: 50,  // 50°+ üzerinde MapLibre siyah köşe oluşturur
       // MSAA: Mali-400 sınıfı (Utgard) bant-genişliği aç → her kare çoklu örnekleme
       // fragment yükünü katlar. Zayıf GPU'da kapat; capable cihazda kenar yumuşatma kalsın.
-      antialias: !hasWeakGpu(),
+      /* ── SAHA 2026-09-12 · MASKELİ GPU KİMLİĞİ KAPIYI AÇIK BIRAKIYORDU ────────
+       * `hasWeakGpu()` tek başına YETMEZ: WebGL renderer dizesi maskeliyse
+       * (`WEBGL_debug_renderer_info` yoksa) `detectWeakGpu` bilinçli olarak
+       * `false` döner ("bilinmeyen → downgrade etme", yanlış pozitif yasağı).
+       * O hâlde GPU gerçekten zayıf olsa BİLE MSAA AÇIK kalıyordu.
+       *
+       * Gerçek head unit'te ölçüldü (PowerVR Rogue GE8300 · 4×A53 1,46 GHz ·
+       * 2 GB RAM): ana ekran 20 sn BOŞTA → 92 kare, %100 janky, medyan 29 ms ve
+       * karelerin 91/92'si "slow issue draw commands" (GPU çizim aşaması).
+       * Harita ekranda değilken aynı ölçüm 25 kare / %72 / 22 ms / 10-25'e
+       * düşüyor → maliyetin sahibi harita GL yüzeyi.
+       *
+       * `_lowTier` AYNI fonksiyonda zaten hesaplı ve bu cihazda KANITLI true
+       * (`getDeviceTier()` 4 çekirdekte 'low' döner). Düşük sınıf bir cihazda
+       * MSAA hiçbir koşulda doğru değildir — bu yüzden tier de kapıyı kapatır.
+       * YENİ sinyal ÜRETİLMEDİ: iki satır aşağıda `fadeDuration` için kullanılan
+       * ölçütün AYNISI. GPU kimliği okunabiliyorsa davranış birebir eskisi. */
+      antialias: !hasWeakGpu() && !_lowTier,
       // NOT: statik pixelRatio downscale DENENDİ ve GERİ ALINDI — pan-jank'a etkisi
       // olmadı. Kök neden: pan darboğazı RenderThread'in full-screen WebView yüzeyini
       // EKRAN çözünürlüğünde HWUI'ye composite etmesi (Slow draw commands 52/52);

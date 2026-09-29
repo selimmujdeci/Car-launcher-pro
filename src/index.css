@@ -23,6 +23,19 @@
 /* Eski head unit WebView (Chrome<87) inset shorthand fallback — EN SON yüklenir */
 @import "./styles/webview-compat.css";
 
+/* Uygulama kabuğu — head unit'te uzun basış metin seçimi/callout açıyordu
+   (dokunmatik kontrol yüzeyinde seçim tutamaçları). Metin girişleri ve
+   bilinçli seçilebilir alanlar (`.select-text` / `.select-all`) muaf. */
+html, body {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+input, textarea, [contenteditable="true"] {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
 /* ═══════════════════════════════════════════════════════════
    SUNLIGHT MODE — autoBrightnessService.ts tarafından yönetilir
    Gündüz (morning/afternoon) fazında documentElement'e eklenir.
@@ -54,6 +67,14 @@
      hardware rasterizer'ı karmaşık gradientleri desteklemez).
      Düz renk fallback → tile overdraw tamamen kalkar. */
   background-image: none !important;
+}
+/* Korunan GÖRSEL (degrade değil): `.perf-low *` degrade için yazıldı ama satır içi
+   url() resimlerini de siliyordu — Expedition rover'ı ve medya albüm arka planı
+   K24'te hiç görünmüyordu. Statik doku tek çizimdir (bulanıklık ayrıca kapalı).
+   Öğe görseli `--keep-bg-image` ile verir; (0,2,0) özgüllük `.perf-low *`'ı yener,
+   genel kural ve eski WebView davranışı değişmez. */
+.perf-low .caros-keep-bg-image {
+  background-image: var(--keep-bg-image) !important;
 }
 .perf-med * {
   animation-duration: 0.5s !important;
@@ -596,10 +617,14 @@ html.rt-no-blur * {
 /* Sürüş göstergesi (Digital Cockpit) muaf: kendi gündüz paleti kontrast
    testinden geçer (≥7:1 / ≥4.5:1); 3 px zorlama taksimat/halka/ayraçları
    kaba çiziyordu (cihazda ölçüldü 2026-09-23, gündüz saatinde sunlight-mode). */
-.sunlight-mode svg:not(.caros-cockpit-screen) *[stroke] {
+/* Alt-öğe kuralları YALNIZ ikon setine (lucide) uygulanır. Eskiden her özel SVG
+   çizimine iniyordu: `fill="none"` taşıyan gösterge yayları `*[fill]` ile
+   stroke-width:0 alıyor → Pro/Tesla/Expedition hız halkası GÜNDÜZ HİÇ
+   görünmüyordu; stroke'lu izler 9px→3px inceliyordu (denetim 2026-09-27). */
+.sunlight-mode svg.lucide *[stroke] {
   stroke-width: 3 !important;
 }
-.sunlight-mode svg:not(.caros-cockpit-screen) *[fill] {
+.sunlight-mode svg.lucide *[fill] {
   stroke-width: 0 !important;
 }
 .sunlight-mode button {

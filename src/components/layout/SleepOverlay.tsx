@@ -43,7 +43,7 @@ export const SleepOverlay = memo(function SleepOverlay({ use24Hour, showSeconds,
             style={{
               filter: isSafeMode
                 ? 'none'
-                : 'drop-shadow(0 0 50px oklch(80% 0.13 60 / 0.32))',
+                : 'drop-shadow(0 0 50px rgba(251,169,98,0.32))',
             }}
           >
             <AnalogClock
@@ -64,8 +64,8 @@ export const SleepOverlay = memo(function SleepOverlay({ use24Hour, showSeconds,
               color: 'var(--oem-ink, #F0EBE0)',
               textShadow: isSafeMode
                 ? 'none'
-                : '0 0 80px oklch(80% 0.13 60 / 0.30),' +
-                  ' 0 0 30px oklch(86% 0.10 70 / 0.20)',
+                : '0 0 80px rgba(251,169,98,0.3),' +
+                  ' 0 0 30px rgba(252,198,135,0.2)',
               letterSpacing: '-0.04em',
             }}
           >
@@ -108,20 +108,20 @@ export const SleepOverlay = memo(function SleepOverlay({ use24Hour, showSeconds,
         <ChevronUp
           className="w-5 h-5"
           style={{
-            color: 'var(--oem-amber, oklch(80% 0.13 60))',
-            filter: isSafeMode ? 'none' : 'drop-shadow(0 0 10px oklch(80% 0.13 60 / 0.55))',
+            color: 'var(--oem-amber, rgb(251,169,98))',
+            filter: isSafeMode ? 'none' : 'drop-shadow(0 0 10px rgba(251,169,98,0.55))',
           }}
         />
         <div
           className="flex items-center gap-3 px-5 py-2.5 rounded-full"
           style={{
             background:
-              'linear-gradient(180deg, var(--oem-amber-soft, oklch(80% 0.13 60 / 0.20)), transparent 70%),' +
+              'linear-gradient(180deg, var(--oem-amber-soft, rgba(251,169,98,0.2)), transparent 70%),' +
               ' rgba(8,10,14,0.55)',
-            border: '1px solid var(--oem-line-warm, oklch(66% 0.10 55 / 0.42))',
+            border: '1px solid var(--oem-line-warm, rgba(193,129,84,0.42))',
             boxShadow: isSafeMode
               ? 'none'
-              : '0 0 22px var(--oem-amber-glow, oklch(80% 0.13 60 / 0.36)),' +
+              : '0 0 22px var(--oem-amber-glow, rgba(251,169,98,0.36)),' +
                 ' 0 1px 0 rgba(255,240,210,0.10) inset',
           }}
         >
@@ -130,7 +130,7 @@ export const SleepOverlay = memo(function SleepOverlay({ use24Hour, showSeconds,
             style={{
               fontSize: 11,
               letterSpacing: '0.36em',
-              color: 'var(--oem-amber, oklch(80% 0.13 60))',
+              color: 'var(--oem-amber, rgb(251,169,98))',
             }}
           >
             Yukarı Kaydır — Sistemi Uyandır

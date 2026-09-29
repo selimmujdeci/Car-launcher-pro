@@ -13,7 +13,16 @@ import { verifyPin, verifyPinDetailed, getPinStatus } from './pinService';
 import { sensitiveKeyStore } from './sensitiveKeyStore';
 import { addSystemNotification } from './notificationService';
 import { speakAlert } from './ttsService';
-import { telemetryService } from './telemetryService';
+import type { TelemetryService } from './telemetryService';
+
+/* Dinamik import: statik telemetryService bağımlılığı gpsService → geofenceService →
+   telemetryService → SystemHealthMonitor → gpsService döngüsünü kapatıyordu
+   (importCycleGuard). Uzak alarm itişi fire-and-forget; yerel bildirim/TTS senkron kalır. */
+function _pushTelemetryAlert(...args: Parameters<TelemetryService['pushAlert']>): void {
+  void import('./telemetryService')
+    .then((m) => m.telemetryService.pushAlert(...args))
+    .catch(() => { /* telemetri alarmı yerel uyarıyı asla düşürmez */ });
+}
 
 /* ── Tipler ──────────────────────────────────────────────── */
 
@@ -295,7 +304,7 @@ export function checkGeofence(lat: number, lng: number, speedKmh: number): void 
           addSystemNotification('Güvenlik', msg, true);
           speakAlert(msg);
 
-          telemetryService.pushAlert('geofence_alert', {
+          _pushTelemetryAlert('geofence_alert', {
             zoneId: zone.id,
             zoneName: zone.name,
             violation: 'exit',
@@ -364,7 +373,7 @@ export function checkGeofence(lat: number, lng: number, speedKmh: number): void 
       speakAlert(msg);
 
       // Telemetri: throttle bypass — valet ihlali anında push
-      telemetryService.pushAlert('valet_alert', {
+      _pushTelemetryAlert('valet_alert', {
         violation:  'speed_limit',
         speedKmh,
         limitKmh:   _state.valeSpeedLimit,

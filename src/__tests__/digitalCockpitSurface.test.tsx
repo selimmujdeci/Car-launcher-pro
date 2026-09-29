@@ -14,7 +14,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import {
-  COCKPIT_CANVAS, COCKPIT_REGIONS, COCKPIT_RESPONSIVE_TARGETS, COCKPIT_MIN_TOUCH_PX,
+  COCKPIT_CANVAS, COCKPIT_REGIONS, COCKPIT_RESPONSIVE_TARGETS, COCKPIT_MIN_TOUCH_PX, COCKPIT_DESIGN_SCALE,
   cockpitScale, cockpitTokensFor,
 } from '../components/cockpit/cockpitLayout';
 import {
@@ -57,7 +57,7 @@ describe('cockpit geometrisi — 1024×600 head unit', () => {
     expect(cockpitScale(1024, 600)).toBe(1);
   });
 
-  it('bilgi bölgeleri tuval içinde kalır, ana değerler ve medya/sürüş bölgeleri çakışmaz', () => {
+  it('bilgi bölgeleri tuval içinde kalır; hız solda, devir sağda, dönüş kartı üstte, alt satır altta', () => {
     for (const [name, r] of Object.entries(COCKPIT_REGIONS)) {
       expect(r.x, name).toBeGreaterThanOrEqual(0);
       expect(r.y, name).toBeGreaterThanOrEqual(0);
@@ -66,12 +66,14 @@ describe('cockpit geometrisi — 1024×600 head unit', () => {
       expect(r.x + r.w, name).toBeLessThanOrEqual(COCKPIT_CANVAS.width);
       expect(r.y + r.h, name).toBeLessThanOrEqual(COCKPIT_CANVAS.height);
     }
-    const { leftCluster: left, speedCluster: speed, rightCluster: right, maneuverBar: nav, musicCard: music, assistCard: driving } = COCKPIT_REGIONS;
-    expect(left.x + left.w).toBeLessThan(speed.x);
-    expect(speed.x + speed.w).toBeLessThan(right.x);
-    expect(speed.y + speed.h).toBeLessThan(nav.y);
-    expect(music.x + music.w).toBeLessThan(driving.x);
-    expect(speed.x + speed.w / 2).toBe(COCKPIT_CANVAS.width / 2);
+    const { speedCluster: speed, rightCluster: rpm, maneuverBar: turn, leftCluster: range, musicCard: music, assistCard: odo } = COCKPIT_REGIONS;
+    expect(speed.x + speed.w).toBeLessThan(rpm.x);
+    expect(speed.x + speed.w / 2).toBeLessThan(COCKPIT_CANVAS.width / 2);
+    expect(rpm.x + rpm.w / 2).toBeGreaterThan(COCKPIT_CANVAS.width / 2);
+    expect(turn.y + turn.h).toBeLessThan(speed.y + speed.h / 2);
+    expect(speed.y + speed.h).toBeLessThan(music.y);
+    expect(range.x + range.w).toBeLessThan(music.x);
+    expect(music.x + music.w).toBeLessThan(odo.x);
   });
 
   it('ölçek formülü: s = min(vw/1024, vh/600), kırpma yok', () => {
@@ -85,13 +87,15 @@ describe('cockpit geometrisi — 1024×600 head unit', () => {
 
   it('hedef çözünürlüklerde müzik transportu asgari dokunma hedefini korur', () => {
     const { container } = render(<DigitalCockpitScreen state={COCKPIT_REFERENCE_STATE} mode="day" clock={COCKPIT_REFERENCE_CLOCK} />);
+    // Gösterge ekranında transport tek dokunuştur (müzik satırı: çal/duraklat).
     const controls = [...container.querySelectorAll('button')];
-    expect(controls).toHaveLength(3);
+    expect(controls).toHaveLength(1);
     for (const [w, h] of COCKPIT_RESPONSIVE_TARGETS) {
       for (const button of controls) {
         // Önceki test her iki tarafı da küçülterek 35 px hedefi yanlış kabul ediyordu.
-        expect(parseFloat(button.style.width) * cockpitScale(w, h)).toBeGreaterThanOrEqual(COCKPIT_MIN_TOUCH_PX);
-        expect(parseFloat(button.style.height) * cockpitScale(w, h)).toBeGreaterThanOrEqual(COCKPIT_MIN_TOUCH_PX);
+        // Düğme tasarım biriminde (×0.8) çizilir → gerçek piksel = boy × tasarım ölçeği × ekran ölçeği.
+        expect(parseFloat(button.style.width) * COCKPIT_DESIGN_SCALE * cockpitScale(w, h)).toBeGreaterThanOrEqual(COCKPIT_MIN_TOUCH_PX);
+        expect(parseFloat(button.style.height) * COCKPIT_DESIGN_SCALE * cockpitScale(w, h)).toBeGreaterThanOrEqual(COCKPIT_MIN_TOUCH_PX);
       }
     }
   });
@@ -206,17 +210,25 @@ describe('fail-closed biçimlendirme — sahte 0 YASAK', () => {
 });
 
 describe('ekran — ölçüm yokken hiçbir sayı UYDURMAZ', () => {
-  it('boş durumda em dash çizilir ve "0" ekrana çıkmaz', () => {
+  it('boş durumda ekran DOLU ama sahte sayı YOK: tüm göstergeler "—", hiçbir yerde "0" yok', () => {
     const { container } = render(
       <DigitalCockpitScreen state={EMPTY_COCKPIT_STATE} mode="night"
         clock={{ time: '--:--', date: '' }} />,
     );
     const all = measurementTexts(container);
-    expect(all.filter((x) => x === EM_DASH).length).toBeGreaterThanOrEqual(6);
-    // Hiçbir metin düz "0" ya da "0 km" gibi sahte bir ölçüm olmamalı.
+    for (const v of ['speed', 'rpm', 'range', 'coolant']) {
+      expect(container.querySelector(`[data-cockpit-value="${v}"]`)?.textContent, v).toBe(EM_DASH);
+    }
+    expect(container.querySelector('[data-cockpit-value="odometer"]')?.textContent).toBe(`${EM_DASH} km`);
+    expect(container.querySelector('[data-cockpit-value="ambient"]')?.textContent).toBe(`${EM_DASH}°C`);
+    for (const region of ['speedCluster', 'rightCluster', 'leftCluster']) {
+      expect(container.querySelector(`[data-cockpit-region="${region}"]`), region).not.toBeNull();
+    }
     expect(all).not.toContain('0');
     expect(all).not.toContain('0 km');
     expect(all).not.toContain('0°C');
+    expect(texts(container)).toContain('Rota yok');
+    expect(texts(container)).toContain('Müzik çalmıyor');
   });
 
   it('hız limiti hükmü yoksa LEVHA HİÇ ÇİZİLMEZ', () => {
@@ -262,8 +274,8 @@ describe('ekran — ölçüm yokken hiçbir sayı UYDURMAZ', () => {
       <DigitalCockpitScreen state={COCKPIT_REFERENCE_STATE} mode="night" clock={COCKPIT_REFERENCE_CLOCK} />,
     );
     const all = texts(container);
-    for (const expected of ['72', 'km/h', '80', '1.8', '92°C', '520', '6.1 L/100km',
-      '8.326 km', '300 m', 'Gazi Paşa Blv.', 'Leyla', 'Mabel Matiz', 'D', 'ECO', '24°C', '21:11']) {
+    for (const expected of ['72', 'km/h', '80', '1.800', '92°C', '520', 'Ort. 6.1 L/100km',
+      '8.326 km', '300 m', 'Gazi Paşa Blv.', 'Leyla · Mabel Matiz', 'D', 'ECO', '24°C', '21:11']) {
       expect(all).toContain(expected);
     }
   });
@@ -271,8 +283,9 @@ describe('ekran — ölçüm yokken hiçbir sayı UYDURMAZ', () => {
   it('sıfır yakıt/sıcaklık sıfır doluluk taşır; unknown doluluk ve RPM işaretçisi çizmez', () => {
     const zero = render(<DigitalCockpitScreen state={{ ...COCKPIT_REFERENCE_STATE, fuelLevelPct: 0, coolantTempC: 0, rpm: 0 }} mode="day" clock={COCKPIT_REFERENCE_CLOCK} />).container;
     expect(zero.querySelector('[data-cockpit-value="fuel"]')?.textContent).toBe('%0');
-    expect(zero.querySelector('[data-cockpit-fuel-fill]')?.getAttribute('width')).toBe('0');
-    expect(zero.querySelector('[data-cockpit-coolant-fill]')?.getAttribute('width')).toBe('0');
+    // Mini kadran yayı: doluluk yüzdesi özniteliktedir; 0 ölçümü "0", bilinmeyen hiç çizilmez.
+    expect(zero.querySelector('[data-cockpit-fuel-fill]')?.getAttribute('data-cockpit-fuel-fill')).toBe('0');
+    expect(zero.querySelector('[data-cockpit-coolant-fill]')?.getAttribute('data-cockpit-coolant-fill')).toBe('0');
     expect(zero.querySelector('[data-cockpit-rpm-marker]')).not.toBeNull();
     const unknown = render(<DigitalCockpitScreen state={EMPTY_COCKPIT_STATE} mode="day" clock={COCKPIT_REFERENCE_CLOCK} />).container;
     expect(unknown.querySelector('[data-cockpit-fuel-fill], [data-cockpit-coolant-fill], [data-cockpit-rpm-marker]')).toBeNull();
@@ -319,12 +332,13 @@ describe('ekran — ölçüm yokken hiçbir sayı UYDURMAZ', () => {
   it('medya/sürüş yüzeyi: transport jestten muaf ve izinsizken native disabled', () => {
     const { container } = render(<DigitalCockpitScreen state={EMPTY_COCKPIT_STATE} mode="day" clock={COCKPIT_REFERENCE_CLOCK} />);
     expect(container.querySelector('[data-caros-cockpit="screen"]')?.getAttribute('role')).toBe('group');
-    for (const button of container.querySelectorAll('button')) {
-      expect(button.disabled).toBe(true);
-      expect(button.closest('[data-no-page-swipe]')).not.toBeNull();
-    }
-    expect(texts(container)).toContain('SÜRÜŞ TERCİHİ');
-    expect(texts(container)).toContain('Profil değeri');
+    expect(container.querySelectorAll('button')).toHaveLength(0);   // parça yok → müzik satırı yok
+    const off = render(<DigitalCockpitScreen state={{ ...COCKPIT_REFERENCE_STATE,
+      media: { ...COCKPIT_REFERENCE_STATE.media, available: false } }} mode="day" clock={COCKPIT_REFERENCE_CLOCK}
+      onMediaToggle={() => undefined} />).container;
+    const button = off.querySelector('button')!;
+    expect(button.disabled).toBe(true);
+    expect(button.closest('[data-no-page-swipe]')).not.toBeNull();
   });
 });
 
@@ -519,5 +533,12 @@ describe('viraj ve hız aşımı (sürüş ekranı)', () => {
   it('viraj yoksa levha YOK', () => {
     const { container } = render(<DigitalCockpitScreen state={{ ...COCKPIT_REFERENCE_STATE, curve: null }} mode="night" clock={COCKPIT_REFERENCE_CLOCK} />);
     expect(container.querySelector('[data-cockpit-curve]')).toBeNull();
+  });
+});
+
+describe('kilometre sayacı — deponun başlangıç 0\'ı ölçüm değildir (saha 2026-09-27)', () => {
+  it('odometre 0 ise gösterge verisine null geçer (ekranda "0 km" çıkmaz)', () => {
+    const src = readFileSync(resolve('src/components/cockpit/useCockpitData.ts'), 'utf8');
+    expect(src).toMatch(/odometerKm: odometerRaw > 0 \? bandOrNull\(odometerRaw, COCKPIT_BANDS\.odo\) : null/);
   });
 });

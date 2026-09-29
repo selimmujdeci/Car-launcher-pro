@@ -85,6 +85,20 @@ describe('sürücü değiştirme', () => {
     expect(useCarTheme.getState().theme).toBe('tesla');
   });
 
+  it('🔒 sürücü ekranı görünümü ve rengi sürücüye özeldir (telefonla tanınınca gelir)', () => {
+    set({ cockpitStyle: 'analog', cockpitAccent: 'red' });
+    const a = addDriver('Selim')!;
+    clearActiveDriver();             // misafir: sonraki değişiklik Selim'e YAZILMAZ
+    set({ cockpitStyle: 'digital', cockpitAccent: 'green' });
+    const b = addDriver('Ayşe')!;
+    switchDriver(a.id);
+    expect(useStore.getState().settings.cockpitStyle).toBe('analog');
+    expect(useStore.getState().settings.cockpitAccent).toBe('red');
+    switchDriver(b.id);
+    expect(useStore.getState().settings.cockpitStyle).toBe('digital');
+    expect(useStore.getState().settings.cockpitAccent).toBe('green');
+  });
+
   it('🔒 geçişte ÇIKAN sürücünün son hâli onun profiline yazılır', () => {
     const a = addDriver('Selim')!;
     set({ volume: 44 });                 // a etkinken değişti (senkron kapalı olsa bile)

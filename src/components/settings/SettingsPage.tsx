@@ -3,6 +3,7 @@ const SecureAccessModal = lazy(() => import('../admin/SecureAccessModal').then(m
 import { useCarTheme, isDay, baseOf, toDay, toNight, type BaseTheme } from '../../store/useCarTheme';
 import { allowsConnectivity } from '../../platform/connectivity/connectivityGate';
 import expeditionEmblem from '../../assets/expedition/emblem.png';
+import { useCarosLabAllowed } from '../../hooks/useCarosLabAllowed';
 import {
   Sun, Smartphone, Zap, Palette, Layout, Check, PenTool as Tool, Volume2,
   Wifi, HardDrive, Database, ArrowLeft, X,
@@ -42,6 +43,8 @@ import i18n from '../../i18n/config';
 import { MobileLinkWidget } from './MobileLinkWidget';
 import { CarOsConnectionPriorityCard } from './CarOsConnectionPriorityCard';
 import { PhoneInternetToggle } from './PhoneInternetToggle';
+import { CockpitStylePicker } from './CockpitStylePicker';
+import { useMovingLock } from './useMovingLock';
 import { OtaUpdateCard } from './OtaUpdateCard';
 import { SupportSnapshotCard } from './SupportSnapshotCard';
 import { DeviceDiagnosticCard } from './DeviceDiagnosticCard';
@@ -109,7 +112,7 @@ function PremiumSlider({ icon: Icon, label, value, onChange, colorA, colorB }: {
           background: 'rgba(255,255,255,0.06)',
           boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.35), 0 0 0 1px var(--oem-amber-soft, transparent)',
         }}>
-        <div className="absolute inset-y-0 left-0 rounded-full" style={{ width: `${value}%`, background: `linear-gradient(90deg,${colorA},${colorB})` }} />
+        <div className="absolute inset-y-0 left-0 rounded-full" style={{ width: `${value}%`, backgroundColor: colorA, backgroundImage: `linear-gradient(90deg,${colorA},${colorB})` }} />
         <div className="absolute top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-white pointer-events-none transition-[left] duration-75"
           style={{
             left: `calc(${value}% - 8px)`,
@@ -154,14 +157,42 @@ function PremiumToggle({ label, desc, value, onChange, icon: Icon }: {
    THEME PANEL — Ayarlar içi tema seçici
 ════════════════════════════════════════ */
 /** dn dolu olan kartlar (carOS Expedition ailesi) gün/gece varyantını da seçer. */
-type ThemeOpt = { id: BaseTheme; dn?: 'day' | 'night'; label: string; sub: string; accent: string; preview: string; emblem?: boolean };
+/** Önizleme tel-çerçevesi: sütun oranları (%) + dock'ta saat madalyonu var mı. */
+type ThemeWire = { cols: [number, number, number]; medallion: boolean };
+type ThemeOpt = { id: BaseTheme; dn?: 'day' | 'night'; label: string; sub: string; accent: string; preview: string; emblem?: boolean; wire?: ThemeWire };
+/* Horizon/Tesla/Pro kartları eskiden yalnız neredeyse siyah bir gradyandı (boş
+   kutu gibi görünüyordu); alt yazılar da temayı anlatmıyordu ("Model S",
+   "Dark Automotive" — Pro gündüz/gece uyumlu). Artık yerleşimin tel-çerçevesi. */
 const THEME_OPTIONS: ThemeOpt[] = [
-  { id: 'horizon',  label: 'HORIZON',  sub: 'Expedition · Pivi Pro', accent: '#F2871C', preview: 'linear-gradient(135deg,#473d2c 0%,#221d15 52%,#0c0906 100%)' },
+  { id: 'horizon',  label: 'HORIZON',  sub: 'Pusula · Kompakt panolar', accent: '#F2871C', preview: 'linear-gradient(135deg,#473d2c 0%,#221d15 52%,#0c0906 100%)', wire: { cols: [18, 51, 26], medallion: true } },
   { id: 'expedition', dn: 'day',   label: 'EXPEDITION DAY',   sub: 'Kum · Gündüz', accent: '#E07B14', preview: 'linear-gradient(135deg,#FBF7EF,#DED3C0)', emblem: true },
   { id: 'expedition', dn: 'night', label: 'EXPEDITION NIGHT', sub: 'Pas · Gece',   accent: '#F2871C', preview: 'linear-gradient(135deg,#2c2216,#0f0c09)', emblem: true },
-  { id: 'tesla',    label: 'TESLA',    sub: 'Model S',          accent: '#E31937', preview: 'linear-gradient(135deg,#0a0a0a,#1a1a1a)' },
-  { id: 'pro',      label: 'PRO',      sub: 'Dark Automotive',  accent: '#D4AF37', preview: 'linear-gradient(135deg,#0a0c10,#12151d)' },
+  { id: 'tesla',    label: 'TERRA',    sub: 'Metal plaka · Arazi',     accent: '#E31937', preview: 'linear-gradient(135deg,#1a1712,#0a0a0a)', wire: { cols: [22, 44, 30], medallion: true } },
+  { id: 'pro',      label: 'PRO',      sub: 'Cam kartlar · Gün/Gece',  accent: '#D4AF37', preview: 'linear-gradient(135deg,#141a26,#0a0c10)', wire: { cols: [20, 52, 26], medallion: false } },
 ];
+
+function ThemeWireframe({ wire, accent }: { wire: ThemeWire; accent: string }) {
+  const panel = 'rgba(255,255,255,0.10)';
+  const [l, m, r] = wire.cols;
+  const gap = (100 - l - m - r) / 2;
+  return (
+    <div data-testid="theme-wireframe" aria-hidden style={{ position: 'absolute', top: '12%', left: '5%', right: '5%', bottom: '10%' }}>
+      <div style={{ position: 'absolute', top: 0, bottom: '30%', left: 0, width: `${l}%`, display: 'flex', flexDirection: 'column', gap: '6%' }}>
+        <div style={{ flex: 1, background: panel, borderRadius: 3 }} />
+        <div style={{ flex: 1.4, background: panel, borderRadius: 3 }} />
+      </div>
+      <div style={{ position: 'absolute', top: 0, bottom: '30%', left: `${l + gap}%`, width: `${m}%`, background: `${accent}2e`, border: `1px solid ${accent}55`, borderRadius: 3 }} />
+      <div style={{ position: 'absolute', top: 0, bottom: '30%', right: 0, width: `${r}%`, display: 'flex', flexDirection: 'column', gap: '6%' }}>
+        <div style={{ flex: 1, background: panel, borderRadius: 3 }} />
+        <div style={{ flex: 1, background: panel, borderRadius: 3 }} />
+      </div>
+      <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: '22%', background: panel, borderRadius: 3 }} />
+      {wire.medallion && (
+        <div style={{ position: 'absolute', left: '50%', bottom: '2%', width: '17%', paddingBottom: '17%', transform: 'translateX(-50%)', borderRadius: '50%', border: `2px solid ${accent}`, background: 'rgba(0,0,0,0.55)' }} />
+      )}
+    </div>
+  );
+}
 
 function ThemePanel() {
   const { theme, setTheme } = useCarTheme();
@@ -251,6 +282,7 @@ function ThemePanel() {
                 <div className="relative w-full aspect-video rounded-xl overflow-hidden" style={{ background: preview }}>
                   <div style={{ position: 'absolute', bottom: 6, left: 6, right: 6, height: 3, background: `${t.accent}70`, borderRadius: 2 }} />
                   <div style={{ position: 'absolute', top: 6, left: 6, width: 16, height: 3, background: `${t.accent}50`, borderRadius: 2 }} />
+                  {t.wire && <ThemeWireframe wire={t.wire} accent={t.accent} />}
                   {t.emblem && (
                     <img src={expeditionEmblem} alt="" style={{ position: 'absolute', top: '50%', left: '50%', width: '38%', transform: 'translate(-50%,-55%)', opacity: 0.92, filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.5))', pointerEvents: 'none' }} />
                   )}
@@ -735,7 +767,7 @@ function PerfMiniBar({ pct, color }: { pct: number; color: string }) {
   return (
     <div className="h-1 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.08)', width: '100%' }}>
       <div className="h-full rounded-full transition-all duration-700"
-        style={{ width: `${pct}%`, background: `linear-gradient(90deg, ${color}aa, ${color})` }} />
+        style={{ width: `${pct}%`, backgroundColor: color, backgroundImage: `linear-gradient(90deg, ${color}aa, ${color})` }} />
     </div>
   );
 }
@@ -901,7 +933,7 @@ function LiveStatsRow() {
 
   const stats = [
     { label: 'YÜK', val: `${load}%`, color: 'var(--oem-accent)', Icon: Cpu },
-    { label: 'BAT', val: ready ? `%${battery}${charging ? '+' : ''}` : '—', color: '#f97316', Icon: Zap },
+    { label: 'BAT', val: ready && battery !== null ? `%${battery}${charging ? '+' : ''}` : '—', color: '#f97316', Icon: Zap },
     { label: 'RAM', val: ramMb > 0 ? (ramMb >= 1024 ? `${(ramMb / 1024).toFixed(1)}G` : `${ramMb}M`) : '—', color: 'var(--oem-good)', Icon: HardDrive },
     { label: 'NET', val: !online ? 'OFF' : netMs > 0 ? `${netMs}ms` : 'ON', color: 'var(--oem-accent)', Icon: Gauge },
   ];
@@ -994,17 +1026,17 @@ function SettingTile({ icon, title, sub, control, accent, span = 1, onClick }: {
             style={{
               width: 56, height: 56, borderRadius: 16,
               background: accent === 'amber'
-                ? 'linear-gradient(135deg, oklch(82% 0.10 65 / 0.30), oklch(60% 0.10 50 / 0.10))'
+                ? 'linear-gradient(135deg, rgba(241,183,126,0.3), rgba(176,109,71,0.1))'
                 : 'var(--oem-surface-2, #303749)',
               border: '1px solid ' + (accent === 'amber'
-                ? 'var(--oem-line-warm, oklch(66% 0.10 55 / 0.42))'
+                ? 'var(--oem-line-warm, rgba(193,129,84,0.42))'
                 : 'var(--oem-line, rgba(255,240,210,0.08))'),
               display: 'grid', placeItems: 'center',
               color: accent === 'amber'
-                ? 'var(--oem-amber, oklch(80% 0.13 60))'
+                ? 'var(--oem-amber, rgb(251,169,98))'
                 : 'var(--oem-ink-2, rgba(240,235,224,0.74))',
               flex: 'none',
-              boxShadow: accent === 'amber' ? '0 0 18px oklch(70% 0.10 60 / 0.18)' : 'none',
+              boxShadow: accent === 'amber' ? '0 0 18px rgba(204,143,92,0.18)' : 'none',
             }}>
             <Icon className="w-6 h-6" />
           </span>
@@ -1035,7 +1067,7 @@ function BigToggle({ value, onChange }: { value: boolean; onChange?: (v: boolean
         style={{
           fontSize: 14,
           letterSpacing: '0.10em',
-          color: value ? 'var(--oem-amber, oklch(80% 0.13 60))' : 'var(--oem-ink-3, rgba(240,235,224,0.52))',
+          color: value ? 'var(--oem-amber, rgb(251,169,98))' : 'var(--oem-ink-3, rgba(240,235,224,0.52))',
         }}>
         {value ? 'Etkin' : 'Kapalı'}
       </span>
@@ -1229,7 +1261,7 @@ function SoundTabContent({ drivingMode, volumeSlot }: { drivingMode: DrivingMode
 function ConnStatusBadge({ on }: { on: boolean }) {
   return (
     <span className="text-[10px] font-black uppercase tracking-[0.20em] whitespace-nowrap"
-      style={{ color: on ? 'var(--oem-amber, oklch(80% 0.13 60))' : 'var(--oem-ink-3, rgba(240,235,224,0.52))' }}>
+      style={{ color: on ? 'var(--oem-amber, rgb(251,169,98))' : 'var(--oem-ink-3, rgba(240,235,224,0.52))' }}>
       {on ? 'BAĞLI' : 'BAĞLI DEĞİL'}
     </span>
   );
@@ -1270,7 +1302,7 @@ function ConnectTabContent() {
    Tek otorite: platform/driverProfileService (yakala · uygula · otomatik hafıza).
 ════════════════════════════════════════ */
 const THEME_LABEL: Record<string, string> = {
-  expedition: 'Expedition', horizon: 'Horizon', tesla: 'Tesla', pro: 'Pro', oled: 'OLED',
+  expedition: 'Expedition', horizon: 'Horizon', tesla: 'Terra', pro: 'Pro', oled: 'OLED',
 };
 
 /** Profilde GERÇEKTEN kayıtlı olan tercihlerin özeti (kayıtsız alan yazılmaz). */
@@ -1435,7 +1467,7 @@ function ProfilesTabContent() {
             <div className="flex gap-3">
               <button type="button" onClick={confirmAdd} disabled={!newName.trim()}
                 className="flex-1" style={{ padding: '13px 0', borderRadius: 14, fontSize: 15, fontWeight: 700,
-                  background: newName.trim() ? 'var(--oem-amber, oklch(80% 0.13 60))' : 'var(--oem-surface-2, #303749)',
+                  background: newName.trim() ? 'var(--oem-amber, rgb(251,169,98))' : 'var(--oem-surface-2, #303749)',
                   color: newName.trim() ? '#1a1206' : 'var(--oem-ink-3, rgba(240,235,224,0.4))', border: 'none' }}>
                 Oluştur
               </button>
@@ -1548,6 +1580,9 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
       return saved && TAB_IDS.includes(saved) ? saved : 'appearance';
     } catch { return 'appearance'; }
   });
+  /* Sürüşte kilit: yalnız Ses sekmesi açık kalır (hız kanonik araç deposundan). */
+  const movingLock = useMovingLock();
+  const shownTab: Tab | null = movingLock && tab !== 'sound' ? null : tab;
   useEffect(() => {
     try { sessionStorage.setItem(TAB_STORAGE_KEY, tab); } catch { /* quota / private mode */ }
   }, [tab]);
@@ -1597,6 +1632,7 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
   const sense = useScreenSense();
   // Telefon/kompakt ekran tespiti: yükseklik < 500 veya genişlik < 800
   const isCompactScreen   = sense.height < 500 || sense.width < 800;
+  const devTelemetry      = useCarosLabAllowed();
   const nativeControls    = isSystemControlSupported();
 
   const handleBrightness = useCallback((v: number) => {
@@ -1640,10 +1676,10 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
     { id: 'ocean-deep',     label: 'Derin Okyanus', url: 'linear-gradient(160deg,#010b14 0%,#0c3a5e 55%,#0369a1 100%)',                         type: 'gradient' },
     { id: 'aurora',         label: 'Aurora',        url: 'linear-gradient(135deg,#021a12 0%,#054d30 35%,#1a1040 65%,#2e1f6e 100%)',             type: 'gradient' },
     { id: 'neon-sunset',    label: 'Neon Gün Batımı',url:'linear-gradient(145deg,#0d0117 0%,#3b0764 35%,#9f1239 70%,#c2410c 100%)',             type: 'gradient' },
-    { id: 'ferrari-red',    label: 'Ferrari',       url: 'linear-gradient(145deg,#0c0101 0%,#3b0000 40%,#7f1d1d 75%,#991b1b 100%)',             type: 'gradient' },
-    { id: 'bugatti',        label: 'Bugatti Gece',  url: 'linear-gradient(135deg,#020417 0%,#0a0f3d 40%,#1a0a3d 70%,#2d1b69 100%)',             type: 'gradient' },
-    { id: 'lamborghini',    label: 'Lamborghini',   url: 'linear-gradient(150deg,#0a0500 0%,#1a0800 35%,#431407 65%,#7c2d12 100%)',             type: 'gradient' },
-    { id: 'mclaren',        label: 'McLaren',       url: 'linear-gradient(145deg,#0a0400 0%,#291200 35%,#7c2d12 65%,#c2410c 100%)',             type: 'gradient' },
+    { id: 'ferrari-red',    label: 'Yarış Kırmızısı', url: 'linear-gradient(145deg,#0c0101 0%,#3b0000 40%,#7f1d1d 75%,#991b1b 100%)',             type: 'gradient' },
+    { id: 'bugatti',        label: 'Mor Gece',      url: 'linear-gradient(135deg,#020417 0%,#0a0f3d 40%,#1a0a3d 70%,#2d1b69 100%)',             type: 'gradient' },
+    { id: 'lamborghini',    label: 'Kor Turuncu',   url: 'linear-gradient(150deg,#0a0500 0%,#1a0800 35%,#431407 65%,#7c2d12 100%)',             type: 'gradient' },
+    { id: 'mclaren',        label: 'Papaya',        url: 'linear-gradient(145deg,#0a0400 0%,#291200 35%,#7c2d12 65%,#c2410c 100%)',             type: 'gradient' },
     { id: 'asfalt',         label: 'Asfalt Gri',    url: 'linear-gradient(160deg,#0a0a0a 0%,#1c1c1e 40%,#2c2c2e 75%,#1c1c1e 100%)',            type: 'gradient' },
     { id: 'akgam-altin',    label: 'Akşam Altını',  url: 'linear-gradient(145deg,#0c0700 0%,#1c1100 30%,#431c00 60%,#78350f 85%,#92400e 100%)', type: 'gradient' },
     { id: 'polar',          label: 'Polar Gece',    url: 'linear-gradient(135deg,#010b14 0%,#023047 40%,#054d60 70%,#0e7490 100%)',             type: 'gradient' },
@@ -1704,15 +1740,17 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
             </span>
           </div>
 
-          {/* Live stats — yalnızca geniş ekranlarda (HU / tablet) */}
-          {!isCompactScreen && (
+          {/* Live stats (YÜK/BAT/RAM/NET) — GELİŞTİRİCİ telemetrisi: satış build'inde
+              sürücüye anlamsız sayılar gösteriyordu. CAROS LAB ile aynı derleme
+              kapısı; yalnızca geniş ekranlarda (HU / tablet). */}
+          {!isCompactScreen && devTelemetry && (
             <div className="flex-1 flex items-center justify-end gap-1.5 overflow-x-auto no-scrollbar">
               <LiveStatsRow />
             </div>
           )}
 
-          {/* Kompakt ekranda boşluk doldurucu */}
-          {isCompactScreen && <div className="flex-1" />}
+          {/* Boşluk doldurucu (kompakt ekran ya da telemetri kapalı) */}
+          {(isCompactScreen || !devTelemetry) && <div className="flex-1" />}
 
           <button onClick={onClose}
             className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-xl active:scale-90 transition-all ml-1"
@@ -1765,7 +1803,7 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
                   style={{
                     width: '100%',
                     appearance: 'none',
-                    border: '1px solid ' + (active ? 'var(--oem-line-warm, oklch(66% 0.10 55 / 0.42))' : 'transparent'),
+                    border: '1px solid ' + (active ? 'var(--oem-line-warm, rgba(193,129,84,0.42))' : 'transparent'),
                     background: active
                       ? 'linear-gradient(180deg, rgba(59,130,246,0.12), rgba(59,130,246,0.03) 70%), var(--oem-surface-1, #262C3C)'
                       : 'transparent',
@@ -1784,7 +1822,7 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
                     letterSpacing: '-0.005em',
                     position: 'relative',
                     boxShadow: active
-                      ? '0 1px 0 rgba(255,255,255,0.10) inset, 0 12px 28px -16px oklch(60% 0.10 250 / 0.40)'
+                      ? '0 1px 0 rgba(255,255,255,0.10) inset, 0 12px 28px -16px rgba(79,132,186,0.4)'
                       : 'none',
                     transition: 'background .15s ease, color .15s ease, border-color .15s ease',
                   }}>
@@ -1800,8 +1838,8 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
                         width: 4,
                         borderRadius: 4,
                         background:
-                          'linear-gradient(180deg, oklch(86% 0.07 248), oklch(66% 0.11 250) 60%, oklch(50% 0.12 252))',
-                        boxShadow: '0 0 14px oklch(70% 0.10 248 / 0.50)',
+                          'linear-gradient(180deg, rgb(173,214,253), rgb(91,151,211) 60%, rgb(39,101,165))',
+                        boxShadow: '0 0 14px rgba(106,164,218,0.5)',
                       }} />
                   )}
                   <span
@@ -1810,14 +1848,14 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
                       height: isCompactScreen ? 36 : 48,
                       borderRadius: 14,
                       background: active
-                        ? 'var(--oem-amber-soft, oklch(80% 0.13 60 / 0.18))'
+                        ? 'var(--oem-amber-soft, rgba(251,169,98,0.18))'
                         : 'var(--oem-surface-2, #303749)',
-                      border: '1px solid ' + (active ? 'var(--oem-line-warm, oklch(66% 0.10 55 / 0.42))' : 'var(--oem-line, rgba(255,240,210,0.08))'),
+                      border: '1px solid ' + (active ? 'var(--oem-line-warm, rgba(193,129,84,0.42))' : 'var(--oem-line, rgba(255,240,210,0.08))'),
                       display: 'grid',
                       placeItems: 'center',
-                      color: active ? 'var(--oem-amber, oklch(80% 0.13 60))' : s.color,
+                      color: active ? 'var(--oem-amber, rgb(251,169,98))' : s.color,
                       flex: 'none',
-                      filter: active ? 'drop-shadow(0 0 10px oklch(80% 0.13 60 / 0.50))' : 'none',
+                      filter: active ? 'drop-shadow(0 0 10px rgba(251,169,98,0.5))' : 'none',
                     }}>
                     <Icon className={isCompactScreen ? 'w-4 h-4' : 'w-5 h-5'} />
                   </span>
@@ -1830,7 +1868,7 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
                   )}
                   {isCompactScreen && (
                     <span className="text-[9px] font-black uppercase tracking-[0.10em] truncate w-full"
-                      style={{ color: active ? 'var(--oem-amber, oklch(80% 0.13 60))' : 'var(--oem-ink-3, rgba(240,235,224,0.52))' }}>
+                      style={{ color: active ? 'var(--oem-amber, rgb(251,169,98))' : 'var(--oem-ink-3, rgba(240,235,224,0.52))' }}>
                       {s.short ?? s.label.split(' ')[0]}
                     </span>
                   )}
@@ -1852,7 +1890,26 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
           }}>
         <div className="max-w-[1600px] mx-auto flex flex-col gap-3">
 
-          {tab === 'navigation' && (
+          {/* Sürüşte kilit (Google/Tesla): hareket hâlinde yalnız Ses açık; gerisi park edince. */}
+          {shownTab === null && (
+            <Panel accent="var(--oem-warn)">
+              <div data-settings-driving-lock="" className="flex flex-col items-center text-center gap-3 py-6">
+                <Shield className="w-10 h-10" style={{ color: 'var(--oem-warn)' }} />
+                <p className="text-lg font-black" style={{ color: 'var(--oem-ink)' }}>Araç hareket halinde</p>
+                <p className="text-sm max-w-md" style={{ color: 'var(--oem-ink-3)' }}>
+                  Güvenliğin için bu ayarlar sürüşte kilitli; park edince açılır.
+                  Ses ve parlaklığı Mavi'ye söyleyerek değiştirebilirsin.
+                </p>
+                <button type="button" onClick={() => setTab('sound')}
+                  className="rounded-xl px-6 font-bold active:scale-95"
+                  style={{ minHeight: 56, background: 'var(--oem-accent)', color: 'var(--oem-accent-ink, #fff)' }}>
+                  Ses ayarlarına git
+                </button>
+              </div>
+            </Panel>
+          )}
+
+          {shownTab === 'navigation' && (
             <div className="flex flex-col gap-4 mx-auto w-full" style={{ maxWidth: 760 }}>
               <Panel accent="#60a5fa">
                 <SectionTitle icon={MapIcon} title="Harita" sub="Açılış davranışı ve harita verisinin kaynağı" color="#60a5fa" />
@@ -1878,13 +1935,13 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
             </div>
           )}
 
-          {tab === 'assistant' && (
+          {shownTab === 'assistant' && (
             <div className="flex flex-col gap-4 mx-auto w-full" style={{ maxWidth: 760 }}>
               <Panel accent="#a78bfa">
                 <SectionTitle icon={Mic} title="Sesli Asistan" sub="Uyandırma, akıllı mod ve yapay zekâ hizmetleri" color="#a78bfa" />
                 <div className="flex flex-col gap-3">
                   <PremiumToggle icon={Smartphone} label='"Hey Araba" ile uyandır' desc='Asistanın adına ek olarak "Hey Araba" sözü de uyandırır' value={settings.wakeWordEnabled ?? false} onChange={v => updateSettings({ wakeWordEnabled: v })} accent="#a78bfa" />
-                  <PremiumToggle icon={Cpu} label="Smart Engine" desc="Yapay zeka tabanlı sürüş modları" value={settings.smartContextEnabled ?? true} onChange={v => updateSettings({ smartContextEnabled: v })} accent="#34d399" />
+                  <PremiumToggle icon={Cpu} label="Smart Engine" desc="Bağlama göre öneri kartları ve hıza göre otomatik harita sürüş görünümü" value={settings.smartContextEnabled ?? true} onChange={v => updateSettings({ smartContextEnabled: v })} accent="#34d399" />
                 </div>
                 <AIVoicePanel />
               </Panel>
@@ -1898,10 +1955,23 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
             </div>
           )}
 
-          {tab === 'appearance' && (
+          {shownTab === 'appearance' && (
             <>
               {/* ── Tema Seçici ── */}
               <ThemePanel />
+              {/* ── Sürücü ekranı: görünüm + renk ── */}
+              <Panel accent="var(--oem-accent)">
+                <SectionTitle icon={Gauge} title="Sürücü Ekranı" sub="Gösterge görünümü ve rengi — gündüz/gece otomatik" color="var(--oem-accent)" />
+                <CockpitStylePicker />
+              </Panel>
+              {/* Sürüşte video — kullanıcı kararı 2026-09-27 ("çocuklar izleyebilir").
+                  Bu sekme sürüşte kilitli → yalnız park hâlinde değiştirilebilir. */}
+              <Panel accent="var(--oem-warn)">
+                <PremiumToggle icon={Shield} label="Sürüşte videoyu durdurma"
+                  desc="Açıkken sinema modu araç hareket edince kapanmaz. Sürücü sorumluluğundadır: sürücü sürüş sırasında ekrana bakmamalıdır."
+                  value={settings.videoWhileDriving === true}
+                  onChange={(v) => updateSettings({ videoWhileDriving: v })} />
+              </Panel>
               {nativeControls && (
                 <Panel accent="var(--oem-accent)">
                   <SectionTitle icon={Sun} title="Parlaklık" sub="Ekran parlaklığı (sistem)" color="var(--oem-warn)" />
@@ -1951,7 +2021,7 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
             </>
           )}
 
-          {tab === 'maintenance' && (
+          {shownTab === 'maintenance' && (
             <div className="flex flex-col gap-4">
 
               {/* ── Ruhsat Sınıfı (uygulanabilir hız sınırını belirler) ── */}
@@ -2077,7 +2147,7 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
           )}
 
           {/* ── Phase 8 new tabs — Sound, Connect, Profiles ── */}
-          {tab === 'sound' && <SoundTabContent drivingMode={drivingMode} volumeSlot={
+          {shownTab === 'sound' && <SoundTabContent drivingMode={drivingMode} volumeSlot={
             nativeControls ? (
               <Panel accent="var(--oem-accent)">
                 <SectionTitle icon={Volume2} title="Ses Düzeyi" sub="Sistem ses seviyesi" color="var(--oem-accent)" />
@@ -2085,7 +2155,7 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
               </Panel>
             ) : null
           } />}
-          {tab === 'connect' && (
+          {shownTab === 'connect' && (
             <>
               <ConnectTabContent />
               <div className="flex flex-col gap-4 mx-auto w-full" style={{ maxWidth: 760 }}>
@@ -2184,8 +2254,8 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
               </div>
             </>
           )}
-          {tab === 'profiles' && <ProfilesTabContent />}
-          {tab === 'about' && (
+          {shownTab === 'profiles' && <ProfilesTabContent />}
+          {shownTab === 'about' && (
             <div className="flex flex-col gap-4">
               <Panel accent="#fbbf24">
                 <div className="flex items-center justify-between mb-4">

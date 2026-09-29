@@ -3,8 +3,7 @@ import { isLowEndDevice } from '../../platform/headUnitCompat';
 import { memo, useState, lazy, Suspense, useEffect, useMemo, useRef, createContext, useContext } from 'react';
 import {
   Navigation, Music2, Mic, Settings, Car, Bell,
-  Plus, Minus, SkipBack, SkipForward, Play, Pause, MoreVertical,
-  ChevronRight, CornerUpRight,
+  Plus, Minus, SkipBack, SkipForward, Play, Pause, ChevronRight, CornerUpRight,
   Fuel, Phone, Cloud, AlertTriangle, Camera, Route, ShieldAlert, Shield, Tv2, Zap,
   LayoutGrid, Wind, Crosshair, Mountain, Gauge, Thermometer, Battery, Droplet,
   FlaskConical,
@@ -22,6 +21,9 @@ import { useGPSLocation } from '../../platform/gpsService';
 import { useDisplaySpeed, formatDisplaySpeed } from '../../hooks/useDisplaySpeed';
 import { useBatteryVoltage } from '../../hooks/useBatteryVoltage';
 import { useLivingThemeState } from '../../hooks/useLivingThemeState';
+import {
+  useVehicleStatusBadge, vehicleStatusColor, useGearLabel,
+} from '../../hooks/useThemeVehicleBadges';
 import { useAmbientTemp } from '../../hooks/useCanonicalVehicleSignal';
 import { VehicleTellTales } from '../vehicle/VehicleTellTales';
 import { useEngineReadout } from '../../hooks/useEngineReadout';
@@ -56,6 +58,9 @@ const HZ_GRID_COLS = SUPPORTS_CSS_CLAMP
 const HZ_TOPBAR_H   = cssClamp('58px', '9.4vh', '74px', '64px');
 const HZ_DOCK_H     = cssClamp('106px', '16vh', '134px', '118px');
 const HZ_DOCK_GAP_W = cssClamp('168px', '26vh', '210px', '188px');
+/* Hız rakamı ekran yüksekliğiyle ölçeklenir: 720p'de sol ray kısa, sabit 60px
+   rakam kartı taşırıyordu. */
+const HZ_SPEED_FONT = cssClamp('34px', '6.5vh', '60px', '48px');
 const HZ_COMPASS_BOX: React.CSSProperties = (SUPPORTS_CSS_CLAMP && SUPPORTS_ASPECT_RATIO)
   ? { width: 'clamp(150px, 24vh, 188px)', aspectRatio: '1' }
   : { width: 166, height: 166 };
@@ -206,7 +211,7 @@ const HzTopBar = memo(function HzTopBar() {
 
   return (
     <div data-editable="horizon.topbar" data-editable-type="header" className="relative flex items-center justify-between flex-shrink-0" style={{ height: HZ_TOPBAR_H, padding: '0 2px' }}>
-      <div className="flex items-center">
+      <div className="flex items-center" style={{ flex: '1 1 0', minWidth: 'max-content' }}>
         {/* Marka plakası — metal + imza vida */}
         <div className="flex items-center" style={{ gap: 13, padding: '8px 16px 8px 10px', borderRadius: 14, background: p.metal, backgroundColor: p.panel, border: `1px solid ${p.edgeHi}`, boxShadow: p.elev, position: 'relative' }}>
           <Bolt style={{ top: 6, left: 6 }} />
@@ -228,13 +233,14 @@ const HzTopBar = memo(function HzTopBar() {
         </div>
       </div>
 
-      {/* merkez saat */}
-      <div className="absolute" style={{ left: '50%', top: '50%', transform: 'translate(-50%,-50%)', textAlign: 'center', pointerEvents: 'none' }}>
+      {/* merkez saat — akışta: yanlar eşit paylaşır; sağ küme yarıya sığmazsa (sürüşte
+          düğmeler 56px) saat sola kayar. Mutlak konumdayken "MİSAFİR" tarihin üstüne biniyordu. */}
+      <div style={{ flex: 'none', margin: '0 12px', textAlign: 'center', pointerEvents: 'none' }}>
         <div style={{ fontWeight: 700, fontSize: 28, lineHeight: 1, color: p.onDark, fontVariantNumeric: 'tabular-nums', letterSpacing: '0.01em' }}>{time}</div>
         <div style={{ marginTop: 2, fontSize: 10, fontWeight: 700, letterSpacing: '0.13em', textTransform: 'uppercase', color: p.onDark2 }}>{date}</div>
       </div>
 
-      <div className="flex items-center" style={{ gap: 13, color: p.onDark2 }}>
+      <div className="flex items-center" style={{ gap: 13, color: p.onDark2, flex: '1 1 0', minWidth: 'max-content', justifyContent: 'flex-end' }}>
         <span className={online ? 'lt-pulse' : undefined} aria-label={online ? 'Çevrimiçi' : 'Çevrimdışı'}
           style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, background: online ? '#34d399' : 'currentColor', opacity: online ? 1 : 0.4 }} />
         <StatusControls palette={{ ink: p.ink, ink2: p.onDark2, accent: p.accent, surface: p.panel, line: p.edge }} size={17} />
@@ -251,14 +257,26 @@ const HzTopBar = memo(function HzTopBar() {
 });
 
 /* ─── SOL: SÜRÜŞ MODU ────────────────────────────────────────────── */
+/* Eskiden sabit "4WD · High / Normal" basıyordu — araçtan okunan bir değer değildi.
+   Artık: sağ üst = canlı vites (CAN; yoksa hiç çizilmez), alt satır = profildeki
+   sürüş modu TERCİHİ (ayarlanmamışsa "—"). */
 const HzDriveModeCard = memo(function HzDriveModeCard() {
   const p = usePalH();
+  const gear = useGearLabel();
+  const mode = useStore((s) =>
+    s.settings.vehicleProfiles.find((v) => v.id === s.settings.activeVehicleProfileId)?.driveMode ?? null);
+  const modeLabel = mode === 'eco' ? 'Eko' : mode === 'sport' ? 'Spor' : mode === 'comfort' ? 'Konfor' : null;
   return (
-    <Panel editId="horizon.drivemode" style={{ padding: '13px 15px' }}>
-      <div className="flex items-center justify-between"><HzLabel>Sürüş Modu</HzLabel><HzLabel>4WD · High</HzLabel></div>
-      <div className="flex items-center" style={{ gap: 9, marginTop: 8 }}>
-        <span style={{ width: 8, height: 8, borderRadius: '50%', background: p.ok, boxShadow: `0 0 8px ${p.ok}` }} />
-        <span style={{ fontWeight: 700, fontSize: 18, color: p.ink }}>Normal</span>
+    /* Tek satır: sol ray 720p'de 'auto' kartlarla taşıyor, hız kartı ~20px'e
+       eziliyordu (üst üste binmiş kart görüntüsü). */
+    <Panel editId="horizon.drivemode" style={{ padding: '12px 15px' }}>
+      <div className="flex items-center justify-between" style={{ gap: 8 }}>
+        <HzLabel>Sürüş Modu</HzLabel>
+        <div className="flex items-center" style={{ gap: 8, minWidth: 0 }}>
+          <span style={{ width: 8, height: 8, borderRadius: '50%', flexShrink: 0, background: modeLabel ? p.ok : p.ink3, boxShadow: modeLabel ? `0 0 8px ${p.ok}` : 'none' }} />
+          <span data-testid="horizon-drive-mode" style={{ fontWeight: 700, fontSize: 16, color: modeLabel ? p.ink : p.ink3, whiteSpace: 'nowrap' }}>{modeLabel ?? '—'}</span>
+          {gear !== null && <span data-testid="horizon-gear" style={{ fontWeight: 800, fontSize: 14, color: p.accent }}>{gear}</span>}
+        </div>
       </div>
     </Panel>
   );
@@ -273,13 +291,13 @@ const HzSpeedCard = memo(function HzSpeedCard() {
   const speed = rawSpeed ?? 0;   // yalnız oran hesabı için
   const pct = Math.min(speed / 200, 1) * 100;
   return (
-    <Panel editId="horizon.speed" editType="gauge" style={{ padding: '14px 15px', display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: 0 }}>
+    <Panel editId="horizon.speed" editType="gauge" style={{ padding: '14px 15px', display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: 0, overflow: 'hidden' }}>
       <HzLabel>Hız</HzLabel>
       <div className="flex items-baseline" style={{ gap: 8, marginTop: 6 }}>
-        <div style={{ fontWeight: 700, fontSize: 60, lineHeight: 0.85, color: p.inkCritical, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.03em' }}>{formatDisplaySpeed(rawSpeed)}</div>
+        <div style={{ fontWeight: 700, fontSize: HZ_SPEED_FONT, lineHeight: 0.85, color: p.inkCritical, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.03em' }}>{formatDisplaySpeed(rawSpeed)}</div>
         <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.18em', color: p.ink3 }}>KM/H</div>
       </div>
-      <div style={{ height: 5, borderRadius: 999, background: p.panelLo, marginTop: 14, overflow: 'hidden' }}>
+      <div style={{ height: 5, borderRadius: 999, background: p.panelLo, marginTop: 11, overflow: 'hidden', flexShrink: 0 }}>
         <div style={{ height: '100%', width: `${pct}%`, background: p.accent, borderRadius: 999, transition: 'width .5s ease' }} />
       </div>
     </Panel>
@@ -300,13 +318,16 @@ const HzRangeCard = memo(function HzRangeCard() {
   const range = live && obd.estimatedRangeKm != null && obd.estimatedRangeKm >= 0 ? obd.estimatedRangeKm : null;
   const fpct = lvl != null ? Math.max(0, Math.min(lvl, 100)) : 0;
   return (
-    <Panel editId="horizon.range" style={{ padding: '13px 15px' }}>
-      <div className="flex items-center justify-between"><HzLabel>Menzil</HzLabel><Fuel className="w-4 h-4" style={{ color: p.ink3 }} /></div>
-      <div style={{ fontWeight: 700, fontSize: 23, marginTop: 3, color: p.ink, fontVariantNumeric: 'tabular-nums' }}>{range ?? '—'} <small style={{ fontSize: 13, color: p.ink3, fontWeight: 500 }}>km</small></div>
-      <div className="flex items-center" style={{ gap: 7, marginTop: 7 }}>
+    <Panel editId="horizon.range" style={{ padding: '12px 15px' }}>
+      {/* Başlık + değer tek satırda: sol ray kısa ekranda hız kartını eziyordu. */}
+      <div className="flex items-center justify-between" style={{ gap: 8 }}>
+        <div className="flex items-center" style={{ gap: 6 }}><Fuel className="w-4 h-4" style={{ color: p.ink3 }} /><HzLabel>Menzil</HzLabel></div>
+        <div style={{ fontWeight: 700, fontSize: 20, lineHeight: 1, color: p.ink, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{range ?? '—'} <small style={{ fontSize: 12, color: p.ink3, fontWeight: 500 }}>km</small></div>
+      </div>
+      <div className="flex items-center" style={{ gap: 7, marginTop: 8 }}>
         <span style={{ fontSize: 9, fontWeight: 700, color: p.ink3 }}>E</span>
         <div style={{ flex: 1, height: 6, borderRadius: 999, background: p.panelLo, overflow: 'hidden' }}>
-          <div style={{ height: '100%', width: `${fpct}%`, background: `linear-gradient(90deg, ${p.accentDeep}, ${p.accent})`, transition: 'width .5s ease' }} />
+          <div style={{ height: '100%', width: `${fpct}%`, backgroundColor: p.accent, backgroundImage: `linear-gradient(90deg, ${p.accentDeep}, ${p.accent})`, transition: 'width .5s ease' }} />
         </div>
         <span style={{ fontSize: 9, fontWeight: 700, color: p.ink3 }}>F</span>
       </div>
@@ -316,7 +337,7 @@ const HzRangeCard = memo(function HzRangeCard() {
       <TripMeterRow
         palette={{ ink: p.ink, ink2: p.ink3, ink3: p.ink3, accent: p.accent, tile: p.panelLo, edge: p.panelLo }}
         valueSize={20} unitSize={12} labelSize={10} iconSize={16} gap={6}
-        showTopBorder
+        showTopBorder compact
         style={{ marginTop: 9 }}
       />
     </Panel>
@@ -330,12 +351,13 @@ const HzConsumptionCard = memo(function HzConsumptionCard({ onOpenSettings }: { 
   const l100 = (obd.fuelRemainingL != null && obd.fuelRemainingL > 0 && obd.estimatedRangeKm != null && obd.estimatedRangeKm > 0)
     ? (obd.fuelRemainingL / obd.estimatedRangeKm) * 100 : null;
   return (
-    <Panel editId="horizon.consumption" style={{ padding: '13px 15px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }} onClick={onOpenSettings}>
-      <div>
-        <HzLabel>Yakıt Tüketimi</HzLabel>
-        <div style={{ fontWeight: 700, fontSize: 21, marginTop: 4, color: p.ink, fontVariantNumeric: 'tabular-nums' }}>{l100 != null ? l100.toFixed(1) : '—'} <small style={{ fontSize: 12, color: p.ink3, fontWeight: 500 }}>L/100km</small></div>
+    /* Tek satır (başlık solda, değer sağda) — sol ray kısa ekranda taşıyordu. */
+    <Panel editId="horizon.consumption" style={{ padding: '12px 15px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }} onClick={onOpenSettings}>
+      <div className="flex items-center" style={{ gap: 6, minWidth: 0 }}>
+        <Gauge className="w-4 h-4 flex-shrink-0" style={{ color: p.accent }} />
+        <HzLabel>Tüketim</HzLabel>
       </div>
-      <Gauge className="w-[18px] h-[18px]" style={{ color: p.accent }} />
+      <div style={{ fontWeight: 700, fontSize: 18, lineHeight: 1, color: p.ink, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{l100 != null ? l100.toFixed(1) : '—'} <small style={{ fontSize: 11, color: p.ink3, fontWeight: 500 }}>L/100km</small></div>
     </Panel>
   );
 });
@@ -378,7 +400,12 @@ const HzMap = memo(function HzMap({ onOpenMap, fullMapOpen }: { onOpenMap: () =>
   // Pusula merkezi harita alt kenarının ~25px ALTINDA (root gap 12 + dock içi konum) →
   // mask dairesini calc(100% + 25px)'e taşı ki kavis pusula yayıyla eşmerkezli otursun.
   // Yarıçap = pusula yarıçapı (clamp(75,12vh,94)) + küçük boşluk.
-  const notchX = `calc(50vw - 27px - ${cssClamp('184px', '17.8vw', '300px', '228px')})`;
+  /* Pusula ROOT-merkezli; harita paneli sol/sağ ray farkı kadar kaymış. Konum
+     panel-göreli yüzdeyle hesaplanır: 50% + (sağ − sol)/2. Eskiden `50vw` ile
+     hesaplanıyordu; ChameleonScaler ölçeği (ör. 1280×720 → 1.2) altında vw
+     mantıksal genişlik olmadığı için oyuk pusulanın ~130px sağına düşüyor ve
+     haritanın üstünde koyu bir disk olarak görünüyordu. */
+  const notchX = `calc(50% + (${cssClamp('244px', '25.8vw', '400px', '330px')} - ${cssClamp('184px', '17.8vw', '300px', '228px')}) / 2)`;
   const notchR = `calc(${cssClamp('75px', '12vh', '94px', '84px')} + 7px)`;
   const notchMask = `radial-gradient(circle at ${notchX} calc(100% + 25px), transparent 0 calc(${notchR} - 1px), #000 ${notchR})`;
   // minHeight 200: grid çökse bile harita konteyneri asla 0px olamaz (Duster vakası)
@@ -395,7 +422,7 @@ const HzMap = memo(function HzMap({ onOpenMap, fullMapOpen }: { onOpenMap: () =>
       {isNavigating && turnDist && (
         <div className="absolute" style={{ top: 15, left: 15, pointerEvents: 'auto' }}>
           <div className="flex items-center" style={{ gap: 12, padding: '11px 15px', borderRadius: 14, ...chip }}>
-            <div className="flex items-center justify-center" style={{ width: 42, height: 42, borderRadius: 12, background: `linear-gradient(135deg, ${p.accent}, ${p.accentDeep})`, boxShadow: `0 6px 16px ${p.accentGlow}` }}>
+            <div className="flex items-center justify-center" style={{ width: 42, height: 42, borderRadius: 12, backgroundColor: p.accent, backgroundImage: `linear-gradient(135deg, ${p.accent}, ${p.accentDeep})`, boxShadow: `0 6px 16px ${p.accentGlow}` }}>
               <CornerUpRight className="w-5 h-5" style={{ color: '#fff' }} />
             </div>
             <div>
@@ -406,13 +433,8 @@ const HzMap = memo(function HzMap({ onOpenMap, fullMapOpen }: { onOpenMap: () =>
         </div>
       )}
 
-      {/* online */}
-      <div className="absolute" style={{ top: 15, right: 15 }}>
-        <div className="flex items-center" style={{ gap: 7, padding: '7px 12px', borderRadius: 999, ...chip }}>
-          <span style={{ width: 6, height: 6, borderRadius: '50%', background: p.ok, animation: 'hzPulse 2s infinite' }} />
-          <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.1em', textTransform: 'uppercase', color: p.ink2 }}>Online</span>
-        </div>
-      </div>
+      {/* Sabit "Online" çipi kaldırıldı: bağlantıya bakmadan yeşil basıyordu ve
+          mini haritanın kendi (gerçek) kaynak rozetinin üstüne biniyordu. */}
 
       {/* kontroller — paylaşılan harita instance'ına GERÇEK komut gönderir */}
       <div className="absolute flex flex-col" style={{ right: 15, top: '50%', transform: 'translateY(-50%)', gap: 9 }}>
@@ -519,7 +541,8 @@ const HzMediaCard = memo(function HzMediaCard() {
           <div style={{ fontWeight: 700, fontSize: 16, color: p.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{track.title || 'Çalmıyor'}</div>
           <div style={{ color: p.ink3, fontSize: 11, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{track.artist || 'Oynatmak için dokun'}</div>
         </div>
-        <button onClick={() => openMusicDrawer()} style={{ background: 'none', border: 'none', cursor: 'pointer', color: p.ink3, alignSelf: 'flex-start' }}><MoreVertical className="w-5 h-5" /></button>
+        {/* "⋮" kaldırıldı: albüm kapağıyla AYNI eylem (müzik çekmecesi); 1024×600'de
+            alt başlığı "Oynatmak için do…" diye kesiyordu. */}
       </div>
       <div className="flex items-center" style={{ gap: 9 }}>
         <span style={{ fontSize: 10, fontWeight: 500, color: p.ink3, fontVariantNumeric: 'tabular-nums' }}>{total > 0 ? fmt((dragPct ?? pct) / 100 * total) : '0:00'}</span>
@@ -594,13 +617,15 @@ const HzVehicleStatus = memo(function HzVehicleStatus({ onOpenSettings }: { onOp
   const motor = eng.engineTemp != null ? Math.round(eng.engineTemp) : null;
   const rpm = eng.rpm;
   const fuel = eng.fuel != null ? Math.round(eng.fuel) : null;
+  const status = useVehicleStatusBadge();   // sabit "Normal" UYDURMAYDI
+  const statusColor = vehicleStatusColor(status.tone, p.ok, p.ink3);
   return (
     <Panel editId="horizon.vehicle" style={{ padding: '13px 15px', display: 'flex', flexDirection: 'column', minHeight: 0 }} onClick={onOpenSettings}>
       <div className="flex items-center justify-between">
         <HzLabel>Araç Durumu</HzLabel>
         <div className="flex items-center" style={{ gap: 5 }}>
-          <span style={{ width: 7, height: 7, borderRadius: '50%', background: p.ok }} />
-          <span style={{ fontWeight: 700, fontSize: 13, color: p.ink }}>Normal</span>
+          <span style={{ width: 7, height: 7, borderRadius: '50%', background: statusColor }} />
+          <span data-testid="horizon-vehicle-status" data-status={status.status} style={{ fontWeight: 700, fontSize: 13, color: status.tone === 'ok' ? p.ink : statusColor, whiteSpace: 'nowrap' }}>{status.label}</span>
           <ChevronRight className="w-4 h-4" style={{ color: p.ink3 }} />
         </div>
       </div>
@@ -665,7 +690,7 @@ const HorizonClock = memo(function HorizonClock({ onClick }: { onClick: () => vo
   const digital = use24Hour
     ? `${String(now.getHours()).padStart(2, '0')}:${String(m).padStart(2, '0')}`
     : `${(now.getHours() % 12) || 12}:${String(m).padStart(2, '0')}`;
-  const dateLine = `${now.getDate()} ${MONTHS_TR[now.getMonth()].toUpperCase()}`;
+  const dateLine = `${now.getDate()} ${MONTHS_TR[now.getMonth()].toLocaleUpperCase('tr-TR')}`;
 
   // baton index — 12 uzun + 60 ince dakika
   const idx = useMemo(() => {

@@ -19,6 +19,7 @@
 
 import {
   coerceThemeManifest,
+  createModePatch,
   createThemeManifest,
   EMPTY_CARD_LAYOUT,
   EMPTY_COMPONENT_STYLE,
@@ -26,6 +27,7 @@ import {
   EMPTY_STATE_STYLE,
   isEmptyCardLayout,
   isEmptyComponentStyle,
+  isEmptyModePatch,
   isEmptyScreenOverride,
   THEME_BASE_IDS,
   THEME_PRESETS,
@@ -33,11 +35,13 @@ import {
   type ScalableZoneId,
   type ComponentStyle,
   type GlobalTokens,
+  type ModePatch,
   type ScreenOverride,
   type StateKey,
   type StateStyle,
   type ThemeBaseId,
   type ThemeManifest,
+  type ThemeMode,
 } from './themeManifest';
 import type { ThemeSurfaceId } from './themeComponentRegistry';
 
@@ -61,12 +65,14 @@ export type ManifestSet = Record<ThemeBaseId, ThemeManifest>;
    Böylece kart-bazlı geri al, ikinci bir motor açmadan aynı yığından çıkar.  */
 
 export type HistoryTarget =
-  | { kind: 'tokens' }
-  | { kind: 'component'; componentId: string }
+  /* `mode`: stil dilimi hangi katmanda — yok = ORTAK (iki mod), 'day'/'night'
+     = o modun katmanı (manifest.modeOverrides). Yerleşim her zaman ortaktır. */
+  | { kind: 'tokens'; mode?: ThemeMode }
+  | { kind: 'component'; componentId: string; mode?: ThemeMode }
   | { kind: 'layout'; cardId: string }
   /** Kart = bileşen stili + (varsa) yerleşim kartı — TEK işlem olarak. */
-  | { kind: 'card'; componentId: string; layoutCardId: string | null }
-  | { kind: 'screen'; surface: string }
+  | { kind: 'card'; componentId: string; layoutCardId: string | null; mode?: ThemeMode }
+  | { kind: 'screen'; surface: string; mode?: ThemeMode }
   /**
    * Bölge (sütun) genişliği — `zoneWidths` dilimi.
    *
@@ -109,9 +115,17 @@ export interface HistoryScope {
   keys: string[];
 }
 
+/**
+ * Düzenlenen katman (kullanıcı isteği 2026-09-28: "gündüz ayrı gece ayrı").
+ * 'both' = ORTAK katman (iki modda geçerli); 'day'/'night' = yalnız o mod.
+ * Yerleşim (kart yeri/boyu, sütun genişliği) her durumda ORTAKTIR.
+ */
+export type EditMode = 'both' | ThemeMode;
+
 export interface StudioState {
   themeId: ThemeBaseId;
   manifests: ManifestSet;
+  editMode: EditMode;
   surface: ThemeSurfaceId;
   /** Tam ekran editörün hedefi; null → editör kapalı. */
   editingComponentId: string | null;
@@ -125,6 +139,9 @@ export type StudioAction =
   | { type: 'hydrate'; manifests: ManifestSet; themeId: ThemeBaseId }
   | { type: 'select-theme'; themeId: ThemeBaseId }
   | { type: 'select-surface'; surface: ThemeSurfaceId }
+  | { type: 'select-mode'; mode: EditMode }
+  /** Bir modun katmanını diğerine kopyala (hedefin katmanı DEĞİŞTİRİLİR, tek adım). */
+  | { type: 'copy-mode'; from: ThemeMode; to: ThemeMode }
   | { type: 'open-editor'; componentId: string }
   | { type: 'close-editor' }
   | { type: 'patch-tokens'; patch: Partial<GlobalTokens> }
@@ -172,6 +189,7 @@ export function createStudioState(): StudioState {
   return {
     themeId: 'expedition',
     manifests: emptyManifestSet(),
+    editMode: 'both',
     surface: 'home',
     editingComponentId: null,
     past: [],
@@ -183,13 +201,20 @@ export function createStudioState(): StudioState {
 /* ══ Dilim erişimi ═══════════════════════════════════════════════════ */
 
 /** Bir hedefin dokunduğu dilim anahtarları (çakışma hesabı için). */
+/** Stil anahtarı katmana göre ayrışır: gündüz geri al gece dilimine dokunmaz. */
+function styleKey(mode: ThemeMode | undefined, key: string): string {
+  return mode ? `${mode}|${key}` : key;
+}
+
 export function targetKeys(t: HistoryTarget): string[] {
   switch (t.kind) {
-    case 'tokens': return ['tokens'];
-    case 'component': return [`c:${t.componentId}`];
+    case 'tokens': return [styleKey(t.mode, 'tokens')];
+    case 'component': return [styleKey(t.mode, `c:${t.componentId}`)];
     case 'layout': return [`l:${t.cardId}`];
-    case 'card': return t.layoutCardId ? [`c:${t.componentId}`, `l:${t.layoutCardId}`] : [`c:${t.componentId}`];
-    case 'screen': return [`s:${t.surface}`];
+    case 'card': return t.layoutCardId
+      ? [styleKey(t.mode, `c:${t.componentId}`), `l:${t.layoutCardId}`]
+      : [styleKey(t.mode, `c:${t.componentId}`)];
+    case 'screen': return [styleKey(t.mode, `s:${t.surface}`)];
     case 'zone-width': return [`zw:${t.zone}`];
     /* Sıra, dokunduğu HER kartın yerleşim anahtarını kapsar → aynı kartın
        tekil düzenlemesiyle çakışma doğru hesaplanır (yinele kutusu tutarlı). */
@@ -204,27 +229,71 @@ function keysOverlap(a: string[], b: string[]): boolean {
 }
 
 /** Kapsam yardımcıları — UI bunları kullanır, elle anahtar üretmez. */
-export function cardScope(themeId: ThemeBaseId, componentId: string, layoutCardId: string | null): HistoryScope {
-  return { themeId, keys: targetKeys({ kind: 'card', componentId, layoutCardId }) };
+const layerMode = (m: EditMode | undefined): ThemeMode | undefined => (m === 'day' || m === 'night' ? m : undefined);
+
+export function cardScope(themeId: ThemeBaseId, componentId: string, layoutCardId: string | null, mode?: EditMode): HistoryScope {
+  return { themeId, keys: targetKeys({ kind: 'card', componentId, layoutCardId, mode: layerMode(mode) }) };
 }
-export function screenScope(themeId: ThemeBaseId, surface: string): HistoryScope {
-  return { themeId, keys: targetKeys({ kind: 'screen', surface }) };
+export function screenScope(themeId: ThemeBaseId, surface: string, mode?: EditMode): HistoryScope {
+  return { themeId, keys: targetKeys({ kind: 'screen', surface, mode: layerMode(mode) }) };
 }
-export function tokensScope(themeId: ThemeBaseId): HistoryScope {
-  return { themeId, keys: targetKeys({ kind: 'tokens' }) };
+export function tokensScope(themeId: ThemeBaseId, mode?: EditMode): HistoryScope {
+  return { themeId, keys: targetKeys({ kind: 'tokens', mode: layerMode(mode) }) };
+}
+
+/* ── Katman erişimi: ortak (mode yok) ya da bir modun katmanı ── */
+
+function layerOf(m: ThemeManifest, mode: ThemeMode | undefined): ModePatch {
+  if (!mode) return { tokens: m.tokens, componentOverrides: m.componentOverrides, screenOverrides: m.screenOverrides };
+  return m.modeOverrides[mode] ?? createModePatch();
+}
+
+/** `m` üzerinde (kopya olmalı) katmanı yazar; boşalan mod katmanı düşer. */
+function setLayer(m: ThemeManifest, mode: ThemeMode | undefined, layer: ModePatch): ThemeManifest {
+  if (!mode) {
+    m.tokens = layer.tokens;
+    m.componentOverrides = layer.componentOverrides;
+    m.screenOverrides = layer.screenOverrides;
+    return m;
+  }
+  const mo = { ...m.modeOverrides };
+  if (isEmptyModePatch(layer)) delete mo[mode];
+  else mo[mode] = layer;
+  m.modeOverrides = mo;
+  return m;
+}
+
+/** Reducer'ın mevcut dönüştürücüleri AYNEN çalışsın diye: katman, ortak
+ *  alanların yerine konmuş bir görünüm. */
+function viewOf(m: ThemeManifest, mode: ThemeMode): ThemeManifest {
+  const L = layerOf(m, mode);
+  return { ...m, tokens: { ...L.tokens }, componentOverrides: { ...L.componentOverrides }, screenOverrides: { ...L.screenOverrides } };
+}
+
+/** Görünümdeki stil alanları moda geri katlanır; yerleşim/meta görünümden gelir. */
+function foldView(orig: ThemeManifest, mode: ThemeMode, view: ThemeManifest): ThemeManifest {
+  const layer: ModePatch = { tokens: view.tokens, componentOverrides: view.componentOverrides, screenOverrides: view.screenOverrides };
+  const out: ThemeManifest = {
+    ...view,
+    tokens: orig.tokens,
+    componentOverrides: orig.componentOverrides,
+    screenOverrides: orig.screenOverrides,
+    modeOverrides: orig.modeOverrides,
+  };
+  return setLayer(out, mode, layer);
 }
 
 /** Hedefin manifestteki değeri (yoksa null). */
 function readSlice(m: ThemeManifest, t: HistoryTarget): unknown {
   switch (t.kind) {
-    case 'tokens': return { ...m.tokens };
-    case 'component': return m.componentOverrides[t.componentId] ?? null;
+    case 'tokens': return { ...layerOf(m, t.mode).tokens };
+    case 'component': return layerOf(m, t.mode).componentOverrides[t.componentId] ?? null;
     case 'layout': return m.layoutOverrides[t.cardId] ?? null;
     case 'card': return {
-      style: m.componentOverrides[t.componentId] ?? null,
+      style: layerOf(m, t.mode).componentOverrides[t.componentId] ?? null,
       layout: t.layoutCardId ? (m.layoutOverrides[t.layoutCardId] ?? null) : null,
     };
-    case 'screen': return m.screenOverrides[t.surface] ?? null;
+    case 'screen': return layerOf(m, t.mode).screenOverrides[t.surface] ?? null;
     case 'zone-width': return m.zoneWidths[t.zone as 'left-rail'] ?? null;
     /* Dilim = dokunulan kartların SIRA değerleri. Yalnız `ord` okunur; aynı
        kartın rengi/boyutu değiştiğinde sıra geçmişi kirlenmesin. */
@@ -237,15 +306,16 @@ function readSlice(m: ThemeManifest, t: HistoryTarget): unknown {
 function writeSlice(m: ThemeManifest, t: HistoryTarget, v: unknown): ThemeManifest {
   const next = cloneManifest(m);
   switch (t.kind) {
-    case 'tokens':
-      next.tokens = { ...(v as GlobalTokens) };
-      return next;
+    case 'tokens': {
+      const L = layerOf(next, t.mode);
+      return setLayer(next, t.mode, { ...L, tokens: { ...(v as GlobalTokens) } });
+    }
     case 'component': {
-      const o = { ...next.componentOverrides };
+      const L = layerOf(next, t.mode);
+      const o = { ...L.componentOverrides };
       if (v === null || v === undefined) delete o[t.componentId];
       else o[t.componentId] = v as ComponentStyle;
-      next.componentOverrides = o;
-      return next;
+      return setLayer(next, t.mode, { ...L, componentOverrides: o });
     }
     case 'layout': {
       const o = { ...next.layoutOverrides };
@@ -256,10 +326,11 @@ function writeSlice(m: ThemeManifest, t: HistoryTarget, v: unknown): ThemeManife
     }
     case 'card': {
       const pack = (v ?? { style: null, layout: null }) as { style: ComponentStyle | null; layout: CardLayout | null };
-      const co = { ...next.componentOverrides };
+      const L = layerOf(next, t.mode);
+      const co = { ...L.componentOverrides };
       if (pack.style === null || pack.style === undefined) delete co[t.componentId];
       else co[t.componentId] = pack.style;
-      next.componentOverrides = co;
+      setLayer(next, t.mode, { ...L, componentOverrides: co });
       if (t.layoutCardId) {
         const lo = { ...next.layoutOverrides };
         if (pack.layout === null || pack.layout === undefined) delete lo[t.layoutCardId];
@@ -297,11 +368,11 @@ function writeSlice(m: ThemeManifest, t: HistoryTarget, v: unknown): ThemeManife
       return next;
     }
     case 'screen': {
-      const o = { ...next.screenOverrides };
+      const L = layerOf(next, t.mode);
+      const o = { ...L.screenOverrides };
       if (v === null || v === undefined) delete o[t.surface];
       else o[t.surface] = v as ScreenOverride;
-      next.screenOverrides = o;
-      return next;
+      return setLayer(next, t.mode, { ...L, screenOverrides: o });
     }
     case 'theme':
       return cloneManifest(v as ThemeManifest);
@@ -325,8 +396,18 @@ function cloneManifest(m: ThemeManifest): ThemeManifest {
     screenOverrides: { ...m.screenOverrides },
     layoutOverrides: { ...m.layoutOverrides },
     zoneWidths: { ...m.zoneWidths },
+    modeOverrides: cloneModeOverrides(m.modeOverrides),
     metadata: { ...m.metadata },
   };
+}
+
+function cloneModeOverrides(mo: ThemeManifest['modeOverrides']): ThemeManifest['modeOverrides'] {
+  const out: ThemeManifest['modeOverrides'] = {};
+  for (const k of ['day', 'night'] as const) {
+    const p = mo?.[k];
+    if (p) out[k] = { tokens: { ...p.tokens }, componentOverrides: { ...p.componentOverrides }, screenOverrides: { ...p.screenOverrides } };
+  }
+  return out;
 }
 
 function cloneSet(set: ManifestSet): ManifestSet {
@@ -346,14 +427,19 @@ function cloneSet(set: ManifestSet): ManifestSet {
  */
 function commit(
   s: StudioState,
-  target: HistoryTarget,
+  target0: HistoryTarget,
   mutate: (m: ThemeManifest) => ThemeManifest,
-  mergeKey: string | null,
+  mergeKey0: string | null,
   label: string,
+  /** Stil eylemi mi (seçili gündüz/gece katmanına yazılır). Yerleşim/tema düzeyi eylemler ORTAK. */
+  modeAware = false,
 ): StudioState {
+  const mode = modeAware ? layerMode(s.editMode) : undefined;
+  const target: HistoryTarget = mode && target0.kind !== 'theme' ? ({ ...target0, mode } as HistoryTarget) : target0;
+  const mergeKey = mode && mergeKey0 !== null ? `${mode}|${mergeKey0}` : mergeKey0;
   const cur = s.manifests[s.themeId];
   const before = readSlice(cur, target);
-  const nextManifest = mutate(cloneManifest(cur));
+  const nextManifest = mode ? foldView(cur, mode, mutate(viewOf(cloneManifest(cur), mode))) : mutate(cloneManifest(cur));
   const after = readSlice(nextManifest, target);
   if (sameSlice(before, after)) return s;
 
@@ -434,6 +520,21 @@ export function studioReducer(s: StudioState, a: StudioAction): StudioState {
     case 'select-surface':
       return { ...breakMerge(s), surface: a.surface, editingComponentId: null };
 
+    case 'select-mode':
+      if (a.mode !== 'both' && a.mode !== 'day' && a.mode !== 'night') return s;
+      return a.mode === s.editMode ? s : { ...breakMerge(s), editMode: a.mode };
+
+    case 'copy-mode':
+      if (a.from === a.to) return s;
+      return commit(s, { kind: 'theme' }, (m) => {
+        const src = m.modeOverrides[a.from];
+        const mo = { ...m.modeOverrides };
+        if (src) mo[a.to] = { tokens: { ...src.tokens }, componentOverrides: { ...src.componentOverrides }, screenOverrides: { ...src.screenOverrides } };
+        else delete mo[a.to];
+        m.modeOverrides = mo;
+        return m;
+      }, null, a.from === 'day' ? 'Gündüzü geceye kopyala' : 'Geceyi gündüze kopyala');
+
     case 'open-editor':
       return { ...breakMerge(s), editingComponentId: a.componentId };
 
@@ -444,7 +545,7 @@ export function studioReducer(s: StudioState, a: StudioAction): StudioState {
       return commit(s, { kind: 'tokens' }, (m) => {
         m.tokens = { ...m.tokens, ...a.patch };
         return m;
-      }, `tokens:${patchKey(a.patch)}`, 'Tema tokenı');
+      }, `tokens:${patchKey(a.patch)}`, 'Tema tokenı', true);
 
     case 'patch-component':
       return commit(s, { kind: 'component', componentId: a.componentId }, (m) => {
@@ -455,7 +556,7 @@ export function studioReducer(s: StudioState, a: StudioAction): StudioState {
         else overrides[a.componentId] = next;
         m.componentOverrides = overrides;
         return m;
-      }, `c:${a.componentId}:${patchKey(a.patch)}`, 'Bileşen stili');
+      }, `c:${a.componentId}:${patchKey(a.patch)}`, 'Bileşen stili', true);
 
     case 'patch-component-state':
       return commit(s, { kind: 'component', componentId: a.componentId }, (m) => {
@@ -476,7 +577,7 @@ export function studioReducer(s: StudioState, a: StudioAction): StudioState {
         else overrides[a.componentId] = next;
         m.componentOverrides = overrides;
         return m;
-      }, `c:${a.componentId}:state:${a.stateKey}:${patchKey(a.patch)}`, 'Bileşen durumu');
+      }, `c:${a.componentId}:state:${a.stateKey}:${patchKey(a.patch)}`, 'Bileşen durumu', true);
 
     case 'patch-screen':
       return commit(s, { kind: 'screen', surface: a.surface }, (m) => {
@@ -487,7 +588,7 @@ export function studioReducer(s: StudioState, a: StudioAction): StudioState {
         else screens[a.surface] = next;
         m.screenOverrides = screens;
         return m;
-      }, `s:${a.surface}:${patchKey(a.patch)}`, 'Ekran ayarı');
+      }, `s:${a.surface}:${patchKey(a.patch)}`, 'Ekran ayarı', true);
 
     /* Yerleşim — solver kart id'si başına. İKİNCİ MOTOR YOK: bu alanlar
      * layoutSolver'ın `CardIntent`inin null-tabanlı hâlidir. */
@@ -545,7 +646,7 @@ export function studioReducer(s: StudioState, a: StudioAction): StudioState {
         delete overrides[a.componentId];
         m.componentOverrides = overrides;
         return m;
-      }, null, 'Bileşen sıfırlama');
+      }, null, 'Bileşen sıfırlama', true);
 
     /**
      * KARTI BAŞLANGIÇ HÂLİNE DÖNDÜR — stil + yerleşim TEK transaction.
@@ -563,7 +664,7 @@ export function studioReducer(s: StudioState, a: StudioAction): StudioState {
           m.layoutOverrides = layouts;
         }
         return m;
-      }, null, 'Kartı başlangıca döndür');
+      }, null, 'Kartı başlangıca döndür', true);
 
     /** Ekran sıfırlama: o ekranın override'ı + o ekrana ait bileşen override'ları. */
     case 'reset-surface':
@@ -572,7 +673,7 @@ export function studioReducer(s: StudioState, a: StudioAction): StudioState {
         delete screens[a.surface];
         m.screenOverrides = screens;
         return m;
-      }, null, 'Ekran sıfırlama');
+      }, null, 'Ekran sıfırlama', true);
 
     /**
      * TÜM DEĞİŞİKLİKLERİ GERİ AL — seçili temanın tokens + componentOverrides +
@@ -605,7 +706,7 @@ export function studioReducer(s: StudioState, a: StudioAction): StudioState {
         }
         m.componentOverrides = comps;
         return m;
-      }, null, a.kind === 'color' ? 'Renk taslağı' : 'Kart şekli taslağı');
+      }, null, a.kind === 'color' ? 'Renk taslağı' : 'Kart şekli taslağı', true);
 
     case 'copy-from': {
       if (!THEME_BASE_IDS.includes(a.sourceThemeId) || a.sourceThemeId === s.themeId) return s;
@@ -713,8 +814,8 @@ export function canRedoScoped(s: StudioState, scope: HistoryScope | null): boole
 }
 
 /** Kartta Studio değişikliği var mı — "Kartı Başlangıç Hâline Döndür" düğmesi için. */
-export function cardHasChanges(m: ThemeManifest, componentId: string, layoutCardId: string | null): boolean {
-  if (m.componentOverrides[componentId] !== undefined) return true;
+export function cardHasChanges(m: ThemeManifest, componentId: string, layoutCardId: string | null, mode?: EditMode): boolean {
+  if (layerOf(m, layerMode(mode)).componentOverrides[componentId] !== undefined) return true;
   if (layoutCardId && m.layoutOverrides[layoutCardId] !== undefined) return true;
   return false;
 }
@@ -726,6 +827,12 @@ export function customizationCount(m: ThemeManifest): number {
   n += Object.keys(m.componentOverrides).length;
   n += Object.keys(m.screenOverrides).length;
   n += Object.keys(m.layoutOverrides).length;
+  for (const p of [m.modeOverrides?.day, m.modeOverrides?.night]) {
+    if (!p) continue;
+    for (const v of Object.values(p.tokens)) if (v !== null) n++;
+    n += Object.keys(p.componentOverrides).length;
+    n += Object.keys(p.screenOverrides).length;
+  }
   return n;
 }
 

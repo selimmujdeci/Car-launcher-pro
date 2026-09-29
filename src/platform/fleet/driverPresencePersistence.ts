@@ -32,7 +32,7 @@ import {
 import {
   isPresenceSource, isPresenceConfidence,
   type PresenceSource, type PresenceConfidence,
-} from './driverPresence';
+} from './driverPresenceVocabulary';
 
 /** Depolama anahtarı — sürüm anahtarın İÇİNDEDİR (eski sürüm sessizce okunmaz). */
 export const PRESENCE_SNAPSHOT_KEY = 'fleet:presenceLedger:v1';

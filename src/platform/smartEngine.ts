@@ -349,7 +349,7 @@ export function useSmartEngine(
         paramsRef.current = { ...paramsRef.current, obdSpeed: d.speed };
       }
     });
-  }, []);
+  }, [setStableSnapshot]);
 
   // GPS speed effect — OBD bağlı değilken mod tespiti GPS'e devredilir
   useEffect(() => {

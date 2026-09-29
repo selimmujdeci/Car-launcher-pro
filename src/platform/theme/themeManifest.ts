@@ -407,7 +407,34 @@ export interface ThemeManifest {
    * kendi varsayılan genişliklerini kullanır (mevcut ekran birebir korunur).
    */
   zoneWidths: ZoneWidths;
+  /**
+   * GÜNDÜZ / GECE KATMANI (kullanıcı isteği 2026-09-28: "gündüz ayrı gece ayrı").
+   * Üstteki `tokens`/`componentOverrides`/`screenOverrides` İKİ MODDA ORTAKTIR;
+   * burada bir moda yazılan (null olmayan) alan o modda ortağın ÜSTÜNE geçer.
+   * Yerleşim (`layoutOverrides`/`zoneWidths`) bilerek ORTAK kalır — kart gündüz
+   * başka, gece başka yerde durmaz.
+   *
+   * ŞEMA SÜRÜMÜ YÜKSELTİLMEDİ (#654 gerekçesi): eski araç bu alanı tanımaz,
+   * `collectUnsupportedKeys` ile raporlar ve ORTAK katmanı uygulamaya devam eder;
+   * paketi reddetmez. Boş nesne = mod farkı yok (bugünkü davranış).
+   */
+  modeOverrides: ModeOverrides;
   metadata: ThemeManifestMeta;
+}
+
+export type ThemeMode = 'day' | 'night';
+export const THEME_MODES: readonly ThemeMode[] = ['day', 'night'];
+
+/** Bir moda özgü katman — ortak katmanla AYNI tipler (ikinci bir stil dili yok). */
+export interface ModePatch {
+  tokens: GlobalTokens;
+  componentOverrides: Record<string, ComponentStyle>;
+  screenOverrides: Record<string, ScreenOverride>;
+}
+export type ModeOverrides = Partial<Record<ThemeMode, ModePatch>>;
+
+export function createModePatch(): ModePatch {
+  return { tokens: { ...EMPTY_TOKENS }, componentOverrides: {}, screenOverrides: {} };
 }
 
 /* ══ Gerçek 4 tema — kod tabanından çıkarılmış temel palet ════════════
@@ -465,7 +492,7 @@ export const THEME_PRESETS: Record<ThemeBaseId, ThemePresetInfo> = {
   },
   tesla: {
     id: 'tesla',
-    label: 'Tesla',
+    label: 'Terra',
     desc: 'Minimalist premium · koyu espresso + amber',
     base: {
       accentPrimary: '#E0822E',
@@ -481,7 +508,7 @@ export const THEME_PRESETS: Record<ThemeBaseId, ThemePresetInfo> = {
   pro: {
     id: 'pro',
     label: 'Glass Pro',
-    desc: 'Düşük güç · MBUX/BMW antrasit · en sade',
+    desc: 'Düşük güç · antrasit · en sade',
     base: {
       accentPrimary: '#5B8DFF',
       accentSecondary: '#2F6BFF',
@@ -784,6 +811,7 @@ export function createThemeManifest(themeId: ThemeBaseId, updatedAt: string | nu
     screenOverrides: {},
     layoutOverrides: {},
     zoneWidths: {},
+    modeOverrides: {},
     metadata: { name: THEME_PRESETS[id].label, origin: 'pwa-studio', updatedAt },
   };
 }
@@ -797,23 +825,8 @@ export function coerceThemeManifest(raw: unknown, fallback: ThemeBaseId = 'exped
   if (!isObj(raw)) return createThemeManifest(fallback);
   const themeId: ThemeBaseId = inList(THEME_BASE_IDS, raw.themeId) ? raw.themeId : fallback;
 
-  const componentOverrides: Record<string, ComponentStyle> = {};
-  if (isObj(raw.componentOverrides)) {
-    for (const [id, v] of Object.entries(raw.componentOverrides)) {
-      if (!isSafeComponentId(id)) continue;
-      const s = coerceComponentStyle(v);
-      if (!isEmptyComponentStyle(s)) componentOverrides[id] = s;
-    }
-  }
-
-  const screenOverrides: Record<string, ScreenOverride> = {};
-  if (isObj(raw.screenOverrides)) {
-    for (const [id, v] of Object.entries(raw.screenOverrides)) {
-      if (!isSafeComponentId(id)) continue;
-      const s = coerceScreenOverride(v);
-      if (!isEmptyScreenOverride(s)) screenOverrides[id] = s;
-    }
-  }
+  const componentOverrides = coerceComponentOverrides(raw.componentOverrides);
+  const screenOverrides = coerceScreenOverrides(raw.screenOverrides);
 
   const layoutOverrides: Record<string, CardLayout> = {};
   if (isObj(raw.layoutOverrides)) {
@@ -841,7 +854,109 @@ export function coerceThemeManifest(raw: unknown, fallback: ThemeBaseId = 'exped
     screenOverrides,
     layoutOverrides,
     zoneWidths: coerceZoneWidths(raw.zoneWidths),
+    modeOverrides: coerceModeOverrides(raw.modeOverrides),
     metadata: { name, origin, updatedAt },
+  };
+}
+
+function coerceComponentOverrides(raw: unknown): Record<string, ComponentStyle> {
+  const out: Record<string, ComponentStyle> = {};
+  if (!isObj(raw)) return out;
+  for (const [id, v] of Object.entries(raw)) {
+    if (!isSafeComponentId(id)) continue;
+    const s = coerceComponentStyle(v);
+    if (!isEmptyComponentStyle(s)) out[id] = s;
+  }
+  return out;
+}
+
+function coerceScreenOverrides(raw: unknown): Record<string, ScreenOverride> {
+  const out: Record<string, ScreenOverride> = {};
+  if (!isObj(raw)) return out;
+  for (const [id, v] of Object.entries(raw)) {
+    if (!isSafeComponentId(id)) continue;
+    const s = coerceScreenOverride(v);
+    if (!isEmptyScreenOverride(s)) out[id] = s;
+  }
+  return out;
+}
+
+export function isEmptyTokens(t: GlobalTokens): boolean {
+  return (Object.keys(EMPTY_TOKENS) as (keyof GlobalTokens)[]).every((k) => t[k] === null);
+}
+
+export function isEmptyModePatch(p: ModePatch): boolean {
+  return isEmptyTokens(p.tokens)
+    && Object.keys(p.componentOverrides).length === 0
+    && Object.keys(p.screenOverrides).length === 0;
+}
+
+/** Fail-soft: boş katman taşınmaz (manifest küçük kalır, "mod farkı yok" = {}). */
+export function coerceModeOverrides(raw: unknown): ModeOverrides {
+  const out: ModeOverrides = {};
+  if (!isObj(raw)) return out;
+  for (const mode of THEME_MODES) {
+    const v = raw[mode];
+    if (!isObj(v)) continue;
+    const p: ModePatch = {
+      tokens: coerceTokens(v.tokens),
+      componentOverrides: coerceComponentOverrides(v.componentOverrides),
+      screenOverrides: coerceScreenOverrides(v.screenOverrides),
+    };
+    if (!isEmptyModePatch(p)) out[mode] = p;
+  }
+  return out;
+}
+
+/* ── Mod çözümü: ortak + o modun katmanı → tek manifest ─────────────────
+ * Alan düzeyinde birleşir: katmanda null OLMAYAN alan kazanır, null alan
+ * ortağı korur. Yerleşim ve meta ortak katmandan aynen gelir. */
+
+function overlay<T extends object>(base: T, over: T): T {
+  const out = { ...base } as Record<string, unknown>;
+  for (const [k, v] of Object.entries(over)) {
+    if (v !== null && v !== undefined) out[k] = v;
+  }
+  return out as T;
+}
+
+function overlayStyle(base: ComponentStyle, over: ComponentStyle): ComponentStyle {
+  const merged = overlay({ ...base, states: null }, { ...over, states: null });
+  let states: ComponentStyle['states'] = base.states ? { ...base.states } : null;
+  if (over.states) {
+    states = { ...(states ?? {}) };
+    for (const k of STATE_KEYS) {
+      const o = over.states[k];
+      if (!o) continue;
+      const b = states[k];
+      states[k] = b ? overlay(b, o) : o;
+    }
+  }
+  return { ...merged, states };
+}
+
+function overlayRecord<T>(base: Record<string, T>, over: Record<string, T>, merge: (b: T, o: T) => T): Record<string, T> {
+  const out: Record<string, T> = { ...base };
+  for (const id of Object.keys(over)) {
+    const b = out[id];
+    out[id] = b ? merge(b, over[id]) : over[id];
+  }
+  return out;
+}
+
+/**
+ * Manifest'in VERİLEN moddaki etkin hâli. Araç o anki moda göre bunu uygular;
+ * Stüdyo önizlemesi de aynı işlevi kullanır (ikinci bir birleştirme kuralı yok).
+ * O mod için katman yoksa manifest AYNEN döner.
+ */
+export function resolveManifestForMode(m: ThemeManifest, mode: ThemeMode): ThemeManifest {
+  const p = m.modeOverrides?.[mode];
+  if (!p) return m;
+  return {
+    ...m,
+    tokens: overlay(m.tokens, p.tokens),
+    componentOverrides: overlayRecord(m.componentOverrides, p.componentOverrides, overlayStyle),
+    screenOverrides: overlayRecord(m.screenOverrides, p.screenOverrides, overlay),
   };
 }
 
@@ -889,7 +1004,7 @@ const KNOWN_COMPONENT_KEYS: ReadonlySet<string> = new Set(Object.keys(EMPTY_COMP
 const KNOWN_STATE_KEYS: ReadonlySet<string> = new Set(Object.keys(EMPTY_STATE_STYLE));
 const KNOWN_MANIFEST_KEYS: ReadonlySet<string> = new Set([
   'schemaVersion', 'themeId', 'themeVersion', 'tokens', 'componentOverrides',
-  'screenOverrides', 'layoutOverrides', 'zoneWidths', 'metadata',
+  'screenOverrides', 'layoutOverrides', 'zoneWidths', 'modeOverrides', 'metadata',
 ]);
 const UNSUPPORTED_CAP = 12;
 
@@ -899,8 +1014,15 @@ export function collectUnsupportedKeys(raw: unknown): string[] {
   for (const k of Object.keys(raw)) {
     if (!KNOWN_MANIFEST_KEYS.has(k)) bulunan.add(k);
   }
-  const co = raw.componentOverrides;
-  if (isObj(co)) {
+  const taranacak: unknown[] = [raw.componentOverrides];
+  if (isObj(raw.modeOverrides)) {
+    for (const mode of THEME_MODES) {
+      const p = raw.modeOverrides[mode];
+      if (isObj(p)) taranacak.push(p.componentOverrides);
+    }
+  }
+  for (const co of taranacak) {
+    if (!isObj(co)) continue;
     for (const stil of Object.values(co)) {
       if (!isObj(stil)) continue;
       for (const k of Object.keys(stil)) {
@@ -948,6 +1070,19 @@ export function parseIncomingManifest(raw: unknown): ManifestParseResult {
   }
   if ('layoutOverrides' in raw && raw.layoutOverrides !== undefined && !isObj(raw.layoutOverrides)) {
     return { ok: false, reason: 'layoutOverrides bir nesne değil' };
+  }
+  if ('modeOverrides' in raw && raw.modeOverrides !== undefined) {
+    if (!isObj(raw.modeOverrides)) return { ok: false, reason: 'modeOverrides bir nesne değil' };
+    for (const mode of THEME_MODES) {
+      const p = raw.modeOverrides[mode];
+      if (p === undefined) continue;
+      if (!isObj(p)) return { ok: false, reason: `modeOverrides.${mode} bir nesne değil` };
+      for (const f of ['tokens', 'componentOverrides', 'screenOverrides'] as const) {
+        if (f in p && p[f] !== undefined && !isObj(p[f])) {
+          return { ok: false, reason: `modeOverrides.${mode}.${f} bir nesne değil` };
+        }
+      }
+    }
   }
 
   const manifest = coerceThemeManifest(raw, raw.themeId);

@@ -62,8 +62,9 @@ const value = (name: string) => container.querySelector(`[data-cockpit-value="${
 describe('cockpit canonical bağlama', () => {
   it('hız, RPM, CAN sıcaklık, yakıt/menzil, profil tüketimi, odometre, vites ve manevra aynı kaynaklardan görünür', () => {
     renderPage();
+    // 83ea3cc7 (OEM düzeni): devir tam sayı + "rpm" etiketi; tüketim "Ort." önekli.
     expect(['speed', 'rpm', 'coolant', 'fuel', 'range', 'consumption', 'odometer', 'gear', 'driveMode', 'ambient', 'maneuverDistance'].map(value))
-      .toEqual(['72', '1.8', '92°C', '%65', '520', '6.1 L/100km', '8.326 km', 'D', 'ECO', '24°C', '300 m']);
+      .toEqual(['72', '1.800', '92°C', '%65', '520', 'Ort. 6.1 L/100km', '8.326 km', 'D', 'ECO', '24°C', '300 m']);
     expect(container.querySelector('[data-cockpit-speedlimit]')?.textContent).toBe('80');
     expect(container.textContent).toContain('Gazi Paşa Blv.');
     expect(container.textContent).not.toContain('Önceki adım');
@@ -76,8 +77,10 @@ describe('cockpit canonical bağlama', () => {
     source.vehicle = { odometer: 0, canGearPos: 0 };
     source.settings.vehicleProfiles[0].avgConsumptionL100 = 0;
     renderPage();
+    // Gerçek sıfırlar sıfır kalır. İstisna kilometre: birleşik deponun 0'ı "hiç
+    // okunmadı" başlangıcıdır, ölçüm değil (5e94d2d0, telefon smoke 2026-09-27) → "— km".
     expect(['speed', 'rpm', 'coolant', 'fuel', 'range', 'consumption', 'odometer', 'gear', 'ambient'].map(value))
-      .toEqual(['0', '0.0', '0°C', '%0', '0', '0.0 L/100km', '0 km', 'N/P', '0°C']);
+      .toEqual(['0', '0', '0°C', '%0', '0', 'Ort. 0.0 L/100km', '— km', 'N/P', '0°C']);
   });
 
   it('unknown/sentinel/bayat/cache ölçümler sıfıra dönüşmez', () => {
@@ -88,7 +91,12 @@ describe('cockpit canonical bağlama', () => {
     source.settings.vehicleProfiles = [];
     source.limit = { state: 'STALE', effectiveLimitKmh: 80 };
     renderPage();
-    for (const key of ['speed', 'rpm', 'coolant', 'fuel', 'range', 'consumption', 'odometer', 'gear', 'driveMode', 'ambient']) expect(value(key), key).toBe('—');
+    // Ana göstergeler her zaman çizilir ve "—" yazar (9376531b: ekran boş kalmaz).
+    expect(['speed', 'rpm', 'coolant', 'range', 'odometer', 'ambient'].map(value))
+      .toEqual(['—', '—', '—', '—', '— km', '—°C']);
+    // Yan notlar (yakıt %, tüketim, vites, sürüş modu) ölçülmeden HİÇ çizilmez —
+    // sahte/bayat değer yerine yokluk (e60a3b24).
+    for (const key of ['fuel', 'consumption', 'gear', 'driveMode']) expect(value(key) ?? null, key).toBeNull();
     expect(container.querySelector('[data-cockpit-speedlimit]')).toBeNull();
   });
 
@@ -113,25 +121,25 @@ describe('cockpit canonical bağlama', () => {
     expect(value('speed')).toBe('72');
   });
 
-  it('medya adı/artwork/playing canonical; her düğme yalnız kendi transportunu çağırır, izin yoksa hepsi pasif', () => {
-    source.media.track.albumArt = '/canonical-artwork.jpg';
+  it('medya adı/playing canonical; tek dokunuş yalnız çal/duraklat çağırır, izin yoksa pasif', () => {
+    // 83ea3cc7: sürüş ekranında müzik TEK dokunuşluk satırdır (önceki/sonraki ve kapak yok).
+    const mediaButton = () => container.querySelector('[data-cockpit-region="musicCard"] button') as HTMLButtonElement;
     renderPage();
     expect(container.textContent).toContain('Leyla');
     expect(container.textContent).toContain('Mabel Matiz');
-    expect(container.querySelector('img')?.getAttribute('src')).toBe('/canonical-artwork.jpg');
-    for (const label of ['Önceki parça', 'Duraklat', 'Sonraki parça']) {
-      act(() => (container.querySelector(`button[aria-label="${label}"]`) as HTMLButtonElement).click());
-    }
-    expect(source.previous).toHaveBeenCalledTimes(1);
+    expect(mediaButton().getAttribute('aria-label')).toBe('Duraklat: Leyla · Mabel Matiz');
+    act(() => mediaButton().click());
     expect(source.toggle).toHaveBeenCalledTimes(1);
-    expect(source.next).toHaveBeenCalledTimes(1);
+    expect(source.previous).not.toHaveBeenCalled();
+    expect(source.next).not.toHaveBeenCalled();
     source.media = { ...source.media, playing: false, permissionRequired: true };
     renderPage();
-    expect(container.querySelector('button[aria-label="Çal"]')).not.toBeNull();
-    for (const button of container.querySelectorAll('button')) { expect(button.disabled).toBe(true); act(() => button.click()); }
+    expect(mediaButton().getAttribute('aria-label')).toBe('Çal: Leyla · Mabel Matiz');
+    expect(mediaButton().disabled).toBe(true);
+    act(() => mediaButton().click());
     expect(source.toggle).toHaveBeenCalledTimes(1);
-    expect(source.previous).toHaveBeenCalledTimes(1);
-    expect(source.next).toHaveBeenCalledTimes(1);
+    expect(source.previous).not.toHaveBeenCalled();
+    expect(source.next).not.toHaveBeenCalled();
   });
 });
 

@@ -27,7 +27,7 @@ export function GeofenceAlarmOverlay() {
       <div
         className="flex flex-col items-center gap-4 px-8 py-7 rounded-3xl text-center"
         style={{
-          background: 'linear-gradient(145deg,#7f1d1d,#991b1b)',
+          backgroundColor: '#7f1d1d', backgroundImage: 'linear-gradient(145deg,#7f1d1d,#991b1b)',
           border:     '2px solid rgba(248,113,113,0.6)',
           boxShadow:  '0 0 60px rgba(239,68,68,0.5), 0 8px 40px rgba(0,0,0,0.6)',
           minWidth:   280,

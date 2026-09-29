@@ -12,6 +12,7 @@
  * güncellenir (eskiden her konum değişiminde harita baştan yaratılıyordu). interactive:false
  * (Mali-400 sözleşmesi). Yalnız trafik çekmecesi açıkken mount edilir.
  */
+import { MapAttribution } from '../map/MapAttribution';
 import { useEffect, useRef, memo } from 'react';
 import maplibregl from 'maplibre-gl';
 import { getMapStyle } from '../../platform/mapSourceManager';
@@ -129,7 +130,9 @@ export const TrafficMapMini = memo(function TrafficMapMini({ lat, lng, tileUrl, 
     <div
       ref={containerRef}
       data-traffic-map=""
-      style={{ width: '100%', height, borderRadius: 16, overflow: 'hidden', background: '#0b1220', flexShrink: 0 }}
-    />
+      style={{ width: '100%', height, borderRadius: 16, overflow: 'hidden', background: '#0b1220', flexShrink: 0, position: 'relative' }}
+    >
+      <MapAttribution compact />
+    </div>
   );
 });

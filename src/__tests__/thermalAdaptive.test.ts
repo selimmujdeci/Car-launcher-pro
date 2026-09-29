@@ -95,19 +95,25 @@ describe('Thermal Adaptive UI — Level Transitions & Side Effects', () => {
     expect(document.documentElement.style.getPropertyValue('--thermal-level')).toBe('1');
   });
 
-  it('L2 (Hot): >= 55°C -> SAFE_MODE + Throttling Class', () => {
+  it('L2 (Hot): >= 55°C -> BASIC_JS (SAFE_MODE DEĞİL) + Throttling Class', async () => {
+    const { runtimeManager } = await import('../core/runtime/AdaptiveRuntimeManager');
     injectDeviceTemp(56);
     vi.advanceTimersByTime(2100); // Wait for debounce
     expect(getThermalLevel()).toBe(2);
+    // 55°C'de SAFE_MODE sonraki açılışı da SAFE_MODE'a sokuyordu (saha 2026-09-27).
+    expect(runtimeManager.setMode).toHaveBeenLastCalledWith('BASIC_JS', 'thermal-hot');
+    expect(runtimeManager.setMode).not.toHaveBeenCalledWith('SAFE_MODE', expect.anything());
     expect(document.documentElement.classList.contains('is-thermal-throttling')).toBe(true);
     // Verify --thermal-level CSS variable is set
     expect(document.documentElement.style.getPropertyValue('--thermal-level')).toBe('2');
   });
 
-  it('L3 (Critical): >= 65°C -> Brightness 30 + speakAlert', () => {
+  it('L3 (Critical): >= 65°C -> SAFE_MODE + Brightness 30 + speakAlert', async () => {
+    const { runtimeManager } = await import('../core/runtime/AdaptiveRuntimeManager');
     injectDeviceTemp(66);
     vi.advanceTimersByTime(2100); // Wait for debounce
     expect(getThermalLevel()).toBe(3);
+    expect(runtimeManager.setMode).toHaveBeenLastCalledWith('SAFE_MODE', 'High Temperature');
     expect(document.documentElement.style.getPropertyValue('--thermal-level')).toBe('3');
     // verify mocks were called - check via spies
     expect(mocks.speakAlert).toHaveBeenCalled();

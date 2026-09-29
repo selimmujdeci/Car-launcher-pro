@@ -74,8 +74,9 @@ export const MobileLinkWidget = memo(function MobileLinkWidget() {
   }, []);
 
   /* ── QR çizimi — kod + canvas DOM'da ve görünür olduktan sonra ── */
+  const qrCode = isValidSixDigit(info) ? info!.code : null;
   useEffect(() => {
-    if (!qrReveal || !isValidSixDigit(info)) return;
+    if (!qrReveal || !qrCode) return;
 
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -86,7 +87,7 @@ export const MobileLinkWidget = memo(function MobileLinkWidget() {
       if (ctx) {
         ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
       }
-      void QRCode.toCanvas(canvasRef.current, `${QR_SCHEME}${info!.code}`, {
+      void QRCode.toCanvas(canvasRef.current, `${QR_SCHEME}${qrCode}`, {
         width:                200,
         margin:               2,
         // Tema-bağımsız: koyu modül / beyaz tile → hem gündüz (açık zemin) hem gece
@@ -100,7 +101,7 @@ export const MobileLinkWidget = memo(function MobileLinkWidget() {
     }, 80);
 
     return () => clearTimeout(t);
-  }, [info?.code, qrReveal]);
+  }, [qrCode, qrReveal]);
 
   /* ── Montaj: mobil eşleşme tamamlanmış mı? (bekleyen kod yok) ── */
   useEffect(() => {

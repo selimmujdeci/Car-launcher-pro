@@ -4,7 +4,7 @@ import type { MusicOptionKey } from '../data/apps';
 import type { RuntimeOverride } from '../core/runtime/runtimeTypes';
 import { RuntimeMode }           from '../core/runtime/runtimeTypes';
 import { runtimeManager }        from '../core/runtime/AdaptiveRuntimeManager';
-import { setObdVehicleType } from '../platform/obdService';
+import { noteActiveVehicleType } from '../platform/obd/activeVehicleTypeSink';
 import { safeStorage } from '../utils/safeStorage';
 import { OwnerCommandEvidence, type CommandMessage } from '../platform/message';
 import type { ManufacturerDidProfileId } from '../platform/obd/profiles';
@@ -165,6 +165,8 @@ export const DRIVER_PREF_KEYS = [
   'companionPersonality', 'companionChattiness',
   'companionWakeWordEnabled', 'companionWakeMode', 'companionWakePhrase', 'companionWakeEnrollment',
   'wakeWordEnabled',
+  /* Sürücü ekranı görünümü + rengi — telefonla tanınan sürücüye kendiliğinden gelir (2026-09-27). */
+  'cockpitStyle', 'cockpitAccent',
 ] as const;
 export type DriverPrefKey = typeof DRIVER_PREF_KEYS[number];
 
@@ -204,6 +206,11 @@ export interface AppSettings {
   brightness: number;
   volume: number;
   volumeStyle: VolumeStyle;
+  /** Sürücü ekranı görünümü ve vurgu rengi (kullanıcı seçimi; gündüz/gece `dayNightMode`'dan). */
+  cockpitStyle: 'road' | 'minimal' | 'analog' | 'retro' | 'digital';
+  cockpitAccent: 'blue' | 'red' | 'green' | 'orange' | 'purple' | 'ice';
+  /** Sürüşte sinema modunu (video) KAPATMA — sürücü sorumluluğunda, bilinçli açılır (varsayılan kapalı). */
+  videoWhileDriving: boolean;
   theme: 'dark' | 'oled' | 'light';
   themePack: ThemePack;
   themeStyle: ThemeStyle;
@@ -400,6 +407,9 @@ const DEFAULT_SETTINGS: AppSettings = {
   brightness: 100,
   volume: 60,
   volumeStyle: 'tesla_ultra',
+  cockpitStyle: 'road',
+  cockpitAccent: 'blue',
+  videoWhileDriving: false,
   theme: 'light',
   themePack: 'tesla',
   themeStyle: 'glass',
@@ -563,7 +573,7 @@ export const useStore = create<StoreState>()(
         set((state) => {
           if (id !== null) {
             const profile = state.settings.vehicleProfiles.find((p) => p.id === id);
-            if (profile?.vehicleType) setObdVehicleType(profile.vehicleType);
+            if (profile?.vehicleType) noteActiveVehicleType(profile.vehicleType);
           }
           return { settings: { ...state.settings, activeVehicleProfileId: id } };
         }),

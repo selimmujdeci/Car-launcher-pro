@@ -87,6 +87,8 @@ import {
 } from '../media/transition/transitionRuntime';
 import { startProviderReadiness } from '../ai/gateway/aiProviderReadinessService';
 import { startPlatformCoreAiRuntimeWiring } from './platformCoreAiRuntimeWiring';
+import { readAiDiagnosticsContext } from '../diagnosticSections';
+import { handleAiCoreRunResult } from '../companion/companionProactiveWiring';
 import { startMaintenanceBrain }   from '../diagnostic/maintenanceBrain';
 import { startBatteryEvidenceSource } from '../reasoning/batteryEvidenceSource';
 import { startBatteryVerdictService } from '../reasoning/batteryVerdictService';
@@ -1376,7 +1378,14 @@ class SystemBoot {
     // OTORİTE YOK (yalnız edge-tetikli HAL okuma). Savunmacı catch yalnız sözleşme ihlali için.
     _log('  › AI Core runtime wiring (Faz-2)');
     try {
-      this._reg(gen, startPlatformCoreAiRuntimeWiring());
+      this._reg(gen, startPlatformCoreAiRuntimeWiring({
+        diagnosticsProvider: readAiDiagnosticsContext,
+        // #124 — PROAKTİF KRİTİK ARIZA UYARISI: mevcut edge çalışmasının sonuna binen
+        // fail-soft GÖZLEMCİ. YENİ POLL/TIMER/ABONELİK AÇMAZ; runtime sonucunu
+        // DEĞİŞTİREMEZ. Debounce/güvenlik kapısı/karakter tavanı köprünün DEĞİL,
+        // triggerProactiveDiagnosticAlert'in sorumluluğundadır.
+        onRunResult: (result) => { handleAiCoreRunResult(result); },
+      }));
     } catch (e) {
       logError('SystemBoot:aiRuntimeWiring', e);
     }

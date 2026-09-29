@@ -9,7 +9,9 @@ export default defineConfig([
   // 'test-parser.ts': .gitignore'lu, depoya GİRMEYEN, elle koşulan komut-ayrıştırıcı
   // deneme betiği (bkz. .gitignore:135). Takipsiz olduğu için CI onu hiç görmez;
   // yalnız YEREL lint'i kirletip 'CI yeşil ama yerelde kırmızı' sapması üretiyordu.
-  globalIgnores(['dist', 'website/', 'caros-ale/', '.worktrees/', 'test-parser.ts']),
+  // 'field-runs/': tarihsel saha kanıtı (cihaz koşusu anındaki dosya kopyaları).
+  // Kanıt olduğu için düzenlenmez; lint'i canlı kaynak olmayan kodla kirletiyordu.
+  globalIgnores(['dist', 'website/', 'caros-ale/', '.worktrees/', 'test-parser.ts', 'field-runs/']),
   {
     files: ['**/*.{ts,tsx}'],
     extends: [

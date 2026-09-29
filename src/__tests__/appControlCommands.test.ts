@@ -18,6 +18,8 @@ describe('parseAppControl — dar ve kesin', () => {
     ['bir dakika ileri sar', { op: 'seek', deltaSec: 60 }],
     ['şarkıyı baştan başlat', { op: 'restart' }],
     ['tesla temasına geç', { op: 'theme', theme: 'tesla' }],
+    // Görünen ad "Terra" (marka adı kaldırıldı); dahili kimlik 'tesla' kalır.
+    ['terra temasına geç', { op: 'theme', theme: 'tesla' }],
     ['temayı expedition yap', { op: 'theme', theme: 'expedition' }],
     ['sürücüyü Ayşe yap', { op: 'driver', name: 'Ayşe' }],
     ['Mehmet sürüyor', { op: 'driver', name: 'Mehmet' }],

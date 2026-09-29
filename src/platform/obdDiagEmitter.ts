@@ -20,7 +20,6 @@
  *  ikinci katman olarak yine de uygulanır.
  */
 
-import { reportObdDiag } from './remoteLogService';
 
 /** OBD bağlantı yaşam döngüsündeki tanı fazları */
 export type ObdDiagPhase =
@@ -107,7 +106,7 @@ export function emitObdDiag(
     _lastEmit.set(key, now);
 
     const _baseMsg = detail.msg ?? `${phase} hatası`;
-    void reportObdDiag({
+    const diag = {
       ctx:         'OBD',
       phase,
       errorCode,
@@ -121,7 +120,14 @@ export function emitObdDiag(
       source:      detail.source,
       vehicleType: detail.vehicleType,
       lastSeenMs:  detail.lastSeenMs,
-    });
+    };
+    /* Dinamik import: statik remoteLogService bağımlılığı obdService ↔
+       remoteLogService (destek anlık görüntüsü obdService'i okur) üzerinden
+       büyük import döngüsünü kapatıyordu (importCycleGuard). Çağrı zaten
+       fire-and-forget async idi. */
+    void import('./remoteLogService')
+      .then((m) => m.reportObdDiag(diag))
+      .catch(() => { /* fire-and-forget */ });
     return true;
   } catch {
     return false; // tanı hattı bağlantı akışını asla düşürmez

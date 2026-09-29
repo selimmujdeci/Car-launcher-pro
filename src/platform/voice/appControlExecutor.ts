@@ -18,7 +18,7 @@ export interface AppControlOutcome {
 }
 
 const THEME_LABEL: Record<CoreThemeName, string> = {
-  expedition: 'Expedition', horizon: 'Horizon', tesla: 'Tesla', pro: 'Pro',
+  expedition: 'Expedition', horizon: 'Horizon', tesla: 'Terra', pro: 'Pro',
 };
 
 function fmtDelta(sec: number): string {

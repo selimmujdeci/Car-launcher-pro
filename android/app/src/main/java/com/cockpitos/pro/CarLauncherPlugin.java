@@ -790,10 +790,13 @@ public class CarLauncherPlugin extends Plugin {
 
         IntentFilter ifilter = new IntentFilter(Intent.ACTION_BATTERY_CHANGED);
         Intent bat = getContext().registerReceiver(null, ifilter);
-        int level = bat != null ? bat.getIntExtra(BatteryManager.EXTRA_LEVEL, 0)  : 0;
-        int scale = bat != null ? bat.getIntExtra(BatteryManager.EXTRA_SCALE, 100): 100;
-        int pct   = scale > 0 ? (int) ((level / (float) scale) * 100) : 0;
-        result.put("battery", pct);
+        /* Pil yok (head unit) ya da okunamadı → null (UNKNOWN); sahte 0 YAZILMAZ. */
+        boolean present = bat != null && (!bat.hasExtra(BatteryManager.EXTRA_PRESENT)
+            || bat.getBooleanExtra(BatteryManager.EXTRA_PRESENT, true));
+        int level = bat != null ? bat.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) : -1;
+        int scale = bat != null ? bat.getIntExtra(BatteryManager.EXTRA_SCALE, -1) : -1;
+        Integer pct = DeviceBattery.percentOrNull(present, level, scale);
+        result.put("battery", pct != null ? pct : org.json.JSONObject.NULL);
 
         int status = bat != null ? bat.getIntExtra(BatteryManager.EXTRA_STATUS, -1) : -1;
         result.put("charging",
@@ -5175,7 +5178,24 @@ public class CarLauncherPlugin extends Plugin {
                             buf[i] = (short) v;
                             sumSq += (double) v * v;
                         }
-                        double rms = Math.sqrt(sumSq / n) / 32768.0;
+                        /* ── SAHA 2026-09-12 · VAD KAPISI BİRİM UYUŞMAZLIĞINDAN AÇIK KALIYORDU ──
+                         * `sumSq` YUKARIDA `gApplied` ile YÜKSELTİLMİŞ örneklerden toplanıyor,
+                         * ama `VAD_RMS_ON` (0.012) bir SİNYAL SEVİYESİ eşiği olarak yazılmış.
+                         * Kazanç 2.0 iken kapı gerçekte 0.006'ya (≈ -44 dBFS) iniyor — park
+                         * hâlindeki sessiz kabinin gürültü tabanının ALTINA. Tek kare eşiği
+                         * aşınca 1.2 sn hangover decode'u ayakta tutuyor → kapı hiç kapanmıyor.
+                         *
+                         * GERÇEK CİHAZDA ÖLÇÜLDÜ (ceres-b3 · 4×A53 1.46 GHz · araç park, müzik
+                         * DURAKLATILMIŞ, ekrana dokunulmuyor): `vosk-wake-grammar` bir çekirdeğin
+                         * %29.5'ini SÜREKLİ yakıyor — uygulamanın boştaki %60 CPU'sunun yarısı.
+                         * Satır 4885'teki kendi kaydına göre kapısız hâl %39'du: kapı yalnız
+                         * ~%24 kazandırıyor, oysa sessizlikte ~%99 kazandırması bekleniyordu.
+                         *
+                         * DÜZELTME: RMS'i kazançtan BAĞIMSIZ ölç. Vosk'a beslenen sinyal
+                         * (yükseltilmiş `buf`) DEĞİŞMEZ — yalnız kapının birimi düzelir, eşik
+                         * sabiti yazıldığı anlama kavuşur. Pre-roll ve hangover KORUNUR. */
+                        final double _vadGainNorm = gApplied > 0f ? gApplied : 1f;
+                        double rms = Math.sqrt(sumSq / n) / 32768.0 / _vadGainNorm;
 
                         /* MAVI-STT-LAB-1: wake yolunda ÖĞRENİLEN taban YOKTUR — eşik SABİTTİR
                            (VAD_RMS_ON). noiseFloor bu yolda hiç yazılmaz → LAB "ÖĞRENİLMEDİ"

@@ -22,7 +22,9 @@ on:
       - "website/**"
       - ".github/workflows/website.yml"
   pull_request:
-    branches: [main, dev]
+    # `feat/**` (2026-09-27): feat'e açılan PR'lar (#133, #134, #135) hiç CI
+    # almıyordu; push tetikleyicisi yalnız feat dalının kendisini kapsıyor.
+    branches: [main, dev, 'feat/**']
     paths:
       - "website/**"
       - ".github/workflows/website.yml"

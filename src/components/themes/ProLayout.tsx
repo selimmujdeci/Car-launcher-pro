@@ -2,10 +2,10 @@ import { isObdReadingLive } from '../../platform/vehicleStatusModel';
 import { memo, useEffect, useState, useMemo, useRef, lazy, Suspense, createContext, useContext } from 'react';
 const VoiceAssistant = lazy(() => import('../modals/VoiceAssistant').then(m => ({ default: m.VoiceAssistant })));
 import {
-  Navigation, Maximize2, SkipBack, SkipForward, Play, Pause,
+  Navigation, SkipBack, SkipForward, Play, Pause,
   Phone, Mic, Bell, Wind, Settings, LayoutGrid,
-  Map as MapIcon, Music2, Lock, Plug, Fan, ChevronRight,
-  CornerUpRight, Snowflake, BatteryCharging, Plus, Check, X,
+  Map as MapIcon, Music2, ChevronRight,
+  CornerUpRight, Snowflake, Fuel, Plus, Check, X,
   AlertTriangle, Camera, Route, ShieldAlert, Shield, Tv2, Zap, Wrench,
   FlaskConical,
 } from 'lucide-react';
@@ -19,6 +19,7 @@ import { useDeviceStatus } from '../../platform/deviceApi';
 import { StatusControls } from '../common/StatusControls';
 import { useOBDState } from '../../platform/obdService';
 import { useDisplaySpeed, formatDisplaySpeed } from '../../hooks/useDisplaySpeed';
+import { useGearLabel, useSpeedLimitSign } from '../../hooks/useThemeVehicleBadges';
 import { useMediaState, togglePlayPause, startMediaHub, stopMediaHub } from '../../platform/mediaService';
 import { next, previous, resumeLastMedia, previewLastMedia, seek } from '../../platform/media/carosMediaLayer';
 import { preloadYouTubeIfAffordable } from '../../platform/youtubeService';
@@ -140,7 +141,7 @@ function cardStyle(p: Pal, opts?: { solid?: boolean; pad?: number }): React.CSSP
 function CardLabel({ children }: { children: React.ReactNode }) {
   const p = usePal();
   return (
-    <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: '0.06em', textTransform: 'uppercase', color: p.ink2 }}>
+    <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: '0.06em', textTransform: 'uppercase', color: p.ink2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>
       {children}
     </div>
   );
@@ -155,7 +156,7 @@ const StatusCluster = memo(function StatusCluster() {
   // guard'ı) → K24'te solid yeşil nokta, kasma yok.
   const online = useLivingThemeState().conn === 'online';
   return (
-    <div className="flex items-center gap-2.5" style={{ color: p.ink2 }}>
+    <div className="flex items-center gap-2.5" style={{ color: p.ink2, minWidth: 0 }}>
       <span
         className={online ? 'lt-pulse' : undefined}
         aria-label={online ? 'Çevrimiçi' : 'Çevrimdışı'}
@@ -166,9 +167,13 @@ const StatusCluster = memo(function StatusCluster() {
         }}
       />
       <StatusControls palette={{ ink: p.ink, ink2: p.ink2, accent: p.accent, surface: p.cardSolid }} size={15} />
-      <span style={{ fontSize: 12, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: p.ink }}>
-        {device.ready ? `${device.battery}%` : '—'}
-      </span>
+      {/* Cihaz pili yoksa etiketsiz "—" basılmaz: müzik kartının sağ kenarından taşıyordu.
+          Pil yok/okunamadı (null) → gösterge HİÇ çizilmez; sahte "0%" yok. */}
+      {device.ready && device.battery !== null && (
+        <span style={{ fontSize: 12, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: p.ink }}>
+          {`${device.battery}%`}
+        </span>
+      )}
     </div>
   );
 });
@@ -201,6 +206,12 @@ const GaugeCard = memo(function GaugeCard() {
   const range = isObdReadingLive(obd) && obd.estimatedRangeKm != null && obd.estimatedRangeKm >= 0
     ? Math.round(obd.estimatedRangeKm)
     : null;
+  /* Limit + vites kanonik kaynaktan (kokpitle AYNI hüküm). Bilinmiyorsa levha/vites
+     hiç çizilmez — sabit "90" ve "D AUTO" UYDURMAYDI. */
+  const limitSign = useSpeedLimitSign();
+  const limitKmh = limitSign?.kmh ?? null;
+  const limitDefinitive = limitSign?.definitive === true;
+  const gear = useGearLabel();
 
   const R = 52, cx = 64, cy = 64, START = 135, SPAN = 270;
   const arc = useMemo(() => {
@@ -227,24 +238,32 @@ const GaugeCard = memo(function GaugeCard() {
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
           <span style={{ fontSize: 40, fontWeight: 800, color: p.inkCritical, lineHeight: 1, fontVariantNumeric: 'tabular-nums', letterSpacing: '-1px' }}>{formatDisplaySpeed(rawSpeed)}</span>
-          <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.22em', color: p.ink3, marginTop: 2 }}>KM/S</span>
+          <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.22em', color: p.ink3, marginTop: 2 }}>KM/H</span>
         </div>
       </div>
 
-      {/* Sürüş modu + limit */}
-      <div className="w-full flex items-center justify-between" style={{ marginTop: 4 }}>
-        <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl" style={{ background: p.tile }}>
-          <span style={{ fontSize: 13, fontWeight: 800, color: p.accent }}>D</span>
-          <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.14em', color: p.ink2 }}>AUTO</span>
+      {/* Vites + limit — ikisi de yalnız kanıtlıysa */}
+      {(gear !== null || limitKmh !== null) && (
+        <div className="w-full flex items-center justify-between" style={{ marginTop: 4, minHeight: 34 }}>
+          {gear !== null ? (
+            <div data-testid="pro-gauge-gear" className="flex items-center px-2.5 py-1.5 rounded-xl" style={{ background: p.tile }}>
+              <span style={{ fontSize: 13, fontWeight: 800, color: p.accent }}>{gear}</span>
+            </div>
+          ) : <span />}
+          {limitKmh !== null && (
+            <div data-testid="pro-gauge-limit" data-definitive={limitDefinitive ? 'true' : 'false'}
+              className="flex flex-col items-center justify-center rounded-full"
+              style={{ width: 34, height: 34, border: `2.5px ${limitDefinitive ? 'solid' : 'dashed'} #E0322B`, background: p.cardSolid }}>
+              <span style={{ fontSize: 13, fontWeight: 800, color: p.ink, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{limitKmh}</span>
+            </div>
+          )}
         </div>
-        <div className="flex flex-col items-center justify-center rounded-full" style={{ width: 34, height: 34, border: '2.5px solid #E0322B', background: p.cardSolid }}>
-          <span style={{ fontSize: 13, fontWeight: 800, color: p.ink, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>90</span>
-        </div>
-      </div>
+      )}
 
       {/* Menzil */}
       <div className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl" style={{ background: p.tile }}>
-        <BatteryCharging className="w-3.5 h-3.5" style={{ color: p.good }} />
+        {/* Menzil yakıttan hesaplanır (estimatedRangeKm) — şarj ikonu yanlış anlam veriyordu. */}
+        <Fuel className="w-3.5 h-3.5" style={{ color: p.good }} />
         <span style={{ fontSize: 15, fontWeight: 800, color: p.ink, fontVariantNumeric: 'tabular-nums' }}>{range ?? '—'}</span>
         <span style={{ fontSize: 11, fontWeight: 600, color: p.ink2 }}>km</span>
       </div>
@@ -280,7 +299,8 @@ const SettingsCard = memo(function SettingsCard({ onOpenSettings }: { onOpenSett
       </div>
       <div className="min-w-0 text-left">
         <div style={{ fontSize: 15, fontWeight: 800, color: p.ink, lineHeight: 1 }}>Ayarlar</div>
-        <div className="truncate" style={{ fontSize: 11, fontWeight: 500, color: p.ink2, marginTop: 3 }}>Sistem · Tema</div>
+        {/* Dar sol rayda (1024×600: 54px) "Sistem ·…" diye kesiliyordu → gerekirse 2 satır. */}
+        <div style={{ fontSize: 11, fontWeight: 500, color: p.ink2, marginTop: 3, lineHeight: 1.2 }}>Sistem · Tema</div>
       </div>
     </button>
   );
@@ -321,9 +341,8 @@ const NavCard = memo(function NavCard({ onOpenMap, fullMapOpen }: { onOpenMap: (
             </div>
           </div>
         ) : <div />}
-        <div className="flex items-center justify-center rounded-xl pointer-events-auto" style={{ width: 34, height: 34, background: p.dockBg, border: p.dockBorder, backdropFilter: 'blur(8px)' }}>
-          <Maximize2 className="w-4 h-4" style={{ color: p.ink2 }} />
-        </div>
+        {/* Ayrı "genişlet" kutusu kaldırıldı: mini haritanın kendi genişlet düğmesiyle
+            aynı köşede üst üste biniyordu (iki ikon). */}
       </div>
 
       {/* Kütük #382/#431 — SAHTE ETA ŞERİDİ KALDIRILDI (saha 2026-08-05).
@@ -398,13 +417,12 @@ const MusicCard = memo(function MusicCard() {
 
   return (
     <div data-editable="pro.music" data-editable-type="media" style={{ ...cardStyle(p), padding: 16 }} className="flex-1 min-h-0 flex flex-col">
-      <div className="flex items-center justify-between mb-3">
+      <div className="flex items-center justify-between mb-3" style={{ gap: 8 }}>
         <CardLabel>Müzik</CardLabel>
-        <StatusCluster />
       </div>
       {/* Albüm alanı — dokununca müzik kütüphanesi açılır */}
       <button onClick={() => openMusicDrawer()} className="flex items-center gap-3.5 flex-1 min-h-0 bg-transparent border-none cursor-pointer text-left p-0">
-        <div className="rounded-2xl overflow-hidden flex items-center justify-center flex-shrink-0" style={{ width: 74, height: 74, background: 'linear-gradient(135deg,#7c3aed,#db2777 60%,#f97316)', boxShadow: `0 10px 24px ${p.night ? 'rgba(124,58,237,0.45)' : 'rgba(124,58,237,0.30)'}` }}>
+        <div className="rounded-2xl overflow-hidden flex items-center justify-center flex-shrink-0" style={{ width: 74, height: 74, backgroundColor: '#7c3aed', backgroundImage: 'linear-gradient(135deg,#7c3aed,#db2777 60%,#f97316)', boxShadow: `0 10px 24px ${p.night ? 'rgba(124,58,237,0.45)' : 'rgba(124,58,237,0.30)'}` }}>
           {track.albumArt ? <img src={track.albumArt} className="w-full h-full object-cover" alt="" /> : <Music2 className="w-7 h-7" style={{ color: 'rgba(255,255,255,0.9)' }} />}
         </div>
         <div className="flex-1 min-w-0">
@@ -429,15 +447,17 @@ const MusicCard = memo(function MusicCard() {
           )}
         </div>
         <div className="flex items-center justify-between">
-          <span style={{ fontSize: 11, color: p.ink3, fontVariantNumeric: 'tabular-nums' }}>{total > 0 ? fmt(dragPct != null ? (dragPct / 100) * total : elapsed) : '--:--'}</span>
-          <div className="flex items-center gap-4">
+          {/* Süreler kırılmaz/ezilmez: sürüşte düğmeler 56px olunca "--:--" üç satıra
+              bölünüyordu (1024×600). Düğme aralığı 16→8px ile satır yine sığar. */}
+          <span style={{ fontSize: 11, color: p.ink3, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', flexShrink: 0 }}>{total > 0 ? fmt(dragPct != null ? (dragPct / 100) * total : elapsed) : '--:--'}</span>
+          <div className="flex items-center gap-2">
             <button onClick={(e) => { e.stopPropagation(); previous(); }} className="active:scale-90 transition-all bg-transparent border-none cursor-pointer" style={{ color: p.ink2 }}><SkipBack className="w-5 h-5" /></button>
             <button onClick={(e) => { e.stopPropagation(); handlePlay(); }} className="flex items-center justify-center rounded-full active:scale-90 transition-all cursor-pointer" style={{ width: 42, height: 42, background: p.accent, boxShadow: `0 6px 18px ${p.accentGlow}`, border: 'none' }}>
               {playing ? <Pause className="w-5 h-5" style={{ fill: '#fff', color: '#fff' }} /> : <Play className="w-5 h-5 ml-0.5" style={{ fill: '#fff', color: '#fff' }} />}
             </button>
             <button onClick={(e) => { e.stopPropagation(); next(); }} className="active:scale-90 transition-all bg-transparent border-none cursor-pointer" style={{ color: p.ink2 }}><SkipForward className="w-5 h-5" /></button>
           </div>
-          <span style={{ fontSize: 11, color: p.ink3, fontVariantNumeric: 'tabular-nums' }}>{total > 0 ? fmt(total) : '--:--'}</span>
+          <span style={{ fontSize: 11, color: p.ink3, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', flexShrink: 0 }}>{total > 0 ? fmt(total) : '--:--'}</span>
         </div>
       </div>
     </div>
@@ -521,31 +541,34 @@ const VehicleCard = memo(function VehicleCard({ onOpenSettings, onLaunch }: { on
   const range = live && obd.estimatedRangeKm != null && obd.estimatedRangeKm >= 0
     ? Math.round(obd.estimatedRangeKm)
     : null;
-  const toggles = [
-    { Icon: Lock, label: 'KİLİT', fn: onOpenSettings },
-    { Icon: Fan, label: 'HAVALANDIR', fn: () => openDrawer('climate') },
-    { Icon: Plug, label: 'ŞARJ', fn: onOpenSettings },
-    { Icon: Settings, label: 'AYAR', fn: onOpenSettings },
-  ];
-
+  /* Eski alt satır (KİLİT / HAVALANDIR / ŞARJ / AYAR) kaldırıldı: KİLİT ve ŞARJ
+     araca komut göndermiyor, yalnız Ayarlar'ı açıyordu (sahte kontrol); üstelik
+     720p'de kartı taşırıp araç görselini durum yazısı ve yol sayacıyla
+     çakıştırıyordu. Kartın tamamı Ayarlar'a gider (Tesla/Expedition ile aynı). */
   return (
-    <div data-editable="pro.vehicle" data-editable-type="card" style={{ ...cardStyle(p, { solid: true }), padding: 16, opacity: st.dim ? 0.6 : 1 }} className="flex-1 min-h-0 flex flex-col">
+    <div data-editable="pro.vehicle" data-editable-type="card" onClick={onOpenSettings} style={{ ...cardStyle(p, { solid: true }), padding: 16, opacity: st.dim ? 0.6 : 1, cursor: 'pointer' }} className="flex-1 min-h-0 flex flex-col overflow-hidden">
       {/* Durum şeridi — uyarı/tehlikede ince statik renk (box-shadow/blur YOK, Mali-safe) */}
       {st.accent && (
         <div style={{ height: 3, borderRadius: 2, background: st.accent, marginBottom: 8, opacity: 0.9 }} />
       )}
-      <div className="flex items-start justify-between">
-        <div className="flex items-center gap-2">
+      {/* Durum yazısı ÖNCELİKLİ: 1024×600'de "OBD Bağlı De…" diye kesiliyordu; artık
+          kısalan kart başlığıdır (uyarı — ör. "Motor Isısı Yüksek" — her zaman tam okunur). */}
+      <div className="flex items-center justify-between" style={{ gap: 8 }}>
+        <div className="flex items-center gap-2" style={{ minWidth: 0 }}>
           <CardLabel>Araç Durumu</CardLabel>
-          <ChevronRight className="w-3.5 h-3.5" style={{ color: p.ink3 }} />
+          <ChevronRight className="w-3.5 h-3.5 flex-shrink-0" style={{ color: p.ink3 }} />
         </div>
+        <div data-testid="pro-vehicle-status" style={{ fontSize: 15, fontWeight: 800, color: st.color(p), whiteSpace: 'nowrap', flexShrink: 0 }}>{st.label}</div>
       </div>
-      <div style={{ fontSize: 20, fontWeight: 800, color: st.color(p), marginTop: 4 }}>{st.label}</div>
 
       <div className="flex-1 min-h-0 flex items-center gap-3 my-1">
         <div className="flex-1 flex items-center justify-center min-w-0"><VehicleSVG p={p} /></div>
-        <div className="flex flex-col gap-2 flex-shrink-0" style={{ minWidth: 88 }}>
-          <Stat p={p} icon={<BatteryCharging className="w-4 h-4" style={{ color: p.good }} />} value={battery != null ? `${battery}%` : '—'} label="Batarya" />
+        {/* gap 8→4 + sıkı satır: sütun (≈103px) 1024×600'de orta alana (87–99px)
+            sığmıyor, "Menzil" yol sayacı satırına biniyordu. */}
+        <div className="flex flex-col gap-1 flex-shrink-0" style={{ minWidth: 88 }}>
+          {/* Değer OBD YAKIT DEPOSU seviyesidir (PID 0x2F) — "Batarya" + şarj ikonu
+              içten yanmalı araçta akü şarjı sanılıyordu. */}
+          <Stat p={p} icon={<Fuel className="w-4 h-4" style={{ color: p.good }} />} value={battery != null ? `${battery}%` : '—'} label="Yakıt" />
           {/* Lastik basıncı: "2.5 bar" SABİT YAZILMIŞTI — hiçbir TPMS kaynağına bağlı değil,
               düpedüz uydurma. Gerçek TPMS okuması bağlanana dek dürüstçe '—'. */}
           <Stat p={p} icon={<Snowflake className="w-4 h-4" style={{ color: p.accent }} />} value="—" label="Lastik" />
@@ -557,22 +580,13 @@ const VehicleCard = memo(function VehicleCard({ onOpenSettings, onLaunch }: { on
           kümülatif odometre ("Kilometre") vardı; sıfırlanamadığı için hep 0
           okunuyordu. Sıfırla butonu 88px'lik kolona sığmaz → tam genişlikte
           kendi satırında (yeni panel AÇILMAZ, aynı kartın içinde). */}
-      <TripMeterRow
-        palette={{ ink: p.ink, ink2: p.ink2, ink3: p.ink3, accent: p.accent, tile: p.tile, edge: p.tile }}
-        valueSize={18} unitSize={12} labelSize={10} iconSize={16} gap={8}
-        showTopBorder
-        style={{ marginTop: 4 }}
-      />
-
-      <div className="flex items-center justify-between pt-3" style={{ borderTop: p.border, gap: 6 }} onClick={e => e.stopPropagation()}>
-        {toggles.map(({ Icon, label, fn }) => (
-          <button key={label} onClick={fn} className="flex flex-col items-center gap-1.5 flex-1 active:scale-95 transition-all bg-transparent border-none cursor-pointer">
-            <div className="flex items-center justify-center rounded-xl" style={{ width: 38, height: 38, background: p.tile }}>
-              <Icon className="w-4 h-4" style={{ color: p.ink2 }} />
-            </div>
-            <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.04em', color: p.ink2 }}>{label}</span>
-          </button>
-        ))}
+      <div className="flex-shrink-0" onClick={e => e.stopPropagation()}>
+        <TripMeterRow
+          palette={{ ink: p.ink, ink2: p.ink2, ink3: p.ink3, accent: p.accent, tile: p.tile, edge: p.tile }}
+          valueSize={18} unitSize={12} labelSize={10} iconSize={16} gap={8}
+          showTopBorder compact
+          style={{ marginTop: 4 }}
+        />
       </div>
       {/* youtube/monitor erişimi gizli koru */}
       <span className="hidden" onClick={() => onLaunch('youtube')} />
@@ -586,7 +600,7 @@ function Stat({ p, icon, value, label }: { p: Pal; icon: React.ReactNode; value:
       {icon}
       <div>
         <div style={{ fontSize: 14, fontWeight: 800, color: p.ink, lineHeight: 1.1, fontVariantNumeric: 'tabular-nums' }}>{value}</div>
-        <div style={{ fontSize: 10, fontWeight: 700, color: p.ink2 }}>{label}</div>
+        <div style={{ fontSize: 10, fontWeight: 700, color: p.ink2, lineHeight: 1.1 }}>{label}</div>
       </div>
     </div>
   );
@@ -916,6 +930,16 @@ export const ProLayout = memo(function ProLayout({
             {/* Zone'lar Yerleşim Motoru'ndan — sıra/görünürlük/boyut niyete göre; varsayılan = mevcut ekran */}
             {RAIL_ZONES.map((zone) => (
               <div key={zone} className="flex flex-col" style={zoneOuterStyle(zone)}>
+                {/* Durum çubuğu — kart düzeninden BAĞIMSIZ sabit yer (R11). Müzik kartı
+                    başlığında 1024 tabanda ~190 px'e 6+ öğelik (~290 px) küme sığmıyor,
+                    sağ kenardan taşıyordu (1024×600'de GPS/ses ekran dışında); kart Tema
+                    Stüdyo'dan gizlenince Wi-Fi/BT/sürücü/ses erişimi de kayboluyordu.
+                    Orta sütun en geniş alandır; harita kartı esneyerek yer açar. */}
+                {zone === 'center-stage' && (
+                  <div data-testid="pro-status-bar" className="flex items-center justify-center flex-shrink-0" style={{ minHeight: 44 }}>
+                    <StatusCluster />
+                  </div>
+                )}
                 {solved[zone].groups.map((g, i) => (
                   g.length === 1
                     ? (

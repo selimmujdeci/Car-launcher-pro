@@ -1,4 +1,5 @@
 import { bindMapUserInteraction } from '../../platform/map/bindMapUserInteraction';
+import { MapAttribution } from './MapAttribution';
 import { syncRouteTrafficOverlay } from '../../platform/map/routeTrafficOverlay';
 import { useEffect, useRef, useState, useCallback, memo, lazy, Suspense } from 'react';
 import type { Map as MapLibreMap } from 'maplibre-gl';
@@ -679,7 +680,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
     redrawDirtyRef.current    = true;
     wakeLoopRef.current?.();
     completeRecenter();
-  }, []);
+  }, [entryBearingArgs]);
 
 
   useEffect(() => {
@@ -1438,7 +1439,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
     };
 
     return bindMapUserInteraction(map, notifyUserPanStart, () => notifyUserPanEnd(applyRecenter));
-  }, [mapStatus]);
+  }, [mapStatus, entryBearingArgs]);
 
   /* Otorite → yerel ayna. Sıcak yol (rAF/GPS tick) `isFollowingRef`i okur;
    * her karede modül çağırmak gereksiz maliyet olurdu. */
@@ -1879,7 +1880,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
     return (
       <div
         className="fixed inset-0 z-[var(--z-map-fatal)] flex flex-col items-center justify-center gap-8 p-10"
-        style={{ background: 'linear-gradient(160deg,#08090e,#0a0c12)' }}
+        style={{ backgroundColor: '#08090e', backgroundImage: 'linear-gradient(160deg,#08090e,#0a0c12)' }}
       >
         {/* Kapatma — sağ üst */}
         <button
@@ -2014,6 +2015,8 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
           transition: 'opacity 500ms ease, filter 5s ease',
         }}
       />
+      {/* Harita verisi lisans atfı — düz metin (MapLibre'nin HTML atfı güvenlik gereği kapalı). */}
+      <MapAttribution />
 
       {/* Vignette — HUD geçişi için hafif gradyan (koyu değil, sadece kenar yumuşatma) */}
       <div

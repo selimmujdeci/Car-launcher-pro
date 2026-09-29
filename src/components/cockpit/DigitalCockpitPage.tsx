@@ -24,6 +24,8 @@ export function DigitalCockpitPage() {
   const state = useCockpitData();
   const dayNightMode = useStore((s) => s.settings.dayNightMode);
   const use24Hour = useStore((s) => s.settings.use24Hour);
+  const cockpitStyle = useStore((s) => s.settings.cockpitStyle);
+  const cockpitAccent = useStore((s) => s.settings.cockpitAccent);
   const { time, date } = useClock(use24Hour, false);
 
   const onPrev = useCallback(() => { void mediaPrevious(); }, []);
@@ -40,6 +42,8 @@ export function DigitalCockpitPage() {
       onMediaPrevious={onPrev}
       onMediaToggle={onToggle}
       onMediaNext={onNext}
+      styleId={cockpitStyle}
+      accent={cockpitAccent}
     />
   );
 }

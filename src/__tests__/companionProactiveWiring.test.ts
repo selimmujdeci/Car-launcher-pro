@@ -143,9 +143,11 @@ describe('KİLİT — proaktif bağlantı yeni bir zamanlayıcı KURMAZ', () => 
   });
 
   it('bağlantı aiCore edge döngüsünün gözlemcisinden gelir', () => {
+    // Gözlemci SystemBoot'tan enjekte edilir (wiring ↔ companion import döngüsü kapalı).
     const wiring = read('src/platform/system/platformCoreAiRuntimeWiring.ts');
-    expect(wiring).toContain('handleAiCoreRunResult');
-    expect(wiring).toContain('onRunResult');
+    expect(wiring).toContain('onRunResult: deps.onRunResult');
+    const boot = read('src/platform/system/SystemBoot.ts');
+    expect(boot).toMatch(/onRunResult: \(result\) => \{ handleAiCoreRunResult\(result\); \}/);
     const runtime = read('src/platform/aiCore/runtime/aiCoreRuntime.ts');
     // Gözlemci runtime'ın KENDİ edge tetiğine biner; yeni abonelik/timer eklenmedi.
     expect(runtime).toContain('onRunResult gözlemci hatası — izole');
