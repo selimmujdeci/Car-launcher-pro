@@ -34,6 +34,8 @@ export interface TripFuelCategoryInput {
   pricePerLiter?:      number;
   source?:             CostItemSource;
   confidence?:         number;
+  /** Fiyat kaynağı bayat mı — bkz. `FuelCostInput.stale`. */
+  stale?:              boolean;
 }
 
 export interface TripTollCategoryInput {
@@ -70,6 +72,7 @@ export function buildFuelProvider(fuel: TripFuelCategoryInput): CostProvider {
     currency:           ctx.reportCurrency,
     source:             fuel.source,
     confidence:         fuel.confidence,
+    stale:              fuel.stale,
   }));
 }
 

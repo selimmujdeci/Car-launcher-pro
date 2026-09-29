@@ -28,6 +28,7 @@ import {
 import {
   TRIP_COST_GAP_LABEL, TRIP_COST_CATEGORY_REASON_LABEL,
 } from '../../../platform/trip/cost/tripCostComposition';
+import { FUEL_PRICE_STATE_LABEL } from '../../../platform/trip/cost/fuelPricePack';
 
 /* ── OEM tokenlar (tek katman) ─────────────────────────────────────────── */
 
@@ -109,6 +110,10 @@ function TripCostScreenBase() {
   const outcome = row?.outcome ?? null;
   const report = outcome?.report ?? null;
   const currency = outcome?.plan?.currency ?? '';
+  const fuelItem = report
+    ? [...report.knownItems, ...report.missingItems, ...report.mismatchedItems]
+      .find((i) => i.category === 'fuel') ?? null
+    : null;
 
   return (
     <div className="flex flex-col gap-3 p-3">
@@ -204,6 +209,31 @@ function TripCostScreenBase() {
             )}
           </Section>
 
+          {/* ── Yakıt kalemi — fiyat TABLODAN (tahmin), tüketim VARSAYIM ── */}
+          <Section title="Yakıt kalemi">
+            <Row label="Tutar">
+              {fuelItem === null ? UNAVAILABLE : (
+                <Chip tone={fuelItem.status === 'known' ? OK : WARN}>
+                  {amountText(fuelItem.value, currency)}
+                  {fuelItem.status === 'stale' ? ' · BAYAT' : ''}
+                </Chip>
+              )}
+            </Row>
+            <Row label="Fiyat">{FUEL_PRICE_STATE_LABEL[row.fuel.priceState]}</Row>
+            <Row label="Birim fiyat">
+              {row.fuel.input.pricePerLiter === undefined
+                ? 'BİLİNMİYOR' : `${row.fuel.input.pricePerLiter.toFixed(2)} / L`}
+            </Row>
+            <Row label="Fiyat kaynağı">
+              {row.fuel.priceSource === null ? UNAVAILABLE
+                : `${row.fuel.priceSource} · ${row.fuel.observedOn} (${row.fuel.ageDays} gün önce)`}
+            </Row>
+            <Row label="Tüketim (VARSAYIM, ölçüm değil)">
+              {row.fuel.input.consumptionL100Km === undefined
+                ? UNAVAILABLE : `${row.fuel.input.consumptionL100Km} L/100 km`}
+            </Row>
+          </Section>
+
           {/* ── Rapor — tutarsız kalem sıfır YAZILMAZ ── */}
           <Section title="Maliyet raporu">
             {report === null ? (
@@ -237,7 +267,8 @@ function TripCostScreenBase() {
           <p className="flex items-start gap-1.5 text-[11px] text-[var(--oem-ink-3)]">
             <AlertTriangle size={12} className="mt-0.5 shrink-0" />
             <span>
-              Fiyat kaynakları HENÜZ BAĞLI DEĞİL (TRIP-COST P2–P5). Kaynağı olmayan
+              Yakıt fiyatı beyanlı tablodan gelir (tahmin); otoyol/otopark/konaklama
+              fiyat kaynakları HENÜZ BAĞLI DEĞİL (TRIP-COST P3–P5). Kaynağı olmayan
               kalem <b>0 yazmaz</b>, &quot;BİLİNMİYOR&quot; der ve toplama girmez.
               Beyan edilmeyen alanın kategorisi ise hiç açılmaz — varsayılan
               değerle doldurulmaz.
