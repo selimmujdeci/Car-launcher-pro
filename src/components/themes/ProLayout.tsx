@@ -141,7 +141,7 @@ function cardStyle(p: Pal, opts?: { solid?: boolean; pad?: number }): React.CSSP
 function CardLabel({ children }: { children: React.ReactNode }) {
   const p = usePal();
   return (
-    <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: '0.06em', textTransform: 'uppercase', color: p.ink2 }}>
+    <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: '0.06em', textTransform: 'uppercase', color: p.ink2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>
       {children}
     </div>
   );
@@ -299,7 +299,8 @@ const SettingsCard = memo(function SettingsCard({ onOpenSettings }: { onOpenSett
       </div>
       <div className="min-w-0 text-left">
         <div style={{ fontSize: 15, fontWeight: 800, color: p.ink, lineHeight: 1 }}>Ayarlar</div>
-        <div className="truncate" style={{ fontSize: 11, fontWeight: 500, color: p.ink2, marginTop: 3 }}>Sistem · Tema</div>
+        {/* Dar sol rayda (1024×600: 54px) "Sistem ·…" diye kesiliyordu → gerekirse 2 satır. */}
+        <div style={{ fontSize: 11, fontWeight: 500, color: p.ink2, marginTop: 3, lineHeight: 1.2 }}>Sistem · Tema</div>
       </div>
     </button>
   );
@@ -446,15 +447,17 @@ const MusicCard = memo(function MusicCard() {
           )}
         </div>
         <div className="flex items-center justify-between">
-          <span style={{ fontSize: 11, color: p.ink3, fontVariantNumeric: 'tabular-nums' }}>{total > 0 ? fmt(dragPct != null ? (dragPct / 100) * total : elapsed) : '--:--'}</span>
-          <div className="flex items-center gap-4">
+          {/* Süreler kırılmaz/ezilmez: sürüşte düğmeler 56px olunca "--:--" üç satıra
+              bölünüyordu (1024×600). Düğme aralığı 16→8px ile satır yine sığar. */}
+          <span style={{ fontSize: 11, color: p.ink3, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', flexShrink: 0 }}>{total > 0 ? fmt(dragPct != null ? (dragPct / 100) * total : elapsed) : '--:--'}</span>
+          <div className="flex items-center gap-2">
             <button onClick={(e) => { e.stopPropagation(); previous(); }} className="active:scale-90 transition-all bg-transparent border-none cursor-pointer" style={{ color: p.ink2 }}><SkipBack className="w-5 h-5" /></button>
             <button onClick={(e) => { e.stopPropagation(); handlePlay(); }} className="flex items-center justify-center rounded-full active:scale-90 transition-all cursor-pointer" style={{ width: 42, height: 42, background: p.accent, boxShadow: `0 6px 18px ${p.accentGlow}`, border: 'none' }}>
               {playing ? <Pause className="w-5 h-5" style={{ fill: '#fff', color: '#fff' }} /> : <Play className="w-5 h-5 ml-0.5" style={{ fill: '#fff', color: '#fff' }} />}
             </button>
             <button onClick={(e) => { e.stopPropagation(); next(); }} className="active:scale-90 transition-all bg-transparent border-none cursor-pointer" style={{ color: p.ink2 }}><SkipForward className="w-5 h-5" /></button>
           </div>
-          <span style={{ fontSize: 11, color: p.ink3, fontVariantNumeric: 'tabular-nums' }}>{total > 0 ? fmt(total) : '--:--'}</span>
+          <span style={{ fontSize: 11, color: p.ink3, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', flexShrink: 0 }}>{total > 0 ? fmt(total) : '--:--'}</span>
         </div>
       </div>
     </div>
@@ -548,17 +551,21 @@ const VehicleCard = memo(function VehicleCard({ onOpenSettings, onLaunch }: { on
       {st.accent && (
         <div style={{ height: 3, borderRadius: 2, background: st.accent, marginBottom: 8, opacity: 0.9 }} />
       )}
+      {/* Durum yazısı ÖNCELİKLİ: 1024×600'de "OBD Bağlı De…" diye kesiliyordu; artık
+          kısalan kart başlığıdır (uyarı — ör. "Motor Isısı Yüksek" — her zaman tam okunur). */}
       <div className="flex items-center justify-between" style={{ gap: 8 }}>
-        <div className="flex items-center gap-2 flex-shrink-0">
+        <div className="flex items-center gap-2" style={{ minWidth: 0 }}>
           <CardLabel>Araç Durumu</CardLabel>
-          <ChevronRight className="w-3.5 h-3.5" style={{ color: p.ink3 }} />
+          <ChevronRight className="w-3.5 h-3.5 flex-shrink-0" style={{ color: p.ink3 }} />
         </div>
-        <div data-testid="pro-vehicle-status" className="truncate" style={{ fontSize: 15, fontWeight: 800, color: st.color(p), minWidth: 0 }}>{st.label}</div>
+        <div data-testid="pro-vehicle-status" style={{ fontSize: 15, fontWeight: 800, color: st.color(p), whiteSpace: 'nowrap', flexShrink: 0 }}>{st.label}</div>
       </div>
 
       <div className="flex-1 min-h-0 flex items-center gap-3 my-1">
         <div className="flex-1 flex items-center justify-center min-w-0"><VehicleSVG p={p} /></div>
-        <div className="flex flex-col gap-2 flex-shrink-0" style={{ minWidth: 88 }}>
+        {/* gap 8→4 + sıkı satır: sütun (≈103px) 1024×600'de orta alana (87–99px)
+            sığmıyor, "Menzil" yol sayacı satırına biniyordu. */}
+        <div className="flex flex-col gap-1 flex-shrink-0" style={{ minWidth: 88 }}>
           {/* Değer OBD YAKIT DEPOSU seviyesidir (PID 0x2F) — "Batarya" + şarj ikonu
               içten yanmalı araçta akü şarjı sanılıyordu. */}
           <Stat p={p} icon={<Fuel className="w-4 h-4" style={{ color: p.good }} />} value={battery != null ? `${battery}%` : '—'} label="Yakıt" />
@@ -593,7 +600,7 @@ function Stat({ p, icon, value, label }: { p: Pal; icon: React.ReactNode; value:
       {icon}
       <div>
         <div style={{ fontSize: 14, fontWeight: 800, color: p.ink, lineHeight: 1.1, fontVariantNumeric: 'tabular-nums' }}>{value}</div>
-        <div style={{ fontSize: 10, fontWeight: 700, color: p.ink2 }}>{label}</div>
+        <div style={{ fontSize: 10, fontWeight: 700, color: p.ink2, lineHeight: 1.1 }}>{label}</div>
       </div>
     </div>
   );

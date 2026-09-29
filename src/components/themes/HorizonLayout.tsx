@@ -3,8 +3,7 @@ import { isLowEndDevice } from '../../platform/headUnitCompat';
 import { memo, useState, lazy, Suspense, useEffect, useMemo, useRef, createContext, useContext } from 'react';
 import {
   Navigation, Music2, Mic, Settings, Car, Bell,
-  Plus, Minus, SkipBack, SkipForward, Play, Pause, MoreVertical,
-  ChevronRight, CornerUpRight,
+  Plus, Minus, SkipBack, SkipForward, Play, Pause, ChevronRight, CornerUpRight,
   Fuel, Phone, Cloud, AlertTriangle, Camera, Route, ShieldAlert, Shield, Tv2, Zap,
   LayoutGrid, Wind, Crosshair, Mountain, Gauge, Thermometer, Battery, Droplet,
   FlaskConical,
@@ -212,7 +211,7 @@ const HzTopBar = memo(function HzTopBar() {
 
   return (
     <div data-editable="horizon.topbar" data-editable-type="header" className="relative flex items-center justify-between flex-shrink-0" style={{ height: HZ_TOPBAR_H, padding: '0 2px' }}>
-      <div className="flex items-center">
+      <div className="flex items-center" style={{ flex: '1 1 0', minWidth: 'max-content' }}>
         {/* Marka plakası — metal + imza vida */}
         <div className="flex items-center" style={{ gap: 13, padding: '8px 16px 8px 10px', borderRadius: 14, background: p.metal, backgroundColor: p.panel, border: `1px solid ${p.edgeHi}`, boxShadow: p.elev, position: 'relative' }}>
           <Bolt style={{ top: 6, left: 6 }} />
@@ -234,13 +233,14 @@ const HzTopBar = memo(function HzTopBar() {
         </div>
       </div>
 
-      {/* merkez saat */}
-      <div className="absolute" style={{ left: '50%', top: '50%', transform: 'translate(-50%,-50%)', textAlign: 'center', pointerEvents: 'none' }}>
+      {/* merkez saat — akışta: yanlar eşit paylaşır; sağ küme yarıya sığmazsa (sürüşte
+          düğmeler 56px) saat sola kayar. Mutlak konumdayken "MİSAFİR" tarihin üstüne biniyordu. */}
+      <div style={{ flex: 'none', margin: '0 12px', textAlign: 'center', pointerEvents: 'none' }}>
         <div style={{ fontWeight: 700, fontSize: 28, lineHeight: 1, color: p.onDark, fontVariantNumeric: 'tabular-nums', letterSpacing: '0.01em' }}>{time}</div>
         <div style={{ marginTop: 2, fontSize: 10, fontWeight: 700, letterSpacing: '0.13em', textTransform: 'uppercase', color: p.onDark2 }}>{date}</div>
       </div>
 
-      <div className="flex items-center" style={{ gap: 13, color: p.onDark2 }}>
+      <div className="flex items-center" style={{ gap: 13, color: p.onDark2, flex: '1 1 0', minWidth: 'max-content', justifyContent: 'flex-end' }}>
         <span className={online ? 'lt-pulse' : undefined} aria-label={online ? 'Çevrimiçi' : 'Çevrimdışı'}
           style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, background: online ? '#34d399' : 'currentColor', opacity: online ? 1 : 0.4 }} />
         <StatusControls palette={{ ink: p.ink, ink2: p.onDark2, accent: p.accent, surface: p.panel, line: p.edge }} size={17} />
@@ -541,7 +541,8 @@ const HzMediaCard = memo(function HzMediaCard() {
           <div style={{ fontWeight: 700, fontSize: 16, color: p.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{track.title || 'Çalmıyor'}</div>
           <div style={{ color: p.ink3, fontSize: 11, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{track.artist || 'Oynatmak için dokun'}</div>
         </div>
-        <button onClick={() => openMusicDrawer()} style={{ background: 'none', border: 'none', cursor: 'pointer', color: p.ink3, alignSelf: 'flex-start' }}><MoreVertical className="w-5 h-5" /></button>
+        {/* "⋮" kaldırıldı: albüm kapağıyla AYNI eylem (müzik çekmecesi); 1024×600'de
+            alt başlığı "Oynatmak için do…" diye kesiyordu. */}
       </div>
       <div className="flex items-center" style={{ gap: 9 }}>
         <span style={{ fontSize: 10, fontWeight: 500, color: p.ink3, fontVariantNumeric: 'tabular-nums' }}>{total > 0 ? fmt((dragPct ?? pct) / 100 * total) : '0:00'}</span>

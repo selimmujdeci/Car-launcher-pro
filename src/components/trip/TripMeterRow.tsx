@@ -107,6 +107,14 @@ function TripMeterRowBase({
     }
   };
 
+  const valueStyle: CSSProperties = { fontSize: valueSize, fontWeight: 800, color: palette.ink, fontVariantNumeric: 'tabular-nums' };
+  const unitStyle: CSSProperties = { fontSize: unitSize, fontWeight: 600, color: palette.ink2 };
+  const labelStyle: CSSProperties = {
+    fontSize: labelSize, fontWeight: 700, letterSpacing: '0.08em',
+    textTransform: 'uppercase', color: palette.ink3, whiteSpace: 'nowrap',
+    overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0,
+  };
+
   const hint = 'Aracı durdurunca sıfırlayabilirsiniz.';
   /* Compact: yalnız simge (44×44 dokunma hedefi korunur) — dar raylarda metinli
      düğme "YOL SAYACI" etiketini "YOL S…" diye kesiyordu. Erişilebilir ad aynı. */
@@ -131,21 +139,29 @@ function TripMeterRowBase({
         ...style,
       }}
     >
-      <div className="flex items-center" style={{ gap }}>
-        {!compact && <Gauge style={{ width: iconSize, height: iconSize, color: palette.ink2, flexShrink: 0 }} />}
-        <span style={{ fontSize: valueSize, fontWeight: 800, color: palette.ink, fontVariantNumeric: 'tabular-nums' }}>
-          {displayValue}
-        </span>
-        <span style={{ fontSize: unitSize, fontWeight: 600, color: palette.ink2 }}>km</span>
-        <span style={{
-          marginLeft: 'auto', fontSize: labelSize, fontWeight: 700, letterSpacing: '0.08em',
-          textTransform: 'uppercase', color: palette.ink3, whiteSpace: 'nowrap',
-          overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0,
-        }}>
-          Yol Sayacı
-        </span>
-        {compact && phase !== 'confirm' && resetButton}
-      </div>
+      {compact ? (
+        /* Compact: etiket değerin ÜSTÜNDE başlık. Değer satırında 44px düğmeyle
+           yarışırken 1024×600 raylarında "YOL SAYA…" / "YO…" diye kesiliyordu.
+           Düğme büyüdüğünde (sürüş 56px, güneş modu 52px) etiket kesilmek yerine
+           iki satıra ("YOL / SAYACI") iner; yükseklik yine düğmeyi aşmaz. */
+        <div className="flex items-center" style={{ gap }}>
+          <div className="flex flex-col" style={{ minWidth: 0 }}>
+            <span style={{ ...labelStyle, whiteSpace: 'normal', lineHeight: 1.1 }}>Yol Sayacı</span>
+            <div className="flex items-baseline" style={{ gap: 4 }}>
+              <span style={{ ...valueStyle, lineHeight: 1.1 }}>{displayValue}</span>
+              <span style={unitStyle}>km</span>
+            </div>
+          </div>
+          {phase !== 'confirm' && <span style={{ marginLeft: 'auto', display: 'flex' }}>{resetButton}</span>}
+        </div>
+      ) : (
+        <div className="flex items-center" style={{ gap }}>
+          <Gauge style={{ width: iconSize, height: iconSize, color: palette.ink2, flexShrink: 0 }} />
+          <span style={valueStyle}>{displayValue}</span>
+          <span style={unitStyle}>km</span>
+          <span style={{ ...labelStyle, marginLeft: 'auto' }}>Yol Sayacı</span>
+        </div>
+      )}
 
       {phase === 'confirm' ? (
         <div className="flex items-center justify-between" style={{ marginTop: 8, gap: 8, flexWrap: 'wrap' }}>

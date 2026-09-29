@@ -1,7 +1,7 @@
 import { memo, useState, lazy, Suspense, useEffect, useMemo, useRef, createContext, useContext } from 'react';
 import {
   Navigation, Music2, Mic, Wind, Settings, Car, Bell,
-  SkipBack, SkipForward, Play, Pause, MoreVertical,
+  SkipBack, SkipForward, Play, Pause,
   ChevronRight,
    Fuel,
   Phone, Cloud, AlertTriangle, Camera, Route, ShieldAlert, Shield, Tv2, Zap, LayoutGrid,
@@ -200,17 +200,19 @@ const Header = memo(function Header() {
   const online = useLivingThemeState().conn === 'online';
   return (
     <div data-editable="expedition.header" data-editable-type="header" className="relative flex items-center justify-between flex-shrink-0" style={{ height: 50, padding: '0 16px' }}>
-      <div className="flex items-center" style={{ gap: 12 }}>
+      <div className="flex items-center" style={{ gap: 12, flex: '1 1 0', minWidth: 'max-content' }}>
         <img src={emblemUrl} alt="CarOS" style={{ width: 38, height: 38, objectFit: 'contain', filter: p.night ? 'drop-shadow(0 2px 4px rgba(0,0,0,.55))' : 'none' }} />
         <div style={{ fontWeight: 800, fontSize: 20, letterSpacing: '0.22em', color: p.ink2 }}>CAR<b style={{ color: p.ink }}>OS</b></div>
       </div>
       {/* Saat + tarih başlığın ORTASINDA (saha 2026-09-24, kullanıcı): hız plakasının
-          üstünü kaplıyordu, "km görünmüyor" — hız göstergesi kartın altından taşıyordu. */}
-      <div className="absolute" style={{ left: '50%', top: '50%', transform: 'translate(-50%,-50%)', textAlign: 'center', pointerEvents: 'none' }}>
+          üstünü kaplıyordu, "km görünmüyor" — hız göstergesi kartın altından taşıyordu.
+          Akışta: yanlar eşit paylaşır (saat ortada); sağ küme yarıya sığmazsa (sürüşte
+          düğmeler 56px) saat sola kayar — mutlak konumdayken zil saatin üstüne biniyordu. */}
+      <div style={{ flex: 'none', margin: '0 12px', textAlign: 'center', pointerEvents: 'none' }}>
         <div style={{ fontWeight: 700, fontSize: 26, lineHeight: 1, color: p.ink, fontVariantNumeric: 'tabular-nums', letterSpacing: '0.01em' }}>{time}</div>
         <div style={{ marginTop: 2, fontSize: 11, fontWeight: 600, color: p.ink2 }}>{date}</div>
       </div>
-      <div data-header-status className="flex items-center" style={{ gap: 16, color: p.ink2 }}>
+      <div data-header-status className="flex items-center" style={{ gap: 16, color: p.ink2, flex: '1 1 0', minWidth: 'max-content', justifyContent: 'flex-end' }}>
         {/* `caros-status-item`: güneş modunun "2px siyah çerçeve + 52px" düğme kuralından
             muaf (Tesla/Horizon zili ile aynı) — yoksa zil boş siyah kutu görünüyordu. */}
         <button onClick={() => openDrawer('notifications')} aria-label={n.unreadCount > 0 ? `Bildirimler: ${n.unreadCount} okunmamış` : 'Bildirimler'} className="caros-status-item ex-btn relative" style={{ background: 'none', border: 'none', cursor: 'pointer', color: p.ink2, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -409,7 +411,8 @@ const MusicPlate = memo(function MusicPlate() {
           <div style={{ fontWeight: 700, fontSize: 26, lineHeight: 1.05, color: p.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{track.title || 'Çalmıyor'}</div>
           <div style={{ color: p.ink2, fontSize: 15, fontWeight: 500, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{track.artist || 'Oynatmak için dokun'}</div>
         </div>
-        <button onClick={() => openMusicDrawer()} style={{ background: 'none', border: 'none', cursor: 'pointer', color: p.ink3, alignSelf: 'flex-start' }}><MoreVertical className="w-5 h-5" /></button>
+        {/* "⋮" düğmesi kaldırıldı: albüm kapağıyla AYNI eylemi (müzik çekmecesi) yapıyordu
+            ve 58px yer kaplayıp 1024×600'de başlığı "Çalm…" / "Oynatmak i…" diye kesiyordu. */}
       </div>
       <div className="flex items-center justify-center" style={{ flex: 1, gap: 30, minHeight: 0 }}>
         <button onClick={() => previous()} className="ex-btn" style={{ background: 'none', border: 'none', cursor: 'pointer', color: p.ink }}><SkipBack className="w-7 h-7" style={{ fill: 'currentColor' }} /></button>
@@ -463,13 +466,23 @@ const VehiclePlate = memo(function VehiclePlate({ onOpenSettings }: { onOpenSett
     </Plate>
   );
 });
+/* Dört ölçü tek satırda: 1024×600'de plaka içi ~236px → çeyrek ~59px. Öğeler
+   içerikleri kadar genişliyordu (min-width auto) → gerçek veriyle ("2500",
+   "12.6V", "120km/h") Akü/Hız plakanın DIŞINA itilip görünmez oluyordu (1280'de
+   de Hız). Artık eşit çeyrek (minWidth 0), değer boyu ekrana göre küçülür, birim
+   sığmazsa değerin altına iner. */
+const METRIC_VALUE_FS = SUPPORTS_CSS_CLAMP ? 'clamp(16px, calc(2.6vw - 10px), 27px)' : 20;
+const METRIC_LABEL_FS = SUPPORTS_CSS_CLAMP ? 'clamp(11px, calc(1vw + 0.5px), 13px)' : 12;
 function Metric({ k, v, unit, border, warn }: { k: string; v: string; unit: string; border?: boolean; warn?: boolean }) {
   const p = usePal();
   return (
-    <div style={{ flex: 1, padding: border ? '12px 4px 16px 16px' : '12px 4px 16px', borderLeft: border ? `1px solid ${p.hairline}` : undefined }}>
-      <div style={{ fontSize: 13, fontWeight: 600, letterSpacing: '0.05em', color: p.ink2, textTransform: 'uppercase' }}>{k}</div>
+    <div style={{ flex: 1, minWidth: 0, overflow: 'hidden', padding: border ? '12px 4px 16px 10px' : '12px 4px 16px', borderLeft: border ? `1px solid ${p.hairline}` : undefined }}>
+      <div style={{ fontSize: METRIC_LABEL_FS, fontWeight: 600, letterSpacing: '0.05em', color: p.ink2, textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{k}</div>
       {/* Kütük #427: WARN seviyesinde değer uyarı renginde gösterilir. */}
-      <div style={{ fontWeight: 700, fontSize: 27, marginTop: 2, color: warn ? 'var(--oem-warn)' : p.ink, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{v}<small style={{ fontSize: 15, color: p.ink2, fontWeight: 600 }}>{unit}</small></div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', fontWeight: 700, fontSize: METRIC_VALUE_FS, marginTop: 2, color: warn ? 'var(--oem-warn)' : p.ink, fontVariantNumeric: 'tabular-nums' }}>
+        <span style={{ whiteSpace: 'nowrap' }}>{v}</span>
+        {unit && <small style={{ fontSize: '0.56em', color: p.ink2, fontWeight: 600, whiteSpace: 'nowrap' }}>{unit}</small>}
+      </div>
     </div>
   );
 }
