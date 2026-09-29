@@ -2,7 +2,7 @@
  * appControlCommands — uygulama kontrolü için KESİN kurallı sesli komutlar (SAF).
  *
  * ÖLÇÜLDÜ 2026-09-26 (genel ayrıştırıcı): "30 saniye ileri sar" → music_next@1
- * (şarkı DEĞİŞTİRİYORDU) · "tesla temasına geç" / "sürücü değiştir" →
+ * (şarkı DEĞİŞTİRİYORDU) · "terra temasına geç" / "sürücü değiştir" →
  * music_next · "karıştırmayı aç" → show_weather · "şarkıyı tekrarla" →
  * open_music · sürücü değiştirme komutu hiç YOKTU.
  *
@@ -82,9 +82,9 @@ export function parseAppControl(raw: string): AppControl | null {
 
   /* ── Tema adıyla ────────────────────────────────────────────────────── */
   {
-    const m = n.match(/^(?:temayi\s+)?(expedition|ekspedisyon|horizon|horayzin|tesla|pro)\s+(?:tema(?:si|sini|sina)?|temasina)?\s*(?:gec|ac|yap|olsun|sec|degistir)?$/);
+    const m = n.match(/^(?:temayi\s+)?(expedition|ekspedisyon|horizon|horayzin|terra|tesla|pro)\s+(?:tema(?:si|sini|sina)?|temasina)?\s*(?:gec|ac|yap|olsun|sec|degistir)?$/);
     if (m && /tema/.test(n)) {
-      const t = m[1] === 'ekspedisyon' ? 'expedition' : m[1] === 'horayzin' ? 'horizon' : m[1];
+      const t = m[1] === 'ekspedisyon' ? 'expedition' : m[1] === 'horayzin' ? 'horizon' : m[1] === 'terra' ? 'tesla' : m[1];
       return { op: 'theme', theme: t as CoreThemeName };
     }
   }
