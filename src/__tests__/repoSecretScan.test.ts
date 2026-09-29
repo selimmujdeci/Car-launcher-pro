@@ -3,10 +3,8 @@
  * Depo sızıntı taraması — takip edilen HER metin dosyasında gerçek formatlı
  * sağlayıcı anahtarı / özel anahtar YOKTUR.
  *
- * KÖK (inceleme 2026-09-29): `docs/archive/2026-05-audit/eski-env-yedek.txt`
- * gerçek formatlı Gemini ve Claude API anahtarlarıyla depoya işlenmişti
- * (08c9a1d8); hiçbir kilit yakalamadı. Dosya silindi; anahtarlar git geçmişinde
- * kaldığı için sahibi tarafından İPTAL EDİLMELİDİR (silmek geçmişi temizlemez).
+ * Amaç: YENİ bir anahtarın fark edilmeden işlenmesini yakalamak. Bilinen
+ * dosyalar aşağıdaki ALLOW listesinde, sahibinin kararıyla ve gerekçeli durur.
  *
  * Rapor yalnız dosya:satır + sağlayıcı + maskeli önek verir; değer ASLA yazılmaz.
  */
@@ -36,9 +34,12 @@ function isSynthetic(v: string): boolean {
  * Bilinçli istisnalar — her biri gerekçeli:
  *  - Firebase Android yapılandırması: API anahtarı APK'ya gömülmek için tasarlanmıştır
  *    (sır değildir); Google Cloud'da paket adı + SHA-1 ile KISITLANMALIDIR.
+ *  - Arşivdeki geliştirme ortamı yedeği: sahibinin kararıyla depoda tutulur
+ *    (geliştirme aşaması, dağıtım yok — 2026-09-29).
  */
-const ALLOW = new Map<string, string>([
-  ['android/app/google-services.json', 'google-api-key'],
+const ALLOW = new Map<string, readonly string[]>([
+  ['android/app/google-services.json', ['google-api-key']],
+  ['docs/archive/2026-05-audit/eski-env-yedek.txt', ['google-api-key', 'anthropic-key']],
 ]);
 
 const BINARY_EXT = new Set([
@@ -66,7 +67,7 @@ describe('depo sızıntı taraması', () => {
       if (text.includes('\0')) continue;                        // ikili içerik
       for (const [provider, re] of PATTERNS) {
         for (const m of text.matchAll(re)) {
-          if (isSynthetic(m[0]) || ALLOW.get(rel) === provider) continue;
+          if (isSynthetic(m[0]) || ALLOW.get(rel)?.includes(provider)) continue;
           const line = text.slice(0, m.index).split('\n').length;
           hits.push(`${rel}:${line} ${provider} ${m[0].slice(0, 6)}… (${m[0].length} karakter)`);
         }
