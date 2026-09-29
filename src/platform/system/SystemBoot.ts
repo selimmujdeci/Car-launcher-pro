@@ -122,6 +122,7 @@ import { stopVehicleIdentityCoordinator } from '../telemetry/vehicleIdentityRunt
 import { startLocationEngine } from '../location/locationEngineRuntime';
 import { startNavigationSessionRuntime } from '../navigation/navigationSessionRuntime';
 import { startTripUpload } from '../trip/tripUploadRuntime';
+import { startLiveFuelPriceWatcher } from '../trip/cost/liveFuelPrice';
 import { startFleetReadback } from '../fleet/fleetReadbackService';
 import { startPredictionRuntime } from '../obd/predictionRuntime';
 import { startAutoLearningEngine } from '../autoLearningEngine';
@@ -1129,6 +1130,14 @@ class SystemBoot {
     bootDeferral.schedule({
       jobId: 'TripUpload', wave: 3, bootClass: 'IDLE_ONLY',
       trigger: 'IDLE', run: () => startTripUpload(),
+    });
+
+    /* Canlı yakıt fiyatı (EPDK, carospro.com/api/fuel-prices): GPS'e en yakın ilin
+       fiyatını 6 saatte bir ister; ağ yoksa son canlı fiyat saklanır. IDLE_ONLY —
+       ilk ekrana katkısı yok. Fail-soft: hata yakıt kalemini APK tablosuna düşürür. */
+    bootDeferral.schedule({
+      jobId: 'LiveFuelPrice', wave: 3, bootClass: 'IDLE_ONLY',
+      trigger: 'IDLE', run: () => startLiveFuelPriceWatcher(),
     });
 
     // Fleet geri-okuma köprüsü (kütük #690): `driverSnapshotRuntime.capture()`
