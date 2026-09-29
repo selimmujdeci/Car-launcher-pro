@@ -41,8 +41,10 @@ export function RoleProvider({ children }: { children: ReactNode }) {
   const [loading,       setLoading]       = useState(true)
   const [jwtSuperAdmin, setJwtSuperAdmin] = useState(false)
 
+  const userId = user?.id
+
   useEffect(() => {
-    if (!user) {
+    if (!userId) {
       setMemberships([])
       setActive(null)
       setJwtSuperAdmin(false)
@@ -56,7 +58,7 @@ export function RoleProvider({ children }: { children: ReactNode }) {
       .catch(() => setJwtSuperAdmin(false))
 
     setLoading(true)
-    fetchUserMemberships(user.id)
+    fetchUserMemberships(userId)
       .then((list) => {
         setMemberships(list)
         const resolved = resolveActiveMembership(list, getStoredCompanyId())
@@ -68,7 +70,7 @@ export function RoleProvider({ children }: { children: ReactNode }) {
         setActive(null)
       })
       .finally(() => setLoading(false))
-  }, [user?.id])
+  }, [userId])
 
   const switchCompany = useCallback((id: string) => {
     const target = memberships.find((m) => m.company_id === id) ?? null

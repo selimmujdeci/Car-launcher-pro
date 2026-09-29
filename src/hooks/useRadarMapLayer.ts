@@ -153,7 +153,7 @@ export function useRadarMapLayer(
     setupLayer(map, pointsRef.current);
     map.on('style.load', onStyleLoad);
     return () => { map.off('style.load', onStyleLoad); };
-  }, [mapStyleReady]); // mapHandle is a stable ref — omitting from deps is intentional
+  }, [mapHandle, mapStyleReady]); // mapHandle is a stable ref (useRef) — listing it is a no-op
 
   // Push updated GeoJSON into the source whenever allPoints changes
   useEffect(() => {
@@ -162,5 +162,5 @@ export function useRadarMapLayer(
     const src = map.getSource(SOURCE_ID) as GeoJSONSource | undefined;
     if (!src) return;
     src.setData(toGeoJSON(allPoints) as Parameters<GeoJSONSource['setData']>[0]);
-  }, [allPoints, mapStyleReady]); // mapHandle is a stable ref
+  }, [mapHandle, allPoints, mapStyleReady]); // mapHandle is a stable ref
 }

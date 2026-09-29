@@ -290,6 +290,8 @@ export default function MainLayout() {
   }>({ settings, smart, location, handleLaunch, updateSettings, setDrawer });
   // Intentional: dep array yok — her render'dan sonra ref güncellenir.
   // Remote command handler bu ref'i okur; dep array eklemek stale closure'a neden olur.
+  // Kural setDrawer'ı "çağrılan setter" sanıyor; burada yalnız ref'e yazılıyor, döngü yok.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     _remoteRef.current = { settings, smart, location, handleLaunch, updateSettings, setDrawer };
   });

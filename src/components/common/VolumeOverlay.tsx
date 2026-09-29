@@ -24,6 +24,9 @@ export const VolumeOverlay = memo(function VolumeOverlay() {
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
+    // Bilinçli: yalnız ses DEĞİŞİMİ overlay'i açar. hasChanged eklenirse ilk
+    // montajdaki setHasChanged(true) efekti yeniden koşturup açılışta overlay gösterir.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [volume]);
 
   if (!visible && hasChanged) return null;

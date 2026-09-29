@@ -332,7 +332,7 @@ export const ApiCredentialsPanel = memo(function ApiCredentialsPanel() {
       if (clipTimerRef.current) clearTimeout(clipTimerRef.current);
       clipTimerRef.current = setTimeout(() => setClipboardHint(null), 4000);
     } catch { /* pano izni yok */ }
-  }, []);
+  }, [applyStatus]);
 
   /**
    * "Anahtar Al" → sağlayıcı sayfasını aç ve PANO BEKLEMESİNİ BAŞLAT.

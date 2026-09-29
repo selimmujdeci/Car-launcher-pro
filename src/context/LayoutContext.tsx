@@ -121,7 +121,6 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     window.addEventListener('resize', handleResize, { passive: true });
-    void screen.safeArea; // insets re-read on analyzeScreen
     return () => {
       window.removeEventListener('resize', handleResize);
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
