@@ -20,10 +20,10 @@ import {
   recoverySignature, clearSignature, EMPTY_RECOVERY_LEDGER,
   type RecoveryDecision, type RecoveryLedger, type RecoveryOutcome,
 } from './queueRecovery';
-import { getProjectedQueueView, noteProjectedIndex } from './mediaAuthorityRuntime';
 import { isKnownSourceClass } from './sourceCapabilities';
 import { getSnapshot } from './nativeAuthorityBridge';
 import { recordMediaEvent } from './mediaAuthorityEvents';
+import type { getProjectedQueueView } from './mediaAuthorityRuntime';
 
 /* ── Dünya durumu bağlantıları (DI — test edilebilirlik) ─────────────────── */
 
@@ -38,6 +38,12 @@ export interface RecoveryRuntimeDeps {
   readonly alignUiIndex: (nativeIndex: number) => void;
   /** UI kuyruğunu temizle (YALNIZ oynatma durmuşken çağrılır). */
   readonly clearUiQueue: () => void;
+  /** Native'e gönderilmiş pencerenin salt-okunur görünümü (mediaAuthorityRuntime).
+   *  Enjekte edilir: statik import mediaAuthorityRuntime ↔ queueRecoveryRuntime
+   *  döngüsü kuruyordu (importCycleGuard). */
+  readonly getProjectedQueueView: typeof getProjectedQueueView;
+  /** Projeksiyon indeksini native gerçeğe hizaladıktan sonra otoriteye bildirir. */
+  readonly noteProjectedIndex: (index: number) => void;
   readonly now: () => number;
 }
 
@@ -85,7 +91,7 @@ export function runQueueRecovery(): RecoveryRunResult | null {
 
 function runInternal(deps: RecoveryRuntimeDeps): RecoveryRunResult | null {
   const snap = getSnapshot();
-  const projected = getProjectedQueueView();
+  const projected = deps.getProjectedQueueView();
 
   // Otorite yoksa veya hiç projeksiyon yoksa uzlaştırılacak bir şey de yoktur.
   const nativeView = snap.authorityAvailable
@@ -184,7 +190,7 @@ function runInternal(deps: RecoveryRuntimeDeps): RecoveryRunResult | null {
         const idx = currentSnap.currentIndex ?? -1;
         if (idx >= 0) {
           deps.alignUiIndex(idx);
-          noteProjectedIndex(idx);
+          deps.noteProjectedIndex(idx);
         }
         break;
       }

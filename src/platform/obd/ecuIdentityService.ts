@@ -29,7 +29,6 @@ import { Capacitor } from '@capacitor/core';
 import { CarLauncher } from '../nativePlugin';
 import { logError } from '../crashLogger';
 import { getObdSessionEpoch, getHandshakeDiagnostics } from '../obdService';
-import { discoverEcus } from './multiEcuScan';
 import { lookupProfileRole } from './ecuRoleProfiles';
 import type { DiscoveredEcu } from './ecuDiscovery';
 import { getProductOemProfiles } from './oem/oemProfileRegistry';
@@ -239,6 +238,10 @@ export async function buildEcuInventory(): Promise<EcuInventory> {
 
     let functional: readonly DiscoveredEcu[] = [];
     try {
+      /* Dinamik import: statik multiEcuScan bağımlılığı multiEcuScan →
+         ecuIdentityService (lookupEcuIdentity) döngüsünü kapatıyordu
+         (importCycleGuard). Çağrı zaten await ediliyordu; hata aynı catch'e düşer. */
+      const { discoverEcus } = await import('./multiEcuScan');
       const topo = await discoverEcus();
       functional = topo?.ecus ?? [];
     } catch (e) {

@@ -56,6 +56,8 @@ async function configureRecovery(): Promise<void> {
       getGeneration: gw.getAuthorityGeneration,
       alignUiIndex: layer.alignUiQueueIndex,
       clearUiQueue: layer.clearUiQueue,
+      getProjectedQueueView,
+      noteProjectedIndex,
       now: () => Date.now(),
     });
   } catch { /* kurtarma kurulamazsa otorite yine çalışır (fail-soft) */ }

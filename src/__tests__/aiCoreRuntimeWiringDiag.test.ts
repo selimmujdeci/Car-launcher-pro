@@ -5,10 +5,13 @@
  *  1. Wiring diagnosticsProvider DI'yı kabul eder; lifecycle (start/dispose) bozulmaz.
  *  2. Varsayılan provider (test'te tetiklenmez) import/lifecycle'ı kırmaz.
  */
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, it, expect, afterEach } from 'vitest';
 import {
   startPlatformCoreAiRuntimeWiring, getAiRuntimeStatus,
 } from '../platform/system/platformCoreAiRuntimeWiring';
+import { readAiDiagnosticsContext } from '../platform/diagnosticSections';
 import type { RuntimeBusLike, RuntimeHalLike } from '../platform/aiCore/runtime/aiCoreRuntime';
 import type { HalSnapshotLike, HalIdentityLike } from '../platform/aiCore/runtime/halAdapter';
 
@@ -41,5 +44,15 @@ describe('AI Core wiring — diagnosticsProvider DI (Faz-2.5)', () => {
     expect(getAiRuntimeStatus().present).toBe(true);
     cleanup();
     expect(getAiRuntimeStatus().present).toBe(false);
+  });
+
+  it('üretim çağrısı varsayılan tanı okuyucusunu SystemBoot\'tan geçirir', () => {
+    const boot = readFileSync(join(__dirname, '../platform/system/SystemBoot.ts'), 'utf8');
+    expect(boot).toContain('diagnosticsProvider: readAiDiagnosticsContext');
+  });
+
+  it('varsayılan tanı okuyucusu fırlatmaz (nesne ya da null)', () => {
+    const r = readAiDiagnosticsContext();
+    expect(r === null || typeof r === 'object').toBe(true);
   });
 });
