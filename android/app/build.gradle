@@ -37,12 +37,6 @@ android {
         versionCode resolvedVersionCode
         versionName resolvedVersionName
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
-        // Teşhis sunucusunun ROOT uçları (/root-check, /enable-adb → ağ ADB'si) yalnız
-        // AÇIKÇA istenince derlenir: `gradlew assembleDebug -PcarosRootDiag=true`.
-        // Dağıtılan APK `apk:safe` ile assembleDebug olduğundan BuildConfig.DEBUG tek
-        // başına kapı DEĞİLDİ (debug APK'da true) — varsayılan artık kapalı.
-        buildConfigField "boolean", "ROOT_DIAG_ENABLED",
-            (project.findProperty('carosRootDiag') == 'true') ? 'true' : 'false'
         // Head unit'ler ARM — x86/x86_64 native kütüphaneleri (~18MB, çoğu Vosk) gereksiz yük.
         // Sadece ARM tut → APK ~18MB küçülür. (Hepsi 64-bit ise armeabi-v7a da çıkarılıp ~8MB daha düşürülebilir.)
         ndk {
@@ -75,7 +69,6 @@ android {
     buildTypes {
         release {
             signingConfig signingConfigs.release
-            buildConfigField "boolean", "ROOT_DIAG_ENABLED", 'false'   // release'te ASLA
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
