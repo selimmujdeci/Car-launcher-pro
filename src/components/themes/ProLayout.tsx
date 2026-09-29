@@ -167,8 +167,9 @@ const StatusCluster = memo(function StatusCluster() {
         }}
       />
       <StatusControls palette={{ ink: p.ink, ink2: p.ink2, accent: p.accent, surface: p.cardSolid }} size={15} />
-      {/* Cihaz pili yoksa etiketsiz "—" basılmaz: müzik kartının sağ kenarından taşıyordu. */}
-      {device.ready && (
+      {/* Cihaz pili yoksa etiketsiz "—" basılmaz: müzik kartının sağ kenarından taşıyordu.
+          Pil yok/okunamadı (null) → gösterge HİÇ çizilmez; sahte "0%" yok. */}
+      {device.ready && device.battery !== null && (
         <span style={{ fontSize: 12, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: p.ink }}>
           {`${device.battery}%`}
         </span>

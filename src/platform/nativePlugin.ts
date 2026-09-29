@@ -63,7 +63,8 @@ export interface NativeDeviceStatus {
   btConnectedDevices?: Array<{ name: string; address: string }>;
   wifiConnected: boolean;
   wifiName: string;      // SSID (requires ACCESS_FINE_LOCATION on API 26+)
-  battery: number;       // 0–100
+  /** 0–100; `null` = pil yok (head unit) ya da okunamadı — UNKNOWN, sahte 0 değil. */
+  battery: number | null;
   charging: boolean;     // true when plugged in
 }
 

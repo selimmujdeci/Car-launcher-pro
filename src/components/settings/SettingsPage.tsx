@@ -933,7 +933,7 @@ function LiveStatsRow() {
 
   const stats = [
     { label: 'YÜK', val: `${load}%`, color: 'var(--oem-accent)', Icon: Cpu },
-    { label: 'BAT', val: ready ? `%${battery}${charging ? '+' : ''}` : '—', color: '#f97316', Icon: Zap },
+    { label: 'BAT', val: ready && battery !== null ? `%${battery}${charging ? '+' : ''}` : '—', color: '#f97316', Icon: Zap },
     { label: 'RAM', val: ramMb > 0 ? (ramMb >= 1024 ? `${(ramMb / 1024).toFixed(1)}G` : `${ramMb}M`) : '—', color: 'var(--oem-good)', Icon: HardDrive },
     { label: 'NET', val: !online ? 'OFF' : netMs > 0 ? `${netMs}ms` : 'ON', color: 'var(--oem-accent)', Icon: Gauge },
   ];

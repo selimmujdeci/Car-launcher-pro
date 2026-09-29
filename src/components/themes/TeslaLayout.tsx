@@ -203,7 +203,7 @@ const StatusCluster = memo(function StatusCluster() {
       <StatusControls palette={{ ink: p.ink, ink2: p.ink2, accent: p.accent, surface: p.cardSolid }} size={15} />
       {/* Cihaz pili yoksa (head unit / web) etiketsiz "—" basılmaz; dış sıcaklık
           bilinmiyorsa birimiyle "—°C" (iki anlamsız çizgi yan yana duruyordu). */}
-      {device.ready && <span style={{ fontSize: 12, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: p.ink }}>{`${device.battery}%`}</span>}
+      {device.ready && device.battery !== null && <span style={{ fontSize: 12, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: p.ink }}>{`${device.battery}%`}</span>}
       <span style={{ fontSize: 12, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: p.ink }}>{ambient != null ? `${Math.round(ambient)}°C` : '—°C'}</span>
     </div>
   );

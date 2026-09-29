@@ -112,7 +112,7 @@ const Header = memo(function Header({ onOpenApps, onOpenSettings, onVoice }: { o
       {/* Orta: Durum hapları */}
       <div className="flex items-center gap-2">
         <HPill emoji="☀️" value="21°C" label="Güneşli" />
-        <HPill emoji="🔋" value={device.ready ? `${device.battery}%` : '—'} label="Batarya" />
+        <HPill emoji="🔋" value={device.ready && device.battery !== null ? `${device.battery}%` : '—'} label="Batarya" />
         <HPill emoji={isEV ? '⚡' : '⛽'} value={rangeKm != null ? `${rangeKm} km` : '— km'} label="Menzil" />
         <HPill emoji="🛣️" value={`${Math.round(odometer)} km`} label="Kilometre" />
       </div>
