@@ -207,6 +207,15 @@ jobs:
           echo "✓ dist/index.html present"
           du -sh dist/
 
+      - name: Legacy WebView boot check (fresh dist)
+        # `legacyWebviewRtg4Isolation1218` dist/ VARKEN build ÇIKTISINI ölçer (ör. legacy
+        # startup chunk'ında BigInt literali → Chrome 64 head unit'te boot ölümü).
+        # Unit Tests job'unda dist yoktur; orada yalnız kaynak kilitleri koşar ve çıktı
+        # hiç ölçülmez. Çıktı ancak burada, taze build'in üzerinde ölçülebilir.
+        run: npx vitest run src/__tests__/legacyWebviewRtg4Isolation1218.test.ts
+        env:
+          CI: true
+
       - name: Upload dist artifact
         uses: actions/upload-artifact@v4
         with:
