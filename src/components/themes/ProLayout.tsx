@@ -417,7 +417,6 @@ const MusicCard = memo(function MusicCard() {
     <div data-editable="pro.music" data-editable-type="media" style={{ ...cardStyle(p), padding: 16 }} className="flex-1 min-h-0 flex flex-col">
       <div className="flex items-center justify-between mb-3" style={{ gap: 8 }}>
         <CardLabel>Müzik</CardLabel>
-        <StatusCluster />
       </div>
       {/* Albüm alanı — dokununca müzik kütüphanesi açılır */}
       <button onClick={() => openMusicDrawer()} className="flex items-center gap-3.5 flex-1 min-h-0 bg-transparent border-none cursor-pointer text-left p-0">
@@ -921,6 +920,16 @@ export const ProLayout = memo(function ProLayout({
             {/* Zone'lar Yerleşim Motoru'ndan — sıra/görünürlük/boyut niyete göre; varsayılan = mevcut ekran */}
             {RAIL_ZONES.map((zone) => (
               <div key={zone} className="flex flex-col" style={zoneOuterStyle(zone)}>
+                {/* Durum çubuğu — kart düzeninden BAĞIMSIZ sabit yer (R11). Müzik kartı
+                    başlığında 1024 tabanda ~190 px'e 6+ öğelik (~290 px) küme sığmıyor,
+                    sağ kenardan taşıyordu (1024×600'de GPS/ses ekran dışında); kart Tema
+                    Stüdyo'dan gizlenince Wi-Fi/BT/sürücü/ses erişimi de kayboluyordu.
+                    Orta sütun en geniş alandır; harita kartı esneyerek yer açar. */}
+                {zone === 'center-stage' && (
+                  <div data-testid="pro-status-bar" className="flex items-center justify-center flex-shrink-0" style={{ minHeight: 44 }}>
+                    <StatusCluster />
+                  </div>
+                )}
                 {solved[zone].groups.map((g, i) => (
                   g.length === 1
                     ? (

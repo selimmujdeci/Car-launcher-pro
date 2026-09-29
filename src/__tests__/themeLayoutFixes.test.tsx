@@ -63,6 +63,16 @@ describe('tema kaynak kilitleri', () => {
     expect(src).not.toMatch(/label: 'ŞARJ'/);
   });
 
+  it('Pro durum kümesi kart dışında, orta sütunun üstünde (R11: müzik kartı başlığından taşıyordu)', () => {
+    const src = theme('ProLayout.tsx');
+    // Tek yer: kart düzeninden bağımsız durum çubuğu (müzik kartı gizlense de erişilir).
+    expect(src).toMatch(/zone === 'center-stage' && \([\s\S]{0,200}data-testid="pro-status-bar"[\s\S]{0,200}<StatusCluster \/>/);
+    expect(src.split('<StatusCluster />').length - 1).toBe(1);
+    // Müzik kartı başlığında artık yalnız etiket var.
+    const music = src.slice(src.indexOf('data-editable="pro.music"'), src.indexOf('data-editable="pro.music"') + 400);
+    expect(music).not.toContain('StatusCluster');
+  });
+
   it('Pro/Tesla harita kartında ikinci "genişlet" kutusu yok (mini haritanınki yeterli)', () => {
     for (const f of ['ProLayout.tsx', 'TeslaLayout.tsx']) expect(theme(f)).not.toMatch(/<Maximize2/);
   });
