@@ -1,10 +1,10 @@
 {
   "schema": 1,
   "currency": "TRY",
-  "source": null,
-  "observedOn": null,
+  "source": "İstanbul Avrupa Yakası ortalama pompa fiyatı — Google arama özeti (Döviz Akaryakıt Fiyatları / GZT); sahip tarafından iletildi",
+  "observedOn": "2026-09-29",
   "pricePerLiter": {
-    "petrol": null,
-    "diesel": null
+    "petrol": 80.40,
+    "diesel": 93.50
   }
 }

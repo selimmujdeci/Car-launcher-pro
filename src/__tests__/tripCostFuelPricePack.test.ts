@@ -48,8 +48,12 @@ describe('fiyat tablosu doğrulaması (fail-closed)', () => {
       .toEqual({ diesel: 48 });
   });
 
-  it('uygulamayla gelen tablo bugün BOŞ — fiyat uydurulmadı', () => {
-    expect(BUNDLED_FUEL_PRICE_PACK).toBeNull();
+  it('uygulamayla gelen tablo geçerli: kaynaklı, tarihli, iki yakıt fiyatı', () => {
+    expect(BUNDLED_FUEL_PRICE_PACK).not.toBeNull();
+    expect(BUNDLED_FUEL_PRICE_PACK!.currency).toBe('TRY');
+    expect(BUNDLED_FUEL_PRICE_PACK!.source.length).toBeGreaterThan(10);
+    expect(BUNDLED_FUEL_PRICE_PACK!.observedOn).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(Object.keys(BUNDLED_FUEL_PRICE_PACK!.pricePerLiter).sort()).toEqual(['diesel', 'petrol']);
   });
 });
 
