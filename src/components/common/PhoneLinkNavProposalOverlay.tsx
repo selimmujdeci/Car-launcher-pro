@@ -99,7 +99,7 @@ export const PhoneLinkNavProposalOverlay = memo(function PhoneLinkNavProposalOve
       <div style={{
         width: '100%', maxWidth: 480,
         borderRadius: 24,
-        background: 'linear-gradient(160deg, #0d1620 0%, #0a121a 100%)',
+        backgroundColor: '#0d1620', backgroundImage: 'linear-gradient(160deg, #0d1620 0%, #0a121a 100%)',
         border: '1px solid rgba(96,165,250,0.28)',
         boxShadow: '0 0 48px rgba(59,130,246,0.14), 0 24px 64px rgba(0,0,0,0.55)',
         padding: '22px 22px 18px',

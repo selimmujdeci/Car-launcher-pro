@@ -79,7 +79,7 @@ export const DrivingControls = memo(function DrivingControls({
         padding: '0 16px',
         borderRadius: 24,
         background: 'var(--oem-surface-1, rgba(38,44,60,0.90))',
-        border: '1px solid var(--oem-line-warm, oklch(66% 0.10 55 / 0.45))',
+        border: '1px solid var(--oem-line-warm, rgba(193,129,84,0.45))',
         color: 'var(--oem-accent, #E0A23C)',
         boxShadow: 'var(--oem-shadow-card, 0 20px 44px -22px rgba(0,0,0,0.55))',
         backdropFilter: 'blur(calc(var(--rt-blur, 1) * 18px))',

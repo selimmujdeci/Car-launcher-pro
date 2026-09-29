@@ -1880,7 +1880,7 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
     return (
       <div
         className="fixed inset-0 z-[var(--z-map-fatal)] flex flex-col items-center justify-center gap-8 p-10"
-        style={{ background: 'linear-gradient(160deg,#08090e,#0a0c12)' }}
+        style={{ backgroundColor: '#08090e', backgroundImage: 'linear-gradient(160deg,#08090e,#0a0c12)' }}
       >
         {/* Kapatma — sağ üst */}
         <button

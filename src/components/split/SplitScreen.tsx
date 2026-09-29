@@ -32,6 +32,7 @@ import { runtimeManager } from '../../core/runtime/AdaptiveRuntimeManager';
 import { RuntimeMode } from '../../core/runtime/runtimeTypes';
 import '../../styles/oem-cockpit.css';
 import { useDisplaySpeed } from '../../hooks/useDisplaySpeed';
+import { oklchRgb } from '../../utils/cssCompat';
 
 /* SAFE_MODE subscription */
 function subscribeRuntime(cb: () => void) { return runtimeManager.subscribe(cb); }
@@ -46,8 +47,8 @@ function AlbumArt({ size, src, hue = 42 }: { size: number; src?: string; hue?: n
       flex: 'none',
       background: src
         ? '#0d0d12'
-        : `radial-gradient(120% 80% at 30% 20%, oklch(75% 0.10 ${hue} / 0.55), transparent 60%),` +
-          ` linear-gradient(140deg, oklch(56% 0.10 ${hue}) 0%, oklch(28% 0.08 ${hue + 30}) 100%)`,
+        : `radial-gradient(120% 80% at 30% 20%, ${oklchRgb(0.75, 0.10, hue, 0.55)}, transparent 60%),` +
+          ` linear-gradient(140deg, ${oklchRgb(0.56, 0.10, hue)} 0%, ${oklchRgb(0.28, 0.08, hue + 30)} 100%)`,
       position: 'relative',
       overflow: 'hidden',
       boxShadow:
@@ -86,7 +87,7 @@ function MiniHUD({ label, value, tone }: { label: string; value: string; tone?: 
         style={{
           fontSize: 'clamp(16px, 1.8vw, 20px)',
           fontWeight: 500,
-          color: tone === 'good' ? 'var(--oem-good, oklch(80% 0.10 158))' : 'var(--oem-ink, #F0EBE0)',
+          color: tone === 'good' ? 'var(--oem-good, rgb(132,210,165))' : 'var(--oem-ink, #F0EBE0)',
         }}>
         {value}
       </div>
@@ -99,7 +100,7 @@ function MiniMetric({ label, value, unit, tone }: {
   label: string; value: string; unit: string; tone?: 'amber';
 }) {
   const color = tone === 'amber'
-    ? 'var(--oem-amber, oklch(80% 0.13 60))'
+    ? 'var(--oem-amber, rgb(251,169,98))'
     : 'var(--oem-ink, #F0EBE0)';
   return (
     <div className="rounded-2xl p-3.5"
@@ -144,7 +145,7 @@ function BigSpeedHUD({ speedKmh, limitKmh, isSafeMode }: {
       {!isSafeMode && (
         <div className="oem-halo-pulse" style={{
           position: 'absolute', inset: -80, borderRadius: 999,
-          background: 'radial-gradient(circle, oklch(78% 0.10 60 / 0.28), transparent 60%)',
+          background: 'radial-gradient(circle, rgba(231,168,117,0.28), transparent 60%)',
           filter: 'blur(24px)',
         }} />
       )}
@@ -154,8 +155,8 @@ function BigSpeedHUD({ speedKmh, limitKmh, isSafeMode }: {
         color: 'var(--oem-ink, #F0EBE0)',
         letterSpacing: '-0.05em',
         lineHeight: 1,
-        textShadow: 'var(--oem-amber-soft, oklch(78% 0.10 60 / 0.35)) 0 0 100px,' +
-                    ' var(--oem-amber-glow, oklch(86% 0.10 70 / 0.32)) 0 0 40px',
+        textShadow: 'var(--oem-amber-soft, rgba(231,168,117,0.35)) 0 0 100px,' +
+                    ' var(--oem-amber-glow, rgba(252,198,135,0.32)) 0 0 40px',
         position: 'relative',
       }}>
         {Math.round(speedKmh)}
@@ -164,7 +165,7 @@ function BigSpeedHUD({ speedKmh, limitKmh, isSafeMode }: {
         style={{
           fontSize: 14,
           letterSpacing: '0.36em',
-          color: 'var(--oem-amber, oklch(80% 0.13 60))',
+          color: 'var(--oem-amber, rgb(251,169,98))',
           position: 'relative',
         }}>
         KM · SAAT {limitKmh != null && limitKmh > 0 ? `· LİMİT ${limitKmh}` : ''}
@@ -251,9 +252,9 @@ export const SplitScreen = memo(function SplitScreen({ onClose }: SplitScreenPro
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-lg flex items-center justify-center"
             style={{
-              background: 'linear-gradient(135deg, oklch(82% 0.10 65 / 0.30), oklch(60% 0.10 50 / 0.10))',
-              border: '1px solid var(--oem-line-warm, oklch(66% 0.10 55 / 0.42))',
-              color: 'var(--oem-amber, oklch(80% 0.13 60))',
+              background: 'linear-gradient(135deg, rgba(241,183,126,0.3), rgba(176,109,71,0.1))',
+              border: '1px solid var(--oem-line-warm, rgba(193,129,84,0.42))',
+              color: 'var(--oem-amber, rgb(251,169,98))',
             }}>
             <MapIcon className="w-4 h-4" />
           </div>
@@ -306,11 +307,11 @@ export const SplitScreen = memo(function SplitScreen({ onClose }: SplitScreenPro
                 }}>
                 <div style={{
                   width: 48, height: 48, borderRadius: 14,
-                  background: 'linear-gradient(135deg, oklch(82% 0.10 65 / 0.30), oklch(60% 0.10 50 / 0.10))',
-                  border: '1px solid var(--oem-line-warm, oklch(66% 0.10 55 / 0.42))',
+                  background: 'linear-gradient(135deg, rgba(241,183,126,0.3), rgba(176,109,71,0.1))',
+                  border: '1px solid var(--oem-line-warm, rgba(193,129,84,0.42))',
                   display: 'grid', placeItems: 'center',
-                  color: 'var(--oem-amber, oklch(80% 0.13 60))',
-                  boxShadow: '0 0 20px oklch(70% 0.10 60 / 0.20), 0 1px 0 rgba(255,240,210,0.10) inset',
+                  color: 'var(--oem-amber, rgb(251,169,98))',
+                  boxShadow: '0 0 20px rgba(204,143,92,0.2), 0 1px 0 rgba(255,240,210,0.10) inset',
                   flexShrink: 0,
                 }}>
                   <Compass className="w-5 h-5" />
@@ -430,7 +431,7 @@ export const SplitScreen = memo(function SplitScreen({ onClose }: SplitScreenPro
               <div className="absolute inset-y-0 left-0 rounded-full transition-[width] duration-700 ease-out"
                 style={{
                   width: `${pct}%`,
-                  background: 'linear-gradient(90deg, oklch(72% 0.11 55), oklch(86% 0.10 70))',
+                  backgroundColor: 'rgb(218,145,95)', background: 'linear-gradient(90deg, rgb(218,145,95), rgb(252,198,135))',
                   boxShadow: '0 0 14px var(--oem-amber-glow, transparent)',
                 }} />
             </div>
@@ -455,9 +456,9 @@ export const SplitScreen = memo(function SplitScreen({ onClose }: SplitScreenPro
             <button onClick={togglePlayPause} aria-label={playing ? 'Duraklat' : 'Çal'}
               className="w-16 h-16 rounded-full flex items-center justify-center active:scale-95 transition-all"
               style={{
-                background: 'linear-gradient(180deg, oklch(96% 0.02 80), oklch(78% 0.04 60))',
+                backgroundColor: 'rgb(249,241,227)', background: 'linear-gradient(180deg, rgb(249,241,227), rgb(203,178,158))',
                 color: '#0a0a0a',
-                border: '1px solid oklch(78% 0.04 60)',
+                border: '1px solid rgb(203,178,158)',
                 boxShadow:
                   '0 1px 0 rgba(255,255,255,0.5) inset,' +
                   ' 0 -1px 0 rgba(0,0,0,0.15) inset,' +

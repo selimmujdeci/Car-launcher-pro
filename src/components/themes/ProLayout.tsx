@@ -420,7 +420,7 @@ const MusicCard = memo(function MusicCard() {
       </div>
       {/* Albüm alanı — dokununca müzik kütüphanesi açılır */}
       <button onClick={() => openMusicDrawer()} className="flex items-center gap-3.5 flex-1 min-h-0 bg-transparent border-none cursor-pointer text-left p-0">
-        <div className="rounded-2xl overflow-hidden flex items-center justify-center flex-shrink-0" style={{ width: 74, height: 74, background: 'linear-gradient(135deg,#7c3aed,#db2777 60%,#f97316)', boxShadow: `0 10px 24px ${p.night ? 'rgba(124,58,237,0.45)' : 'rgba(124,58,237,0.30)'}` }}>
+        <div className="rounded-2xl overflow-hidden flex items-center justify-center flex-shrink-0" style={{ width: 74, height: 74, backgroundColor: '#7c3aed', backgroundImage: 'linear-gradient(135deg,#7c3aed,#db2777 60%,#f97316)', boxShadow: `0 10px 24px ${p.night ? 'rgba(124,58,237,0.45)' : 'rgba(124,58,237,0.30)'}` }}>
           {track.albumArt ? <img src={track.albumArt} className="w-full h-full object-cover" alt="" /> : <Music2 className="w-7 h-7" style={{ color: 'rgba(255,255,255,0.9)' }} />}
         </div>
         <div className="flex-1 min-w-0">

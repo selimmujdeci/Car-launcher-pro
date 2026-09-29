@@ -862,7 +862,7 @@ const PreviewCard = memo(function PreviewCard({
           className="w-full py-4 rounded-2xl font-black text-sm uppercase tracking-widest flex items-center justify-center gap-3 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none"
           style={{
             color: '#1A140A',
-            background: 'linear-gradient(135deg, #E0A23C, #C9831A)',
+            backgroundColor: '#E0A23C', backgroundImage: 'linear-gradient(135deg, #E0A23C, #C9831A)',
             boxShadow: '0 1px 0 rgba(255,255,255,0.18) inset, 0 12px 30px -12px rgba(224,162,60,0.6)',
           }}
         >

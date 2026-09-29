@@ -112,7 +112,7 @@ function PremiumSlider({ icon: Icon, label, value, onChange, colorA, colorB }: {
           background: 'rgba(255,255,255,0.06)',
           boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.35), 0 0 0 1px var(--oem-amber-soft, transparent)',
         }}>
-        <div className="absolute inset-y-0 left-0 rounded-full" style={{ width: `${value}%`, background: `linear-gradient(90deg,${colorA},${colorB})` }} />
+        <div className="absolute inset-y-0 left-0 rounded-full" style={{ width: `${value}%`, backgroundColor: colorA, backgroundImage: `linear-gradient(90deg,${colorA},${colorB})` }} />
         <div className="absolute top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-white pointer-events-none transition-[left] duration-75"
           style={{
             left: `calc(${value}% - 8px)`,
@@ -767,7 +767,7 @@ function PerfMiniBar({ pct, color }: { pct: number; color: string }) {
   return (
     <div className="h-1 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.08)', width: '100%' }}>
       <div className="h-full rounded-full transition-all duration-700"
-        style={{ width: `${pct}%`, background: `linear-gradient(90deg, ${color}aa, ${color})` }} />
+        style={{ width: `${pct}%`, backgroundColor: color, backgroundImage: `linear-gradient(90deg, ${color}aa, ${color})` }} />
     </div>
   );
 }
@@ -1026,17 +1026,17 @@ function SettingTile({ icon, title, sub, control, accent, span = 1, onClick }: {
             style={{
               width: 56, height: 56, borderRadius: 16,
               background: accent === 'amber'
-                ? 'linear-gradient(135deg, oklch(82% 0.10 65 / 0.30), oklch(60% 0.10 50 / 0.10))'
+                ? 'linear-gradient(135deg, rgba(241,183,126,0.3), rgba(176,109,71,0.1))'
                 : 'var(--oem-surface-2, #303749)',
               border: '1px solid ' + (accent === 'amber'
-                ? 'var(--oem-line-warm, oklch(66% 0.10 55 / 0.42))'
+                ? 'var(--oem-line-warm, rgba(193,129,84,0.42))'
                 : 'var(--oem-line, rgba(255,240,210,0.08))'),
               display: 'grid', placeItems: 'center',
               color: accent === 'amber'
-                ? 'var(--oem-amber, oklch(80% 0.13 60))'
+                ? 'var(--oem-amber, rgb(251,169,98))'
                 : 'var(--oem-ink-2, rgba(240,235,224,0.74))',
               flex: 'none',
-              boxShadow: accent === 'amber' ? '0 0 18px oklch(70% 0.10 60 / 0.18)' : 'none',
+              boxShadow: accent === 'amber' ? '0 0 18px rgba(204,143,92,0.18)' : 'none',
             }}>
             <Icon className="w-6 h-6" />
           </span>
@@ -1067,7 +1067,7 @@ function BigToggle({ value, onChange }: { value: boolean; onChange?: (v: boolean
         style={{
           fontSize: 14,
           letterSpacing: '0.10em',
-          color: value ? 'var(--oem-amber, oklch(80% 0.13 60))' : 'var(--oem-ink-3, rgba(240,235,224,0.52))',
+          color: value ? 'var(--oem-amber, rgb(251,169,98))' : 'var(--oem-ink-3, rgba(240,235,224,0.52))',
         }}>
         {value ? 'Etkin' : 'Kapalı'}
       </span>
@@ -1261,7 +1261,7 @@ function SoundTabContent({ drivingMode, volumeSlot }: { drivingMode: DrivingMode
 function ConnStatusBadge({ on }: { on: boolean }) {
   return (
     <span className="text-[10px] font-black uppercase tracking-[0.20em] whitespace-nowrap"
-      style={{ color: on ? 'var(--oem-amber, oklch(80% 0.13 60))' : 'var(--oem-ink-3, rgba(240,235,224,0.52))' }}>
+      style={{ color: on ? 'var(--oem-amber, rgb(251,169,98))' : 'var(--oem-ink-3, rgba(240,235,224,0.52))' }}>
       {on ? 'BAĞLI' : 'BAĞLI DEĞİL'}
     </span>
   );
@@ -1467,7 +1467,7 @@ function ProfilesTabContent() {
             <div className="flex gap-3">
               <button type="button" onClick={confirmAdd} disabled={!newName.trim()}
                 className="flex-1" style={{ padding: '13px 0', borderRadius: 14, fontSize: 15, fontWeight: 700,
-                  background: newName.trim() ? 'var(--oem-amber, oklch(80% 0.13 60))' : 'var(--oem-surface-2, #303749)',
+                  background: newName.trim() ? 'var(--oem-amber, rgb(251,169,98))' : 'var(--oem-surface-2, #303749)',
                   color: newName.trim() ? '#1a1206' : 'var(--oem-ink-3, rgba(240,235,224,0.4))', border: 'none' }}>
                 Oluştur
               </button>
@@ -1803,7 +1803,7 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
                   style={{
                     width: '100%',
                     appearance: 'none',
-                    border: '1px solid ' + (active ? 'var(--oem-line-warm, oklch(66% 0.10 55 / 0.42))' : 'transparent'),
+                    border: '1px solid ' + (active ? 'var(--oem-line-warm, rgba(193,129,84,0.42))' : 'transparent'),
                     background: active
                       ? 'linear-gradient(180deg, rgba(59,130,246,0.12), rgba(59,130,246,0.03) 70%), var(--oem-surface-1, #262C3C)'
                       : 'transparent',
@@ -1822,7 +1822,7 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
                     letterSpacing: '-0.005em',
                     position: 'relative',
                     boxShadow: active
-                      ? '0 1px 0 rgba(255,255,255,0.10) inset, 0 12px 28px -16px oklch(60% 0.10 250 / 0.40)'
+                      ? '0 1px 0 rgba(255,255,255,0.10) inset, 0 12px 28px -16px rgba(79,132,186,0.4)'
                       : 'none',
                     transition: 'background .15s ease, color .15s ease, border-color .15s ease',
                   }}>
@@ -1838,8 +1838,8 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
                         width: 4,
                         borderRadius: 4,
                         background:
-                          'linear-gradient(180deg, oklch(86% 0.07 248), oklch(66% 0.11 250) 60%, oklch(50% 0.12 252))',
-                        boxShadow: '0 0 14px oklch(70% 0.10 248 / 0.50)',
+                          'linear-gradient(180deg, rgb(173,214,253), rgb(91,151,211) 60%, rgb(39,101,165))',
+                        boxShadow: '0 0 14px rgba(106,164,218,0.5)',
                       }} />
                   )}
                   <span
@@ -1848,14 +1848,14 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
                       height: isCompactScreen ? 36 : 48,
                       borderRadius: 14,
                       background: active
-                        ? 'var(--oem-amber-soft, oklch(80% 0.13 60 / 0.18))'
+                        ? 'var(--oem-amber-soft, rgba(251,169,98,0.18))'
                         : 'var(--oem-surface-2, #303749)',
-                      border: '1px solid ' + (active ? 'var(--oem-line-warm, oklch(66% 0.10 55 / 0.42))' : 'var(--oem-line, rgba(255,240,210,0.08))'),
+                      border: '1px solid ' + (active ? 'var(--oem-line-warm, rgba(193,129,84,0.42))' : 'var(--oem-line, rgba(255,240,210,0.08))'),
                       display: 'grid',
                       placeItems: 'center',
-                      color: active ? 'var(--oem-amber, oklch(80% 0.13 60))' : s.color,
+                      color: active ? 'var(--oem-amber, rgb(251,169,98))' : s.color,
                       flex: 'none',
-                      filter: active ? 'drop-shadow(0 0 10px oklch(80% 0.13 60 / 0.50))' : 'none',
+                      filter: active ? 'drop-shadow(0 0 10px rgba(251,169,98,0.5))' : 'none',
                     }}>
                     <Icon className={isCompactScreen ? 'w-4 h-4' : 'w-5 h-5'} />
                   </span>
@@ -1868,7 +1868,7 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
                   )}
                   {isCompactScreen && (
                     <span className="text-[9px] font-black uppercase tracking-[0.10em] truncate w-full"
-                      style={{ color: active ? 'var(--oem-amber, oklch(80% 0.13 60))' : 'var(--oem-ink-3, rgba(240,235,224,0.52))' }}>
+                      style={{ color: active ? 'var(--oem-amber, rgb(251,169,98))' : 'var(--oem-ink-3, rgba(240,235,224,0.52))' }}>
                       {s.short ?? s.label.split(' ')[0]}
                     </span>
                   )}

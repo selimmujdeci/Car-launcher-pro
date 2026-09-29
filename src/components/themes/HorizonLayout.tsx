@@ -327,7 +327,7 @@ const HzRangeCard = memo(function HzRangeCard() {
       <div className="flex items-center" style={{ gap: 7, marginTop: 8 }}>
         <span style={{ fontSize: 9, fontWeight: 700, color: p.ink3 }}>E</span>
         <div style={{ flex: 1, height: 6, borderRadius: 999, background: p.panelLo, overflow: 'hidden' }}>
-          <div style={{ height: '100%', width: `${fpct}%`, background: `linear-gradient(90deg, ${p.accentDeep}, ${p.accent})`, transition: 'width .5s ease' }} />
+          <div style={{ height: '100%', width: `${fpct}%`, backgroundColor: p.accent, backgroundImage: `linear-gradient(90deg, ${p.accentDeep}, ${p.accent})`, transition: 'width .5s ease' }} />
         </div>
         <span style={{ fontSize: 9, fontWeight: 700, color: p.ink3 }}>F</span>
       </div>
@@ -422,7 +422,7 @@ const HzMap = memo(function HzMap({ onOpenMap, fullMapOpen }: { onOpenMap: () =>
       {isNavigating && turnDist && (
         <div className="absolute" style={{ top: 15, left: 15, pointerEvents: 'auto' }}>
           <div className="flex items-center" style={{ gap: 12, padding: '11px 15px', borderRadius: 14, ...chip }}>
-            <div className="flex items-center justify-center" style={{ width: 42, height: 42, borderRadius: 12, background: `linear-gradient(135deg, ${p.accent}, ${p.accentDeep})`, boxShadow: `0 6px 16px ${p.accentGlow}` }}>
+            <div className="flex items-center justify-center" style={{ width: 42, height: 42, borderRadius: 12, backgroundColor: p.accent, backgroundImage: `linear-gradient(135deg, ${p.accent}, ${p.accentDeep})`, boxShadow: `0 6px 16px ${p.accentGlow}` }}>
               <CornerUpRight className="w-5 h-5" style={{ color: '#fff' }} />
             </div>
             <div>

@@ -162,7 +162,7 @@ function YtDownloadButton({
 }
 
 /* ── AlbumArt — premium 4-layer shadow + texture + specular sweep ── */
-// Per screens.jsx 247-277. oklch(56% 0.10 42) base when no cover.
+// Per screens.jsx 247-277. rgb(165,95,68) base when no cover.
 function AlbumArt({ size, src, motionEnabled = true }: {
   size: number; src?: string; motionEnabled?: boolean;
 }) {
@@ -992,7 +992,7 @@ function PlayerView({
                 data-music-favorite-toggle="true"
                 className="w-12 h-12 rounded-2xl flex items-center justify-center glass-card active:scale-90 transition-all"
                 style={favorite.isFavorite
-                  ? { color: 'var(--oem-amber, oklch(80% 0.13 60))', borderColor: 'var(--oem-line-warm, oklch(66% 0.10 55 / 0.42))' }
+                  ? { color: 'var(--oem-amber, rgb(251,169,98))', borderColor: 'var(--oem-line-warm, rgba(193,129,84,0.42))' }
                   : { color: 'var(--oem-ink-2, rgba(240,235,224,0.74))' }}>
                 <Heart className="w-6 h-6" fill={favorite.isFavorite ? 'currentColor' : 'none'} />
               </button>
@@ -1023,7 +1023,7 @@ function PlayerView({
                 data-music-lyrics-toggle="true"
                 className="w-12 h-12 rounded-2xl flex items-center justify-center glass-card active:scale-90 transition-all"
                 style={lyricsOpen
-                  ? { color: 'var(--oem-amber, oklch(80% 0.13 60))', borderColor: 'var(--oem-line-warm, oklch(66% 0.10 55 / 0.42))' }
+                  ? { color: 'var(--oem-amber, rgb(251,169,98))', borderColor: 'var(--oem-line-warm, rgba(193,129,84,0.42))' }
                   : { color: 'var(--oem-ink-2, rgba(240,235,224,0.74))' }}>
                 <Captions className="w-6 h-6" />
               </button>
@@ -1068,7 +1068,7 @@ function PlayerView({
               className="absolute inset-y-0 left-0 rounded-full"
               style={{
                 width: `${progress.percent}%`,
-                background: 'linear-gradient(90deg, oklch(72% 0.11 55), oklch(86% 0.10 70))',
+                backgroundColor: 'rgb(218,145,95)', background: 'linear-gradient(90deg, rgb(218,145,95), rgb(252,198,135))',
                 boxShadow: '0 0 14px var(--oem-amber-glow, rgba(255,200,120,0.45))',
                 /* Sakin hareket: düşük performans/sürüşte geçiş animasyonu kapanır. */
                 transition: nowPlaying.motionEnabled ? 'width 700ms ease-out' : 'none',
@@ -1083,10 +1083,10 @@ function PlayerView({
                   top: '50%',
                   transform: 'translateY(-50%)',
                   width: 12, height: 12, borderRadius: '50%',
-                  background: 'oklch(92% 0.05 90)',
+                  background: 'rgb(241,228,191)',
                   boxShadow:
                     '0 0 0 2px rgba(0,0,0,0.35),' +
-                    ' 0 0 18px var(--oem-amber-glow, oklch(80% 0.13 60 / 0.55)),' +
+                    ' 0 0 18px var(--oem-amber-glow, rgba(251,169,98,0.55)),' +
                     ' 0 2px 6px rgba(0,0,0,0.45)',
                 }}
               />
@@ -1115,8 +1115,8 @@ function PlayerView({
               ? {
                   width: layout.transportTertiaryPx, height: layout.transportTertiaryPx,
                   background: 'transparent',
-                  border: '1px solid var(--oem-line-warm, oklch(66% 0.10 55 / 0.42))',
-                  color: 'var(--oem-amber, oklch(80% 0.13 60))',
+                  border: '1px solid var(--oem-line-warm, rgba(193,129,84,0.42))',
+                  color: 'var(--oem-amber, rgb(251,169,98))',
                   boxShadow: '0 0 18px var(--oem-amber-glow, transparent), inset 0 1px 0 rgba(255,240,210,0.06)',
                 }
               : {
@@ -1151,14 +1151,14 @@ function PlayerView({
             className="rounded-full flex items-center justify-center active:scale-95 transition-all relative disabled:opacity-40"
             style={{
               width: layout.transportPrimaryPx, height: layout.transportPrimaryPx,
-              background: 'linear-gradient(180deg, oklch(96% 0.02 80), oklch(78% 0.04 60))',
+              backgroundColor: 'rgb(249,241,227)', background: 'linear-gradient(180deg, rgb(249,241,227), rgb(203,178,158))',
               color: '#0a0a0a',
-              border: '1px solid oklch(78% 0.04 60)',
+              border: '1px solid rgb(203,178,158)',
               boxShadow:
                 '0 1px 0 rgba(255,255,255,0.55) inset,' +
                 ' 0 -1px 0 rgba(0,0,0,0.15) inset,' +
                 ' 0 10px 28px rgba(0,0,0,0.50),' +
-                ' 0 0 36px var(--oem-amber-glow, oklch(80% 0.05 60 / 0.18))',
+                ' 0 0 36px var(--oem-amber-glow, rgba(215,183,158,0.18))',
             }}>
             {playing
               ? <Pause className="w-9 h-9" style={{ color: '#0a0a0a', fill: '#0a0a0a' }} />
@@ -1188,8 +1188,8 @@ function PlayerView({
               ? {
                   width: layout.transportTertiaryPx, height: layout.transportTertiaryPx,
                   background: 'transparent',
-                  border: '1px solid var(--oem-line-warm, oklch(66% 0.10 55 / 0.42))',
-                  color: 'var(--oem-amber, oklch(80% 0.13 60))',
+                  border: '1px solid var(--oem-line-warm, rgba(193,129,84,0.42))',
+                  color: 'var(--oem-amber, rgb(251,169,98))',
                   boxShadow: '0 0 18px var(--oem-amber-glow, transparent), inset 0 1px 0 rgba(255,240,210,0.06)',
                 }
               : {
