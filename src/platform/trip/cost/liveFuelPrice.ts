@@ -20,6 +20,7 @@ import { signalWithTimeout } from '../../../utils/abortCompat';
 import { safeGetRaw, safeSetRaw } from '../../../utils/safeStorage';
 import { getGPSState } from '../../gpsService';
 import { nearestProvince } from './data/trProvinceCenters';
+import { computeRouteFuelCost, type RouteFuelCostView } from './routeFuelCost';
 import {
   BUNDLED_FUEL_PRICE_PACK,
   FUEL_PRICE_STALE_AFTER_DAYS,
@@ -145,6 +146,15 @@ const client = createLiveFuelPriceClient({
 /** Yakıt kalemine verilecek fiyat tablosu: canlı (EPDK) > APK tablosu. */
 export function getEffectiveFuelPricePack(): FuelPricePack | null {
   try { return client.getEffectivePack(); } catch { return BUNDLED_FUEL_PRICE_PACK; }
+}
+
+/** Rota önizlemesindeki yakıt tutarı — etkin fiyat (canlı > APK) ile, şimdiki an. */
+export function readRouteFuelCost(distanceM: number, vehicleType: string | null | undefined): RouteFuelCostView | null {
+  try {
+    return computeRouteFuelCost({
+      distanceM, vehicleType, pack: getEffectiveFuelPricePack(), nowMs: Date.now(),
+    });
+  } catch { return null; }
 }
 
 /** GPS'ten il: yalnız gerçek konum ('default' sahte konumdur → il seçilmez). */
