@@ -34,6 +34,8 @@ import {
 import type { RouteStep } from '../../platform/routingService';
 import { TOMTOM_ROUTING_SERVER } from '../../platform/routing/tomtomRouting';
 import { useStore } from '../../store/useStore';
+import { readRouteFuelCost } from '../../platform/trip/cost/liveFuelPrice';
+import { formatRouteFuelCost } from '../../platform/trip/cost/routeFuelCost';
 import { useGPSLocation } from '../../platform/gpsService';
 // TEK MESAFE KAYNAĞI: tüm km gösterimleri (Benzinlik/İş/Ev/Özel) bu kanonik
 // haversine'den beslenir — GPS alt sistemiyle (fusionCore/speedCore) AYNI fonksiyon.
@@ -692,6 +694,17 @@ const PreviewCard = memo(function PreviewCard({
 
   const altsRef  = useRef<HTMLDivElement | null>(null);
 
+  /* Yol Maliyeti: seçili rotanın yakıt tutarı (canlı EPDK > APK tablosu, tüketim
+     tek varsayım). Tutar bilinmiyorsa etiket HİÇ görünmez — "0 TL" yazılmaz. */
+  const vehicleType = useStore((s) => {
+    const id = s.settings.activeVehicleProfileId;
+    return id ? s.settings.vehicleProfiles.find((x) => x.id === id)?.vehicleType : undefined;
+  });
+  const fuelCost = useMemo(
+    () => readRouteFuelCost(distMeters, vehicleType),
+    [distMeters, vehicleType],
+  );
+
   const chipLabels = ['En Hızlı', 'Alternatif 1', 'Alternatif 2'];
 
   return (
@@ -758,7 +771,7 @@ const PreviewCard = memo(function PreviewCard({
         </div>
 
         {!loading && (
-          <div className="mb-4">
+          <div className="mb-4 flex flex-wrap items-center gap-2">
             {hasToll ? (
               <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[var(--oem-warn-soft)] border border-[var(--oem-warn)] text-[color:var(--oem-warn)] text-xs font-black uppercase tracking-widest">
                 <AlertCircle className="w-3.5 h-3.5" />
@@ -768,6 +781,19 @@ const PreviewCard = memo(function PreviewCard({
               <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[var(--oem-surface-2)] border border-[var(--oem-line)] text-[color:var(--oem-ink-3)] text-xs font-black uppercase tracking-widest">
                 <AlertCircle className="w-3.5 h-3.5" />
                 {tollReported ? 'Ücretli geçiş yok' : 'Ücret bilgisi yok'}
+              </span>
+            )}
+            {fuelCost && (
+              <span
+                data-testid="route-fuel-cost"
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold ${
+                  fuelCost.stale
+                    ? 'bg-[var(--oem-warn-soft)] border-[var(--oem-warn)] text-[color:var(--oem-warn)]'
+                    : 'bg-[var(--oem-surface-2)] border-[var(--oem-line)] text-[color:var(--oem-ink-2)]'
+                }`}
+              >
+                <Fuel className="w-3.5 h-3.5 flex-shrink-0" />
+                {formatRouteFuelCost(fuelCost)}
               </span>
             )}
           </div>
