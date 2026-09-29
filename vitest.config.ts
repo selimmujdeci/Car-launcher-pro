@@ -36,6 +36,22 @@ export default defineConfig({
     include:     ['src/__tests__/**/*.test.ts', 'src/__tests__/**/*.test.tsx'],
     exclude:     ['src/__tests__/**/*.integration.test.ts', 'src/__tests__/fixtures/**'],
     setupFiles: [fileURLToPath(new URL('./src/__tests__/setup.ts', import.meta.url))],
+    /**
+     * CI ile AYNI Supabase yer tutucuları (bkz. `.github/workflows/main.yml` `env:`).
+     *
+     * ÖLÇÜM (2026-09-29): tam paket CI'da yeşil, geliştirici makinesinde 8 dosyada
+     * 40 test kırmızıydı (deviceAutoPair · deviceIdentityPersistence · OTA · keyBeam…).
+     * Tek sebep: CI bu iki değişkeni yer tutucuyla veriyor, yerelde kimse vermiyordu;
+     * testler "env gömülü" ön koşulunu yerelde karşılayamıyordu. Sürekli kırmızı bir
+     * yerel paket gerçek bir regresyonu "zaten hep kırmızı" diye gizler.
+     *
+     * Gerçek bir değer ortamda verilmişse O kullanılır; yer tutucu yalnız boşluğu
+     * doldurur. Hiçbir test iddiası değişmez — testler CI'daki koşulun aynısıyla koşar.
+     */
+    env: {
+      VITE_SUPABASE_URL:      process.env.VITE_SUPABASE_URL      || 'https://placeholder.supabase.co',
+      VITE_SUPABASE_ANON_KEY: process.env.VITE_SUPABASE_ANON_KEY || 'placeholder-anon-key',
+    },
 
     /**
      * Varsayılan 5 sn YETMİYOR — ve bu bir ÜRÜN kusuru DEĞİL.
