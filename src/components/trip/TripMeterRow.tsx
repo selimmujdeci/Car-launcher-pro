@@ -48,6 +48,12 @@ export interface TripMeterRowProps {
   gap?: number;
   /** Üstte ince ayraç (mevcut "Kilometre" bloklarındaki border-top deseniyle aynı). */
   showTopBorder?: boolean;
+  /**
+   * Dar/kısa kartlar için tek satır: Sıfırla düğmesi değer satırının sonunda,
+   * "Aracı durdurunca…" ipucu görünür metin yerine düğmenin başlığında (title).
+   * Kart yüksekliği ~105px → ~44px (Pro/Horizon kartlarında düğme kırpılıyordu).
+   */
+  compact?: boolean;
   className?: string;
   style?: CSSProperties;
 }
@@ -75,7 +81,7 @@ function btnStyle(palette: TripMeterPalette, opts: { primary?: boolean; disabled
 
 function TripMeterRowBase({
   palette, valueSize = 22, unitSize = 13, labelSize = 11, iconSize = 20, gap = 12,
-  showTopBorder = false, className, style,
+  showTopBorder = false, compact = false, className, style,
 }: TripMeterRowProps) {
   const { record, requestReset } = useTripMeter();
   // HAM hıza abone OLUNMAZ (10-20Hz → ana ekranda gereksiz render). Yalnız kapı
@@ -101,6 +107,22 @@ function TripMeterRowBase({
     }
   };
 
+  const hint = 'Aracı durdurunca sıfırlayabilirsiniz.';
+  /* Compact: yalnız simge (44×44 dokunma hedefi korunur) — dar raylarda metinli
+     düğme "YOL SAYACI" etiketini "YOL S…" diye kesiyordu. Erişilebilir ad aynı. */
+  const resetButton = (
+    <button
+      type="button"
+      disabled={!gate.allowed}
+      onClick={handlePress}
+      aria-label="Sıfırla"
+      title={!gate.allowed ? hint : 'Yol sayacını sıfırla'}
+      style={{ ...btnStyle(palette, { disabled: !gate.allowed }), ...(compact ? { padding: 0, flexShrink: 0 } : null) }}
+    >
+      <RefreshCw size={compact ? 16 : 13} />{compact ? null : ' Sıfırla'}
+    </button>
+  );
+
   return (
     <div
       className={className}
@@ -110,7 +132,7 @@ function TripMeterRowBase({
       }}
     >
       <div className="flex items-center" style={{ gap }}>
-        <Gauge style={{ width: iconSize, height: iconSize, color: palette.ink2, flexShrink: 0 }} />
+        {!compact && <Gauge style={{ width: iconSize, height: iconSize, color: palette.ink2, flexShrink: 0 }} />}
         <span style={{ fontSize: valueSize, fontWeight: 800, color: palette.ink, fontVariantNumeric: 'tabular-nums' }}>
           {displayValue}
         </span>
@@ -118,9 +140,11 @@ function TripMeterRowBase({
         <span style={{
           marginLeft: 'auto', fontSize: labelSize, fontWeight: 700, letterSpacing: '0.08em',
           textTransform: 'uppercase', color: palette.ink3, whiteSpace: 'nowrap',
+          overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0,
         }}>
           Yol Sayacı
         </span>
+        {compact && phase !== 'confirm' && resetButton}
       </div>
 
       {phase === 'confirm' ? (
@@ -133,19 +157,12 @@ function TripMeterRowBase({
             <button type="button" onClick={handleConfirm} style={btnStyle(palette, { primary: true })}>SIFIRLA</button>
           </div>
         </div>
-      ) : (
+      ) : compact ? null : (
         <div style={{ marginTop: 8 }}>
-          <button
-            type="button"
-            disabled={!gate.allowed}
-            onClick={handlePress}
-            style={btnStyle(palette, { disabled: !gate.allowed })}
-          >
-            <RefreshCw size={13} /> Sıfırla
-          </button>
+          {resetButton}
           {!gate.allowed && (
             <div style={{ marginTop: 4, fontSize: Math.max(9, labelSize - 1), fontWeight: 600, color: palette.ink3 }}>
-              Aracı durdurunca sıfırlayabilirsiniz.
+              {hint}
             </div>
           )}
         </div>

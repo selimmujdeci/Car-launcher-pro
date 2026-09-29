@@ -2,7 +2,10 @@
  * Break Reminder Service — Mola Hatırlatıcı.
  *
  * Çalışma prensibi:
- *   - OBD hızı > 5 km/h ise "sürüş" sayılır
+ *   - Kanonik hız (UnifiedVehicleStore.speed) ≥ 5 km/h ise "sürüş" sayılır.
+ *     Hız BİLİNMİYORSA (null) durum değişmez — bilinmeyen "durdu" sayılmaz.
+ *   - Etkinken servis hızı KENDİSİ dinler: eskiden yalnız Eğlence Portalı açıkken
+ *     ham `obd.speed` ile besleniyordu → sürüşte (portal kapalı) sayaç hiç ilerlemiyordu.
  *   - Kesintisiz sürüş süresi INTERVAL_MIN aşınca uyarı gösterilir
  *   - Araç durursa (5+ dk) sayaç sıfırlanır
  *   - Kullanıcı uyarıyı dismiss ederse 30 dk sonra tekrar uyarır
@@ -10,6 +13,7 @@
 
 import { useState, useEffect } from 'react';
 import { runtimeManager } from '../core/runtime/AdaptiveRuntimeManager';
+import { useUnifiedVehicleStore } from './vehicleDataLayer/UnifiedVehicleStore';
 
 /* ── Sabitler ────────────────────────────────────────────── */
 
@@ -95,10 +99,11 @@ function stopTicker(): void {
 /* ── Hız güncellemesi ────────────────────────────────────── */
 
 /**
- * Her OBD güncellemesinde çağrılır.
+ * Kanonik hız güncellemesinde çağrılır. `null` (veri yok/bayat) → no-op.
  */
-export function updateBreakReminder(speedKmh: number): void {
+export function updateBreakReminder(speedKmh: number | null): void {
   if (!_state.enabled) return;
+  if (speedKmh === null || !Number.isFinite(speedKmh)) return;
 
   const moving = speedKmh >= SPEED_THRESHOLD_KMH;
 
@@ -125,6 +130,23 @@ export function updateBreakReminder(speedKmh: number): void {
   }
 }
 
+/* ── Kanonik hız beslemesi (yalnız etkinken abone) ────────── */
+
+let _speedUnsub: (() => void) | null = null;
+
+function startSpeedFeed(): void {
+  if (_speedUnsub) return;
+  updateBreakReminder(useUnifiedVehicleStore.getState().speed);
+  _speedUnsub = useUnifiedVehicleStore.subscribe((s, prev) => {
+    // Durmuşken her güncellemede sıfırlama süresi yeniden değerlendirilir.
+    if (s.speed !== prev.speed || _stoppedAt !== null) updateBreakReminder(s.speed);
+  });
+}
+
+function stopSpeedFeed(): void {
+  if (_speedUnsub) { _speedUnsub(); _speedUnsub = null; }
+}
+
 /* ── Public API ──────────────────────────────────────────── */
 
 export function enableBreakReminder(intervalMin?: number): void {
@@ -133,10 +155,13 @@ export function enableBreakReminder(intervalMin?: number): void {
     intervalMin: intervalMin ?? _state.intervalMin,
     alertVisible: false,
   });
+  startSpeedFeed();
 }
 
 export function disableBreakReminder(): void {
+  stopSpeedFeed();
   stopTicker();
+  _stoppedAt = null;
   push({ ...INITIAL, intervalMin: _state.intervalMin });
 }
 

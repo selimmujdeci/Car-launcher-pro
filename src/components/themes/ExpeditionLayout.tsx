@@ -19,6 +19,7 @@ import { isLowEndDevice } from '../../platform/headUnitCompat';
 import { useDisplaySpeed, formatDisplaySpeed } from '../../hooks/useDisplaySpeed';
 import { useBatteryVoltage } from '../../hooks/useBatteryVoltage';
 import { useLivingThemeState } from '../../hooks/useLivingThemeState';
+import { useVehicleStatusBadge, vehicleStatusColor } from '../../hooks/useThemeVehicleBadges';
 import { useAmbientTemp } from '../../hooks/useCanonicalVehicleSignal';
 import { VehicleTellTales } from '../vehicle/VehicleTellTales';
 import { useEngineReadout } from '../../hooks/useEngineReadout';
@@ -38,7 +39,7 @@ import { useLayoutIntent, useZoneWidths } from '../../store/useLayoutStore';
 import { solveLayout, normalizeIntent, EXPEDITION_MANIFEST, type Zone } from '../../platform/theme/layoutSolver';
 import emblemUrl from '../../assets/expedition/emblem.png';
 import roverUrl from '../../assets/expedition/rover.png';
-import { SUPPORTS_CSS_CLAMP, SUPPORTS_ASPECT_RATIO } from '../../utils/cssCompat';
+import { SUPPORTS_CSS_CLAMP } from '../../utils/cssCompat';
 
 /* ── Eski WebView (Chrome <79/<88) inline-CSS fallback'leri ──────────
  * clamp()/aspect-ratio desteklenmeyince tarayıcı deklarasyonu sessizce düşürür:
@@ -56,9 +57,11 @@ function exGridCols(sol: number, sag: number): string {
       : `minmax(${Math.round(a * k)}px,${Math.round(c * k)}px)`;
   return `${ol(200, 24, 330, sol)} minmax(0,1fr) ${ol(230, 27, 360, sag)}`;
 }
-const RING_BOX: React.CSSProperties = (SUPPORTS_CSS_CLAMP && SUPPORTS_ASPECT_RATIO)
-  ? { position: 'relative', width: 'min(210px, 80%)', aspectRatio: '1' }
-  : { position: 'relative', width: 210, maxWidth: '100%', height: 210 };
+/* Halka kutusu HEM genişliğe HEM yüksekliğe sığar (SVG `meet` ile kare kalır).
+   Eskiden yalnız genişlikten boyutlanıyordu (min(210px,80%) + aspect-ratio):
+   ChameleonScaler'ın mantıksal yüksekliği (600–675) plakayı kısa bıraktığında
+   halka gövde sinyallerinin ALTINA giriyor, rakam ikonların arkasında kalıyordu. */
+const RING_BOX: React.CSSProperties = { position: 'relative', width: '100%', height: '100%', maxWidth: 210, maxHeight: 210 };
 
 const VoiceAssistant = lazy(() => import('../modals/VoiceAssistant').then(m => ({ default: m.VoiceAssistant })));
 
@@ -239,16 +242,17 @@ const SpeedPlate = memo(function SpeedPlate() {
   const offset = useMemo(() => 471 - Math.min(speed / 200, 1) * 471, [speed]);
   return (
     <Plate editId="expedition.speed" editType="gauge" style={{ padding: '22px 20px', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-      <div style={{ flex: 1, display: 'grid', placeItems: 'center', position: 'relative', minHeight: 0 }}>
+      <div style={{ flex: 1, display: 'grid', gridTemplateRows: 'minmax(0,1fr)', gridTemplateColumns: 'minmax(0,1fr)', placeItems: 'center', position: 'relative', minHeight: 0 }}>
         <div style={RING_BOX}>
-          <svg viewBox="0 0 232 232" width="100%" height="100%" style={{ transform: 'rotate(135deg)' }}>
-            <circle cx="116" cy="116" r="100" fill="none" stroke={p.plateSunk} strokeWidth="16" strokeLinecap="round" strokeDasharray="471 628" />
-            <circle cx="116" cy="116" r="100" fill="none" strokeWidth="16" strokeLinecap="round" strokeDasharray="471 628" strokeDashoffset={offset} style={{ stroke: p.accent, filter: `drop-shadow(0 0 6px ${p.accentGlow})`, transition: 'stroke-dashoffset .5s ease' }} />
+          {/* Rakam da AYNI SVG koordinatında → halka ne kadar küçülürse küçülsün içinde kalır. */}
+          <svg viewBox="0 0 232 232" width="100%" height="100%" data-testid="expedition-speed-ring">
+            <g transform="rotate(135 116 116)">
+              <circle cx="116" cy="116" r="100" fill="none" stroke={p.plateSunk} strokeWidth="16" strokeLinecap="round" strokeDasharray="471 628" />
+              <circle cx="116" cy="116" r="100" fill="none" strokeWidth="16" strokeLinecap="round" strokeDasharray="471 628" strokeDashoffset={offset} style={{ stroke: p.accent, filter: `drop-shadow(0 0 6px ${p.accentGlow})`, transition: 'stroke-dashoffset .5s ease' }} />
+            </g>
+            <text x="116" y="124" textAnchor="middle" style={{ fill: p.inkCritical, fontWeight: 800, fontSize: 80, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em' }}>{formatDisplaySpeed(rawSpeed)}</text>
+            <text x="116" y="160" textAnchor="middle" style={{ fill: p.ink2, fontWeight: 700, fontSize: 15, letterSpacing: '0.12em' }}>KM/H</text>
           </svg>
-          <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2 }}>
-            <div style={{ fontWeight: 800, fontSize: 88, lineHeight: 0.8, color: p.inkCritical, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em' }}>{formatDisplaySpeed(rawSpeed)}</div>
-            <div style={{ fontSize: 15, fontWeight: 700, letterSpacing: '0.12em', color: p.ink2 }}>KM/H</div>
-          </div>
         </div>
       </div>
       {/* Gerçek araç gövde sinyalleri (CAN) — kapı/elfreni/sinyal/dörtlü/far/gerivites.
@@ -302,8 +306,8 @@ const RangePlate = memo(function RangePlate() {
           için pratikte hep 0 okunuyordu. */}
       <TripMeterRow
         palette={{ ink: p.ink, ink2: p.ink2, ink3: p.ink3, accent: p.accent, tile: p.plateSunk, edge: p.edge }}
-        valueSize={30} unitSize={16} labelSize={12} iconSize={27} gap={12}
-        showTopBorder
+        valueSize={26} unitSize={14} labelSize={11} iconSize={22} gap={8}
+        showTopBorder compact
       />
     </Plate>
   );
@@ -359,7 +363,7 @@ const MusicPlate = memo(function MusicPlate() {
   }, []);
   const total = track.durationSec || 0;
   const elapsed = track.positionSec || 0;
-  const pct = total > 0 ? Math.min((elapsed / total) * 100, 100) : 36;
+  const pct = total > 0 ? Math.min((elapsed / total) * 100, 100) : 0;   // süre bilinmiyorsa boş (sabit %36 UYDURMAYDI)
   const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
   // Play: oturum varsa duraklat/sürdür; boştaysa son parçayı sürdür, o da yoksa drawer aç.
   const handlePlay = () => {
@@ -435,12 +439,13 @@ const VehiclePlate = memo(function VehiclePlate({ onOpenSettings }: { onOpenSett
   const rawSpeed = useDisplaySpeed();
   const motor = eng.engineTemp != null ? Math.round(eng.engineTemp) : null;
   const rpm = eng.rpm;
+  const status = useVehicleStatusBadge();   // sabit "Normal" UYDURMAYDI
   return (
     <Plate editId="expedition.vehicle" style={{ padding: '18px 20px 0', display: 'flex', flexDirection: 'column', overflow: 'hidden' }} onClick={onOpenSettings}>
       <div className="flex items-baseline justify-between">
         <Label>Araç Durumu</Label>
         <div className="flex items-center" style={{ gap: 4 }}>
-          <span style={{ fontWeight: 700, fontSize: 32, lineHeight: 1, color: p.ink }}>Normal</span>
+          <span data-testid="expedition-vehicle-status" data-status={status.status} style={{ fontWeight: 700, fontSize: 32, lineHeight: 1, color: vehicleStatusColor(status.tone, p.ink, p.ink3), whiteSpace: 'nowrap' }}>{status.short}</span>
           <ChevronRight className="w-5 h-5" style={{ color: p.ink3 }} />
         </div>
       </div>
@@ -453,7 +458,7 @@ const VehiclePlate = memo(function VehiclePlate({ onOpenSettings }: { onOpenSett
         <Metric k="Motor" v={motor != null ? `${motor}` : '—'} unit="°C" />
         <Metric k="Devir" v={rpm != null ? `${Math.round(rpm)}` : '—'} unit="" border />
         <Metric k="Akü"  v={volt != null ? volt.toFixed(1) : '—'} unit="V" border warn={battery.isWarning} />
-        <Metric k="Hız"  v={formatDisplaySpeed(rawSpeed)} unit=" km/h" border />
+        <Metric k="Hız"  v={formatDisplaySpeed(rawSpeed)} unit="km/h" border />
       </div>
     </Plate>
   );
@@ -464,7 +469,7 @@ function Metric({ k, v, unit, border, warn }: { k: string; v: string; unit: stri
     <div style={{ flex: 1, padding: border ? '12px 4px 16px 16px' : '12px 4px 16px', borderLeft: border ? `1px solid ${p.hairline}` : undefined }}>
       <div style={{ fontSize: 13, fontWeight: 600, letterSpacing: '0.05em', color: p.ink2, textTransform: 'uppercase' }}>{k}</div>
       {/* Kütük #427: WARN seviyesinde değer uyarı renginde gösterilir. */}
-      <div style={{ fontWeight: 700, fontSize: 27, marginTop: 2, color: warn ? 'var(--oem-warn)' : p.ink, fontVariantNumeric: 'tabular-nums' }}>{v}<small style={{ fontSize: 15, color: p.ink2, fontWeight: 600 }}>{unit}</small></div>
+      <div style={{ fontWeight: 700, fontSize: 27, marginTop: 2, color: warn ? 'var(--oem-warn)' : p.ink, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{v}<small style={{ fontSize: 15, color: p.ink2, fontWeight: 600 }}>{unit}</small></div>
     </div>
   );
 }
@@ -472,11 +477,12 @@ function Metric({ k, v, unit, border, warn }: { k: string; v: string; unit: stri
 /* ─── DOCK (sürekli metal şerit + pusula) ────────────────────────── */
 function DockBtn({ Icon, cap, active, onClick, badge }: { Icon: typeof Navigation; cap: string; active?: boolean; onClick: () => void; badge?: number }) {
   const p = usePal();
-  // flex 0 0 33.333% → her zaman 3 buton görünür; fazlası yatay kaydırmayla gelir.
+  // flex 0 0 33.333% → her zaman 3 buton TAM görünür; fazlası yatay kaydırmayla gelir.
+  // (38% idi: 3. buton yarım kalıyor, "ASİSTA" / "AYARLA" diye kesik etiket görünüyordu.)
   // Tema Stüdyo: dock butonları TOPLUCA düzenlenir — 17 butona ayrı kimlik vermek
   // kayıt defterini şişirir; aynı kimlik hepsinde → tek CSS kuralı hepsine iner.
   return (
-    <button data-dock-item data-editable="expedition.dock-buttons" data-editable-type="dock" onClick={onClick} className="ex-dock-btn flex flex-col items-center justify-center flex-shrink-0" style={{ flex: '0 0 38%', minWidth: 0, scrollSnapAlign: 'start', background: 'transparent', border: 'none', cursor: 'pointer', gap: 8, color: active ? p.accent : p.ink2, borderRight: `1px solid ${p.hairline}`, position: 'relative', touchAction: 'pan-x' }}>
+    <button data-dock-item data-editable="expedition.dock-buttons" data-editable-type="dock" onClick={onClick} className="ex-dock-btn flex flex-col items-center justify-center flex-shrink-0" style={{ flex: '0 0 33.333%', minWidth: 0, scrollSnapAlign: 'start', background: 'transparent', border: 'none', cursor: 'pointer', gap: 8, color: active ? p.accent : p.ink2, borderRight: `1px solid ${p.hairline}`, position: 'relative', touchAction: 'pan-x' }}>
       {active && !p.night
         ? <span style={{ width: 52, height: 52, borderRadius: '50%', background: p.accent, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--oem-accent-ink, #fff)', boxShadow: `0 4px 14px ${p.accentGlow}` }}><Icon className="w-8 h-8" /></span>
         : <Icon className="w-[34px] h-[34px]" style={{ filter: 'drop-shadow(0 1px 1px rgba(0,0,0,.5))' }} />}
@@ -520,8 +526,10 @@ const BrandClock = memo(function BrandClock({ onClick }: { onClick: () => void }
   const digital = use24Hour
     ? `${String(h24).padStart(2, '0')}:${String(m).padStart(2, '0')}`
     : `${(h24 % 12) || 12}:${String(m).padStart(2, '0')}`;
-  const dateLine = `${now.getDate()} ${MONTHS_TR[now.getMonth()].toUpperCase()} ${now.getFullYear()}`;
-  const dayLine  = DAYS_TR[now.getDay()].toUpperCase();
+  /* toLocaleUpperCase('tr-TR'): düz toUpperCase "Pazartesi"→"PAZARTESI", "Nis"→"NIS"
+     yapıyordu. Yıl kaldırıldı: 130px kadranda gün satırı alt kenardan taşıyordu. */
+  const dateLine = `${now.getDate()} ${MONTHS_TR[now.getMonth()].toLocaleUpperCase('tr-TR')}`;
+  const dayLine  = DAYS_TR[now.getDay()].toLocaleUpperCase('tr-TR');
 
   // Altın bezel her iki modda; kadran gün/gece döner (gündüz fildişi → aydınlık OEM)
   const accent   = p.accent;
@@ -611,11 +619,11 @@ const BrandClock = memo(function BrandClock({ onClick }: { onClick: () => void }
         <span style={{ position: 'absolute', top: 63, left: '50%', transform: 'translateX(-50%)', fontSize: 8, fontWeight: 700, letterSpacing: '0.34em', textIndent: '0.34em', color: accent, whiteSpace: 'nowrap' }}>PRO</span>
 
         {/* dijital saat — merkez altı */}
-        <span style={{ position: 'absolute', top: 84, left: '50%', transform: 'translateX(-50%)', fontSize: 20, fontWeight: 600, letterSpacing: '0.02em', color: digitalCol, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>{digital}</span>
+        <span style={{ position: 'absolute', top: 80, left: '50%', transform: 'translateX(-50%)', fontSize: 20, fontWeight: 600, letterSpacing: '0.02em', color: digitalCol, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>{digital}</span>
         {/* tarih */}
-        <span style={{ position: 'absolute', top: 107, left: '50%', transform: 'translateX(-50%)', fontSize: 8, fontWeight: 700, letterSpacing: '0.08em', color: accent, whiteSpace: 'nowrap' }}>{dateLine}</span>
+        <span style={{ position: 'absolute', top: 102, left: '50%', transform: 'translateX(-50%)', fontSize: 8, fontWeight: 700, letterSpacing: '0.08em', color: accent, whiteSpace: 'nowrap' }}>{dateLine}</span>
         {/* gün */}
-        <span style={{ position: 'absolute', top: 117, left: '50%', transform: 'translateX(-50%)', fontSize: 7.5, fontWeight: 600, letterSpacing: '0.14em', color: dayCol, whiteSpace: 'nowrap' }}>{dayLine}</span>
+        <span style={{ position: 'absolute', top: 111, left: '50%', transform: 'translateX(-50%)', fontSize: 7.5, fontWeight: 600, letterSpacing: '0.14em', color: dayCol, whiteSpace: 'nowrap' }}>{dayLine}</span>
 
         {/* akrep (saat) */}
         <div style={{ position: 'absolute', left: '50%', bottom: '50%', width: 4, height: 34, background: handGrad, borderRadius: 4, transformOrigin: '50% 100%', transform: `translateX(-50%) rotate(${hourDeg}deg)`, boxShadow: handShadow, zIndex: 5 }} />

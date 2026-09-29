@@ -1,52 +1,68 @@
 import { useEffect, useRef } from 'react';
 import { setDrivingMode } from '../platform/mapService';
-import type { GPSLocation } from '../platform/gpsService';
+import { getNavigationState } from '../platform/navigationService';
+import { useDisplaySpeed } from './useDisplaySpeed';
 import type { AppSettings } from '../store/useStore';
 
 interface UseDriveModeDetectionParams {
-  location: GPSLocation | null;
   settings: AppSettings;
 }
 
-export function useDriveModeDetection({
-  location,
-  settings,
-}: UseDriveModeDetectionParams): void {
-  // Aktivasyon: hız > 15 km/h için 3 saniye stabilite → setDrivingMode(true)
-  const activateTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Deaktivasyon hysteresis: hız ≤ 15 km/h için 2 saniye stabilite → setDrivingMode(false)
-  // Stop-and-go trafikte kısa yavaşlamalarda mod geçişini engeller.
-  const deactivateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+/** Bu hızın üstünde 3 sn kalınca harita sürüş görünümüne geçer. */
+export const DRIVE_MODE_ACTIVATE_KMH = 15;
+export const DRIVE_MODE_ACTIVATE_MS  = 3_000;
+/** Bu hızın altında 30 sn kalınca (park benzeri duruş) sürüş görünümünden çıkılır. */
+export const DRIVE_MODE_STOP_KMH     = 3;
+export const DRIVE_MODE_DEACTIVATE_MS = 30_000;
+
+type Band = 'unknown' | 'high' | 'mid' | 'stopped';
+
+function bandOf(speedKmh: number | null): Band {
+  if (speedKmh === null || !Number.isFinite(speedKmh)) return 'unknown';
+  if (speedKmh > DRIVE_MODE_ACTIVATE_KMH) return 'high';
+  if (speedKmh < DRIVE_MODE_STOP_KMH) return 'stopped';
+  return 'mid';
+}
+
+/**
+ * Hıza göre otomatik harita sürüş görünümü (Ayarlar → Smart Engine).
+ *
+ * Eski sürümün iki kusuru vardı:
+ *  1. Efekt temizliği HER hız güncellemesinde zamanlayıcıları siliyordu → GPS
+ *     saniyede bir güncellendiği için 3 sn'lik aktivasyon HİÇ tetiklenmiyordu.
+ *  2. Hız bilinmiyorsa (`null`) 0 sayılıp `setDrivingMode(false)` yazılıyordu;
+ *     kırmızı ışıkta 2 sn durmak aktif navigasyonda bile sürüş görünümünü kapatıyordu.
+ *
+ * Şimdi: kanonik hız (`useDisplaySpeed`); yalnız BANT GEÇİŞİNDE zamanlayıcı kurulur
+ * (bant aynı kaldıkça çalışan zamanlayıcı korunur, kullanıcının elle seçimi bir
+ * sonraki geçişe kadar ezilmez); bilinmeyen hız hiçbir şey yazmaz; rehberlik
+ * sürerken sürüş görünümü kapatılmaz (o sırada otorite navigasyondur).
+ */
+export function useDriveModeDetection({ settings }: UseDriveModeDetectionParams): void {
+  const speedKmh = useDisplaySpeed();
+  const enabled = settings.smartContextEnabled ?? true;
+  const bandRef  = useRef<Band>('unknown');
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    if (!settings.smartContextEnabled) return;
-    const speedKmh = location?.speed != null ? location.speed * 3.6 : 0;
+    const clear = () => { if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; } };
+    if (!enabled) { clear(); bandRef.current = 'unknown'; return; }
 
-    if (speedKmh > 15) {
-      // Hız eşiğin üzerinde — deaktivasyon timer'ını iptal et
-      if (deactivateTimerRef.current) { clearTimeout(deactivateTimerRef.current); deactivateTimerRef.current = null; }
-      // Aktivasyon timer'ı yoksa başlat
-      if (!activateTimerRef.current) {
-        activateTimerRef.current = setTimeout(() => {
-          setDrivingMode(true);
-          activateTimerRef.current = null;
-        }, 3000);
-      }
-    } else {
-      // Hız eşiğin altında — aktivasyon timer'ını iptal et
-      if (activateTimerRef.current) { clearTimeout(activateTimerRef.current); activateTimerRef.current = null; }
-      // Deaktivasyon timer'ı yoksa 2s hysteresis ile başlat
-      if (!deactivateTimerRef.current) {
-        deactivateTimerRef.current = setTimeout(() => {
-          setDrivingMode(false);
-          deactivateTimerRef.current = null;
-        }, 2000);
-      }
+    const band = bandOf(speedKmh);
+    if (band === bandRef.current) return;   // aynı bant → bekleyen zamanlayıcı sürer
+    bandRef.current = band;
+    clear();
+
+    if (band === 'high') {
+      timerRef.current = setTimeout(() => { timerRef.current = null; setDrivingMode(true); }, DRIVE_MODE_ACTIVATE_MS);
+    } else if (band === 'stopped') {
+      timerRef.current = setTimeout(() => {
+        timerRef.current = null;
+        if (getNavigationState().isGuidanceActive) return;
+        setDrivingMode(false);
+      }, DRIVE_MODE_DEACTIVATE_MS);
     }
+  }, [speedKmh, enabled]);
 
-    return () => {
-      if (activateTimerRef.current)   { clearTimeout(activateTimerRef.current);   activateTimerRef.current   = null; }
-      if (deactivateTimerRef.current) { clearTimeout(deactivateTimerRef.current); deactivateTimerRef.current = null; }
-    };
-  }, [location?.speed, settings.smartContextEnabled]);
+  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current); }, []);
 }

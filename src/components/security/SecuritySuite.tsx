@@ -18,13 +18,11 @@ import {
   unlockPin,
   clearValeViolations,
   dismissGeofenceAlert,
-  checkGeofence,
   getGeofenceState,
 } from '../../platform/geofenceService';
 import { pushZoneToCloud } from '../../platform/security/geofenceService';
 import { setupPin, clearPin, verifyPin, getLockoutState } from '../../platform/pinService';
 import { useGPSLocation } from '../../platform/gpsService';
-import { useOBDState } from '../../platform/obdService';
 import {
   useSentryState,
   armSentry,
@@ -239,7 +237,6 @@ const GeofenceMap = memo(function GeofenceMap({
 export const SecuritySuite = memo(function SecuritySuite() {
   const geo    = useGeofenceState();
   const gps    = useGPSLocation();
-  const obd    = useOBDState();
   const sentry = useSentryState();
 
   const [activeTab, setActiveTab] = useState<'geofence' | 'vale' | 'pin' | 'sentry'>('geofence');
@@ -248,11 +245,9 @@ export const SecuritySuite = memo(function SecuritySuite() {
   const [disablingPin, setDisablingPin] = useState(false);
   const [settingPin, setSettingPin]  = useState(false);
 
-  useEffect(() => {
-    if (gps?.latitude !== undefined) {
-      checkGeofence(gps.latitude, gps.longitude, obd.speed);
-    }
-  }, [gps?.latitude, gps?.longitude, obd.speed]);
+  /* Geofence kontrolünün TEK besleyicisi gpsService'tir (her fix'te, throttle'lı,
+     filtreli GPS hızıyla). Buradaki ikinci çağrı ham `obd.speed` (OBD yokken 0)
+     ile vale hız ihlalini maskeliyor ve throttle'ı atlıyordu — kaldırıldı. */
 
   // Yerel 'default' bölgeyi buluta senkronla (head unit yukarı senkronlar).
   // Fail-soft: eşli değilse/offline'da sessiz no-op — yerel geofence çalışmaya

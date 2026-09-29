@@ -4,7 +4,7 @@ import type { ReactNode, PointerEvent as ReactPointerEvent, MouseEvent as ReactM
 import {
   Navigation, Music2, Mic, Wind, Settings, Car, Bell,
   Plus, Minus, SkipBack, SkipForward, Play, Pause,
-  ChevronRight, Maximize2, CornerUpRight,
+  ChevronRight, CornerUpRight,
   Thermometer, BatteryCharging, Gauge, Fuel,
   Phone, Cloud, AlertTriangle, Camera, Route, ShieldAlert, Shield, Tv2, Zap,
   FlaskConical,
@@ -22,6 +22,9 @@ import { useOBDState } from '../../platform/obdService';
 import { useDisplaySpeed, formatDisplaySpeed } from '../../hooks/useDisplaySpeed';
 import { useBatteryVoltage } from '../../hooks/useBatteryVoltage';
 import { useLivingThemeState } from '../../hooks/useLivingThemeState';
+import {
+  useVehicleStatusBadge, vehicleStatusColor, useGearLabel, useSpeedLimitSign,
+} from '../../hooks/useThemeVehicleBadges';
 import { useAmbientTemp, useLiveVehicleSignal } from '../../hooks/useCanonicalVehicleSignal';
 import { useClock } from '../../hooks/useClock';
 import { useDeviceStatus } from '../../platform/deviceApi';
@@ -30,6 +33,7 @@ import { useNotificationState } from '../../platform/notificationService';
 import { openDrawer } from '../../platform/drawerBus';
 import { openMusicDrawer } from '../../platform/mediaUi';
 import { MiniMapWidget } from '../map/MiniMapWidget';
+import { useMapStore } from '../../platform/map/_mapState';
 import { TripMeterRow } from '../trip/TripMeterRow';
 import { useNavSummary } from '../../hooks/useNavSummary';
 import { type AppItem } from '../../data/apps';
@@ -197,8 +201,10 @@ const StatusCluster = memo(function StatusCluster() {
         )}
       </button>
       <StatusControls palette={{ ink: p.ink, ink2: p.ink2, accent: p.accent, surface: p.cardSolid }} size={15} />
-      <span style={{ fontSize: 12, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: p.ink }}>{device.ready ? `${device.battery}%` : '—'}</span>
-      <span style={{ fontSize: 12, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: p.ink }}>{ambient != null ? `${Math.round(ambient)}°C` : '—'}</span>
+      {/* Cihaz pili yoksa (head unit / web) etiketsiz "—" basılmaz; dış sıcaklık
+          bilinmiyorsa birimiyle "—°C" (iki anlamsız çizgi yan yana duruyordu). */}
+      {device.ready && <span style={{ fontSize: 12, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: p.ink }}>{`${device.battery}%`}</span>}
+      <span style={{ fontSize: 12, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: p.ink }}>{ambient != null ? `${Math.round(ambient)}°C` : '—°C'}</span>
     </div>
   );
 });
@@ -226,6 +232,8 @@ const SpeedGauge = memo(function SpeedGauge() {
      yuvarlanmadan basılınca göstergeyi taşırır (saha 2026-08-12). */
   const rawSpeed = useDisplaySpeed();
   const speed = rawSpeed ?? 0;   // yalnız yay/oran hesabı için
+  const gear = useGearLabel();
+  const limitSign = useSpeedLimitSign();
   const R = 52, cx = 64, cy = 64, START = 135, SPAN = 270;
   const arc = useMemo(() => {
     const rad = (d: number) => (d * Math.PI) / 180;
@@ -247,15 +255,23 @@ const SpeedGauge = memo(function SpeedGauge() {
           <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.22em', color: p.ink3, marginTop: 3 }}>KM/H</span>
         </div>
       </div>
-      <div className="w-full flex items-center justify-between px-1">
-        <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl" style={{ background: p.tile }}>
-          <span style={{ fontSize: 17, fontWeight: 800, color: p.accent2 }}>D</span>
-          <span style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: '0.12em', color: p.ink2 }}>AUTO</span>
+      {/* Vites + limit — yalnız kanıtlıysa (sabit "D AUTO" / "4WD" UYDURMAYDI) */}
+      {(gear !== null || limitSign !== null) && (
+        <div className="w-full flex items-center justify-between px-1">
+          {gear !== null ? (
+            <div data-testid="tesla-gauge-gear" className="flex items-center px-2.5 py-1.5 rounded-xl" style={{ background: p.tile }}>
+              <span style={{ fontSize: 17, fontWeight: 800, color: p.accent2 }}>{gear}</span>
+            </div>
+          ) : <span />}
+          {limitSign !== null && (
+            <div data-testid="tesla-gauge-limit" data-definitive={limitSign.definitive ? 'true' : 'false'}
+              className="flex items-center justify-center rounded-full"
+              style={{ width: 38, height: 38, border: `3px ${limitSign.definitive ? 'solid' : 'dashed'} #E0322B`, background: p.cardSolid }}>
+              <span style={{ fontSize: 14.5, fontWeight: 900, color: p.ink, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{limitSign.kmh}</span>
+            </div>
+          )}
         </div>
-        <div className="px-2.5 py-1.5 rounded-xl" style={{ background: p.accentSoft, border: `1px solid ${p.accentA33}` }}>
-          <span style={{ fontSize: 14.5, fontWeight: 900, letterSpacing: '0.06em', color: p.accent2 }}>4WD</span>
-        </div>
-      </div>
+      )}
     </div>
   );
 });
@@ -299,7 +315,7 @@ const FuelCard = memo(function FuelCard() {
       </div>
       <TripMeterRow
         palette={{ ink: p.ink, ink2: p.ink2, ink3: p.ink3, accent: p.accent, tile: p.tile, edge: p.tile }}
-        valueSize={24} unitSize={13} labelSize={11} iconSize={20} gap={8}
+        valueSize={22} unitSize={13} labelSize={10} iconSize={20} gap={6}
         showTopBorder
         style={{ marginTop: 8 }}
       />
@@ -335,18 +351,18 @@ const MapCard = memo(function MapCard({ onOpenMap, fullMapOpen }: { onOpenMap: (
           </div>
         ) : <div />}
         <div className="flex items-center gap-2 pointer-events-auto">
-          <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full" style={{ background: p.glass, border: p.glassBorder }}>
-            <span className="rounded-full" style={{ width: 6, height: 6, background: p.good, animation: 'exPulse 2s infinite' }} />
-            <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '0.1em', textTransform: 'uppercase', color: p.good }}>Online</span>
-          </div>
-          <div className="flex items-center justify-center rounded-xl" style={{ width: 34, height: 34, background: p.glass, border: p.glassBorder }}>
-            <Maximize2 className="w-4 h-4" style={{ color: p.ink2 }} />
-          </div>
+          {/* Sabit "Online" çipi kaldırıldı (bağlantıya bakmıyordu; mini haritanın
+              gerçek kaynak rozeti zaten gösteriliyor). */}
+          {/* Ayrı "genişlet" kutusu kaldırıldı: mini haritanın kendi genişlet
+              düğmesiyle aynı köşede üst üste biniyordu. */}
         </div>
       </div>
       <div className="absolute right-3 top-1/2 -translate-y-1/2 flex flex-col gap-2 pointer-events-auto" onClick={e => e.stopPropagation()}>
+        {/* Eskiden onClick'siz (ölü) düğmelerdi — paylaşılan harita instance'ına gerçek zoom. */}
         {[Plus, Minus].map((Ic, i) => (
-          <button key={i} className="ex-btn flex items-center justify-center rounded-xl" style={{ width: 34, height: 34, background: p.glass, border: p.glassBorder, cursor: 'pointer' }}>
+          <button key={i} aria-label={i === 0 ? 'Yakınlaştır' : 'Uzaklaştır'}
+            onClick={() => { try { const m = useMapStore.getState().mapInstance; if (i === 0) m?.zoomIn(); else m?.zoomOut(); } catch { /* stil yükleniyor */ } }}
+            className="ex-btn flex items-center justify-center rounded-xl" style={{ width: 34, height: 34, background: p.glass, border: p.glassBorder, cursor: 'pointer' }}>
             <Ic className="w-4 h-4" style={{ color: p.ink2 }} />
           </button>
         ))}
@@ -475,6 +491,7 @@ const VehicleCard = memo(function VehicleCard({ onOpenSettings }: { onOpenSettin
   const motorC = useLiveVehicleSignal('coolantTemp');
   const motor = motorC != null ? `${Math.round(motorC)}°C` : '—';
   const aku = volt != null ? `${volt.toFixed(1)}V` : '—';
+  const status = useVehicleStatusBadge();   // sabit "Normal" UYDURMAYDI
   return (
     <div data-editable="tesla.vehicle" data-editable-type="card" style={{ ...card(p, { solid: true, pad: 15 }) }} className="flex-1 min-h-0 flex flex-col" onClick={onOpenSettings}>
       <Screws />
@@ -482,7 +499,8 @@ const VehicleCard = memo(function VehicleCard({ onOpenSettings }: { onOpenSettin
         <Label>Araç Durumu</Label>
         <ChevronRight className="w-3.5 h-3.5" style={{ color: p.ink3 }} />
       </div>
-      <div style={{ fontSize: 26, fontWeight: 800, color: p.ink, marginTop: 4 }}>Normal</div>
+      <div data-testid="tesla-vehicle-status" data-status={status.status} className="truncate"
+        style={{ fontSize: 26, fontWeight: 800, color: vehicleStatusColor(status.tone, p.ink, p.ink3), marginTop: 4 }}>{status.short}</div>
       <div className="flex-1 min-h-0 flex items-center justify-center my-1"><RuggedSUV /></div>
       <div className="flex items-stretch gap-2" onClick={e => e.stopPropagation()}>
         <Stat icon={<Thermometer className="w-5 h-5" style={{ color: p.accent2 }} />} value={motor} label="Motor" />
@@ -508,9 +526,11 @@ function Stat({ icon, value, label, warn }: { icon: React.ReactNode; value: stri
 function DockPlate({ Icon, label, onClick, active }: { Icon: typeof Navigation; label: string; onClick: () => void; active?: boolean }) {
   const p = usePal();
   return (
-    <button onClick={onClick} className="ex-btn relative flex items-center justify-center flex-shrink-0" style={{ flex: '0 0 31%', minWidth: 0, scrollSnapAlign: 'start', height: 108, borderRadius: 'var(--radius-tile, 18px)', background: active ? p.plateActive : p.plate, backgroundColor: active ? p.accent : p.cardSolid, border: active ? `1px solid ${p.accent}` : p.plateBorder, boxShadow: p.plateShadow, gap: 13, padding: '0 15px', cursor: 'pointer' }}>
-      <Icon className="w-[37px] h-[37px] flex-shrink-0" style={{ color: active ? '#241405' : p.accent2 }} />
-      <span className="uppercase truncate" style={{ fontSize: 18, fontWeight: 800, letterSpacing: '0.05em', color: active ? (p.night ? '#FBC892' : '#241405') : p.ink2 }}>{label}</span>
+    /* Simge üstte, etiket altta: yatay düzende 1280px'te plaka ~125px kalıyor ve
+       18px etiket "NA…", "M…", "AS…" diye kesiliyordu (etiketsiz dock). */
+    <button onClick={onClick} className="ex-btn relative flex flex-col items-center justify-center flex-shrink-0" style={{ flex: '0 0 31%', minWidth: 0, scrollSnapAlign: 'start', height: 108, borderRadius: 'var(--radius-tile, 18px)', background: active ? p.plateActive : p.plate, backgroundColor: active ? p.accent : p.cardSolid, border: active ? `1px solid ${p.accent}` : p.plateBorder, boxShadow: p.plateShadow, gap: 8, padding: '0 6px', cursor: 'pointer' }}>
+      <Icon className="w-[32px] h-[32px] flex-shrink-0" style={{ color: active ? '#241405' : p.accent2 }} />
+      <span className="uppercase truncate" style={{ maxWidth: '100%', fontSize: 13.5, fontWeight: 800, letterSpacing: '0.04em', color: active ? (p.night ? '#FBC892' : '#241405') : p.ink2 }}>{label}</span>
     </button>
   );
 }

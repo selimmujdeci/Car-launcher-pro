@@ -26,7 +26,6 @@
 import { Capacitor }        from '@capacitor/core';
 import { logError }          from './crashLogger';
 import { runtimeManager }    from '../core/runtime/AdaptiveRuntimeManager';
-import { systemBoot }        from './system/SystemBoot';
 import { supportsModuleWorker } from './deviceCapabilities';
 import {
   recordOfflineGraphOutcome, shouldAttemptOfflineRoute,
@@ -449,7 +448,12 @@ function _attachNavWorkerHandlers(w: Worker): void {
       }
       _navWorker = null;
       runtimeManager.registerWorker('NavigationCompute', null, 'OPTIONAL'); // referansı temizle
-      void systemBoot.restartService('NavigationCompute').catch(() => {});
+      /* Dinamik import: statik `SystemBoot` bağımlılığı routingService ↔
+         navEgoHorizonBridge döngüsünü kapatıyordu (SystemBoot bu modülü zaten
+         dinamik import eder). Yalnız çökme yolunda yüklenir. */
+      void import('./system/SystemBoot')
+        .then(({ systemBoot }) => systemBoot.restartService('NavigationCompute'))
+        .catch(() => {});
     };
 
     w.onmessageerror = () => {

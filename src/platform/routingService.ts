@@ -72,6 +72,9 @@ import {
 } from './navigation/core/routeProgressLedger';
 import { maneuverToTr } from './navigation/core/maneuverSemanticsModel';
 import {
+  REROUTE_THRESHOLD_M, STEP_ADVANCE_THRESHOLD_M, MANEUVER_STACK_THRESHOLD_M,
+} from './navigation/routeThresholds';
+import {
   TOMTOM_ROUTING_SERVER, fetchTomTomRoutes, type TomTomRoute, type RouteTrafficSection,
   type RouteSpeedLimitSection, fetchTomTomBetterRoute, betterRouteSaving,
 } from './routing/tomtomRouting';
@@ -275,9 +278,8 @@ const useRouteStore = create<RouteState>(() => INITIAL);
 // Distance hierarchy (must stay consistent with navigationService):
 //   ARRIVAL_THRESHOLD_M (20) < STEP_ADVANCE_THRESHOLD_M (30) < MANEUVER_STACK_THRESHOLD_M (50) < REROUTE_THRESHOLD_M (55)
 //   25m güvenli bölge: STEP_ADVANCE (30m) → REROUTE (55m) — adım ilerleme ve reroute çakışmaz.
-export const REROUTE_THRESHOLD_M        = 55; // metre — rota sapma reroute eşiği (STEP_ADVANCE+25m güvenli bölge)
-export const STEP_ADVANCE_THRESHOLD_M   = 30;  // metre — advance to next turn instruction
-export const MANEUVER_STACK_THRESHOLD_M = 50;  // metre — back-to-back turns shown together
+// Değerler döngüsel-import güvenliği için yaprak modülde (bkz. routeThresholds.ts).
+export { REROUTE_THRESHOLD_M, STEP_ADVANCE_THRESHOLD_M, MANEUVER_STACK_THRESHOLD_M };
 const HEADERS_TIMEOUT_MS   = 2_000; // Fail-Fast: headers alınamazsa offline katmana geç
 const BODY_TIMEOUT_MS      = 5_000; // Otomotiv standardı: maksimum 5s route indirme bekleme
 

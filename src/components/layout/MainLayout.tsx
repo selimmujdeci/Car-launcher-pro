@@ -119,7 +119,7 @@ export default function MainLayout() {
   useOBDLifecycle({ location, settings, updateSettings, updateParking });
 
   // ── Auto drive mode detection ─────────────────────────────
-  useDriveModeDetection({ location, settings });
+  useDriveModeDetection({ settings });
 
   // Geçersiz favorileri filtrele
   useEffect(() => {

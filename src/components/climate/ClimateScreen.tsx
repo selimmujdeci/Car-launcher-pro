@@ -8,9 +8,17 @@
  * değerleri, açık/gündüz paletinde beyaz zeminle aynı renge düşüyordu.
  * Tüm renkler kanonik `--oem-*` token katmanına taşındı: tema ve gün/gece
  * geçişlerinde kontrast otomatik korunur (tasarım sistemi tek katman kuralı).
+ *
+ * DÜRÜSTLÜK (denetim 2026-09): bu ekranın araca giden bir klima komut yolu YOK.
+ * Eskiden "kabin sıcaklığı" setInterval ile SİMÜLE ediliyor, A/C·koltuk ısıtma
+ * açık görünüyor ve her dokunuş hiçbir şey yapmadan "uygulandı" gibi duruyordu.
+ * Artık `linked` (komut yolu) yoksa kontroller devre dışı, değerler "—" ve üstte
+ * açık bir "bağlı değil" bildirimi var. Rozetteki sıcaklık kanonik DIŞ sıcaklıktır
+ * (CAN/OBD canlı; yoksa "—") — kabin sıcaklığı UYDURULMAZ.
  */
-import { memo, useState, useEffect, useCallback } from 'react';
+import { memo, useState, useCallback } from 'react';
 import { Power, Thermometer, Wind, X } from 'lucide-react';
+import { useAmbientTemp } from '../../hooks/useCanonicalVehicleSignal';
 
 /* ── Types ──────────────────────────────────────── */
 
@@ -30,14 +38,13 @@ interface CS {
   dSeat:  Heat;
   pSeat:  Heat;
   steer:  Heat;
-  cabin:  number;   // simüle kabin sıcaklığı
 }
 
 const DEF: CS = {
   on: true, dTemp: 22, pTemp: 21, fan: 3,
   ac: true, auto: false, sync: false,
   air: 'face', rear: false,
-  dSeat: 1, pSeat: 0, steer: 0, cabin: 29,
+  dSeat: 1, pSeat: 0, steer: 0,
 };
 
 /* ── Renk hesaplamaları ──────────────────────────── */
@@ -85,7 +92,7 @@ function Arc({ temp, on }: { temp: number; on: boolean }) {
         fill="none" stroke="var(--oem-surface-2)" strokeWidth="4.5" strokeLinecap="round"
       />
       {/* dolgu */}
-      {frac > 0.005 && (
+      {on && frac > 0.005 && (
         <path
           d={`M${f(sx)} ${f(sy)} A${r} ${r} 0 ${frac * 240 > 180 ? 1 : 0} 1 ${f(fx)} ${f(fy)}`}
           fill="none" stroke={col} strokeWidth="4.5" strokeLinecap="round"
@@ -192,6 +199,7 @@ function HeatCtrl({
   label, level, on, onSet, icon,
 }: { label: string; level: Heat; on: boolean; onSet: (l: Heat) => void; icon?: string }) {
   const color = hc(level);
+  const sel = on ? level : null;   // kapalı/bağlı değil → seçili kademe gösterilmez
   return (
     <div data-editable="climate.heat-row" data-editable-type="card" className="flex items-center gap-2.5">
       <span className="text-[11px] text-[color:var(--oem-ink-3)] w-14 shrink-0 font-medium">{icon ? <span className="mr-1">{icon}</span> : null}{label}</span>
@@ -204,14 +212,14 @@ function HeatCtrl({
             className="rounded-xl flex items-center justify-center transition-all duration-120 active:scale-90"
             style={{
               width: 32, height: 30,
-              background: level === l ? (l === 0 ? 'var(--oem-surface-2)' : `${hc(l)}28`) : 'var(--oem-surface-2)',
-              border: `1px solid ${level === l ? (l === 0 ? 'var(--oem-line)' : hc(l) + '66') : 'var(--oem-surface-2)'}`,
-              boxShadow: level === l && l > 0 ? `0 0 8px ${hc(l)}35` : 'none',
+              background: sel === l ? (l === 0 ? 'var(--oem-surface-2)' : `${hc(l)}28`) : 'var(--oem-surface-2)',
+              border: `1px solid ${sel === l ? (l === 0 ? 'var(--oem-line)' : hc(l) + '66') : 'var(--oem-surface-2)'}`,
+              boxShadow: sel === l && l > 0 ? `0 0 8px ${hc(l)}35` : 'none',
               cursor: on ? 'pointer' : 'default',
             }}
           >
             <span className="text-[10px] font-extrabold"
-              style={{ color: level === l ? (l === 0 ? 'var(--oem-ink-3)' : hc(l)) : 'var(--oem-line)' }}>
+              style={{ color: sel === l ? (l === 0 ? 'var(--oem-ink-3)' : hc(l)) : 'var(--oem-line)' }}>
               {l === 0 ? '✕' : l}
             </span>
           </button>
@@ -230,22 +238,16 @@ function HeatCtrl({
 
 /* ── Ana bileşen ─────────────────────────────────── */
 
-export const ClimateScreen = memo(function ClimateScreen({ onClose }: { onClose?: () => void }) {
-  const [s, setS] = useState<CS>(DEF);
-
-  /* Kabin sıcaklığı simülasyonu */
-  useEffect(() => {
-    if (!s.on || s.fan === 0) return;
-    const target = (s.dTemp + s.pTemp) / 2;
-    const id = setInterval(() => {
-      setS(p => {
-        const diff = target - p.cabin;
-        if (Math.abs(diff) < 0.15) return p;
-        return { ...p, cabin: +(p.cabin + Math.sign(diff) * s.fan * 0.05).toFixed(2) };
-      });
-    }, 900);
-    return () => clearInterval(id);
-  }, [s.on, s.fan, s.dTemp, s.pTemp]);
+export const ClimateScreen = memo(function ClimateScreen({ onClose, linked = false }: {
+  onClose?: () => void;
+  /** Araca klima komut yolu var mı? Bugün hiçbir çağıran vermez → false. */
+  linked?: boolean;
+}) {
+  const [st, setS] = useState<CS>(DEF);
+  /* Bağlı değilse ekran "kapalı" projeksiyonu çizer: yerel durum araç durumu DEĞİLDİR. */
+  const s: CS = linked ? st : { ...st, on: false };
+  const outside = useAmbientTemp();
+  const fmtTemp = (t: number) => (linked ? t.toFixed(1) : '—');
 
   const upd = useCallback(<K extends keyof CS>(key: K, val: CS[K]) => {
     setS(p => {
@@ -267,7 +269,7 @@ export const ClimateScreen = memo(function ClimateScreen({ onClose }: { onClose?
     <div
       data-theme-surface="climate" data-editable="climate.screen" data-editable-type="panel"
       className="flex flex-col h-full text-[color:var(--oem-ink)] select-none overflow-hidden"
-      style={{ background: 'linear-gradient(155deg, #060c1a 0%, #030810 100%)' }}
+      style={{ background: 'var(--oem-bg, linear-gradient(155deg, #060c1a 0%, #030810 100%))' }}
     >
       {/* ── Başlık ── */}
       <header data-editable="climate.header" data-editable-type="header" className="flex items-center justify-between px-6 pt-5 pb-2 shrink-0">
@@ -285,16 +287,18 @@ export const ClimateScreen = memo(function ClimateScreen({ onClose }: { onClose?
           style={{ background: 'var(--oem-surface-2)', border: '1px solid var(--oem-line)' }}
         >
           <Thermometer size={13} className="text-amber-400" />
-          <span className="text-[13px] font-mono font-bold tracking-widest">
-            {s.cabin.toFixed(1)}°C
+          <span data-testid="climate-outside-temp" className="text-[13px] font-mono font-bold tracking-widest">
+            {outside != null ? `${Math.round(outside)}°C` : '—'}
           </span>
-          <span className="text-[11px] text-[color:var(--oem-ink-3)] ml-0.5">kabin</span>
+          <span className="text-[11px] text-[color:var(--oem-ink-3)] ml-0.5">dış</span>
         </div>
 
         <div className="flex items-center gap-2">
           {/* Güç butonu */}
           <button
             onClick={() => upd('on', !s.on)}
+            disabled={!linked}
+            aria-label="Klima gücü"
             className="flex items-center justify-center rounded-full transition-all duration-200 active:scale-90"
             style={{
               width: 44, height: 44,
@@ -323,6 +327,15 @@ export const ClimateScreen = memo(function ClimateScreen({ onClose }: { onClose?
         </div>
       </header>
 
+      {/* ── Bağlı değil bildirimi (komut yolu yokken kontroller devre dışı) ── */}
+      {!linked && (
+        <div data-testid="climate-not-linked" role="status"
+          className="shrink-0 mx-6 mb-2 px-4 py-2.5 rounded-xl text-[13px] font-semibold"
+          style={{ background: 'var(--oem-surface-2)', border: '1px solid var(--oem-line)', color: 'var(--oem-ink-2)' }}>
+          Araç klimasına bağlı değil — bu ekrandan araca komut gönderilemez. Klimayı aracın kendi panelinden kullanın.
+        </div>
+      )}
+
       {/* ── Ayırıcı çizgi ── */}
       <div className="shrink-0 mx-6 h-px" style={{ background: 'var(--oem-surface-2)' }} />
 
@@ -339,7 +352,7 @@ export const ClimateScreen = memo(function ClimateScreen({ onClose }: { onClose?
                 className="text-[42px] font-bold tabular-nums leading-none transition-colors duration-300"
                 style={{ color: s.on ? 'var(--oem-ink)' : 'var(--oem-line)', fontVariantNumeric: 'tabular-nums' }}
               >
-                {s.dTemp.toFixed(1)}
+                {fmtTemp(s.dTemp)}
               </span>
               <span className="text-xs text-[color:var(--oem-ink-4)] mt-0.5">°C</span>
             </div>
@@ -379,7 +392,7 @@ export const ClimateScreen = memo(function ClimateScreen({ onClose }: { onClose?
             ))}
           </div>
           <span className="text-[10px] text-[color:var(--oem-ink-4)] font-bold tracking-widest">
-            {s.fan === 0 ? 'KAPALI' : `HIZ ${s.fan}`}
+            {!linked ? '—' : s.fan === 0 ? 'KAPALI' : `HIZ ${s.fan}`}
           </span>
 
           {/* Mod butonları */}
@@ -403,7 +416,7 @@ export const ClimateScreen = memo(function ClimateScreen({ onClose }: { onClose?
                 className="text-[42px] font-bold tabular-nums leading-none transition-colors duration-300"
                 style={{ color: s.on ? 'var(--oem-ink)' : 'var(--oem-line)', fontVariantNumeric: 'tabular-nums' }}
               >
-                {s.pTemp.toFixed(1)}
+                {fmtTemp(s.pTemp)}
               </span>
               <span className="text-xs text-[color:var(--oem-ink-4)] mt-0.5">°C</span>
             </div>
