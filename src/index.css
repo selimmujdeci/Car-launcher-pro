@@ -68,6 +68,14 @@ input, textarea, [contenteditable="true"] {
      Düz renk fallback → tile overdraw tamamen kalkar. */
   background-image: none !important;
 }
+/* Korunan GÖRSEL (degrade değil): `.perf-low *` degrade için yazıldı ama satır içi
+   url() resimlerini de siliyordu — Expedition rover'ı ve medya albüm arka planı
+   K24'te hiç görünmüyordu. Statik doku tek çizimdir (bulanıklık ayrıca kapalı).
+   Öğe görseli `--keep-bg-image` ile verir; (0,2,0) özgüllük `.perf-low *`'ı yener,
+   genel kural ve eski WebView davranışı değişmez. */
+.perf-low .caros-keep-bg-image {
+  background-image: var(--keep-bg-image) !important;
+}
 .perf-med * {
   animation-duration: 0.5s !important;
 }

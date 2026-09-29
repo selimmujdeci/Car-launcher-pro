@@ -454,7 +454,7 @@ const VehiclePlate = memo(function VehiclePlate({ onOpenSettings }: { onOpenSett
       </div>
       {/* Rover görseli — dekor (canlı metrikler altında) */}
       <div style={{ flex: 1, position: 'relative', margin: '6px -20px 0', minHeight: 0 }}>
-        <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundImage: `url(${roverUrl})`, backgroundPosition: 'center 58%', backgroundSize: '112%', backgroundRepeat: 'no-repeat', filter: p.night ? 'none' : 'brightness(1.04)' }} />
+        <div className="caros-keep-bg-image" style={{ '--keep-bg-image': `url(${roverUrl})`, position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundImage: `url(${roverUrl})`, backgroundPosition: 'center 58%', backgroundSize: '112%', backgroundRepeat: 'no-repeat', filter: p.night ? 'none' : 'brightness(1.04)' } as React.CSSProperties} />
         <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, pointerEvents: 'none', background: `linear-gradient(to bottom, transparent 44%, ${p.plate} 96%)` }} />
       </div>
       <div className="flex" style={{ borderTop: `1px solid ${p.hairline}`, position: 'relative', zIndex: 2 }} onClick={e => e.stopPropagation()}>

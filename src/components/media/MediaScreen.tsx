@@ -850,8 +850,10 @@ function PlayerView({
         {artwork.url ? (
           <div
             key={artwork.url}
-            className="absolute inset-0"
+            className="absolute inset-0 caros-keep-bg-image"
             style={{
+              // perf-low görselleri silmesin (index.css `.caros-keep-bg-image`); blur ayrıca blurOff ile kapalı.
+              '--keep-bg-image':  `url(${artwork.url})`,
               backgroundImage: `url(${artwork.url})`,
               backgroundSize:     'cover',
               backgroundPosition: 'center',
@@ -863,7 +865,7 @@ function PlayerView({
               filter:             blurOff ? 'none' : 'blur(64px)',
               transform:          'scale(1.5)',
               transition:         nowPlaying.motionEnabled ? 'opacity 0.6s ease' : 'none',
-            }}
+            } as React.CSSProperties}
           />
         ) : (
           <div className="absolute inset-0 opacity-30"

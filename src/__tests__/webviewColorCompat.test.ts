@@ -44,6 +44,17 @@ describe('WebView renk uyumluluğu', () => {
     expect(hits).toEqual([]);
   });
 
+  it('perf-low satır içi GÖRSELLERİ silmez (rover, albüm arka planı)', () => {
+    const css = readFileSync(join(ROOT, 'src/index.css'), 'utf8');
+    expect(css).toMatch(/\.perf-low \.caros-keep-bg-image \{\s*background-image: var\(--keep-bg-image\) !important;/);
+    // Genel degrade kuralı aynen yerinde (performans politikası değişmedi).
+    expect(css).toMatch(/\.perf-low \* \{[\s\S]{0,400}background-image: none !important;/);
+    const exp = readFileSync(join(ROOT, 'src/components/themes/ExpeditionLayout.tsx'), 'utf8');
+    expect(exp).toContain("className=\"caros-keep-bg-image\" style={{ '--keep-bg-image': `url(${roverUrl})`");
+    const media = readFileSync(join(ROOT, 'src/components/media/MediaScreen.tsx'), 'utf8');
+    expect(media).toMatch(/caros-keep-bg-image[\s\S]{0,200}'--keep-bg-image':\s+`url\(\$\{artwork\.url\}\)`/);
+  });
+
   it('perf-low\'da içerik taşıyan degradeler düz renk yedeğine sahip', () => {
     const read = (f: string) => readFileSync(join(ROOT, 'src/components', f), 'utf8');
     expect(read('themes/ProLayout.tsx')).toContain("backgroundColor: '#7c3aed', backgroundImage: 'linear-gradient(135deg,#7c3aed");
