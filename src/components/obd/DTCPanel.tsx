@@ -1081,7 +1081,7 @@ function DTCPanelInner({ active = false }: { active?: boolean }) {
                 </div>
                 <div className="text-center">
                   <div className="text-[color:var(--oem-ink-2)] font-black text-lg uppercase tracking-widest opacity-60">HENÜZ TARAMA YAPILMADI</div>
-                  <div className="text-[color:var(--oem-ink-2)] text-[11px] font-bold mt-2 opacity-40 uppercase tracking-widest">
+                  <div className="text-[color:var(--oem-ink-3)] text-[11px] font-bold mt-2 uppercase tracking-widest">
                     OBD TARAMASI İÇİN BUTONA BASIN
                   </div>
                 </div>
@@ -1297,7 +1297,7 @@ function DTCPanelInner({ active = false }: { active?: boolean }) {
       )}
 
       {/* Disclaimer */}
-      <p className="text-[color:var(--oem-ink-2)] text-[10px] font-bold text-center leading-relaxed opacity-40 uppercase tracking-[0.1em] px-8">
+      <p className="text-[color:var(--oem-ink-3)] text-[10px] font-bold text-center leading-relaxed uppercase tracking-[0.1em] px-8">
         Tanımlamalar genel OBD-II standartlarına dayanmaktadır.
         Kesin teşhis için yetkili servise başvurun.
       </p>

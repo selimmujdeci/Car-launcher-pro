@@ -370,7 +370,7 @@ function NotificationCenterInner() {
         <div className="flex flex-col items-center justify-center py-16 gap-4 text-center">
           <BellOff className="w-14 h-14" style={{ color: 'var(--oem-ink-3)', opacity: 0.35 }} />
           <div className="font-bold text-sm" style={{ color: 'var(--oem-ink-3)' }}>Bildirim yok</div>
-          <div className="text-xs leading-relaxed max-w-[220px]" style={{ color: 'var(--oem-ink-3)', opacity: 0.65 }}>
+          <div className="text-xs leading-relaxed max-w-[220px]" style={{ color: 'var(--oem-ink-3)' }}>
             WhatsApp, aramalar ve diğer bildirimler burada görünecek
           </div>
         </div>

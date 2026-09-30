@@ -117,7 +117,9 @@ function TripMeterRowBase({
         <span style={{ fontSize: unitSize, fontWeight: 600, color: palette.ink2 }}>km</span>
         <span style={{
           marginLeft: 'auto', fontSize: labelSize, fontWeight: 700, letterSpacing: '0.08em',
-          textTransform: 'uppercase', color: palette.ink3, whiteSpace: 'nowrap',
+          /* Metin ikincil tonda: temaların üçüncül tonu (ink3) ikon/süs içindir —
+             kendi zemininde gündüz ~2.1–2.7:1, gece ~2.6:1 (kontrast denetimi). */
+          textTransform: 'uppercase', color: palette.ink2, whiteSpace: 'nowrap',
         }}>
           Yol Sayacı
         </span>
@@ -144,7 +146,7 @@ function TripMeterRowBase({
             <RefreshCw size={13} /> Sıfırla
           </button>
           {!gate.allowed && (
-            <div style={{ marginTop: 4, fontSize: Math.max(9, labelSize - 1), fontWeight: 600, color: palette.ink3 }}>
+            <div style={{ marginTop: 4, fontSize: Math.max(9, labelSize - 1), fontWeight: 600, color: palette.ink2 }}>
               Aracı durdurunca sıfırlayabilirsiniz.
             </div>
           )}

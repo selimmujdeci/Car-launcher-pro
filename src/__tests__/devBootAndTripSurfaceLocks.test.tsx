@@ -111,12 +111,31 @@ describe('2 · Seyir Defteri açık tema + güneş modu', () => {
     }
   });
 
+  /* Açık tema kontrast denetimiyle (gerçek uygulama, 17 ekran × gece/gündüz/
+     güneş) okunmaz bulunup --oem-ink* token'larına taşınan yüzeyler. */
   it.each([
     'src/components/trip/TripLogView.tsx',
     'src/components/trip/EcoReportCard.tsx',
     'src/components/trip/EcoScoreCard.tsx',
+    'src/components/map/MapHudControls.tsx',
+    'src/components/map/MiniMapWidget.tsx',
+    'src/components/climate/ClimateScreen.tsx',
+    'src/components/entertainment/EntertainmentPortal.tsx',
+    'src/components/apps/AppGrid.tsx',
+    'src/components/obd/DTCPanel.tsx',
   ])('🔒 %s gri metinde text-slate-* KULLANMAZ (kanonik --oem-ink* token)', (rel) => {
     const src = readFileSync(resolve(process.cwd(), rel), 'utf8');
     expect(src).not.toMatch(/text-slate-\d+/);
+  });
+
+  it('🔒 Eğlence portalı kart yüzeyinde koyu tema için sabit açık yazı/zemin taşımaz', () => {
+    const src = readFileSync(resolve(SRC, 'components/entertainment/EntertainmentPortal.tsx'), 'utf8');
+    /* Pastel başlıklar + açık gri etiketler + sabit koyu panel zemini. Renkli
+       düğme üstündeki '#fff' ve bilinçli koyu mola uyarısı bu kilidin DIŞINDA. */
+    /* '#94a3b8' listede YOK: koyu zeminli BreakAlertOverlay'de meşru kullanılıyor. */
+    for (const hex of ["'#d1fae5'", "'#ede9fe'", "'#fef3c7'", "'#e2e8f0'"]) {
+      expect(src, hex).not.toContain(`color: ${hex}`);
+    }
+    expect(src).not.toMatch(/DARK_BG/);
   });
 });
