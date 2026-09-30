@@ -32,9 +32,10 @@ describe('sinema modu hareket hâlinde', () => {
     vi.restoreAllMocks();
   });
 
-  it('seçenek sürüşte kilitli Ekran sekmesinde (yalnız park hâlinde değişir)', () => {
+  it('seçenek Ekran sekmesinde; sürüşte de açılıp kapatılabilir (karar 2026-09-30)', () => {
     const src = readFileSync(resolve('src/components/settings/SettingsPage.tsx'), 'utf8');
     const appearance = src.slice(src.indexOf("{shownTab === 'appearance' && ("), src.indexOf("{shownTab === 'maintenance' && ("));
     expect(appearance).toContain('videoWhileDriving');
+    expect(appearance).toContain('onChange={(v) => updateSettings({ videoWhileDriving: v })}');
   });
 });

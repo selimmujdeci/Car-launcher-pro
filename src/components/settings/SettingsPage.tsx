@@ -44,7 +44,6 @@ import { MobileLinkWidget } from './MobileLinkWidget';
 import { CarOsConnectionPriorityCard } from './CarOsConnectionPriorityCard';
 import { PhoneInternetToggle } from './PhoneInternetToggle';
 import { CockpitStylePicker } from './CockpitStylePicker';
-import { useMovingLock } from './useMovingLock';
 import { OtaUpdateCard } from './OtaUpdateCard';
 import { SupportSnapshotCard } from './SupportSnapshotCard';
 import { DeviceDiagnosticCard } from './DeviceDiagnosticCard';
@@ -1580,9 +1579,9 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
       return saved && TAB_IDS.includes(saved) ? saved : 'appearance';
     } catch { return 'appearance'; }
   });
-  /* Sürüşte kilit: yalnız Ses sekmesi açık kalır (hız kanonik araç deposundan). */
-  const movingLock = useMovingLock();
-  const shownTab: Tab | null = movingLock && tab !== 'sound' ? null : tab;
+  /* Sürüşte ayarlar KİLİTLENMEZ (sahibin kararı 2026-09-30: "sürücü yolda
+     uğraşmaz, yanındaki yapar"). */
+  const shownTab: Tab = tab;
   useEffect(() => {
     try { sessionStorage.setItem(TAB_STORAGE_KEY, tab); } catch { /* quota / private mode */ }
   }, [tab]);
@@ -1890,25 +1889,6 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
           }}>
         <div className="max-w-[1600px] mx-auto flex flex-col gap-3">
 
-          {/* Sürüşte kilit (Google/Tesla): hareket hâlinde yalnız Ses açık; gerisi park edince. */}
-          {shownTab === null && (
-            <Panel accent="var(--oem-warn)">
-              <div data-settings-driving-lock="" className="flex flex-col items-center text-center gap-3 py-6">
-                <Shield className="w-10 h-10" style={{ color: 'var(--oem-warn)' }} />
-                <p className="text-lg font-black" style={{ color: 'var(--oem-ink)' }}>Araç hareket halinde</p>
-                <p className="text-sm max-w-md" style={{ color: 'var(--oem-ink-3)' }}>
-                  Güvenliğin için bu ayarlar sürüşte kilitli; park edince açılır.
-                  Ses ve parlaklığı Mavi'ye söyleyerek değiştirebilirsin.
-                </p>
-                <button type="button" onClick={() => setTab('sound')}
-                  className="rounded-xl px-6 font-bold active:scale-95"
-                  style={{ minHeight: 56, background: 'var(--oem-accent)', color: 'var(--oem-accent-ink, #fff)' }}>
-                  Ses ayarlarına git
-                </button>
-              </div>
-            </Panel>
-          )}
-
           {shownTab === 'navigation' && (
             <div className="flex flex-col gap-4 mx-auto w-full" style={{ maxWidth: 760 }}>
               <Panel accent="#60a5fa">
@@ -1964,8 +1944,8 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
                 <SectionTitle icon={Gauge} title="Sürücü Ekranı" sub="Gösterge görünümü ve rengi — gündüz/gece otomatik" color="var(--oem-accent)" />
                 <CockpitStylePicker />
               </Panel>
-              {/* Sürüşte video — kullanıcı kararı 2026-09-27 ("çocuklar izleyebilir").
-                  Bu sekme sürüşte kilitli → yalnız park hâlinde değiştirilebilir. */}
+              {/* Sürüşte video — kullanıcı kararı 2026-09-27 ("çocuklar izleyebilir");
+                  2026-09-30: sürüşte de açılıp kapatılabilir. */}
               <Panel accent="var(--oem-warn)">
                 <PremiumToggle icon={Shield} label="Sürüşte videoyu durdurma"
                   desc="Açıkken sinema modu araç hareket edince kapanmaz. Sürücü sorumluluğundadır: sürücü sürüş sırasında ekrana bakmamalıdır."
