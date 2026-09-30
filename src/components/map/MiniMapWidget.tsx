@@ -932,8 +932,13 @@ export const MiniMapWidget = memo(function MiniMapWidget({
           mapRef.current, latitude, longitude, hdg, _effKmh, containerH,
           _turnDist, undefined, undefined, _routeBearing,
         );
-      } else if (!_cameraOwned) {
-        // Kamera kullanıcıda — marker yine de güncel kalsın (araç nerede görünsün).
+      }
+      /* Saha 2026-09-30 ("mini haritada konum geride kalıyor, görünmüyor"):
+         motion runtime YALNIZ canlı navigasyonda beslenir. Navigasyon yokken
+         sürüşte kamera bu fix'le ilerliyor ama işareti çizen olmadığından araç
+         son park konumunda kalıp ekrandan çıkıyordu. Canlı navigasyonda işareti
+         RAF döngüsü çizer; aksi hâlde (ve kamera kullanıcıdayken) burada. */
+      if (!_cameraOwned || !navLiveRef.current) {
         updateUserMarker(latitude, longitude, hdg);
       }
       wasDrivingRef.current = true;
