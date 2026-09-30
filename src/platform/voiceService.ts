@@ -99,6 +99,7 @@ import { isInformationalCommand, answerInformational } from './voiceInfoService'
 import { resolveScreenEntry, matchScreenCommand } from './screenCatalog';
 import { parseAppControl } from './voice/appControlCommands';
 import { executeAppControl } from './voice/appControlExecutor';
+import { matchExternalNavCommand } from './voice/externalNavCommand';
 import { weatherQueryNamesCity } from './weatherService';
 import { showToast } from './errorBus';
 import { VOICE_TUNING } from './voiceTuning';
@@ -2092,6 +2093,22 @@ export async function processTextCommand(
       speakMaviAnswer(out.text, { isDriving: ctx?.isDriving === true, turn });
       push({ status: out.ok ? 'success' : 'error', error: out.ok ? null : out.text, transcript: trimmed });
       setTimeout(() => { if (isMaviTurnCurrent(turn) && _current.status !== 'idle') push({ status: 'idle', error: null }); }, 2500);
+      completeMaviTurn(turn);
+      return true;
+    }
+  }
+
+  /* ── 1a0c. HARİCİ NAVİGASYON — "Yandex'ten / Waze ile … rota kur" ─────────
+   * Ölçüldü 2026-09-30: bu cümleler `open_maps`e düşüp HEDEFİ kaybediyordu;
+   * beyin şemasında sağlayıcı alanı yok. Yalnız gerçek adres/yer navigasyonu
+   * eşleşir (bkz. externalNavCommand); yürütme aynı dispatch otoritesinden. */
+  {
+    const extNav = matchExternalNavCommand(trimmed);
+    if (extNav) {
+      _lastCommandTime = now;
+      void reportVoiceDiag('voice_route', { route: 'local_fast_path' });
+      setMaviLatencyRoute('local_fast_path');
+      if (ctx?.isDriving) { dispatchDriving(extNav, ctx, turn); } else { dispatch(extNav, ctx, turn); }
       completeMaviTurn(turn);
       return true;
     }

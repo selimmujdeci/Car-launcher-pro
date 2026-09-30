@@ -44,7 +44,18 @@ function norm(s: string): string {
 const NAV_TRIGGERS_RAW = [
   'yolculuk başlat',
   'yol tarifi ver',
+  'yol tarifi al',
   'navigasyon başlat',
+  /* Ölçüldü 2026-09-30: "Mersin'e rota kur" / "Kadıköy'e yol tarifi" burada
+     eşleşmiyor, anahtar kelimeyle `open_maps`e düşüyor ve HEDEF KAYBOLUYORDU
+     (çevrimdışı yol). Tek başına "rota kur" hedef taşımadığı için hâlâ null. */
+  'rotayı kur',
+  'rotayı çiz',
+  'rota hazırla',
+  'rota planla',
+  'yol tarifi',
+  'rota kur',
+  'rota çiz',
   'rota oluştur',
   'rota başlat',
   'al beni götür',

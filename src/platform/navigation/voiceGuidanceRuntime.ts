@@ -24,6 +24,7 @@
  */
 
 import { speakNavigation } from '../ttsService';
+import { isExternalGuidanceActive } from './externalGuidanceOwner';
 import {
   recordAnnouncementTiming, recordMissedGuidance, resetGuidanceAudit,
 } from './core/voiceGuidanceAudit';
@@ -171,6 +172,11 @@ export function noteVoiceGuidanceTick(
     return null;
   }
 
+  /* ── Yol tarifini harici uygulama veriyor (Yandex/Waze/Google) → BİZ SUSARIZ.
+     Kayıt da tutulmaz: söylenmeyen anons "söylendi" sayılmaz, kaçırılan anons
+     ölçümüne de girmez. Bkz. externalGuidanceOwner. */
+  if (isExternalGuidanceActive()) return null;
+
   /* ── Rota kimliği değişti (yeni hedef veya reroute) → KUYRUK TEMİZLENİR ──
      Eski rotanın "söylendi" maskesi yeni rotada geçerli DEĞİLDİR; taşınırsa
      yeni rotanın ilk manevrası hiç seslendirilmez (eski kodda yaşanan kusur). */
@@ -277,6 +283,7 @@ export interface TrafficAheadTickInput {
 export function noteTrafficAheadTick(
   input: TrafficAheadTickInput, speak: SpeakFn = speakNavigation,
 ): string | null {
+  if (isExternalGuidanceActive()) return null;   // harici uygulama yönlendiriyor
   const key = `${input.sessionId}:${input.routeRevision}`;
   if (key !== _trafficRouteKey) { _trafficRouteKey = key; _trafficAnnounced = new Set(); }
   if (input.isRerouting || input.sections.length === 0) return null;

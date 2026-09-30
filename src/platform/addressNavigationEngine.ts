@@ -280,6 +280,9 @@ let _state: AddressNavState = { ...INITIAL };
 const _listeners            = new Set<(s: AddressNavState) => void>();
 let   _searchGeneration     = 0; // arama iptali için nesil sayacı
 let   _activeTimerId: ReturnType<typeof setTimeout> | null = null; // Zero-Leak: tek aktif auto-dismiss timer
+/** Onayda tam ekran harita açılsın mı — her `resolveAndNavigate` çağrısında yeniden kurulur.
+ *  Harici uygulamaya (Yandex/Waze/Google) devredilen rotada `false`: rota mini haritada kalır. */
+let   _openMapOnConfirm = true;
 
 /* ── Internal helpers ────────────────────────────────────── */
 
@@ -336,7 +339,7 @@ function _confirmResult(result: GeoResult): void {
   _push({
     phase:        'confirmed',
     selected:     result,
-    shouldOpenMap: true,
+    shouldOpenMap: _openMapOnConfirm,
   });
 
   // Zero-Leak: önceki auto-dismiss timer'ı temizle
@@ -370,8 +373,10 @@ export function resolveAndNavigate(
   destination: string,
   location?: { lat: number; lng: number },
   onResult?: (outcome: AddressNavOutcome) => void,
+  opts?: { openMap?: boolean },
 ): void {
   const gen = ++_searchGeneration;
+  _openMapOnConfirm = opts?.openMap !== false;
 
   _push({
     phase:        'searching',
