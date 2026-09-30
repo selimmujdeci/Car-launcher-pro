@@ -70,7 +70,7 @@ export function VoiceDiagPanel({ vehicleId }: { vehicleId: string }) {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Mic className="h-3.5 w-3.5 text-purple-400" />
-          <span className="text-xs text-[--adm-muted]">
+          <span className="text-xs text-(--adm-muted)">
             Son {LIMIT} sesli asistan tanı kaydı (en yeni üstte)
           </span>
         </div>
@@ -85,18 +85,18 @@ export function VoiceDiagPanel({ vehicleId }: { vehicleId: string }) {
         </div>
       )}
 
-      <div className="max-h-80 overflow-y-auto rounded border border-[--adm-border]">
+      <div className="max-h-80 overflow-y-auto rounded border border-(--adm-border)">
         <div
-          className="grid sticky top-0 bg-[--adm-bg] px-2 py-1.5 text-[10px] uppercase tracking-wider text-[--adm-muted] border-b border-[--adm-border]"
+          className="grid sticky top-0 bg-(--adm-bg) px-2 py-1.5 text-[10px] uppercase tracking-wider text-(--adm-muted) border-b border-(--adm-border)"
           style={{ gridTemplateColumns: '110px 1fr 110px 70px 90px' }}
         >
           <span>Zaman</span><span>Aşama</span><span>Intent/Komut</span><span>Süre</span><span>Hata</span>
         </div>
 
         {loading && rows.length === 0 ? (
-          <p className="px-2 py-4 text-xs text-[--adm-muted]">Yükleniyor…</p>
+          <p className="px-2 py-4 text-xs text-(--adm-muted)">Yükleniyor…</p>
         ) : rows.length === 0 ? (
-          <p className="px-2 py-4 text-xs text-[--adm-muted]">
+          <p className="px-2 py-4 text-xs text-(--adm-muted)">
             {error ? 'Kayıtlar alınamadı' : 'Bu araç için voice_diag kaydı yok'}
           </p>
         ) : (
@@ -106,19 +106,19 @@ export function VoiceDiagPanel({ vehicleId }: { vehicleId: string }) {
             return (
               <div
                 key={r.id}
-                className="grid px-2 py-1 text-[11px] font-mono border-b border-[--adm-border]/50 items-center"
+                className="grid px-2 py-1 text-[11px] font-mono border-b border-(--adm-border)/50 items-center"
                 style={{ gridTemplateColumns: '110px 1fr 110px 70px 90px' }}
               >
-                <span className="text-[--adm-muted]">{_fmt(r.created_at)}</span>
+                <span className="text-(--adm-muted)">{_fmt(r.created_at)}</span>
                 <span style={{ color: STAGE_COLOR[stage] ?? '#94a3b8' }}>
                   {stage}
                   {md['transcriptLength'] != null && (
-                    <span className="text-[--adm-muted]"> · {_s(md['transcriptLength'])} kr</span>
+                    <span className="text-(--adm-muted)"> · {_s(md['transcriptLength'])} kr</span>
                   )}
                 </span>
-                <span className="text-[--adm-text] truncate">{_s(md['intent'] ?? md['command'])}</span>
-                <span className="text-[--adm-muted] tabular-nums">{_s(md['durationMs'])}ms</span>
-                <span className={md['errorCode'] ? 'text-amber-400' : 'text-[--adm-muted]'}>
+                <span className="text-(--adm-text) truncate">{_s(md['intent'] ?? md['command'])}</span>
+                <span className="text-(--adm-muted) tabular-nums">{_s(md['durationMs'])}ms</span>
+                <span className={md['errorCode'] ? 'text-amber-400' : 'text-(--adm-muted)'}>
                   {_s(md['errorCode'])}
                 </span>
               </div>

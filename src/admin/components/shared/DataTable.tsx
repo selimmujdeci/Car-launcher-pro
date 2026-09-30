@@ -49,18 +49,18 @@ export function DataTable<T extends object>({
       </div>
 
       {/* Table */}
-      <div className="rounded-lg border border-[--adm-border] overflow-hidden">
+      <div className="rounded-lg border border-(--adm-border) overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-[--adm-border] bg-white/3">
+              <tr className="border-b border-(--adm-border) bg-white/3">
                 {cols.map((c) => (
                   <th
                     key={c.key}
                     style={c.width ? { width: c.width } : undefined}
                     className={cn(
-                      'px-4 py-2.5 text-left text-[11px] font-semibold text-[--adm-muted] uppercase tracking-wider whitespace-nowrap',
-                      c.sortable && 'cursor-pointer select-none hover:text-[--adm-text]',
+                      'px-4 py-2.5 text-left text-[11px] font-semibold text-(--adm-muted) uppercase tracking-wider whitespace-nowrap',
+                      c.sortable && 'cursor-pointer select-none hover:text-(--adm-text)',
                     )}
                     onClick={() => c.sortable && onSort(c.key)}
                   >
@@ -76,7 +76,7 @@ export function DataTable<T extends object>({
                 ))}
               </tr>
             </thead>
-            <tbody className="divide-y divide-[--adm-border]">
+            <tbody className="divide-y divide-(--adm-border)">
               {loading ? (
                 Array.from({ length: 5 }).map((_, i) => (
                   <tr key={i}>
@@ -91,7 +91,7 @@ export function DataTable<T extends object>({
                 <tr>
                   <td colSpan={cols.length}>
                     {empty ?? (
-                      <p className="text-center py-12 text-sm text-[--adm-muted]">Kayıt bulunamadı.</p>
+                      <p className="text-center py-12 text-sm text-(--adm-muted)">Kayıt bulunamadı.</p>
                     )}
                   </td>
                 </tr>
@@ -111,13 +111,13 @@ export function DataTable<T extends object>({
 
       {/* Pagination */}
       {pages > 1 && (
-        <div className="flex items-center justify-between text-xs text-[--adm-muted]">
+        <div className="flex items-center justify-between text-xs text-(--adm-muted)">
           <span>{total} kayıt</span>
           <div className="flex items-center gap-1">
             <Button variant="outline" size="icon" onClick={() => onPage(page - 1)} disabled={page === 1}>
               <ChevronLeft className="h-3.5 w-3.5" />
             </Button>
-            <span className="px-2 text-[--adm-text] font-medium">{page}/{pages}</span>
+            <span className="px-2 text-(--adm-text) font-medium">{page}/{pages}</span>
             <Button variant="outline" size="icon" onClick={() => onPage(page + 1)} disabled={page === pages}>
               <ChevronRight className="h-3.5 w-3.5" />
             </Button>

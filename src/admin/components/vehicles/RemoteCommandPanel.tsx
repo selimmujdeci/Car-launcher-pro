@@ -134,7 +134,7 @@ export function RemoteCommandPanel({ vehicleId }: Props) {
       className="mt-4 rounded-xl border p-4"
       style={{ background: 'rgba(255,255,255,0.02)', borderColor: 'rgba(255,255,255,0.08)' }}
     >
-      <p className="mb-3 text-xs uppercase tracking-wider text-[--adm-muted]">Uzak Komut</p>
+      <p className="mb-3 text-xs uppercase tracking-wider text-(--adm-muted)">Uzak Komut</p>
 
       {cmdStatus === 'idle' && (
         <div className="flex flex-wrap gap-2">
@@ -159,7 +159,7 @@ export function RemoteCommandPanel({ vehicleId }: Props) {
       {cmdStatus === 'processing' && (
         <div className="flex items-center gap-3">
           <Loader2 className="h-4 w-4 animate-spin text-blue-400" />
-          <span className="text-sm text-[--adm-text]">
+          <span className="text-sm text-(--adm-text)">
             {activeCmd?.icon} {activeCmd?.label} — {statusText}
           </span>
         </div>
@@ -186,7 +186,7 @@ export function RemoteCommandPanel({ vehicleId }: Props) {
           </div>
           <button
             onClick={reset}
-            className="flex items-center gap-1 px-2 py-1 text-xs text-[--adm-muted] transition-colors hover:text-[--adm-text]"
+            className="flex items-center gap-1 px-2 py-1 text-xs text-(--adm-muted) transition-colors hover:text-(--adm-text)"
           >
             <RotateCcw className="h-3 w-3" />
             Tekrar

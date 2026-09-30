@@ -12,12 +12,12 @@ interface Props extends SelectHTMLAttributes<HTMLSelectElement> {
 export const Select = forwardRef<HTMLSelectElement, Props>(
   ({ label, options, error, className, ...rest }, ref) => (
     <div className="space-y-1">
-      {label && <label className="block text-xs font-medium text-[--adm-muted]">{label}</label>}
+      {label && <label className="block text-xs font-medium text-(--adm-muted)">{label}</label>}
       <select
         ref={ref}
         className={cn(
-          'w-full h-9 rounded-[--adm-radius] border border-[--adm-border] bg-[--adm-surface]',
-          'px-3 text-sm text-[--adm-text] focus:outline-none focus:border-blue-500/60 transition-colors',
+          'w-full h-9 rounded-(--adm-radius) border border-(--adm-border) bg-(--adm-surface)',
+          'px-3 text-sm text-(--adm-text) focus:outline-none focus:border-blue-500/60 transition-colors',
           error && 'border-red-500/50',
           className,
         )}
