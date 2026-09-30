@@ -220,7 +220,7 @@ export const MapHudControls = memo(function MapHudControls({
           className={`w-12 h-12 rounded-2xl border flex items-center justify-center active:scale-95 transition-colors duration-300 backdrop-blur-xl ${
             drivingMode
               ? 'bg-amber-500 border-amber-400/50 text-black'
-              : 'text-slate-400 hover:text-white'
+              : 'text-[color:var(--oem-ink-2)] hover:text-[color:var(--oem-ink)]'
           }`}
           style={{
             /* Ray içinde: pasif hâlde YÜZEY YOK (ray zaten yüzey). */
@@ -235,7 +235,7 @@ export const MapHudControls = memo(function MapHudControls({
         {/* Konuma dön */}
         <button
           onClick={() => { onRecenter(); showControls(); }}
-          className="w-12 h-12 rounded-2xl flex items-center justify-center text-slate-400 hover:text-amber-300 active:scale-90 transition-colors"
+          className="w-12 h-12 rounded-2xl flex items-center justify-center text-[color:var(--oem-ink-2)] hover:text-amber-300 active:scale-90 transition-colors"
           style={{ background: 'transparent', border: 'none', boxShadow: 'none' }}
         >
           <Crosshair className="w-5 h-5" />
@@ -247,7 +247,7 @@ export const MapHudControls = memo(function MapHudControls({
           className={`w-12 h-12 rounded-2xl backdrop-blur-xl border flex items-center justify-center active:scale-90 transition-all ${
             cameraOn
               ? 'bg-amber-500 border-amber-400 text-black shadow-[0_0_16px_rgba(224,162,60,0.6)]'
-              : 'text-slate-400 hover:text-amber-300'
+              : 'text-[color:var(--oem-ink-2)] hover:text-amber-300'
           }`}
           style={{
             background: cameraOn ? undefined : 'transparent',
@@ -265,14 +265,14 @@ export const MapHudControls = memo(function MapHudControls({
         >
           <button
             onClick={() => { onZoomIn(); showControls(); }}
-            className="w-12 h-12 flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 active:scale-90 transition-colors"
+            className="w-12 h-12 flex items-center justify-center text-[color:var(--oem-ink-2)] hover:text-[color:var(--oem-ink)] hover:bg-white/10 active:scale-90 transition-colors"
           >
             <ZoomIn className="w-5 h-5" />
           </button>
           <div style={{ height: 1, margin: '0 12px', background: 'var(--oem-line, rgba(255,240,210,0.10))' }} />
           <button
             onClick={() => { onZoomOut(); showControls(); }}
-            className="w-12 h-12 flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 active:scale-90 transition-colors"
+            className="w-12 h-12 flex items-center justify-center text-[color:var(--oem-ink-2)] hover:text-[color:var(--oem-ink)] hover:bg-white/10 active:scale-90 transition-colors"
           >
             <ZoomOut className="w-5 h-5" />
           </button>
@@ -441,7 +441,7 @@ export const MapHudControls = memo(function MapHudControls({
               className={`flex items-center justify-center gap-1.5 min-w-[44px] px-3 py-2.5 rounded-xl text-[10px] font-bold tracking-[0.12em] uppercase transition-all duration-200 active:scale-95 ${
                 mode === m
                   ? 'text-[color:var(--oem-accent,#E0A23C)]'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-white/8'
+                  : 'text-[color:var(--oem-ink-2)] hover:text-[color:var(--oem-ink)] hover:bg-white/8'
               }`}
               style={mode === m ? { background: 'var(--oem-accent-soft, rgba(224,162,60,0.18))' } : undefined}
             >

@@ -150,7 +150,8 @@ function ModBtn({
       style={{
         background: active ? `${col}1e` : 'var(--oem-surface-2)',
         border: `1px solid ${active ? col + '55' : 'var(--oem-surface-2)'}`,
-        color: active ? col : 'var(--oem-ink-4)',
+        /* Pasif seçenek de SEÇİLEBİLİR → okunur mürekkep (ink-4 açık temada ~2:1'di). */
+        color: active ? col : 'var(--oem-ink-3)',
         boxShadow: active ? `0 0 14px ${col}28` : 'none',
         cursor: disabled ? 'default' : 'pointer',
       }}
@@ -180,7 +181,7 @@ function AirBtn({
       <span style={{ fontSize: 20 }}>{icon}</span>
       <span
         className="text-[10px] font-bold tracking-wider uppercase leading-none"
-        style={{ color: active ? '#E0A23C' : 'var(--oem-ink-4)' }}
+        style={{ color: active ? '#E0A23C' : 'var(--oem-ink-3)' }}
       >
         {label}
       </span>
@@ -211,7 +212,8 @@ function HeatCtrl({
             }}
           >
             <span className="text-[10px] font-extrabold"
-              style={{ color: level === l ? (l === 0 ? 'var(--oem-ink-3)' : hc(l)) : 'var(--oem-line)' }}>
+              /* Seçili olmayan seviye: kenarlık rengi (--oem-line) METİN rengi değildir — görünmüyordu. */
+              style={{ color: level === l ? (l === 0 ? 'var(--oem-ink-3)' : hc(l)) : 'var(--oem-ink-3)' }}>
               {l === 0 ? '✕' : l}
             </span>
           </button>

@@ -314,7 +314,7 @@ const HzRangeCard = memo(function HzRangeCard() {
           Eskiden burada ham kümülatif odometre ("Kilometre") vardı; sıfırlanamadığı
           için pratikte hep 0 okunuyordu. */}
       <TripMeterRow
-        palette={{ ink: p.ink, ink2: p.ink3, ink3: p.ink3, accent: p.accent, tile: p.panelLo, edge: p.panelLo }}
+        palette={{ ink: p.ink, ink2: p.ink2, ink3: p.ink3, accent: p.accent, tile: p.panelLo, edge: p.panelLo }}
         valueSize={20} unitSize={12} labelSize={10} iconSize={16} gap={6}
         showTopBorder
         style={{ marginTop: 9 }}
