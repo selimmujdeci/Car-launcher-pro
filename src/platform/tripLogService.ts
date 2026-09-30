@@ -128,6 +128,24 @@ export interface TripRecord {
 
   /** Metrik şeması sürümü — alan kümesi değişirse artırılır. */
   metricsVersion?:    number;
+
+  /**
+   * P3 · EKO DİNAMİĞİ KANITI (saniye). v2 öncesi kayıtlarda alan YOKTUR —
+   * eko puanı onlar için hesaplanmaz, sıfır SAYILMAZ.
+   *
+   * Faz süreleri (`accel*`, `decel*`) GÖZLEM süresidir: GPS ve OBD eşzamanlı
+   * akarsa her kaynak ayrı gözlemdir, yalnız ORANLARI yorumlanır. `movingSec`
+   * ve hız bantları duvar saatidir.
+   */
+  ecoDynamics?: {
+    accelSec:     number;
+    accelOverSec: number;
+    decelSec:     number;
+    decelHardSec: number;
+    movingSec:    number;
+    over110Sec:   number;
+    over130Sec:   number;
+  };
 }
 
 /**
@@ -135,8 +153,9 @@ export interface TripRecord {
  *
  * P2 alan kümesi = 1. Yeni metrik eklenir veya bir alanın anlamı değişirse
  * ARTIRILMALIDIR; aksi halde eski ve yeni kayıtlar aynı sanılır.
+ * 2 = P2 + `ecoDynamics` (eko puanı kanıtı).
  */
-export const TRIP_METRICS_VERSION = 1;
+export const TRIP_METRICS_VERSION = 2;
 
 interface ActiveTrip {
   /**
@@ -358,6 +377,11 @@ let _lastAnySampleMonoMs: number | null = null;
 
 // Son OBD verisini cache'le — GPS olmadığında fallback için
 let _lastObdFuel = -1;
+
+/** ms → saniye (0,1 hassasiyet) — eko dinamiği kanıtı için. */
+function _sec(ms: number): number {
+  return Math.round(ms / 100) / 10;
+}
 
 /* ── Driving score ───────────────────────────────────────── */
 
@@ -696,6 +720,15 @@ function _endTrip(reason: TripEndReason = 'UNKNOWN'): void {
       dataGapCount: coverage.dataGapCount,
       sourceSwitchCount: coverage.sourceSwitchCount,
       metricsVersion: TRIP_METRICS_VERSION,
+      ecoDynamics: {
+        accelSec:     _sec(acc.accelMs),
+        accelOverSec: _sec(acc.accelOverMs),
+        decelSec:     _sec(acc.decelMs),
+        decelHardSec: _sec(acc.decelHardMs),
+        movingSec:    _sec(acc.movingMs),
+        over110Sec:   _sec(acc.over110Ms),
+        over130Sec:   _sec(acc.over130Ms),
+      },
     };
 
     /* Litre ve maliyet ESKİ alanlara da yazılır (geriye uyum) — ama artık
