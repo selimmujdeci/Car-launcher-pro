@@ -9,7 +9,7 @@
  * Rapor yalnız dosya:satır + sağlayıcı + maskeli önek verir; değer ASLA yazılmaz.
  */
 import { execFileSync } from 'node:child_process';
-import { readFileSync, statSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { extname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -60,10 +60,11 @@ describe('depo sızıntı taraması', () => {
     for (const rel of trackedFiles()) {
       if (BINARY_EXT.has(extname(rel).toLowerCase())) continue;
       const abs = join(ROOT, rel);
-      let size = 0;
-      try { size = statSync(abs).size; } catch { continue; }   // silinmiş/izlenmeyen
-      if (size === 0 || size > MAX_BYTES) continue;
-      const text = readFileSync(abs, 'utf8');
+      // Tek okuma: önce stat sonra read iki ayrı erişimdi (CodeQL js/file-system-race).
+      let buf: Buffer;
+      try { buf = readFileSync(abs); } catch { continue; }        // silinmiş/izlenmeyen
+      if (buf.length === 0 || buf.length > MAX_BYTES) continue;
+      const text = buf.toString('utf8');
       if (text.includes('\0')) continue;                        // ikili içerik
       for (const [provider, re] of PATTERNS) {
         for (const m of text.matchAll(re)) {
