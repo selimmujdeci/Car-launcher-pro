@@ -20,7 +20,7 @@
 import { memo, useId } from 'react';
 import {
   COCKPIT_CANVAS, COCKPIT_MIN_TOUCH_PX, COCKPIT_DESIGN_SCALE as DESIGN_SCALE, COCKPIT_DESIGN_OFFSET_Y as DESIGN_OFFSET_Y,
-  cockpitTokensFor, type CockpitTokens, type CockpitAccentId, type CockpitStyleId,
+  cockpitSurfaceMode, cockpitTokensFor, type CockpitTokens, type CockpitAccentId, type CockpitStyleId,
 } from './cockpitLayout';
 import {
   EM_DASH, fmtSpeed, fmtCoolant, fmtRange, fmtConsumption, fmtOdometer, fmtAmbient,
@@ -29,6 +29,7 @@ import {
 } from './cockpitDataModel';
 import carRearUrl from '../../assets/cockpit/car-rear.webp';
 import { ClassicCluster, DigitalCluster, LimitSign } from './cockpitClusters';
+import { ShowcaseCluster, type ShowcaseStyle } from './cockpitShowcase';
 import '../../styles/fonts.css';
 import './digitalCockpit.css';
 
@@ -412,7 +413,8 @@ const TopBar = memo(function TopBar({ time, ambient, t }: Omit<PaletteProps, 'id
   const ambText = fmtAmbient(ambient);
   return (
     <g data-cockpit-region="topBar">
-      <text x={64} y={46} fontSize={22} fontWeight={500} className="caros-cockpit-numeral" fill={t.textSecondary}>{time}</text>
+      {/* Saat, sol üstteki "görünüm değiştir" düğmesinin (sayfa katmanı, ~100 px) sağında başlar. */}
+      <text x={150} y={46} fontSize={22} fontWeight={500} className="caros-cockpit-numeral" fill={t.textSecondary}>{time}</text>
       <text data-cockpit-value="ambient" x={1216} y={46} textAnchor="end" fontSize={22} fontWeight={500}
         fill={ambText === EM_DASH ? t.muted : t.textSecondary}>{ambText === EM_DASH ? `${EM_DASH}°C` : ambText}</text>
     </g>
@@ -436,11 +438,17 @@ export interface DigitalCockpitScreenProps {
 export const DigitalCockpitScreen = memo(function DigitalCockpitScreen({
   state, mode, clock, onMediaToggle, accent = 'blue', styleId = 'road',
 }: DigitalCockpitScreenProps) {
-  const t = cockpitTokensFor(mode, accent);
+  const showcase: ShowcaseStyle | null =
+    styleId === 'neon' || styleId === 'sport' || styleId === 'luxury' || styleId === 'aurora' ? styleId : null;
+  /* İmza görünümler gündüz de koyu çizilir → ortak bölgeler (üst çubuk, müzik,
+     dönüş kartı) gece renkleriyle okunur kalır. */
+  const t = cockpitTokensFor(cockpitSurfaceMode(styleId, mode), accent);
   const minimal = styleId === 'minimal';
   const classic = styleId === 'analog' || styleId === 'retro';
   const digital = styleId === 'digital';
-  const modern = !classic && !digital;
+  /* İmza görünümler (neon/spor/lüks/aurora) kendi kümesini ve arka planını çizer;
+     ortak kalan: dönüş kartı, müzik, üst çubuk. */
+  const modern = !classic && !digital && !showcase;
   const base = `cockpit-${useId().replace(/:/g, '')}`;
   const ids: Ids = {
     ring: `${base}-ring`, lane: `${base}-lane`, edge: `${base}-edge`,
@@ -500,15 +508,18 @@ export const DigitalCockpitScreen = memo(function DigitalCockpitScreen({
           </g>
         )}
         </>)}
-        {!digital && <CoolantDial coolant={state.coolantTempC} freshness={state.coolantFreshness} t={t} ids={ids} />}
+        {showcase && <ShowcaseCluster style={showcase} state={state} t={t} idBase={base} date={clock.date} />}
+        {!digital && !showcase && <CoolantDial coolant={state.coolantTempC} freshness={state.coolantFreshness} t={t} ids={ids} />}
         {classic && <ClassicCluster state={state} face={styleId === 'retro' ? 'retro' : 'analog'} mode={mode} t={t} idBase={base} />}
         {digital && <DigitalCluster state={state} t={t} />}
         {state.maneuver !== null ? <ManeuverZone {...state.maneuver} t={t} /> : <NoRouteCard t={t} />}
-        {!digital && <RangeZone range={state.rangeKm} fuelLevel={state.fuelLevelPct} consumption={state.avgConsumptionL100} t={t} ids={ids} />}
+        {!digital && !showcase && <RangeZone range={state.rangeKm} fuelLevel={state.fuelLevelPct} consumption={state.avgConsumptionL100} t={t} ids={ids} />}
         {/* Dijital görünümde sağda sıcaklık çubuğu var — kilometre biraz sola alınır. */}
-        <g transform={digital ? 'translate(-70 0)' : undefined}>
-          <OdoZone odometer={state.odometerKm} driveMode={state.driveMode} t={t} />
-        </g>
+        {!showcase && (
+          <g transform={digital ? 'translate(-70 0)' : undefined}>
+            <OdoZone odometer={state.odometerKm} driveMode={state.driveMode} t={t} />
+          </g>
+        )}
         <MediaZone {...state.media} t={t} onMediaToggle={onMediaToggle} />
         <TopBar time={clock.time} ambient={state.ambientTempC} t={t} />
       </g>

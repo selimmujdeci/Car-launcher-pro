@@ -66,11 +66,33 @@ export const COCKPIT_ACCENT_LABELS: Readonly<Record<CockpitAccentId, string>> = 
   blue: 'Mavi', red: 'Kırmızı', green: 'Yeşil', orange: 'Turuncu', purple: 'Mor', ice: 'Buz',
 });
 
-export const COCKPIT_STYLE_IDS = ['road', 'minimal', 'analog', 'retro', 'digital'] as const;
+export const COCKPIT_STYLE_IDS = ['road', 'minimal', 'analog', 'retro', 'digital', 'neon', 'sport', 'luxury', 'aurora'] as const;
 export type CockpitStyleId = typeof COCKPIT_STYLE_IDS[number];
 export const COCKPIT_STYLE_LABELS: Readonly<Record<CockpitStyleId, string>> = Object.freeze({
   road: 'Yol', minimal: 'Sade', analog: 'Analog', retro: 'Retro', digital: 'Dijital',
+  neon: 'Neon', sport: 'Spor', luxury: 'Lüks', aurora: 'Aurora',
 });
+
+/** İmza görünümler (neon/spor/lüks/aurora) gündüz de KOYU zeminle çizilir. */
+export const COCKPIT_ALWAYS_DARK_STYLES: readonly CockpitStyleId[] = Object.freeze(['neon', 'sport', 'luxury', 'aurora']);
+
+/** Görünümün GERÇEKTE çizildiği zemin: ekranın üstündeki kontroller (görünüm
+ *  düğmesi, bildirim) gündüz/gece moduna değil buna göre renklenir. */
+export function cockpitSurfaceMode(style: CockpitStyleId, mode: 'day' | 'night'): 'day' | 'night' {
+  return COCKPIT_ALWAYS_DARK_STYLES.includes(style) ? 'night' : mode;
+}
+
+/** Sürüş ekranındaki "değiştir" düğmesi: sıradaki görünüm (sonda başa döner). */
+export function nextCockpitStyle(id: CockpitStyleId): CockpitStyleId {
+  const i = COCKPIT_STYLE_IDS.indexOf(id);
+  return COCKPIT_STYLE_IDS[(i + 1) % COCKPIT_STYLE_IDS.length]!;
+}
+
+/** Sürüş ekranındaki "renk" düğmesi: sıradaki vurgu rengi (sonda başa döner). */
+export function nextCockpitAccent(id: CockpitAccentId): CockpitAccentId {
+  const i = COCKPIT_ACCENT_IDS.indexOf(id);
+  return COCKPIT_ACCENT_IDS[(i + 1) % COCKPIT_ACCENT_IDS.length]!;
+}
 
 type Accent = Pick<CockpitTokens, 'accent' | 'accentHigh' | 'accentSoft' | 'glow'>;
 /** Vurgu setleri: gece parlak (koyu zemin), gündüz koyulaştırılmış (açık zeminde okunur). */

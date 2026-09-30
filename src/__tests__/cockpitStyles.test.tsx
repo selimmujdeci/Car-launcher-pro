@@ -90,3 +90,36 @@ describe('ayarlar önizlemesi ikon boyuna ezilmez (saha 2026-09-27)', () => {
     expect(css).toMatch(/\[data-editable="settings-page"\]\[data-editable\] svg\.caros-cockpit-screen \{\s*width: 100% !important;\s*height: 100% !important;/);
   });
 });
+
+describe('imza görünümler (neon · spor · lüks · aurora)', () => {
+  const SHOWCASE = ['neon', 'sport', 'luxury', 'aurora'] as const;
+
+  it('🔒 performans: SVG filtresi/blur YOK (zayıf GPU; kullanıcı sorusu "yük oluyor mu")', () => {
+    const src = readFileSync(resolve('src/components/cockpit/cockpitShowcase.tsx'), 'utf8');
+    expect(src).not.toMatch(/<filter|feGaussianBlur|filter=\{?["'`]url/);
+    for (const styleId of SHOWCASE) {
+      const el = render(<DigitalCockpitScreen state={COCKPIT_REFERENCE_STATE} mode="night" styleId={styleId} clock={COCKPIT_REFERENCE_CLOCK} />);
+      expect(el.querySelector('filter'), styleId).toBeNull();
+    }
+  });
+
+  it('lüks: ölçüm varken iki ibre, devir yokken yalnız hız ibresi', () => {
+    const on = render(<DigitalCockpitScreen state={COCKPIT_REFERENCE_STATE} mode="night" styleId="luxury" clock={COCKPIT_REFERENCE_CLOCK} />);
+    expect(on.querySelectorAll('[data-cockpit-needle]').length).toBe(2);
+    const off = render(<DigitalCockpitScreen state={{ ...COCKPIT_REFERENCE_STATE, rpm: null }} mode="night" styleId="luxury" clock={COCKPIT_REFERENCE_CLOCK} />);
+    expect(off.querySelectorAll('[data-cockpit-needle]').length).toBe(1);
+  });
+
+  it('kırmızı bölge yalnız araçtan gelen devir sınırıyla (uydurma sınır yok)', () => {
+    const el = render(<DigitalCockpitScreen state={{ ...COCKPIT_REFERENCE_STATE, rpmRedline: null }} mode="night" styleId="sport" clock={COCKPIT_REFERENCE_CLOCK} />);
+    const reds = [...el.querySelectorAll('path')].filter((p) => ['#ff2a2a', '#4a1212'].includes(p.getAttribute('stroke') ?? ''));
+    expect(reds).toHaveLength(0);
+  });
+
+  it('gündüz de koyu çizilir; ortak bölgeler gece renkleriyle okunur', () => {
+    for (const styleId of SHOWCASE) {
+      const el = render(<DigitalCockpitScreen state={COCKPIT_REFERENCE_STATE} mode="day" styleId={styleId} clock={COCKPIT_REFERENCE_CLOCK} />);
+      expect(el.querySelector('svg')?.getAttribute('style'), styleId).toContain(cockpitTokensFor('night').canvas.toLowerCase().replace('#', ''));
+    }
+  });
+});

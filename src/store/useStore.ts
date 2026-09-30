@@ -207,7 +207,7 @@ export interface AppSettings {
   volume: number;
   volumeStyle: VolumeStyle;
   /** Sürücü ekranı görünümü ve vurgu rengi (kullanıcı seçimi; gündüz/gece `dayNightMode`'dan). */
-  cockpitStyle: 'road' | 'minimal' | 'analog' | 'retro' | 'digital';
+  cockpitStyle: 'road' | 'minimal' | 'analog' | 'retro' | 'digital' | 'neon' | 'sport' | 'luxury' | 'aurora';
   cockpitAccent: 'blue' | 'red' | 'green' | 'orange' | 'purple' | 'ice';
   /** Sürüşte sinema modunu (video) KAPATMA — sürücü sorumluluğunda, bilinçli açılır (varsayılan kapalı). */
   videoWhileDriving: boolean;
