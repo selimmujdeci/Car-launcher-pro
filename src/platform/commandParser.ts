@@ -123,7 +123,9 @@ export type CommandType =
   | 'read_message'
   // Telefon Merkezi · "mesaja X diye cevap yaz" — extra.text (cevap metni; boşsa
   // Mavi ne yazılacağını sorar). Hedef: son okunan / en yeni mesaj.
-  | 'reply_message';
+  | 'reply_message'
+  // Eko sürüş puanı — "eko puanım kaç" · "nasıl sürdüm" (voiceInfoService, ecoScoreModel).
+  | 'trip_eco_score';
 
 export type CommandPriority = 'critical' | 'high' | 'normal';
 
@@ -554,6 +556,24 @@ const PATTERNS: CommandPattern[] = [
   // vehicle_maintenance — tanımı taşındı: vehicleIntents.ts (V3, aynı dizi
   // pozisyonunda; keywords/tokens/feedback BİREBİR).
   VEHICLE_MAINTENANCE_PATTERN,
+  {
+    type: 'trip_eco_score', priority: 'normal',
+    feedback: 'Eko puanın hesaplanıyor',
+    label: 'Eko Puanını Söyle', example: 'eko puanım kaç',
+    /* Kalıplar DOLGU TEMİZLİĞİNDEN SONRA eşleşir: 'nasıl' · 'mu/mü' FILLERS'tadır.
+       "sürüşüm nasıl" → 'surusum' kalır (tek kelime ama "benim sürüşüm" demektir,
+       komut sözlüğünde başka anlamı yok). "nasıl sürdüm" ise 'surdum'a iner —
+       o kelime "eve ben sürdüm" gibi düz cümleleri gasp edeceği için BİLEREK yok. */
+    keywords: [
+      'eko puan', 'eko skor', 'eko karne', 'eko sürüş puan', 'eko sürüş skor',
+      'sürüş puan', 'sürüş skor', 'sürüş karne', 'sürüşüm',
+      'ekonomik sürüyor muyum', 'ekonomik sürdüm', 'tasarruflu sürüyor muyum',
+    ],
+    /* BİLİNÇLİ OLARAK BOŞ: tek kelime token'ları gasp üretir — 'eko' ⊂
+       "ekolayzır/ekonomi haberleri", 'skor'/'puan' ⊂ "maçın skoru/puan durumu".
+       Yalnız yukarıdaki ifadeler eşleşir; gerisi beyne/anlaşılamadıya düşer. */
+    tokens: [],
+  },
   {
     type: 'show_weather', priority: 'normal',
     feedback: 'Hava durumu gösteriliyor',
