@@ -8,6 +8,7 @@ import type { Plugin } from 'vite'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { parseVersionProperties, VERSION_FALLBACK } from './src/utils/versionProperties'
+import { addTransformFallback } from './scripts/lib/cssTransformFallback.mjs'
 
 // ── Sürüm enjeksiyonu (OTA v1 / Commit 1 — device version truth) ─────────────
 // VITE_APP_VERSION daha önce HİÇBİR yerde set edilmiyordu → SystemHealthMonitor
@@ -78,6 +79,27 @@ function flattenCssLayers(): Plugin {
       for (const chunk of Object.values(bundle)) {
         if (chunk.type === 'asset' && String(chunk.fileName).endsWith('.css')) {
           chunk.source = removeLayers(chunk.source as string);
+        }
+      }
+    },
+  };
+}
+
+/**
+ * transformFallback — Chrome 101 (K24) WebView uyumluluk fix
+ *
+ * Tailwind v4 kaydırma/büyütme/döndürme sınıflarını yalnız `translate:` /
+ * `scale:` / `rotate:` ile yazar (Chrome 104+). K24'te (Chrome 101) atılıyor:
+ * ortalanan uyarılar kayık, basma geri bildirimi yok. `@supports not` altında
+ * `transform` yedeği ekler — yeni tarayıcılarda etkisiz. Bkz. scripts/lib/cssTransformFallback.mjs
+ */
+function transformFallback(): Plugin {
+  return {
+    name: 'transform-fallback',
+    generateBundle(_opts, bundle) {
+      for (const chunk of Object.values(bundle)) {
+        if (chunk.type === 'asset' && String(chunk.fileName).endsWith('.css')) {
+          chunk.source = addTransformFallback(chunk.source as string);
         }
       }
     },
@@ -281,6 +303,7 @@ export default defineConfig({
     tailwindcss(),
     addWebkitBackdropFilter(),
     flattenCssLayers(),
+    transformFallback(),
     legacy({
       targets: ['Chrome >= 50', 'Android >= 6'],
       additionalLegacyPolyfills: ['regenerator-runtime/runtime'],
