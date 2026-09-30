@@ -31,11 +31,11 @@ export function Modal({ open, onClose, title, children, footer, size = 'md' }: P
 
       {/* Panel */}
       <div className={cn(
-        'relative w-full rounded-xl border border-[--adm-border] bg-[--adm-card] shadow-2xl',
+        'relative w-full rounded-xl border border-(--adm-border) bg-(--adm-card) shadow-2xl',
         SIZE[size],
       )}>
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-[--adm-border]">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-(--adm-border)">
           <h2 className="text-base font-semibold">{title}</h2>
           <Button variant="ghost" size="icon" onClick={onClose}>
             <X className="h-4 w-4" />
@@ -47,7 +47,7 @@ export function Modal({ open, onClose, title, children, footer, size = 'md' }: P
 
         {/* Footer */}
         {footer && (
-          <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-[--adm-border]">
+          <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-(--adm-border)">
             {footer}
           </div>
         )}

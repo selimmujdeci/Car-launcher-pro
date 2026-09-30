@@ -8,7 +8,7 @@ const V: Record<Variant, string> = {
   warning: 'bg-yellow-500/15 text-yellow-400 border-yellow-500/20',
   danger:  'bg-red-500/15 text-red-400 border-red-500/20',
   info:    'bg-sky-500/15 text-sky-400 border-sky-500/20',
-  muted:   'bg-white/5 text-[--adm-muted] border-white/8',
+  muted:   'bg-white/5 text-(--adm-muted) border-white/8',
 }
 
 interface Props { variant?: Variant; children: React.ReactNode; className?: string }

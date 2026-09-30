@@ -56,8 +56,8 @@ export function Users() {
       key: 'full_name', header: 'Ad Soyad', sortable: true,
       cell: (u) => (
         <div>
-          <p className="font-medium text-[--adm-text]">{u.full_name}</p>
-          <p className="text-xs text-[--adm-muted]">{u.email}</p>
+          <p className="font-medium text-(--adm-text)">{u.full_name}</p>
+          <p className="text-xs text-(--adm-muted)">{u.email}</p>
         </div>
       ),
     },
@@ -71,12 +71,12 @@ export function Users() {
     },
     {
       key: 'institution', header: 'Kurum', sortable: true,
-      cell: (u) => <span className="text-sm text-[--adm-muted]">{u.institution ?? '—'}</span>,
+      cell: (u) => <span className="text-sm text-(--adm-muted)">{u.institution ?? '—'}</span>,
     },
     {
       key: 'last_login', header: 'Son Giriş',
       cell: (u) => (
-        <span className="text-xs text-[--adm-muted]">
+        <span className="text-xs text-(--adm-muted)">
           {u.last_login ? new Date(u.last_login).toLocaleDateString('tr-TR') : '—'}
         </span>
       ),
@@ -159,8 +159,8 @@ export function Users() {
           </>
         }
       >
-        <p className="text-sm text-[--adm-muted]">
-          <span className="font-medium text-[--adm-text]">{toDelete?.full_name}</span> adlı kullanıcıyı silmek istediğinize emin misiniz?
+        <p className="text-sm text-(--adm-muted)">
+          <span className="font-medium text-(--adm-text)">{toDelete?.full_name}</span> adlı kullanıcıyı silmek istediğinize emin misiniz?
         </p>
       </Modal>
     </div>
@@ -215,15 +215,15 @@ function UserFormModal({ open, onClose, initial, onSave }: FormModalProps) {
     >
       <div className="space-y-4">
         <div>
-          <label className="block text-sm mb-1.5 text-[--adm-muted]">Ad Soyad</label>
+          <label className="block text-sm mb-1.5 text-(--adm-muted)">Ad Soyad</label>
           <Input value={full_name} onChange={(e) => setName(e.target.value)} placeholder="Ali Veli" />
         </div>
         <div>
-          <label className="block text-sm mb-1.5 text-[--adm-muted]">E-posta</label>
+          <label className="block text-sm mb-1.5 text-(--adm-muted)">E-posta</label>
           <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="ali@example.com" />
         </div>
         <div>
-          <label className="block text-sm mb-1.5 text-[--adm-muted]">Rol</label>
+          <label className="block text-sm mb-1.5 text-(--adm-muted)">Rol</label>
           <Select
             value={role}
             onChange={(e) => setRole(e.target.value as Role)}
@@ -231,7 +231,7 @@ function UserFormModal({ open, onClose, initial, onSave }: FormModalProps) {
           />
         </div>
         <div>
-          <label className="block text-sm mb-1.5 text-[--adm-muted]">Kurum (opsiyonel)</label>
+          <label className="block text-sm mb-1.5 text-(--adm-muted)">Kurum (opsiyonel)</label>
           <Input value={institution} onChange={(e) => setInstitution(e.target.value)} placeholder="Kurumunuz" />
         </div>
       </div>

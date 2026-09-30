@@ -75,14 +75,14 @@ export function Vehicles() {
   const cols: ColDef<Vehicle>[] = [
     {
       key: 'plate', header: 'Plaka', sortable: true,
-      cell: (v) => <span className="font-mono font-semibold text-[--adm-text]">{v.plate}</span>,
+      cell: (v) => <span className="font-mono font-semibold text-(--adm-text)">{v.plate}</span>,
     },
     {
       key: 'brand', header: 'Araç', sortable: true,
       cell: (v) => (
         <div>
-          <p className="text-sm font-medium text-[--adm-text]">{v.brand} {v.model}</p>
-          <p className="text-xs text-[--adm-muted]">{v.year} · {v.fuel_type}</p>
+          <p className="text-sm font-medium text-(--adm-text)">{v.brand} {v.model}</p>
+          <p className="text-xs text-(--adm-muted)">{v.year} · {v.fuel_type}</p>
         </div>
       ),
     },
@@ -92,12 +92,12 @@ export function Vehicles() {
     },
     {
       key: 'driver_name', header: 'Sürücü',
-      cell: (v) => <span className="text-sm text-[--adm-muted]">{v.driver_name ?? '—'}</span>,
+      cell: (v) => <span className="text-sm text-(--adm-muted)">{v.driver_name ?? '—'}</span>,
     },
     {
       key: 'current_km', header: 'KM', sortable: true,
       cell: (v) => (
-        <span className="text-sm tabular-nums text-[--adm-text]">
+        <span className="text-sm tabular-nums text-(--adm-text)">
           {v.current_km.toLocaleString('tr-TR')} km
         </span>
       ),
@@ -105,14 +105,14 @@ export function Vehicles() {
     {
       key: 'speed', header: 'Hız',
       cell: (v) => (
-        <span className={['text-sm tabular-nums', v.status === 'active' ? 'text-green-400' : 'text-[--adm-muted]'].join(' ')}>
+        <span className={['text-sm tabular-nums', v.status === 'active' ? 'text-green-400' : 'text-(--adm-muted)'].join(' ')}>
           {v.speed != null ? `${v.speed} km/s` : '—'}
         </span>
       ),
     },
     {
       key: 'institution', header: 'Kurum',
-      cell: (v) => <span className="text-xs text-[--adm-muted]">{v.institution ?? '—'}</span>,
+      cell: (v) => <span className="text-xs text-(--adm-muted)">{v.institution ?? '—'}</span>,
     },
     {
       key: '_cmd', header: '',
@@ -199,11 +199,11 @@ export function Vehicles() {
       >
         {editing && (
           <div className="space-y-3">
-            <p className="text-sm text-[--adm-muted]">
-              <span className="font-medium text-[--adm-text]">{editing.plate}</span> — {editing.brand} {editing.model}
+            <p className="text-sm text-(--adm-muted)">
+              <span className="font-medium text-(--adm-text)">{editing.plate}</span> — {editing.brand} {editing.model}
             </p>
             <div>
-              <label className="block text-sm mb-1.5 text-[--adm-muted]">Durum</label>
+              <label className="block text-sm mb-1.5 text-(--adm-muted)">Durum</label>
               <div className="flex flex-wrap gap-2">
                 {(Object.keys(STATUS_LABEL) as VehicleStatus[]).map((s) => (
                   <button
@@ -267,8 +267,8 @@ export function Vehicles() {
           </>
         }
       >
-        <p className="text-sm text-[--adm-muted]">
-          <span className="font-medium text-[--adm-text]">{toDelete?.plate}</span> plakalı aracı silmek istediğinize emin misiniz?
+        <p className="text-sm text-(--adm-muted)">
+          <span className="font-medium text-(--adm-text)">{toDelete?.plate}</span> plakalı aracı silmek istediğinize emin misiniz?
         </p>
       </Modal>
     </div>

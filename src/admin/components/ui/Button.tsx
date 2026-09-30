@@ -12,10 +12,10 @@ interface Props extends ButtonHTMLAttributes<HTMLButtonElement> {
 
 const V: Record<Variant, string> = {
   primary:   'bg-blue-600 hover:bg-blue-700 text-white shadow-sm',
-  secondary: 'bg-white/8 hover:bg-white/12 text-[--adm-text]',
-  ghost:     'hover:bg-white/6 text-[--adm-muted] hover:text-[--adm-text]',
+  secondary: 'bg-white/8 hover:bg-white/12 text-(--adm-text)',
+  ghost:     'hover:bg-white/6 text-(--adm-muted) hover:text-(--adm-text)',
   danger:    'bg-red-600/90 hover:bg-red-600 text-white shadow-sm',
-  outline:   'border border-[--adm-border] hover:bg-white/5 text-[--adm-text]',
+  outline:   'border border-(--adm-border) hover:bg-white/5 text-(--adm-text)',
 }
 
 const S: Record<Size, string> = {
@@ -30,7 +30,7 @@ export const Button = forwardRef<HTMLButtonElement, Props>(
       ref={ref}
       disabled={disabled || loading}
       className={cn(
-        'inline-flex items-center justify-center rounded-[--adm-radius] font-medium transition-colors',
+        'inline-flex items-center justify-center rounded-(--adm-radius) font-medium transition-colors',
         'disabled:opacity-50 disabled:pointer-events-none',
         V[variant], S[size], className,
       )}

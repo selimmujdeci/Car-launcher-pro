@@ -15,9 +15,9 @@ export function StatCard({ title, value, subtitle, icon: Icon, iconClass = 'text
   return (
     <Card className="flex items-start justify-between gap-3">
       <div className="min-w-0 space-y-0.5">
-        <p className="text-[11px] font-semibold text-[--adm-muted] uppercase tracking-wider truncate">{title}</p>
+        <p className="text-[11px] font-semibold text-(--adm-muted) uppercase tracking-wider truncate">{title}</p>
         <p className="text-2xl font-bold tracking-tight">{value}</p>
-        {subtitle && <p className="text-xs text-[--adm-muted]">{subtitle}</p>}
+        {subtitle && <p className="text-xs text-(--adm-muted)">{subtitle}</p>}
         {trend && (
           <p className={cn('text-xs font-medium', trend.pct >= 0 ? 'text-green-400' : 'text-red-400')}>
             {trend.pct >= 0 ? '+' : ''}{trend.pct}% {trend.label}
