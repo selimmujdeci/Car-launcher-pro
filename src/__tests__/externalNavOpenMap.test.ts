@@ -72,4 +72,24 @@ describe('resolveAndNavigate openMap seçeneği', () => {
     await settle();
     expect(confirmed?.shouldOpenMap).toBe(true);
   });
+
+  it('🔒 önceki onayın 4 sn zamanlayıcısı YENİ aramayı "boşta"ya düşürmez', async () => {
+    vi.useFakeTimers();
+    try {
+      const phases: string[] = [];
+      const off = onAddressNavState((s) => { phases.push(`${s.phase}:${s.query}`); });
+      vi.mocked(geocodeAddress).mockResolvedValueOnce([near]);
+      resolveAndNavigate('Cumhuriyet Mahallesi', TARSUS);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(phases.at(-1)).toBe('confirmed:Cumhuriyet Mahallesi');
+      // İkinci arama: sonuç hiç gelmiyor (uçuşta kalıyor)
+      vi.mocked(geocodeAddress).mockReturnValueOnce(new Promise(() => {}));
+      resolveAndNavigate('Mersin', TARSUS);
+      await vi.advanceTimersByTimeAsync(4_500);   // eski kartın kapanma süresi geçer
+      expect(phases.at(-1)).toBe('searching:Mersin');
+      off();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

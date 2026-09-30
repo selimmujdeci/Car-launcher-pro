@@ -80,8 +80,17 @@ export function runExternalNavFlow(dest: string, provider: ExternalNavProvider, 
     if (timer !== null) deps.clearTimer(timer);
   };
 
+  /* Abone olunca motor O ANKİ durumu hemen gönderir (boşta/boş sorgu ya da bir
+     önceki aramanın "onaylandı"sı). Telefonda ölçüldü (2026-09-30): akış bu ilk
+     mesajı iptal sanıp kapanıyor, harici uygulama HİÇ açılmıyordu. Kendi aramamız
+     ("searching" + aynı sorgu) görülene kadar gelen her mesaj yok sayılır. */
+  let started = false;
   unsub = deps.onAddressState((s) => {
     if (done) return;
+    if (!started) {
+      if (s.phase === 'searching' && s.query === dest) started = true;
+      return;
+    }
     // Başka bir arama başladıysa bu istek geçersizdir (eski oturum yeniyi değiştiremez).
     if (s.query !== dest) { finish(); return; }
     if (s.phase === 'confirmed' && s.selected) {

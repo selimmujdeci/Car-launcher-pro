@@ -92,7 +92,9 @@ describe('harici uygulamayı açma', () => {
 });
 
 describe('runExternalNavFlow', () => {
-  function harness(launchOk = true) {
+  /** Gerçek motor gibi: abone olunca O ANKİ durumu hemen gönderir
+   *  (addressNavigationEngine.onAddressNavState → `fn({ ..._state })`). */
+  function harness(launchOk = true, initial: ExternalNavAddressState = { phase: 'idle', query: '', selected: null }) {
     const said: string[] = [];
     let listener: ((s: ExternalNavAddressState) => void) | null = null;
     let owner: string | null = null;
@@ -100,7 +102,7 @@ describe('runExternalNavFlow', () => {
       findSaved: () => ({ match: null, ambiguous: [] }),
       startOwnNavigation: vi.fn(),
       resolveWithoutFullMap: vi.fn(),
-      onAddressState: (fn) => { listener = fn; return () => { listener = null; }; },
+      onAddressState: (fn) => { listener = fn; fn(initial); return () => { listener = null; }; },
       launch: vi.fn(async () => launchOk),
       setGuidanceOwner: (p) => { owner = p; },
       clearGuidanceOwner: () => { owner = null; },
@@ -130,6 +132,7 @@ describe('runExternalNavFlow', () => {
   it('uygulama açılamazsa sahiplik KURULMAZ ve dürüstçe söylenir', async () => {
     const h = harness(false);
     runExternalNavFlow('Mersin', 'waze', h.deps);
+    h.push({ phase: 'searching', query: 'Mersin', selected: null });
     h.push({ phase: 'confirmed', query: 'Mersin', selected: { lat: 36.8, lng: 34.6, name: 'Mersin' } });
     await flush();
     expect(h.owner()).toBeNull();
@@ -139,15 +142,40 @@ describe('runExternalNavFlow', () => {
   it('arama hatası veya başka bir arama → harici uygulama AÇILMAZ', async () => {
     const a = harness();
     runExternalNavFlow('Mersin', 'yandex', a.deps);
+    a.push({ phase: 'searching', query: 'Mersin', selected: null });
     a.push({ phase: 'error', query: 'Mersin', selected: null });
     const b = harness();
     runExternalNavFlow('Mersin', 'yandex', b.deps);
+    b.push({ phase: 'searching', query: 'Mersin', selected: null });
     b.push({ phase: 'confirmed', query: 'Adana', selected: { lat: 37, lng: 35.3, name: 'Adana' } });
     await flush();
     expect(a.deps.launch).not.toHaveBeenCalled();
     expect(b.deps.launch).not.toHaveBeenCalled();
     expect(a.subscribed()).toBe(false);
     expect(b.subscribed()).toBe(false);
+  });
+
+  it('🔒 abone olunca gelen ilk "boşta" mesajı akışı KAPATMAZ (telefonda ölçülen kusur)', async () => {
+    const h = harness();                                // initial: idle + boş sorgu
+    runExternalNavFlow('Mersin', 'waze', h.deps);
+    expect(h.subscribed()).toBe(true);                  // eskiden burada kapanıyordu
+    h.push({ phase: 'searching', query: 'Mersin', selected: null });
+    h.push({ phase: 'confirmed', query: 'Mersin', selected: { lat: 36.8, lng: 34.6, name: 'Mersin' } });
+    await flush();
+    expect(h.deps.launch).toHaveBeenCalledWith('waze', 36.8, 34.6);
+  });
+
+  it('🔒 aynı hedefe ait ESKİ "onaylandı" durumu devri tetiklemez', async () => {
+    const stale: ExternalNavAddressState = { phase: 'confirmed', query: 'Mersin', selected: { lat: 1, lng: 2, name: 'Eski' } };
+    const h = harness(true, stale);
+    runExternalNavFlow('Mersin', 'yandex', h.deps);
+    await flush();
+    expect(h.deps.launch).not.toHaveBeenCalled();
+    h.push({ phase: 'searching', query: 'Mersin', selected: null });
+    h.push({ phase: 'confirmed', query: 'Mersin', selected: { lat: 36.8, lng: 34.6, name: 'Mersin' } });
+    await flush();
+    expect(h.deps.launch).toHaveBeenCalledTimes(1);
+    expect(h.deps.launch).toHaveBeenCalledWith('yandex', 36.8, 34.6);
   });
 
   it('kayıtlı konum: çözücü çağrılmadan kendi rotamız + harici uygulama', async () => {

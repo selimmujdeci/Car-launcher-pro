@@ -377,6 +377,9 @@ export function resolveAndNavigate(
 ): void {
   const gen = ++_searchGeneration;
   _openMapOnConfirm = opts?.openMap !== false;
+  /* Önceki onayın 4 sn'lik kapanma zamanlayıcısı YENİ aramanın ortasında
+     "boşta" yayınlamasın (yeni arama eski kartın yerini alır). */
+  if (_activeTimerId !== null) { clearTimeout(_activeTimerId); _activeTimerId = null; }
 
   _push({
     phase:        'searching',
