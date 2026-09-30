@@ -9,6 +9,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { parseCommandFull } from '../platform/commandParser';
 import { matchExternalNavCommand } from '../platform/voice/externalNavCommand';
+import { isProvisionalFeedback } from '../platform/voice/voiceCommandPolicy';
 import {
   buildExternalRouteUris, extractExternalNavProvider, launchExternalRoute,
 } from '../platform/navigation/externalNavHandoff';
@@ -38,6 +39,19 @@ describe('çevrimdışı rota cümlesi hedefi KAYBETMEZ', () => {
   it('hedefsiz "rota kur" hâlâ haritayı açar (davranış korundu)', () => {
     expect(parseCommandFull('rota kur').command?.type).toBe('open_maps');
     expect(parseCommandFull('yol tarifi').command?.type).toBe('open_maps');
+  });
+});
+
+describe('harici navigasyon sesli cevabı', () => {
+  it('🔒 "…hazırlanıyor" ara bilgidir → "…gönderdim/açılamadı" cevap hakkını korur (telefonda susturuluyordu)', () => {
+    const c = matchExternalNavCommand("Yandex'ten Mersin'e rota kur");
+    expect(c).not.toBeNull();
+    expect(isProvisionalFeedback(c!.type, c!.extra)).toBe(true);
+  });
+
+  it('sağlayıcısız normal rota cümlesinin davranışı DEĞİŞMEZ (nihai cevap)', () => {
+    const c = parseCommandFull("Mersin'e götür").command;
+    expect(isProvisionalFeedback(c!.type, c!.extra)).toBe(false);
   });
 });
 

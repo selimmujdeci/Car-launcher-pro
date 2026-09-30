@@ -885,7 +885,7 @@ function dispatch(cmd: ParsedCommand, ctx?: VehicleContext, turn?: MaviTurnToken
     // SONRA gelir → 'progress' katmanı; 'answer' slotu sonuca ayrılır.
     speakMaviAnswer(cmd.feedback, {
       isDriving: ctx?.isDriving === true,
-      tier: isProvisionalFeedback(cmd.type) ? 'progress' : 'answer',
+      tier: isProvisionalFeedback(cmd.type, cmd.extra) ? 'progress' : 'answer',
       turn: turn ?? null,
     });
   }
@@ -926,7 +926,7 @@ function dispatchDriving(cmd: ParsedCommand, ctx?: VehicleContext, turn?: MaviTu
     // MAVI-M3 + M6: sonuç-ACK komutlarında parser metni KONUŞULMAZ; kalanlar TEK otoriteden.
     speakMaviAnswer(cmd.feedback, {
       isDriving: true,
-      tier: isProvisionalFeedback(cmd.type) ? 'progress' : 'answer',
+      tier: isProvisionalFeedback(cmd.type, cmd.extra) ? 'progress' : 'answer',
       turn: turn ?? null,
     });
   }
