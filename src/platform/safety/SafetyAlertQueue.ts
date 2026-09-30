@@ -46,6 +46,12 @@ const QUEUE_CONFIG: Record<string, QueueRuleConfig> = {
   'low_fuel':                   { debounceMs: 0,    repeatSec: 0,  maxRepeats: 1  },
   'battery_or_oil.warning':     { debounceMs: 0,    repeatSec: 60, maxRepeats: 99 },
   'park.door.open':             { debounceMs: 800,  repeatSec: 0,  maxRepeats: 0  },
+  // ADAS — iz/histerezis ADAS modellerinde; kuyrukta ek debounce YOK (her ms önemli).
+  'adas.forward_collision':     { debounceMs: 0,    repeatSec: 3,  maxRepeats: 3  },
+  'adas.lane_departure.left':   { debounceMs: 0,    repeatSec: 0,  maxRepeats: 1  },
+  'adas.lane_departure.right':  { debounceMs: 0,    repeatSec: 0,  maxRepeats: 1  },
+  'adas.headway':               { debounceMs: 0,    repeatSec: 30, maxRepeats: 2  },
+  'adas.lead_departure':        { debounceMs: 0,    repeatSec: 0,  maxRepeats: 1  },
 } as const;
 
 /** Konfigürasyonda bulunmayan kural ID'leri için varsayılan değerler. */

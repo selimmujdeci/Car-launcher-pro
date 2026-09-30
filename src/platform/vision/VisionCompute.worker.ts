@@ -9,10 +9,15 @@
  *
  * Protokol:
  *   IN  { type:'DETECT',  bitmap: ImageBitmap }   — frame al, tespit çalıştır
+ *   IN  { type:'CONFIG',  adas: VehicleDetectorConfig | null } — ADAS dedektörü aç/kapat
  *   IN  { type:'STOP' }                           — worker'ı temiz kapat
  *   OUT { type:'RESULT',  frame: WorkerVisionFrame } — tespit tamamlandı
  *   OUT { type:'ERROR',   message: string }          — yakalanmış hata
  */
+
+import { detectLeadVehicle } from '../adas/adasVehicleDetector';
+import type { VehicleDetectorConfig } from '../adas/adasVehicleDetector';
+import type { AdasFrameDetections } from '../adas/adasTypes';
 
 /* ── Tip tanımları (Zustand bağımlılığı olmadan) ─────────────────────────── */
 
@@ -36,7 +41,11 @@ interface WorkerVisionFrame {
   lateralOffsetM: number | null;
   processingMs:   number;
   timestamp:      number;
+  adas:           AdasFrameDetections | null;
 }
+
+/** ADAS dedektör yapılandırması — null iken ADAS algılaması HİÇ çalışmaz. */
+let _adasCfg: VehicleDetectorConfig | null = null;
 
 /* ── İşleme sabitleri ────────────────────────────────────────────────────── */
 
@@ -198,19 +207,26 @@ function _runDetection(bitmap: ImageBitmap): WorkerVisionFrame {
   const lines = _hough(edges, PROC_W, PROC_H, 10);
   const lanes = _classifyLanes(lines, PROC_W);
   const signs = _detectSigns(data, PROC_W, PROC_H);
+  const adas  = _adasCfg ? detectLeadVehicle(gray, PROC_W, PROC_H, _adasCfg) : null;
 
   return {
     lanes, signs,
     lateralOffsetM: _lateralOffset(lanes, PROC_W),
     processingMs:   Math.round(performance.now() - t0),
     timestamp:      Date.now(),
+    adas,
   };
 }
 
 /* ── Mesaj işleyici ──────────────────────────────────────────────────────── */
 
 self.onmessage = (e: MessageEvent): void => {
-  const msg = e.data as { type: string; bitmap?: ImageBitmap };
+  const msg = e.data as { type: string; bitmap?: ImageBitmap; adas?: VehicleDetectorConfig | null };
+
+  if (msg.type === 'CONFIG') {
+    _adasCfg = msg.adas ?? null;
+    return;
+  }
 
   if (msg.type === 'STOP') {
     self.close();

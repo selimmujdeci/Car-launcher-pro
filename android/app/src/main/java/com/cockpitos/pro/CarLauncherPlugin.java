@@ -275,6 +275,12 @@ public class CarLauncherPlugin extends Plugin {
         getContext().registerReceiver(btStateReceiver, btFilter);
         try { phoneInternet = new com.cockpitos.pro.phonelink.PhoneBtInternet(getContext()); } catch (Exception ignored) {}
 
+        // USB video (UVC) kamera tak/çıkar → JS kamera listesini tazeler (ADAS/AR yol kamerası).
+        try {
+            usbVideoReceiver = com.cockpitos.pro.camera.CameraDiagnostics.registerUsbVideoWatcher(
+                getContext(), event -> notifyListeners("usbCameraChanged", event));
+        } catch (Exception ignored) { usbVideoReceiver = null; }
+
         // TextToSpeech motoru başlat
         ttsEngine = new android.speech.tts.TextToSpeech(getContext(), status -> {
             if (status == android.speech.tts.TextToSpeech.SUCCESS) {
@@ -5584,6 +5590,20 @@ public class CarLauncherPlugin extends Plugin {
         call.resolve(r);
     }
 
+    // ── Yol kamerası tanısı (ADAS / AR) ───────────────────────────────────────
+
+    private BroadcastReceiver usbVideoReceiver = null;
+
+    /** Salt-okur kamera/USB tanısı — kamerayı AÇMAZ, izin İSTEMEZ. */
+    @PluginMethod
+    public void getCameraDiagnostics(PluginCall call) {
+        try {
+            call.resolve(com.cockpitos.pro.camera.CameraDiagnostics.collect(getContext()));
+        } catch (Exception e) {
+            call.reject("CAMERA_DIAG_FAILED", e.getMessage());
+        }
+    }
+
     // ── Camera2 ───────────────────────────────────────────────────────────────
 
     private CameraDevice          activeCameraDevice = null;
@@ -8674,6 +8694,8 @@ public class CarLauncherPlugin extends Plugin {
             try { getContext().unregisterReceiver(btStateReceiver); } catch (Exception ignored) {}
             btStateReceiver = null;
         }
+        com.cockpitos.pro.camera.CameraDiagnostics.unregister(getContext(), usbVideoReceiver);
+        usbVideoReceiver = null;
         if (ttsEngine != null) { ttsEngine.stop(); ttsEngine.shutdown(); ttsEngine = null; }
         ttsReady = false;
         settleAllTtsCalls();
