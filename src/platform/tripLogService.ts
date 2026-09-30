@@ -1142,6 +1142,16 @@ export function getTripSnapshot(): TripState {
   return _computeSnapshot();
 }
 
+/**
+ * Okumadan ÖNCE diskteki geçmişi yükler (idempotent). `false` → depo henüz
+ * hazır değil: geçmiş BİLİNMİYOR. Çağıran bunu "yolculuk yok" SANMAMALI —
+ * `getTripSnapshot().history` o anda yalnız bellekteki kayıtları taşır.
+ */
+export function ensureTripHistoryLoaded(): boolean {
+  _ensureHistoryLoaded();
+  return _historyLoaded;
+}
+
 /* ── Kanonik seyir durumu (PROJEKSİYON — yeni otorite DEĞİL) ─────────── */
 
 export interface TripJournalGlance {

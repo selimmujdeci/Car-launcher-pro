@@ -2258,6 +2258,23 @@ export async function processTextCommand(
     return true;
   }
 
+  // ── 1b1e. EKO PUANI BYPASS — "eko puanım kaç" · "nasıl sürdüm" ─────────────
+  // Puan yalnız yerel yolculuk kaydından hesaplanır (ecoScoreModel); beynin bu
+  // veriye aracı YOK → Gemini ya "bilmiyorum" der ya da sayı UYDURUR. Mesaj
+  // okuma (1b1) ile AYNI desen: net eşleşme beyne gitmez.
+  if (
+    result.command &&
+    result.command.type === 'trip_eco_score' &&
+    result.command.confidence >= AUTO_DISPATCH_MIN
+  ) {
+    _lastCommandTime = now;
+    void reportVoiceDiag('voice_route', { route: 'eco_score_local_bypass' });
+    setMaviLatencyRoute('eco_score_local_bypass');
+    if (ctx?.isDriving) { dispatchDriving(result.command, ctx, turn); } else { dispatch(result.command, ctx, turn); }
+    completeMaviTurn(turn);
+    return true;
+  }
+
   // ── 1b2. SENSÖR SORGUSU BYPASS — yerel sensorQueryService kotasız/anında cevaplar ──
   // "yağ sıcaklığı kaç", "turbo basıncı ne kadar" gibi net (≥0.7) yerel eşleşmeler
   // (vehicleIntents.ts) beyne HİÇ GİTMEZ: querySensor taze OBD/EXTENDED/manufacturer

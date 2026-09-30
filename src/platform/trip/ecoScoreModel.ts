@@ -325,3 +325,58 @@ export const ECO_STATUS_COPY: Readonly<Record<Exclude<EcoScoreStatus, 'OK'>, str
 
 /** Hepsi iyi olduğunda. */
 export const ECO_ALL_GOOD_COPY = 'Akıcı ve öngörülü bir sürüş. Böyle devam.';
+
+/* ── Sesli cevap (Mavi) ────────────────────────────────────────────────── */
+
+/** Bu farkın altındaki haftalık değişim gürültüdür — söylenmez. */
+export const DELTA_SPEAK_MIN = 3;
+
+const lowerTr = (s: string) => s.toLocaleLowerCase('tr-TR');
+
+/**
+ * "Eko puanım kaç" sorusunun sesli cevabı (SAF).
+ *
+ * Sürüşte dinlenir → KISA: haftalık puan, (varsa) son yolculuk YA DA haftalık
+ * fark, tek gelişim ipucu. Kanıt yoksa sayı SÖYLENMEZ, nedeni söylenir.
+ * Aktif yolculuk puanlanmaz (kayıt kapanınca hesaplanır) — bu açıkça söylenir.
+ */
+export function buildEcoScoreSpeech(
+  history: readonly TripRecord[],
+  nowMs: number,
+  tripActive: boolean,
+): string {
+  const week = buildEcoWeek(history, nowMs);
+  const pending = tripActive ? ' Şu anki yolculuğun bitince puanlanacak.' : '';
+
+  if (week.score === null || week.band === null) {
+    if (week.trips > 0) {
+      return `Bu hafta puanlanmış yolculuk yok. ${ECO_STATUS_COPY[week.blocker ?? 'NOT_ENOUGH_SIGNAL']}${pending}`;
+    }
+    if (week.lastWeekScore !== null) {
+      return `Bu hafta henüz yolculuk yok. Geçen haftaki eko puanın ${week.lastWeekScore} olarak hesaplandı.${pending}`;
+    }
+    return `Henüz puanlanmış bir yolculuğun yok. Eko puanı, en az 2 dakika ve 1 kilometrelik yolculuklardan sonra oluşur.${pending}`;
+  }
+
+  const parts = [`Bu hafta eko puanın ${week.score}, ${lowerTr(ECO_BAND_LABEL[week.band])}.`];
+
+  /* Son yolculuk yalnız haftada birden çok puanlı yolculuk varsa söylenir
+     (tek yolculukta haftalık puanla AYNI sayıdır). Puansız son yolculuk
+     atlanır — "puanlanamadı" ayrıntısı Seyir Defteri'nde. */
+  let last: TripRecord | null = null;
+  for (const t of history) if (t.endTime <= nowMs && (!last || t.endTime > last.endTime)) last = t;
+  const lastScore = last ? tripEcoScore(last).score : null;
+  if (lastScore !== null && week.scoredTrips > 1) {
+    parts.push(`Son yolculuğun ${lastScore}.`);
+  } else if (week.delta !== null && Math.abs(week.delta) >= DELTA_SPEAK_MIN) {
+    parts.push(week.delta > 0
+      ? `Geçen haftaya göre ${week.delta} puan daha iyi.`
+      : `Geçen haftaya göre ${-week.delta} puan geride.`);
+  }
+
+  parts.push(week.focus
+    ? `Gelişim alanın ${lowerTr(ECO_DIMENSION_COPY[week.focus].title)}. ${ECO_DIMENSION_COPY[week.focus].tip}`
+    : ECO_ALL_GOOD_COPY);
+
+  return parts.join(' ') + pending;
+}

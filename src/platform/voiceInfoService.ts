@@ -33,6 +33,7 @@ import { getObdSignalHealth } from './obdService';
 import { explainEarlyWarnings } from './obd/earlyWarningEngine';
 import { getMaintenanceSummaryText } from './vehicleMaintenanceService';
 import { takeLatestUnreadMessage, replyToLatestMessage } from './notificationService';
+import { buildEcoScoreSpeech } from './trip/ecoScoreModel';
 
 /* ── Bilgi sorgusu tipleri ───────────────────────────────────────────────── */
 
@@ -49,6 +50,7 @@ const INFO_TYPES = new Set<CommandType>([
   'vehicle_maintenance',
   'read_message',
   'reply_message',
+  'trip_eco_score',
 ]);
 
 export function isInformationalCommand(type: CommandType): boolean {
@@ -209,6 +211,28 @@ async function _replyLatestMessage(text: string, turn: MaviTurnToken | null): Pr
   );
 }
 
+/* ── Eko puanı (Seyir Defteri) ───────────────────────────────────────────── */
+
+/**
+ * "Eko puanım kaç": hesap `ecoScoreModel`de (SAF). Yolculuk servisi dinamik
+ * yüklenir — ses grafiğine ağır trip/OBD zinciri statik olarak GİRMEZ.
+ * Geçmiş diskten yüklenemediyse "yolculuk yok" DENMEZ: bilinmiyor denir.
+ */
+async function _speakEcoScore(turn: MaviTurnToken | null): Promise<void> {
+  try {
+    const trips = await import('./tripLogService');
+    /* AWAIT SONRASI. */
+    if (!trips.ensureTripHistoryLoaded()) {
+      speakMaviAnswer('Yolculuk geçmişi henüz yüklenmedi. Birazdan tekrar sor.', { turn });
+      return;
+    }
+    const snap = trips.getTripSnapshot();
+    speakMaviAnswer(buildEcoScoreSpeech(snap.history, Date.now(), snap.active), { turn });
+  } catch {
+    speakMaviAnswer('Eko puanını şu an okuyamadım.', { turn });
+  }
+}
+
 /* ── Genel giriş ─────────────────────────────────────────────────────────── */
 
 /**
@@ -228,6 +252,7 @@ export async function answerInformational(
     case 'vehicle_status':       await _speakStatus(turn);  break;
     case 'read_message':         _speakLatestMessage(turn); break;
     case 'reply_message':        await _replyLatestMessage((extra?.text ?? '').trim(), turn); break;
+    case 'trip_eco_score':       await _speakEcoScore(turn); break;
     case 'vehicle_maintenance': {
       try {
         const summary = await getMaintenanceSummaryText();
