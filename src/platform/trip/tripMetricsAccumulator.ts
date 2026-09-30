@@ -87,6 +87,52 @@ export const REFUEL_RISE_PCT = 2;
  */
 export const MAX_FUEL_PCT_PER_100KM = 60;
 
+/* ── Eko dinamiği (P3) — pencere ivmesi ────────────────────────────────── */
+
+/**
+ * NEDEN AYRI BİR ÖLÇÜM: `HARSH_DELTA_KMH` ardışık İKİ ÖRNEK arasındaki farka
+ * bakar; fiziksel anlamı örnek aralığına bağlıdır (1 Hz'de ≈4,2 m/s² ≈ 0,42 g,
+ * 3 Hz'de ≈1,3 g — pratikte hiç tetiklenmez). Eko puanı için ivme, ölçülen
+ * ZAMAN PENCERESİNE bölünür (m/s²): kaynak kaç Hz akarsa aksın aynı fizik.
+ *
+ * Pencere en az bu kadar olmalı — 5 Hz GPS'te ardışık örnek farkı gürültüdür;
+ * çapa bu süre dolana kadar korunur (≈1 Hz etkin örnekleme, RDE ile aynı).
+ */
+export const DYN_MIN_WINDOW_MS = 800;
+/** Pencerenin ortalama hızı bunun altındaysa ivme SAYILMAZ (düşük hızda GPS hızı güvenilmez; duruşun son sarsıntısı öngörü değildir). */
+export const DYN_MIN_SPEED_KMH = 10;
+/** Hızlanma/yavaşlama fazı eşiği — RDE `v·a_pos` örnek seçimiyle aynı (a > 0,1 m/s²). */
+export const DYN_PHASE_MPS2 = 0.1;
+/**
+ * SERT YAVAŞLAMA (m/s², pencere ortalaması).
+ *
+ * Öngörülü sürüşte yavaşlamanın çoğu gaz bırakma/hafif frenle olur
+ * (≈0,3–1,5 m/s²). 2,5 m/s² (≈0,25 g) bunun belirgin üstünde, AASHTO'nun
+ * sürücülerin çoğu için "rahat" saydığı 3,4 m/s²'nin altındadır — geç fark
+ * edilen trafiğin imzası, acil fren değil.
+ */
+export const HARD_DECEL_MPS2 = 2.5;
+/** Binek araçta fiziksel olarak imkânsız pencere ivmesi — GPS sıçramasıdır, ölçüm DEĞİL. */
+export const MAX_PLAUSIBLE_MPS2 = 12;
+/** Seyir hızı bantları (km/h) — hava direnci hızın karesiyle artar. */
+export const CRUISE_HIGH_KMH = 110;
+export const CRUISE_VERY_HIGH_KMH = 130;
+
+/**
+ * AB RDE "aşırı dinamik sürüş" sınırı — `v·a_pos[95]` üst limiti (m²/s³).
+ *
+ * Kaynak: Reg. (EU) 2016/646 (RDE2), Ek IIIA Apx 7a §4.1.1. Mevzuatta bir
+ * test sürüşünün pozitif ivme örneklerinin %95'i bu sınırın ALTINDA kalmak
+ * zorundadır; aksi halde sürüş "normal" sayılmaz. `v̄` km/h.
+ *
+ * `v·a` birim kütle başına çekiş gücüdür — yakıt bedeli ivmenin kendisiyle
+ * değil, o ivmeyi O HIZDA üretmenin gücüyle orantılıdır. Bu yüzden kalkışta
+ * 2 m/s² normalken 90 km/h'te 1 m/s² üstü "sert" sayılır.
+ */
+export function rdeVaPosLimit(vKmh: number): number {
+  return vKmh <= 74.6 ? 0.136 * vKmh + 14.44 : 0.0742 * vKmh + 18.966;
+}
+
 /* ── Birikim durumu ────────────────────────────────────────────────────── */
 
 /** Ölçüm kaynağı sınıfı — kanonik modeldeki `MetricSource` ile AYNI sözleşme. */
@@ -163,6 +209,25 @@ export interface TripMetricsAccumulator {
   /** Son geçerli hız örneği (delta hesabı için). */
   readonly lastSpeedKmh: number | null;
   readonly lastSpeedPerfMs: number | null;
+
+  /* ── Eko dinamiği (P3) ──
+     Pencere çapası KAYNAK BAŞINA tutulur: GPS ile OBD iç içe akarken kaynak
+     değişimi ivme üretmesin. İki kaynak eşzamanlı akarsa her biri AYRI
+     gözlemdir ve faz süreleri iki kez örneklenir — bu yüzden faz kovalarında
+     YALNIZ ORAN anlamlıdır (`accelOverMs / accelMs`), mutlak süre değil. */
+  readonly dynGpsKmh: number | null;
+  readonly dynGpsAtMs: number | null;
+  readonly dynObdKmh: number | null;
+  readonly dynObdAtMs: number | null;
+  /** Hızlanma fazı (a > 0,1 m/s²) ve RDE güç sınırını aşan kısmı. */
+  readonly accelMs: number;
+  readonly accelOverMs: number;
+  /** Yavaşlama fazı (a < −0,1 m/s²) ve sert (≤ −2,5 m/s²) kısmı. */
+  readonly decelMs: number;
+  readonly decelHardMs: number;
+  /** Hareket süresinin yüksek hız bantlarında geçen kısmı (duvar saati). */
+  readonly over110Ms: number;
+  readonly over130Ms: number;
 }
 
 export function createAccumulator(): TripMetricsAccumulator {
@@ -179,6 +244,9 @@ export function createAccumulator(): TripMetricsAccumulator {
     dataGapCount: 0, totalGapMs: 0,
     sourceSwitchCount: 0, lastSource: null,
     lastSpeedKmh: null, lastSpeedPerfMs: null,
+    dynGpsKmh: null, dynGpsAtMs: null, dynObdKmh: null, dynObdAtMs: null,
+    accelMs: 0, accelOverMs: 0, decelMs: 0, decelHardMs: 0,
+    over110Ms: 0, over130Ms: 0,
   };
 }
 
@@ -211,6 +279,54 @@ function obdValue(raw: unknown, key: keyof typeof OBD_RANGES): number | null {
   return raw >= r.min && raw <= r.max ? raw : null;
 }
 
+/**
+ * Pencere ivmesini faz kovalarına işler (yalnız TAZE + geçerli hız örneği).
+ *
+ * Çapa aynı kaynaktan ≥ `DYN_MIN_WINDOW_MS` önceki örnektir. Pencere
+ * `SAMPLE_STALE_MS`'i aşarsa arada ne olduğu bilinmez → ölçüm YOK, yeniden
+ * çapalanır (susan kaynağın dönüşü fren/hızlanma sayılmaz).
+ */
+function applyDynamics(
+  acc: TripMetricsAccumulator,
+  source: SampleSource,
+  speedKmh: number,
+  now: number,
+): TripMetricsAccumulator {
+  const gps = source === 'GPS';
+  const prevKmh = gps ? acc.dynGpsKmh : acc.dynObdKmh;
+  const prevAt = gps ? acc.dynGpsAtMs : acc.dynObdAtMs;
+  const anchored: TripMetricsAccumulator = gps
+    ? { ...acc, dynGpsKmh: speedKmh, dynGpsAtMs: now }
+    : { ...acc, dynObdKmh: speedKmh, dynObdAtMs: now };
+
+  if (prevKmh === null || prevAt === null) return anchored;
+  const dt = now - prevAt;
+  if (dt < DYN_MIN_WINDOW_MS) return acc;          // pencere dolmadı — çapa korunur
+  if (dt > SAMPLE_STALE_MS) return anchored;       // veri boşluğu — ölçüm yok
+
+  const a = (speedKmh - prevKmh) / 3.6 / (dt / 1000);
+  if (Math.abs(a) > MAX_PLAUSIBLE_MPS2) return anchored;
+  const vKmh = (speedKmh + prevKmh) / 2;
+  if (vKmh < DYN_MIN_SPEED_KMH) return anchored;
+
+  if (a > DYN_PHASE_MPS2) {
+    const over = (vKmh / 3.6) * a > rdeVaPosLimit(vKmh);
+    return {
+      ...anchored,
+      accelMs: anchored.accelMs + dt,
+      accelOverMs: over ? anchored.accelOverMs + dt : anchored.accelOverMs,
+    };
+  }
+  if (a < -DYN_PHASE_MPS2) {
+    return {
+      ...anchored,
+      decelMs: anchored.decelMs + dt,
+      decelHardMs: a <= -HARD_DECEL_MPS2 ? anchored.decelHardMs + dt : anchored.decelHardMs,
+    };
+  }
+  return anchored;
+}
+
 /* ── Ana birikim ───────────────────────────────────────────────────────── */
 
 /**
@@ -221,6 +337,7 @@ function obdValue(raw: unknown, key: keyof typeof OBD_RANGES): number | null {
  *  2. Süre sınıflandırması (moving / idle / unknown)
  *  3. Duruş sayımı (debounce'lu)
  *  4. Sert manevra (yalnız TAZE + ARDIŞIK örnekten, debounce'lu)
+ *  4b. Eko dinamiği (pencere ivmesi — örnekleme hızından bağımsız)
  *  5. OBD tepe değerleri (yalnız taze + geçerli)
  *  6. Yakıt izleme (ikmal/süreklilik tespiti)
  */
@@ -251,7 +368,13 @@ export function applySample(
         totalGapMs: isGap ? out.totalGapMs + gapMs : out.totalGapMs,
       };
     } else if (acc.lastSpeedKmh !== null && acc.lastSpeedKmh >= MOVING_MIN_KMH) {
-      out = { ...out, movingMs: out.movingMs + gapMs };
+      const v = acc.lastSpeedKmh;
+      out = {
+        ...out,
+        movingMs: out.movingMs + gapMs,
+        over110Ms: v >= CRUISE_HIGH_KMH ? out.over110Ms + gapMs : out.over110Ms,
+        over130Ms: v >= CRUISE_VERY_HIGH_KMH ? out.over130Ms + gapMs : out.over130Ms,
+      };
     } else if (acc.lastSpeedKmh !== null && acc.lastSpeedKmh <= IDLE_MAX_KMH) {
       out = { ...out, idleMs: out.idleMs + gapMs };
     } else {
@@ -313,6 +436,9 @@ export function applySample(
       }
     }
   }
+
+  /* ── 4b. EKO DİNAMİĞİ (pencere ivmesi, kaynak başına çapa) ────────── */
+  if (speed !== null) out = applyDynamics(out, s.source, speed, now);
 
   /* ── Kaynak geçişi muhasebesi ────────────────────────────────────── */
   if (acc.lastSource !== null && acc.lastSource !== s.source) {

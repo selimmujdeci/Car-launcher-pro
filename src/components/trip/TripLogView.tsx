@@ -1,10 +1,12 @@
-import { memo, useCallback } from 'react';
+import { memo, useCallback, useMemo, useState } from 'react';
 import {
   Route, Clock, Zap, Fuel, Trash2,
   TrendingUp, Activity, AlertCircle,
 } from 'lucide-react';
 import { useTripState, deleteTrip, clearAllTrips, type TripRecord } from '../../platform/tripLogService';
 import { EcoReportCard, TripEcoLine } from './EcoReportCard';
+import { EcoScoreCard, TripEcoChip, TripEcoDetail } from './EcoScoreCard';
+import { tripEcoScore } from '../../platform/trip/ecoScoreModel';
 
 /* ── Helpers ─────────────────────────────────────────────── */
 
@@ -26,6 +28,9 @@ function fmtDuration(min: number): string {
 /* ── Trip card ───────────────────────────────────────────── */
 
 const TripCard = memo(function TripCard({ trip, history }: { trip: TripRecord; history: readonly TripRecord[] }) {
+  const eco = useMemo(() => tripEcoScore(trip), [trip]);
+  const [ecoOpen, setEcoOpen] = useState(false);
+  const toggleEco = useCallback(() => setEcoOpen((o) => !o), []);
   /* Seyahat kartı → oem yüzey/kenarlık */
   return (
     <div className="bg-[var(--oem-surface-2)] border border-[var(--oem-line)] rounded-2xl p-4"
@@ -71,20 +76,14 @@ const TripCard = memo(function TripCard({ trip, history }: { trip: TripRecord; h
             {trip.fuelConsumptionL !== null ? `${trip.fuelConsumptionL} L` : '—'}
           </span>
         </div>
-        <div className="ml-auto flex items-center gap-1.5">
-          <span className="text-[10px] text-slate-600 uppercase tracking-wide">Sürüş</span>
-          {/* Sürüş skoru → semantik: iyi=good, orta=warn, kötü=danger */}
-          <span className={`text-xs font-black tabular-nums px-2 py-0.5 rounded-lg ${
-            trip.drivingScore >= 80
-              ? 'bg-[var(--oem-good-soft)] text-[color:var(--oem-good)]'
-              : trip.drivingScore >= 60
-              ? 'bg-[var(--oem-warn-soft)] text-[color:var(--oem-warn)]'
-              : 'bg-[var(--oem-danger-soft)] text-[color:var(--oem-danger)]'
-          }`}>
-            {trip.drivingScore}
-          </span>
+        {/* Eko puanı — eski "Sürüş" skorunun yerini alır: o skor veri yokken
+            de 100 veriyor, mesafeye oranlanmıyordu. Kayıttaki `drivingScore`
+            alanı (filo/yükleme sözleşmesi) DEĞİŞMEDİ; yalnız gösterilmiyor. */}
+        <div className="ml-auto">
+          <TripEcoChip result={eco} open={ecoOpen} onToggle={toggleEco} />
         </div>
       </div>
+      {ecoOpen && <TripEcoDetail result={eco} />}
 
       {/* Yakıt & CO₂ — yalnız ölçülmüş yakıttan; yoksa nedeni yazılır */}
       <TripEcoLine trip={trip} history={history} />
@@ -138,6 +137,9 @@ function TripLogViewInner() {
   const liveDurationMin = trip.active && trip.current
     ? trip.current.liveDurationMin
     : 0;
+
+  /* Dakikaya yuvarlanır — her render'da haftalık özet yeniden hesaplanmasın. */
+  const nowMs = Math.floor(Date.now() / 60_000) * 60_000;
 
   const handleClearAll = useCallback(() => {
     if (window.confirm('Tüm seyahat geçmişi silinsin mi?')) clearAllTrips();
@@ -221,8 +223,11 @@ function TripLogViewInner() {
         />
       </div>
 
+      {/* ── Eko sürüş puanı (haftalık, ölçülmüş dinamikten) ── */}
+      <EcoScoreCard history={trip.history} nowMs={nowMs} />
+
       {/* ── Yakıt & CO₂ karnesi (haftalık, ölçülmüş yakıttan) ── */}
-      <EcoReportCard history={trip.history} nowMs={Math.floor(Date.now() / 60_000) * 60_000} />
+      <EcoReportCard history={trip.history} nowMs={nowMs} />
 
       {/* ── History ────────────────────────────────────── */}
       <div>
