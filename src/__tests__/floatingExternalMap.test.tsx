@@ -99,4 +99,23 @@ describe('FloatingExternalMap', () => {
     expect(getExternalRoute()).toBeNull();
     expect(el.querySelector('[data-testid="floating-external-map"]')).toBeNull();
   });
+
+  it('başlangıç yalnız CANLI GPS: konum yokken hedef, canlı konum gelince BİR KEZ rota', () => {
+    act(() => { useUnifiedVehicleStore.setState({ location: null, gpsSource: null } as never); });
+    const el = mount();
+    act(() => {
+      setExternalRoute({ provider: 'yandex', packageName: null, destName: 'Mersin', lat: 36.8, lng: 34.6, startedAtMs: Date.now() });
+    });
+    const src = () => el.querySelector('iframe')?.getAttribute('src') ?? '';
+    expect(src()).toContain('pt=');
+    // Varsayılan / son bilinen konum başlangıç SAYILMAZ.
+    act(() => { useUnifiedVehicleStore.setState({ location: { latitude: 39, longitude: 35 }, gpsSource: 'default' } as never); });
+    expect(src()).toContain('pt=');
+    act(() => { useUnifiedVehicleStore.setState({ location: { latitude: 36.92, longitude: 34.91 }, gpsSource: 'native' } as never); });
+    expect(src()).toContain('rtext=36.920000,34.910000~36.800000,34.600000');
+    // Sonraki GPS güncellemesi iframe'i yeniden yüklemez.
+    act(() => { useUnifiedVehicleStore.setState({ location: { latitude: 36.93, longitude: 34.91 }, gpsSource: 'native' } as never); });
+    expect(src()).toContain('rtext=36.920000,34.910000~');
+    act(() => { useUnifiedVehicleStore.setState({ location: null, gpsSource: null } as never); });
+  });
 });

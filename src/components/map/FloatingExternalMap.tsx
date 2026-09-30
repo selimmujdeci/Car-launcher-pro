@@ -67,16 +67,36 @@ export const FloatingExternalMap = memo(function FloatingExternalMap() {
   /* İnternet hükmü TEK otoriteden (connectivityAuthority); navigator.onLine okunmaz. */
   const [online, setOnline] = useState(() => allowsConnectivity('CLOUD_INTERACTIVE'));
 
-  /* Başlangıç noktası pencere AÇILDIĞI andaki konumdur — her GPS güncellemesinde
-     iframe yeniden yüklenmesin diye rota kimliğine (startedAtMs) bağlanır. */
+  /* Başlangıç noktası: yalnız CANLI GPS (native/web). Son bilinen / varsayılan
+     konum başlangıç SAYILMAZ (sahte rota çizilmez). Telefonda ölçüldü
+     (2026-09-30): uygulama yeniden açılınca konum henüz yoktu → pencere yalnız
+     hedefi gösteriyordu. Artık canlı konum ilk geldiğinde adres BİR KEZ rota
+     olarak yeniden kurulur; sonra her GPS güncellemesinde yeniden yüklenmez. */
+  const [origin, setOrigin] = useState<{ lat: number; lng: number } | null>(null);
+  useEffect(() => {
+    setOrigin(null);
+    if (!route) return;
+    const pick = (st: ReturnType<typeof useUnifiedVehicleStore.getState>) => {
+      const loc = st.location;
+      if (st.gpsSource !== 'native' && st.gpsSource !== 'web') return null;
+      return loc && Number.isFinite(loc.latitude) && Number.isFinite(loc.longitude)
+        ? { lat: loc.latitude, lng: loc.longitude } : null;
+    };
+    const now = pick(useUnifiedVehicleStore.getState());
+    if (now) { setOrigin(now); return; }
+    let unsub: (() => void) | null = null;
+    unsub = useUnifiedVehicleStore.subscribe((st) => {
+      const o = pick(st);
+      if (o) { setOrigin(o); unsub?.(); unsub = null; }
+    });
+    return () => { unsub?.(); };
+  }, [route?.startedAtMs]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const src = useMemo(() => {
     if (!route) return null;
-    const loc = useUnifiedVehicleStore.getState().location;
-    const origin = loc && Number.isFinite(loc.latitude) && Number.isFinite(loc.longitude)
-      ? { lat: loc.latitude, lng: loc.longitude } : null;
     return buildExternalMapEmbedUrl(route.provider, { lat: route.lat, lng: route.lng }, origin);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- yalnız yeni rotada yeniden kur
-  }, [route?.startedAtMs]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- yalnız yeni rotada / ilk canlı konumda kur
+  }, [route?.startedAtMs, origin]);
 
   useEffect(() => { setLoading(true); }, [src]);
 
