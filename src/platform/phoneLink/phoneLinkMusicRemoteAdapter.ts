@@ -21,6 +21,7 @@ import * as mediaCommandGateway from '../media/authority/mediaCommandGateway';
 import { getMusicCanonicalSnapshot } from '../media/authority/musicCanonicalSnapshot';
 import { getMusicLibrarySnapshot } from '../media/musicIndex';
 import type { CommandTruth } from '../media/authority/playbackTruth';
+import { randomUuid } from '../../utils/randomId';
 
 export type PhoneLinkMusicCommand =
   | 'GET_NOW_PLAYING' | 'PLAY' | 'PAUSE' | 'NEXT' | 'PREVIOUS' | 'GET_QUEUE';
@@ -115,7 +116,7 @@ function readQueue(): { queue: readonly PhoneLinkQueueEntry[]; currentIndex: num
  */
 export async function dispatchGuestMusicCommand(
   command: PhoneLinkMusicCommand,
-  operationId: string = `phone-link-${command.toLowerCase()}-${crypto.randomUUID()}`,
+  operationId: string = `phone-link-${command.toLowerCase()}-${randomUuid()}`,
   session: PhoneLinkSessionRef | null = null,
 ): Promise<PhoneLinkCommandResult> {
   const evidence = authorizeGuestMediaCommand(operationId, Date.now(), session);
