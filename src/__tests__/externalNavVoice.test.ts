@@ -101,6 +101,7 @@ describe('runExternalNavFlow', () => {
     const deps: ExternalNavFlowDeps = {
       findSaved: () => ({ match: null, ambiguous: [] }),
       startOwnNavigation: vi.fn(),
+      activateOwnNavigation: vi.fn(),
       resolveWithoutFullMap: vi.fn(),
       onAddressState: (fn) => { listener = fn; fn(initial); return () => { listener = null; }; },
       launch: vi.fn(async () => launchOk),
@@ -124,6 +125,7 @@ describe('runExternalNavFlow', () => {
     h.push({ phase: 'confirmed', query: 'Mersin', selected: { lat: 36.8, lng: 34.6, name: 'Mersin' } });
     await flush();
     expect(h.deps.launch).toHaveBeenCalledWith('yandex', 36.8, 34.6);
+    expect(h.deps.activateOwnNavigation).toHaveBeenCalledTimes(1);   // mini haritada rota
     expect(h.owner()).toBe('yandex');
     expect(h.said[0]).toContain('Yandex');
     expect(h.subscribed()).toBe(false);
@@ -151,6 +153,8 @@ describe('runExternalNavFlow', () => {
     await flush();
     expect(a.deps.launch).not.toHaveBeenCalled();
     expect(b.deps.launch).not.toHaveBeenCalled();
+    expect(a.deps.activateOwnNavigation).not.toHaveBeenCalled();
+    expect(b.deps.activateOwnNavigation).not.toHaveBeenCalled();
     expect(a.subscribed()).toBe(false);
     expect(b.subscribed()).toBe(false);
   });
@@ -186,6 +190,7 @@ describe('runExternalNavFlow', () => {
     expect(h.deps.startOwnNavigation).toHaveBeenCalledWith(expect.objectContaining({ id: 's1', lat: 36.9 }));
     expect(h.deps.resolveWithoutFullMap).not.toHaveBeenCalled();
     expect(h.deps.launch).toHaveBeenCalledWith('google_maps', 36.9, 34.8);
+    expect(h.deps.activateOwnNavigation).toHaveBeenCalledTimes(1);
   });
 });
 

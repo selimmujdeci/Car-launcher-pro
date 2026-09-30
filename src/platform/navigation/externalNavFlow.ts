@@ -30,6 +30,9 @@ export interface ExternalNavFlowDeps {
   findSaved: (dest: string) => { match: ExternalNavTarget | null; ambiguous: readonly unknown[] };
   /** Kayıtlı konumla BİZİM rotamızı başlatır. */
   startOwnNavigation: (t: ExternalNavTarget) => void;
+  /** Önizlemedeki BİZİM navigasyonu etkin yapar → rota istenir ve mini haritada
+   *  rota bitene kadar görünür (önizlemede rota yalnız tam ekranda isteniyordu). */
+  activateOwnNavigation: () => void;
   /** Serbest hedefi çözer ve BİZİM rotamızı başlatır — tam ekran harita açmadan. */
   resolveWithoutFullMap: (dest: string) => void;
   onAddressState: (fn: (s: ExternalNavAddressState) => void) => () => void;
@@ -49,6 +52,10 @@ export function runExternalNavFlow(dest: string, provider: ExternalNavProvider, 
 
   const handoff = (t: ExternalNavTarget): void => {
     deps.setGuidanceOwner(provider);          // ilk anons çakışmasın diye açılıştan ÖNCE
+    /* Telefonda ölçüldü (2026-09-30): devirde mini haritada rota çizgisi yoktu
+       (routePts 0) — navigasyon ÖNİZLEMEDE kalıyor, rota yalnız tam ekran
+       "Başlat" ile isteniyordu. Etkinleştirince rota servis tarafından istenir. */
+    deps.activateOwnNavigation();
     void deps.launch(provider, t.lat, t.lng).then((ok) => {
       if (ok) {
         deps.say(`${t.name} rotasını ${label} uygulamasına gönderdim.`);

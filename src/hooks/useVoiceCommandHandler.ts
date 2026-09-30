@@ -317,7 +317,7 @@ import { launchExternalRoute, type ExternalNavProvider } from '../platform/navig
 import { setExternalGuidanceOwner, clearExternalGuidanceOwner } from '../platform/navigation/externalGuidanceOwner';
 import { dispatchNearbyPoiNavigation } from '../platform/nearbyPoiNavigation';
 import { getGPSState } from '../platform/gpsService';
-import { startNavigation } from '../platform/navigationService';
+import { startNavigation, activateNavigation } from '../platform/navigationService';
 // Özel Konumlar — TEK otorite. UI (NavigationHUD) ve Mavi AYNI servisi çağırır.
 import {
   addSavedLocation, renameSavedLocation, removeSavedLocation,
@@ -401,6 +401,7 @@ function _navigateViaExternalApp(dest: string, provider: ExternalNavProvider): v
       { id: t.id ?? `ext-${t.lat},${t.lng}`, name: t.name, latitude: t.lat, longitude: t.lng, type: 'history' },
       false, 'USER_VOICE',
     ),
+    activateOwnNavigation: activateNavigation,
     resolveWithoutFullMap: (d) => {
       const gps = getGPSState().location;
       resolveAndNavigate(d, gps ? { lat: gps.latitude, lng: gps.longitude } : undefined, undefined, { openMap: false });
