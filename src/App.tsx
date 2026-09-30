@@ -4,6 +4,7 @@ import { useStore }           from './store/useStore';
 import MainLayout             from './components/layout/MainLayout';
 import { ErrorBoundary }      from './components/ErrorBoundary';
 import { InAppBrowser }       from './components/common/InAppBrowser';
+import { FloatingExternalMap } from './components/map/FloatingExternalMap';
 import { LayoutProvider }     from './context/LayoutContext';
 import { ReverseOverlay }     from './components/camera/ReverseOverlay';
 import { DisclaimerBanner }   from './components/legal/DisclaimerBanner';
@@ -182,6 +183,8 @@ function App() {
               YALNIZ Arabam Cebimde / Tema Stüdyo'da yapılır; araca Manifest v3
               olarak gelir ve `themeRuntime` uygular. Araç tarafı TÜKETİCİDİR. */}
           <MainLayout />
+          {/* Rota Yandex/Google/Waze'deyken sağlayıcının haritası — sürüklenebilir pencere */}
+          <FloatingExternalMap />
           <InAppBrowser />
         </div>
         <ReverseOverlay />

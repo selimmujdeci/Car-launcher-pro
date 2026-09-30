@@ -42,6 +42,7 @@ import {
   type DestinationIntegrityVerdict,
 } from './navigation/core/destinationIntegrityModel';
 import { OwnerCommandEvidence } from './message';
+import { clearExternalRoute } from './navigation/externalRouteState';
 // Phase H1 re-export kaldırıldı (H5 circular import fix).
 // startHazardEngine / stopHazardEngine doğrudan hazardService.ts'ten import edilebilir.
 
@@ -376,6 +377,9 @@ export function startNavigation(
   isOffline = false,
   source: DestinationSource = 'SYSTEM',
 ): void {
+  /* Bizde yeni rota başladı → harici uygulamaya verilmiş rota (Yandex/Waze/
+     Google) ve onun yüzen penceresi geçersizdir. */
+  clearExternalRoute();
   const st = useNavigationStore.getState();
 
   /* ── P0-NAV-09 · BÜTÜNLÜK KAPISI — SAHİPLİKTEN ÖNCE ──────────────────────

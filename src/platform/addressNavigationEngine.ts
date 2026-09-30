@@ -280,6 +280,12 @@ let _state: AddressNavState = { ...INITIAL };
 const _listeners            = new Set<(s: AddressNavState) => void>();
 let   _searchGeneration     = 0; // arama iptali için nesil sayacı
 let   _activeTimerId: ReturnType<typeof setTimeout> | null = null; // Zero-Leak: tek aktif auto-dismiss timer
+/** Onayda tam ekran harita açılsın mı — her `resolveAndNavigate` çağrısında yeniden kurulur.
+ *  Harici uygulamaya (Yandex/Waze/Google) devredilen rotada `false`: rota mini haritada kalır. */
+let   _openMapOnConfirm = true;
+/** Onayda BİZİM navigasyonumuz başlasın mı — harici uygulamaya devirde `false`
+ *  (yalnız koordinat çözülür; iki farklı rota gösterilmez). */
+let   _startNavOnConfirm = true;
 
 /* ── Internal helpers ────────────────────────────────────── */
 
@@ -313,7 +319,7 @@ function _confirmResult(result: GeoResult): void {
      motoruna kadar taşınır. `result.type` sağlayıcının kendi sınıfıdır
      (`nom-…`, `poi/…`, `provider/google`) → kesinlik ondan TÜRETİLİR,
      bilinmiyorsa alan KONULMAZ (uydurma kesinlik YASAK). */
-  startNavigation({
+  if (_startNavOnConfirm) startNavigation({
     id:           result.id,
     name:         result.name,
     latitude:     result.lat,
@@ -336,7 +342,7 @@ function _confirmResult(result: GeoResult): void {
   _push({
     phase:        'confirmed',
     selected:     result,
-    shouldOpenMap: true,
+    shouldOpenMap: _openMapOnConfirm,
   });
 
   // Zero-Leak: önceki auto-dismiss timer'ı temizle
@@ -370,8 +376,14 @@ export function resolveAndNavigate(
   destination: string,
   location?: { lat: number; lng: number },
   onResult?: (outcome: AddressNavOutcome) => void,
+  opts?: { openMap?: boolean; startNavigation?: boolean },
 ): void {
   const gen = ++_searchGeneration;
+  _openMapOnConfirm = opts?.openMap !== false;
+  _startNavOnConfirm = opts?.startNavigation !== false;
+  /* Önceki onayın 4 sn'lik kapanma zamanlayıcısı YENİ aramanın ortasında
+     "boşta" yayınlamasın (yeni arama eski kartın yerini alır). */
+  if (_activeTimerId !== null) { clearTimeout(_activeTimerId); _activeTimerId = null; }
 
   _push({
     phase:        'searching',

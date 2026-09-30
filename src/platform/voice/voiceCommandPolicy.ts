@@ -105,9 +105,14 @@ export function isResultAckCommand(type: ParsedCommand['type']): boolean {
 const PROVISIONAL_FEEDBACK_TYPES: ReadonlySet<ParsedCommand['type']> =
   new Set<ParsedCommand['type']>(['play_music_query', 'play_music_search']);
 
-/** Parser metni NİHAİ cevap DEĞİL, ara bilgi mi ('progress' katmanı). */
-export function isProvisionalFeedback(type: ParsedCommand['type']): boolean {
-  return PROVISIONAL_FEEDBACK_TYPES.has(type);
+/** Parser metni NİHAİ cevap DEĞİL, ara bilgi mi ('progress' katmanı).
+ *  Harici navigasyon ("Yandex'ten … rota kur", `extra.provider`) da ara bilgidir:
+ *  gerçek cevap ("… gönderdim" / "… açılamadı") uygulama açılınca üretilir.
+ *  Telefonda ölçüldü (2026-09-30): "…hazırlanıyor" answer slotunu tüketiyor,
+ *  sonuç cümlesi `suppressed_duplicate` ile susturuluyordu. */
+export function isProvisionalFeedback(type: ParsedCommand['type'], extra?: ParsedCommand['extra']): boolean {
+  if (PROVISIONAL_FEEDBACK_TYPES.has(type)) return true;
+  return (type === 'navigate_address' || type === 'navigate_place') && !!extra?.provider;
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
