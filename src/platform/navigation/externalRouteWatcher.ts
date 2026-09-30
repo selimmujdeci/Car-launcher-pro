@@ -9,10 +9,12 @@
  * Rota/konum gerçeği ÜRETMEZ; konumu `UnifiedVehicleStore`dan salt okur.
  */
 import { useUnifiedVehicleStore } from '../vehicleDataLayer/UnifiedVehicleStore';
-import { clearExternalRoute, getExternalRoute, type ExternalRoute } from './externalRouteState';
+import {
+  clearExternalRoute, getExternalRoute, EXTERNAL_ROUTE_MAX_AGE_MS, type ExternalRoute,
+} from './externalRouteState';
 
+export { EXTERNAL_ROUTE_MAX_AGE_MS };
 export const EXTERNAL_ROUTE_ARRIVAL_M = 200;
-export const EXTERNAL_ROUTE_MAX_AGE_MS = 12 * 60 * 60 * 1000;
 
 function _distM(aLat: number, aLng: number, bLat: number, bLng: number): number {
   const R = 6_371_000;
@@ -41,7 +43,7 @@ export function stopExternalRouteWatch(): void {
   _unsub = null;
 }
 
-/** Harici rota kurulunca çağrılır; bitince kendini kapatır. */
+/** Harici rota varken (yeni kurulunca VE uygulama yeniden açılınca) çağrılır; bitince kendini kapatır. */
 export function startExternalRouteWatch(now: () => number = Date.now): void {
   stopExternalRouteWatch();
   let lastLoc: unknown = undefined;

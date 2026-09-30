@@ -315,7 +315,6 @@ import { resolveAndNavigate, onAddressNavState } from '../platform/addressNaviga
 import { runExternalNavFlow } from '../platform/navigation/externalNavFlow';
 import { launchExternalRoute, type ExternalNavProvider } from '../platform/navigation/externalNavHandoff';
 import { setExternalRoute } from '../platform/navigation/externalRouteState';
-import { startExternalRouteWatch } from '../platform/navigation/externalRouteWatcher';
 import { dispatchNearbyPoiNavigation } from '../platform/nearbyPoiNavigation';
 import { getGPSState } from '../platform/gpsService';
 import { startNavigation, activateNavigation } from '../platform/navigationService';
@@ -409,7 +408,8 @@ function _navigateViaExternalApp(dest: string, provider: ExternalNavProvider): v
       selected: s.selected ? { lat: s.selected.lat, lng: s.selected.lng, name: s.selected.name } : null,
     })),
     launch: (p, lat, lng) => launchExternalRoute(p, lat, lng),
-    setExternalRoute: (route) => { setExternalRoute(route); startExternalRouteWatch(); },
+    // Bitiş izleyicisini yüzen pencere başlatır (yeniden açılışta da — tek yer).
+    setExternalRoute: (route) => setExternalRoute(route),
     // Yedek (harici uygulama açılamadı): bizim navigasyon başlar ve etkinleşir.
     startOwnNavigation: (t) => {
       startNavigation(

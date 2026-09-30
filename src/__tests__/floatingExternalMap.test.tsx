@@ -7,6 +7,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { FloatingExternalMap } from '../components/map/FloatingExternalMap';
 import { clearExternalRoute, getExternalRoute, setExternalRoute } from '../platform/navigation/externalRouteState';
+import { useUnifiedVehicleStore } from '../platform/vehicleDataLayer/UnifiedVehicleStore';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -49,6 +50,52 @@ describe('FloatingExternalMap', () => {
 
     const close = box!.querySelector('[aria-label="Kapat"]') as HTMLButtonElement;
     act(() => { close.click(); });
+    expect(getExternalRoute()).toBeNull();
+    expect(el.querySelector('[data-testid="floating-external-map"]')).toBeNull();
+  });
+
+  it('büyüt/küçült düğmesi pencere boyutunu değiştirir ve tercihi saklar', () => {
+    const el = mount();
+    act(() => {
+      setExternalRoute({ provider: 'google_maps', packageName: 'com.google.android.apps.maps', destName: 'Mersin', lat: 36.8, lng: 34.6, startedAtMs: 2 });
+    });
+    const box = el.querySelector('[data-testid="floating-external-map"]') as HTMLDivElement;
+    expect(box.dataset.size).toBe('normal');
+    act(() => { (box.querySelector('[aria-label="Büyüt"]') as HTMLButtonElement).click(); });
+    expect(box.dataset.size).toBe('large');
+    expect(localStorage.getItem('caros-external-map-size')).toBe('large');
+    act(() => { (box.querySelector('[aria-label="Küçült"]') as HTMLButtonElement).click(); });
+    expect(box.dataset.size).toBe('normal');
+    localStorage.removeItem('caros-external-map-size');
+  });
+
+  it('simge durumu: harita gizlenir, başlık kalır; "Haritayı aç" geri getirir', () => {
+    const el = mount();
+    act(() => {
+      setExternalRoute({ provider: 'yandex', packageName: 'ru.yandex.yandexnavi', destName: 'Mersin', lat: 36.8, lng: 34.6, startedAtMs: 3 });
+    });
+    const box = el.querySelector('[data-testid="floating-external-map"]') as HTMLDivElement;
+    act(() => { (box.querySelector('[aria-label="Simge durumuna küçült"]') as HTMLButtonElement).click(); });
+    expect(box.dataset.size).toBe('collapsed');
+    expect(box.querySelector('iframe')).toBeNull();
+    expect(box.textContent).toContain('Mersin');
+    expect(box.querySelector('[aria-label="Kapat"]')).not.toBeNull();
+    expect(localStorage.getItem('caros-external-map-collapsed')).toBe('1');
+    act(() => { (box.querySelector('[aria-label="Haritayı aç"]') as HTMLButtonElement).click(); });
+    expect(box.dataset.size).toBe('normal');
+    expect(box.querySelector('iframe')).not.toBeNull();
+    localStorage.removeItem('caros-external-map-collapsed');
+  });
+
+  it('pencere bitiş izleyicisini kendisi başlatır: hedefe varınca kapanır', () => {
+    const el = mount();
+    act(() => {
+      setExternalRoute({ provider: 'yandex', packageName: null, destName: 'Mersin', lat: 36.8, lng: 34.6, startedAtMs: Date.now() });
+    });
+    expect(el.querySelector('[data-testid="floating-external-map"]')).not.toBeNull();
+    act(() => {
+      useUnifiedVehicleStore.setState({ location: { latitude: 36.8005, longitude: 34.6 } } as never);
+    });
     expect(getExternalRoute()).toBeNull();
     expect(el.querySelector('[data-testid="floating-external-map"]')).toBeNull();
   });
