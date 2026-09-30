@@ -37,13 +37,18 @@ function EcoRing({ score, band }: { score: number | null; band: EcoBand | null }
   const r = (size - stroke) / 2;
   const c = 2 * Math.PI * r;
   const tone = band ? BAND_TONE[band] : undefined;
+  /* Çizgi/dolgu SVG NİTELİĞİ değil satır içi STİL: güneş modu ikon kuralı
+     (`.sunlight-mode svg *[fill] { stroke-width: 0 !important }`, index.css)
+     `fill`/`stroke` nitelikli öğeleri hedefler — nitelikli halka güneşte
+     0 kalınlığa inip KAYBOLUYORDU (gerçek uygulamada ölçüldü). */
+  const ringStyle = (color: string) => ({ fill: 'none', stroke: color, strokeWidth: stroke });
   return (
     <div className="relative flex-shrink-0" style={{ width: size, height: size }}>
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="-rotate-90" aria-hidden="true">
-        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--oem-line)" strokeWidth={stroke} />
+        <circle cx={size / 2} cy={size / 2} r={r} style={ringStyle('var(--oem-line)')} />
         {score !== null && tone && (
-          <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={tone} strokeWidth={stroke}
-            strokeLinecap="round" strokeDasharray={`${(c * score) / 100} ${c}`} />
+          <circle cx={size / 2} cy={size / 2} r={r}
+            style={{ ...ringStyle(tone), strokeLinecap: 'round', strokeDasharray: `${(c * score) / 100} ${c}` }} />
         )}
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">

@@ -39,14 +39,14 @@ const TripCard = memo(function TripCard({ trip, history }: { trip: TripRecord; h
       <div className="flex items-start justify-between mb-3">
         <div>
           <div className="text-primary font-bold text-sm">{fmtDate(trip.startTime)}</div>
-          <div className="text-slate-500 text-xs mt-0.5">
+          <div className="text-[color:var(--oem-ink-3)] text-xs mt-0.5">
             {fmtTime(trip.startTime)} → {fmtTime(trip.endTime)}
           </div>
         </div>
         <button
           onClick={() => deleteTrip(trip.id)}
           /* Sil butonu → hover danger (yıkıcı eylem) */
-          className="w-8 h-8 flex items-center justify-center rounded-xl text-slate-500 hover:text-[color:var(--oem-danger)] hover:bg-[var(--oem-danger-soft)] transition-colors active:scale-90"
+          className="w-8 h-8 flex items-center justify-center rounded-xl text-[color:var(--oem-ink-3)] hover:text-[color:var(--oem-danger)] hover:bg-[var(--oem-danger-soft)] transition-colors active:scale-90"
           title="Seyahati sil"
         >
           <Trash2 className="w-4 h-4" />
@@ -68,11 +68,11 @@ const TripCard = memo(function TripCard({ trip, history }: { trip: TripRecord; h
 
       {/* Sub-stats bölme çizgisi → oem-line */}
       <div className="flex items-center gap-3 mt-2 pt-2 border-t border-[var(--oem-line)]">
-        <div className="text-[11px] text-slate-600">
-          Maks <span className="text-slate-400 font-bold">{trip.maxSpeedKmh} km/h</span>
+        <div className="text-[11px] text-[color:var(--oem-ink-3)]">
+          Maks <span className="text-[color:var(--oem-ink-2)] font-bold">{trip.maxSpeedKmh} km/h</span>
         </div>
-        <div className="text-[11px] text-slate-600">
-          Yakıt <span className="text-slate-400 font-bold">
+        <div className="text-[11px] text-[color:var(--oem-ink-3)]">
+          Yakıt <span className="text-[color:var(--oem-ink-2)] font-bold">
             {trip.fuelConsumptionL !== null ? `${trip.fuelConsumptionL} L` : '—'}
           </span>
         </div>
@@ -123,8 +123,8 @@ function Stat({
       data-editable="trip.stat" data-editable-type="card">
       <Icon className={`w-4 h-4 ${cfg.icon}`} />
       <span className="text-primary font-black text-sm tabular-nums leading-none">{value}</span>
-      {unit && <span className="text-[9px] text-slate-600">{unit}</span>}
-      <span className="text-[9px] text-slate-500 uppercase tracking-wide">{label}</span>
+      {unit && <span className="text-[9px] text-[color:var(--oem-ink-3)]">{unit}</span>}
+      <span className="text-[9px] text-[color:var(--oem-ink-3)] uppercase tracking-wide">{label}</span>
     </div>
   );
 }
@@ -165,7 +165,7 @@ function TripLogViewInner() {
           <button
             onClick={handleClearAll}
             /* Temizle butonu → hover danger (yıkıcı eylem) */
-            className="text-slate-500 hover:text-[color:var(--oem-danger)] text-[11px] uppercase tracking-widest transition-colors"
+            className="text-[color:var(--oem-ink-3)] hover:text-[color:var(--oem-danger)] text-[11px] uppercase tracking-widest transition-colors"
           >
             Temizle
           </button>
@@ -187,19 +187,19 @@ function TripLogViewInner() {
               <div className="text-primary font-black text-2xl tabular-nums">
                 {trip.current.distanceKm.toFixed(1)}
               </div>
-              <div className="text-slate-500 text-[10px] uppercase mt-0.5">km</div>
+              <div className="text-[color:var(--oem-ink-3)] text-[10px] uppercase mt-0.5">km</div>
             </div>
             <div>
               <div className="text-primary font-black text-2xl">
                 {fmtDuration(liveDurationMin)}
               </div>
-              <div className="text-slate-500 text-[10px] uppercase mt-0.5">süre</div>
+              <div className="text-[color:var(--oem-ink-3)] text-[10px] uppercase mt-0.5">süre</div>
             </div>
             <div>
               <div className="text-primary font-black text-2xl tabular-nums">
                 {trip.current.maxSpeedKmh}
               </div>
-              <div className="text-slate-500 text-[10px] uppercase mt-0.5">max km/h</div>
+              <div className="text-[color:var(--oem-ink-3)] text-[10px] uppercase mt-0.5">max km/h</div>
             </div>
           </div>
         </div>
@@ -231,7 +231,7 @@ function TripLogViewInner() {
 
       {/* ── History ────────────────────────────────────── */}
       <div>
-        <div className="text-slate-500 text-[10px] uppercase tracking-widest mb-3">
+        <div className="text-[color:var(--oem-ink-3)] text-[10px] uppercase tracking-widest mb-3">
           Geçmiş Seyahatler
         </div>
 
@@ -241,10 +241,10 @@ function TripLogViewInner() {
             <div className="w-16 h-16 rounded-2xl bg-[var(--oem-accent-soft)] border border-[var(--oem-accent)] flex items-center justify-center">
               <AlertCircle className="w-8 h-8 text-[color:var(--oem-accent)] opacity-70" />
             </div>
-            <div className="text-slate-300 font-bold text-sm">
+            <div className="text-[color:var(--oem-ink)] font-bold text-sm">
               Henüz kayıtlı seyahat yok
             </div>
-            <div className="text-slate-500 text-xs leading-relaxed max-w-[240px]">
+            <div className="text-[color:var(--oem-ink-3)] text-xs leading-relaxed max-w-[240px]">
               OBD bağlantısı ile sürmeye başladığınızda seyahatler otomatik olarak kaydedilir
             </div>
           </div>
@@ -280,9 +280,9 @@ function SummaryCard({
       <Icon className={`w-8 h-8 flex-shrink-0 ${cfg.icon}`} />
       <div>
         <div className="text-primary font-black text-xl tabular-nums leading-none">
-          {value}{unit && <span className="text-sm font-normal text-slate-500 ml-1">{unit}</span>}
+          {value}{unit && <span className="text-sm font-normal text-[color:var(--oem-ink-3)] ml-1">{unit}</span>}
         </div>
-        <div className="text-slate-500 text-xs mt-0.5">{label}</div>
+        <div className="text-[color:var(--oem-ink-3)] text-xs mt-0.5">{label}</div>
       </div>
     </div>
   );
