@@ -11,18 +11,20 @@ import { parseCommandFull } from '../platform/commandParser';
 import { matchExternalNavCommand } from '../platform/voice/externalNavCommand';
 import { isProvisionalFeedback } from '../platform/voice/voiceCommandPolicy';
 import {
-  buildExternalRouteUris, extractExternalNavProvider, launchExternalRoute,
+  buildExternalRouteUris, extractExternalNavProvider, launchExternalRoute, packageForRouteUri,
 } from '../platform/navigation/externalNavHandoff';
 import {
   runExternalNavFlow, EXTERNAL_NAV_WAIT_MS,
   type ExternalNavAddressState, type ExternalNavFlowDeps,
 } from '../platform/navigation/externalNavFlow';
+import type { ExternalRoute } from '../platform/navigation/externalRouteState';
 import {
-  clearExternalGuidanceOwner, getExternalGuidanceOwner, setExternalGuidanceOwner,
-} from '../platform/navigation/externalGuidanceOwner';
+  clearExternalRoute, getExternalRoute, setExternalRoute,
+} from '../platform/navigation/externalRouteState';
 import {
-  noteVoiceGuidanceTick, noteTrafficAheadTick, resetVoiceGuidance,
-} from '../platform/navigation/voiceGuidanceRuntime';
+  judgeExternalRouteEnd, EXTERNAL_ROUTE_ARRIVAL_M, EXTERNAL_ROUTE_MAX_AGE_MS,
+} from '../platform/navigation/externalRouteWatcher';
+import { buildExternalMapEmbedUrl } from '../platform/navigation/externalMapEmbed';
 
 describe('çevrimdışı rota cümlesi hedefi KAYBETMEZ', () => {
   it.each([
@@ -83,25 +85,32 @@ describe('matchExternalNavCommand', () => {
 });
 
 describe('harici uygulamayı açma', () => {
-  it('Yandex: önce Navigasyon, sonra Haritalar denenir', async () => {
+  it('Yandex: önce Navigasyon, sonra Haritalar denenir; açılan paket bildirilir', async () => {
     const tried: string[] = [];
-    const ok = await launchExternalRoute('yandex', 36.8, 34.6, async (uri) => {
+    const res = await launchExternalRoute('yandex', 36.8, 34.6, async (uri) => {
       tried.push(uri);
       if (uri.startsWith('yandexnavi://')) throw new Error('LAUNCH_FAILED');
     });
-    expect(ok).toBe(true);
     expect(tried).toEqual(buildExternalRouteUris('yandex', 36.8, 34.6));
     expect(tried[0]).toContain('lat_to=36.800000&lon_to=34.600000');
     expect(tried[1]).toContain('rtext=~36.800000,34.600000');
+    expect(res).toEqual({ uri: tried[1], packageName: 'ru.yandex.yandexmaps' });
   });
 
-  it('hiçbiri açılamazsa false; geçersiz koordinatta hiç denenmez', async () => {
+  it('hiçbiri açılamazsa null; geçersiz koordinatta hiç denenmez', async () => {
     const launch = vi.fn(async () => { throw new Error('LAUNCH_FAILED'); });
-    expect(await launchExternalRoute('waze', 36.8, 34.6, launch)).toBe(false);
+    expect(await launchExternalRoute('waze', 36.8, 34.6, launch)).toBeNull();
     launch.mockClear();
-    expect(await launchExternalRoute('google_maps', NaN, 34.6, launch)).toBe(false);
-    expect(await launchExternalRoute('google_maps', 91, 34.6, launch)).toBe(false);
+    expect(await launchExternalRoute('google_maps', NaN, 34.6, launch)).toBeNull();
+    expect(await launchExternalRoute('google_maps', 91, 34.6, launch)).toBeNull();
     expect(launch).not.toHaveBeenCalled();
+  });
+
+  it('paket eşlemesi', () => {
+    expect(packageForRouteUri('yandexnavi://build_route_on_map?x')).toBe('ru.yandex.yandexnavi');
+    expect(packageForRouteUri('waze://?ll=1,2')).toBe('com.waze');
+    expect(packageForRouteUri('google.navigation:q=1,2')).toBe('com.google.android.apps.maps');
+    expect(packageForRouteUri('geo:1,2')).toBeNull();
   });
 });
 
@@ -111,48 +120,48 @@ describe('runExternalNavFlow', () => {
   function harness(launchOk = true, initial: ExternalNavAddressState = { phase: 'idle', query: '', selected: null }) {
     const said: string[] = [];
     let listener: ((s: ExternalNavAddressState) => void) | null = null;
-    let owner: string | null = null;
+    const routes: ExternalRoute[] = [];
     const deps: ExternalNavFlowDeps = {
       findSaved: () => ({ match: null, ambiguous: [] }),
-      startOwnNavigation: vi.fn(),
-      activateOwnNavigation: vi.fn(),
-      resolveWithoutFullMap: vi.fn(),
+      resolveOnly: vi.fn(),
       onAddressState: (fn) => { listener = fn; fn(initial); return () => { listener = null; }; },
-      launch: vi.fn(async () => launchOk),
-      setGuidanceOwner: (p) => { owner = p; },
-      clearGuidanceOwner: () => { owner = null; },
+      launch: vi.fn(async () => (launchOk ? { uri: 'x://', packageName: 'pkg.test' } : null)),
+      setExternalRoute: (r) => { routes.push(r); },
+      startOwnNavigation: vi.fn(),
       say: (t) => { said.push(t); },
+      now: () => 1_000,
       setTimer: vi.fn(() => 1),
       clearTimer: vi.fn(),
     };
-    return { deps, said, push: (s: ExternalNavAddressState) => listener?.(s), owner: () => owner, subscribed: () => listener !== null };
+    return { deps, said, routes, push: (s: ExternalNavAddressState) => listener?.(s), subscribed: () => listener !== null };
   }
   const flush = () => new Promise((r) => setTimeout(r, 0));
 
-  it('çözülen hedef onaylanınca harici uygulama o koordinatla açılır; tam ekran harita açılmaz', async () => {
+  it('onayda harici uygulama açılır, yüzen pencere kurulur; BİZİM navigasyon BAŞLAMAZ', async () => {
     const h = harness();
     runExternalNavFlow('Mersin', 'yandex', h.deps);
-    expect(h.deps.resolveWithoutFullMap).toHaveBeenCalledWith('Mersin');
+    expect(h.deps.resolveOnly).toHaveBeenCalledWith('Mersin');
     expect(h.deps.setTimer).toHaveBeenCalledWith(expect.any(Function), EXTERNAL_NAV_WAIT_MS);
     h.push({ phase: 'searching', query: 'Mersin', selected: null });
     expect(h.deps.launch).not.toHaveBeenCalled();
     h.push({ phase: 'confirmed', query: 'Mersin', selected: { lat: 36.8, lng: 34.6, name: 'Mersin' } });
     await flush();
     expect(h.deps.launch).toHaveBeenCalledWith('yandex', 36.8, 34.6);
-    expect(h.deps.activateOwnNavigation).toHaveBeenCalledTimes(1);   // mini haritada rota
-    expect(h.owner()).toBe('yandex');
+    expect(h.routes).toEqual([{ provider: 'yandex', packageName: 'pkg.test', destName: 'Mersin', lat: 36.8, lng: 34.6, startedAtMs: 1_000 }]);
+    expect(h.deps.startOwnNavigation).not.toHaveBeenCalled();
     expect(h.said[0]).toContain('Yandex');
     expect(h.subscribed()).toBe(false);
   });
 
-  it('uygulama açılamazsa sahiplik KURULMAZ ve dürüstçe söylenir', async () => {
+  it('uygulama açılamazsa pencere KURULMAZ; yedek olarak bizim navigasyon başlar ve söylenir', async () => {
     const h = harness(false);
     runExternalNavFlow('Mersin', 'waze', h.deps);
     h.push({ phase: 'searching', query: 'Mersin', selected: null });
     h.push({ phase: 'confirmed', query: 'Mersin', selected: { lat: 36.8, lng: 34.6, name: 'Mersin' } });
     await flush();
-    expect(h.owner()).toBeNull();
-    expect(h.said[0]).toMatch(/Waze bu cihazda açılamadı; Mersin rotası bizim haritada kuruldu/);
+    expect(h.routes).toEqual([]);
+    expect(h.deps.startOwnNavigation).toHaveBeenCalledWith(expect.objectContaining({ lat: 36.8, name: 'Mersin' }));
+    expect(h.said[0]).toMatch(/Waze bu cihazda açılamadı; Mersin rotasını bizim navigasyonda başlattım/);
   });
 
   it('arama hatası veya başka bir arama → harici uygulama AÇILMAZ', async () => {
@@ -167,8 +176,6 @@ describe('runExternalNavFlow', () => {
     await flush();
     expect(a.deps.launch).not.toHaveBeenCalled();
     expect(b.deps.launch).not.toHaveBeenCalled();
-    expect(a.deps.activateOwnNavigation).not.toHaveBeenCalled();
-    expect(b.deps.activateOwnNavigation).not.toHaveBeenCalled();
     expect(a.subscribed()).toBe(false);
     expect(b.subscribed()).toBe(false);
   });
@@ -196,60 +203,57 @@ describe('runExternalNavFlow', () => {
     expect(h.deps.launch).toHaveBeenCalledWith('yandex', 36.8, 34.6);
   });
 
-  it('kayıtlı konum: çözücü çağrılmadan kendi rotamız + harici uygulama', async () => {
+  it('kayıtlı konum: çözücü çağrılmadan harici uygulama; bizim navigasyon başlamaz', async () => {
     const h = harness();
     h.deps.findSaved = () => ({ match: { id: 's1', name: 'Şelale', lat: 36.9, lng: 34.8 }, ambiguous: [] });
     runExternalNavFlow('şelale', 'google_maps', h.deps);
     await flush();
-    expect(h.deps.startOwnNavigation).toHaveBeenCalledWith(expect.objectContaining({ id: 's1', lat: 36.9 }));
-    expect(h.deps.resolveWithoutFullMap).not.toHaveBeenCalled();
+    expect(h.deps.resolveOnly).not.toHaveBeenCalled();
     expect(h.deps.launch).toHaveBeenCalledWith('google_maps', 36.9, 34.8);
-    expect(h.deps.activateOwnNavigation).toHaveBeenCalledTimes(1);
+    expect(h.deps.startOwnNavigation).not.toHaveBeenCalled();
+    expect(h.routes[0]?.destName).toBe('Şelale');
   });
 });
 
-describe('harici uygulama yönlendirirken bizim yol tarifimiz SUSAR', () => {
-  afterEach(() => { clearExternalGuidanceOwner(); resetVoiceGuidance('test'); });
-  const input = {
-    navActive: true, isRerouting: false, sessionId: 9, routeRevision: 1,
-    stepIndex: 0, instruction: 'Sağa dönün', distanceM: 500,
-    distanceSource: 'ALONG_ROUTE' as const, speedKmh: 50,
-  };
+describe('yüzen pencere: harici rota durumu ve bitişi', () => {
+  afterEach(() => clearExternalRoute());
+  const route: ExternalRoute = { provider: 'yandex', packageName: 'ru.yandex.yandexnavi', destName: 'Mersin', lat: 36.8, lng: 34.6, startedAtMs: 0 };
 
-  it('sahip varken anons YOK; sahip kalkınca anons döner', () => {
-    const spoken: string[] = [];
-    setExternalGuidanceOwner('yandex');
-    expect(noteVoiceGuidanceTick(input, (t) => { spoken.push(t); })).toBeNull();
-    expect(noteVoiceGuidanceTick({ ...input, isRerouting: true }, (t) => { spoken.push(t); })).toBeNull();
-    expect(spoken).toEqual([]);
-    clearExternalGuidanceOwner();
-    expect(noteVoiceGuidanceTick(input, (t) => { spoken.push(t); })).not.toBeNull();
-    expect(spoken.length).toBe(1);
+  it('hedefe varınca (≤200 m) biter; konum bilinmiyorsa "vardı" DENMEZ; azami ömürde biter', () => {
+    expect(judgeExternalRouteEnd(route, { latitude: 36.8005, longitude: 34.6005 }, 1_000)).toBe('arrived');
+    expect(judgeExternalRouteEnd(route, { latitude: 36.9, longitude: 34.6 }, 1_000)).toBeNull();   // ~11 km
+    expect(judgeExternalRouteEnd(route, null, 1_000)).toBeNull();
+    expect(judgeExternalRouteEnd(route, null, EXTERNAL_ROUTE_MAX_AGE_MS + 1)).toBe('expired');
+    expect(EXTERNAL_ROUTE_ARRIVAL_M).toBe(200);
   });
 
-  it('trafik anonsu da susar; sahip kalkınca aynı olay söylenir', () => {
-    const cum = Array.from({ length: 11 }, (_, i) => (10 - i) * 500);
-    const jam = { startIdx: 6, endIdx: 8, level: 'heavy' as const, kind: 'JAM' as const, delayS: 180 };
-    const tIn = {
-      sessionId: 9, routeRevision: 1, isRerouting: false, sections: [jam], cumulativeDistances: cum,
-      vehicleAlongRemainingM: 2900, speedKmh: 50, distanceToNextTurnM: null,
-    };
-    const speak = vi.fn();
-    setExternalGuidanceOwner('waze');
-    expect(noteTrafficAheadTick(tIn, speak)).toBeNull();
-    expect(speak).not.toHaveBeenCalled();
-    clearExternalGuidanceOwner();
-    expect(noteTrafficAheadTick(tIn, speak)).not.toBeNull();
-    expect(speak).toHaveBeenCalledTimes(1);
+  it('kur / temizle', () => {
+    setExternalRoute(route);
+    expect(getExternalRoute()?.destName).toBe('Mersin');
+    clearExternalRoute();
+    expect(getExternalRoute()).toBeNull();
   });
 
-  it('yeni navigasyon başlangıcı sahipliği temizler (bayat susturma yok)', async () => {
+  it('bizde YENİ navigasyon başlayınca harici rota (ve pencere) temizlenir', async () => {
     const src = (await import('node:fs')).readFileSync(
       (await import('node:path')).join(process.cwd(), 'src/platform/navigationService.ts'), 'utf8');
     const start = src.indexOf('export function startNavigation(');
-    const stop = src.indexOf('export function stopNavigation(');
-    expect(src.indexOf('clearExternalGuidanceOwner()', start)).toBeLessThan(src.indexOf('useNavigationStore.getState()', start));
-    expect(src.indexOf('clearExternalGuidanceOwner()', stop)).toBeGreaterThan(stop);
-    expect(getExternalGuidanceOwner()).toBeNull();
+    expect(src.indexOf('clearExternalRoute()', start)).toBeGreaterThan(start);
+    expect(src.indexOf('clearExternalRoute()', start)).toBeLessThan(src.indexOf('useNavigationStore.getState()', start));
+  });
+});
+
+describe('sağlayıcı web haritası adresi', () => {
+  it('Yandex: konum varsa rota (rtext), yoksa yalnız hedef (pt, boylam önce)', () => {
+    expect(buildExternalMapEmbedUrl('yandex', { lat: 36.8, lng: 34.6 }, { lat: 37, lng: 35 }))
+      .toBe('https://yandex.com.tr/map-widget/v1/?rtext=37.000000,35.000000~36.800000,34.600000&rtt=auto');
+    expect(buildExternalMapEmbedUrl('yandex', { lat: 36.8, lng: 34.6 }, null))
+      .toBe('https://yandex.com.tr/map-widget/v1/?pt=34.600000,36.800000&z=13');
+  });
+  it('Google ve Waze; geçersiz hedefte null (boş harita gösterilmez)', () => {
+    expect(buildExternalMapEmbedUrl('google_maps', { lat: 36.8, lng: 34.6 }, { lat: 37, lng: 35 }))
+      .toContain('saddr=37.000000,35.000000&daddr=36.800000,34.600000&output=embed');
+    expect(buildExternalMapEmbedUrl('waze', { lat: 36.8, lng: 34.6 }, null)).toContain('embed.waze.com/iframe');
+    expect(buildExternalMapEmbedUrl('yandex', { lat: NaN, lng: 34.6 }, null)).toBeNull();
   });
 });

@@ -2,20 +2,20 @@
  * externalNavFlow — "Yandex'ten Mersin'e rota kur" yürütmesi.
  *
  * Sıra:
- *  1. Hedef BİZİM çözücümüzle koordinata çevrilir (kayıtlı konum → doğrudan;
- *     değilse `resolveAndNavigate`, tam ekran harita AÇILMADAN). Böylece bizim
- *     rotamız da kurulur ve mini haritada görünür (sahibin isteği: "mini harita
- *     sabit; harici rota olduğunda devreye girsin").
- *  2. Onaylanan koordinatla harici uygulama açılır (`launchExternalRoute`).
- *  3. Açıldıysa yol tarifi sahipliği harici uygulamaya geçer — bizim anonslarımız
- *     susar (`externalGuidanceOwner`). Açılamadıysa sahiplik kurulmaz, rota
- *     bizim haritada sürer ve bu DÜRÜSTÇE söylenir.
+ *  1. Hedef BİZİM çözücümüzle yalnız KOORDİNATA çevrilir (kayıtlı konum →
+ *     doğrudan; değilse çözücü "yalnız çöz" kipinde). BİZİM navigasyonumuz
+ *     BAŞLATILMAZ: telefonda ölçüldü (2026-09-30) — bizim rota (25 km D400)
+ *     Yandex'inkinden (43 km otoyol) farklı çıkıyor, iki rota kafa karıştırıyor.
+ *  2. Harici uygulama o koordinatla açılır (`launchExternalRoute`).
+ *  3. Açıldıysa harici rota kaydedilir → uygulamamızın üstünde sağlayıcının
+ *     kendi haritasını gösteren yüzen pencere çıkar; varışta/iptalde kapanır.
+ *     Açılamadıysa yedek olarak BİZİM navigasyonumuz başlar ve bu söylenir.
  *
  * Rota/konum gerçeği ÜRETMEZ: çözümleme ve rota mevcut sahiplerindedir; bu
  * modül yalnız sıralar. Bağımlılıklar test için enjekte edilir.
  */
-import type { ExternalNavProvider } from './externalGuidanceOwner';
-import { EXTERNAL_NAV_LABEL } from './externalNavHandoff';
+import type { ExternalNavProvider, ExternalRoute } from './externalRouteState';
+import { EXTERNAL_NAV_LABEL, type ExternalLaunchResult } from './externalNavHandoff';
 
 export interface ExternalNavTarget { lat: number; lng: number; name: string; id?: string }
 
@@ -28,18 +28,16 @@ export interface ExternalNavAddressState {
 export interface ExternalNavFlowDeps {
   /** Kayıtlı konum eşleşmesi (tek otorite: savedLocationsService). */
   findSaved: (dest: string) => { match: ExternalNavTarget | null; ambiguous: readonly unknown[] };
-  /** Kayıtlı konumla BİZİM rotamızı başlatır. */
-  startOwnNavigation: (t: ExternalNavTarget) => void;
-  /** Önizlemedeki BİZİM navigasyonu etkin yapar → rota istenir ve mini haritada
-   *  rota bitene kadar görünür (önizlemede rota yalnız tam ekranda isteniyordu). */
-  activateOwnNavigation: () => void;
-  /** Serbest hedefi çözer ve BİZİM rotamızı başlatır — tam ekran harita açmadan. */
-  resolveWithoutFullMap: (dest: string) => void;
+  /** Serbest hedefi YALNIZ çözer: bizim navigasyon başlamaz, tam ekran açılmaz. */
+  resolveOnly: (dest: string) => void;
   onAddressState: (fn: (s: ExternalNavAddressState) => void) => () => void;
-  launch: (provider: ExternalNavProvider, lat: number, lng: number) => Promise<boolean>;
-  setGuidanceOwner: (p: ExternalNavProvider) => void;
-  clearGuidanceOwner: () => void;
+  launch: (provider: ExternalNavProvider, lat: number, lng: number) => Promise<ExternalLaunchResult | null>;
+  /** Harici rota açıldı → yüzen pencere + bitiş izleyicisi. */
+  setExternalRoute: (route: ExternalRoute) => void;
+  /** Harici uygulama açılamadı → yedek: BİZİM navigasyonumuz başlar. */
+  startOwnNavigation: (t: ExternalNavTarget) => void;
   say: (text: string) => void;
+  now: () => number;
   setTimer: (fn: () => void, ms: number) => unknown;
   clearTimer: (h: unknown) => void;
 }
@@ -51,17 +49,16 @@ export function runExternalNavFlow(dest: string, provider: ExternalNavProvider, 
   const label = EXTERNAL_NAV_LABEL[provider];
 
   const handoff = (t: ExternalNavTarget): void => {
-    deps.setGuidanceOwner(provider);          // ilk anons çakışmasın diye açılıştan ÖNCE
-    /* Telefonda ölçüldü (2026-09-30): devirde mini haritada rota çizgisi yoktu
-       (routePts 0) — navigasyon ÖNİZLEMEDE kalıyor, rota yalnız tam ekran
-       "Başlat" ile isteniyordu. Etkinleştirince rota servis tarafından istenir. */
-    deps.activateOwnNavigation();
-    void deps.launch(provider, t.lat, t.lng).then((ok) => {
-      if (ok) {
+    void deps.launch(provider, t.lat, t.lng).then((res) => {
+      if (res) {
+        deps.setExternalRoute({
+          provider, packageName: res.packageName, destName: t.name,
+          lat: t.lat, lng: t.lng, startedAtMs: deps.now(),
+        });
         deps.say(`${t.name} rotasını ${label} uygulamasına gönderdim.`);
       } else {
-        deps.clearGuidanceOwner();            // harici yok → yol tarifini biz veririz
-        deps.say(`${label} bu cihazda açılamadı; ${t.name} rotası bizim haritada kuruldu.`);
+        deps.startOwnNavigation(t);
+        deps.say(`${label} bu cihazda açılamadı; ${t.name} rotasını bizim navigasyonda başlattım.`);
       }
     });
   };
@@ -72,7 +69,6 @@ export function runExternalNavFlow(dest: string, provider: ExternalNavProvider, 
     return;
   }
   if (saved.match) {
-    deps.startOwnNavigation(saved.match);
     handoff(saved.match);
     return;
   }
@@ -110,5 +106,5 @@ export function runExternalNavFlow(dest: string, provider: ExternalNavProvider, 
     if (s.phase === 'error' || s.phase === 'idle') finish();
   });
   timer = deps.setTimer(finish, EXTERNAL_NAV_WAIT_MS);
-  deps.resolveWithoutFullMap(dest);
+  deps.resolveOnly(dest);
 }

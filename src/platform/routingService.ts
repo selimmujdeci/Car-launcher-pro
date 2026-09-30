@@ -82,7 +82,6 @@ export type { RouteTrafficSection, RouteSpeedLimitSection } from './routing/tomt
 import {
   recordNavTickCost, resetNavTickCost,
 } from './navigation/core/navTickCostModel';
-import { isExternalGuidanceActive } from './navigation/externalGuidanceOwner';
 
 /* Geometri primitifleri artık `navigation/core/geo` içinde YAŞAR (saf katman
  * onları import edebilsin diye). Mevcut tüketiciler — hazardService,
@@ -436,7 +435,7 @@ function _maybeCheckBetterRoute(now: number, fix: MapMatchFix, geometry: [number
       if (saving === null || useRouteStore.getState().routeRevision !== rev || _isFetchingRoute) return;
       await fetchRoute(from.lat, from.lon, to.toLat, to.toLon, 'REROUTE');
       const st = useRouteStore.getState();
-      if (st.routeRevision !== rev && st.serverUsed === TOMTOM_ROUTING_SERVER && !isExternalGuidanceActive()) {
+      if (st.routeRevision !== rev && st.serverUsed === TOMTOM_ROUTING_SERVER) {
         const min = Math.max(1, Math.round(saving / 60));
         try { speakNavigation(`Daha hızlı bir rota bulundu, yaklaşık ${min} dakika kazanç.`); } catch { /* TTS yok */ }
       }

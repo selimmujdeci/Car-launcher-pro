@@ -73,6 +73,15 @@ describe('resolveAndNavigate openMap seçeneği', () => {
     expect(confirmed?.shouldOpenMap).toBe(true);
   });
 
+  it('startNavigation:false → yalnız koordinat çözülür; BİZİM navigasyon başlamaz (harici devir)', async () => {
+    vi.mocked(geocodeAddress).mockResolvedValueOnce([near]);
+    resolveAndNavigate('Cumhuriyet Mahallesi', TARSUS, undefined, { openMap: false, startNavigation: false });
+    await settle();
+    expect(startNavigation).not.toHaveBeenCalled();
+    expect(confirmed?.selected?.lat).toBe(near.lat);
+    expect(confirmed?.shouldOpenMap).toBe(false);
+  });
+
   it('🔒 önceki onayın 4 sn zamanlayıcısı YENİ aramayı "boşta"ya düşürmez', async () => {
     vi.useFakeTimers();
     try {

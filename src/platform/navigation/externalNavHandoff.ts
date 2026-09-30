@@ -20,9 +20,9 @@
  */
 import { CarLauncher } from '../nativePlugin';
 import { isNative } from '../bridge';
-import type { ExternalNavProvider } from './externalGuidanceOwner';
+import type { ExternalNavProvider } from './externalRouteState';
 
-export type { ExternalNavProvider } from './externalGuidanceOwner';
+export type { ExternalNavProvider } from './externalRouteState';
 
 /** Sesli cevaplarda kullanılan ad. */
 export const EXTERNAL_NAV_LABEL: Readonly<Record<ExternalNavProvider, string>> = {
@@ -98,24 +98,45 @@ const _nativeViewLauncher: UriLauncher = (uri) => {
   return CarLauncher.launchApp({ action: 'android.intent.action.VIEW', data: uri });
 };
 
+/** URI şeması → açılan uygulamanın paketi ("uygulamaya dön" düğmesi için). */
+const PACKAGE_BY_SCHEME: ReadonlyArray<readonly [string, string]> = [
+  ['yandexnavi://', 'ru.yandex.yandexnavi'],
+  ['yandexmaps://', 'ru.yandex.yandexmaps'],
+  ['waze://', 'com.waze'],
+  ['google.navigation:', 'com.google.android.apps.maps'],
+];
+
+export function packageForRouteUri(uri: string): string | null {
+  for (const [prefix, pkg] of PACKAGE_BY_SCHEME) if (uri.startsWith(prefix)) return pkg;
+  return null;
+}
+
+export interface ExternalLaunchResult { uri: string; packageName: string | null }
+
 /**
- * Adayları sırayla dener; biri açılırsa `true`. Hiçbiri açılamazsa `false`
- * (uygulama yüklü değil / geçersiz koordinat) — asla throw etmez.
+ * Adayları sırayla dener; açılanın URI'si ve paketiyle döner. Hiçbiri
+ * açılamazsa `null` (uygulama yüklü değil / geçersiz koordinat) — asla throw etmez.
  */
 export async function launchExternalRoute(
   provider: ExternalNavProvider,
   lat: number,
   lng: number,
   launch: UriLauncher = _nativeViewLauncher,
-): Promise<boolean> {
+): Promise<ExternalLaunchResult | null> {
   if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
-    return false;
+    return null;
   }
   for (const uri of buildExternalRouteUris(provider, lat, lng)) {
     try {
       await launch(uri);
-      return true;
+      return { uri, packageName: packageForRouteUri(uri) };
     } catch { /* bu aday açılamadı → sıradaki */ }
   }
-  return false;
+  return null;
+}
+
+/** Harici navigasyon uygulamasını öne getirir (rota zaten orada; yeniden kurulmaz). */
+export async function bringExternalAppToFront(packageName: string | null): Promise<boolean> {
+  if (!packageName || !isNative) return false;
+  try { await CarLauncher.launchApp({ packageName }); return true; } catch { return false; }
 }

@@ -42,7 +42,7 @@ import {
   type DestinationIntegrityVerdict,
 } from './navigation/core/destinationIntegrityModel';
 import { OwnerCommandEvidence } from './message';
-import { clearExternalGuidanceOwner, isExternalGuidanceActive } from './navigation/externalGuidanceOwner';
+import { clearExternalRoute } from './navigation/externalRouteState';
 // Phase H1 re-export kaldırıldı (H5 circular import fix).
 // startHazardEngine / stopHazardEngine doğrudan hazardService.ts'ten import edilebilir.
 
@@ -377,10 +377,9 @@ export function startNavigation(
   isOffline = false,
   source: DestinationSource = 'SYSTEM',
 ): void {
-  /* Yeni HER başlangıç harici yönlendirme sahipliğini düşürür: sahip, harici
-     uygulama açıldığı an (bu çağrıdan SONRA) yeniden kurulur. Bayat sahiplik
-     bizim sesimizi başka bir rotada susturamaz. */
-  clearExternalGuidanceOwner();
+  /* Bizde yeni rota başladı → harici uygulamaya verilmiş rota (Yandex/Waze/
+     Google) ve onun yüzen penceresi geçersizdir. */
+  clearExternalRoute();
   const st = useNavigationStore.getState();
 
   /* ── P0-NAV-09 · BÜTÜNLÜK KAPISI — SAHİPLİKTEN ÖNCE ──────────────────────
@@ -559,7 +558,6 @@ export function setNavStatus(status: NavStatus, errorMessage?: string): void {
  * Navigasyonu durdur ve IDLE'a dön.
  */
 export function stopNavigation(): void {
-  clearExternalGuidanceOwner();   // oturum bitti → harici yönlendirme sahipliği de biter
   setNavigationGpsPower(false);   // oturum bitti → normal pil politikası geri döner
   safeRemoveRaw(NAV_PERSIST_KEY); // Crash recovery mührünü temizle — kullanıcı iptal etti
   _routeClaim = null;             // oturum kapandı — sonraki hedef temiz sahiplenir
@@ -843,7 +841,7 @@ export function updateNavigationProgress(
   if (!_proximityAlertFired && distance > 0 && distance < PROXIMITY_ALERT_M) {
     _proximityAlertFired = true;
     const hasSpokenArrival = getRouteState().steps.length >= 2;
-    if (!hasSpokenArrival && _navStartDistToDest > PROXIMITY_ALERT_M && !isExternalGuidanceActive()) {
+    if (!hasSpokenArrival && _navStartDistToDest > PROXIMITY_ALERT_M) {
       speakNavigation(distanceSource === 'ALONG_ROUTE'
         ? 'Hedefiniz 500 metrede, hazır olun.'
         : 'Hedefinize yaklaşıyorsunuz.');

@@ -314,7 +314,8 @@ function _speakAndToast(msg: string): void {
 import { resolveAndNavigate, onAddressNavState } from '../platform/addressNavigationEngine';
 import { runExternalNavFlow } from '../platform/navigation/externalNavFlow';
 import { launchExternalRoute, type ExternalNavProvider } from '../platform/navigation/externalNavHandoff';
-import { setExternalGuidanceOwner, clearExternalGuidanceOwner } from '../platform/navigation/externalGuidanceOwner';
+import { setExternalRoute } from '../platform/navigation/externalRouteState';
+import { startExternalRouteWatch } from '../platform/navigation/externalRouteWatcher';
 import { dispatchNearbyPoiNavigation } from '../platform/nearbyPoiNavigation';
 import { getGPSState } from '../platform/gpsService';
 import { startNavigation, activateNavigation } from '../platform/navigationService';
@@ -387,8 +388,9 @@ const EXTERNAL_NAV_PROVIDERS: ReadonlySet<string> = new Set(['yandex', 'waze', '
 
 /**
  * "Yandex'ten / Waze ile / Google Haritalar'dan … rota kur" — hedef BİZİM
- * çözücümüzle bulunur, bizim rotamız mini haritada kurulur, ardından harici
- * uygulama açılır (bkz. externalNavFlow). Kayıtlı konum önceliği
+ * çözücümüzle yalnız koordinata çevrilir (bizim navigasyon BAŞLAMAZ), harici
+ * uygulama açılır ve uygulamamızın üstünde o sağlayıcının haritasını gösteren
+ * yüzen pencere çıkar (bkz. externalNavFlow). Kayıtlı konum önceliği
  * `_resolveAndNavigateOrSaved` ile AYNI otoriteden (savedLocationsService).
  */
 function _navigateViaExternalApp(dest: string, provider: ExternalNavProvider): void {
@@ -397,23 +399,27 @@ function _navigateViaExternalApp(dest: string, provider: ExternalNavProvider): v
       const { match, ambiguous } = findSavedLocationByName(d);
       return { match: match ? { id: match.id, name: match.name, lat: match.lat, lng: match.lng } : null, ambiguous };
     },
-    startOwnNavigation: (t) => startNavigation(
-      { id: t.id ?? `ext-${t.lat},${t.lng}`, name: t.name, latitude: t.lat, longitude: t.lng, type: 'history' },
-      false, 'USER_VOICE',
-    ),
-    activateOwnNavigation: activateNavigation,
-    resolveWithoutFullMap: (d) => {
+    resolveOnly: (d) => {
       const gps = getGPSState().location;
-      resolveAndNavigate(d, gps ? { lat: gps.latitude, lng: gps.longitude } : undefined, undefined, { openMap: false });
+      resolveAndNavigate(d, gps ? { lat: gps.latitude, lng: gps.longitude } : undefined, undefined,
+        { openMap: false, startNavigation: false });
     },
     onAddressState: (fn) => onAddressNavState((s) => fn({
       phase: s.phase, query: s.query,
       selected: s.selected ? { lat: s.selected.lat, lng: s.selected.lng, name: s.selected.name } : null,
     })),
     launch: (p, lat, lng) => launchExternalRoute(p, lat, lng),
-    setGuidanceOwner: setExternalGuidanceOwner,
-    clearGuidanceOwner: clearExternalGuidanceOwner,
+    setExternalRoute: (route) => { setExternalRoute(route); startExternalRouteWatch(); },
+    // Yedek (harici uygulama açılamadı): bizim navigasyon başlar ve etkinleşir.
+    startOwnNavigation: (t) => {
+      startNavigation(
+        { id: t.id ?? `ext-${t.lat},${t.lng}`, name: t.name, latitude: t.lat, longitude: t.lng, type: 'history' },
+        false, 'USER_VOICE',
+      );
+      activateNavigation();
+    },
     say: (t) => speakMaviAnswer(t),
+    now: () => Date.now(),
     setTimer: (fn, ms) => setTimeout(fn, ms),
     clearTimer: (h) => clearTimeout(h as ReturnType<typeof setTimeout>),
   });
