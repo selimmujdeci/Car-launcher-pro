@@ -20,6 +20,8 @@ import android.util.Log;
  *   - Erişim : initSdkCfg(appName, appSecrets, appParamJoin, appDesc) — servis doğruluyor;
  *              üçüncü-taraf kimliği "nwdthirdapp" / "d39df3d908cf7136227987e37d5b2c7d" / 0
  *   - Veri   : addCanCarInfoCallBack(cb) → cb.onDistributeCarInfo(CarInfo)
+ *   - Ek (2026-10-01): klima (onDistributeAcState) · lastik (onDistributeTpmsInfo) ·
+ *              kapı/radar/direksiyon açısı (ham çerçeve) — biçimler NwdCanFrames'te.
  *
  * LİSANS: NWD'nin derlenmiş kodu KOPYALANMAZ. Yalnızca açık binder "wire" protokolü
  * (transaction kodları + Parcel alan sırası) kullanılır — kendi Binder/Parcel kodumuz.
@@ -50,9 +52,21 @@ public final class NwdCanClient {
     private static final int TX_ADD_CAN_CARINFO_CB    = 27;  // addCanCarInfoCallBack (yedek)
     private static final int TX_ADD_CANDATA_CB        = 23;  // addCanDataCallBack(ICanRemoteModelCallback) — HAM CAN [B] akışı
     private static final int TX_ADD_CALLBACK4OUTER    = 3;   // addCallBack4Outerface(ICanRemote4OuterCallback) — ham veri
-    // ICanRemoteModelCallback kodları: 1=onDistributeCanData([B]), 2=onDistributeCarInfo, 3=AmpState, 4=Tpms
+    // Ek dinleme kanalları (2026-10-01 dexdump, Stub.TRANSACTION_* değerleri). Hepsi aynı
+    // ICanRemoteModelCallback'i alır; veri ya tipli Parcel ya da tip baytlı ham çerçeve gelir.
+    private static final int TX_ADD_AIR_CB            = 9;   // addAirCallBack
+    private static final int TX_ADD_DOOR_CB           = 11;  // addDoorCallBack      → ham çerçeve tip 3
+    private static final int TX_ADD_SWC_ANGLE_CB      = 13;  // addSWCAngleCallBack  → ham çerçeve tip 6
+    private static final int TX_ADD_RADAR_CB          = 15;  // addRadarCallBack     → ham çerçeve tip 4
+    private static final int TX_ADD_TPMS_CB           = 33;  // addTpmsInfoCallBack  → onDistributeTpmsInfo
+    private static final int TX_ADD_CAN_AC_CB         = 35;  // addCanAcCallBack     → onDistributeAcState
+    private static final int TX_GET_AC_STATE          = 37;  // getAcState() → AirConditionState (anlık sorgu)
+    // ICanRemoteModelCallback kodları: 1=onDistributeCanData([B]), 2=onDistributeCarInfo, 3=AmpState, 4=Tpms, 5=AcState
     private static final int TX_ON_DISTRIBUTE_CANDATA = 1;   // callback: onDistributeCanData(byte[])
     private static final int TX_ON_DISTRIBUTE_CARINFO = 2;   // callback: onDistributeCarInfo(CarInfo)
+    private static final int TX_ON_DISTRIBUTE_AMP     = 3;   // callback: onDistributeAmpState(AmpState) — kullanılmaz
+    private static final int TX_ON_DISTRIBUTE_TPMS    = 4;   // callback: onDistributeTpmsInfo(TPMSInfo)
+    private static final int TX_ON_DISTRIBUTE_AC      = 5;   // callback: onDistributeAcState(AirConditionState)
     // ICanRemote4OuterCallback kodları: 1=onDistributeRawData, 2=onDistributeCanData
 
     // Üçüncü-taraf erişim kimliği (servis doğruluyor → initSucess)
@@ -109,9 +123,28 @@ public final class NwdCanClient {
                     data.enforceInterface(DESC_CALLBACK);
                     byte[] frame = data.createByteArray();   // [B] doğrudan (null=boş)
                     logRawFrame(frame);
+                    onFrame(frame);
                 } catch (Throwable t) {
                     diag("onDistributeCanData parse hatası: " + t.getMessage());
                 }
+                if (reply != null) reply.writeNoException();
+                return true;
+            }
+            if (code == TX_ON_DISTRIBUTE_AC || code == TX_ON_DISTRIBUTE_TPMS) {
+                try {
+                    data.enforceInterface(DESC_CALLBACK);
+                    if (data.readInt() != 0) {             // AIDL parcelable null-flag
+                        if (code == TX_ON_DISTRIBUTE_AC) onAcState(data, "push");
+                        else                             onTpms(data);
+                    }
+                } catch (Throwable t) {
+                    diag((code == TX_ON_DISTRIBUTE_AC ? "onDistributeAcState" : "onDistributeTpmsInfo")
+                        + " parse hatası: " + t.getMessage());
+                }
+                if (reply != null) reply.writeNoException();
+                return true;
+            }
+            if (code == TX_ON_DISTRIBUTE_AMP) {
                 if (reply != null) reply.writeNoException();
                 return true;
             }
@@ -154,6 +187,14 @@ public final class NwdCanClient {
                 boolean c = registerCallback(TX_ADD_CANDATA_CB, "addCanDataCallBack");  // ham [B] akışı
                 registerOuterCallback();
                 if (a || b || c) diag("NWD CAN SDK init+callback OK — CarInfo/HAM akışı bekleniyor");
+                // Klima · lastik · kapı · radar · direksiyon açısı (yalnız dinleme kaydı).
+                registerCallback(TX_ADD_CAN_AC_CB,    "addCanAcCallBack");
+                registerCallback(TX_ADD_AIR_CB,       "addAirCallBack");
+                registerCallback(TX_ADD_TPMS_CB,      "addTpmsInfoCallBack");
+                registerCallback(TX_ADD_DOOR_CB,      "addDoorCallBack");
+                registerCallback(TX_ADD_RADAR_CB,     "addRadarCallBack");
+                registerCallback(TX_ADD_SWC_ANGLE_CB, "addSWCAngleCallBack");
+                queryAcState();
             }
         }
         @Override public void onServiceDisconnected(ComponentName name) {
@@ -262,6 +303,95 @@ public final class NwdCanClient {
         } finally {
             reply.recycle();
             data.recycle();
+        }
+    }
+
+    /** getAcState() — bağlanınca klimanın ANLIK durumunu bir kez okur (push beklemeden). */
+    private void queryAcState() {
+        IBinder f = _feature;
+        if (f == null) return;
+        Parcel data  = Parcel.obtain();
+        Parcel reply = Parcel.obtain();
+        try {
+            data.writeInterfaceToken(DESC_FEATURE);
+            f.transact(TX_GET_AC_STATE, data, reply, 0);
+            reply.readException();
+            if (reply.readInt() != 0) onAcState(reply, "getAcState");
+            else diag("getAcState → null (klima verisi yok)");
+        } catch (Throwable t) {
+            diag("getAcState hatası: " + t.getMessage());
+        } finally {
+            reply.recycle();
+            data.recycle();
+        }
+    }
+
+    // ── Klima / lastik / ham çerçeve kanalları ───────────────────────────────
+    // SAHA KEŞİF AŞAMASI: değerler henüz VehicleCanData'ya/JS'e AKTARILMAZ. Hangi alanın
+    // bu araçta (Megane 4 · Raise) gerçekten dolduğu ve neyi ifade ettiği cihazda
+    // doğrulanana dek yalnız DEĞİŞEN alanlar tanı günlüğüne yazılır (kanıtsız anlam yok).
+
+    private String[] _lastAc   = null;
+    private String[] _lastTpms = null;
+    private String   _lastDoor = null, _lastRadar = null;
+    private int      _lastAngle = Integer.MIN_VALUE;
+    private long     _lastAngleLogMs = 0;
+    private final boolean[] _seenFrameType = new boolean[256];
+
+    /** Tablo-güdümlü Parcel okuyucu — sıra NwdCanFrames tablolarındadır. */
+    private static String[] readFields(Parcel p, String[] table) {
+        String[] out = new String[table.length];
+        for (int i = 0; i < table.length; i++) {
+            switch (NwdCanFrames.typeOf(table[i])) {
+                case 'b': out[i] = Integer.toString(p.readByte());  break;
+                case 'f': out[i] = Float.toString(p.readFloat());   break;
+                case 'i': out[i] = Integer.toString(p.readInt());   break;
+                default:  out[i] = String.valueOf(p.readString());  break;
+            }
+        }
+        return out;
+    }
+
+    private synchronized void onAcState(Parcel p, String src) {
+        String[] cur = readFields(p, NwdCanFrames.AC_FIELDS);
+        String d = NwdCanFrames.diff(NwdCanFrames.AC_FIELDS, _lastAc, cur);
+        boolean first = _lastAc == null;
+        _lastAc = cur;
+        if (first) diag("Klima ilk durum (" + src + "): " + (d.isEmpty() ? "tüm alanlar 0" : d));
+        else if (!d.isEmpty()) diag("Klima değişti: " + d);
+    }
+
+    private synchronized void onTpms(Parcel p) {
+        String[] cur = readFields(p, NwdCanFrames.TPMS_FIELDS);
+        String d = NwdCanFrames.diff(NwdCanFrames.TPMS_FIELDS, _lastTpms, cur);
+        boolean first = _lastTpms == null;
+        _lastTpms = cur;
+        if (first) diag("Lastik ilk durum: " + (d.isEmpty() ? "tüm alanlar 0" : d));
+        else if (!d.isEmpty()) diag("Lastik değişti: " + d);
+    }
+
+    private synchronized void onFrame(byte[] frame) {
+        int type = NwdCanFrames.frameType(frame);
+        if (type < 0) return;
+        if (!_seenFrameType[type]) {
+            _seenFrameType[type] = true;
+            diag("Ham çerçeve tipi ilk kez görüldü: " + type + " (uzunluk " + frame.length + ")");
+        }
+        if (type == NwdCanFrames.TYPE_DOOR) {
+            String s = NwdCanFrames.decodeDoor(frame);
+            if (s != null && !s.equals(_lastDoor)) { _lastDoor = s; diag("Kapı: " + s); }
+        } else if (type == NwdCanFrames.TYPE_RADAR) {
+            String s = NwdCanFrames.decodeRadar(frame);
+            if (s != null && !s.equals(_lastRadar)) { _lastRadar = s; diag("Radar: " + s); }
+        } else if (type == NwdCanFrames.TYPE_SWC_ANGLE) {
+            int[] a = NwdCanFrames.decodeSwcAngle(frame);
+            long now = android.os.SystemClock.elapsedRealtime();
+            // Direksiyon dönerken sürekli değişir → 500 ms'de en fazla bir satır.
+            if (a != null && a[0] != _lastAngle && now - _lastAngleLogMs > 500L) {
+                _lastAngle = a[0];
+                _lastAngleLogMs = now;
+                diag("Direksiyon açısı: " + a[0] + " (ek " + a[1] + ", " + a[2] + ")");
+            }
         }
     }
 
