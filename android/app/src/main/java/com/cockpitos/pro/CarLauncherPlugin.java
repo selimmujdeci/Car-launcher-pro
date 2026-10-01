@@ -7378,6 +7378,8 @@ public class CarLauncherPlugin extends Plugin {
             result.put("versionCode", versionCode);
             result.put("versionName", info.versionName != null ? info.versionName : "");
             result.put("packageName", getContext().getPackageName());
+            // Debug APK'da OTA kapalıdır: test derlemesi sunucudaki yayınla SESSİZCE değiştirilmesin.
+            result.put("debugBuild", BuildConfig.DEBUG);
             call.resolve(result);
         } catch (Exception e) {
             android.util.Log.e("CarLauncherPlugin", "getAppVersionInfo hatası: " + e.getMessage());

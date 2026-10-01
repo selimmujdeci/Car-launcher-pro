@@ -24,6 +24,7 @@
     "guard": "vitest run src/__tests__/regression.guards.test.ts",
     "compat:verify": "node scripts/verify-webview-compat.mjs",
     "apk:safe": "npm run test && npm run build && npm run compat:verify && npx cap sync android && node scripts/gradle-build.mjs clean assembleDebug",
+    "apk:dev": "node scripts/apk-dev.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",

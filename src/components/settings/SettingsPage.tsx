@@ -36,6 +36,8 @@ import { MaintenancePanel } from '../obd/MaintenancePanel';
 import { FuelCalibrationPanel } from './FuelCalibrationPanel';
 import { VehicleClassSettings } from './VehicleClassSettings';
 import { AdasSettingsPanel } from './AdasSettingsPanel';
+import { getBuildStamp } from '../../platform/buildInfo';
+import { formatBuildStamp } from '../../utils/buildStamp';
 import { ExpertModePanel } from './ExpertModePanel';
 import { OfflineDataPanel } from './OfflineDataPanel';
 import { HomeWorkAddressPanel } from './HomeWorkAddressPanel';
@@ -1111,6 +1113,10 @@ function AboutTabContent() {
           <div>
             <div className="text-base font-black" style={{ color: 'var(--oem-ink)' }}>CockpitOS Pro</div>
             <div className="text-[11px] font-bold mt-0.5" style={{ color: 'var(--oem-ink-3)' }}>Araç içi infotainment sistemi</div>
+            {/* Derleme kimliği: cihazda gerçekten hangi commit'in çalıştığı (eski APK tuzağı). */}
+            <div className="text-[10px] font-bold mt-1 tabular-nums" data-testid="build-stamp" style={{ color: 'var(--oem-ink-3)' }}>
+              Derleme: {(() => { const b = getBuildStamp(); return b ? formatBuildStamp(b) : 'kimlik yok'; })()}
+            </div>
           </div>
           <div className="px-3 py-1.5 rounded-xl glass-card text-[11px] font-black tabular-nums" style={{ color: '#60a5fa' }}>v1.0</div>
         </div>

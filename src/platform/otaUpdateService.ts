@@ -256,6 +256,16 @@ export async function checkForUpdate(): Promise<void> {
     if (st === 'failed') _set({ state: 'idle', errorCode: null }); // yeniden dene
     _set({ state: 'checking', lastCheckTs: Date.now() });
 
+    /* DEBUG APK'DA OTA KAPALI: geliştirici/test derlemesi, sunucudaki yayınlanmış
+       (çoğunlukla ESKİ koddan derlenmiş) APK ile değiştirilirse cihaz testi sessizce
+       eski kodla yapılır. Kurulu paket debug ise sorgu YAPILMAZ. Eski APK'da alan
+       yoksa (undefined) mevcut davranış korunur. */
+    if ((await getAppVersionInfo())?.debugBuild === true) {
+      _set({ state: 'idle', release: null });
+      logInfo('[OTA] debug derleme — OTA kapalı');
+      return;
+    }
+
     const current = await getCurrentVersionCode();
     if (current <= 0) {
       _fail('ERR_VERSION_UNKNOWN');
