@@ -2265,7 +2265,7 @@ export async function processTextCommand(
   if (
     result.command &&
     result.command.type === 'trip_eco_score' &&
-    result.command.confidence >= AUTO_DISPATCH_MIN
+    result.command.confidence >= 0.7
   ) {
     _lastCommandTime = now;
     void reportVoiceDiag('voice_route', { route: 'eco_score_local_bypass' });
