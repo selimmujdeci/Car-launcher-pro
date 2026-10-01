@@ -1206,6 +1206,18 @@ class SystemBoot {
       run: () => { startRadarEngine(turkiyeStaticRadars); return stopRadarEngine; },
     });
 
+    // ADAS (Sürüş Destek): kamera tabanlı ön çarpışma / şerit / takip / kalkış.
+    /* DEFERABLE → AFTER_SHELL_INTERACTIVE. Varsayılan KAPALI; açıkken bile kamera
+       yalnız SÜRÜŞTE kiralanır (park/geri vites/SAFE_MODE'da bırakılır). Modül
+       TEMBEL yüklenir: kapalıyken görü/ADAS kodu ilk ekran paketine girmez ve
+       visionCore ↔ SystemBoot döngüsel import'u oluşmaz. */
+    _log('  › AdasRuntime → AFTER_SHELL_INTERACTIVE');
+    bootDeferral.schedule({
+      jobId: 'AdasRuntime', wave: 3, bootClass: 'DEFERABLE',
+      trigger: 'AFTER_SHELL_INTERACTIVE',
+      run: () => import('../adas/adasRuntime').then((m) => m.startAdasRuntime()),
+    });
+
     // CognitivePriorityEngine + LIMP_HOME izleyici
     _log('  › CognitivePriorityEngine');
     startCognitiveEngine();

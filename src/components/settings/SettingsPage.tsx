@@ -9,7 +9,7 @@ import {
   Cpu, Shield, ShieldCheck, Gauge, Settings2,
   Mic, Loader,
   Star, Users, Map as MapIcon, ChevronRight, Info, MessageCircle, AlertTriangle, type LucideIcon,
-  Home, Fuel,
+  Home, Fuel, ScanEye,
 } from 'lucide-react';
 import {
   sanitizeAssistantName, sanitizeUserCallsign, sanitizeWakePhrase,
@@ -35,6 +35,7 @@ import { setBrightness, setVolume, isSystemControlSupported } from '../../platfo
 import { MaintenancePanel } from '../obd/MaintenancePanel';
 import { FuelCalibrationPanel } from './FuelCalibrationPanel';
 import { VehicleClassSettings } from './VehicleClassSettings';
+import { AdasSettingsPanel } from './AdasSettingsPanel';
 import { getBuildStamp } from '../../platform/buildInfo';
 import { formatBuildStamp } from '../../utils/buildStamp';
 import { ExpertModePanel } from './ExpertModePanel';
@@ -1967,6 +1968,15 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
                     sub="Hız sınırı kartı bu sınıfa göre hesaplanır" color="#60a5fa" />
                 </div>
                 <VehicleClassSettings />
+              </Panel>
+
+              {/* ── Sürüş Destek (ADAS · kamera) ── */}
+              <Panel accent="#34d399">
+                <div className="mb-3">
+                  <SectionTitle icon={ScanEye} title="Sürüş Destek (ADAS)"
+                    sub="Ön çarpışma · şerit · takip mesafesi · USB kamera" color="#34d399" />
+                </div>
+                <AdasSettingsPanel />
               </Panel>
 
               {/* ── Araç Profilleri ── */}

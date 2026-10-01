@@ -51,6 +51,27 @@ Hız eşiği notu: `speed` km/h. `MOVING = speed > 5 km/h` (GPS jitter + CAN gü
 > "emin değilsen yanlış alarm verme" tercih edilir; kritik sıcaklık gibi durumlarda son
 > geçerli değer kısa süre korunur, satır bazında yukarıda belirtildi).
 
+### 1.1 ADAS (kamera) kuralları
+
+Kaynak `adasStore` (tek otorite) → `safetyStateMapper` (`opts.adas`). İz/histerezis/eşik
+kararları ADAS modellerindedir (`adasCollisionModel`, `adasLaneModel`); kural motoru yalnız
+**tazelik** ve **geri vites** kapısını uygular. Kamera sinyali **damgasızsa uyarı YOK**
+(fail-closed); ego hız bayat/bilinmiyorsa ADAS modelleri zaten uyarı üretmez.
+
+| # | rule id | Koşul (model tarafı) | Seviye | Ekran | Asistan ne der | Tekrar | Stale |
+|---|---------|----------------------|--------|-------|----------------|--------|-------|
+| A1 | `adas.forward_collision` | ölçek-değişimi TTC ≤ 2.2 sn (erken 2.7 / geç 1.7), iz ≥ 4 kare, ego ≥ 10 km/sa, 2 ardışık değerlendirme | **critical · öncelik 110** | kırmızı bant | "Fren! Öndeki araç çok yakın." | 3 sn'de 1, max 3 | > 600 ms → pasif |
+| A2 | `adas.lane_departure.left/.right` | tekerlek–çizgi boşluğu ≤ 0.15 m, çizgiye doğru 0.1–0.9 m/s (sinyal bilgisi yoksa üst sınır), o yöne sinyal yok, ego ≥ 60 km/sa | warning · 68 | amber bant + yön | "Sola/Sağa kayıyorsunuz, şeridinizi koruyun." | olay başına 1 | > 600 ms → pasif |
+| A3 | `adas.headway` | takip aralığı < 0.8 sn **≥ 3 sn sürekli**, ego ≥ 40 km/sa, **yalnız metrik kalibrasyonda** | warning · 65 | amber bant | "Takip mesafesi kısa, mesafeyi açın." | 30 sn'de 1, max 2 | > 600 ms → pasif |
+| A4 | `adas.lead_departure` | ego ≥ 2 sn duruyor, öndeki aracın görüntü genişliği %25+ küçüldü (uzaklaştı), ego hâlâ duruyor | warning · 40 | amber bant | "Öndeki araç hareket etti." | olay başına 1 | > 600 ms → pasif |
+
+- **Öncelik istisnası (A1):** saniyeler içinde çarpışma riski, statik tablonun tüm critical
+  kurallarının (motor hararet dahil) önüne geçer — P0 preemption
+  (`CAROS_VEHICLE_INTELLIGENCE_ARCHITECTURE` §I.5).
+- **§3.3 "durunca sessiz" istisnası (A4):** kalkış bildirimi doğası gereği araç dururken
+  verilir; tek seferlik, en düşük öncelikli warning'dir ve kullanıcı kapatabilir.
+- **Geri vites:** tüm ADAS kuralları pasif; ADAS kamerası da bırakılır.
+
 ---
 
 ## 2. Öncelik Sistemi

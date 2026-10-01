@@ -1717,6 +1717,14 @@ export interface CarLauncherPlugin {
   addListener(event: 'videoError',     handler: (data: { error: string }) => void): Promise<PluginListenerHandle>;
   addListener(event: 'videoClosed',    handler: (data: Record<string, never>) => void): Promise<PluginListenerHandle>;
 
+  /**
+   * Yol kamerası tanısı (ADAS/AR) — SALT OKUR: kamerayı açmaz, izin istemez.
+   * Camera2 kimlikleri ile USB video (UVC) cihazları yan yana döner; UVC takılı
+   * ama Camera2'de HARİCİ kamera yoksa cihaz yazılımı harici kamerayı desteklemiyordur.
+   */
+  getCameraDiagnostics?(): Promise<NativeCameraDiagnostics>;
+  addListener(event: 'usbCameraChanged', handler: (data: NativeUsbVideoDevice & { attached: boolean }) => void): Promise<PluginListenerHandle>;
+
   // Camera2 API — geri görüş kamerası (CAMERA permission required)
   openCamera(options: { facing: 'back' | 'front' }): Promise<{ cameraId: string }>;
   closeCamera(): Promise<void>;
@@ -2423,6 +2431,28 @@ export interface CanIdConfig {
   chassis:  number;  // Şasi bayrak  (varsayılan: 0x0C0)
   // Gövde bayrakları (el freni/kemer/silecek/klima/seyir)
   body:     number;  // Gövde bayrak (varsayılan: 0x3D0)
+}
+
+/** USB veri yolundaki video sınıfı (UVC, 0x0E) cihaz. Seri numarası OKUNMAZ. */
+export interface NativeUsbVideoDevice {
+  vendorId: number;
+  productId: number;
+  name: string;
+  manufacturer: string;
+  hasPermission: boolean;
+}
+
+export interface NativeCameraDiagnostics {
+  featureCameraAny: boolean;
+  featureExternalCamera: boolean;
+  featureUsbHost: boolean;
+  sdkInt: number;
+  cameras: Array<{
+    id: string;
+    facing: 'back' | 'front' | 'external' | 'unknown';
+    hardwareLevel: 'legacy' | 'limited' | 'full' | 'level3' | 'external' | 'unknown';
+  }>;
+  usbVideoDevices: NativeUsbVideoDevice[];
 }
 
 /** CAN sniffer'dan gelen ham frame — teşhis/yapılandırma için */

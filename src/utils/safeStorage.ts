@@ -145,6 +145,7 @@ const LRU_PROTECTED = new Set<string>([
    * Snapshot'ın tüm amacı çökme/yeniden başlatma sonrası TAZE son değeri
    * verebilmek olduğundan, bu anahtar kritik katmanda olmalıdır. */
   'car-can-snapshot',
+  'car-adas-v1',              // ADAS ayarları + kamera başına kalibrasyon (yeniden öğrenmesi dakikalar sürer)
 ]);
 
 /**
@@ -194,6 +195,7 @@ const _SAFETY_DEBOUNCE_KEYS = new Set<string>([
    * pakette yine yazılır) ve `stopOBD`/`pagehide` yolunda `flushCanSnapshotNow`
    * tamponu zaten bypass ederek anında mühürler. */
   'car-can-snapshot',
+  'car-adas-v1',                   // ADAS ayar anahtarları / kalibrasyon kaydırıcı burst'ları
 ]);
 
 /* ── CacheStorage temizleyici (best-effort) ──────────────────── */

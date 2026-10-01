@@ -9,6 +9,7 @@
  */
 
 import { create } from 'zustand';
+import type { AdasFrameDetections } from './adas/adasTypes';
 
 /* ── Types ───────────────────────────────────────────────────────── */
 
@@ -51,6 +52,10 @@ export interface VisionFrame {
   lateralOffsetM: number | null;
   processingMs: number;
   timestamp: number;
+  /** ADAS algılama eki — yalnız ADAS kamerayı kiralamışken üretilir. */
+  adas?: AdasFrameDetections | null;
+  /** Karenin yakalandığı an (performance.now) — ADAS zaman türevleri için. */
+  captureMonoMs?: number;
 }
 
 export interface VisionStore {
