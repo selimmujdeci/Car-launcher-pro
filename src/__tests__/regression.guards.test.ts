@@ -988,6 +988,23 @@ describe('Head unit yatay rotasyon kilidi (native sistem rotasyon)', () => {
 });
 
 /* ───────────────────────────────────────────────────────────────
+   8b. DİKEY PANELLİ HEAD UNIT — "Telefonu Yatay Tutun" perdesi kilit olmamalı
+   Regresyon (saha 2026-10-01): fiziksel DİKEY panel (768×1024, Tesla tipi),
+   firmware dikeyi zorluyor; `ro.boot.nwd.orientation` yok → 8. maddedeki
+   rotasyon kilidi devreye girmiyor. App.tsx perdesi tüm arayüzü örtüyordu ve
+   cihaz döndürülemediği için uygulama perdede kalıyordu. Native APK'da
+   `sensorLandscape` döndürülebilen her cihazı zaten yataya alır → native'de
+   dikey = çevrilemeyen panel → perde YALNIZ tarayıcıda gösterilir.
+   ─────────────────────────────────────────────────────────────── */
+describe('Dikey panel — yatay tutun perdesi native APK\'da gösterilmez', () => {
+  it('YAPISAL: perde koşulu !isNative içerir (tarayıcıda uyarı kalır)', () => {
+    const src = read('src/App.tsx');
+    expect(src).toMatch(/isPortrait\s*&&\s*!isNative\s*&&/);
+    expect(src).toMatch(/Telefonu Yatay Tutun/);
+  });
+});
+
+/* ───────────────────────────────────────────────────────────────
    Donanım geri tuşu köprüsü — event adı/hedefi EŞLEŞMELİ
    Regresyon: MainActivity.onBackPressed → triggerWindowJSEvent(
    "carlauncherBackButton") window'da yolluyordu; MainLayout ise

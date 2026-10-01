@@ -222,8 +222,12 @@ function App() {
         {!storeReverse && <SentryOverlay />}
         {!storeReverse && <GeofenceAlarmOverlay />}
 
-        {/* Portrait mod uyarısı — geri vites aktifken gösterme */}
-        {isPortrait && !storeReverse && navOrientation !== 'FULL_SENSOR' && (
+        {/* Portrait mod uyarısı — YALNIZ tarayıcıda (web/PWA): orada kullanıcı cihazı
+            çevirebilir. Native APK'da manifest `sensorLandscape` döndürülebilen her cihazı
+            zaten yataya alır; buna rağmen dikeyse panel fiziksel olarak dikeydir (ör. 768×1024
+            Tesla tipi head unit) ya da firmware dikeyi zorluyordur → perde kullanıcıya hiçbir
+            çıkış bırakmayan bir kilit olurdu. Geri vites aktifken de gösterme. */}
+        {isPortrait && !isNative && !storeReverse && navOrientation !== 'FULL_SENSOR' && (
           <div style={{
             position: 'fixed', inset: 0, zIndex: 99999,
             background: 'rgba(5,10,20,0.97)',
