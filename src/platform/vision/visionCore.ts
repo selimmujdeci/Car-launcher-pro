@@ -385,6 +385,21 @@ export function disableVision(): void { _fullStop(); _set({ state: 'disabled' })
 /** Kamerayı şu an kiralayan sahipler (tanı / test). */
 export function getVisionOwners(): readonly VisionOwner[] { return [..._owners]; }
 
+/**
+ * Açık akışı SALT GÖSTERİM için bir video öğesine bağlar — kira ALMAZ, kamerayı
+ * açık tutmaz (ör. Sürüş Asistanı ayarlarındaki canlı önizleme). Akış yoksa
+ * no-op. Akış yeniden açılırsa (kamera değişimi) çağıran yeniden bağlamalıdır.
+ */
+export function attachVisionPreview(el: HTMLVideoElement): () => void {
+  const s = _stream;
+  if (!s) return () => { /* bağlanacak akış yoktu */ };
+  el.srcObject = s;
+  el.muted = true;
+  el.playsInline = true;
+  void el.play().catch(() => { /* gösterim opsiyonel */ });
+  return () => { if (el.srcObject === s) el.srcObject = null; };
+}
+
 /** İşleme video öğesi — dedektör kare örneklemesi için (salt okuma). */
 export function getVisionVideoElement(): HTMLVideoElement | null { return _videoEl; }
 

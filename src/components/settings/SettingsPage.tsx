@@ -10,6 +10,7 @@ import {
   Mic, Loader,
   Star, Users, Map as MapIcon, ChevronRight, Info, MessageCircle, AlertTriangle, type LucideIcon,
   Home, Fuel,
+  ScanEye,
 } from 'lucide-react';
 import {
   sanitizeAssistantName, sanitizeUserCallsign, sanitizeWakePhrase,
@@ -38,6 +39,7 @@ import { VehicleClassSettings } from './VehicleClassSettings';
 import { ExpertModePanel } from './ExpertModePanel';
 import { OfflineDataPanel } from './OfflineDataPanel';
 import { HomeWorkAddressPanel } from './HomeWorkAddressPanel';
+import { AdasSettingsPanel } from './AdasSettingsPanel';
 import i18n from '../../i18n/config';
 import { MobileLinkWidget } from './MobileLinkWidget';
 import { CarOsConnectionPriorityCard } from './CarOsConnectionPriorityCard';
@@ -1528,8 +1530,8 @@ interface Props {
    her ayar kendi konusunun sekmesinde. 'general' (Genel Bakış: parlaklık, ses,
    navigasyon, asistan, bağlantı karışıktı) ve 'performance' ("Sürüş Asistanı" adlı
    ama güç profili/donanım içeren) KALDIRILDI; kayıtlı eski değer yakın sekmeye döner. */
-type Tab = 'appearance' | 'sound' | 'navigation' | 'assistant' | 'maintenance' | 'connect' | 'profiles' | 'about';
-const TAB_IDS: Tab[] = ['appearance', 'sound', 'navigation', 'assistant', 'maintenance', 'connect', 'profiles', 'about'];
+type Tab = 'appearance' | 'sound' | 'navigation' | 'assistant' | 'adas' | 'maintenance' | 'connect' | 'profiles' | 'about';
+const TAB_IDS: Tab[] = ['appearance', 'sound', 'navigation', 'assistant', 'adas', 'maintenance', 'connect', 'profiles', 'about'];
 const LEGACY_TAB: Record<string, Tab> = { general: 'appearance', performance: 'about' };
 const TAB_STORAGE_KEY = 'caros.settings.tab';
 
@@ -1557,7 +1559,7 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
     const SECTION_TO_TAB: Record<string, Tab> = {
       'gemini-qr': 'assistant', 'assistant': 'assistant', 'sound': 'sound', 'appearance': 'appearance',
       'profiles': 'profiles', 'navigation': 'navigation', 'maintenance': 'maintenance',
-      'connect': 'connect', 'about': 'about',
+      'connect': 'connect', 'about': 'about', 'adas': 'adas',
     };
     return registerSettingsFocus((section) => {
       const target = SECTION_TO_TAB[section];
@@ -1624,6 +1626,7 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
     { id: 'sound'       as Tab, label: 'Ses',              Icon: Volume2,       color: '#a78bfa' },
     { id: 'navigation'  as Tab, label: 'Navigasyon',       short: 'Harita', Icon: MapIcon,       color: '#60a5fa' },
     { id: 'assistant'   as Tab, label: 'Asistan',          Icon: MessageCircle, color: '#22d3ee' },
+    { id: 'adas'        as Tab, label: 'Sürüş Asistanı',   short: 'ADAS',   Icon: ScanEye,       color: '#38bdf8' },
     { id: 'maintenance' as Tab, label: 'Araç',             Icon: Gauge,         color: '#34d399' },
     { id: 'connect'     as Tab, label: 'Bağlantı',         Icon: Wifi,          color: '#22d3ee' },
     { id: 'profiles'    as Tab, label: 'Profiller',        Icon: Star,          color: '#fb923c' },
@@ -1895,6 +1898,15 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
                 <CompanionPanel />
               </Panel>
 
+            </div>
+          )}
+
+          {tab === 'adas' && (
+            <div className="flex flex-col gap-4 mx-auto w-full" style={{ maxWidth: 760 }}>
+              <Panel accent="#38bdf8">
+                <SectionTitle icon={ScanEye} title="Sürüş Asistanı" sub="Şerit, çarpışma ve takip mesafesi uyarıları" color="#38bdf8" />
+                <AdasSettingsPanel Toggle={PremiumToggle} />
+              </Panel>
             </div>
           )}
 
