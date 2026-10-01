@@ -2085,6 +2085,8 @@ export interface CarLauncherPlugin {
   getBluetoothPhones?(): Promise<{
     state: 'NO_ADAPTER' | 'NO_PERMISSION' | 'OFF' | 'ON';
     phones?: Array<{ name: string; connected?: boolean }>;
+    /** Yalnız OFF'ta: sistem Bluetooth ayarı açık mı (açıksa radyo üreticinin modülünde). */
+    systemSettingOn?: boolean;
   }>;
   /** Telefonun interneti Bluetooth (PAN) ile — `state` ölçülür; UNSUPPORTED = ünite izin vermiyor. */
   getPhoneInternet?(): Promise<{ enabled: boolean; state: PhoneInternetState }>;

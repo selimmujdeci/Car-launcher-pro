@@ -43,6 +43,40 @@ export interface PhoneHubLinkPreconditionsRaw {
   ready?: boolean;
   blockerCode?: string | null;
   connectPermission?: boolean;
+  /** Hibrit native: Bluetooth ya da Wi-Fi'den en az biri dinliyor mu. */
+  anyTransportListening?: boolean;
+}
+
+/** Hibrit native — Bluetooth RFCOMM yolu (ölçüldüğü gibi). */
+export interface PhoneHubLinkBluetoothTransportRaw {
+  running?: boolean;
+  state?: string;
+  blockerCode?: string | null;
+  /** Sistem Bluetooth ayarı; okunamadıysa null. */
+  systemSettingOn?: boolean | null;
+  /** Ayar "açık" ama Android yığını açılamıyor → radyo üreticinin modülünde olabilir. */
+  stackUnavailableSuspected?: boolean;
+}
+
+/** Hibrit native — yerel Wi-Fi (TCP) yolu. */
+export interface PhoneHubLinkWifiTransportRaw {
+  running?: boolean;
+  state?: string;
+  port?: number;
+  localAddresses?: string[];
+  acceptedCount?: number;
+  rejectedNonLocal?: number;
+  rejectedSecondClient?: number;
+  beaconsSent?: number;
+  lastErrorCode?: string | null;
+}
+
+export interface PhoneHubLinkTransportsRaw {
+  bluetooth?: PhoneHubLinkBluetoothTransportRaw;
+  wifi?: PhoneHubLinkWifiTransportRaw;
+  /** Etkin oturumun taşıması. */
+  active?: 'BLUETOOTH' | 'WIFI' | null;
+  rejectedCrossTransport?: number;
 }
 
 export interface PhoneHubLinkIdentityRaw {
@@ -126,6 +160,8 @@ export interface PhoneHubLinkSnapshotRaw {
   uuidDistinctFromObdSpp?: boolean;
   server?: PhoneHubLinkServerRaw;
   preconditions?: PhoneHubLinkPreconditionsRaw;
+  /** Hibrit native'de var; eski APK'da yok (o zaman yalnız Bluetooth vardır). */
+  transports?: PhoneHubLinkTransportsRaw;
   identity?: PhoneHubLinkIdentityRaw;
   trust?: PhoneHubLinkTrustRaw;
   session?: PhoneHubLinkSessionRaw | null;
@@ -183,7 +219,14 @@ export interface PhoneHubLinkStateEvent {
 }
 
 export interface PhoneHubLinkPlugin {
-  startServer(): Promise<{ started: boolean; errorCode?: string; userMessage?: string }>;
+  /**
+   * Hibrit sunucu (Bluetooth + yerel Wi-Fi). `askPermission:false` → Android
+   * 12+'da Bluetooth izni İSTENMEZ; izin yoksa yalnız Wi-Fi açılır.
+   */
+  startServer(options?: { askPermission?: boolean }): Promise<{
+    started: boolean; errorCode?: string; userMessage?: string;
+    bluetoothListening?: boolean; wifiListening?: boolean;
+  }>;
   stopServer(): Promise<{ stopped: boolean }>;
   disconnectSession(): Promise<{ disconnected: boolean }>;
   getPairingCode(): Promise<{ awaiting: boolean; code?: string }>;
@@ -206,6 +249,19 @@ export interface PhoneHubLinkPlugin {
   addListener(
     eventName: 'linkState',
     listener: (event: PhoneHubLinkStateEventRaw) => void,
+  ): Promise<PluginListenerHandle>;
+
+  /* ── TELEFON ROLÜ (aynı CarOS Pro telefonda) — bkz. phoneHubClient.ts ── */
+  clientConnect?(options?: { askPermission?: boolean }): Promise<{ started: boolean }>;
+  clientDisconnect?(): Promise<{ disconnected: boolean }>;
+  getClientSnapshot?(): Promise<Record<string, unknown>>;
+  getClientPairingCode?(): Promise<{ awaiting: boolean; code?: string }>;
+  confirmClientPairing?(options: { accepted: boolean }): Promise<{ applied: boolean; accepted: boolean }>;
+  forgetTrustedCar?(): Promise<{ forgotten: boolean }>;
+  sendClientApplicationMessage?(options: { payload: string }): Promise<{ sent: boolean }>;
+  addListener(
+    eventName: 'clientState',
+    listener: (event: { phase?: string }) => void,
   ): Promise<PluginListenerHandle>;
 }
 
@@ -475,10 +531,17 @@ async function _invoke(
   }
 }
 
-/** Sunucuyu başlatır. İzin gerekirse native tarafta kullanıcıya sorulur. */
-export function startPhoneHubServer(): Promise<PhoneHubLinkActionResult> {
+/**
+ * Hibrit sunucuyu başlatır (Bluetooth + yerel Wi-Fi). `askPermission` false
+ * ise Bluetooth izni İSTENMEZ (açılış yolu); kullanıcı eyleminde true.
+ */
+export function startPhoneHubServer(
+  options: { askPermission?: boolean } = {},
+): Promise<PhoneHubLinkActionResult> {
+  const fn = PhoneHubLink?.startServer;
+  if (typeof fn !== 'function') return Promise.resolve(ACTION_UNAVAILABLE);
   return _invoke(
-    PhoneHubLink?.startServer?.bind(PhoneHubLink),
+    () => PhoneHubLink.startServer({ askPermission: options.askPermission !== false }),
     (v) => (v as { started?: boolean } | null)?.started === true,
   );
 }

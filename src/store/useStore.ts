@@ -333,6 +333,11 @@ export interface AppSettings {
    * RuntimeMode değeri → kullanıcı zorlaması (ayarlar ekranı).
    */
   runtimeOverride: RuntimeOverride;
+  /**
+   * Phone Link rolü — aynı CarOS Pro araçta SUNUCU, telefonda İSTEMCİ.
+   * 'auto': head unit tespiti + ekran boyutundan önerilir (phoneLinkDeviceRole).
+   */
+  phoneLinkRole: 'auto' | 'car' | 'phone';
 }
 
 export interface MusicFavorite {
@@ -490,6 +495,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   companionWakePhrase: DEFAULT_WAKE_PHRASE,
   companionWakeEnrollment: [],
   runtimeOverride: 'AUTO',
+  phoneLinkRole: 'auto',
 };
 
 /** Sürücü avatar renkleri — sırayla atanır. */
