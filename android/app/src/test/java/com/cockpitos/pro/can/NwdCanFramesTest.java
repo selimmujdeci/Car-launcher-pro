@@ -110,4 +110,20 @@ public class NwdCanFramesTest {
         assertEquals("", NwdCanFrames.diff(table,
             new String[]{ "1", "22.0", "x" }, new String[]{ "1", "22.0", "x" }));
     }
+
+    @Test
+    public void diffWords_ilkDurumSifirlariAtlar_degisenleriYazar() {
+        int f22 = Float.floatToIntBits(22.0f);
+        assertEquals("#1=" + f22 + "(f=22.0)", NwdCanFrames.diffWords(null, new int[]{ 0, f22, 0 }, null));
+        assertEquals("#0 0→850 #2 1→0", NwdCanFrames.diffWords(
+                new int[]{ 0, 5, 1 }, new int[]{ 850, 5, 0 }, null));
+        assertEquals("", NwdCanFrames.diffWords(new int[]{ 1, 2 }, new int[]{ 1, 2 }, null));
+    }
+
+    @Test
+    public void diffWords_skipliSozcukYazilmaz_uzayanParcelKacmaz() {
+        assertEquals("#1 2→3", NwdCanFrames.diffWords(
+                new int[]{ 0, 2 }, new int[]{ 9, 3 }, new boolean[]{ true, false }));
+        assertEquals("#2 ?→7", NwdCanFrames.diffWords(new int[]{ 1, 2 }, new int[]{ 1, 2, 7 }, null));
+    }
 }

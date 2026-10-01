@@ -111,7 +111,12 @@ public final class NwdCanClient {
                 try {
                     data.enforceInterface(DESC_CALLBACK);
                     int present = data.readInt();          // AIDL parcelable null-flag
-                    if (present != 0) parseCarInfo(data);
+                    if (present != 0) {
+                        int pos = data.dataPosition();
+                        parseCarInfo(data);
+                        data.setDataPosition(pos);
+                        onCarInfoWords(data, pos);
+                    }
                 } catch (Throwable t) {
                     diag("onDistributeCarInfo parse hatası: " + t.getMessage());
                 }
@@ -341,6 +346,36 @@ public final class NwdCanClient {
     private final boolean[] _seenFrameType = new boolean[256];
     private final String[]  _lastSetting   = new String[256];  // ayar tipi → son veri (tip 11)
     private final String[]  _lastPayload   = new String[256];  // çözülmemiş tipler → son veri
+
+    // CarInfo KEŞİF: parseCarInfo 142 alandan ~10'unu okur; kalanı (tüketim, süre, kemer…)
+    // hiç görülmüyordu. Parcel'in tamamı sözcük sözcük karşılaştırılır, değişen her alan
+    // yazılır. Sürekli değişenler (hız, devir) sözcük başına 1 sn'de en fazla bir kez.
+    private int[]  _lastCarWords = null;
+    private long[] _carWordLogMs = new long[0];
+
+    private synchronized void onCarInfoWords(Parcel p, int pos) {
+        int n = Math.max(0, (p.dataSize() - pos) / 4);
+        int[] cur = new int[n];
+        for (int i = 0; i < n; i++) cur[i] = p.readInt();
+        if (_carWordLogMs.length != n) _carWordLogMs = new long[n];
+        long now = android.os.SystemClock.elapsedRealtime();
+        boolean[] skip = new boolean[n];
+        int[] prev = _lastCarWords;
+        for (int i = 0; i < n; i++) {
+            boolean changed = prev != null && (i >= prev.length || prev[i] != cur[i]);
+            if (changed && now - _carWordLogMs[i] < 1000L) skip[i] = true;
+        }
+        String d = NwdCanFrames.diffWords(prev, cur, skip);
+        // Atlanan sözcüklerin eski değeri korunur → bir sonraki farkta kaçmaz.
+        int[] keep = cur.clone();
+        for (int i = 0; i < n; i++) {
+            if (skip[i] && prev != null && i < prev.length) keep[i] = prev[i];
+            else if (prev == null || i >= prev.length || prev[i] != cur[i]) _carWordLogMs[i] = now;
+        }
+        _lastCarWords = keep;
+        if (prev == null) diag("CarInfo ilk durum (" + n + " sözcük): " + (d.isEmpty() ? "tümü 0" : d));
+        else if (!d.isEmpty()) diag("CarInfo değişti: " + d);
+    }
 
     /** Tablo-güdümlü Parcel okuyucu — sıra NwdCanFrames tablolarındadır. */
     private static String[] readFields(Parcel p, String[] table) {

@@ -91,6 +91,37 @@ final class NwdCanFrames {
         return sb.toString().trim();
     }
 
+    /**
+     * CarInfo Parcel'inin TÜM 4-baytlık sözcüklerini karşılaştırır (142 alan; Parcel'de
+     * int/float/byte hepsi 4 bayt → sözcük i ≈ alan i+1). Değişen sözcük: "#i a→b".
+     * Değer float olarak anlamlıysa (sonlu, 1e-3..1e6) "(f=x)" eklenir — tip kanıtsız.
+     * {@code skip[i]} true olan sözcükler atlanır (hız sınırı çağıranda).
+     */
+    static String diffWords(int[] prev, int[] cur, boolean[] skip) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < cur.length; i++) {
+            if (skip != null && i < skip.length && skip[i]) continue;
+            int now = cur[i];
+            if (prev == null) {
+                if (now == 0) continue;
+                sb.append('#').append(i).append('=').append(word(now)).append(' ');
+            } else if (i >= prev.length || prev[i] != now) {
+                sb.append('#').append(i).append(' ')
+                  .append(i < prev.length ? word(prev[i]) : "?").append("→").append(word(now)).append(' ');
+            }
+        }
+        return sb.toString().trim();
+    }
+
+    static String word(int w) {
+        float f = Float.intBitsToFloat(w);
+        float a = Math.abs(f);
+        if (w != 0 && !Float.isNaN(f) && !Float.isInfinite(f) && a >= 1e-3f && a <= 1e6f) {
+            return w + "(f=" + f + ")";
+        }
+        return Integer.toString(w);
+    }
+
     static boolean isDefault(String v) {
         return v == null || v.isEmpty() || "0".equals(v) || "0.0".equals(v) || "null".equals(v);
     }
