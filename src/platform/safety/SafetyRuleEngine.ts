@@ -45,6 +45,9 @@ const SAFETY_CONFIG = {
   // Stale süreler (ms)
   STALE_GENERAL: 2000,      // genel sinyal stale süresi
   STALE_COOLANT: 10000,     // coolantTemp için uzatılmış stale süresi (SAFETY_STANDARD §1, #7)
+  /* ADAS sinyali kamera karesiyle tazelenir (≥ 5 Hz kalp atışı). 600 ms'den eski
+     sinyal donmuş kamera / durmuş runtime demektir → uyarı DÜŞER (fail-closed). */
+  STALE_ADAS: 600,
 } as const;
 
 // ── Yardımcı fonksiyonlar ────────────────────────────────────────────────────
@@ -328,6 +331,30 @@ export function evaluateSafetyRules(
       20,
       now,
     ));
+  }
+
+  // ── Kural 11–14: Sürüş Asistanı (ADAS) ───────────────────────────────────
+  // Karar `adasRuntime`ta (tek otorite; histerezis/onay/bekleme orada). Burada
+  // YALNIZ sunum önceliği verilir. Çarpışma en zamana-duyarlı uyarıdır: 100
+  // (eşitlikte ruleId sırasıyla motor ısısının ÖNÜNDE). ADAS yalnız UYARIR.
+  const adasFresh = (key: 'adasForward' | 'adasLane' | 'adasLeadDeparted'): boolean =>
+    !isStale(key, updatedAt, now, SAFETY_CONFIG.STALE_ADAS);
+
+  if (state.adasForward === 'collision' && adasFresh('adasForward')) {
+    alerts.push(makeAlert('adas.fcw', 'critical', 'Öndeki araca dikkat!', 'collision', 'banner', 100, now));
+  }
+  if (state.adasForward === 'headway' && adasFresh('adasForward')) {
+    alerts.push(makeAlert('adas.headway', 'warning', 'Takip mesafesi çok kısa.', 'headway', 'banner', 66, now));
+  }
+  if ((state.adasLane === 'left' || state.adasLane === 'right') && adasFresh('adasLane')) {
+    alerts.push(makeAlert(
+      'adas.ldw', 'warning',
+      state.adasLane === 'left' ? 'Soldaki şeride kayıyorsunuz.' : 'Sağdaki şeride kayıyorsunuz.',
+      state.adasLane === 'left' ? 'laneLeft' : 'laneRight', 'banner', 64, now,
+    ));
+  }
+  if (state.adasLeadDeparted === true && adasFresh('adasLeadDeparted')) {
+    alerts.push(makeAlert('adas.lead_departed', 'warning', 'Öndeki araç hareket etti.', 'leadDeparted', 'banner', 42, now));
   }
 
   // ── Çıktı sıralaması ─────────────────────────────────────────────────────

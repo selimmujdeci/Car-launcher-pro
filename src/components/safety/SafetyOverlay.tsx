@@ -32,6 +32,11 @@ import {
   Lightbulb,
   ShieldAlert,
   Thermometer,
+  CarFront,
+  ArrowUpToLine,
+  ArrowLeftToLine,
+  ArrowRightToLine,
+  MoveUp,
 } from 'lucide-react';
 import type { LucideProps } from 'lucide-react';
 import type { ComponentType, ReactElement } from 'react';
@@ -50,6 +55,12 @@ const ICON_MAP: Record<string, ComponentType<LucideProps>> = {
   fuel:         Fuel,
   battery:      BatteryWarning,
   reverse:      Camera,
+  /* Sürüş Asistanı (ADAS) */
+  collision:    CarFront,
+  headway:      ArrowUpToLine,
+  laneLeft:     ArrowLeftToLine,
+  laneRight:    ArrowRightToLine,
+  leadDeparted: MoveUp,
 };
 
 function resolveIcon(iconKey: string): ComponentType<LucideProps> {

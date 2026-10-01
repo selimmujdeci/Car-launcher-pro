@@ -70,6 +70,13 @@ export interface SafetyVehicleState {
   oilWarning?: boolean | null;
   /** Gece/karanlık algısı (saat + ortam ışığı füzyonu). */
   isDark?: boolean | null;
+  /* ── Sürüş Asistanı (ADAS) — tek yazar `adasRuntime`; yalnız UYARI ── */
+  /** Şerit ayrılma yönü. null/undefined = uyarı yok ya da ADAS kapalı. */
+  adasLane?: 'left' | 'right' | null;
+  /** Öndeki araç: çarpışma riski ya da kısa takip mesafesi. */
+  adasForward?: 'collision' | 'headway' | null;
+  /** Durunca öndeki araç hareket etti. */
+  adasLeadDeparted?: boolean | null;
 }
 
 // ── Stale damga haritası ─────────────────────────────────────────────────────

@@ -46,6 +46,12 @@ const QUEUE_CONFIG: Record<string, QueueRuleConfig> = {
   'low_fuel':                   { debounceMs: 0,    repeatSec: 0,  maxRepeats: 1  },
   'battery_or_oil.warning':     { debounceMs: 0,    repeatSec: 60, maxRepeats: 99 },
   'park.door.open':             { debounceMs: 800,  repeatSec: 0,  maxRepeats: 0  },
+  /* ADAS — onay/histerezis modelde yapılır, burada ek gecikme YOK (FCW'de her
+     milisaniye sürücünündür). Çarpışma sürdükçe 3 sn arayla en çok 3 kez. */
+  'adas.fcw':                   { debounceMs: 0,    repeatSec: 3,  maxRepeats: 3  },
+  'adas.headway':               { debounceMs: 0,    repeatSec: 20, maxRepeats: 2  },
+  'adas.ldw':                   { debounceMs: 0,    repeatSec: 0,  maxRepeats: 1  },
+  'adas.lead_departed':         { debounceMs: 0,    repeatSec: 0,  maxRepeats: 1  },
 } as const;
 
 /** Konfigürasyonda bulunmayan kural ID'leri için varsayılan değerler. */

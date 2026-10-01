@@ -1150,6 +1150,12 @@ export interface CarLauncherPlugin {
    * Okunamayan bölgede `tempC` alanı HİÇ GELMEZ — sahte sıcaklık üretilmez.
    */
   readThermal(): Promise<NativeThermalResult>;
+  /**
+   * Sürüş Asistanı kamera tanısı (SALT OKUMA): USB veri yolundaki görüntü
+   * sınıfı (UVC, class 14) cihazlar + Android'in sunduğu Camera2 kameraları +
+   * cihazın harici kamera özelliği. İzin istemez, kamera AÇMAZ.
+   */
+  listCameraHardware(): Promise<NativeCameraHardware>;
   launchApp(options: LaunchAppOptions): Promise<void>;
   getApps(): Promise<GetAppsResult>;
   getDeviceStatus(): Promise<NativeDeviceStatus>;
@@ -2431,6 +2437,28 @@ export interface CanRawFrame {
 }
 
 // Plugin is resolved by Capacitor on native; undefined on web (bridge handles fallback)
+/** USB veri yolunda bulunan görüntü sınıfı (UVC) cihaz. */
+export interface NativeUsbVideoDevice {
+  vendorId: number;
+  productId: number;
+  /** Ürün adı; okunamazsa boş. */
+  name: string;
+  manufacturer: string;
+}
+
+/** Android Camera2'nin sunduğu kamera. `external` = USB/harici (UVC HAL). */
+export interface NativeCamera2Info {
+  id: string;
+  facing: 'front' | 'back' | 'external' | 'unknown';
+}
+
+export interface NativeCameraHardware {
+  usbVideo: NativeUsbVideoDevice[];
+  camera2: NativeCamera2Info[];
+  /** `android.hardware.camera.external` — sistem USB kamerayı sunabiliyor mu. */
+  externalCameraSupported: boolean;
+}
+
 export const CarLauncher = registerPlugin<CarLauncherPlugin>('CarLauncher');
 
 /* ══════════════════════════════════════════════════════════════════

@@ -5584,6 +5584,75 @@ public class CarLauncherPlugin extends Plugin {
         call.resolve(r);
     }
 
+    // ── Sürüş Asistanı: kamera donanım tanısı (SALT OKUMA) ─────────────────────
+    // USB veri yolundaki görüntü sınıfı (UVC = class 14) cihazları, Camera2'nin
+    // sunduğu kameraları (LENS_FACING_EXTERNAL = USB/harici) ve sistemin harici
+    // kamera özelliğini döner. İzin İSTEMEZ, kamera AÇMAZ; her adım fail-soft.
+    // Amaç dürüst tanı: "USB kamera takılı ama bu cihaz onu kamera olarak sunmuyor".
+
+    @PluginMethod
+    public void listCameraHardware(PluginCall call) {
+        JSObject ret = new JSObject();
+
+        JSArray usb = new JSArray();
+        try {
+            android.hardware.usb.UsbManager um =
+                (android.hardware.usb.UsbManager) getContext().getSystemService(Context.USB_SERVICE);
+            if (um != null) {
+                for (android.hardware.usb.UsbDevice d : um.getDeviceList().values()) {
+                    boolean video = d.getDeviceClass() == 14;
+                    for (int i = 0; !video && i < d.getInterfaceCount(); i++) {
+                        if (d.getInterface(i).getInterfaceClass() == 14) video = true;
+                    }
+                    if (!video) continue;
+                    JSObject o = new JSObject();
+                    o.put("vendorId", d.getVendorId());
+                    o.put("productId", d.getProductId());
+                    String name = null;
+                    String maker = null;
+                    try { name = d.getProductName(); } catch (Exception ignored) { }
+                    try { maker = d.getManufacturerName(); } catch (Exception ignored) { }
+                    o.put("name", name == null ? "" : name);
+                    o.put("manufacturer", maker == null ? "" : maker);
+                    usb.put(o);
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "listCameraHardware: usb", e);
+        }
+        ret.put("usbVideo", usb);
+
+        JSArray cams = new JSArray();
+        try {
+            CameraManager mgr = (CameraManager) getContext().getSystemService(Context.CAMERA_SERVICE);
+            if (mgr != null) {
+                for (String id : mgr.getCameraIdList()) {
+                    Integer lf = mgr.getCameraCharacteristics(id).get(CameraCharacteristics.LENS_FACING);
+                    String facing = "unknown";
+                    if (lf != null) {
+                        if (lf == CameraCharacteristics.LENS_FACING_FRONT) facing = "front";
+                        else if (lf == CameraCharacteristics.LENS_FACING_BACK) facing = "back";
+                        else if (lf == CameraCharacteristics.LENS_FACING_EXTERNAL) facing = "external";
+                    }
+                    JSObject c = new JSObject();
+                    c.put("id", id);
+                    c.put("facing", facing);
+                    cams.put(c);
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "listCameraHardware: camera2", e);
+        }
+        ret.put("camera2", cams);
+
+        boolean external = false;
+        try {
+            external = getContext().getPackageManager().hasSystemFeature("android.hardware.camera.external");
+        } catch (Exception ignored) { }
+        ret.put("externalCameraSupported", external);
+        call.resolve(ret);
+    }
+
     // ── Camera2 ───────────────────────────────────────────────────────────────
 
     private CameraDevice          activeCameraDevice = null;

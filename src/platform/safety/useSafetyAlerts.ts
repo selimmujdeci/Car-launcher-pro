@@ -42,6 +42,7 @@ import {
 } from './safetyStateMapper';
 import { createSafetyTicker } from './safetyTicker';
 import type { SafetyMapOptions } from './safetyStateMapper';
+import { useAdasStore, getAdasWarningSignal, adasWarningChanged } from '../adas/adasStore';
 import type { SafetyQueueOutput } from './types';
 
 // ── Hook dönüş tipi ───────────────────────────────────────────────────────────
@@ -130,11 +131,13 @@ export function useSafetyAlerts(opts?: SafetyMapOptions): UseSafetyAlertsResult 
        karıştırılırsa yaşlar anlamsızlaşır. Mapper kendi `Date.now()`unu ÇAĞIRMAZ
        (saflık) → damgayı BURADAN alır. Verilmezse mapper fail-closed davranır ve
        OBD kaynaklı motor ısısı / akü voltajı `UNAVAILABLE` sayılır. */
+    /* ADAS uyarı sinyali her hesapta DEPODAN okunur (tek yazar adasRuntime);
+       kalp atışı damgası bayatlık kapısını besler. */
     function optsNow(): SafetyMapOptions {
       const base = optsRef.current;
       return base === undefined
-        ? { wallClockMs: Date.now() }
-        : { ...base, wallClockMs: Date.now() };
+        ? { wallClockMs: Date.now(), adas: getAdasWarningSignal() }
+        : { ...base, wallClockMs: Date.now(), adas: getAdasWarningSignal() };
     }
 
     // Yardımcı: store snapshot'ından output hesapla ve gerekiyorsa state güncelle
@@ -171,9 +174,17 @@ export function useSafetyAlerts(opts?: SafetyMapOptions): UseSafetyAlertsResult 
       runCompute(performance.now());
     });
 
+    /* ADAS: yalnız uyarı İÇERİĞİ değişince anında hesap (FCW gecikmesiz). Kalp
+       atışı (yalnız damga) hesap tetiklemez — aktif uyarı varken 500 ms ticker
+       zaten tazeliği okur; kamera donarsa uyarı 600 ms içinde düşer. */
+    const unsubAdas = useAdasStore.subscribe((state, prevState) => {
+      if (adasWarningChanged(state.warning, prevState.warning)) runCompute(performance.now());
+    });
+
     // Unmount temizliği
     return () => {
       unsub();
+      unsubAdas();
       ticker.dispose(); // interval kaçağı yok
       queue.reset();    // debounce/tekrar sayaçları sıfırla
     };

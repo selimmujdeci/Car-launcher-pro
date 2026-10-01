@@ -38,6 +38,7 @@ import type {
 } from './types';
 import type { UnifiedVehicleState } from '../vehicleDataLayer/UnifiedVehicleStore';
 import { resolveLiveCanonicalSignal, canonicalSignalChanged } from '../vehicleDataLayer/canonicalVehicleSignal';
+import type { AdasWarningSignal } from '../adas/adasTypes';
 
 // ── Seçenekler arayüzü ────────────────────────────────────────────────────────
 
@@ -64,6 +65,12 @@ export interface SafetyMapOptions {
   wallClockMs?: number;
   /** Gece/karanlık algısı (saat + ortam ışığı füzyonu). Bilinmiyorsa undefined. */
   isDark?: boolean;
+  /**
+   * Sürüş Asistanı uyarı sinyali (tek yazar `adasRuntime`). `atPerfMs`
+   * monotonik saattir — kural motorunun `now`ı ile AYNI eksen. Verilmezse
+   * ADAS kuralları sönüktür.
+   */
+  adas?: AdasWarningSignal;
   /** Bu araçta hangi CAN sinyallerinin gerçekten mevcut olduğunu bildirir. */
   signalsAvailable?: {
     /** true ise canSeatbelt değeri geçirilir; aksi halde undefined (kural sönük). */
@@ -168,7 +175,17 @@ export function createSafetyStateFromVehicleStore(
     hoodOpen:   undefined,
     trunkOpen:  undefined,
     oilWarning: undefined,
+
+    // ADAS — araç sinyali değil; tek yazar adasRuntime (seçenekten gelir)
+    adasLane:         opts?.adas?.lane,
+    adasForward:      opts?.adas?.forward,
+    adasLeadDeparted: opts?.adas?.leadDeparted,
   };
+  if (opts?.adas) {
+    updatedAt.adasLane = opts.adas.atPerfMs;
+    updatedAt.adasForward = opts.adas.atPerfMs;
+    updatedAt.adasLeadDeparted = opts.adas.atPerfMs;
+  }
 
   return { state, updatedAt };
 }
