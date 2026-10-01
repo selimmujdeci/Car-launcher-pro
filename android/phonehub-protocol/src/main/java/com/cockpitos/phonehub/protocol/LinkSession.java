@@ -509,6 +509,7 @@ public final class LinkSession {
 
     private void writeLoop() {
         try {
+            long lastLivenessCheckAtMs = clock.nowMs();
             while (!disposed.get()) {
                 byte[] pending = writeQueue.poll(cfg.heartbeatIntervalMs, TimeUnit.MILLISECONDS);
                 if (disposed.get()) return;
@@ -520,10 +521,16 @@ public final class LinkSession {
                     stream.flush();
                     bytesSent.addAndGet(pending.length);
                     framesSent.incrementAndGet();
-                    continue;
+                    /* KADANS KARŞI TARAFA BAĞLI KALMAZ: karşıdan gelen her HEARTBEAT
+                     * buraya bir HEARTBEAT_ACK koyar. Yalnız poll zaman aşımına
+                     * güvenmek, karşı taraf sık kalp atışı gönderdiğinde yerel kalp
+                     * atışını ve canlılık/zaman aşımı kontrolünü HİÇ çalıştırmıyordu.
+                     * Aralık dolmadıysa yazmaya devam; dolduysa aşağıda kontrol et. */
+                    if (clock.nowMs() - lastLivenessCheckAtMs < cfg.heartbeatIntervalMs) continue;
                 }
 
-                /* Kuyruk zaman aşımı = kalp atışı penceresi. Ayrı zamanlayıcı YOK. */
+                /* Kuyruk zaman aşımı ya da aralık doldu = kalp atışı penceresi. Ayrı zamanlayıcı YOK. */
+                lastLivenessCheckAtMs = clock.nowMs();
                 checkLiveness();
             }
         } catch (InterruptedException e) {
