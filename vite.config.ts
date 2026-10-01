@@ -146,7 +146,9 @@ function transpileWorkerToES2015(): Plugin {
     name: 'transpile-worker-to-es2015',
     async renderChunk(code, chunk) {
       // NavigationCompute: modül worker (Chrome 80+), dinamik import/sql.js — dokunma.
-      if (/NavigationCompute/.test(chunk.fileName)) return null;
+      // VehicleDetect: modül worker (Chrome 80+, supportsModuleWorker kapılı), TF.js
+      // async/modern sözdizimi — es2015'e indirmek helper require'ı üretir → dokunma.
+      if (/NavigationCompute|VehicleDetect/.test(chunk.fileName)) return null;
       const res = await transformWithOxc(code, chunk.fileName, {
         lang: 'js',
         target: 'es2015',       // ?./??/??= → ES2015 eşdeğeri (Chrome 52+ parse eder)
