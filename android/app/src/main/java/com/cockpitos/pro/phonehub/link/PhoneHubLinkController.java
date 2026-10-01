@@ -8,6 +8,7 @@ import com.cockpitos.phonehub.protocol.LinkDiagnosticBuffer;
 import com.cockpitos.phonehub.protocol.LinkDiagnosticEvent;
 import com.cockpitos.phonehub.protocol.LinkErrorCode;
 import com.cockpitos.phonehub.protocol.LinkHandshake;
+import com.cockpitos.phonehub.protocol.LinkKeyExchange;
 import com.cockpitos.phonehub.protocol.LinkSession;
 import com.cockpitos.phonehub.protocol.LinkSessionSnapshot;
 import com.cockpitos.phonehub.protocol.PhoneHubUuid;
@@ -20,6 +21,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -60,7 +62,17 @@ public final class PhoneHubLinkController implements RfcommServerTransport.Callb
     private final KeystoreIdentitySigner signer;
     private final PhoneHubTrustStore trustStore;
     private final RfcommServerTransport server;
+    /** Yerel Wi-Fi yolu — Bluetooth'un eşi (hibrit: hangisi önce bağlanırsa). */
+    private final LanServerTransport lan;
     private final String appVersion;
+
+    /** Taşımalar ARASI ortak oturum nesli — iki sunucunun sayaçları çakışmasın. */
+    private final AtomicLong generationSource = new AtomicLong(0L);
+    /** Etkin oturumun taşıması; oturum yoksa {@code null}. */
+    private volatile PhoneHubChannel.Transport activeTransport;
+    /** Başka taşımada canlı oturum varken gelen bağlantı sayısı. */
+    private volatile long rejectedCrossTransportCount;
+    private volatile String ownHint;
 
     private final AtomicReference<LinkSession> session = new AtomicReference<>(null);
     private final AtomicReference<PendingPairing> pendingPairing = new AtomicReference<>(null);
@@ -211,6 +223,16 @@ public final class PhoneHubLinkController implements RfcommServerTransport.Callb
         this.trustStore = new PhoneHubTrustStore(appContext);
         this.server = new RfcommServerTransport(appContext, diagnostics,
             LinkSession.SYSTEM_CLOCK, this);
+        this.lan = new LanServerTransport(diagnostics, LinkSession.SYSTEM_CLOCK,
+            LanAddressPolicy.LOCAL_ONLY,
+            new LanServerTransport.HintSource() {
+                @Override public String hint() { return ownIdentityHint(); }
+            },
+            new LanServerTransport.Callback() {
+                @Override public boolean onChannelAccepted(PhoneHubChannel channel) {
+                    return acceptChannel(channel);
+                }
+            });
     }
 
     public static synchronized PhoneHubLinkController get(Context context, String appVersion) {
@@ -222,9 +244,20 @@ public final class PhoneHubLinkController implements RfcommServerTransport.Callb
      * Komutlar
      * ════════════════════════════════════════════════════════════════════ */
 
+    /**
+     * HİBRİT başlatma: Bluetooth RFCOMM ve yerel Wi-Fi BİRLİKTE dinler. Biri
+     * açılamazsa (ör. bu ünitede Android Bluetooth yığını yok) diğeri yine
+     * açılır. En az biri dinliyorsa {@code true}.
+     */
     public boolean startServer() {
-        return server.start();
+        boolean bt = server.start();
+        boolean wifi = lan.start();
+        return bt || wifi;
     }
+
+    public boolean isBluetoothListening() { return server.isRunning(); }
+
+    public boolean isWifiListening() { return lan.isRunning(); }
 
     /**
      * Sunucunun başlamasını engelleyen ön koşul (varsa). HER çağrıda yeniden
@@ -238,12 +271,14 @@ public final class PhoneHubLinkController implements RfcommServerTransport.Callb
     public void stopServer() {
         closeSession(LinkErrorCode.SOCKET_CLOSED);
         server.stop(true);
+        lan.stop(true);
     }
 
     /** Yalnız aktif oturumu keser — sunucu dinlemeye devam eder. */
     public void disconnectSession() {
         closeSession(LinkErrorCode.SOCKET_CLOSED);
         server.onActiveSessionClosed();
+        lan.onActiveSessionClosed();
     }
 
     /** Kullanıcı ekrandaki kodu onayladı/reddetti. */
@@ -270,6 +305,8 @@ public final class PhoneHubLinkController implements RfcommServerTransport.Callb
     /** Sayaçları sıfırlar — AKTİF BAĞLANTIYI KESMEZ (GÖREV 14). */
     public void resetCounters() {
         server.resetCounters();
+        lan.resetCounters();
+        rejectedCrossTransportCount = 0L;
         LinkSession s = session.get();
         if (s != null) s.resetCounters();
         diagnostics.clear();
@@ -281,6 +318,31 @@ public final class PhoneHubLinkController implements RfcommServerTransport.Callb
 
     @Override
     public void onClientAccepted(BluetoothSocket socket, long generation) {
+        /* RFCOMM sunucusunun kendi nesli KULLANILMAZ: iki taşıma tek sayaçtan
+           beslenir ki bayat-nesil kapıları taşımalar arası çakışmasın. */
+        if (!acceptChannel(new BluetoothChannel(socket))) {
+            closeSocketQuietly(socket);
+            server.onActiveSessionClosed();
+        }
+    }
+
+    /**
+     * İki taşımanın TEK giriş noktası. Başka bir taşımada CANLI oturum varsa
+     * yeni kanal REDDEDİLİR (mevcut oturum bozulmaz); kopmuş Wi-Fi'nin yarım
+     * açık oturumu kalp atışı zaman aşımıyla düşer ve yol yeniden açılır.
+     */
+    private synchronized boolean acceptChannel(PhoneHubChannel channel) {
+        LinkSession current = session.get();
+        if (current != null && isLive(current)) {
+            rejectedCrossTransportCount++;
+            diagnostics.record(LinkSession.SYSTEM_CLOCK.nowMs(),
+                LinkDiagnosticEvent.Side.HEAD_UNIT, LinkDiagnosticEvent.Category.SOCKET,
+                "cross-transport", null, LinkDiagnosticEvent.Severity.WARN,
+                current.generation(), "baska tasimada oturum var");
+            return false;
+        }
+
+        long generation = generationSource.incrementAndGet();
         connectStartedAtMs = LinkSession.SYSTEM_CLOCK.nowMs();
 
         LinkSession.Config cfg = new LinkSession.Config();
@@ -302,18 +364,41 @@ public final class PhoneHubLinkController implements RfcommServerTransport.Callb
             emitLinkState(LinkSession.State.CLOSED, previous.generation());
             previous.close(LinkErrorCode.SOCKET_CLOSED);
         }
+        activeTransport = channel.transport();
 
         try {
-            if (!newSession.start(socket.getInputStream(), socket.getOutputStream())) {
-                closeSocketQuietly(socket);
+            if (!newSession.start(channel.input(), channel.output())) {
                 session.compareAndSet(newSession, null);
+                activeTransport = null;
+                return false;
             }
         } catch (IOException e) {
-            Log.w(TAG, "soket akışı alınamadı");
-            closeSocketQuietly(socket);
+            Log.w(TAG, "kanal akışı alınamadı");
             session.compareAndSet(newSession, null);
-            server.onActiveSessionClosed();
+            activeTransport = null;
+            return false;
         }
+        return true;
+    }
+
+    private static boolean isLive(LinkSession s) {
+        LinkSession.State st = s.state();
+        return st != LinkSession.State.CLOSED && st != LinkSession.State.FAILED
+            && st != LinkSession.State.CLOSING;
+    }
+
+    /** Beacon kimlik ipucu — aracın parmak izinin ilk 8 karakteri (önbellekli). */
+    private String ownIdentityHint() {
+        String h = ownHint;
+        if (h != null) return h;
+        try {
+            byte[] spki = signer.identityPublicKeySpki();
+            h = spki == null ? LanBeacon.NO_HINT : LanBeacon.hintOf(LinkKeyExchange.fingerprint(spki));
+        } catch (Exception e) {
+            h = LanBeacon.NO_HINT;
+        }
+        ownHint = h;
+        return h;
     }
 
     @Override
@@ -340,7 +425,12 @@ public final class PhoneHubLinkController implements RfcommServerTransport.Callb
         emitLinkState(state, generation);
         if (state == LinkSession.State.CLOSED || state == LinkSession.State.FAILED) {
             pendingPairing.set(null);
-            server.onActiveSessionClosed();
+            LinkSession s = session.get();
+            if (s == null || s.generation() == generation) {
+                activeTransport = null;
+                server.onActiveSessionClosed();
+                lan.onActiveSessionClosed();
+            }
         }
     }
 
@@ -447,7 +537,37 @@ public final class PhoneHubLinkController implements RfcommServerTransport.Callb
             pre.put("ready", blocker == null);
             pre.put("blockerCode", blocker == null ? JSONObject.NULL : blocker.name());
             pre.put("connectPermission", server.hasConnectPermission());
+            pre.put("anyTransportListening", server.isRunning() || lan.isRunning());
             root.put("preconditions", pre);
+
+            /* Hibrit taşımalar — Bluetooth ve yerel Wi-Fi ayrı ayrı, ÖLÇÜLDÜĞÜ gibi */
+            JSONObject transports = new JSONObject();
+            JSONObject bt = new JSONObject();
+            bt.put("running", server.isRunning());
+            bt.put("state", server.state().name());
+            bt.put("blockerCode", blocker == null ? JSONObject.NULL : blocker.name());
+            Boolean btSetting = server.bluetoothSettingOn();
+            bt.put("systemSettingOn", btSetting == null ? JSONObject.NULL : btSetting);
+            /* Sistem ayarı "açık" ama Android yığını açılamıyor → Bluetooth radyosu
+               büyük olasılıkla üreticinin kendi modülünde (ör. K24/NWD gocsdk). */
+            bt.put("stackUnavailableSuspected",
+                blocker == LinkErrorCode.BLUETOOTH_DISABLED && Boolean.TRUE.equals(btSetting));
+            transports.put("bluetooth", bt);
+            JSONObject wifi = new JSONObject();
+            wifi.put("running", lan.isRunning());
+            wifi.put("state", lan.state().name());
+            wifi.put("port", lan.port());
+            wifi.put("localAddresses", new JSONArray(lan.localAddresses()));
+            wifi.put("acceptedCount", lan.acceptedCount());
+            wifi.put("rejectedNonLocal", lan.rejectedNonLocalCount());
+            wifi.put("rejectedSecondClient", lan.rejectedSecondClientCount());
+            wifi.put("beaconsSent", lan.beaconsSent());
+            LinkErrorCode lanError = lan.lastError();
+            wifi.put("lastErrorCode", lanError == null ? JSONObject.NULL : lanError.name());
+            transports.put("wifi", wifi);
+            transports.put("active", activeTransport == null ? JSONObject.NULL : activeTransport.name());
+            transports.put("rejectedCrossTransport", rejectedCrossTransportCount);
+            root.put("transports", transports);
 
             /* Kimlik */
             JSONObject identity = new JSONObject();
@@ -581,6 +701,7 @@ public final class PhoneHubLinkController implements RfcommServerTransport.Callb
         LinkSession s = session.getAndSet(null);
         if (s != null) s.close(reason);
         pendingPairing.set(null);
+        activeTransport = null;
     }
 
     private static void closeSocketQuietly(BluetoothSocket socket) {

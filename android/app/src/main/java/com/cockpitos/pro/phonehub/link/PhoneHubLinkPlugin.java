@@ -41,17 +41,26 @@ import org.json.JSONObject;
 )
 public class PhoneHubLinkPlugin extends Plugin implements
         PhoneHubLinkController.ApplicationMessageListener,
-        PhoneHubLinkController.LinkStateListener {
+        PhoneHubLinkController.LinkStateListener,
+        PhoneHubClientController.StateListener {
 
-    private PhoneHubLinkController controller() {
-        String version = "?";
+    private String appVersion() {
         try {
-            version = getContext().getPackageManager()
+            return getContext().getPackageManager()
                 .getPackageInfo(getContext().getPackageName(), 0).versionName;
         } catch (Exception ignored) {
             /* Sürüm okunamazsa "?" kalır — sahte bir sürüm UYDURULMAZ. */
+            return "?";
         }
-        return PhoneHubLinkController.get(getContext(), version);
+    }
+
+    private PhoneHubLinkController controller() {
+        return PhoneHubLinkController.get(getContext(), appVersion());
+    }
+
+    /** Telefon rolü — aynı CarOS Pro telefonda araca bağlanırken. */
+    private PhoneHubClientController client() {
+        return PhoneHubClientController.get(getContext(), appVersion());
     }
 
     /* ══════════════════════════════════════════════════════════════════════
@@ -65,6 +74,7 @@ public class PhoneHubLinkPlugin extends Plugin implements
         controller().setApplicationMessageListener(this);
         /* F4.1 — yaşam döngüsü köprüsü de AYNI noktada bağlanır. */
         controller().setLinkStateListener(this);
+        client().setStateListener(this);
     }
 
     /**
@@ -76,6 +86,7 @@ public class PhoneHubLinkPlugin extends Plugin implements
         controller().setApplicationMessageListener(null);
         /* Zero-leak: her iki dinleyici de SÖKÜLÜR. */
         controller().setLinkStateListener(null);
+        client().setStateListener(null);
         super.handleOnDestroy();
     }
 
@@ -141,7 +152,10 @@ public class PhoneHubLinkPlugin extends Plugin implements
      */
     @PluginMethod
     public void startServer(PluginCall call) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+        /* askPermission=false: açılışta diyalog AÇILMAZ — Bluetooth izni yoksa
+           yalnız yerel Wi-Fi yolu başlar (hibrit: biri yoksa diğeri). */
+        boolean ask = !Boolean.FALSE.equals(call.getBoolean("askPermission", true));
+        if (ask && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
             && getPermissionState("btConnect") != com.getcapacitor.PermissionState.GRANTED) {
             requestPermissionForAlias("btConnect", call, "onConnectPermission");
             return;
@@ -151,14 +165,7 @@ public class PhoneHubLinkPlugin extends Plugin implements
 
     @PermissionCallback
     private void onConnectPermission(PluginCall call) {
-        if (getPermissionState("btConnect") != com.getcapacitor.PermissionState.GRANTED) {
-            JSObject ret = new JSObject();
-            ret.put("started", false);
-            ret.put("errorCode", LinkErrorCode.BLUETOOTH_PERMISSION_DENIED.name());
-            ret.put("userMessage", LinkErrorCode.BLUETOOTH_PERMISSION_DENIED.userMessage());
-            call.resolve(ret);
-            return;
-        }
+        /* İzin reddedilse de Wi-Fi yolu açılır; Bluetooth kendi engelini raporlar. */
         finishStart(call);
     }
 
@@ -167,6 +174,8 @@ public class PhoneHubLinkPlugin extends Plugin implements
         boolean started = c.startServer();
         JSObject ret = new JSObject();
         ret.put("started", started);
+        ret.put("bluetoothListening", c.isBluetoothListening());
+        ret.put("wifiListening", c.isWifiListening());
         if (!started) {
             LinkErrorCode blocker = c.snapshotBlocker();
             ret.put("errorCode", blocker == null
@@ -261,6 +270,111 @@ public class PhoneHubLinkPlugin extends Plugin implements
         controller().resetCounters();
         JSObject ret = new JSObject();
         ret.put("reset", true);
+        call.resolve(ret);
+    }
+
+    /* ══════════════════════════════════════════════════════════════════════
+     * TELEFON ROLÜ — aynı CarOS Pro telefonda araca bağlanır (Wi-Fi + Bluetooth)
+     * ════════════════════════════════════════════════════════════════════ */
+
+    @Override
+    public void onClientStateChanged(String phase) {
+        JSObject data = new JSObject();
+        data.put("phase", phase);
+        notifyListeners("clientState", data);
+    }
+
+    @Override
+    public void onClientApplicationMessage(String peerFingerprint, long sessionEpoch, String payloadUtf8) {
+        JSObject data = new JSObject();
+        data.put("fingerprint", peerFingerprint);
+        data.put("sessionEpoch", sessionEpoch);
+        data.put("payload", payloadUtf8);
+        notifyListeners("clientApplicationMessage", data);
+    }
+
+    /**
+     * "Araca bağlan" — kullanıcı eylemidir; Android 12+'da Bluetooth yolu için
+     * izin burada istenir. Reddedilirse Wi-Fi yolu yine denenir.
+     */
+    @PluginMethod
+    public void clientConnect(PluginCall call) {
+        boolean ask = !Boolean.FALSE.equals(call.getBoolean("askPermission", true));
+        if (ask && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+            && getPermissionState("btConnect") != com.getcapacitor.PermissionState.GRANTED) {
+            requestPermissionForAlias("btConnect", call, "onClientConnectPermission");
+            return;
+        }
+        finishClientConnect(call);
+    }
+
+    @PermissionCallback
+    private void onClientConnectPermission(PluginCall call) {
+        finishClientConnect(call);
+    }
+
+    private void finishClientConnect(PluginCall call) {
+        client().connect();
+        JSObject ret = new JSObject();
+        ret.put("started", true);
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void clientDisconnect(PluginCall call) {
+        client().disconnect();
+        JSObject ret = new JSObject();
+        ret.put("disconnected", true);
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void getClientSnapshot(PluginCall call) {
+        try {
+            call.resolve(JSObject.fromJSONObject(client().snapshotJson()));
+        } catch (org.json.JSONException e) {
+            JSObject ret = new JSObject();
+            ret.put("schemaVersion", 1);
+            ret.put("error", "SNAPSHOT_BUILD_FAILED");
+            call.resolve(ret);
+        }
+    }
+
+    @PluginMethod
+    public void getClientPairingCode(PluginCall call) {
+        String code = client().pendingPairingCodeForDisplay();
+        JSObject ret = new JSObject();
+        ret.put("awaiting", code != null);
+        if (code != null) ret.put("code", code);
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void confirmClientPairing(PluginCall call) {
+        Boolean accepted = call.getBoolean("accepted");
+        if (accepted == null) {
+            call.reject("accepted alanı zorunlu");
+            return;
+        }
+        JSObject ret = new JSObject();
+        ret.put("applied", client().confirmPairing(accepted));
+        ret.put("accepted", accepted);
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void forgetTrustedCar(PluginCall call) {
+        client().forgetTrustedCar();
+        JSObject ret = new JSObject();
+        ret.put("forgotten", true);
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void sendClientApplicationMessage(PluginCall call) {
+        String payload = call.getString("payload");
+        JSObject ret = new JSObject();
+        ret.put("sent", payload != null && client().sendApplicationMessage(payload));
         call.resolve(ret);
     }
 }

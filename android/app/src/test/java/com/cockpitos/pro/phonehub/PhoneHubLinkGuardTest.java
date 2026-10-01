@@ -240,11 +240,19 @@ public class PhoneHubLinkGuardTest {
         }
     }
 
-    /** Link paketinde ağ çağrısı OLMAMALI — bağlantı tamamen yereldir. */
+    /**
+     * Link paketi İNTERNETE/BULUTA çıkamaz — bağlantı tamamen yereldir.
+     *
+     * Ürün kararı 2026-10-01 (hibrit Phone Link): Bluetooth'u Android'e kapalı
+     * head unit'ler için YEREL Wi-Fi yolu eklendi. Ham soket artık YALNIZ
+     * {@code Lan*.java} dosyalarında serbesttir ve orada da yerel-adres
+     * politikası zorunludur (bkz. {@link #lanTransportIsLocalOnly()}). HTTP,
+     * bulut ve WebSocket kütüphaneleri her dosyada YASAK kalır.
+     */
     @Test
     public void linkPackageHasNoNetworkAccess() {
         String[] forbidden = {
-            "HttpURLConnection", "OkHttp", "java.net.Socket", "URLConnection",
+            "HttpURLConnection", "OkHttp", "URLConnection",
             "firebase", "Firebase", "supabase", "WebSocket", "Retrofit",
         };
         for (File f : javaFilesIn(linkPackage())) {
@@ -253,6 +261,47 @@ public class PhoneHubLinkGuardTest {
                 assertFalse("Phone Hub ağa çıkamaz: " + bad + " → " + f.getName(),
                     code.contains(bad));
             }
+            if (!f.getName().startsWith("Lan")) {
+                assertFalse("ham soket yalnız Lan* dosyalarında → " + f.getName(),
+                    code.contains("java.net.Socket") || code.contains("java.net.ServerSocket")
+                        || code.contains("new Socket(") || code.contains("new ServerSocket("));
+            }
+        }
+    }
+
+    /**
+     * Wi-Fi yolu YALNIZ yerel ağa: kabul/bağlanma noktaları adres politikasından
+     * geçer, politika özel/bağlantı-yerel IPv4 dışını reddeder, küresel yayın
+     * (255.255.255.255 — varsayılan rota, çoğu zaman hücresel) kullanılmaz.
+     */
+    @Test
+    public void lanTransportIsLocalOnly() {
+        File server = new File(linkPackage(), "LanServerTransport.java");
+        File client = new File(linkPackage(), "LanClientConnector.java");
+        File policy = new File(linkPackage(), "LanAddressPolicy.java");
+        assertTrue(server.isFile() && client.isFile() && policy.isFile());
+
+        String srv = stripComments(read(server));
+        assertTrue("kabul edilen soketin uzak adresi politikadan geçmeli",
+            srv.contains("policy.allows(s.getInetAddress())"));
+        assertTrue("kabul edilen soketin yerel adresi politikadan geçmeli",
+            srv.contains("policy.allows(s.getLocalAddress())"));
+
+        String cli = stripComments(read(client));
+        assertTrue("bağlanılacak adres politikadan geçmeli", cli.contains("!policy.allows(host)"));
+        assertTrue("beacon göndericisi politikadan geçmeli", cli.contains("!policy.allows(sender)"));
+
+        String pol = stripComments(read(policy));
+        assertTrue("yalnız IPv4", pol.contains("instanceof Inet4Address"));
+        assertTrue("loopback/joker/çok-noktaya yayın reddi",
+            pol.contains("isLoopbackAddress()") && pol.contains("isAnyLocalAddress()")
+                && pol.contains("isMulticastAddress()"));
+        assertTrue("yalnız özel + bağlantı-yerel",
+            pol.contains("isSiteLocalAddress()") && pol.contains("isLinkLocalAddress()"));
+
+        for (File f : javaFilesIn(linkPackage())) {
+            assertFalse("küresel yayın yasak → " + f.getName(),
+                stripComments(read(f)).contains("255.255.255.255"));
         }
     }
 

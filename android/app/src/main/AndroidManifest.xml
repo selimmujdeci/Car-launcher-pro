@@ -255,6 +255,8 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    <!-- Phone Link (telefon rolü): aracın yerel ağ beacon'ını uyku filtresine takılmadan almak için. Normal izin. -->
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
 
     <!-- Cihaz boot & ekran kilidi -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
