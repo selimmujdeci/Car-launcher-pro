@@ -43,9 +43,19 @@ public final class PhoneHubTrustStore {
 
     private final SharedPreferences prefs;
 
+    /** Araç rolü (sunucu): güvenilen TELEFON. */
     public PhoneHubTrustStore(Context context) {
+        this(context, PREFS);
+    }
+
+    /**
+     * Rol başına AYRI kayıt: aynı CarOS Pro telefonda istemci rolündeyken
+     * güvendiği ARACI, araçta sunucu rolündeyken güvendiği TELEFONDAN ayrı
+     * tutar — iki rolün güveni birbirine karışmaz.
+     */
+    public PhoneHubTrustStore(Context context, String prefsName) {
         this.prefs = context.getApplicationContext()
-            .getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+            .getSharedPreferences(prefsName, Context.MODE_PRIVATE);
         migrateIfNeeded();
     }
 

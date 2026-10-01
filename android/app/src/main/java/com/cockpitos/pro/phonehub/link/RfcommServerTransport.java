@@ -109,6 +109,26 @@ public final class RfcommServerTransport {
     }
 
     /**
+     * Sistem Bluetooth ayarı ({@code Settings.Global.BLUETOOTH_ON}): açık mı.
+     * Okunamazsa {@code null} (bilinmiyor — "kapalı" UYDURULMAZ).
+     *
+     * Neden: bazı head unit'lerde ayar "açık" görünür ama Android yığını hiç
+     * ayağa kalkmaz (radyo üreticinin kendi modülündedir, ör. K24/NWD). Ayar
+     * açıkken adaptörün kapalı kalması bunu "Bluetooth kapalı, açın" diye
+     * yanlış anlatmamamız için kanıttır.
+     */
+    public Boolean bluetoothSettingOn() {
+        try {
+            int v = android.provider.Settings.Global.getInt(appContext.getContentResolver(),
+                android.provider.Settings.Global.BLUETOOTH_ON, -1);
+            if (v < 0) return null;
+            return v == 1 || v == 2;   // 1: açık · 2: uçak modunda açık
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    /**
      * BLUETOOTH_CONNECT yalnız API 31+ runtime iznidir. Daha eski sürümlerde
      * manifest izni yeterlidir → true. Bu ayrım yapılmazsa eski head unit'ler
      * "izin yok" diye yanlışlıkla reddedilir.

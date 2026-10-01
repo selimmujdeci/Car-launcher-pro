@@ -2472,7 +2472,19 @@ public class CarLauncherPlugin extends Plugin {
             ret.put("state", "NO_PERMISSION"); call.resolve(ret); return;
         }
         try {
-            if (!adapter.isEnabled()) { ret.put("state", "OFF"); call.resolve(ret); return; }
+            if (!adapter.isEnabled()) {
+                ret.put("state", "OFF");
+                /* Sistem ayarı "açık" ama Android yığını kapalı → radyo büyük olasılıkla
+                   üreticinin kendi Bluetooth modülünde (ör. K24/NWD gocsdk). Ekran o zaman
+                   "Bluetooth'u açın" DEMEZ — açılacak bir şey yoktur. Okunamazsa alan YOK. */
+                try {
+                    int on = android.provider.Settings.Global.getInt(getContext().getContentResolver(),
+                        android.provider.Settings.Global.BLUETOOTH_ON, -1);
+                    if (on >= 0) ret.put("systemSettingOn", on == 1 || on == 2);
+                } catch (RuntimeException ignored) { /* ayar okunamadı — iddia yok */ }
+                call.resolve(ret);
+                return;
+            }
             JSArray phones = new JSArray();
             Set<BluetoothDevice> bonded = adapter.getBondedDevices();
             if (bonded != null) {
