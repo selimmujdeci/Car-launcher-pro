@@ -40,6 +40,7 @@ import { ExpertModePanel } from './ExpertModePanel';
 import { OfflineDataPanel } from './OfflineDataPanel';
 import { HomeWorkAddressPanel } from './HomeWorkAddressPanel';
 import { AdasSettingsPanel } from './AdasSettingsPanel';
+import { PhoneLinkPanel } from './PhoneLinkPanel';
 import i18n from '../../i18n/config';
 import { MobileLinkWidget } from './MobileLinkWidget';
 import { CarOsConnectionPriorityCard } from './CarOsConnectionPriorityCard';
@@ -2101,6 +2102,12 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
             <>
               <ConnectTabContent />
               <div className="flex flex-col gap-4 mx-auto w-full" style={{ maxWidth: 760 }}>
+              {/* ── Telefon Bağlantısı: CarOS Pro ↔ CarOS Pro (hibrit Wi-Fi + Bluetooth) ── */}
+              <Panel accent="#34d399">
+                <SectionTitle icon={Smartphone} title="Telefon Bağlantısı" sub="Telefondaki CarOS Pro ile · Wi-Fi ya da Bluetooth" color="#34d399" />
+                <PhoneLinkPanel />
+              </Panel>
+
               {/* ── CarOS Bağlantı Önceliği (Phone Link F6) ── */}
               <CarOsConnectionPriorityCard />
 

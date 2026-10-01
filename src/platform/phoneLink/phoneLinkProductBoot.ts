@@ -67,7 +67,7 @@ export type PhoneLinkProductBootState =
   | 'WAITING_FOR_USER_CONNECTIVITY'
   /** Cihazda Bluetooth donanımı yok — açılacak bir şey de yok. */
   | 'TRANSPORT_UNAVAILABLE'
-  /** Kanonik RFCOMM sunucusu dinlemeye hazır/başlatıldı. */
+  /** Kanonik sunucu (hibrit: Bluetooth ve/veya yerel Wi-Fi) dinlemeye hazır/başlatıldı. */
   | 'READY';
 
 export type PhoneLinkProductBootReason =
@@ -80,7 +80,9 @@ export type PhoneLinkProductBootReason =
   | 'native_bridge_absent'
   | 'server_already_listening'
   | 'server_started'
-  | 'server_start_failed';
+  | 'server_start_failed'
+  /** Hibrit: Bluetooth bu cihazda açılamıyor; yerel Wi-Fi yolu dinliyor/başlatılacak. */
+  | 'wifi_only';
 
 /* ══════════════════════════════════════════════════════════════════════════
  * Saf değerlendirme — SNAPSHOT'tan karar (yan etkisiz, testlenebilir)
@@ -117,6 +119,31 @@ export function evaluateTransportReadiness(
     };
   }
 
+  /* ── HİBRİT NATIVE (Bluetooth + yerel Wi-Fi) ───────────────────────────
+   * Yerel Wi-Fi yolu izin istemez ve radyoyu AÇMAZ (yalnız dinler + beacon);
+   * bu yüzden Bluetooth kapalı/izinsiz/yok olsa da başlatılır. Bluetooth
+   * engeli Wi-Fi'yi BEKLETMEZ — biri yoksa diğeri. Native çağrı
+   * `askPermission:false` ile yapılır: açılışta izin diyaloğu AÇILMAZ. */
+  const tr = raw.transports;
+  if (tr) {
+    const wifiOn = tr.wifi?.running === true;
+    const btOn = tr.bluetooth?.running === true;
+    const btBlocked = typeof tr.bluetooth?.blockerCode === 'string';
+    if (wifiOn && (btOn || btBlocked)) {
+      return {
+        shouldStartServer: false,
+        state: 'READY',
+        reason: btOn ? 'server_already_listening' : 'wifi_only',
+      };
+    }
+    return {
+      shouldStartServer: true,
+      state: 'READY',
+      reason: btBlocked ? 'wifi_only' : 'server_started',
+    };
+  }
+
+  /* ── ESKİ NATIVE (yalnız RFCOMM) — kurallar AYNEN ─────────────────────── */
   /* Sunucu ZATEN dinliyorsa ikinci kez başlatılmaz (idempotentlik). */
   if (raw.server?.running === true || raw.server?.state === 'LISTENING') {
     return {
@@ -278,7 +305,8 @@ export async function evaluatePhoneLinkTransportReadiness(): Promise<TransportRe
     return decision;
   }
 
-  const result = await startPhoneHubServer().catch(() => null);
+  /* Açılış/ön plan yolu kullanıcı eylemi DEĞİLDİR → izin diyaloğu AÇILMAZ. */
+  const result = await startPhoneHubServer({ askPermission: false }).catch(() => null);
   if (result === null || !result.ok) {
     _telemetry.state = 'WAITING_FOR_USER_CONNECTIVITY';
     _telemetry.reason = 'server_start_failed';
@@ -289,7 +317,7 @@ export async function evaluatePhoneLinkTransportReadiness(): Promise<TransportRe
     };
   }
   _telemetry.state = 'READY';
-  _telemetry.reason = 'server_started';
+  _telemetry.reason = decision.reason === 'wifi_only' ? 'wifi_only' : 'server_started';
   return decision;
 }
 

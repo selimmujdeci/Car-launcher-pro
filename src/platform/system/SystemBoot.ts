@@ -165,10 +165,12 @@ type Cleanup = () => void;
 export const DIAG_COUNTER_MAX = 1_000_000;
 
 /**
- * CarOS Companion (telefon uygulaması + RFCOMM Phone Link) ürün açılışında
- * başlatılsın mı. Ürün kararı 2026-09-23: HAYIR — companion kullanılmıyor.
+ * Phone Link (CarOS Pro ↔ CarOS Pro) ürün açılışında hazırlansın mı.
+ * Ürün kararı 2026-10-01: EVET — ayrı companion uygulaması yok, telefona da
+ * aynı CarOS Pro kurulur; araç rolünde hibrit (Bluetooth + yerel Wi-Fi)
+ * sunucu açılır. (2026-09-23'teki "companion kullanılmıyor" kararının yerine.)
  */
-export const PHONE_LINK_COMPANION_ENABLED: boolean = false;
+export const PHONE_LINK_COMPANION_ENABLED: boolean = true;
 
 /** Doygun artış — `DIAG_COUNTER_MAX`'ta sabitlenir. */
 function _satInc(n: number): number {
@@ -1308,17 +1310,23 @@ class SystemBoot {
     // bu grafiği SystemBoot'u içe aktaran HER tüketiciye (ve `@capacitor/core`
     // kısmi mock kullanan testlere) taşırdı. Yükleme yalnız boot ANINDA olur.
     //
-    // ÜRÜN KARARI 2026-09-23: CarOS Companion (telefona kurulan uygulama +
-    // RFCOMM) KULLANILMIYOR. Açılışta sunucu/dinleyici KURULMAZ; altyapı ve LAB
-    // teşhis ekranı yerinde durur (bayrak açılırsa aynen döner). Telefon
-    // bağlantısı companion'sız yürür: ünitenin Bluetooth'u + bildirim erişimi
-    // (NotificationMirror → notificationService).
+    // ÜRÜN KARARI 2026-10-01 (2026-09-23 kararının yerine): AYRI companion
+    // uygulaması YOK — telefona da aynı CarOS Pro kurulur. Bu cihaz ARAÇ
+    // rolündeyse hibrit sunucu (Bluetooth + yerel Wi-Fi) açılışta hazırlanır;
+    // TELEFON rolünde sunucu AÇILMAZ, kullanıcı Ayarlar › Bağlantı'dan "Araca
+    // bağlan" der. Bluetooth'u Android'e kapalı ünitelerde (K24/NWD) Wi-Fi yolu
+    // tek başına yeter. Rol: phoneLinkDeviceRole (kullanıcı seçimi > öneri).
     if (PHONE_LINK_COMPANION_ENABLED) {
-      _log('  › PhoneLink ProductBoot');
-      const { startPhoneLinkProductBoot } = await import('../phoneLink/phoneLinkProductBoot');
-      this._regNamed(gen, 'PhoneLinkProductBoot', startPhoneLinkProductBoot());
+      const { getPhoneLinkDeviceRole } = await import('../phoneLink/phoneLinkDeviceRole');
+      if (getPhoneLinkDeviceRole() === 'car') {
+        _log('  › PhoneLink ProductBoot (araç rolü — hibrit sunucu)');
+        const { startPhoneLinkProductBoot } = await import('../phoneLink/phoneLinkProductBoot');
+        this._regNamed(gen, 'PhoneLinkProductBoot', startPhoneLinkProductBoot());
+      } else {
+        _log('  › PhoneLink ProductBoot — telefon rolü (sunucu açılmaz)');
+      }
     } else {
-      _log('  › PhoneLink ProductBoot — companion kapalı (ürün kararı)');
+      _log('  › PhoneLink ProductBoot — kapalı');
     }
 
     // Görüşme sürerken müzik SUSAR — kanonik 'PHONE' duck'ı (duckPolicy +

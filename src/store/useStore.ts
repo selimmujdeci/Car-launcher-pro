@@ -339,6 +339,11 @@ export interface AppSettings {
    * ister. `calibration` çalışma zamanında (adasRuntime) öğrenilip yazılır.
    */
   adas: AdasSettings;
+  /**
+   * Phone Link rolü — aynı CarOS Pro araçta SUNUCU, telefonda İSTEMCİ.
+   * 'auto': head unit tespiti + ekran boyutundan önerilir (phoneLinkDeviceRole).
+   */
+  phoneLinkRole: 'auto' | 'car' | 'phone';
 }
 
 export interface MusicFavorite {
@@ -497,6 +502,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   companionWakeEnrollment: [],
   runtimeOverride: 'AUTO',
   adas: DEFAULT_ADAS_SETTINGS,
+  phoneLinkRole: 'auto',
 };
 
 /** Sürücü avatar renkleri — sırayla atanır. */
