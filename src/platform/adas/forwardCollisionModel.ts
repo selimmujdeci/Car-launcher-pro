@@ -133,6 +133,9 @@ export interface LeadInfo {
 
 export interface ForwardOutput {
   readonly forward: 'collision' | 'headway' | null;
+  /** Takip mesafesi uyarısı kendi başına (çarpışma uyarısı onu örtse de) —
+   *  kullanıcı FCW'yi kapatıp takip mesafesini açık bıraktıysa gerekir. */
+  readonly headwayWarning: boolean;
   readonly leadDeparted: boolean;
   readonly fcwState: AdasFeatureState;
   readonly fcwReason: AdasReason | null;
@@ -323,7 +326,7 @@ export function stepForward(prev: ForwardState, input: ForwardInput): { state: F
   return {
     state: s,
     out: {
-      forward, leadDeparted,
+      forward, headwayWarning, leadDeparted,
       fcwState, fcwReason, headwayState, headwayReason, leadState, leadReason,
       lead: t ? { box: t.box, cls: t.cls, distanceM, ttcS, headwayS } : null,
       detectHz, latencyMs,

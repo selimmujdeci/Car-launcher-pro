@@ -8,6 +8,7 @@ import { setObdVehicleType } from '../platform/obdService';
 import { safeStorage } from '../utils/safeStorage';
 import { OwnerCommandEvidence, type CommandMessage } from '../platform/message';
 import type { ManufacturerDidProfileId } from '../platform/obd/profiles';
+import { DEFAULT_ADAS_SETTINGS, type AdasSettings } from '../platform/adas/adasTypes';
 import {
   DEFAULT_ASSISTANT_NAME, DEFAULT_WAKE_PHRASE, DEFAULT_WAKE_MODE,
   DEFAULT_PERSONALITY, DEFAULT_CHATTINESS,
@@ -333,6 +334,11 @@ export interface AppSettings {
    * RuntimeMode değeri → kullanıcı zorlaması (ayarlar ekranı).
    */
   runtimeOverride: RuntimeOverride;
+  /**
+   * Sürüş Asistanı (ADAS) — varsayılan KAPALI, açılışta sınırlamalar onayı
+   * ister. `calibration` çalışma zamanında (adasRuntime) öğrenilip yazılır.
+   */
+  adas: AdasSettings;
 }
 
 export interface MusicFavorite {
@@ -490,6 +496,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   companionWakePhrase: DEFAULT_WAKE_PHRASE,
   companionWakeEnrollment: [],
   runtimeOverride: 'AUTO',
+  adas: DEFAULT_ADAS_SETTINGS,
 };
 
 /** Sürücü avatar renkleri — sırayla atanır. */

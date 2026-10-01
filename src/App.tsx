@@ -23,6 +23,7 @@ import { ReversePriorityOverlay } from './components/layout/ReversePriorityOverl
 import { SafetyOverlay }         from './components/safety/SafetyOverlay';
 import { SafetyAnnouncer }       from './components/safety/SafetyAnnouncer';
 import { SafetyProvider }        from './components/safety/SafetyContext';
+import { AdasRuntimeHost }       from './components/adas/AdasRuntimeHost';
 import { useSystemStore }     from './store/useSystemStore';
 import { GeofenceAlarmOverlay } from './components/security/GeofenceAlarmOverlay';
 import { systemBoot }         from './platform/system/SystemBoot';
@@ -210,6 +211,9 @@ function App() {
           {/* FAZ 3B — TTS + chime; null render, DOM yok; context'ten output alır */}
           <SafetyAnnouncer />
         </SafetyProvider>
+        {/* Sürüş Asistanı — yalnız uyarı üretir; sunumu yukarıdaki güvenlik asistanı yapar.
+            Geri viteste de bağlı kalır (vites kapısı runtime'ın içinde). */}
+        <AdasRuntimeHost />
 
         {!storeReverse && <GlobalAlert />}
         {/* İlk kurulum sihirbazı — yalnız yeni kurulumda; geri viteste ve sürüşte gizli. */}
