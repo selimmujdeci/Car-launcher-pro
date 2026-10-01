@@ -33,8 +33,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  *   reverse / door / ACC / speed / steering-wheel key eventlerini bul.
  *
  * Yöntemler (öncelik sırasıyla):
- *   1. com.nwd.factory.service.FactorySettingService IBinder transact
- *      → UiService değil, veri servisi → kamera ekranı AÇMAZ
+ *   (1. servis binder transact taraması KALDIRILDI — kör çağrılar araca yazıyordu)
  *   2. NWD/Hiworld'e özgü broadcast action genişletilmesi
  *   3. /dev/socket + /dev/nwd* dosya keşfi
  *   4. Hiworld ContentProvider'a hedefli sütun sorgusu
@@ -54,15 +53,6 @@ public final class McuEventSniffer {
     }
 
     private static final String TAG = "McuEventSniffer";
-
-    // Hiworld FactorySettingService — UiService DEĞİL (kamera açmaz)
-    private static final String NWD_PKG_FACTORY  = "com.nwd.factory.setting";
-    private static final String NWD_SVC_DATA     = "com.nwd.factory.service.FactorySettingService";
-
-    // Doğrudan CAN servisi — tanı günlüğü bulgusu (S:com.nwd.can.service.CanService exp=true)
-    // com.nwd.can.setting paketi bu servisi export ediyor → araç verisinin en güçlü adayı.
-    private static final String NWD_PKG_CAN  = "com.nwd.can.setting";
-    private static final String NWD_SVC_CAN  = "com.nwd.can.service.CanService";
 
     // NWD/K250'ye özgü broadcast action'ları (K24 listesine ek olarak)
     private static final String[] NWD_ACTIONS = {
@@ -102,7 +92,6 @@ public final class McuEventSniffer {
     private final Context   _ctx;
     private final DiagListener _diag;
     private final AtomicBoolean _running  = new AtomicBoolean(false);
-    private final AtomicBoolean _svcBound = new AtomicBoolean(false);
 
     // Spam throttle: mesaj → son log zamanı
     private final java.util.concurrent.ConcurrentHashMap<String, Long> _throttle =
@@ -156,14 +145,6 @@ public final class McuEventSniffer {
         diag("[McuSniffer] Durduruldu");
     }
 
-    // Geri vites kamera servisi — exp=true, araç durumunu biliyor
-    private static final String NWD_PKG_BACKCAR = "com.nwd.backcar";
-    private static final String NWD_SVC_BACKCAR = "com.nwd.backcar.BackcarService";
-
-    // USB2CVBS capture servisi — kamera sinyal kaynağı
-    private static final String NWD_PKG_USB2CVBS = "com.nwd.usb2cvbs";
-    private static final String NWD_SVC_CAPTURE  = "com.nwd.usb2cvbs.service.CaptureService";
-
     // BackcarService broadcast'leri — geri vites tetikleyicileri
     private static final String[] BACKCAR_ACTIONS = {
         "com.nwd.backcar.action.REVERSE_ON",
@@ -180,176 +161,16 @@ public final class McuEventSniffer {
     // ── Keşif sırası ─────────────────────────────────────────────────────────
 
     private void _discover() {
-        _probeBackcarService();      // ← YENİ: geri vites kamera servisi
-        _probeFactorySettingService();
-        _probeCanService();          // ← YENİ: doğrudan exp=true CAN servisi (tanı bulgusu)
         _probeDeviceFiles();
         _probeNwdContentProvider();
     }
 
-    // ── 0. BackcarService — geri vites kamera + araç durumu ─────────────────
-
-    private void _probeBackcarService() {
-        diag("[McuSniffer] BackcarService probe başlıyor...");
-        try {
-            Intent intent = new Intent();
-            intent.setComponent(new ComponentName(NWD_PKG_BACKCAR, NWD_SVC_BACKCAR));
-            boolean bound = _ctx.bindService(intent, new ServiceConnection() {
-                @Override
-                public void onServiceConnected(ComponentName name, IBinder binder) {
-                    String desc = safeDescriptor(binder);
-                    diag("[McuSniffer] ★ BackcarService BAĞLANDI: " + desc);
-                    for (int code = 1; code <= 20; code++) {
-                        Parcel req = Parcel.obtain(), resp = Parcel.obtain();
-                        try {
-                            if (!desc.equals("(null)") && !desc.startsWith("(hata")) {
-                                req.writeInterfaceToken(desc);
-                            }
-                            if (!binder.transact(code, req, resp, 0)) continue;
-                            int sz = resp.dataAvail();
-                            if (sz == 0) continue;
-                            byte[] raw = new byte[Math.min(sz, 64)];
-                            resp.setDataPosition(0);
-                            for (int i = 0; i < raw.length; i++) raw[i] = resp.readByte();
-                            StringBuilder hex = new StringBuilder();
-                            for (byte b : raw) hex.append(String.format("%02X", b));
-                            resp.setDataPosition(0);
-                            int exc = (sz >= 4) ? resp.readInt() : -99;
-                            int val = (sz >= 8) ? resp.readInt() : -99;
-                            String str = null;
-                            try { resp.setDataPosition(0); resp.readException(); str = resp.readString(); }
-                            catch (Exception ignored) {}
-                            diag(String.format("[BackcarSvc][%d] sz=%d hex=%s exc=%d int=%d%s",
-                                code, sz, hex, exc, val,
-                                (str != null && !str.isEmpty() ? " str=\"" + str + "\"" : "")));
-                        } catch (Exception e) {
-                            diag("[BackcarSvc][" + code + "] hata: " + e.getMessage());
-                        } finally { req.recycle(); resp.recycle(); }
-                    }
-                    try { _ctx.unbindService(this); } catch (Exception ignored) {}
-                }
-                @Override public void onServiceDisconnected(ComponentName n) {
-                    diag("[McuSniffer] BackcarService bağlantısı kesildi");
-                }
-            }, Context.BIND_AUTO_CREATE);
-            diag("[McuSniffer] BackcarService bind " + (bound ? "OK" : "BAŞARISIZ — paket yok?"));
-        } catch (Exception e) {
-            diag("[McuSniffer] BackcarService hata: " + e.getMessage());
-        }
-
-        // USB2CVBS CaptureService
-        try {
-            Intent intent2 = new Intent();
-            intent2.setComponent(new ComponentName(NWD_PKG_USB2CVBS, NWD_SVC_CAPTURE));
-            _ctx.bindService(intent2, new ServiceConnection() {
-                @Override public void onServiceConnected(ComponentName n, IBinder b) {
-                    diag("[McuSniffer] ★ CaptureService BAĞLANDI: " + safeDescriptor(b));
-                    try { _ctx.unbindService(this); } catch (Exception ignored) {}
-                }
-                @Override public void onServiceDisconnected(ComponentName n) {}
-            }, Context.BIND_AUTO_CREATE);
-        } catch (Exception ignored) {}
-    }
-
-    // ── 1. FactorySettingService IBinder transact ─────────────────────────────
-
-    private void _probeFactorySettingService() {
-        diag("[McuSniffer] FactorySettingService probe başlıyor...");
-        try {
-            Intent intent = new Intent();
-            intent.setComponent(new ComponentName(NWD_PKG_FACTORY, NWD_SVC_DATA));
-            boolean bound = _ctx.bindService(intent, new ServiceConnection() {
-                @Override
-                public void onServiceConnected(ComponentName name, IBinder binder) {
-                    _svcBound.set(true);
-                    diag("[McuSniffer] FactorySettingService BAĞLANDI: " + name.flattenToShortString());
-                    diag("[McuSniffer] IBinder descriptor: " + safeDescriptor(binder));
-                    _transactProbe(binder, name.flattenToShortString());
-                    // Bağlantıyı hemen kapat — side effect olmasın
-                    try { _ctx.unbindService(this); } catch (Exception ignored) {}
-                    _svcBound.set(false);
-                }
-                @Override
-                public void onServiceDisconnected(ComponentName name) {
-                    _svcBound.set(false);
-                }
-            }, Context.BIND_AUTO_CREATE);
-            diag("[McuSniffer] FactorySettingService bind " + (bound ? "başlatıldı" : "BAŞARISIZ"));
-        } catch (Exception e) {
-            diag("[McuSniffer] FactorySettingService bind hatası: " + e.getMessage());
-        }
-    }
-
-    // ── 1b. CanService — doğrudan exp=true CAN servisi (tanı bulgusu) ──────────
-    // com.nwd.can.setting → com.nwd.can.service.CanService export edilmiş (exp=true).
-    // FactorySetting/Backcar ile aynı READ-ONLY transact altyapısı: yazma/kontrol YOK,
-    // bağlantı transact probe biter bitmez kapatılır (side effect olmasın).
-    private void _probeCanService() {
-        diag("[McuSniffer] CanService probe başlıyor (com.nwd.can.setting)...");
-        try {
-            Intent intent = new Intent();
-            intent.setComponent(new ComponentName(NWD_PKG_CAN, NWD_SVC_CAN));
-            boolean bound = _ctx.bindService(intent, new ServiceConnection() {
-                @Override
-                public void onServiceConnected(ComponentName name, IBinder binder) {
-                    diag("[McuSniffer] ★ CanService BAĞLANDI: " + name.flattenToShortString());
-                    diag("[McuSniffer] CanService descriptor: " + safeDescriptor(binder));
-                    _transactProbe(binder, name.flattenToShortString());
-                    try { _ctx.unbindService(this); } catch (Exception ignored) {}
-                }
-                @Override
-                public void onServiceDisconnected(ComponentName name) {}
-            }, Context.BIND_AUTO_CREATE);
-            diag("[McuSniffer] CanService bind " + (bound ? "başlatıldı" : "BAŞARISIZ — paket yok/izin?"));
-        } catch (Exception e) {
-            diag("[McuSniffer] CanService bind hatası: " + e.getMessage());
-        }
-    }
-
-    /** Güvenli IBinder.getInterfaceDescriptor() — null/exception korumalı */
-    private static String safeDescriptor(IBinder b) {
-        try { String d = b.getInterfaceDescriptor(); return d != null ? d : "(null)"; }
-        catch (Exception e) { return "(hata: " + e.getMessage() + ")"; }
-    }
-
-    /** Transact code 1–20 arasında kör deneme — sadece READ */
-    private void _transactProbe(IBinder binder, String svcName) {
-        for (int code = 1; code <= 20; code++) {
-            if (!_running.get()) return;
-            try {
-                Parcel req  = Parcel.obtain();
-                Parcel resp = Parcel.obtain();
-                try {
-                    String desc = safeDescriptor(binder);
-                    if (!desc.equals("(null)") && !desc.startsWith("(hata")) {
-                        req.writeInterfaceToken(desc);
-                    }
-                    boolean ok = binder.transact(code, req, resp, 0);
-                    int size = resp.dataAvail();
-                    if (ok && size > 0) {
-                        // Yanıt geldi — tüm byte'ları hex olarak logla (parse etme)
-                        int readLen = Math.min(size, 128);
-                        byte[] bytes = new byte[readLen];
-                        resp.setDataPosition(0);
-                        for (int i = 0; i < readLen; i++) bytes[i] = resp.readByte();
-                        String hex = bytesToHex(bytes);
-                        String truncNote = size > 128 ? " (+…" + (size - 128) + ")" : "";
-                        diag(String.format(
-                            "[McuSniffer] TRANSACT HIT %s code=%d size=%d%s hex=%s",
-                            svcName, code, size, truncNote, hex));
-                    }
-                } finally {
-                    req.recycle();
-                    resp.recycle();
-                }
-            } catch (Exception e) {
-                // Çoğu code başarısız olacak — sadece beklenmedik hataları logla
-                if (e.getMessage() != null && !e.getMessage().contains("UNKNOWN_TRANSACTION")) {
-                    throttledDiag("[McuSniffer] transact[" + code + "] hata: " + e.getMessage());
-                }
-            }
-        }
-    }
+    // ── 0/1/1b. Servis binder taraması KALDIRILDI (saha 2026-10-01) ─────────────
+    // BackcarService / FactorySettingService / CanService'e 1..20 arası KÖR transact
+    // atılıyordu. Bu kodlar içinde yazma metotları var (CanService kod 1 = sendCanData):
+    // boş Parcel ile çağrılınca klima AUTO/DUAL/buğu kendiliğinden değişti, fan geri
+    // döndü (Megane head-unit, her uygulama açılışında). Araca yazan kanıtsız çağrı
+    // YASAK — keşif yalnız salt-okunur yollardan (yayın, dosya, provider sorgusu).
 
     // ── 2. Broadcast action genişletmesi ─────────────────────────────────────
 
