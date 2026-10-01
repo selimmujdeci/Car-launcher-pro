@@ -44,6 +44,8 @@ public final class LanServerTransport {
     /** Tercih edilen TCP portu; doluysa çekirdek boş bir port verir (beacon onu duyurur). */
     public static final int PREFERRED_TCP_PORT = 47652;
     static final long BEACON_INTERVAL_MS = 2_000L;
+    /** Durdururken kabul iş parçacığının bitmesi için en çok bu kadar beklenir. */
+    static final long STOP_JOIN_MS = 1_000L;
 
     public interface Callback {
         /**
@@ -159,7 +161,20 @@ public final class LanServerTransport {
         }
         Thread a = acceptThread;
         acceptThread = null;
-        if (a != null) a.interrupt();
+        if (a != null) {
+            a.interrupt();
+            /* Bazı JVM'lerde dinleme soketinin GERÇEK kapanışı accept()'te bekleyen
+               iş parçacığı uyanana dek ertelenir; o arada port bağlantı kabul eder.
+               Port gerçekten bırakılsın diye kısa süre beklenir (kendi iş
+               parçacığından çağrılırsa beklenmez). */
+            if (a != Thread.currentThread()) {
+                try {
+                    a.join(STOP_JOIN_MS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        }
         Thread b = beaconThread;
         beaconThread = null;
         if (b != null) b.interrupt();
@@ -201,6 +216,10 @@ public final class LanServerTransport {
                 if (!running.get() || disposed.get()) return;   // kasıtlı kapanış
                 continue;
             }
+            if (!running.get() || disposed.get()) {   // durdurulurken son anda gelen bağlantı
+                closeQuietly(s);
+                return;
+            }
 
             if (!policy.allows(s.getInetAddress()) || !policy.allows(s.getLocalAddress())) {
                 rejectedNonLocalCount++;
@@ -224,8 +243,8 @@ public final class LanServerTransport {
             boolean taken = callback != null && callback.onChannelAccepted(new LanChannel(s));
             if (!taken) {
                 activeSocket = null;
+                if (running.get()) state = ServerState.LISTENING;   // kapatmadan ÖNCE: karşı uç -1 okuyunca durum tutarlı
                 closeQuietly(s);
-                if (running.get()) state = ServerState.LISTENING;
             }
         }
     }
