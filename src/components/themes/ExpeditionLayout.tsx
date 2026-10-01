@@ -39,6 +39,7 @@ import { solveLayout, normalizeIntent, EXPEDITION_MANIFEST, type Zone } from '..
 import emblemUrl from '../../assets/expedition/emblem.png';
 import roverUrl from '../../assets/expedition/rover.png';
 import { SUPPORTS_CSS_CLAMP, SUPPORTS_ASPECT_RATIO } from '../../utils/cssCompat';
+import { useLayout } from '../../context/LayoutContext';
 
 /* ── Eski WebView (Chrome <79/<88) inline-CSS fallback'leri ──────────
  * clamp()/aspect-ratio desteklenmeyince tarayıcı deklarasyonu sessizce düşürür:
@@ -224,7 +225,7 @@ const Header = memo(function Header() {
 });
 
 /* ─── SPEED PLATE (gösterge + gövde sinyalleri; saat başlıkta) ────── */
-const SpeedPlate = memo(function SpeedPlate() {
+const SpeedPlate = memo(function SpeedPlate({ compact }: { compact?: boolean }) {
   const p = usePal();
   /* SAHA 2026-08-12: ham değer YUVARLANMADAN basılıyordu. GPS kaynaklı hız
      `loc.speed * 3.6` ile üretilir → ONDALIKLIDIR ("67.154"); 88 px'lik rakamla
@@ -237,6 +238,20 @@ const SpeedPlate = memo(function SpeedPlate() {
   const speed = rawSpeed ?? 0;   // yalnız yay/oran hesabı için
   // 270° yay (r=100, çevre 628 → görünür 471); dolum = hız/200
   const offset = useMemo(() => 471 - Math.min(speed / 200, 1) * 471, [speed]);
+  /* DİKEY (head-unit 768×1024): 2×2 kart ızgarasında plaka ~130 px kalır —
+     210 px'lik halka + gövde sinyalleri sığmaz, kesiliyordu (saha 2026-10-01).
+     Yalnız rakam + birim; değer aynı tek biçimleyiciden. */
+  if (compact) {
+    return (
+      <Plate editId="expedition.speed" editType="gauge" style={{ padding: '14px 20px', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', minHeight: 0 }}>
+        <Label>Hız</Label>
+        <div className="flex items-baseline justify-center" style={{ gap: 8, marginTop: 4 }}>
+          <span style={{ fontWeight: 800, fontSize: 64, lineHeight: 0.9, color: p.inkCritical, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em' }}>{formatDisplaySpeed(rawSpeed)}</span>
+          <span style={{ fontSize: 15, fontWeight: 700, letterSpacing: '0.12em', color: p.ink2 }}>KM/H</span>
+        </div>
+      </Plate>
+    );
+  }
   return (
     <Plate editId="expedition.speed" editType="gauge" style={{ padding: '22px 20px', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
       <div style={{ flex: 1, display: 'grid', placeItems: 'center', position: 'relative', minHeight: 0 }}>
@@ -427,7 +442,7 @@ const MusicPlate = memo(function MusicPlate() {
 });
 
 /* ─── VEHICLE PLATE (CarOS Rover + canlı metrikler) ──────────────── */
-const VehiclePlate = memo(function VehiclePlate({ onOpenSettings }: { onOpenSettings: () => void }) {
+const VehiclePlate = memo(function VehiclePlate({ onOpenSettings, compact }: { onOpenSettings: () => void; compact?: boolean }) {
   const p = usePal();
   const battery = useBatteryVoltage();   // kütük #427: CAN → OBD otoritesi
   const volt = battery.volt;
@@ -436,7 +451,7 @@ const VehiclePlate = memo(function VehiclePlate({ onOpenSettings }: { onOpenSett
   const motor = eng.engineTemp != null ? Math.round(eng.engineTemp) : null;
   const rpm = eng.rpm;
   return (
-    <Plate editId="expedition.vehicle" style={{ padding: '18px 20px 0', display: 'flex', flexDirection: 'column', overflow: 'hidden' }} onClick={onOpenSettings}>
+    <Plate editId="expedition.vehicle" style={{ padding: '18px 20px 0', display: 'flex', flexDirection: 'column', justifyContent: compact ? 'center' : undefined, overflow: 'hidden' }} onClick={onOpenSettings}>
       <div className="flex items-baseline justify-between">
         <Label>Araç Durumu</Label>
         <div className="flex items-center" style={{ gap: 4 }}>
@@ -444,11 +459,12 @@ const VehiclePlate = memo(function VehiclePlate({ onOpenSettings }: { onOpenSett
           <ChevronRight className="w-5 h-5" style={{ color: p.ink2 }} />
         </div>
       </div>
-      {/* Rover görseli — dekor (canlı metrikler altında) */}
-      <div style={{ flex: 1, position: 'relative', margin: '6px -20px 0', minHeight: 0 }}>
+      {/* Rover görseli — dekor (canlı metrikler altında). Dikeyde kart ~130 px:
+          görsel sığmaz, boş boşluk bırakıyordu → içerik ortalanır. */}
+      {!compact && <div style={{ flex: 1, position: 'relative', margin: '6px -20px 0', minHeight: 0 }}>
         <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundImage: `url(${roverUrl})`, backgroundPosition: 'center 58%', backgroundSize: '112%', backgroundRepeat: 'no-repeat', filter: p.night ? 'none' : 'brightness(1.04)' }} />
         <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, pointerEvents: 'none', background: `linear-gradient(to bottom, transparent 44%, ${p.plate} 96%)` }} />
-      </div>
+      </div>}
       <div className="flex" style={{ borderTop: `1px solid ${p.hairline}`, position: 'relative', zIndex: 2 }} onClick={e => e.stopPropagation()}>
         <Metric k="Motor" v={motor != null ? `${motor}` : '—'} unit="°C" />
         <Metric k="Devir" v={rpm != null ? `${Math.round(rpm)}` : '—'} unit="" border />
@@ -758,13 +774,16 @@ export const ExpeditionLayout = memo(function ExpeditionLayout(props: Props) {
   const rawIntent = useLayoutIntent('expedition');
   const intent = useMemo(() => normalizeIntent(rawIntent, EXPEDITION_MANIFEST), [rawIntent]);
   const solved = useMemo(() => solveLayout(intent, EXPEDITION_MANIFEST), [intent]);
+  // Dikey ekran (Megane head-unit 768×1024): raylar haritanın ÜSTÜNE iki sütun olur.
+  const { screen } = useLayout();
+  const portrait = screen.height > screen.width;
 
   const renderExCard = (id: string) => {
     switch (id) {
-      case 'speed':   return <SpeedPlate />;
+      case 'speed':   return <SpeedPlate compact={portrait} />;
       case 'range':   return <RangePlate />;
       case 'music':   return <MusicPlate />;
-      case 'vehicle': return <VehiclePlate onOpenSettings={onOpenSettings} />;
+      case 'vehicle': return <VehiclePlate onOpenSettings={onOpenSettings} compact={portrait} />;
       default:        return null;
     }
   };
@@ -814,25 +833,49 @@ export const ExpeditionLayout = memo(function ExpeditionLayout(props: Props) {
 
         <Header />
 
-        <div style={{ flex: '1 1 auto', minHeight: 0, display: 'grid', gridTemplateColumns: gridCols, gap: 14 }}>
-          {/* Sol ray — Yerleşim Motoru'ndan (sıra/görünürlük/boyut niyete göre; varsayılan = mevcut ekran) */}
-          <div style={{ display: 'grid', gap: 14, minWidth: 0, minHeight: 0, gridTemplateRows: exRailRows('left-rail') }}>
-            {solved['left-rail'].groups.map((g, i) => renderExGroup(g, g.map((x) => x.id).join('+') || String(i)))}
-          </div>
-          {/* Orta */}
-          <div style={{ position: 'relative', minWidth: 0, minHeight: 0, display: 'flex' }}>
-            <MapPlate onOpenMap={onOpenMap} fullMapOpen={fullMapOpen} />
-            {smart && smart.predictions.length > 0 && (
-              <div className="absolute" style={{ bottom: 64, left: 14, right: 14, zIndex: 20 }}>
-                <MagicContextCard smart={smart} variant="tesla" onLaunch={onLaunch} onOpenMap={onOpenMap} />
+        {portrait ? (
+          /* DİKEY: sol ray | sağ ray yan yana üstte, harita altta kalan alanın tamamı.
+             İki sütun FLEX ile kurulur — theme-layouts.css dikeyde inline
+             grid-template-columns'u zorla 1fr'e indiriyor (kartlar alt alta diziliyordu). */
+          <div style={{ flex: '1 1 auto', minHeight: 0, display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div style={{ flex: '0 0 44%', minHeight: 0, display: 'flex', gap: 14 }}>
+              <div style={{ flex: 1, display: 'grid', gap: 14, minWidth: 0, minHeight: 0, gridTemplateRows: exRailRows('left-rail') }}>
+                {solved['left-rail'].groups.map((g, i) => renderExGroup(g, g.map((x) => x.id).join('+') || String(i)))}
               </div>
-            )}
+              <div style={{ flex: 1, display: 'grid', gap: 14, minWidth: 0, minHeight: 0, gridTemplateRows: exRailRows('right-rail') }}>
+                {solved['right-rail'].groups.map((g, i) => renderExGroup(g, g.map((x) => x.id).join('+') || String(i)))}
+              </div>
+            </div>
+            <div style={{ position: 'relative', flex: '1 1 auto', minWidth: 0, minHeight: 0, display: 'flex' }}>
+              <MapPlate onOpenMap={onOpenMap} fullMapOpen={fullMapOpen} />
+              {smart && smart.predictions.length > 0 && (
+                <div className="absolute" style={{ bottom: 64, left: 14, right: 14, zIndex: 20 }}>
+                  <MagicContextCard smart={smart} variant="tesla" onLaunch={onLaunch} onOpenMap={onOpenMap} />
+                </div>
+              )}
+            </div>
           </div>
-          {/* Sağ ray — Yerleşim Motoru'ndan (sıra/görünürlük/boyut niyete göre) */}
-          <div style={{ display: 'grid', gap: 14, minWidth: 0, minHeight: 0, gridTemplateRows: exRailRows('right-rail') }}>
-            {solved['right-rail'].groups.map((g, i) => renderExGroup(g, g.map((x) => x.id).join('+') || String(i)))}
+        ) : (
+          <div style={{ flex: '1 1 auto', minHeight: 0, display: 'grid', gridTemplateColumns: gridCols, gap: 14 }}>
+            {/* Sol ray — Yerleşim Motoru'ndan (sıra/görünürlük/boyut niyete göre; varsayılan = mevcut ekran) */}
+            <div style={{ display: 'grid', gap: 14, minWidth: 0, minHeight: 0, gridTemplateRows: exRailRows('left-rail') }}>
+              {solved['left-rail'].groups.map((g, i) => renderExGroup(g, g.map((x) => x.id).join('+') || String(i)))}
+            </div>
+            {/* Orta */}
+            <div style={{ position: 'relative', minWidth: 0, minHeight: 0, display: 'flex' }}>
+              <MapPlate onOpenMap={onOpenMap} fullMapOpen={fullMapOpen} />
+              {smart && smart.predictions.length > 0 && (
+                <div className="absolute" style={{ bottom: 64, left: 14, right: 14, zIndex: 20 }}>
+                  <MagicContextCard smart={smart} variant="tesla" onLaunch={onLaunch} onOpenMap={onOpenMap} />
+                </div>
+              )}
+            </div>
+            {/* Sağ ray — Yerleşim Motoru'ndan (sıra/görünürlük/boyut niyete göre) */}
+            <div style={{ display: 'grid', gap: 14, minWidth: 0, minHeight: 0, gridTemplateRows: exRailRows('right-rail') }}>
+              {solved['right-rail'].groups.map((g, i) => renderExGroup(g, g.map((x) => x.id).join('+') || String(i)))}
+            </div>
           </div>
-        </div>
+        )}
 
         <ExpeditionDock onOpenMap={onOpenMap} onOpenApps={onOpenApps} onOpenSettings={onOpenSettings} onVoice={() => setVoiceOpen(true)} />
       </div>
