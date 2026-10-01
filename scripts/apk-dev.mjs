@@ -38,7 +38,10 @@ const STAMP = 'build-stamp.json';
 const DIST_STAMP = join(ROOT, 'dist', STAMP);
 const ASSETS_PUBLIC = join(ROOT, 'android', 'app', 'src', 'main', 'assets', 'public');
 const ASSETS_STAMP = join(ASSETS_PUBLIC, STAMP);
-const APK = join(ROOT, 'android', 'app', 'build', 'outputs', 'apk', 'debug', 'app-debug.apk');
+// Windows'ta android/build.gradle (usesWindowsTempBuildDir) buildDir'i C:/Temp/carlauncher'a taşır.
+const APK = isWindows
+  ? join('C:/Temp/carlauncher', 'app', 'build', 'outputs', 'apk', 'debug', 'app-debug.apk')
+  : join(ROOT, 'android', 'app', 'build', 'outputs', 'apk', 'debug', 'app-debug.apk');
 const APK_STAMP_ENTRY = `assets/public/${STAMP}`;
 
 function step(n, msg) { console.log(`\n[apk:dev] ── ${n} ── ${msg}`); }
