@@ -143,5 +143,30 @@ final class NwdCanFrames {
         return new int[]{ angle, a2, a3 };
     }
 
+    /**
+     * CAN ayarı (tip 11, RemoteProtocalPack.packCanSettingInfo): [3]=ayar tipi, sonrası tek
+     * değer baytı ya da veri dizisi. Renault/Raise'de masaj · koltuk hafızası gibi merkezi
+     * ayarların (CentralState) bu yoldan gelmesi beklenir; tip → anlam sahada çıkarılacak.
+     * Ayar tipi döner; tip 11 çerçevesi değilse -1.
+     */
+    static int canSettingType(byte[] f) {
+        if (frameType(f) != TYPE_CAN_SETTING || (f[2] & 0xFF) < 1) return -1;
+        return f[3] & 0xFF;
+    }
+
+    /** Çerçevenin veri bölümü ("0A FF 01" biçiminde); geçerli çerçeve değilse null. */
+    static String payloadHex(byte[] f) {
+        if (frameType(f) < 0) return null;
+        int end = 3 + (f[2] & 0xFF);
+        StringBuilder sb = new StringBuilder();
+        for (int i = 3; i < end; i++) {
+            if (i > 3) sb.append(' ');
+            sb.append(HEX[(f[i] >> 4) & 0xF]).append(HEX[f[i] & 0xF]);
+        }
+        return sb.toString();
+    }
+
+    private static final char[] HEX = "0123456789ABCDEF".toCharArray();
+
     private static int bit(int b, int n) { return (b >> n) & 1; }
 }

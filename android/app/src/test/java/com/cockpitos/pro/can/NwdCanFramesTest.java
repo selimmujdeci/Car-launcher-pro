@@ -92,6 +92,16 @@ public class NwdCanFramesTest {
     }
 
     @Test
+    public void canSettingCarriesTypeThenValue() {
+        // packCanSettingInfo: [3]=ayar tipi, [4..]=değer/veri
+        byte[] f = frame(11, 0x2A, 0x01, 0xFF);
+        assertEquals(0x2A, NwdCanFrames.canSettingType(f));
+        assertEquals("2A 01 FF", NwdCanFrames.payloadHex(f));
+        assertEquals(-1, NwdCanFrames.canSettingType(frame(3, 0x2A)));
+        assertNull(NwdCanFrames.payloadHex(new byte[]{ 0x2E, 11, 1, 0 }));
+    }
+
+    @Test
     public void diffListsNonDefaultsFirstThenOnlyChanges() {
         String[] table = { "bA", "fB", "sC" };   // günlükte tip harfi atılır: "A", "B", "C"
         assertEquals("B=22.0", NwdCanFrames.diff(table, null, new String[]{ "0", "22.0", "null" }));

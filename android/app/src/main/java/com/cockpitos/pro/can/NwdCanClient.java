@@ -21,7 +21,7 @@ import android.util.Log;
  *              üçüncü-taraf kimliği "nwdthirdapp" / "d39df3d908cf7136227987e37d5b2c7d" / 0
  *   - Veri   : addCanCarInfoCallBack(cb) → cb.onDistributeCarInfo(CarInfo)
  *   - Ek (2026-10-01): klima (onDistributeAcState) · lastik (onDistributeTpmsInfo) ·
- *              kapı/radar/direksiyon açısı (ham çerçeve) — biçimler NwdCanFrames'te.
+ *              kapı/radar/direksiyon açısı/CAN ayarı (ham çerçeve) — biçimler NwdCanFrames'te.
  *
  * LİSANS: NWD'nin derlenmiş kodu KOPYALANMAZ. Yalnızca açık binder "wire" protokolü
  * (transaction kodları + Parcel alan sırası) kullanılır — kendi Binder/Parcel kodumuz.
@@ -58,6 +58,7 @@ public final class NwdCanClient {
     private static final int TX_ADD_DOOR_CB           = 11;  // addDoorCallBack      → ham çerçeve tip 3
     private static final int TX_ADD_SWC_ANGLE_CB      = 13;  // addSWCAngleCallBack  → ham çerçeve tip 6
     private static final int TX_ADD_RADAR_CB          = 15;  // addRadarCallBack     → ham çerçeve tip 4
+    private static final int TX_ADD_CAN_SETTING_CB    = 25;  // addCanSettingCallBack → ham çerçeve tip 11 (masaj vb.)
     private static final int TX_ADD_TPMS_CB           = 33;  // addTpmsInfoCallBack  → onDistributeTpmsInfo
     private static final int TX_ADD_CAN_AC_CB         = 35;  // addCanAcCallBack     → onDistributeAcState
     private static final int TX_GET_AC_STATE          = 37;  // getAcState() → AirConditionState (anlık sorgu)
@@ -194,6 +195,7 @@ public final class NwdCanClient {
                 registerCallback(TX_ADD_DOOR_CB,      "addDoorCallBack");
                 registerCallback(TX_ADD_RADAR_CB,     "addRadarCallBack");
                 registerCallback(TX_ADD_SWC_ANGLE_CB, "addSWCAngleCallBack");
+                registerCallback(TX_ADD_CAN_SETTING_CB, "addCanSettingCallBack");
                 queryAcState();
             }
         }
@@ -337,6 +339,8 @@ public final class NwdCanClient {
     private int      _lastAngle = Integer.MIN_VALUE;
     private long     _lastAngleLogMs = 0;
     private final boolean[] _seenFrameType = new boolean[256];
+    private final String[]  _lastSetting   = new String[256];  // ayar tipi → son veri (tip 11)
+    private final String[]  _lastPayload   = new String[256];  // çözülmemiş tipler → son veri
 
     /** Tablo-güdümlü Parcel okuyucu — sıra NwdCanFrames tablolarındadır. */
     private static String[] readFields(Parcel p, String[] table) {
@@ -391,6 +395,22 @@ public final class NwdCanClient {
                 _lastAngle = a[0];
                 _lastAngleLogMs = now;
                 diag("Direksiyon açısı: " + a[0] + " (ek " + a[1] + ", " + a[2] + ")");
+            }
+        } else if (type == NwdCanFrames.TYPE_CAN_SETTING) {
+            int st = NwdCanFrames.canSettingType(frame);
+            String hex = NwdCanFrames.payloadHex(frame);
+            if (st >= 0 && hex != null && !hex.equals(_lastSetting[st])) {
+                _lastSetting[st] = hex;
+                diag("CAN ayarı (tip " + st + "): " + hex);
+            }
+        } else if (type != NwdCanFrames.TYPE_CAR_INFO) {
+            // Çözücüsü olmayan tipler (klima çerçevesi 1, direksiyon tuşu 5 …): içerik
+            // değiştikçe ham veri yazılır. Araç bilgisi (2) Parcel'den çözülür ve sürekli
+            // değişir → yazılmaz.
+            String hex = NwdCanFrames.payloadHex(frame);
+            if (hex != null && !hex.equals(_lastPayload[type])) {
+                _lastPayload[type] = hex;
+                diag("Ham çerçeve tip " + type + ": " + hex);
             }
         }
     }
