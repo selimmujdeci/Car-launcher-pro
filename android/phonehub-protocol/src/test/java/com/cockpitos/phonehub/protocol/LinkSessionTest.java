@@ -78,6 +78,13 @@ public class LinkSessionTest {
 
     private Pair connect(String trustedByClient, String trustedByServer,
                          long heartbeatIntervalMs, long heartbeatTimeoutMs) throws Exception {
+        return connect(trustedByClient, trustedByServer, heartbeatIntervalMs, heartbeatIntervalMs, heartbeatTimeoutMs);
+    }
+
+    /** İstemci ve sunucu kalp atışı aralıkları ayrı verilebilen sürüm. */
+    private Pair connect(String trustedByClient, String trustedByServer,
+                         long clientHeartbeatIntervalMs, long serverHeartbeatIntervalMs,
+                         long heartbeatTimeoutMs) throws Exception {
         PipedOutputStream clientOut = new PipedOutputStream();
         PipedInputStream serverIn = new PipedInputStream(clientOut, 1 << 16);
         PipedOutputStream serverOut = new PipedOutputStream();
@@ -94,7 +101,7 @@ public class LinkSessionTest {
         serverCfg.trustedPeerFingerprint = trustedByServer;
         serverCfg.side = LinkDiagnosticEvent.Side.HEAD_UNIT;
         serverCfg.listener = serverEvents;
-        serverCfg.heartbeatIntervalMs = heartbeatIntervalMs;
+        serverCfg.heartbeatIntervalMs = serverHeartbeatIntervalMs;
         serverCfg.heartbeatTimeoutMs = heartbeatTimeoutMs;
 
         LinkSession.Config clientCfg = new LinkSession.Config();
@@ -105,7 +112,7 @@ public class LinkSessionTest {
         clientCfg.trustedPeerFingerprint = trustedByClient;
         clientCfg.side = LinkDiagnosticEvent.Side.PHONE;
         clientCfg.listener = clientEvents;
-        clientCfg.heartbeatIntervalMs = heartbeatIntervalMs;
+        clientCfg.heartbeatIntervalMs = clientHeartbeatIntervalMs;
         clientCfg.heartbeatTimeoutMs = heartbeatTimeoutMs;
 
         Pair p = new Pair();
@@ -274,6 +281,33 @@ public class LinkSessionTest {
         assertTrue("kalp atışı alınmalı", p.server.snapshot().heartbeatsReceived > 0);
         assertEquals("canlı bağlantı DEGRADED olmamalı",
             LinkSession.State.CONNECTED, p.client.state());
+    }
+
+    /**
+     * Kalp atışı kadansı KARŞI TARAFIN trafiğine bağlı kalmamalı.
+     *
+     * Karşıdan gelen her HEARTBEAT, yerel yazma kuyruğuna bir HEARTBEAT_ACK ekler.
+     * Eskiden yerel kalp atışı yalnız kuyruk poll'u zaman aşımına uğrayınca
+     * gönderiliyordu; karşı taraf daha sık (ya da aynı aralıkta, uygun fazda)
+     * kalp atışı gönderdiğinde poll hiç zaman aşımına uğramıyor ve yerel kalp
+     * atışı HİÇ gitmiyordu. heartbeatKeepsSessionAlive CI'da bu yüzden
+     * kararsızdı (iki uç da 150 ms — faz uyunca 0 kalp atışı).
+     * Burada sunucu 40 ms, istemci 150 ms: yarış deterministik olarak zorlanır.
+     */
+    @Test
+    public void ownHeartbeatIsNotStarvedByPeerTraffic() throws Exception {
+        Pair p = connect(null, null, 150L, 40L, 3_000L);
+        assertTrue(p.clientEvents.codeReady.await(WAIT_MS, TimeUnit.MILLISECONDS));
+        assertTrue(p.serverEvents.codeReady.await(WAIT_MS, TimeUnit.MILLISECONDS));
+        assertTrue(p.server.confirmPairing(true));
+        assertTrue(p.client.confirmPairing(true));
+        assertTrue(p.clientEvents.established.await(WAIT_MS, TimeUnit.MILLISECONDS));
+
+        Thread.sleep(900L);
+
+        assertTrue("karşı tarafın trafiği yerel kalp atışını aç bırakmamalı",
+            p.client.snapshot().heartbeatsSent > 0);
+        assertEquals(LinkSession.State.CONNECTED, p.client.state());
     }
 
     /* ══════════════════════════════════════════════════════════════════════

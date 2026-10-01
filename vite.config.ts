@@ -5,9 +5,12 @@ import tailwindcss from '@tailwindcss/vite'
 import legacy from '@vitejs/plugin-legacy'
 import { transformWithOxc } from 'vite'
 import type { Plugin } from 'vite'
-import { readFileSync } from 'node:fs'
+import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
+import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseVersionProperties, VERSION_FALLBACK } from './src/utils/versionProperties'
+import { computeBuildStamp, BUILD_STAMP_FILE } from './src/utils/buildStamp'
+import type { BuildStamp } from './src/utils/buildStamp'
 
 // ── Sürüm enjeksiyonu (OTA v1 / Commit 1 — device version truth) ─────────────
 // VITE_APP_VERSION daha önce HİÇBİR yerde set edilmiyordu → SystemHealthMonitor
@@ -234,16 +237,32 @@ function removeLayers(css: string): string {
 const _coopCoepHeaders: Record<string, string> = {};
 
 /**
- * Derleme kimliği — hangi commit'ten üretildiği cihazda görünsün diye.
- * Git yoksa (temiz kopya, CI dışı) derleme DÜŞMEZ: 'unknown' döner.
+ * Derleme kimliği — hangi commit'ten, commit'lenmemiş değişiklikle mi, ne zaman.
+ * Git yoksa (temiz kopya, CI dışı) derleme DÜŞMEZ: 'unknown'/null döner.
+ * Tek kaynak `src/utils/buildStamp.ts`; `scripts/apk-dev.mjs` aynı damgayı
+ * dist → assets/public → APK → cihaz zincirinde doğrular.
  */
-const _buildCommit: string = (() => {
+const _buildStamp: BuildStamp = computeBuildStamp((args) => {
   try {
-    return execSync('git rev-parse --short HEAD', { encoding: 'utf8' }).trim();
+    return execSync(`git ${args}`, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
   } catch {
-    return 'unknown';
+    return null;
   }
-})();
+}, new Date());
+
+/** Damgayı `<outDir>/build-stamp.json` olarak yazar (yalnız build; dev sunucuda yok). */
+function writeBuildStamp(stamp: BuildStamp): Plugin {
+  let outDir = 'dist';
+  return {
+    name: 'caros-build-stamp',
+    apply: 'build',
+    configResolved(c) { outDir = resolve(c.root, c.build.outDir); },
+    closeBundle() {
+      mkdirSync(outDir, { recursive: true });
+      writeFileSync(join(outDir, BUILD_STAMP_FILE), `${JSON.stringify(stamp, null, 2)}\n`);
+    },
+  };
+}
 
 export default defineConfig({
   define: {
@@ -256,8 +275,10 @@ export default defineConfig({
        gerçek bir tuzaktı — kurulu derlemenin hangi commit'ten geldiği cihazda
        hiçbir yerde görünmüyordu. Artık LAB tek satırda söylüyor.
        Gizli veri DEĞİL: yalnız kısa commit hash'i ve derleme zamanı. */
-    'import.meta.env.VITE_BUILD_COMMIT': JSON.stringify(_buildCommit),
-    'import.meta.env.VITE_BUILD_TIME':   JSON.stringify(new Date().toISOString()),
+    'import.meta.env.VITE_BUILD_COMMIT': JSON.stringify(_buildStamp.commit),
+    'import.meta.env.VITE_BUILD_TIME':   JSON.stringify(_buildStamp.time),
+    'import.meta.env.VITE_BUILD_DIRTY':  JSON.stringify(String(_buildStamp.dirty)),
+    'import.meta.env.VITE_BUILD_BRANCH': JSON.stringify(_buildStamp.branch),
   },
   // host 127.0.0.1: Spotify OAuth loopback redirect'i IPv4 ister. Varsayılan
   // "localhost" Windows'ta ::1'e (IPv6) bağlanıp 127.0.0.1'i reddediyordu.
@@ -303,6 +324,7 @@ export default defineConfig({
       modernPolyfills: true,
     }),
     fixLegacyModernDetection(), // legacy()'den SONRA: enjekte edilen probe'u çıkarır
+    writeBuildStamp(_buildStamp),
   ],
   // Web Worker uyumluluğu (eski head unit WebView):
   //  - format:'iife' → BUILD tüm worker chunk'larını classic IIFE'ye zorlar (modül

@@ -160,6 +160,10 @@ otomatik agent spawn, zorunlu LAB entegrasyonu, full test suite, production buil
 
 > **KRİTİK: FAST DEV sırasında `npm run apk:safe` çalıştırma.**
 
+> **Cihaz smoke APK'sı yalnız `npm run apk:dev -- --install` ile derlenip kurulur.** Betik
+> commit'i dist → assets/public → APK → cihaz zincirinde doğrular; uyuşmazlıkta durur.
+> Elle `build`/`cap sync`/`gradlew`/`adb install` zinciri eski kodla test üretebilir.
+
 ---
 
 ## 10. TEST STRATEJİSİ
@@ -190,6 +194,9 @@ gerekli cihaz doğrulaması, security/lisans kontrolleri.
 `CODE PASS` → `DEVICE PASS` → `FIELD PASS` → `PRODUCT READY` farklı kanıt seviyeleridir;
 biri diğerini üretmez. Testlerin geçmesi DEVICE PASS değildir. Telefon testi head-unit
 PASS değildir. Head-unit smoke gerçek araç FIELD PASS değildir.
+
+Cihaz kanıtı ancak kurulu paketin derleme etiketi (`versionName …-dev+<commit>[.dirty].<id>`,
+Ayarlar › Sistem › "Derleme:") test edilen commit'le eşleşiyorsa geçerlidir; etiket rapora yazılır.
 
 `docs/DEVICE_VALIDATION_LEDGER.md` gerçek cihaz/saha kanıtı gereken işler için kullanılır
 (GPS, OBD, CAN, BLE, mikrofon, native Android, head-unit/WebView, render, thermal, sürüş

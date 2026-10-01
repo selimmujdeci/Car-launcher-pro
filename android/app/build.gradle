@@ -17,6 +17,25 @@ if (versionPropertiesFile.exists()) {
 def resolvedVersionCode = ((versionProperties['VERSION_CODE'] ?: '2') as String).trim().toInteger()
 def resolvedVersionName = ((versionProperties['VERSION_NAME'] ?: '1.0.0') as String).trim()
 
+// Derleme kimliği (src/utils/buildStamp.ts · scripts/apk-dev.mjs): debug APK'nın
+// versionName'i, APK'ya PAKETLENEN web derlemesinin commit'ini taşır → cihazda
+// `adb shell dumpsys package com.cockpitos.pro | grep versionName` ile kanıtlanır.
+// Kaynak cap sync'in kopyaladığı assets/public/build-stamp.json'dur (git DEĞİL):
+// sync atlanırsa sonek ESKİ commit'i gösterir — eski web paketi böylece görünür olur.
+def webBuildTag = { ->
+    def f = file('src/main/assets/public/build-stamp.json')
+    if (!f.exists()) return 'nostamp'
+    try {
+        def j = new groovy.json.JsonSlurper().parse(f)
+        def c = (j.commit instanceof String && j.commit) ? j.commit : 'unknown'
+        // src/utils/buildStamp.ts › stampVersionTag ile AYNI biçim (testle kilitli).
+        def id = (j.time instanceof String) ? j.time.replaceAll('[-:]', '').take(15) : 'notime'
+        return j.dirty == true ? "${c}.dirty.${id}" : "${c}.${id}"
+    } catch (ignored) {
+        return 'badstamp'
+    }
+}()
+
 android {
     namespace = "com.cockpitos.pro"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -76,6 +95,7 @@ android {
         debug {
             minifyEnabled false
             debuggable true
+            versionNameSuffix "-dev+${webBuildTag}"
         }
     }
     // Native-Core (Phase N1): vehicle_core kütüphanesi CMake derlemesi

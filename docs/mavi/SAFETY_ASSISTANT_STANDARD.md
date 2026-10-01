@@ -51,6 +51,28 @@ Hız eşiği notu: `speed` km/h. `MOVING = speed > 5 km/h` (GPS jitter + CAN gü
 > "emin değilsen yanlış alarm verme" tercih edilir; kritik sıcaklık gibi durumlarda son
 > geçerli değer kısa süre korunur, satır bazında yukarıda belirtildi).
 
+### 1.1 ADAS (kamera) kuralları
+
+Kaynak `useAdasStore` (tek yazar `adasRuntime`) → `safetyStateMapper` (`opts.adas`). İz,
+onay, histerezis ve eşik kararları ADAS modellerindedir (`forwardCollisionModel`,
+`laneDepartureModel`, kapılar `adasSupervisor`); kural motoru yalnız **tazelik** kapısını
+uygular. Sinyal damgası 600 ms'den eskiyse uyarı YOK (fail-closed); ego hız bilinmiyorsa
+veya kamera yönü doğrulanmadıysa modeller zaten uyarı üretmez.
+
+| # | rule id | Koşul (model tarafı) | Seviye | Ekran | Asistan ne der | Tekrar | Stale |
+|---|---------|----------------------|--------|-------|----------------|--------|-------|
+| A1 | `adas.fcw` | ölçek-değişimi TTC ≤ 2.2 sn (erken 2.7 / geç 1.8), iz ≥ 3 güncelleme ve ≥ 400 ms, 2 ardışık teyit, ego ≥ 15 km/sa, ego şerit koridoru, dedektör ≥ 4 Hz ve ≤ 300 ms | **critical · öncelik 100** | bant | "Öndeki araca dikkat!" | 3 sn'de 1, max 3 | > 600 ms → pasif |
+| A2 | `adas.headway` | takip aralığı < 0.8 sn (erken 1.0 / geç 0.6) **≥ 3 sn sürekli**, ego ≥ 50 km/sa, iki mesafe tahmini %50 içinde uyuşuyor | warning · 66 | bant | "Takip mesafesi çok kısa." | 20 sn'de 1, max 2 | > 600 ms → pasif |
+| A3 | `adas.ldw` | çizgiye kalan pay ≤ 0.15 m veya çizgiye varış ≤ 0.7 sn (hassasiyete göre), yanal hız ≥ 0.1 m/s, 2 kare teyit, o yöne son 2 sn'de sinyal yok, ego ≥ 60 km/sa (55'in altına inince kapanır) | warning · 64 | bant + yön | "Soldaki/Sağdaki şeride kayıyorsunuz." | olay başına 1 | > 600 ms → pasif |
+| A4 | `adas.lead_departed` | ego ≥ 2 sn duruyor, öndeki aracın görüntü genişliği %20+ küçüldü (uzaklaştı) | warning · 42 | bant | "Öndeki araç hareket etti." | olay başına 1 | > 600 ms → pasif |
+
+- **Öncelik istisnası (A1):** saniyeler içinde çarpışma riski, statik tablonun critical
+  kurallarının önüne geçer — P0 preemption (`CAROS_VEHICLE_INTELLIGENCE_ARCHITECTURE` §I.5).
+- **§3.3 "durunca sessiz" istisnası (A4):** kalkış bildirimi doğası gereği araç dururken
+  verilir; tek seferlik, en düşük öncelikli warning'dir ve kullanıcı kapatabilir.
+- **Geri vites:** ADAS kamerası bırakılır (native geri görüş önceliklidir), sinyal üretilmez;
+  vitesten çıkınca 3 sn sonra yeniden alınır.
+
 ---
 
 ## 2. Öncelik Sistemi

@@ -789,10 +789,23 @@ stall (hafıza: mali400-blur-lag).
 - Transport soyutlaması: ObdAdapter BLE/classic-BT/TCP (K24 için TCP) — profil
   transport'u seçer, üst katman değişmez.
 
-### I.5 ADAS / Vision (ileride)
-- `visionCore` + `modeController` (STANDARD/HYBRID_AR_NAVIGATION) zaten soyut;
-  ADAS olayları yeni VehicleEventType olarak Rule Engine'e girer, Safety
-  preemption'a P0/P1 seviyesinde eklenir.
+### I.5 ADAS / Vision (uygulandı 2026-10-01 · CODE PASS · kütük #1331 DEVICE/FIELD PENDING)
+- Akış: yol kamerası (`visionCore` kirası `'adas'`) → şerit kareleri
+  (`VisionCompute.worker`) + araç dedektörü (`VehicleDetect.worker`, SSDLite
+  MobileNetV2 · TF.js · çevrimdışı model) → `laneDepartureModel` /
+  `forwardCollisionModel` → `adasSupervisor` (kapılar + hüküm) → **`useAdasStore`
+  (tek yazar `adasRuntime`)** → `safetyStateMapper` (`opts.adas`) →
+  `SafetyRuleEngine` `adas.*` kuralları. VehicleEventType'a girmez; Safety
+  kuyruğu (debounce/tekrar/mute) aynen kullanılır. Ayar, kalibrasyon ve kamera
+  başına doğrulanmış yön `useStore.settings.adas`'tadır.
+- Preemption: `adas.fcw` önceliği 100 (eşitlikte ruleId sırasıyla motor
+  hararetinin önünde); takip/şerit/kalkış warning. ADAS sinyali 600 ms'den
+  eskiyse uyarı YOK. Kurallar: `SAFETY_ASSISTANT_STANDARD` §1.1.
+- Kamera: her yol kamerası (dahili, USB/UVC, head unit girişi) kullanılabilir;
+  yönü sürüşte yol dokusunun hareketinden doğrulanır (`cameraDirection`) —
+  arkaya bakan kamera uyarı üretmez. Geri vites / SAFE_MODE / arka planda
+  kamera bırakılır. USB tanısı native `listCameraHardware` (salt okur).
+- Yetki: YALNIZ UYARI; araç aktüatörüne yol yok.
 
 ### I.6 Registry Deseni (öneri, opsiyonel)
 Şu an motorlar App.tsx'te elle start ediliyor. Ölçek büyüyünce hafif bir
