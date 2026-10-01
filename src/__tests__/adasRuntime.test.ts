@@ -43,7 +43,7 @@ vi.mock('../platform/adas/adasCameraDiscovery', async (orig) => ({
 }));
 
 import {
-  evaluateAdasGate, freshSpeedKmh, startAdasRuntime, stopAdasRuntime, ADAS_RUNTIME_CFG,
+  evaluateAdasGate, canonicalSpeedKmh, startAdasRuntime, stopAdasRuntime, ADAS_RUNTIME_CFG,
 } from '../platform/adas/adasRuntime';
 import { classifyCameraLabel, computeUsbCameraVerdict } from '../platform/adas/adasCameraDiscovery';
 import { AdasFrameProcessor } from '../platform/adas/adasFrameProcessor';
@@ -73,10 +73,11 @@ describe('ADAS kapı kararı', () => {
   it('hiç hareket yok + hız bilinmiyor → no_speed', () => {
     expect(evaluateAdasGate({ ...base, speedKmh: null, lastMovingTs: NEG })).toMatchObject({ reason: 'no_speed' });
   });
-  it('bayat hız bilinmiyor sayılır (sahte 0 yok)', () => {
-    expect(freshSpeedKmh({ speed: 80, _vehicleSpeedTs: 0 }, 2001)).toBeNull();
-    expect(freshSpeedKmh({ speed: 80, _vehicleSpeedTs: 0 }, 2000)).toBe(80);
-    expect(freshSpeedKmh({ speed: null, _vehicleSpeedTs: 0 }, 1)).toBeNull();
+  it('hız kanonik sahibinden okunur: null = bilinmiyor (sahte 0 yok)', () => {
+    expect(canonicalSpeedKmh({ speed: null })).toBeNull();
+    expect(canonicalSpeedKmh({ speed: Number.NaN })).toBeNull();
+    expect(canonicalSpeedKmh({ speed: 0 })).toBe(0);
+    expect(canonicalSpeedKmh({ speed: 90 })).toBe(90);
   });
 });
 
@@ -253,6 +254,17 @@ describe('ADAS çalışma zamanı — kamera kirası yaşam döngüsü', () => {
     await vi.advanceTimersByTimeAsync(1100);
     useVisionStore.setState({ state: 'error', error: 'Kamera akışı kesildi' });
     expect(useAdasStore.getState()).toMatchObject({ status: 'unavailable', reason: 'camera_lost' });
+  });
+
+  it('sabit hızda (damga tazelenmese de) ADAS kamerayı tutar ve hız bilinir kalır', async () => {
+    startAdasRuntime();
+    setAdasSettings({ enabled: true });
+    drive(90); // tek yayın; sonra değer hiç değişmiyor (OBD sabit hız / ~4 sn kadans)
+    await vi.advanceTimersByTimeAsync(ADAS_RUNTIME_CFG.PARK_RELEASE_MS + 5000);
+    expect(vision.stopVision).not.toHaveBeenCalled();
+    // (Kare beslenmediği için bekçi 'frozen' der — burada ölçülen: park SANILMADI.)
+    expect(useAdasStore.getState().reason).not.toBe('parked');
+    expect(useAdasStore.getState().reason).not.toBe('no_speed');
   });
 
   it('izin reddi → her saniye yeniden DENENMEZ; kullanıcı yeniden açınca denenir', async () => {

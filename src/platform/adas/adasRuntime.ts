@@ -47,7 +47,6 @@ export const ADAS_RUNTIME_CFG = {
   FROZEN_MS: 600,
   FIRST_FRAME_TIMEOUT_MS: 3000,
   PARK_RELEASE_MS: 180_000,
-  SPEED_FRESH_MS: 2000,
   MOVING_KMH: 5,
   BLINKER_HOLD_MS: 1500,
   RETRY_BASE_MS: 5000,
@@ -80,11 +79,17 @@ export function evaluateAdasGate(i: AdasGateInput): AdasGateDecision {
   return { run: false, status: 'standby', reason: 'parked' };
 }
 
-/** Hız yalnız TAZEYSE kullanılır; bayat hız "bilinmiyor"dur (sahte 0 değil). */
-export function freshSpeedKmh(v: Pick<UnifiedVehicleState, 'speed' | '_vehicleSpeedTs'>, nowMono: number): number | null {
-  if (v.speed == null || !Number.isFinite(v.speed)) return null;
-  if (nowMono - v._vehicleSpeedTs > ADAS_RUNTIME_CFG.SPEED_FRESH_MS) return null;
-  return v.speed;
+/**
+ * Kanonik araç hızı; `null` = bilinmiyor (sahte 0 değil).
+ *
+ * TAZELİK KARARI HIZIN SAHİBİNDEDİR (VehicleCompute worker kaynak zaman aşımları +
+ * UnifiedVehicleStore expiry). ADAS ikinci bir tazelik otoritesi KURMAZ (CLAUDE.md §6).
+ * ESKİ KUSUR: `_vehicleSpeedTs` yalnız hız DEĞERİ değişince tazelenir; onu 2 sn'lik
+ * pencereyle yeniden kapılamak sabit hızda / OBD'nin ~4 sn kadansında / durakta (hız
+ * sabit 0) hızı "bilinmiyor" yapıyor, uyarıları ve kalkış bildirimini susturuyordu.
+ */
+export function canonicalSpeedKmh(v: Pick<UnifiedVehicleState, 'speed'>): number | null {
+  return v.speed != null && Number.isFinite(v.speed) ? v.speed : null;
 }
 
 export function detectorConfigFor(cal: AdasCalibration): VehicleDetectorConfig {
@@ -140,7 +145,7 @@ function evaluateGateNow(): void {
   if (!_started) return;
   const now = performance.now();
   const v = useUnifiedVehicleStore.getState();
-  const speed = freshSpeedKmh(v, now);
+  const speed = canonicalSpeedKmh(v);
   // Sabit hızda store yayın üretmeyebilir → hareket damgası tick'te de tazelenir.
   if (speed !== null && speed > ADAS_RUNTIME_CFG.MOVING_KMH) _lastMovingTs = now;
   const decision = evaluateAdasGate({
@@ -254,7 +259,7 @@ function onFrame(frame: VisionFrame): void {
     const cal = getAdasCalibration(s.cameraDeviceId);
     const r = _processor.process(frame, {
       now,
-      speedKmh: freshSpeedKmh(useUnifiedVehicleStore.getState(), performance.now()),
+      speedKmh: canonicalSpeedKmh(useUnifiedVehicleStore.getState()),
       turnSignal: turnSignalNow(now),
       calibration: cal,
       sensitivity: s.sensitivity,
