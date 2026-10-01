@@ -824,6 +824,8 @@ export interface AppVersionInfo {
   /** PackageManager versionName — version.properties VERSION_NAME'in kurulu hali */
   versionName: string;
   packageName: string;
+  /** BuildConfig.DEBUG — eski APK'larda alan yoktur (undefined = bilinmiyor). */
+  debugBuild?: boolean;
 }
 
 /**
