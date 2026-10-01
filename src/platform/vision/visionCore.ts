@@ -315,11 +315,12 @@ export async function startVision(
   owner: VisionOwner = 'ar',
   opts?: { deviceId?: string | null },
 ): Promise<void> {
-  const cur = useVisionStore.getState().state;
-  /* 'disabled' = kamera yok ya da izin reddedildi. AR sessizce vazgeçer (eski
-     davranış); ADAS kullanıcının açık isteğidir → izni YENİDEN dener. */
-  if (cur === 'disabled' && owner === 'ar') return;
-
+  /* 'disabled' (kamera yok / izin reddedildi) burada ERKEN DÖNÜŞ SEBEBİ DEĞİL.
+     Eskiden AR bu durumda sessizce vazgeçiyordu: bir kez reddedilen izin,
+     kullanıcı ayarlardan açsa bile uygulama yeniden başlayana dek AR'ı
+     kilitliyordu. Her iki sahip de (AR düğmesi, ADAS anahtarı) kullanıcının
+     AÇIK isteğiyle çağırır → izin her istekte YENİDEN denenir; sonuç
+     (red/yok) store'a dürüstçe yazılır. */
   _owners.add(owner);
   try {
     if (_startPromise) await _startPromise.catch(() => { /* aşağıda yeniden denenir */ });

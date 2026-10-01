@@ -465,8 +465,15 @@ describe('K. AR kamerası yalnız görünürken açılır', () => {
     const src = (await import('../components/map/VisionOverlay.tsx?raw')).default;
     expect(src, 'startVision yalnız isNavigating’e bağlı kalmış')
       .not.toMatch(/startVision\(video\)[\s\S]{0,400}\}, \[isNavigating\]\);/);
-    expect(src, 'kamera görünürlüğe bağlanmalı').toContain('const wantCamera = isHybrid || transitioning;');
-    expect(src).toMatch(/\}, \[isNavigating, isHybrid, transitioning\]\);/);
+    /* 2026-10-01 — KİLİTLENME: eski kural `wantCamera = isHybrid || transitioning` idi.
+       Mod ise ancak kamera aktifken HYBRID olur → ikisi birbirini bekliyordu; AR
+       düğmesi kamerayı HİÇ açmıyordu (ADAS önceden açmadıysa). Kamera artık
+       kullanıcının AÇIK niyetine bağlı: niyet → kamera → vision active → HYBRID. */
+    expect(src, 'kamera kullanıcı niyetine bağlanmalı')
+      .toContain("const wantCamera = isNavigating && userPref === 'hybrid';");
+    expect(src).toMatch(/\}, \[isNavigating, wantCamera\]\);/);
+    expect(src, 'kamera kararı moda bağlanırsa kilitlenme geri gelir')
+      .not.toMatch(/const wantCamera = [^;]*isHybrid/);
   });
 
   it('🔒 görünmezken donanım BIRAKILIR (pay sonlu)', async () => {

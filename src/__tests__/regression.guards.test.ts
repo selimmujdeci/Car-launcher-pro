@@ -3720,9 +3720,13 @@ describe('AR kamerası kullanıcı isteyince açılır', () => {
     expect(visionOverlaySrc).toContain("setUserVisionPreference('hybrid')");
   });
 
-  it('🔒 AR ÇİZİMİ hâlâ güvene bağlı (kamera ≠ çizim doğruluğu)', () => {
-    // Kamera açılması, güvenilmez şerit/rota çiziminin gösterilmesi demek DEĞİLDİR.
-    expect(visionOverlaySrc).toContain('opacity: canvasOpacity');
+  it('🔒 AR ÇİZİMİ hâlâ kanıta bağlı (kamera ≠ çizim doğruluğu)', () => {
+    // Kamera açılması, güvenilmez rota çiziminin gösterilmesi demek DEĞİLDİR.
+    // 2026-10-01: kanıt artık ŞERİT güveni değil KONUMSAL kanıttır (doğruluk ·
+    // tazelik · rota sapması · yön · kamera pozu) — rota GPS ile yerleşir ve
+    // şeritsiz mahalle sokağında da doğrudur; şerit güveni oraya hiç ulaşmıyordu.
+    expect(visionOverlaySrc).toContain('const ev = routeEvidence({');
+    expect(visionOverlaySrc).toContain("if (pose && path && ev.level !== 'NONE')");
     expect(visionOverlaySrc).toContain('opacity: isHybrid ? 1 : 0');
   });
 });

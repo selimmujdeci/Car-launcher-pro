@@ -8,7 +8,7 @@
  */
 import { create } from 'zustand';
 import type {
-  AdasFeatureStatus, AdasReason, AdasWarningSignal, LaneObservation, NormBox, NormLine,
+  AdasCalibration, AdasFeatureStatus, AdasReason, AdasWarningSignal, LaneObservation, NormBox, NormLine,
 } from './adasTypes';
 import { NO_ADAS_WARNING } from './adasTypes';
 
@@ -35,12 +35,26 @@ export interface AdasDebug {
   readonly referenceLine: NormLine | null;
 }
 
+/**
+ * ADAS'ın şu an işlediği yol kamerasının geometrisi. AR katmanı rotayı yola
+ * BUNUNLA oturtur (ölçülmüş ufuk > cihaz sensörü > varsayılan) — iki katman
+ * aynı kamerayı aynı modelle görür, ikinci bir kalibrasyon otoritesi kurulmaz.
+ */
+export interface AdasCameraModel {
+  readonly hfovDeg: number;
+  readonly cameraHeightM: number;
+  /** Öğrenilmemişse `null` — AR varsayımla doldurmaz, sensöre/varsayılana düşer. */
+  readonly calibration: AdasCalibration | null;
+}
+
 export interface AdasStoreState {
   readonly overall: AdasOverall;
   readonly overallReason: AdasReason | null;
   readonly features: readonly AdasFeatureStatus[];
   readonly warning: AdasWarningSignal;
   readonly debug: AdasDebug;
+  /** ADAS kamerayı işlemiyorsa `null`. */
+  readonly camera: AdasCameraModel | null;
 }
 
 export const EMPTY_ADAS_DEBUG: AdasDebug = {
@@ -55,6 +69,7 @@ export const useAdasStore = create<AdasStoreState>(() => ({
   features: [],
   warning: NO_ADAS_WARNING,
   debug: EMPTY_ADAS_DEBUG,
+  camera: null,
 }));
 
 /** Güvenlik asistanının okuduğu sinyal (saf okuma). */

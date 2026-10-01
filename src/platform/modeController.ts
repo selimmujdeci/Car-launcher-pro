@@ -20,7 +20,7 @@
  */
 
 import { create } from 'zustand';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useVisionStore, type VisionState } from './visionStore';
 
 /* ─────────────────────────────────────────────────────────────── */
@@ -135,6 +135,21 @@ export function useTransitioning(): boolean {
 
 export function useUserVisionPref(): UserVisionPref {
   return useModeStore((s) => s.userPreference);
+}
+
+/**
+ * AR niyetinin yaşam döngüsü. Tercih modül düzeyinde yaşar; harita kapanınca
+ * ya da rehberlik bitince 'standard'a döner → kamera bir sonraki harita
+ * açılışında kendiliğinden AÇILMAZ, varıştan sonra açık KALMAZ (ısınma).
+ * Rehberliksiz açılan serbest AR'a dokunmaz (yalnız açık→kapalı geçişi).
+ */
+export function useVisionIntentLifecycle(guiding: boolean): void {
+  const wasGuiding = useRef(guiding);
+  useEffect(() => {
+    if (wasGuiding.current && !guiding) setUserVisionPreference('standard');
+    wasGuiding.current = guiding;
+  }, [guiding]);
+  useEffect(() => () => { setUserVisionPreference('standard'); }, []);
 }
 
 /**
