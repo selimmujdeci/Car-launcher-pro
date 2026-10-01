@@ -30,7 +30,7 @@ const FWD_READY: ForwardOutput = {
   leadState: 'READY', leadReason: null, lead: null, detectHz: 8, latencyMs: 100,
 };
 const base = (over: Partial<ComposeInput> = {}): ComposeInput => ({
-  settings: ON, block: null, starting: false, calibration: CAL, laneStale: false,
+  settings: ON, block: null, starting: false, calibration: CAL, direction: 'forward', laneStale: false,
   ldw: LDW_READY, forward: FWD_READY, detector: 'ready', ...over,
 });
 const stateOf = (i: ComposeInput, f: string) => composeFeatures(i).find((x) => x.feature === f)!;
@@ -110,6 +110,20 @@ describe('özellik durumu ve genel hüküm', () => {
     expect(o({})).toEqual({ overall: 'ACTIVE', reason: null });
   });
 
+  it('S8b. 🔒 kamera yönü: doğrulanmamış → öğreniyor (uyarı yok); arkaya bakıyor → hiçbir özellik çalışmaz', () => {
+    const un = base({ direction: 'unverified', ldw: { ...LDW_READY, warning: 'left' }, forward: { ...FWD_READY, forward: 'collision' } });
+    expect(composeFeatures(un).every((f) => f.state === 'CALIBRATING' && f.reason === 'VERIFYING_CAMERA')).toBe(true);
+    expect(composeWarning(un.settings, composeFeatures(un), un.ldw, un.forward, 1)).toMatchObject({ lane: null, forward: null });
+    expect(composeOverall({ settings: ON, features: composeFeatures(un), block: null, starting: false }))
+      .toEqual({ overall: 'CALIBRATING', reason: 'VERIFYING_CAMERA' });
+
+    const back = base({ direction: 'backward', forward: { ...FWD_READY, forward: 'collision' } });
+    expect(composeFeatures(back).every((f) => f.reason === 'CAMERA_FACES_BACKWARD')).toBe(true);
+    expect(composeWarning(back.settings, composeFeatures(back), back.ldw, back.forward, 1).forward).toBeNull();
+    expect(composeOverall({ settings: ON, features: composeFeatures(back), block: null, starting: false }))
+      .toEqual({ overall: 'UNAVAILABLE', reason: 'CAMERA_FACES_BACKWARD' });
+  });
+
   it('S9. aynı durum listesi aynı sayılır (gereksiz render yok)', () => {
     expect(sameFeatures(composeFeatures(base()), composeFeatures(base()))).toBe(true);
     expect(sameFeatures(composeFeatures(base()), composeFeatures(base({ laneStale: true })))).toBe(false);
@@ -168,6 +182,18 @@ describe('yol kamerası seçimi', () => {
     expect(pickAutoCamera([front, back])?.deviceId).toBe('b');
     expect(pickAutoCamera([front])).toBeNull();
     expect(pickAutoCamera([])).toBeNull();
+  });
+
+  it('S14b. 🔒 USB önce; sonra yola baktığı doğrulanan kamera (tür ne olursa); geri görüş asla', () => {
+    const back = opt('b', 'camera2 0, facing back');
+    const front = opt('f', 'camera2 1, facing front');     // ör. head unit AHD ön kamera girişi "front" bildiriyor
+    const usb = opt('u', 'camera2 2, facing back');
+    const fwd = { facing: 'forward' as const, atMs: 1 };
+    const bwd = { facing: 'backward' as const, atMs: 1 };
+    expect(pickAutoCamera([back, front], { 'label:camera2 1, facing front': fwd })?.deviceId).toBe('f');
+    expect(pickAutoCamera([back, front, usb], { 'label:camera2 1, facing front': fwd })?.deviceId).toBe('u');
+    expect(pickAutoCamera([back, front], { 'label:camera2 0, facing back': bwd })).toBeNull();
+    expect(pickAutoCamera([back, usb], { 'label:camera2 2, facing back': bwd })?.deviceId).toBe('b');
   });
 
   it('S15. USB tanısı: takılı ama Android kamera olarak sunmuyor ayrımı', () => {

@@ -134,6 +134,11 @@ export interface ComposeInput {
   /** Kamera henüz açılıyor (izin penceresi / ilk kare). */
   readonly starting: boolean;
   readonly calibration: AdasCalibration | null;
+  /**
+   * Açık kameranın hareketle doğrulanmış yönü. `unverified` iken uyarı YOK;
+   * `backward` (geri görüş kamerası) iken hiçbir özellik çalışmaz.
+   */
+  readonly direction: 'forward' | 'backward' | 'unverified';
   readonly laneStale: boolean;
   readonly ldw: LdwOutput | null;
   readonly forward: ForwardOutput | null;
@@ -147,6 +152,7 @@ function forwardFeature(
   feature: 'fcw' | 'headway' | 'leadDeparture', i: ComposeInput,
 ): AdasFeatureStatus {
   if (!i.calibration) return st(feature, 'CALIBRATING', 'CALIBRATING');
+  if (i.direction === 'unverified') return st(feature, 'CALIBRATING', 'VERIFYING_CAMERA');
   if (i.detector === 'unavailable') return st(feature, 'UNAVAILABLE', 'DETECTOR_UNAVAILABLE');
   if (i.detector !== 'ready' || !i.forward) return st(feature, 'UNAVAILABLE', 'DETECTOR_LOADING');
   const f = i.forward;
@@ -161,9 +167,11 @@ export function composeFeatures(i: ComposeInput): AdasFeatureStatus[] {
     if (!i.settings[feature]) return st(feature, 'OFF', null);
     if (i.block) return st(feature, 'UNAVAILABLE', i.block);
     if (i.starting) return st(feature, 'STANDBY', null);
+    if (i.direction === 'backward') return st(feature, 'UNAVAILABLE', 'CAMERA_FACES_BACKWARD');
     if (feature !== 'ldw') return forwardFeature(feature, i);
     if (i.laneStale) return st(feature, 'UNAVAILABLE', 'CAMERA_STALLED');
     if (!i.calibration) return st(feature, 'CALIBRATING', 'CALIBRATING');
+    if (i.direction === 'unverified') return st(feature, 'CALIBRATING', 'VERIFYING_CAMERA');
     if (!i.ldw) return st(feature, 'STANDBY', null);
     return st(feature, i.ldw.state, i.ldw.reason);
   });
@@ -202,7 +210,8 @@ export function composeOverall(i: OverallInput): { overall: AdasOverall; reason:
   if (on.length > 0 && unavailable.length === on.length) {
     return { overall: 'UNAVAILABLE', reason: unavailable[0].reason };
   }
-  if (on.some((f) => f.state === 'CALIBRATING')) return { overall: 'CALIBRATING', reason: 'CALIBRATING' };
+  const learning = on.find((f) => f.state === 'CALIBRATING');
+  if (learning) return { overall: 'CALIBRATING', reason: learning.reason ?? 'CALIBRATING' };
   if (unavailable.length > 0) return { overall: 'DEGRADED', reason: unavailable[0].reason };
   return { overall: 'ACTIVE', reason: null };
 }

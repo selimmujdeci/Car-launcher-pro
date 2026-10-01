@@ -53,6 +53,10 @@ import {
 } from './adasSupervisor';
 import { classifyCamera, listAdasCameras, pickAutoCamera, readCameraHardware } from './adasCamera';
 import { startVehicleDetector, type DetectionResult, type VehicleDetectorHandle } from './vehicleDetector';
+import {
+  EMPTY_VOTER, directionProgress, directionVerdict, voteDirection, type DirectionVoter, type LumaFrame,
+} from './cameraDirection';
+import { createLumaSampler, type LumaSampler } from './frameSampler';
 
 const TICK_MS = 100;
 const RETRY_MS = 5_000;
@@ -63,6 +67,8 @@ const REVERSE_REACQUIRE_MS = 3_000;
 /** Dedektör sonucu bu süre gelmezse ileri modelin zamanlayıcıları sonuçsuz adımla ilerletilir. */
 const FORWARD_IDLE_STEP_MS = 300;
 const FPS_WINDOW_MS = 2_000;
+/** Saklanan kamera yönü kaydı üst sınırı (en eskisi düşer). */
+const MAX_DIRECTION_RECORDS = 8;
 
 // ── Durum ────────────────────────────────────────────────────────────────────
 
@@ -101,6 +107,9 @@ let _lanes: LaneObservation | null = null;
 let _lastLaneAt: number | null = null;
 let _laneTimes: number[] = [];
 let _detector: VehicleDetectorHandle | null = null;
+let _voter: DirectionVoter = EMPTY_VOTER;
+let _prevLuma: LumaFrame | null = null;
+let _sampler: LumaSampler | null = null;
 
 let _wasReverse = false;
 let _reverseEndedAt = -Infinity;
@@ -141,6 +150,11 @@ function currentCalibration(): AdasCalibration | null {
   return calibrationFor(settings().calibration, _cameraKey);
 }
 
+/** Açık kameranın hareketle doğrulanmış yönü (kayıt yoksa doğrulanmamış). */
+function currentDirection(): 'forward' | 'backward' | 'unverified' {
+  return settings().cameraDirections?.[_cameraKey]?.facing ?? 'unverified';
+}
+
 // ── Algı durumu ──────────────────────────────────────────────────────────────
 
 function resetPerception(): void {
@@ -148,6 +162,7 @@ function resetPerception(): void {
   _fwd = INITIAL_FORWARD_STATE; _fwdOut = null;
   _lastFwdStepAt = -Infinity; _lastDetectAt = -Infinity;
   _lanes = null; _lastLaneAt = null; _laneTimes = [];
+  _prevLuma = null;
 }
 
 function stopDetector(): void {
@@ -160,7 +175,7 @@ function stopDetector(): void {
 async function refreshCameraIdentity(): Promise<void> {
   const t = getVisionTrackInfo();
   const key = cameraKeyOf(t);
-  if (key !== _cameraKey) { _learner = EMPTY_LEARNER; _recent = EMPTY_LEARNER; }
+  if (key !== _cameraKey) { _learner = EMPTY_LEARNER; _recent = EMPTY_LEARNER; _voter = EMPTY_VOTER; }
   _cameraKey = key;
   _cameraLabel = t?.label || null;
   _cameraIsUsb = t ? classifyCamera(t.label, _hw) === 'usb' : false;
@@ -187,13 +202,15 @@ function releaseCamera(): void {
 }
 
 /**
- * Otomatik modda en uygun yol kamerası: USB → arka → bilinmeyen. Açık kamera
- * ön (sürücü) kamerasıysa ADAS onu KULLANMAZ → NO_CAMERA.
+ * Otomatik modda en uygun yol kamerası (bkz. pickAutoCamera): öne baktığı
+ * doğrulanmış → USB → arka → bilinmeyen; arkaya baktığı doğrulanmış kamera
+ * asla. Başka aday yoksa: açık kamera ön (iç) kameraysa NO_CAMERA, geri görüş
+ * kamerasıysa CAMERA_FACES_BACKWARD — yeni kamera takılana / ayar değişene dek.
  */
 async function applyAutoPick(gen: number): Promise<void> {
   const options = await listAdasCameras(_hw);
   if (gen !== _gen) return;
-  const pick = pickAutoCamera(options);
+  const pick = pickAutoCamera(options, settings().cameraDirections);
   const cur = getVisionTrackInfo();
   if (pick && cur && pick.deviceId !== cur.deviceId) {
     await startVision(null, 'adas', { deviceId: pick.deviceId });
@@ -201,7 +218,11 @@ async function applyAutoPick(gen: number): Promise<void> {
     resetPerception();
     _runningSince = performance.now();
     await refreshCameraIdentity();
-  } else if (!pick && cur && classifyCamera(cur.label, _hw) === 'front') {
+  } else if (!pick && cur && currentDirection() === 'backward') {
+    releaseCamera();
+    _blocked = 'CAMERA_FACES_BACKWARD';
+    _nextAcquireAt = Number.POSITIVE_INFINITY;   // devicechange / ayar değişimi açar
+  } else if (!pick && cur && classifyCamera(cur.label, _hw) === 'front' && currentDirection() !== 'forward') {
     releaseCamera();
     _blocked = 'NO_CAMERA';
     _nextAcquireAt = performance.now() + RETRY_MS;
@@ -355,7 +376,8 @@ function detectHzForMode(): number {
 }
 
 function manageDetector(s: AdasSettings, now: number): void {
-  const want = processing() && currentCalibration() !== null && (s.fcw || s.headway || s.leadDeparture);
+  const want = processing() && currentCalibration() !== null && currentDirection() !== 'backward'
+    && (s.fcw || s.headway || s.leadDeparture);
   if (want && !_detector) {
     _fwd = INITIAL_FORWARD_STATE;
     _fwdOut = null;
@@ -400,8 +422,10 @@ function publish(now: number): void {
   const cal = currentCalibration();
   const live = processing() && !block && !starting;
   const laneStale = live && now - (_lastLaneAt ?? (_runningSince as number)) > LANE_STALL_MS;
+  const direction = currentDirection();
+  const dirProgress = direction === 'unverified' ? directionProgress(_voter) : 1;
   const features = composeFeatures({
-    settings: s, block, starting, calibration: cal, laneStale,
+    settings: s, block, starting, calibration: cal, direction, laneStale,
     ldw: _ldwOut, forward: _fwdOut, detector: _detector ? _detector.status() : 'off',
   });
   const { overall, reason } = composeOverall({ settings: s, features, block, starting });
@@ -424,11 +448,14 @@ function publish(now: number): void {
       cameraLabel: _cameraLabel,
       cameraIsUsb: _cameraIsUsb,
       referenceLine: cal ? { x1: cal.vanishX, y1: cal.horizonY, x2: cal.centerX, y2: LANE_REF_Y, confidence: 1 } : null,
+      cameraFacing: direction,
+      directionProgress: dirProgress,
     }
     : {
       ...EMPTY_ADAS_DEBUG,
       calibrationProgress: cal ? 1 : calibrationProgress(_learner),
       cameraLabel: _cameraLabel, cameraIsUsb: _cameraIsUsb,
+      cameraFacing: direction, directionProgress: dirProgress,
     };
 
   const prev = useAdasStore.getState();
@@ -448,6 +475,32 @@ function publish(now: number): void {
   });
 }
 
+/**
+ * Yön doğrulaması: yol dokusunun dikey akışından oy toplar; hüküm çıkınca
+ * kameraya kaydeder (kanıt değişirse günceller — kamera çevrilmiş olabilir).
+ * Arkaya baktığı kanıtlanan kamera otomatik modda başka adayla değiştirilir.
+ */
+function sampleDirection(): void {
+  if (!processing()) { _prevLuma = null; return; }
+  if (!_sampler) _sampler = createLumaSampler();
+  const cur = _sampler.sample(getVisionVideoElement());
+  _voter = voteDirection(_voter, _prevLuma, cur, speedKmh());
+  _prevLuma = cur;
+  const verdict = directionVerdict(_voter);
+  if (!verdict) return;
+  _voter = EMPTY_VOTER;
+  const s = settings();
+  if (s.cameraDirections?.[_cameraKey]?.facing === verdict) return;
+  const kept = Object.entries(s.cameraDirections ?? {})
+    .filter(([k]) => k !== _cameraKey)
+    .sort((a, b) => b[1].atMs - a[1].atMs)
+    .slice(0, MAX_DIRECTION_RECORDS - 1);
+  writeAdas({
+    cameraDirections: { ...Object.fromEntries(kept), [_cameraKey]: { facing: verdict, atMs: Date.now() } },
+  });
+  if (verdict === 'backward' && s.cameraDeviceId === null) _autoRecheck = true;
+}
+
 function tick(): void {
   const now = performance.now();
   if (useUnifiedVehicleStore.getState().reverse) {
@@ -457,6 +510,7 @@ function tick(): void {
     _reverseEndedAt = now;
   }
   reconcile(now);
+  sampleDirection();
   manageDetector(settings(), now);
   publish(now);
 }
@@ -507,6 +561,9 @@ export function stopAdasRuntime(): void {
   releaseCamera();
   _learner = EMPTY_LEARNER;
   _recent = EMPTY_LEARNER;
+  _voter = EMPTY_VOTER;
+  _sampler?.dispose();
+  _sampler = null;
   _autoRecheck = false;
   useAdasStore.setState({
     overall: 'OFF', overallReason: 'DISABLED', features: [], warning: NO_ADAS_WARNING,

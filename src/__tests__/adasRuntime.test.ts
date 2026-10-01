@@ -18,6 +18,8 @@ const h = vi.hoisted(() => ({
   starts: [] as Array<{ owner: string; deviceId: string | null | undefined }>,
   stops: [] as string[],
   cameras: [] as Array<{ deviceId: string; label: string }>,
+  /** Yön örnekleyicisinin sıradaki gri karesi (null = örnek yok). */
+  luma: null as null | (() => { w: number; h: number; data: Uint8Array } | null),
   detector: null as null | {
     st: string; opts: { onResult: (r: unknown) => void };
     status: () => string; backend: () => string; setTargetHz: () => void; stop: () => void;
@@ -78,6 +80,10 @@ vi.mock('../platform/adas/adasCamera', async () => {
   };
 });
 
+vi.mock('../platform/adas/frameSampler', () => ({
+  createLumaSampler: () => ({ sample: () => (h.luma ? h.luma() : null), dispose: () => {} }),
+}));
+
 import { startAdasRuntime, stopAdasRuntime, retryAdasCamera } from '../platform/adas/adasRuntime';
 import { useAdasStore } from '../platform/adas/adasStore';
 import { DEFAULT_ADAS_SETTINGS } from '../platform/adas/adasTypes';
@@ -124,8 +130,28 @@ function carAt(Z: number): VehicleDetection {
 
 /* ── Yardımcılar ───────────────────────────────────────────────────────── */
 
+const FORWARD = { [KEY]: { facing: 'forward' as const, atMs: 1 } };
+
 function setAdas(p: Partial<AdasSettings>): void {
-  useStore.getState().updateSettings({ adas: { ...DEFAULT_ADAS_SETTINGS, enabled: true, consentAtMs: 1, ...p } });
+  useStore.getState().updateSettings({
+    adas: { ...DEFAULT_ADAS_SETTINGS, enabled: true, consentAtMs: 1, cameraDirections: FORWARD, ...p },
+  });
+}
+
+/** Yol dokusu `dir` yönünde akan gri kare dizisi (+1 aşağı = öne bakan kamera). */
+function flowStream(dir: 1 | -1): () => { w: number; h: number; data: Uint8Array } {
+  let t = 0;
+  return () => {
+    t++;
+    const data = new Uint8Array(96 * 54);
+    for (let y = 0; y < 54; y++) {
+      for (let x = 0; x < 96; x++) {
+        const v = Math.sin(x * 12.9898 + (y - dir * 2 * t) * 78.233) * 43758.5453;
+        data[y * 96 + x] = Math.floor((v - Math.floor(v)) * 255);
+      }
+    }
+    return { w: 96, h: 54, data };
+  };
 }
 const adas = () => useStore.getState().settings.adas;
 const st = () => useAdasStore.getState();
@@ -149,6 +175,7 @@ beforeEach(() => {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'performance', 'Date'] });
   vi.spyOn(runtimeManager, 'getMode').mockReturnValue(RuntimeMode.BALANCED);
   h.owners.clear(); h.frameFn = null; h.mode = 'ok'; h.starts = []; h.stops = []; h.cameras = []; h.detector = null;
+  h.luma = null;
   h.track = { deviceId: 'dev-back', label: 'camera2 0, facing back', width: 1280, height: 720 };
   useVisionStore.setState({ state: 'idle', error: null });
   useUnifiedVehicleStore.setState({ speed: 90, reverse: false });
@@ -331,6 +358,47 @@ describe('ADAS çalışma zamanı', () => {
     stopAdasRuntime();
     setAdas({ calibration: CAL, fcw: false });
     expect(await run()).toBe(false);
+  });
+
+  it('R13. 🔒 yönü doğrulanmamış kamera: kalibrasyon olsa da uyarı YOK; yol akışı aşağı → doğrulanır, uyarı gelir', async () => {
+    setAdas({ calibration: CAL, cameraDirections: {} });
+    startAdasRuntime();
+    await drive(1000, () => ({ frame: frameAt(0) }));
+    await drive(4000, (t) => ({ frame: frameAt(-0.4 * (t / 1000)) }));
+    expect(st().warning.lane).toBeNull();
+    expect(st()).toMatchObject({ overall: 'CALIBRATING', overallReason: 'VERIFYING_CAMERA' });
+
+    h.luma = flowStream(1);
+    await drive(6000, () => ({ frame: frameAt(0) }));
+    expect(adas().cameraDirections[KEY]?.facing).toBe('forward');
+    expect(st().debug.cameraFacing).toBe('forward');
+    await drive(4000, (t) => ({ frame: frameAt(-0.4 * (t / 1000)) }));
+    expect(st().warning.lane).toBe('left');
+  });
+
+  it('R14. 🔒 geri görüş kamerası kanıtlanırsa: otomatik mod başka kameraya geçer; aday yoksa durur', async () => {
+    /* Aday var: USB kamera. */
+    h.cameras = [{ deviceId: 'dev-back', label: 'camera2 0, facing back' }];
+    setAdas({ calibration: CAL, cameraDirections: {} });
+    startAdasRuntime();
+    await drive(300);
+    h.luma = flowStream(-1);
+    h.cameras.push({ deviceId: 'dev-usb', label: 'USB Camera (0c45:6366)' });
+    await drive(6000);
+    expect(adas().cameraDirections[KEY]?.facing).toBe('backward');
+    expect(h.starts.at(-1)).toEqual({ owner: 'adas', deviceId: 'dev-usb' });
+    stopAdasRuntime();
+
+    /* Aday yok: yalnız geri görüş kamerası. */
+    h.starts = []; h.luma = null;
+    h.cameras = [{ deviceId: 'dev-back', label: 'camera2 0, facing back' }];
+    h.track = { deviceId: 'dev-back', label: 'camera2 0, facing back', width: 1280, height: 720 };
+    startAdasRuntime();
+    await drive(500);
+    expect(h.owners.has('adas')).toBe(false);
+    expect(st()).toMatchObject({ overall: 'UNAVAILABLE', overallReason: 'CAMERA_FACES_BACKWARD' });
+    await drive(20_000);
+    expect(h.starts).toHaveLength(1);          // kamera aç-kapa döngüsü YOK
   });
 
   it('R12. 🔒 sistem koruması (SAFE_MODE) kamerayı bırakır; durdurma depoyu KAPALI yapar', async () => {

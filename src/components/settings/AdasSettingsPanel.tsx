@@ -25,6 +25,7 @@ import { LANE_REF_Y } from '../../platform/adas/adasGeometry';
 import {
   diagnoseUsb, listAdasCameras, readCameraHardware, type AdasCameraOption, type UsbDiagnosis,
 } from '../../platform/adas/adasCamera';
+import { cameraKeyOf } from '../../platform/adas/adasSupervisor';
 import { useUnifiedVehicleStore } from '../../platform/vehicleDataLayer/UnifiedVehicleStore';
 import { attachVisionPreview, getVisionTrackInfo, useVisionStore } from '../../platform/vision';
 
@@ -47,6 +48,8 @@ const ADAS_REASON_TEXT: Readonly<Record<AdasReason, string>> = {
   CAMERA_ERROR: 'Kamera bağlantısı kesildi',
   CAMERA_STALLED: 'Kamera görüntüsü dondu',
   CALIBRATING: 'Kamera öğreniliyor',
+  VERIFYING_CAMERA: 'Kameranın yola baktığı doğrulanıyor',
+  CAMERA_FACES_BACKWARD: 'Bu kamera arkaya bakıyor (geri görüş) — önü gören bir kamera gerekli',
   LOW_VISIBILITY: 'Şerit çizgileri görünmüyor',
   SPEED_UNKNOWN: 'Hız bilgisi yok',
   BELOW_SPEED: 'Hız eşiğinin altında — beklemede',
@@ -71,8 +74,27 @@ const SENSITIVITY: ReadonlyArray<{ id: AdasSensitivity; label: string }> = [
 const USB_TEXT: Readonly<Record<UsbDiagnosis, string>> = {
   USB_READY: 'USB kamera bulundu ve kullanılabilir.',
   USB_NOT_EXPOSED: 'USB kamera takılı ama bu cihaz onu kamera olarak sunmuyor (sistemde UVC desteği yok).',
-  NO_USB: 'USB kamera takılı değil. En iyi sonuç için ön cama ortalanmış bir USB (UVC) kamera önerilir.',
+  NO_USB: 'Yola bakan her kamera kullanılabilir: head unit ön kamera girişi, telefon/tablet arka kamerası ya da USB kamera. Kameranın öne baktığı ilk sürüşte otomatik doğrulanır.',
 };
+
+function directionTag(f: 'forward' | 'backward' | undefined): string {
+  return f === 'forward' ? ' · ✓ yola bakıyor' : f === 'backward' ? ' · arkaya bakıyor' : '';
+}
+
+function LearnStep({ label, value, hint }: { label: string; value: number; hint: string }) {
+  const pct = Math.round(Math.max(0, Math.min(1, value)) * 100);
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="flex justify-between text-xs font-semibold" style={{ color: 'var(--oem-ink-2)' }}>
+        <span>{label}</span><span className="tabular-nums">{pct >= 100 ? '✓' : `%${pct}`}</span>
+      </span>
+      <div className="h-2 rounded-full overflow-hidden" style={{ background: 'rgba(148,163,184,0.2)' }}>
+        <div className="h-full rounded-full transition-[width] duration-500" style={{ width: `${pct}%`, background: pct >= 100 ? '#34d399' : ACCENT }} />
+      </div>
+      <span className="text-xs" style={{ color: 'var(--oem-ink-3)' }}>{hint}</span>
+    </div>
+  );
+}
 
 function featureLine(st: AdasFeatureStatus | undefined): { text: string; tone: 'ok' | 'idle' | 'warn' } {
   if (!st || st.state === 'OFF') return { text: 'Kapalı', tone: 'idle' };
@@ -217,6 +239,8 @@ export function AdasSettingsPanel({ Toggle }: { Toggle: ComponentType<ToggleProp
   const overallReason = useAdasStore((s) => s.overallReason);
   const features = useAdasStore((s) => s.features);
   const progress = useAdasStore((s) => s.debug.calibrationProgress);
+  const facing = useAdasStore((s) => s.debug.cameraFacing);
+  const dirProgress = useAdasStore((s) => s.debug.directionProgress);
   const turnKnown = useAdasStore((s) => s.debug.turnSignalKnown);
   const cameraLabel = useAdasStore((s) => s.debug.cameraLabel);
   const cameraIsUsb = useAdasStore((s) => s.debug.cameraIsUsb);
@@ -325,13 +349,22 @@ export function AdasSettingsPanel({ Toggle }: { Toggle: ComponentType<ToggleProp
               <span className="text-sm" style={{ color: 'var(--oem-ink-2)' }}>{ADAS_REASON_TEXT[overallReason]}</span>
             )}
             {overall === 'CALIBRATING' && (
-              <div className="flex flex-col gap-1.5">
-                <div className="h-2 rounded-full overflow-hidden" style={{ background: 'rgba(148,163,184,0.2)' }}>
-                  <div className="h-full rounded-full transition-[width] duration-500" style={{ width: `${Math.round(progress * 100)}%`, background: ACCENT }} />
-                </div>
+              <>
+                <LearnStep label="Kamera yönü" value={facing === 'forward' ? 1 : dirProgress}
+                  hint={facing === 'forward' ? 'Kamera yola bakıyor' : '20 km/h üstünde birkaç saniye sürün — yol akışından ölçülür'} />
+                <LearnStep label="Kalibrasyon" value={progress}
+                  hint={progress >= 1 ? 'Tamam' : 'Şerit çizgileri belirgin bir yolda 50 km/h üstünde birkaç dakika sürün'} />
+              </>
+            )}
+            {overallReason === 'CAMERA_FACES_BACKWARD' && (
+              <div className="flex flex-col gap-2">
                 <span className="text-xs" style={{ color: 'var(--oem-ink-3)' }}>
-                  %{Math.round(progress * 100)} — şerit çizgileri belirgin bir yolda 50 km/h üstünde birkaç dakika sürün.
+                  Sürüşte yol görüntüsü ufka doğru aktı: bu kamera aracın arkasını görüyor. Ön cama bir USB kamera takın
+                  ya da listeden öne bakan kamerayı seçin. Kamerayı çevirdiyseniz yön kaydını sıfırlayın.
                 </span>
+                <div><Btn onClick={() => { set({ cameraDirections: {} }); retry(); }}>
+                  <span className="flex items-center gap-2"><RotateCcw className="w-4 h-4" /> Yön kaydını sıfırla</span>
+                </Btn></div>
               </div>
             )}
             {blockedCamera && (
@@ -346,7 +379,7 @@ export function AdasSettingsPanel({ Toggle }: { Toggle: ComponentType<ToggleProp
               return (
                 <div key={id} className="flex flex-col gap-1">
                   <Toggle icon={Icon} label={label} desc={desc} value={adas[id]} onChange={(v) => set({ [id]: v } as Partial<AdasSettings>)} />
-                  {adas[id] && showFeatureLines && (
+                  {adas[id] && showFeatureLines && !(byId(id)?.reason && byId(id)?.reason === overallReason) && (
                     <span className="text-xs font-semibold pl-2" style={{ color: TONE_COLOR[line.tone] }}>● {line.text}</span>
                   )}
                   {id === 'ldw' && adas.ldw && !turnKnown && (
@@ -381,8 +414,10 @@ export function AdasSettingsPanel({ Toggle }: { Toggle: ComponentType<ToggleProp
               style={{ background: 'rgba(148,163,184,0.12)', color: 'var(--oem-ink)', border: '1px solid rgba(148,163,184,0.25)' }}>
               <option value="">Otomatik (USB kamera öncelikli)</option>
               {cameras.map((c, i) => (
-                <option key={c.deviceId || i} value={c.deviceId} disabled={c.kind === 'front'}>
-                  {(c.label || `Kamera ${i + 1}`) + (c.kind === 'usb' ? ' · USB' : c.kind === 'front' ? ' · ön (uygun değil)' : '')}
+                <option key={c.deviceId || i} value={c.deviceId}>
+                  {(c.label || `Kamera ${i + 1}`)
+                    + (c.kind === 'usb' ? ' · USB' : c.kind === 'front' ? ' · ön/iç' : '')
+                    + directionTag(adas.cameraDirections?.[cameraKeyOf({ deviceId: c.deviceId, label: c.label })]?.facing)}
                 </option>
               ))}
             </select>

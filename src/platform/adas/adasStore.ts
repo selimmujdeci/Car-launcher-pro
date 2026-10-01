@@ -33,6 +33,10 @@ export interface AdasDebug {
   readonly cameraLabel: string | null;
   readonly cameraIsUsb: boolean;
   readonly referenceLine: NormLine | null;
+  /** Açık kameranın doğrulanmış yönü; kanıt yoksa `unverified`. */
+  readonly cameraFacing: 'forward' | 'backward' | 'unverified';
+  /** 0–1 yön doğrulama ilerlemesi (hareket kanıtı birikimi). */
+  readonly directionProgress: number;
 }
 
 /**
@@ -61,6 +65,7 @@ export const EMPTY_ADAS_DEBUG: AdasDebug = {
   lanes: null, lead: null, offsetM: null, laneFps: 0, detectHz: 0, detectLatencyMs: null,
   calibrationProgress: 0, turnSignalKnown: false, detectorBackend: null,
   cameraLabel: null, cameraIsUsb: false, referenceLine: null,
+  cameraFacing: 'unverified', directionProgress: 0,
 };
 
 export const useAdasStore = create<AdasStoreState>(() => ({

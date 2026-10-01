@@ -15,6 +15,8 @@
  */
 import { CarLauncher, type NativeCameraHardware } from '../nativePlugin';
 import { isNative } from '../bridge';
+import type { CameraDirectionRecord } from './adasTypes';
+import { cameraKeyOf } from './adasSupervisor';
 
 export type AdasCameraKind = 'usb' | 'back' | 'front' | 'unknown';
 
@@ -44,13 +46,28 @@ export function classifyCamera(label: string, hw: NativeCameraHardware | null): 
   return 'unknown';
 }
 
-const RANK: Readonly<Record<AdasCameraKind, number>> = { usb: 0, back: 1, unknown: 2, front: 9 };
+const RANK: Readonly<Record<AdasCameraKind, number>> = { usb: 1, back: 2, unknown: 3, front: 9 };
 
-/** Otomatik yol kamerası; uygun kamera yoksa `null` (ön kamera uygun DEĞİL). */
-export function pickAutoCamera(options: readonly AdasCameraOption[]): AdasCameraOption | null {
-  const ok = options.filter((o) => o.kind !== 'front' && o.deviceId);
+/**
+ * Otomatik yol kamerası:
+ *   1. USB/harici — kullanıcı onu yola bakması için taktı (arkaya bakarsa
+ *      doğrulama yakalar ve aşağıdakilere dönülür)
+ *   2. hareketle ÖNE baktığı doğrulanmış diğer kameralar (tür ne olursa olsun,
+ *      ör. head unit'in "front" diye bildirdiği AHD ön kamera girişi)
+ *   3. doğrulanmamış arka → bilinmeyen
+ * ARKAYA baktığı doğrulanmış kamera (geri görüş) asla; doğrulanmamış ön (iç)
+ * kamera otomatik seçilmez (elle seçilebilir, yön doğrulaması onu da sınar).
+ * Uygun kamera yoksa `null`.
+ */
+export function pickAutoCamera(
+  options: readonly AdasCameraOption[],
+  directions: Readonly<Record<string, CameraDirectionRecord>> = {},
+): AdasCameraOption | null {
+  const facing = (o: AdasCameraOption) => directions[cameraKeyOf({ deviceId: o.deviceId, label: o.label })]?.facing;
+  const rank = (o: AdasCameraOption) => (facing(o) === 'forward' ? Math.min(RANK[o.kind], 1.5) : RANK[o.kind]);
+  const ok = options.filter((o) => o.deviceId && facing(o) !== 'backward' && rank(o) < RANK.front);
   if (!ok.length) return null;
-  return [...ok].sort((a, b) => RANK[a.kind] - RANK[b.kind])[0];
+  return [...ok].sort((a, b) => rank(a) - rank(b))[0];
 }
 
 /** Native kamera donanımı; web'de ya da hata/zaman aşımında `null`. */

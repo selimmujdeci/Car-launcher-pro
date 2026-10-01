@@ -71,6 +71,17 @@ export interface AdasCalibration {
   readonly source: 'auto' | 'manual';
 }
 
+/**
+ * Bir kameranın yola göre yönü — YALNIZ hareket kanıtıyla belirlenir: sürüşte
+ * yol dokusu öne bakan kamerada aşağı, geri görüş kamerasında yukarı akar
+ * (bkz. cameraDirection). Kullanıcı beyanı kabul edilmez: yanlış "önü görüyor"
+ * beyanı geri görüş kamerasıyla sahte çarpışma uyarısı demektir.
+ */
+export interface CameraDirectionRecord {
+  readonly facing: 'forward' | 'backward';
+  readonly atMs: number;
+}
+
 /** Kullanıcı ayarları (settings.adas). */
 export interface AdasSettings {
   /** Ana anahtar — varsayılan KAPALI. */
@@ -90,6 +101,8 @@ export interface AdasSettings {
   readonly hfovDeg: number;
   /** Öğrenilmiş kalibrasyon; yoksa `null`. */
   readonly calibration: AdasCalibration | null;
+  /** Kamera anahtarı → doğrulanmış yön. Kayıt yoksa kamera DOĞRULANMAMIŞTIR. */
+  readonly cameraDirections: Readonly<Record<string, CameraDirectionRecord>>;
 }
 
 export const DEFAULT_ADAS_SETTINGS: AdasSettings = {
@@ -104,6 +117,7 @@ export const DEFAULT_ADAS_SETTINGS: AdasSettings = {
   cameraHeightM: 1.3,
   hfovDeg: 70,
   calibration: null,
+  cameraDirections: {},
 };
 
 /** Özellik başına durum. */
@@ -126,6 +140,8 @@ export type AdasReason =
   | 'CAMERA_ERROR'
   | 'CAMERA_STALLED'
   | 'CALIBRATING'
+  | 'VERIFYING_CAMERA'
+  | 'CAMERA_FACES_BACKWARD'
   | 'LOW_VISIBILITY'
   | 'SPEED_UNKNOWN'
   | 'BELOW_SPEED'
