@@ -179,3 +179,25 @@ describe('apk-dev yardımcıları', () => {
     expect(pkg.scripts['apk:dev']).toBe('node scripts/apk-dev.mjs');
   });
 });
+
+describe('apk-dev: APK tek tanıtıcıyla okunur (TOCTOU yok)', () => {
+  it('taze APK → içerik aynı açık dosyadan döner; eski tarihli APK → DURUR', async () => {
+    const { mkdtempSync, writeFileSync, rmSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const { readFreshApk } = await import('../../scripts/apk-dev.mjs');
+    const dir = mkdtempSync(join(tmpdir(), 'apkdev-test-'));
+    const apk = join(dir, 'a.apk');
+    writeFileSync(apk, Buffer.from('APK-BAYTLARI'));
+    try {
+      expect(readFreshApk(apk, 0).toString()).toBe('APK-BAYTLARI');
+      const exit = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => { throw new Error(`exit:${code}`); }) as never);
+      const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+      expect(() => readFreshApk(apk, Date.now() + 60_000)).toThrow('exit:1');
+      expect(() => readFreshApk(join(dir, 'yok.apk'), 0)).toThrow('exit:1');
+      exit.mockRestore(); err.mockRestore();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

@@ -25,7 +25,8 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { closeSync, existsSync, fstatSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { readZipEntry, versionTag, sameStamp, parseDumpsysPackage, installSucceeded } from './lib/apkProvenance.mjs';
@@ -63,10 +64,36 @@ function run(cmd, args) {
   if (r.status !== 0) fail(`${cmd} ${args.join(' ')} başarısız (exit ${r.status})`);
 }
 
+/** Kontrol-sonra-kullan YOK: tek okuma; yokluk ENOENT'ten anlaşılır. */
 function readStamp(path, label) {
-  if (!existsSync(path)) fail(`${label} damgası yok: ${path}`, 'Bu halka üretilmedi ya da eski araç zinciri kullanıldı.');
-  try { return JSON.parse(readFileSync(path, 'utf8')); } catch (e) { fail(`${label} damgası okunamadı: ${e.message}`); }
+  let raw = '';
+  try {
+    raw = readFileSync(path, 'utf8');
+  } catch (e) {
+    if (e && e.code === 'ENOENT') fail(`${label} damgası yok: ${path}`, 'Bu halka üretilmedi ya da eski araç zinciri kullanıldı.');
+    fail(`${label} damgası okunamadı: ${e.message}`);
+  }
+  try { return JSON.parse(raw); } catch (e) { fail(`${label} damgası bozuk: ${e.message}`); }
   return null;
+}
+
+/**
+ * APK'yı TEK dosya tanıtıcısıyla açar: tarih kontrolü ve içerik AYNI açık dosyadan gelir
+ * (yol üzerinden stat + ayrı okuma arasında dosya değişebilirdi — TOCTOU).
+ */
+export function readFreshApk(path, notBeforeMs) {
+  let fd;
+  try {
+    fd = openSync(path, 'r');
+  } catch (e) {
+    fail(`APK açılamadı: ${path} (${e && e.code ? e.code : e.message})`);
+  }
+  try {
+    if (fstatSync(fd).mtimeMs < notBeforeMs) fail('APK bu çalıştırmada YAZILMADI (eski dosya)', 'Gradle çıktısını kontrol et.');
+    return readFileSync(fd);
+  } finally {
+    closeSync(fd);
+  }
 }
 
 function adbPath() {
@@ -144,9 +171,8 @@ function main() {
   step(4, 'Gradle assembleDebug');
   const g = spawnSync(process.execPath, [join(ROOT, 'scripts', 'gradle-build.mjs'), 'assembleDebug'], { stdio: 'inherit', cwd: ROOT });
   if (g.status !== 0) fail(`gradle başarısız (exit ${g.status})`);
-  if (!existsSync(APK)) fail(`APK yok: ${APK}`);
-  if (statSync(APK).mtimeMs < startedAt) fail('APK bu çalıştırmada YAZILMADI (eski dosya)', 'Gradle çıktısını kontrol et.');
-  const inApk = readZipEntry(readFileSync(APK), APK_STAMP_ENTRY);
+  const apkBytes = readFreshApk(APK, startedAt);
+  const inApk = readZipEntry(apkBytes, APK_STAMP_ENTRY);
   if (!inApk) fail(`APK içinde ${APK_STAMP_ENTRY} yok`);
   if (!sameStamp(JSON.parse(inApk.toString('utf8')), distStamp)) fail('APK içindeki damga dist ile AYNI DEĞİL', 'APK eski web paketini taşıyor.');
   const tag = versionTag(distStamp);
@@ -162,7 +188,17 @@ function main() {
   const devices = adb(['devices']).out.split(/\r?\n/).filter((l) => /\tdevice$/.test(l));
   if (devices.length === 0) fail('bağlı cihaz yok (adb devices)');
   if (devices.length > 1 && !process.env.ANDROID_SERIAL) fail('birden çok cihaz bağlı', 'ANDROID_SERIAL=<seri> ile hedefi seç.');
-  const inst = adb(['install', '-r', APK]);
+  /* Kurulan dosya = DOĞRULANAN baytlar. Yoldan yeniden okumak, doğrulama ile kurulum
+     arasında değişen bir APK'yı kurabilirdi; özel geçici dizine (mkdtemp) yazılır. */
+  const tmpDir = mkdtempSync(join(tmpdir(), 'caros-apk-'));
+  const verifiedApk = join(tmpDir, 'app-debug.apk');
+  let inst;
+  try {
+    writeFileSync(verifiedApk, apkBytes, { flag: 'wx' });
+    inst = adb(['install', '-r', verifiedApk]);
+  } finally {
+    rmSync(tmpDir, { recursive: true, force: true });
+  }
   process.stdout.write(inst.out);
   if (!installSucceeded(inst.out)) {
     const hint = /INSTALL_FAILED_UPDATE_INCOMPATIBLE/.test(inst.out)
