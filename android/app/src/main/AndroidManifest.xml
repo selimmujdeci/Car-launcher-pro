@@ -17,6 +17,34 @@
 
     <!-- ── Sorgu bildirimleri (API 30+ paket görünürlüğü) ─────────────── -->
     <queries>
+        <!-- Araç ünitesi tespiti (headUnitPlatform.VEHICLE_HEAD_UNIT_PACKAGES) —
+             başlatıcısız üretici paketleri API 30+ altında yalnız burada adı
+             geçerse görünür. Liste test ile senkron tutulur. -->
+        <package android:name="com.syu.bt" />
+        <package android:name="com.syu.radio" />
+        <package android:name="com.syu.launcher" />
+        <package android:name="com.syu.carinfo" />
+        <package android:name="com.microntek.bluetooth" />
+        <package android:name="com.microntek.radio" />
+        <package android:name="com.microntek.music" />
+        <package android:name="com.kswcar.service" />
+        <package android:name="com.kswcar.bluetooth" />
+        <package android:name="com.zxw.launcher" />
+        <package android:name="com.roadrover.services" />
+        <package android:name="com.roadrover.sdk" />
+        <package android:name="com.hiworld.launcher" />
+        <package android:name="com.hiworld.bt" />
+        <package android:name="com.hiworld.radio" />
+        <package android:name="com.hiworld.carlife" />
+        <package android:name="com.hiworld.canbox" />
+        <package android:name="com.hiworld.settings" />
+        <package android:name="com.hiworld.navi" />
+        <package android:name="com.fiat.hiworld" />
+        <package android:name="com.stellantis.hiworld" />
+        <package android:name="it.fiat.connect" />
+        <package android:name="com.mopar.uconnect" />
+        <package android:name="com.nwd.can.setting" />
+        <package android:name="com.nwd.statusbarbottom" />
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
@@ -236,6 +264,21 @@
             <meta-data
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
+        </provider>
+
+        <!-- ── emoji2 otomatik başlatma KAPALI (saha 2026-10-01, NWD head-unit) ──
+             EmojiCompatInitializer açılışta emoji fontunu Google Play Services
+             FontsProvider'ından ister (CarOS'un bağlı sağlayıcılarında görüldü).
+             GMS'i çökük ünitede bu bağlantı GMS'i yeniden başlatmaya iter. Arayüz
+             WebView'dadır; native EmojiCompat kullanılmaz. -->
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            android:exported="false"
+            tools:node="merge">
+            <meta-data
+                android:name="androidx.emoji2.text.EmojiCompatInitializer"
+                tools:node="remove" />
         </provider>
 
     </application>

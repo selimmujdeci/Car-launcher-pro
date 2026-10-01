@@ -171,6 +171,13 @@ function _isWakeData(data: Record<string, string>): boolean {
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
+/** Araç ünitesi mi — modül dinamik yüklenir (native eklenti zinciri burada açılmaz);
+ *  herhangi bir hata = false (FCM davranışı değişmez). */
+async function _isVehicleHeadUnit(): Promise<boolean> {
+  try { return await (await import('./headUnitPlatform')).isVehicleHeadUnit(); }
+  catch { return false; }
+}
+
 /**
  * Push bildirim servisini başlatır.
  * App.tsx'de mount sırasında bir kez çağrılır.
@@ -182,6 +189,20 @@ export async function initPushService(): Promise<() => void> {
   if (!Capacitor.isNativePlatform()) return () => {};
   if (_initialized)                  return () => {};
   _initialized = true;
+
+  /* Araç ünitesi: FCM (Play Services) HİÇ dürtülmez. GMS'i çökük ünitede FCM
+     kaydı GMS'i yeniden başlatma döngüsüne sokuyor; GMS ölünce ona bağlı CarOS
+     da öldürülüyordu (saha 2026-10-01). Push yalnız hızlandırıcıdır — uzak
+     komutlar kalıcı dinleyiciyle (WS + yoklama) taşınır; durum dürüstçe
+     'unavailable'. */
+  if (await _isVehicleHeadUnit()) {
+    _status = 'unavailable';
+    await _ensureCommandListener();
+    return () => {
+      if (_listenerOwned) { stopCommandListener(true); _listenerOwned = false; }
+      _initialized = false;
+    };
+  }
 
   // İzin iste
   let permResult: { receive: string };

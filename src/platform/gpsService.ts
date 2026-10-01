@@ -113,6 +113,10 @@ import { bumpPerf } from './perf/perfCounters';
 import { markBootMilestone } from './bootTimingRecorder';
 
 let watchId: number | string | null = null;
+/** Head-unit: Fused izlemesi AÇILMAZ, konum yerel GPS_PROVIDER akışından
+ *  (CarLauncherForegroundService → backgroundLocation) gelir. watchId bu
+ *  işaretle "izleme aktif" sayılır; clearWatch/yeniden kurma atlanır. */
+const NATIVE_GNSS_ONLY = 'native-gnss-only';
 let _lastPositionPerf = 0; // performance.now() — clock-jump immune throttle
 // 200ms taban throttle — 1s GPS interval'de her fix'i işle
 const POSITION_THROTTLE_BASE_MS = 200;
@@ -385,6 +389,19 @@ async function startNativeGPSTracking(generation: number): Promise<void> {
       }
     } catch {
       // Permission API may not be available on some devices/versions, proceed anyway
+    }
+
+    // Araç ünitesi: Google konum eklentisi (Fused) ÇAĞRILMAZ. Eklentinin Play
+    // Services kontrolü GMS sağlayıcısını bekletiyor; GMS'i çökük ünitede
+    // ActivityManager CarOS'u da öldürüyordu (saha 2026-10-01, 5-10 dk'da bir).
+    // Konum aracın GNSS modülünden yerel akışla (feedBackgroundLocation) gelir.
+    let vehicleHeadUnit = false;
+    try { vehicleHeadUnit = await (await import('./headUnitPlatform')).isVehicleHeadUnit(); }
+    catch { /* okunamadı → Fused yolu (mevcut davranış) */ }
+    if (vehicleHeadUnit) {
+      if (generation !== _gpsGeneration) return; // bu arada durduruldu/yeniden başladı
+      watchId = NATIVE_GNSS_ONLY;
+      return;
     }
 
     // Warm start: immediate fix before watchPosition fires (reduces GPS cold-start delay)
@@ -755,6 +772,8 @@ export async function applyGpsPowerMode(mode: GpsPowerMode): Promise<void> {
 
   // Takip yoksa: mod kaydedildi, başlatma anında uygulanacak.
   if (watchId == null || !_gpsTrackingOn) return;
+  // Yerel GNSS akışının kadansı foreground servisinde yönetilir — Fused yok.
+  if (watchId === NATIVE_GNSS_ONLY) return;
   // Web/demo ortamında Capacitor watch yok — seçenekler yalnız native yolda geçerli.
   if (!isNativePlatform()) return;
 
@@ -809,7 +828,9 @@ export async function stopGPSTracking(): Promise<void> {
   }
 
   try {
-    if (isNativePlatform()) {
+    if (watchId === NATIVE_GNSS_ONLY) {
+      // Fused izlemesi hiç açılmadı — kapatılacak bir şey yok.
+    } else if (isNativePlatform()) {
       const { Geolocation } = await import('@capacitor/geolocation');
       await Geolocation.clearWatch({ id: String(watchId) });
     } else {

@@ -55,6 +55,34 @@ const PLATFORM_SIGNATURES: Record<HeadUnitPlatform, string[]> = {
   stock:     [],
 };
 
+/* ── Araç ünitesi tespiti (konum kaynağı kararı için) ─────────
+ * Platform tespitinden AYRI: NWD gibi üreticiler platform listesinde yok (arama
+ * yolu vb. değişmesin diye eklenmedi). Head-unit'te konum aracın GNSS modülünden
+ * yerel GPS_PROVIDER akışıyla gelir; Google konum eklentisi (Fused) çağrılmaz —
+ * GMS'i çökük ünitede (saha 2026-10-01, NWD K2401) eklentinin Play Services
+ * kontrolü CarOS'u "GMS sağlayıcısını bekleyen istemci" olarak öldürtüyordu. */
+export const VEHICLE_HEAD_UNIT_PACKAGES: readonly string[] = [
+  ...Object.values(PLATFORM_SIGNATURES).flat(),
+  'com.nwd.can.setting',      // NWD CAN kutusu servisi
+  'com.nwd.statusbarbottom',  // NWD alt klima/ses çubuğu
+];
+
+let _vehicleHeadUnit: Promise<boolean> | null = null;
+
+/** Cihaz bir araç ünitesi mi (üretici paketi yüklü). Okunamazsa false (Fused kalır). */
+export function isVehicleHeadUnit(): Promise<boolean> {
+  if (!_vehicleHeadUnit) {
+    _vehicleHeadUnit = Promise.resolve()
+      .then(() => CarLauncher.getInstalledPackages({ packages: [...VEHICLE_HEAD_UNIT_PACKAGES] }))
+      .then((r) => Array.isArray(r?.installed) && r.installed.length > 0)
+      .catch(() => false);
+  }
+  return _vehicleHeadUnit;
+}
+
+/** Yalnız test: önbelleği sıfırla. */
+export function _resetVehicleHeadUnitForTest(): void { _vehicleHeadUnit = null; }
+
 /* ── Platform başına uygulama paketleri ──────────────────── */
 
 const PLATFORM_APPS: Record<HeadUnitPlatform, Omit<PlatformInfo, 'platform'>> = {

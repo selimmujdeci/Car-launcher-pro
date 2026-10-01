@@ -69,6 +69,13 @@ function wakeCommandListener(): void {
 
 // ── FCM Token kaydı ───────────────────────────────────────────────────────────
 
+/** Araç ünitesi mi — modül dinamik yüklenir (native eklenti zinciri burada açılmaz);
+ *  herhangi bir hata = false (FCM davranışı değişmez). */
+async function _isVehicleHeadUnit(): Promise<boolean> {
+  try { return await (await import('./headUnitPlatform')).isVehicleHeadUnit(); }
+  catch { return false; }
+}
+
 /**
  * FCM token'ını ARAÇ CİHAZ kimliğiyle kaydeder (PROD-1A1).
  *
@@ -103,6 +110,13 @@ export async function initFcmService(): Promise<() => void> {
 
   if (_registered) return () => {};
   _registered = true;
+
+  // Araç ünitesi: FCM kaydı yapılmaz (Play Services dürtülmez) — bkz. pushService.
+  // Uzak komutların kalıcı dinleyicisi pushService'tedir.
+  if (await _isVehicleHeadUnit()) {
+    _registered = false;
+    return () => {};
+  }
 
   // İzin iste (Play Services yok olan ROM'da bile permission Android-seviyesi → try/catch güvenlik)
   let receive: string;

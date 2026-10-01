@@ -630,6 +630,29 @@ public class CarLauncherPlugin extends Plugin {
         }
     }
 
+    /**
+     * Verilen paketlerden YÜKLÜ olanları döner (başlatıcısı olmayan servis paketleri
+     * dahil — getApps yalnız LAUNCHER görür). Head-unit tespiti için: NWD gibi
+     * üretici paketleri çoğu zaman başlatıcısızdır. API 30+ görünürlük: manifest
+     * <queries> listesinde olmayan paket "yok" görünür (fail-closed → Fused kalır).
+     */
+    @PluginMethod
+    public void getInstalledPackages(PluginCall call) {
+        JSArray requested = call.getArray("packages");
+        if (requested == null) { call.reject("BAD_ARGS", "packages gerekli"); return; }
+        PackageManager pm = getContext().getPackageManager();
+        JSArray installed = new JSArray();
+        for (int i = 0; i < requested.length(); i++) {
+            String pkg = requested.optString(i, null);
+            if (!present(pkg)) continue;
+            try { pm.getPackageInfo(pkg, 0); installed.put(pkg); }
+            catch (PackageManager.NameNotFoundException ignored) {}
+        }
+        JSObject r = new JSObject();
+        r.put("installed", installed);
+        call.resolve(r);
+    }
+
     @PluginMethod
     public void getApps(PluginCall call) {
         try {

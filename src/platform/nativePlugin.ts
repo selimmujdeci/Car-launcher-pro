@@ -1154,6 +1154,8 @@ export interface CarLauncherPlugin {
   readThermal(): Promise<NativeThermalResult>;
   launchApp(options: LaunchAppOptions): Promise<void>;
   getApps(): Promise<GetAppsResult>;
+  /** Verilen paketlerden yüklü olanlar (başlatıcısız servis paketleri dahil). */
+  getInstalledPackages(options: { packages: string[] }): Promise<{ installed: string[] }>;
   getDeviceStatus(): Promise<NativeDeviceStatus>;
 
   // Media playback control
