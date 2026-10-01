@@ -38,6 +38,7 @@ import type {
 } from './types';
 import type { UnifiedVehicleState } from '../vehicleDataLayer/UnifiedVehicleStore';
 import { resolveLiveCanonicalSignal, canonicalSignalChanged } from '../vehicleDataLayer/canonicalVehicleSignal';
+import type { AdasSignals } from '../adas/adasTypes';
 
 // ── Seçenekler arayüzü ────────────────────────────────────────────────────────
 
@@ -64,6 +65,12 @@ export interface SafetyMapOptions {
   wallClockMs?: number;
   /** Gece/karanlık algısı (saat + ortam ışığı füzyonu). Bilinmiyorsa undefined. */
   isDark?: boolean;
+  /**
+   * ADAS (kamera) sinyalleri — `adasStore.signals` anlık görüntüsü. Verilmezse ADAS
+   * kuralları sönüktür. Damgalar `performance.now()` eksenindedir (kural motoru ile
+   * aynı saat); bayatlık kapısını kural motoru uygular (600 ms, damga yoksa fail-closed).
+   */
+  adas?: AdasSignals;
   /** Bu araçta hangi CAN sinyallerinin gerçekten mevcut olduğunu bildirir. */
   signalsAvailable?: {
     /** true ise canSeatbelt değeri geçirilir; aksi halde undefined (kural sönük). */
@@ -169,6 +176,19 @@ export function createSafetyStateFromVehicleStore(
     trunkOpen:  undefined,
     oilWarning: undefined,
   };
+
+  // ── ADAS (kamera) — yalnız sağlanmışsa; damgasız sinyal kural motorunda sönüktür ──
+  const adas = opts?.adas;
+  if (adas !== undefined) {
+    state.adasForwardCollision = adas.forwardCollision.value;
+    state.adasHeadway          = adas.headway.value;
+    state.adasLaneDeparture    = adas.laneDeparture.value;
+    state.adasLeadDeparture    = adas.leadDeparture.value;
+    updatedAt.adasForwardCollision = adas.forwardCollision.ts;
+    updatedAt.adasHeadway          = adas.headway.ts;
+    updatedAt.adasLaneDeparture    = adas.laneDeparture.ts;
+    updatedAt.adasLeadDeparture    = adas.leadDeparture.ts;
+  }
 
   return { state, updatedAt };
 }

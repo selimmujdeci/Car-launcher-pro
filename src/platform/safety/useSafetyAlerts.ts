@@ -41,6 +41,7 @@ import {
   safetyRelevantFieldsChanged,
 } from './safetyStateMapper';
 import { createSafetyTicker } from './safetyTicker';
+import { useAdasStore, adasSignalValuesChanged } from '../adas/adasStore';
 import type { SafetyMapOptions } from './safetyStateMapper';
 import type { SafetyQueueOutput } from './types';
 
@@ -132,9 +133,12 @@ export function useSafetyAlerts(opts?: SafetyMapOptions): UseSafetyAlertsResult 
        OBD kaynaklı motor ısısı / akü voltajı `UNAVAILABLE` sayılır. */
     function optsNow(): SafetyMapOptions {
       const base = optsRef.current;
+      /* ADAS sinyalleri her hesapta TAZE okunur (damga dahil) — 500 ms'lik ticker
+         kamera donduğunda bayatlık kapısının uyarıyı düşürmesini sağlar. */
+      const adas = useAdasStore.getState().signals;
       return base === undefined
-        ? { wallClockMs: Date.now() }
-        : { ...base, wallClockMs: Date.now() };
+        ? { wallClockMs: Date.now(), adas }
+        : { ...base, wallClockMs: Date.now(), adas };
     }
 
     // Yardımcı: store snapshot'ından output hesapla ve gerekiyorsa state güncelle
@@ -171,9 +175,16 @@ export function useSafetyAlerts(opts?: SafetyMapOptions): UseSafetyAlertsResult 
       runCompute(performance.now());
     });
 
+    /* ADAS: yalnız sinyal DEĞERİ değişince (damga her karede tazelenir → her
+       karede hesap YAPILMAZ). Uyarı aktifken damga yaşlanmasını ticker izler. */
+    const unsubAdas = useAdasStore.subscribe((state, prevState) => {
+      if (adasSignalValuesChanged(state.signals, prevState.signals)) runCompute(performance.now());
+    });
+
     // Unmount temizliği
     return () => {
       unsub();
+      unsubAdas();
       ticker.dispose(); // interval kaçağı yok
       queue.reset();    // debounce/tekrar sayaçları sıfırla
     };
