@@ -5618,7 +5618,7 @@ public class CarLauncherPlugin extends Plugin {
                 }
             }
         } catch (Exception e) {
-            Log.w(TAG, "listCameraHardware: usb", e);
+            android.util.Log.w("CarLauncherPlugin", "listCameraHardware: usb", e);
         }
         ret.put("usbVideo", usb);
 
@@ -5641,7 +5641,7 @@ public class CarLauncherPlugin extends Plugin {
                 }
             }
         } catch (Exception e) {
-            Log.w(TAG, "listCameraHardware: camera2", e);
+            android.util.Log.w("CarLauncherPlugin", "listCameraHardware: camera2", e);
         }
         ret.put("camera2", cams);
 
