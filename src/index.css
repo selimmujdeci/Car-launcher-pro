@@ -1048,3 +1048,15 @@ html.theme-switching * {
 [data-layout="ultra_wide"] .car-card {
   max-width: var(--lp-max-w, 100%);
 }
+
+/* ── Native video oynatma (VideoPlayerOverlay) ───────────────────────────
+   Video yüzeyi WebView'ın ARKASINDA çizilir; oynatıcı açıkken kök şeffaf,
+   uygulamanın geri kalanı gizli (state korunur — visibility, unmount değil). */
+html.caros-video-native,
+html.caros-video-native body,
+html.caros-video-native #root {
+  background: transparent !important;
+}
+html.caros-video-native #root {
+  visibility: hidden !important;
+}

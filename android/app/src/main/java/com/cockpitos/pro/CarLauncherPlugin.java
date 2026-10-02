@@ -40,6 +40,8 @@ import android.view.Surface;
 import android.view.TextureView;
 import android.graphics.SurfaceTexture;
 import android.graphics.Matrix;
+import android.view.View;
+import android.graphics.Color;
 import android.media.MediaMetadata;
 import android.media.session.MediaController;
 import android.media.session.MediaSessionManager;
@@ -70,8 +72,6 @@ import org.vosk.android.StorageService;
 import android.view.KeyEvent;
 import android.view.ViewGroup;
 import android.view.WindowManager;
-import android.widget.Button;
-import android.widget.RelativeLayout;
 import android.widget.VideoView;
 
 import androidx.core.app.ActivityCompat;
@@ -8381,14 +8381,33 @@ public class CarLauncherPlugin extends Plugin {
         call.resolve(result);
     }
 
-    // ── Video oynatma (VideoView overlay — aynı Activity içinde) ───────────────
+    // ── Video oynatma — donanım çözücü, CarOS arayüzünün ARKASINDA ─────────────
+    // Video yüzeyi (TextureView) WebView'ın ARKASINA eklenir ve video süresince
+    // WebView şeffaf olur: CarOS oynatıcı arayüzü (JS) videonun ÜSTÜNDE çizilir.
+    // Eskiden üstte siyah tam ekran overlay + native "KAPAT" vardı — CarOS'un
+    // tasarımı görünmüyor, kullanıcı "cihazın oynatıcısı açıldı" sanıyordu
+    // (saha 2026-10-02). Çözücü aynı: MediaPlayer → awplayer (1080p MKV akıcı).
 
-    private RelativeLayout videoOverlay       = null;
-    // VideoView (SurfaceView) WebView üstüne eklenince video yüzeyi pencerenin arkasında
-    // kalıp "ses var görüntü yok" sorununa yol açıyordu. TextureView normal view
-    // hiyerarşisinde render edildiği için bu sorunu çözer.
-    private TextureView    nativeVideoTexture = null;
-    private MediaPlayer    nativeVideoPlayer  = null;
+    private static final int WEBVIEW_BG = 0xFF060d1a; // capacitor.config backgroundColor
+    private TextureView    nativeVideoTexture  = null;
+    private MediaPlayer    nativeVideoPlayer   = null;
+    private boolean        nativeVideoPrepared = false;
+    private final Runnable videoProgressTick = new Runnable() {
+        @Override public void run() {
+            MediaPlayer mp = nativeVideoPlayer;
+            if (mp == null) return;
+            if (nativeVideoPrepared) {
+                try {
+                    JSObject d = new JSObject();
+                    d.put("positionMs", mp.getCurrentPosition());
+                    d.put("durationMs", mp.getDuration());
+                    d.put("playing",    mp.isPlaying());
+                    notifyListeners("videoProgress", d);
+                } catch (Exception ignored) {}
+            }
+            mainHandler.postDelayed(this, 500);
+        }
+    };
 
     /** MediaStore.Video.Media'dan cihaz videolarını listele. */
     @PluginMethod
@@ -8448,49 +8467,38 @@ public class CarLauncherPlugin extends Plugin {
     }
 
     /**
-     * Videoyu aynı Activity içinde tam ekran native VideoView ile oynat.
-     * Ayrı uygulama açılmaz; KAPAT butonu basılınca overlay kaldırılır.
+     * Videoyu donanım çözücüyle CarOS arayüzünün ARKASINDA oynatır (bkz. üstteki not).
+     * Kontroller JS'tedir: pause/resume/seek/closeVideoNative + videoProgress olayı.
      */
     @PluginMethod
     public void playVideoNative(PluginCall call) {
-        String uri   = call.getString("uri", "");
-        String title = call.getString("title", "Video");
-
+        String uri = call.getString("uri", "");
         if (uri == null || uri.isEmpty()) {
             call.reject("URI_REQUIRED", "uri parametresi gerekli");
             return;
         }
-        final String finalUri   = uri;
-        final String finalTitle = title;
+        final String finalUri = uri;
 
         getActivity().runOnUiThread(() -> {
-            // Önceki oynatıcıyı kapat
             closeVideoNativeInternal();
+            final View webView = getBridge().getWebView();
+            final ViewGroup parent = webView != null ? (ViewGroup) webView.getParent() : null;
+            if (parent == null) {
+                call.reject("NO_WEBVIEW", "WebView bulunamadı");
+                return;
+            }
 
-            // Tam ekran koyu overlay
-            videoOverlay = new RelativeLayout(getContext());
-            videoOverlay.setBackgroundColor(0xFF000000);
-            videoOverlay.setLayoutParams(new ViewGroup.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT
-            ));
-
-            // TextureView — normal view hiyerarşisinde render → WebView üstünde görüntü görünür
             nativeVideoTexture = new TextureView(getContext());
-            RelativeLayout.LayoutParams vp = new RelativeLayout.LayoutParams(
-                RelativeLayout.LayoutParams.MATCH_PARENT,
-                RelativeLayout.LayoutParams.MATCH_PARENT
-            );
-            vp.addRule(RelativeLayout.CENTER_IN_PARENT);
-            nativeVideoTexture.setLayoutParams(vp);
             nativeVideoTexture.setSurfaceTextureListener(new TextureView.SurfaceTextureListener() {
                 @Override
                 public void onSurfaceTextureAvailable(SurfaceTexture surface, int width, int height) {
                     try {
+                        nativeVideoPrepared = false;
                         nativeVideoPlayer = new MediaPlayer();
                         nativeVideoPlayer.setSurface(new Surface(surface));
                         nativeVideoPlayer.setDataSource(getContext(), Uri.parse(finalUri));
                         nativeVideoPlayer.setOnPreparedListener(mp -> {
+                            nativeVideoPrepared = true;
                             mp.start();
                             JSObject data = new JSObject();
                             data.put("durationMs", mp.getDuration());
@@ -8506,19 +8514,24 @@ public class CarLauncherPlugin extends Plugin {
                             JSObject err = new JSObject();
                             err.put("error", "Video oynatma hatası: " + what + "/" + extra);
                             notifyListeners("videoError", err);
-                            return true; // hatayı tükettik — MediaPlayer'ı serbest bırakacağız
+                            getActivity().runOnUiThread(CarLauncherPlugin.this::closeVideoNativeInternal);
+                            return true;
                         });
                         nativeVideoPlayer.prepareAsync();
+                        mainHandler.removeCallbacks(videoProgressTick);
+                        mainHandler.post(videoProgressTick);
                     } catch (Exception e) {
                         JSObject err = new JSObject();
                         err.put("error", "Video açılamadı: " + e.getMessage());
                         notifyListeners("videoError", err);
+                        getActivity().runOnUiThread(CarLauncherPlugin.this::closeVideoNativeInternal);
                     }
                 }
                 @Override
                 public void onSurfaceTextureSizeChanged(SurfaceTexture surface, int width, int height) {
-                    if (nativeVideoPlayer != null) {
-                        try { fitVideoTexture(nativeVideoPlayer.getVideoWidth(), nativeVideoPlayer.getVideoHeight()); }
+                    MediaPlayer mp = nativeVideoPlayer;
+                    if (mp != null) {
+                        try { fitVideoTexture(mp.getVideoWidth(), mp.getVideoHeight()); }
                         catch (Exception ignored) {}
                     }
                 }
@@ -8526,36 +8539,44 @@ public class CarLauncherPlugin extends Plugin {
                 @Override public void onSurfaceTextureUpdated(SurfaceTexture surface) {}
             });
 
-            videoOverlay.addView(nativeVideoTexture);
-
-            // KAPAT butonu — sağ üst köşe
-            Button closeBtn = new Button(getContext());
-            closeBtn.setText("✕  KAPAT");
-            closeBtn.setTextSize(14f);
-            closeBtn.setTextColor(0xFFFFFFFF);
-            closeBtn.setBackgroundColor(0xCC1a1a2e);
-            closeBtn.setPadding(32, 16, 32, 16);
-            RelativeLayout.LayoutParams cp = new RelativeLayout.LayoutParams(
-                RelativeLayout.LayoutParams.WRAP_CONTENT,
-                RelativeLayout.LayoutParams.WRAP_CONTENT
-            );
-            cp.addRule(RelativeLayout.ALIGN_PARENT_TOP);
-            cp.addRule(RelativeLayout.ALIGN_PARENT_END);
-            cp.setMargins(0, 60, 40, 0);
-            closeBtn.setLayoutParams(cp);
-            closeBtn.setOnClickListener(v -> {
-                closeVideoNativeInternal();
-                notifyListeners("videoClosed", new JSObject());
-            });
-            videoOverlay.addView(closeBtn);
-
-            // Activity penceresi içine ekle (WebView'ın üstünde)
-            ((ViewGroup) getActivity().getWindow().getDecorView()).addView(videoOverlay);
+            // WebView'ın ARKASINA (index 0) — arayüz videonun üstünde kalır.
+            parent.addView(nativeVideoTexture, 0, new ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            webView.setBackgroundColor(Color.TRANSPARENT);
             call.resolve();
         });
     }
 
-    /** Aktif video overlay'ini kapat ve kaynakları serbest bırak. */
+    @PluginMethod
+    public void pauseVideoNative(PluginCall call) {
+        getActivity().runOnUiThread(() -> {
+            MediaPlayer mp = nativeVideoPlayer;
+            if (mp != null && nativeVideoPrepared) { try { mp.pause(); } catch (Exception ignored) {} }
+            call.resolve();
+        });
+    }
+
+    @PluginMethod
+    public void resumeVideoNative(PluginCall call) {
+        getActivity().runOnUiThread(() -> {
+            MediaPlayer mp = nativeVideoPlayer;
+            if (mp != null && nativeVideoPrepared) { try { mp.start(); } catch (Exception ignored) {} }
+            call.resolve();
+        });
+    }
+
+    @PluginMethod
+    public void seekVideoNative(PluginCall call) {
+        Integer raw = call.getInt("positionMs", 0);
+        final int pos = Math.max(0, raw != null ? raw : 0);
+        getActivity().runOnUiThread(() -> {
+            MediaPlayer mp = nativeVideoPlayer;
+            if (mp != null && nativeVideoPrepared) { try { mp.seekTo(pos); } catch (Exception ignored) {} }
+            call.resolve();
+        });
+    }
+
+    /** Aktif videoyu kapat ve kaynakları serbest bırak. */
     @PluginMethod
     public void closeVideoNative(PluginCall call) {
         getActivity().runOnUiThread(() -> {
@@ -8565,17 +8586,21 @@ public class CarLauncherPlugin extends Plugin {
     }
 
     private void closeVideoNativeInternal() {
+        mainHandler.removeCallbacks(videoProgressTick);
+        nativeVideoPrepared = false;
         if (nativeVideoPlayer != null) {
             try { nativeVideoPlayer.stop(); }    catch (Exception ignored) {}
             try { nativeVideoPlayer.release(); }  catch (Exception ignored) {}
             nativeVideoPlayer = null;
         }
+        TextureView tv = nativeVideoTexture;
         nativeVideoTexture = null;
-        if (videoOverlay != null) {
+        if (tv != null && tv.getParent() instanceof ViewGroup) {
+            try { ((ViewGroup) tv.getParent()).removeView(tv); } catch (Exception ignored) {}
             try {
-                ((ViewGroup) getActivity().getWindow().getDecorView()).removeView(videoOverlay);
+                View webView = getBridge().getWebView();
+                if (webView != null) webView.setBackgroundColor(WEBVIEW_BG);
             } catch (Exception ignored) {}
-            videoOverlay = null;
         }
     }
 

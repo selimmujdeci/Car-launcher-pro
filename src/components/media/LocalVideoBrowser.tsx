@@ -1,18 +1,21 @@
 /**
  * Local Video Browser — cihaz video kütüphanesi tarayıcısı.
  * MediaScreen içinde "Video" sekmesi olarak gösterilir.
- * Videolar native VideoView overlay'de (dışarıya çıkmadan) oynatılır.
+ * Videolar donanım çözücüyle CarOS arayüzünün arkasında, CarOS oynatıcısıyla
+ * (VideoPlayerOverlay) oynatılır — dışarıya/başka uygulamaya çıkılmaz.
  */
 import { memo, useEffect, useMemo, useState, useCallback } from 'react';
-import { Video, Search, Play, Loader2, AlertCircle, X } from 'lucide-react';
+import { Video, Search, Play, Loader2, AlertCircle } from 'lucide-react';
 import {
   useLocalVideo,
   initLocalVideo,
   loadVideoTracks,
   playVideo,
   closeVideo,
+  getLocalVideoState,
 } from '../../platform/localVideoService';
 import { fmtTime } from '../../platform/mediaService';
+import { VideoPlayerOverlay } from './VideoPlayerOverlay';
 
 /* ── Yardımcı ────────────────────────────────────────────── */
 
@@ -35,6 +38,8 @@ export const LocalVideoBrowser = memo(function LocalVideoBrowser() {
   useEffect(() => {
     void initLocalVideo();
     void loadVideoTracks();
+    // Ekrandan çıkılırsa video arka planda (görünmez, sesli) sürmesin.
+    return () => { if (getLocalVideoState().activeUri) void closeVideo(); };
   }, []);
 
   const filtered = useMemo(() => {
@@ -45,10 +50,6 @@ export const LocalVideoBrowser = memo(function LocalVideoBrowser() {
 
   const handlePlay = useCallback((uri: string, title: string) => {
     void playVideo(uri, title);
-  }, []);
-
-  const handleClose = useCallback(() => {
-    void closeVideo();
   }, []);
 
   /* ── Yükleniyor ── */
@@ -102,33 +103,7 @@ export const LocalVideoBrowser = memo(function LocalVideoBrowser() {
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
-
-      {/* Şu an oynuyor — mini çubuk */}
-      {activeUri && (
-        <div
-          className="flex-shrink-0 flex items-center gap-3 px-4 py-3 border-b border-white/8"
-          style={{ background: 'rgba(168,85,247,0.08)' }}
-        >
-          <div className="w-9 h-9 rounded-xl glass-card flex items-center justify-center flex-shrink-0">
-            <Video className="w-4 h-4 text-purple-400" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="text-primary text-[13px] font-black truncate">
-              {videos.find((v) => v.uri === activeUri)?.title ?? 'Video'}
-            </div>
-            <div className="text-secondary text-[10px]">
-              {playing ? 'Oynatılıyor' : 'Hazır'}
-            </div>
-          </div>
-          <button
-            onClick={handleClose}
-            className="w-9 h-9 rounded-xl flex items-center justify-center text-white active:scale-90 transition-all"
-            style={{ background: 'rgba(168,85,247,0.85)' }}
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-      )}
+      <VideoPlayerOverlay />
 
       {/* Arama */}
       <div className="flex-shrink-0 px-4 pt-3 pb-2">

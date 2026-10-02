@@ -1714,6 +1714,10 @@ export interface CarLauncherPlugin {
   getVideoTracks(): Promise<GetVideoTracksResult>;
   playVideoNative(options: { uri: string; title?: string }): Promise<void>;
   closeVideoNative(): Promise<void>;
+  pauseVideoNative(): Promise<void>;
+  resumeVideoNative(): Promise<void>;
+  seekVideoNative(options: { positionMs: number }): Promise<void>;
+  addListener(event: 'videoProgress',  handler: (data: { positionMs: number; durationMs: number; playing: boolean }) => void): Promise<PluginListenerHandle>;
   addListener(event: 'videoStarted',   handler: (data: { durationMs: number }) => void): Promise<PluginListenerHandle>;
   addListener(event: 'videoCompleted', handler: (data: Record<string, never>) => void): Promise<PluginListenerHandle>;
   addListener(event: 'videoError',     handler: (data: { error: string }) => void): Promise<PluginListenerHandle>;
