@@ -186,6 +186,15 @@ export const VEHICLE_ACTIONS: Readonly<Partial<Record<IntentType, VehicleActionD
     capability: null, vehicleScope: 'read', motionPolicy: 'any', title: 'Sensör oku',
     policySource: 'validated', motionRationale: 'legitimate_while_moving',
   },
+  /* CAN KONFOR (koltuk masajı · iç ambiyans, NWD beyaz listesi) — geri alınabilir,
+   * sürüşü etkilemez. Onay İSTENMEZ: "masajı aç" açık bir talimattır; yanlış tanıma
+   * en kötü ihtimalle masajı/ambiyansı açar-kapatır. Başarı YALNIZ aracın durum
+   * yankısıyla söylenir (`canComfortControl`). Saha doğrulaması bekliyor → geçici. */
+  VEHICLE_COMFORT: {
+    actionId: 'vehicle.comfort.set', risk: 'low', requiresConfirmation: false,
+    capability: null, motionPolicy: 'any', title: 'Konfor ayarı (masaj · ambiyans)',
+    policySource: 'p0_provisional', motionRationale: 'legitimate_while_moving',
+  },
   /* Araç dışı, geri alınamaz dış etki — ama ONAY İSTENMEZ.
    *
    * ── NEDEN KALDIRILDI (saha 2026-07-31) ────────────────────────────────

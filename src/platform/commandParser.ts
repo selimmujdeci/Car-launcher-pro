@@ -29,6 +29,7 @@ import {
   type ProtectedWholeInputMatch,
 } from './protectedCommandGate';
 import { matchVoiceSetting, type VoiceSettingMatch } from './settingsVoice';
+import { tryParseVehicleComfort, tryParseCanVehicleInfo, encodeComfortCommand } from './vehicleComfortIntents';
 import {
   tryParseVehicleQuery,
   VEHICLE_MAINTENANCE_PATTERN,
@@ -125,7 +126,12 @@ export type CommandType =
   // Mavi ne yazılacağını sorar). Hedef: son okunan / en yeni mesaj.
   | 'reply_message'
   // Eko sürüş puanı — "eko puanım kaç" · "nasıl sürdüm" (voiceInfoService, ecoScoreModel).
-  | 'trip_eco_score';
+  | 'trip_eco_score'
+  // CAN konfor komutu (masaj · iç ambiyans) — extra.comfort (vehicleComfortIntents JSON).
+  // Yürütme: commandExecutor VEHICLE_COMFORT → canComfortControl (araç yankısıyla onay).
+  | 'vehicle_comfort'
+  // CAN araç durumu sorusu — extra.topic (lastik · yol bilgisayarı · kapı · klima · masaj · ambiyans).
+  | 'vehicle_can_info';
 
 export type CommandPriority = 'critical' | 'high' | 'normal';
 
@@ -1388,6 +1394,31 @@ export function parseCommandFull(input: string): ParseResult {
       },
       suggestions:   [],
       needsSemantic: false,
+    };
+  }
+
+  /* CAN konfor komutu / araç durumu sorusu — müzik ve AYAR ön-kontrollerinden ÖNCE:
+   * "ambiyansın parlaklığını artır" ekran parlaklığı ayarına, "masajı aç" genel
+   * "aç" kalıplarına düşmesin. Hedef sözcüğü (masaj · ambiyans · lastik …) yoksa
+   * iki fonksiyon da null döner → akış aynen devam eder. */
+  const comfort = tryParseVehicleComfort(trimmed);
+  if (comfort) {
+    return {
+      command: {
+        type: 'vehicle_comfort', raw: trimmed, confidence: EXACT_SCORE,
+        feedback: '', priority: 'normal', extra: { comfort: encodeComfortCommand(comfort) },
+      },
+      suggestions: [], needsSemantic: false,
+    };
+  }
+  const canInfo = tryParseCanVehicleInfo(trimmed);
+  if (canInfo) {
+    return {
+      command: {
+        type: 'vehicle_can_info', raw: trimmed, confidence: EXACT_SCORE,
+        feedback: '', priority: 'normal', extra: { topic: canInfo },
+      },
+      suggestions: [], needsSemantic: false,
     };
   }
 

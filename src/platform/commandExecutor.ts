@@ -77,6 +77,7 @@ import type { NavOptionKey, MusicOptionKey } from '../data/apps';
 import { readDTCCodes, clearDTCCodes, getClearableDtcSnapshot, onDTCState, type DTCState } from './dtcService';
 import { evaluateVehicleDtcVerdict } from './obd/dtcAuthority';
 import { querySensor } from './obd/sensorQueryService';
+import { executeComfortCommand } from './vehicleDataLayer/canComfortControl';
 import { getMaintenanceSummaryText } from './vehicleMaintenanceService';
 import { openInApp } from './inAppBrowser';
 import { applyLiveStyle } from './liveStyleEngine';
@@ -1033,6 +1034,25 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<I
           return intentResult(intent.type, 'succeeded', 'sensor_read_screen', `${answer.name} ekranda gösteriliyor`);
         }
         return intentResult(intent.type, 'succeeded', 'sensor_read', answer.text);
+      }
+      /* ── CAN konfor (masaj · iç ambiyans) ─────────────────────
+         Kapı yukarıda geçildi. Yürütücü yazar ve ARACIN YANKISINI bekler:
+         "yaptım" yalnız yankıyla; yankı yoksa `started` ("gönderdim, araç
+         onaylamadı"), gönderilemediyse `failed`. Cümle yürütücüden gelir. */
+      case 'VEHICLE_COMFORT': {
+        const spec = intent.payload.comfort;
+        if (!spec) {
+          return intentResult(intent.type, 'failed', 'no_comfort_spec', 'Hangi konfor ayarını istediğini anlayamadım.');
+        }
+        const out = await executeComfortCommand(spec);
+        switch (out.status) {
+          case 'succeeded':   return intentResult(intent.type, 'succeeded', 'echo_confirmed', out.text);
+          case 'already':     return intentResult(intent.type, 'succeeded', 'already_in_state', out.text);
+          case 'unconfirmed': return intentResult(intent.type, 'started', 'sent_no_echo', out.text);
+          case 'unavailable': return intentResult(intent.type, 'failed', 'not_sent', out.text);
+          case 'unsupported': return intentResult(intent.type, 'failed', 'not_supported', out.text);
+          default:            return intentResult(intent.type, 'failed', 'state_unknown', out.text);
+        }
       }
       case 'OPEN_APPOINTMENT_LINK': {
         _speak('Muayene randevu sayfası açılıyor', isDriving, _turn);

@@ -27,6 +27,7 @@ import type { NearbyPoiCategory } from './nearbyPoiNavigation';
 import { intentResult, type IntentExecutionResult } from './intentExecutionResult';
 import { cancelNavigationByVoice } from './navigationService';
 import { describeSettingResult } from './settingsVoice';
+import { decodeComfortCommand, type ComfortCommand } from './vehicleComfortIntents';
 import { openDrawer } from './drawerBus';
 import { setFullMapView } from './mapViewBus';
 import { requestCockpitPage } from './cockpitPageBus';
@@ -106,6 +107,7 @@ export type IntentType =
   | 'HARDWARE_SCREEN_OFF'
   | 'VEHICLE_STATUS'
   | 'QUERY_SENSOR'       // V1: araç sensör DEĞERİ sorgusu (sensorQuery ile) — beyin değer UYDURMAZ
+  | 'VEHICLE_COMFORT'    // CAN konfor ayarı (masaj · iç ambiyans) — onay aracın yankısından
   | 'REMEMBER'           // Kişisel hafıza: kalıcı fact ekle ("şunu unutma …")
   | 'FORGET'             // Kişisel hafıza: fact sil / "hepsini unut"
   | 'UNKNOWN';
@@ -130,6 +132,7 @@ export interface IntentPayload {
   musicSearchUri?: string;  // ready-to-use search URI
   musicAction?:    string;  // 'play' | 'shuffle' | 'add_favorite'
   styleVars?:      Record<string, string>; // CSS custom properties for SET_STYLE
+  comfort?:        ComfortCommand;         // VEHICLE_COMFORT: doğrulanmış konfor komutu
   // SEARCH_POI fields (from semanticAiService)
   poiCategory?:   string;  // 'RESTAURANT' | 'GAS_STATION' | … (PoiCategory)
   poiQuery?:      string;  // normalize edilmiş arama terimi ("kebap", "benzin" …)
@@ -281,6 +284,9 @@ const CMD_TO_INTENT: Record<CommandType, IntentType> = {
   read_message:          'UNKNOWN',
   reply_message:         'UNKNOWN',
   trip_eco_score:        'UNKNOWN',
+  // CAN konfor komutu tek eylem otoritesinden geçer; durum sorusu voiceInfoService'te.
+  vehicle_comfort:       'VEHICLE_COMFORT',
+  vehicle_can_info:      'UNKNOWN',
 };
 
 /**
@@ -421,6 +427,11 @@ export function toIntent(cmd: ParsedCommand, ctx: IntentContext): AppIntent {
     case 'query_sensor':
       payload.sensorQuery = cmd.extra?.['sensorQuery'] ?? cmd.raw;
       break;
+    case 'vehicle_comfort': {
+      const c = decodeComfortCommand(cmd.extra?.['comfort']);
+      if (c) payload.comfort = c;
+      break;
+    }
   }
 
   return {
@@ -662,6 +673,7 @@ export async function routeIntent(intent: AppIntent, ctx: RouterContext): Promis
     case 'CHECK_VEHICLE_HEALTH':
     case 'CLEAR_DTC_CODES':
     case 'QUERY_SENSOR':
+    case 'VEHICLE_COMFORT':
     case 'HARDWARE_LOCK':
     case 'HARDWARE_UNLOCK':
     case 'HARDWARE_HORN':

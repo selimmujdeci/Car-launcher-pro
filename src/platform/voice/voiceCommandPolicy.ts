@@ -90,6 +90,8 @@ const RESULT_ACK_COMMAND_TYPES: ReadonlySet<ParsedCommand['type']> = new Set<Par
   /* Ayar: parser metni ("artırılıyor") değer DEĞİŞMESE de konuşuluyordu. */
   'set_setting', 'screen_brightness_up', 'screen_brightness_down',
   'open_screen',
+  /* CAN konfor (masaj · ambiyans): "açıldı" YALNIZ aracın durum yankısından. */
+  'vehicle_comfort',
 ]);
 
 /** Sesi YALNIZ yürütme sonucundan gelen komut mu (parser metni konuşulmaz). */

@@ -106,6 +106,7 @@ const INTENT_LABEL: Partial<Record<IntentType, string>> = {
   HARDWARE_SCREEN_OFF:   'ekran kontrolü',
   CLEAR_DTC_CODES:       'arıza kaydı silme',
   CHECK_VEHICLE_HEALTH:  'araç sağlık taraması',
+  VEHICLE_COMFORT:       'konfor ayarı',
 };
 
 /**

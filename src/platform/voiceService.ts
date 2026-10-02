@@ -2276,6 +2276,23 @@ export async function processTextCommand(
     return true;
   }
 
+  // ── 1b1f. CAN ARAÇ KONFORU / DURUMU BYPASS — "masajı aç" · "lastik basınçları" ──
+  // Eylem de değer de YALNIZ araçtan (NWD CAN) gelir; beynin bu porta/veriye aracı
+  // YOK → Gemini ya "açtım" der (sahte ACK) ya da değer UYDURUR. Eko puanı (1b1e)
+  // ile AYNI desen: net yerel eşleşme beyne gitmez; eylem tek otoriteden geçer.
+  if (
+    result.command &&
+    (result.command.type === 'vehicle_comfort' || result.command.type === 'vehicle_can_info') &&
+    result.command.confidence >= AUTO_DISPATCH_MIN
+  ) {
+    _lastCommandTime = now;
+    void reportVoiceDiag('voice_route', { route: 'can_vehicle_local_bypass' });
+    setMaviLatencyRoute('can_vehicle_local_bypass');
+    if (ctx?.isDriving) { dispatchDriving(result.command, ctx, turn); } else { dispatch(result.command, ctx, turn); }
+    completeMaviTurn(turn);
+    return true;
+  }
+
   // ── 1b2. SENSÖR SORGUSU BYPASS — yerel sensorQueryService kotasız/anında cevaplar ──
   // "yağ sıcaklığı kaç", "turbo basıncı ne kadar" gibi net (≥0.7) yerel eşleşmeler
   // (vehicleIntents.ts) beyne HİÇ GİTMEZ: querySensor taze OBD/EXTENDED/manufacturer

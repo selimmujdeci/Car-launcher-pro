@@ -115,11 +115,11 @@ afterEach(() => {
  * ════════════════════════════════════════════════════════════════════════ */
 
 describe('MAVI-M4-LAB · 1. defterdeki tüm eylemler görünür', () => {
-  it('kaynak katmanı defterdeki HER eylemi taşır (13 eylem)', () => {
+  it('kaynak katmanı defterdeki HER eylemi taşır (14 eylem — +CAN konfor 2026-10-02)', () => {
     const snap = readActionAuthoritySnapshot();
     const ids = new Set((snap.actions ?? []).map((a) => a.actionId));
     const expected = Object.values(VEHICLE_ACTIONS).map((d) => d!.actionId);
-    expect(expected.length).toBe(13);
+    expect(expected.length).toBe(14);
     for (const id of expected) expect(ids.has(id), `${id} ekranda YOK`).toBe(true);
   });
 

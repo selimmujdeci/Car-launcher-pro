@@ -34,6 +34,15 @@ import { explainEarlyWarnings } from './obd/earlyWarningEngine';
 import { getMaintenanceSummaryText } from './vehicleMaintenanceService';
 import { takeLatestUnreadMessage, replyToLatestMessage } from './notificationService';
 import { buildEcoScoreSpeech } from './trip/ecoScoreModel';
+import { answerCanVehicleInfo } from './vehicleDataLayer/canComfortControl';
+import type { CanInfoTopic } from './vehicleComfortIntents';
+
+const CAN_INFO_TOPICS: ReadonlySet<string> = new Set<CanInfoTopic>([
+  'tires', 'tires_reset', 'trip', 'doors', 'climate', 'massage', 'ambient',
+]);
+function isCanInfoTopic(t: string | undefined): t is CanInfoTopic {
+  return typeof t === 'string' && CAN_INFO_TOPICS.has(t);
+}
 
 /* ── Bilgi sorgusu tipleri ───────────────────────────────────────────────── */
 
@@ -51,6 +60,7 @@ const INFO_TYPES = new Set<CommandType>([
   'read_message',
   'reply_message',
   'trip_eco_score',
+  'vehicle_can_info',
 ]);
 
 export function isInformationalCommand(type: CommandType): boolean {
@@ -253,6 +263,16 @@ export async function answerInformational(
     case 'read_message':         _speakLatestMessage(turn); break;
     case 'reply_message':        await _replyLatestMessage((extra?.text ?? '').trim(), turn); break;
     case 'trip_eco_score':       await _speakEcoScore(turn); break;
+    case 'vehicle_can_info': {
+      /* CAN araç durumu (lastik · yol bilgisayarı · kapı · klima · masaj · ambiyans).
+         Değer yalnız store'daki araç verisinden; yoksa "gelmiyor" denir. */
+      const topic = extra?.topic;
+      if (!isCanInfoTopic(topic)) break;
+      const text = await answerCanVehicleInfo(topic);
+      /* AWAIT SONRASI. */
+      speakMaviAnswer(text, { turn });
+      break;
+    }
     case 'vehicle_maintenance': {
       try {
         const summary = await getMaintenanceSummaryText();
