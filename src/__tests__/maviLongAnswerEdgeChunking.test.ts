@@ -21,7 +21,9 @@ vi.mock('../platform/media/authority/duckRequest', () => ({
 }));
 vi.mock('../platform/assistant/maviLatencyTrace', () => ({ markMaviLatency: () => {} }));
 
-import { splitForSynthesis, speakEdge, cancelEdge } from '../platform/edgeTtsService';
+import {
+  splitForSynthesis, speakEdge, cancelEdge, toEdgeSafeText, isEdgeTtsAvailable,
+} from '../platform/edgeTtsService';
 
 /* ── Sahte Audio: çalma bitişini test SÜRÜKLER (gerçek zaman YOK) ───────── */
 class FakeAudio {
@@ -68,6 +70,15 @@ describe('splitForSynthesis — parça sözleşmesi', () => {
     const parts = splitForSynthesis(dev);
     expect(parts.every((c) => c.length <= 800)).toBe(true);
     expect(parts.join(' ')).toBe(dev);
+  });
+});
+
+describe('toEdgeSafeText — proxy SSML güvenliği (saf)', () => {
+  it('& → "ve" (&amp; dahil), < > boşluk; diğer metin DOKUNULMAZ', () => {
+    expect(toEdgeSafeText('Leyla Göktürk & Aram Savaş Han')).toBe('Leyla Göktürk ve Aram Savaş Han');
+    expect(toEdgeSafeText('Tom &amp; Jerry')).toBe('Tom ve Jerry');
+    expect(toEdgeSafeText('a<b>c')).toBe('a b c');
+    expect(toEdgeSafeText('Pela Dûr [Official Music Video]')).toBe('Pela Dûr [Official Music Video]');
   });
 });
 
@@ -129,6 +140,28 @@ describe('speakEdge — parçalı seslendirme', () => {
     await new Promise((r) => setTimeout(r, 10));
     expect(FakeAudio.instances.length).toBe(acikParca);  // yeni parça KURULMADI
     expect(onEnd).not.toHaveBeenCalled();     // kesilen söz "bitti" SAYILMAZ
+  });
+
+  /* SAHA 2026-10-02 (head unit, ölçüldü): proxy metni SSML'e kaçışsız gömüyor →
+     "Leyla Göktürk & Aram Savaş Han" 502 döndü, Edge 60 sn soğumaya girdi ve
+     motorsuz head unit'te Mavi o süre TAMAMEN sustu. Bu iki test, soğumayı
+     tetikleyen alttaki testten ÖNCE koşmalı (soğuma modül ömürlüdür). */
+  it('🔒 proxy\'ye giden gövde SSML-güvenli: & → "ve", < > yok', async () => {
+    const bodies: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (_u: string, init: { body: string }) => {
+      bodies.push((JSON.parse(init.body) as { text: string }).text);
+      return { ok: true, status: 200, blob: async () => ({ size: 10 } as Blob) };
+    }));
+    expect(await speakEdge(`Leyla Göktürk & Aram Savaş Han <canlı> ${Date.now()}`, () => {})).toBe(true);
+    expect(bodies[0]).toMatch(/^Leyla Göktürk ve Aram Savaş Han canlı \d+$/);
+  });
+
+  it('🔒 temizlenince boş kalan metin proxy\'ye GİTMEZ ve soğumayı TETİKLEMEZ', async () => {
+    const f = vi.fn();
+    vi.stubGlobal('fetch', f);
+    expect(await speakEdge('<>', () => {})).toBe(false);
+    expect(f).not.toHaveBeenCalled();
+    expect(isEdgeTtsAvailable()).toBe(true);
   });
 
   it('ilk parça sentezlenemezse false döner (çağıran yedeğe düşer)', async () => {

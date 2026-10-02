@@ -116,6 +116,23 @@ export function splitForSynthesis(text: string): string[] {
   return out.flatMap((c) => (c.length <= CHUNK_HARD_MAX ? [c] : _hardSplit(c, CHUNK_HARD_MAX)));
 }
 
+/**
+ * Proxy'ye gidecek metni SSML'e GÜVENLİ hâle getirir. **SAF.**
+ *
+ * SAHA 2026-10-02 (head unit, ölçüldü): proxy metni SSML'e kaçışsız gömüyor →
+ * `&` ve `<`/`>` içeren her metin `502` dönüyordu ("Leyla Göktürk & Aram Savaş
+ * Han" → 502; "… ve …" → 200). Sonuç: şarkı/sanatçı adı içeren cevap
+ * seslendirilemiyor, `_coolUntil` 60 sn devreye giriyor ve motorsuz head unit'te
+ * Mavi o süre boyunca TAMAMEN susuyordu. `&` konuşmada zaten "ve" okunur.
+ */
+export function toEdgeSafeText(text: string): string {
+  return text
+    .replace(/\s*&(?:amp;)?\s*/gi, ' ve ')
+    .replace(/[<>]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 /** Edge TTS şu an denenebilir mi (online + soğumada değil). */
 export function isEdgeTtsAvailable(): boolean {
   /* F7 — kullanicinin bekledigi etkilesimli bulut cagrisi. */
@@ -127,6 +144,8 @@ async function _synthesize(text: string): Promise<string | null> {
   const cached = _cache.get(text);
   if (cached) return cached;
   if (!isEdgeTtsAvailable()) return null;
+  const safe = toEdgeSafeText(text);
+  if (!safe) return null;   // seslendirilecek metin kalmadı — proxy'ye gitme, soğumayı tetikleme
 
   let blob: Blob;
   try {
@@ -135,7 +154,7 @@ async function _synthesize(text: string): Promise<string | null> {
     const resp = await fetch(TTS_URL, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ text }),
+      body:    JSON.stringify({ text: safe }),
       signal:  ctrl.signal,
     }).finally(() => clearTimeout(to));
     if (!resp.ok) { _coolUntil = Date.now() + COOL_MS; return null; }
