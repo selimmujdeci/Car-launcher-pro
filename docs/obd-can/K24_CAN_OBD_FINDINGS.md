@@ -116,3 +116,30 @@ CarOS için kritik alanlar:
 - `tools/can-re/CanAllInOne.apk` — çekilen OEM CAN uygulaması
 - `tools/can-re/classes*.dex`, `classes_l.txt` (plain listing), `classes_d.txt` (disasm), `manifest.txt`
 - Lisans notu: bu dosyalar OEM'e ait; **APK'ya gömülmez**, yalnızca arayüz reimplementasyonu için referans.
+
+## 6. Megane 4 · Raise kutusu — ham çerçeve haritası (2026-10-02, saha + NWD dexdump)
+
+**SDK'nın dağıttığı:** geri çağrı 1 (CanData ham tip 1 klima · 3 kapılar · 6 direksiyon açısı), 2 (CarInfo:
+yalnız devir, dış sıcaklık metni "19℃", gürültülü hız #15; soğutma sahte 0.0), 5 (klima). Lastik, yol
+bilgisayarı ve merkezi ayarlar SDK'dan **üçüncü taraflara dağıtılmıyor**.
+
+**Ham çerçeve kaynağı:** NWD servisi `Settings.System canapp_debug=1` iken "CAN" etiketine
+`distribution--1------2E…` satırı yazar. Uygulama `READ_LOGS` ile okur (manifestte; adb ile verilir:
+`pm grant com.cockpitos.pro android.permission.READ_LOGS`). Biçim `2E <tip> <uzunluk> <veri…> <sağlama>`,
+sağlama = ~(tip + uzunluk + veri) & 0xFF.
+
+| Tip | Anlam | Çözüm (veri baytları) | Saha kanıtı |
+|---|---|---|---|
+| 0x61 | Lastik | [0] durum (anlamı belgelenmedi) · [1..4] ön sol/ön sağ/arka sol/arka sağ; 0/FF = ölçüm yok, aksi ham × 0,03 bar | `024F4FFF3F` = 2,4 / 2,4 / – / 1,9 (NWD ekranı) |
+| 0x81 | Yol bilgisayarı | [0–1]/10 ort. tüketim (FFFF yok) · [2–3]/10 ort. hız · (([6]&1)<<16 \| [4–5])/10 toplam km | `003D01B13E2000FF` = 6,1 / 43,3 / 1590,4 |
+| 0x71 | Merkezi 1 | [7] bit5 ambiyans · bit4 ön · bit3 arka · bit0-2 renk; [8] parlaklık (gözlenen 50) | `8124270001014B793201` |
+| 0x72 | Merkezi 2 (no, değer) | 0x90 masaj · 0x91 mod · 0x92 şiddet · 0x93 hız · 0x94 yolcu masajı | `9000 9102 9204 9305` |
+
+**Yazma:** `2E 83 02 <no> <değer>` (NWD transaction 5, sağlamayı servis ekler) — uygulamada yalnız
+beyaz liste: masaj 0x90/0x94 (0–1) · 0x91 mod (0–2) · 0x92 şiddet (0–4) · 0x93 hız (0–10); ambiyans 0x15/0x16/0x17
+(0–1) · 0x18 renk (0–7) · 0x19 parlaklık (0–100). Durum isteği: `2E 90 02 <tip> 00`.
+Lastik sıfırlama, kilitler, sürüş destek ayarları ve klima yazımı **bilinçli olarak yok**.
+
+**Adlar (NWD APK kaynakları, sahada tek tek doğrulanmadı):** ambiyans rengi 0 beyaz · 1 kırmızı · 2 mavi ·
+3 turuncu · 4 mor · 5 gri · 6 yeşil · 7 camgöbeği (NWD Türkçesi 7'ye de "mavi" der); masaj modu 0 dinlendirici ·
+1 bel · 2 tonik; şiddet NWD ekranında 1–5 (ham 0–4).
