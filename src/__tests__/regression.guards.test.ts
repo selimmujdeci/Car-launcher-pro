@@ -988,6 +988,62 @@ describe('Head unit yatay rotasyon kilidi (native sistem rotasyon)', () => {
 });
 
 /* ───────────────────────────────────────────────────────────────
+   8b. EKRAN YÖNÜ OTOMATİK — araç ekranı belirler, kullanıcıya seçenek YOK
+   Regresyon (saha 2026-10-01): fiziksel DİKEY panel (768×1024, Tesla tipi)
+   "Telefonu Yatay Tutun" perdesinde kilitleniyordu. Ürün kararı (2026-10-02):
+   yön OTOMATİK — manifest `unspecified`, arayüz dikey/yatay ne gelirse ona
+   uyar; perde kaldırıldı. K24'ün "fiziksel yatay, dikey raporlayan" paneli
+   8. maddedeki native rotasyon kilidiyle ayrıca çözülür (korunur).
+   ─────────────────────────────────────────────────────────────── */
+describe('Ekran yönü otomatik — araç ekranı belirler', () => {
+  it('YAPISAL: manifest yönü zorlamaz (unspecified)', () => {
+    const src = read('android/app/src/main/AndroidManifest.xml');
+    expect(src).toMatch(/android:screenOrientation="unspecified"/);
+    expect(src).not.toMatch(/sensorLandscape/);
+  });
+
+  it('YAPISAL: tam ekran navigasyon çıkışı cihazın KENDİ yönüne döner (yataya zorlanmaz)', () => {
+    const src = read('android/app/src/main/java/com/cockpitos/pro/CarLauncherPlugin.java');
+    expect(src).toMatch(/: android\.content\.pm\.ActivityInfo\.SCREEN_ORIENTATION_UNSPECIFIED;/);
+    expect(src).not.toMatch(/SCREEN_ORIENTATION_SENSOR_LANDSCAPE/);
+  });
+
+  it('YAPISAL: "Telefonu Yatay Tutun" perdesi ve yön ayarı YOK', () => {
+    expect(read('src/App.tsx')).not.toMatch(/Telefonu Yatay Tutun/);
+    expect(read('src/store/useStore.ts')).not.toMatch(/screenOrientation/);
+  });
+});
+
+/* ───────────────────────────────────────────────────────────────
+   8c. DİKEY PANEL — ana ekran temaları kart KAYBETMEZ
+   Regresyon (2026-10-02, 768×1024 / 600×960 / 720×1280 render denetimi):
+   Glass Pro/Sunlight dikeyde rayları üst üste diziyordu; otomatik yükseklikli
+   rayda `flexBasis: 0` kartlar (gösterge/müzik/araç) SIFIRA çöküyordu. Tesla'da
+   dikey dal yoktu (müzik başlığı tek harf). Horizon'da genel dikey CSS ızgarayı
+   tek sütuna indirip `1fr` hız satırını çökertiyordu. Çözüm: dikeyde harita
+   üstte tam genişlik (order:-1), iki ray altta yan yana (yarım genişlik).
+   ─────────────────────────────────────────────────────────────── */
+describe('Dikey panel — ana ekran temaları harita üstte, raylar yan yana', () => {
+  it.each([
+    ['src/components/themes/ProLayout.tsx'],
+    ['src/components/themes/TeslaLayout.tsx'],
+    ['src/components/themes/HorizonLayout.tsx'],
+  ])('YAPISAL: %s dikey dala sahip (harita order:-1, raylar yarım genişlik)', (file) => {
+    const src = read(file);
+    expect(src).toMatch(/const isPortrait = screen\.height > screen\.width/);
+    expect(src).toMatch(/order: -1/);
+    expect(src).toMatch(/width: 'calc\(50% - 6px\)'/);
+  });
+
+  it('YAPISAL: Horizon harita yuvası pusuladan ÖLÇÜLÜR (varsayım formülü dikeyde delik açıyordu)', () => {
+    const src = read('src/components/themes/HorizonLayout.tsx');
+    expect(src).toMatch(/data-hz-compass/);
+    expect(src).toMatch(/const notchMask = useCompassNotchMask\(mapBoxRef\)/);
+    expect(src).not.toMatch(/calc\(50vw - 27px - /);
+  });
+});
+
+/* ───────────────────────────────────────────────────────────────
    Donanım geri tuşu köprüsü — event adı/hedefi EŞLEŞMELİ
    Regresyon: MainActivity.onBackPressed → triggerWindowJSEvent(
    "carlauncherBackButton") window'da yolluyordu; MainLayout ise
@@ -3720,9 +3776,13 @@ describe('AR kamerası kullanıcı isteyince açılır', () => {
     expect(visionOverlaySrc).toContain("setUserVisionPreference('hybrid')");
   });
 
-  it('🔒 AR ÇİZİMİ hâlâ güvene bağlı (kamera ≠ çizim doğruluğu)', () => {
-    // Kamera açılması, güvenilmez şerit/rota çiziminin gösterilmesi demek DEĞİLDİR.
-    expect(visionOverlaySrc).toContain('opacity: canvasOpacity');
+  it('🔒 AR ÇİZİMİ hâlâ kanıta bağlı (kamera ≠ çizim doğruluğu)', () => {
+    // Kamera açılması, güvenilmez rota çiziminin gösterilmesi demek DEĞİLDİR.
+    // 2026-10-01: kanıt artık ŞERİT güveni değil KONUMSAL kanıttır (doğruluk ·
+    // tazelik · rota sapması · yön · kamera pozu) — rota GPS ile yerleşir ve
+    // şeritsiz mahalle sokağında da doğrudur; şerit güveni oraya hiç ulaşmıyordu.
+    expect(visionOverlaySrc).toContain('const ev = routeEvidence({');
+    expect(visionOverlaySrc).toContain("if (pose && path && ev.level !== 'NONE')");
     expect(visionOverlaySrc).toContain('opacity: isHybrid ? 1 : 0');
   });
 });

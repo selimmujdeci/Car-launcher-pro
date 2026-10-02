@@ -111,7 +111,7 @@ import { MapSearchBar } from './MapSearchBar';
 const VisionOverlay = lazy(() =>
   import('./VisionOverlay').then((m) => ({ default: m.VisionOverlay })),
 );
-import { useNavMode, setUserVisionPreference } from '../../platform/modeController';
+import { useNavMode, useUserVisionPref, setUserVisionPreference, useVisionIntentLifecycle } from '../../platform/modeController';
 import { useRadarMapLayer } from '../../hooks/useRadarMapLayer';
 import { useOBDState } from '../../platform/obdService';
 import { useDisplaySpeed } from '../../hooks/useDisplaySpeed';
@@ -224,12 +224,15 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
   const drivingMode = useDrivingMode();
   const navMode = useNavMode();
   const arState = useVisionStore((s) => s.state);
-  const [cameraOn, setCameraOn] = useState(false);
+  /* AR niyetinin TEK sahibi modeController'daki kullanıcı tercihi. Eskiden
+     harita kamera düğmesi yerel `cameraOn` tutuyordu, AR düğmesi tercihi
+     yazıyordu → iki düğme birbirinden habersizdi (biri "açık" derken öteki
+     "kapalı"). Artık ikisi de aynı tercihi okur/yazar. */
+  const cameraOn = useUserVisionPref() === 'hybrid';
   const handleCameraToggle = () => {
-    const next = !cameraOn;
-    setCameraOn(next);
-    setUserVisionPreference(next ? 'hybrid' : 'standard');
+    setUserVisionPreference(cameraOn ? 'standard' : 'hybrid');
   };
+  useVisionIntentLifecycle(isNavigating);
 
   // Harita paleti gün/gece — UI'ın geri kalanıyla (light-ui / minimap) AYNI sinyali kullanır:
   // settings.dayNightMode (saat 07–19 gündüz). autoBrightness.phase güneş-saati hesabı konum
@@ -267,9 +270,9 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
   const mapStyleReadyRef = useRef(false);
 
   /* ── EKRAN YÖNÜ — YALNIZ TAM EKRAN NAVİGASYON (MOTION_CAMERA_P0) ──────────
-   * Ana CAROS arayüzü YATAY kalır (manifest `sensorLandscape`). Bu görünüm
-   * açıkken kilit dört yöne gevşetilir, kapanınca GERİ ALINIR. Ref-count'ludur:
-   * çift mount'ta kilit erken geri alınmaz. Oturum/rota/ses/ETA etkilenmez —
+   * Ana arayüzün yönü OTOMATİKTİR (araç ekranı belirler). Bu görünüm açıkken
+   * yön sensörle dört yöne serbesttir, kapanınca cihazın KENDİ yönüne dönülür.
+   * Ref-count'ludur: çift mount'ta erken geri alınmaz. Oturum/rota/ses/ETA etkilenmez —
    * hepsi görünümden bağımsız runtime'lardadır. */
   useEffect(() => acquireFullNavigationOrientation(), []);
 
@@ -2131,9 +2134,10 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
           isNavigating={cameraOn || (isNavigating && !isPreview)}
           currentLat={location?.latitude ?? null}
           currentLon={location?.longitude ?? null}
-          headingDeg={heading ?? 0}
+          headingDeg={heading}
+          speedMps={location?.speed ?? null}
+          accuracyM={location && Number.isFinite(location.accuracy) ? location.accuracy : null}
           routeGeometry={route.geometry}
-          currentStepIndex={route.currentStepIndex}
         />
       </Suspense>
 

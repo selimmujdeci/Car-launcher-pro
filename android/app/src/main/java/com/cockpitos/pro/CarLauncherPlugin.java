@@ -275,12 +275,6 @@ public class CarLauncherPlugin extends Plugin {
         getContext().registerReceiver(btStateReceiver, btFilter);
         try { phoneInternet = new com.cockpitos.pro.phonelink.PhoneBtInternet(getContext()); } catch (Exception ignored) {}
 
-        // USB video (UVC) kamera tak/çıkar → JS kamera listesini tazeler (ADAS/AR yol kamerası).
-        try {
-            usbVideoReceiver = com.cockpitos.pro.camera.CameraDiagnostics.registerUsbVideoWatcher(
-                getContext(), event -> notifyListeners("usbCameraChanged", event));
-        } catch (Exception ignored) { usbVideoReceiver = null; }
-
         // TextToSpeech motoru başlat
         ttsEngine = new android.speech.tts.TextToSpeech(getContext(), status -> {
             if (status == android.speech.tts.TextToSpeech.SUCCESS) {
@@ -561,33 +555,24 @@ public class CarLauncherPlugin extends Plugin {
     }
 
     /**
-     * Ekran yönü kilidini çalışma zamanında değiştirir.
+     * Tam ekran navigasyonun yön kapısı. Ekran yönü OTOMATİKTİR (manifest
+     * `unspecified`): araç ekranı/firmware dikey ya da yatay ne veriyorsa o.
      *
-     * NEDEN GEREKLİ: manifest `android:screenOrientation="sensorLandscape"` ile
-     * TÜM uygulamayı yataya kilitler — araç ekranları yataydır ve ana CAROS
-     * arayüzü öyle KALMALIDIR. Ama tam ekran navigasyonun dikey çalışabilmesi
-     * istendi (telefonda kullanım). Manifesti gevşetmek ana arayüzü de dikeye
-     * açardı; bu yüzden kilit YALNIZ tam ekran navigasyon süresince ve YALNIZ
-     * bu çağrıyla gevşetilir, çıkışta geri alınır.
-     *
-     * mode: "sensor" → dört yön serbest (LANDSCAPE/REVERSE + PORTRAIT/REVERSE)
-     *       "landscape" (veya bilinmeyen) → sensorLandscape (varsayılan)
+     * mode: "sensor" → dört yön sensörle serbest (tam ekran navigasyon)
+     *       diğer   → cihazın KENDİ yönü (unspecified)
      */
     @PluginMethod
     public void setNavigationOrientation(PluginCall call) {
-        final String mode = call.getString("mode", "landscape");
+        final String mode = call.getString("mode", "device");
         final android.app.Activity act = getActivity();
         if (act == null) { call.reject("no_activity"); return; }
+        final int target = "sensor".equals(mode)
+            ? android.content.pm.ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
+            : android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED;
         new Handler(Looper.getMainLooper()).post(() -> {
             try {
-                if ("sensor".equals(mode)) {
-                    act.setRequestedOrientation(
-                        android.content.pm.ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR);
-                } else {
-                    act.setRequestedOrientation(
-                        android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
-                }
-            } catch (Exception ignored) { /* fail-soft: yön kilidi navigasyonu bozmaz */ }
+                act.setRequestedOrientation(target);
+            } catch (Exception ignored) { /* fail-soft: yön çağrısı navigasyonu bozmaz */ }
         });
         JSObject ret = new JSObject();
         ret.put("mode", mode);
@@ -2478,7 +2463,19 @@ public class CarLauncherPlugin extends Plugin {
             ret.put("state", "NO_PERMISSION"); call.resolve(ret); return;
         }
         try {
-            if (!adapter.isEnabled()) { ret.put("state", "OFF"); call.resolve(ret); return; }
+            if (!adapter.isEnabled()) {
+                ret.put("state", "OFF");
+                /* Sistem ayarı "açık" ama Android yığını kapalı → radyo büyük olasılıkla
+                   üreticinin kendi Bluetooth modülünde (ör. K24/NWD gocsdk). Ekran o zaman
+                   "Bluetooth'u açın" DEMEZ — açılacak bir şey yoktur. Okunamazsa alan YOK. */
+                try {
+                    int on = android.provider.Settings.Global.getInt(getContext().getContentResolver(),
+                        android.provider.Settings.Global.BLUETOOTH_ON, -1);
+                    if (on >= 0) ret.put("systemSettingOn", on == 1 || on == 2);
+                } catch (RuntimeException ignored) { /* ayar okunamadı — iddia yok */ }
+                call.resolve(ret);
+                return;
+            }
             JSArray phones = new JSArray();
             Set<BluetoothDevice> bonded = adapter.getBondedDevices();
             if (bonded != null) {
@@ -5590,18 +5587,73 @@ public class CarLauncherPlugin extends Plugin {
         call.resolve(r);
     }
 
-    // ── Yol kamerası tanısı (ADAS / AR) ───────────────────────────────────────
+    // ── Sürüş Asistanı: kamera donanım tanısı (SALT OKUMA) ─────────────────────
+    // USB veri yolundaki görüntü sınıfı (UVC = class 14) cihazları, Camera2'nin
+    // sunduğu kameraları (LENS_FACING_EXTERNAL = USB/harici) ve sistemin harici
+    // kamera özelliğini döner. İzin İSTEMEZ, kamera AÇMAZ; her adım fail-soft.
+    // Amaç dürüst tanı: "USB kamera takılı ama bu cihaz onu kamera olarak sunmuyor".
 
-    private BroadcastReceiver usbVideoReceiver = null;
-
-    /** Salt-okur kamera/USB tanısı — kamerayı AÇMAZ, izin İSTEMEZ. */
     @PluginMethod
-    public void getCameraDiagnostics(PluginCall call) {
+    public void listCameraHardware(PluginCall call) {
+        JSObject ret = new JSObject();
+
+        JSArray usb = new JSArray();
         try {
-            call.resolve(com.cockpitos.pro.camera.CameraDiagnostics.collect(getContext()));
+            android.hardware.usb.UsbManager um =
+                (android.hardware.usb.UsbManager) getContext().getSystemService(Context.USB_SERVICE);
+            if (um != null) {
+                for (android.hardware.usb.UsbDevice d : um.getDeviceList().values()) {
+                    boolean video = d.getDeviceClass() == 14;
+                    for (int i = 0; !video && i < d.getInterfaceCount(); i++) {
+                        if (d.getInterface(i).getInterfaceClass() == 14) video = true;
+                    }
+                    if (!video) continue;
+                    JSObject o = new JSObject();
+                    o.put("vendorId", d.getVendorId());
+                    o.put("productId", d.getProductId());
+                    String name = null;
+                    String maker = null;
+                    try { name = d.getProductName(); } catch (Exception ignored) { }
+                    try { maker = d.getManufacturerName(); } catch (Exception ignored) { }
+                    o.put("name", name == null ? "" : name);
+                    o.put("manufacturer", maker == null ? "" : maker);
+                    usb.put(o);
+                }
+            }
         } catch (Exception e) {
-            call.reject("CAMERA_DIAG_FAILED", e.getMessage());
+            android.util.Log.w("CarLauncherPlugin", "listCameraHardware: usb", e);
         }
+        ret.put("usbVideo", usb);
+
+        JSArray cams = new JSArray();
+        try {
+            CameraManager mgr = (CameraManager) getContext().getSystemService(Context.CAMERA_SERVICE);
+            if (mgr != null) {
+                for (String id : mgr.getCameraIdList()) {
+                    Integer lf = mgr.getCameraCharacteristics(id).get(CameraCharacteristics.LENS_FACING);
+                    String facing = "unknown";
+                    if (lf != null) {
+                        if (lf == CameraCharacteristics.LENS_FACING_FRONT) facing = "front";
+                        else if (lf == CameraCharacteristics.LENS_FACING_BACK) facing = "back";
+                        else if (lf == CameraCharacteristics.LENS_FACING_EXTERNAL) facing = "external";
+                    }
+                    JSObject c = new JSObject();
+                    c.put("id", id);
+                    c.put("facing", facing);
+                    cams.put(c);
+                }
+            }
+        } catch (Exception e) {
+            android.util.Log.w("CarLauncherPlugin", "listCameraHardware: camera2", e);
+        }
+        ret.put("camera2", cams);
+
+        boolean external = false;
+        try {
+            external = getContext().getPackageManager().hasSystemFeature("android.hardware.camera.external");
+        } catch (Exception ignored) { }
+        ret.put("externalCameraSupported", external);
+        call.resolve(ret);
     }
 
     // ── Camera2 ───────────────────────────────────────────────────────────────
@@ -8696,8 +8748,6 @@ public class CarLauncherPlugin extends Plugin {
             try { getContext().unregisterReceiver(btStateReceiver); } catch (Exception ignored) {}
             btStateReceiver = null;
         }
-        com.cockpitos.pro.camera.CameraDiagnostics.unregister(getContext(), usbVideoReceiver);
-        usbVideoReceiver = null;
         if (ttsEngine != null) { ttsEngine.stop(); ttsEngine.shutdown(); ttsEngine = null; }
         ttsReady = false;
         settleAllTtsCalls();

@@ -500,6 +500,7 @@ export function slaClassOfRoute(route: string | null | undefined): MaviSlaClass 
     || route === 'sensor_local_bypass'
     || route === 'saved_location_local_bypass'
     || route === 'music_intent_local_bypass'
+    || route === 'eco_score_local_bypass'
     || route === 'offline_chat'
   ) return 'LOCAL';
   return 'CLOUD';

@@ -1,98 +1,111 @@
 /**
- * adasGeometry.ts — Tek kameralı (monoküler) düz-yol geometrisi. SAF.
+ * adasGeometry.ts — ADAS geometri ve filtre yardımcıları (SAF).
  *
- * İğne-deliği kamera + düz yol varsayımı:
- *   Yoldaki bir noktanın görüntü satırı ufka ne kadar yakınsa o kadar uzaktır.
- *     Z = f · h / (y − y_h)                     (f piksel, h kamera yüksekliği m)
- *   Normalize koordinatlarda (u,v ∈ 0..1, f_n = f / genişlik, aspect = G/Y):
- *     Z = f_n · aspect · h / (v − v_h)
- *     X = (u − u_f) · Z / f_n                    (yanal, + sağ; u_f = ileri yön sütunu)
- *     W = (u1 − u0) · Z / f_n                    (genişlik)
+ * I/O · timer · `Date.now` · global durum YOK. Koordinatlar normalize
+ * (bkz. `adasTypes` KOORDİNAT SÖZLEŞMESİ).
  *
- * ÖNEMLİ ÖZELLİK: satırdaki beklenen nesne genişliği ODAKTAN BAĞIMSIZDIR:
- *     w_px = W_m · (y − y_h) / h
- * Worker bu sayede görüş açısı bilinmeden ego-şerit koridorunu çizebilir.
- *
- * Tüm fonksiyonlar saf; geçersiz geometri → null (sahte 0 ÜRETİLMEZ).
+ * ── PINHOLE MODEL ────────────────────────────────────────────────────────────
+ * Normalize odak uzaklığı `fN = 0.5 / tan(HFOV/2)` (görüntü GENİŞLİĞİ birimi).
+ * Düz yol varsayımıyla bir noktanın mesafesi:
+ *     Z = fN · aspect · H_kamera / (y − y_ufuk)
+ * `aspect` = genişlik/yükseklik; y farkı yükseklik biriminde olduğu için
+ * genişlik birimine çevirir.
  */
+import type { NormLine, NormPoint } from './adasTypes';
 
-import type { AdasCalibration } from './adasTypes';
+/** Referans satır — şerit ölçümleri kaputun hemen önünde, burada yapılır. */
+export const LANE_REF_Y = 0.9;
 
-/** Mesafe tavanı (m) — ufka çok yakın satırlar sayısal olarak anlamsızdır. */
-export const ADAS_MAX_RANGE_M = 150;
-/** v − v_h bu değerin altındaysa satır "ufukta" sayılır (mesafe tanımsız). */
-const MIN_ROW_BELOW_HORIZON = 0.004;
-
-export interface AdasCameraModel {
-  /** Genişliğe göre normalize odak uzaklığı. */
-  fN: number;
-  /** Kare en-boy oranı (genişlik / yükseklik). */
-  aspect: number;
-  horizonV: number;
-  forwardU: number;
-  hoodV: number;
-  cameraHeightM: number;
-  lateralOffsetM: number;
-  bumperOffsetM: number;
+/** Normalize odak uzaklığı (genişlik birimi). */
+export function focalNormFromHfov(hfovDeg: number): number {
+  const h = Math.min(170, Math.max(20, hfovDeg));
+  return 0.5 / Math.tan((h * Math.PI) / 360);
 }
 
-/** Yatay görüş açısından normalize odak uzaklığı: f_n = 0.5 / tan(hfov/2). */
-export function focalFromHfov(hfovDeg: number): number {
-  const half = (hfovDeg * Math.PI) / 360;
-  return 0.5 / Math.tan(half);
+/** Doğrunun `y` satırındaki x'i (doğrusal uzatma). Yatay doğru → null. */
+export function lineXAtY(l: NormLine, y: number): number | null {
+  const dy = l.y2 - l.y1;
+  if (Math.abs(dy) < 1e-6) return null;
+  return l.x1 + ((y - l.y1) / dy) * (l.x2 - l.x1);
 }
 
-export function buildCameraModel(cal: AdasCalibration, aspect: number): AdasCameraModel {
-  return {
-    fN: focalFromHfov(cal.hfovDeg),
-    aspect: aspect > 0 && Number.isFinite(aspect) ? aspect : 16 / 9,
-    horizonV: cal.horizonV,
-    forwardU: cal.forwardU,
-    hoodV: cal.hoodV,
-    cameraHeightM: cal.cameraHeightM,
-    lateralOffsetM: cal.lateralOffsetM,
-    bumperOffsetM: cal.bumperOffsetM,
-  };
-}
-
-/** Yol üzerindeki satırın kameradan boylamsal mesafesi (m). Ufuk/üstü → null. */
-export function groundDistanceFromRow(v: number, cam: AdasCameraModel): number | null {
-  const dv = v - cam.horizonV;
-  if (!Number.isFinite(dv) || dv < MIN_ROW_BELOW_HORIZON) return null;
-  const z = (cam.fN * cam.aspect * cam.cameraHeightM) / dv;
-  if (!Number.isFinite(z) || z <= 0 || z > ADAS_MAX_RANGE_M) return null;
-  return z;
-}
-
-/** Mesafe Z'deki yol noktasının görüntü satırı (v). */
-export function rowForDistance(zM: number, cam: AdasCameraModel): number | null {
-  if (!Number.isFinite(zM) || zM <= 0) return null;
-  return cam.horizonV + (cam.fN * cam.aspect * cam.cameraHeightM) / zM;
-}
-
-/** u sütunundaki noktanın Z mesafesinde araç orta çizgisine göre yanal konumu (m). */
-export function lateralFromColumn(u: number, zM: number, cam: AdasCameraModel): number {
-  return ((u - cam.forwardU) * zM) / cam.fN + cam.lateralOffsetM;
-}
-
-/** Z mesafesindeki nesnenin gerçek genişliği (m). */
-export function widthMetersAt(uWidth: number, zM: number, cam: AdasCameraModel): number {
-  return (uWidth * zM) / cam.fN;
-}
-
-/** Bilinen gerçek genişlikten mesafe (m) — gece/far çifti gibi satırın güvenilmediği durumlar. */
-export function distanceFromWidth(uWidth: number, realWidthM: number, cam: AdasCameraModel): number | null {
-  if (!(uWidth > 0)) return null;
-  const z = (cam.fN * realWidthM) / uWidth;
-  return Number.isFinite(z) && z > 0 && z <= ADAS_MAX_RANGE_M ? z : null;
+/** İki şerit çizgisinin kesişimi (kaybolma noktası). Paralel → null. */
+export function intersect(a: NormLine, b: NormLine): NormPoint | null {
+  const d = (a.x1 - a.x2) * (b.y1 - b.y2) - (a.y1 - a.y2) * (b.x1 - b.x2);
+  if (Math.abs(d) < 1e-9) return null;
+  const t = ((a.x1 - b.x1) * (b.y1 - b.y2) - (a.y1 - b.y1) * (b.x1 - b.x2)) / d;
+  return { x: a.x1 + t * (a.x2 - a.x1), y: a.y1 + t * (a.y2 - a.y1) };
 }
 
 /**
- * v satırında, yola temas eden W_m genişliğindeki bir nesnenin normalize genişliği.
- * Odaktan bağımsız: w_px = W · (y − y_h) / h → u = W · (v − v_h) · (1/aspect) / h.
+ * Düz-yol mesafesi (m). Nokta ufkun üstünde/çok yakınında ise ölçülemez → null.
+ * `minDy` altındaki farklar yüzlerce metreye patlar; ölçüm sayılmaz.
  */
-export function expectedWidthAtRow(v: number, realWidthM: number, horizonV: number, cameraHeightM: number, aspect: number): number {
-  const dv = v - horizonV;
-  if (dv <= 0) return 0;
-  return (realWidthM * dv) / (cameraHeightM * aspect);
+export function groundDistanceM(
+  y: number, horizonY: number, fN: number, aspect: number, cameraHeightM: number, minDy = 0.004,
+): number | null {
+  const dy = y - horizonY;
+  if (!(dy > minDy) || !(cameraHeightM > 0) || !(fN > 0) || !(aspect > 0)) return null;
+  return (fN * aspect * cameraHeightM) / dy;
+}
+
+/** Bilinen gerçek genişlikten mesafe (m) — çapraz doğrulama için. */
+export function widthDistanceM(widthN: number, fN: number, realWidthM: number): number | null {
+  if (!(widthN > 0) || !(fN > 0)) return null;
+  return (fN * realWidthM) / widthN;
+}
+
+/** Kutu kesişim/birleşim oranı. */
+export function iou(
+  a: { x: number; y: number; w: number; h: number },
+  b: { x: number; y: number; w: number; h: number },
+): number {
+  const x1 = Math.max(a.x, b.x), y1 = Math.max(a.y, b.y);
+  const x2 = Math.min(a.x + a.w, b.x + b.w), y2 = Math.min(a.y + a.h, b.y + b.h);
+  const inter = Math.max(0, x2 - x1) * Math.max(0, y2 - y1);
+  const uni = a.w * a.h + b.w * b.h - inter;
+  return uni > 0 ? inter / uni : 0;
+}
+
+/* ── α-β filtre (konum + hız) ──────────────────────────────────────────────── */
+
+/**
+ * Sabit kazançlı α-β izleyici: gürültülü ölçümden hem değeri hem türevini
+ * (hız) tahmin eder. Kalman'ın kararlı-durum çözümüdür; ölçüm aralığı
+ * değişken olabilir (dt her adımda verilir). Durum DEĞİŞMEZ — her adım yeni
+ * nesne döner (saf).
+ */
+export interface AlphaBetaState {
+  readonly x: number;
+  readonly v: number;
+  readonly tMs: number;
+  readonly n: number;
+}
+
+export function alphaBetaStart(x: number, tMs: number): AlphaBetaState {
+  return { x, v: 0, tMs, n: 1 };
+}
+
+export function alphaBetaStep(
+  s: AlphaBetaState, z: number, tMs: number, alpha: number, beta: number,
+): AlphaBetaState {
+  const dt = (tMs - s.tMs) / 1000;
+  if (!(dt > 0)) return s;
+  const xp = s.x + s.v * dt;
+  const r = z - xp;
+  return { x: xp + alpha * r, v: s.v + (beta / dt) * r, tMs, n: s.n + 1 };
+}
+
+/** Dizinin ortancası (kopya üstünde). Boş → NaN. */
+export function median(xs: readonly number[]): number {
+  if (xs.length === 0) return Number.NaN;
+  const s = [...xs].sort((a, b) => a - b);
+  const m = s.length >> 1;
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}
+
+/** Ortanca mutlak sapma — dağılımın sağlam ölçüsü. */
+export function mad(xs: readonly number[]): number {
+  const m = median(xs);
+  return median(xs.map((x) => Math.abs(x - m)));
 }

@@ -1152,6 +1152,12 @@ export interface CarLauncherPlugin {
    * Okunamayan bölgede `tempC` alanı HİÇ GELMEZ — sahte sıcaklık üretilmez.
    */
   readThermal(): Promise<NativeThermalResult>;
+  /**
+   * Sürüş Asistanı kamera tanısı (SALT OKUMA): USB veri yolundaki görüntü
+   * sınıfı (UVC, class 14) cihazlar + Android'in sunduğu Camera2 kameraları +
+   * cihazın harici kamera özelliği. İzin istemez, kamera AÇMAZ.
+   */
+  listCameraHardware(): Promise<NativeCameraHardware>;
   launchApp(options: LaunchAppOptions): Promise<void>;
   getApps(): Promise<GetAppsResult>;
   getDeviceStatus(): Promise<NativeDeviceStatus>;
@@ -1717,14 +1723,6 @@ export interface CarLauncherPlugin {
   addListener(event: 'videoError',     handler: (data: { error: string }) => void): Promise<PluginListenerHandle>;
   addListener(event: 'videoClosed',    handler: (data: Record<string, never>) => void): Promise<PluginListenerHandle>;
 
-  /**
-   * Yol kamerası tanısı (ADAS/AR) — SALT OKUR: kamerayı açmaz, izin istemez.
-   * Camera2 kimlikleri ile USB video (UVC) cihazları yan yana döner; UVC takılı
-   * ama Camera2'de HARİCİ kamera yoksa cihaz yazılımı harici kamerayı desteklemiyordur.
-   */
-  getCameraDiagnostics?(): Promise<NativeCameraDiagnostics>;
-  addListener(event: 'usbCameraChanged', handler: (data: NativeUsbVideoDevice & { attached: boolean }) => void): Promise<PluginListenerHandle>;
-
   // Camera2 API — geri görüş kamerası (CAMERA permission required)
   openCamera(options: { facing: 'back' | 'front' }): Promise<{ cameraId: string }>;
   closeCamera(): Promise<void>;
@@ -2085,6 +2083,8 @@ export interface CarLauncherPlugin {
   getBluetoothPhones?(): Promise<{
     state: 'NO_ADAPTER' | 'NO_PERMISSION' | 'OFF' | 'ON';
     phones?: Array<{ name: string; connected?: boolean }>;
+    /** Yalnız OFF'ta: sistem Bluetooth ayarı açık mı (açıksa radyo üreticinin modülünde). */
+    systemSettingOn?: boolean;
   }>;
   /** Telefonun interneti Bluetooth (PAN) ile — `state` ölçülür; UNSUPPORTED = ünite izin vermiyor. */
   getPhoneInternet?(): Promise<{ enabled: boolean; state: PhoneInternetState }>;
@@ -2433,28 +2433,6 @@ export interface CanIdConfig {
   body:     number;  // Gövde bayrak (varsayılan: 0x3D0)
 }
 
-/** USB veri yolundaki video sınıfı (UVC, 0x0E) cihaz. Seri numarası OKUNMAZ. */
-export interface NativeUsbVideoDevice {
-  vendorId: number;
-  productId: number;
-  name: string;
-  manufacturer: string;
-  hasPermission: boolean;
-}
-
-export interface NativeCameraDiagnostics {
-  featureCameraAny: boolean;
-  featureExternalCamera: boolean;
-  featureUsbHost: boolean;
-  sdkInt: number;
-  cameras: Array<{
-    id: string;
-    facing: 'back' | 'front' | 'external' | 'unknown';
-    hardwareLevel: 'legacy' | 'limited' | 'full' | 'level3' | 'external' | 'unknown';
-  }>;
-  usbVideoDevices: NativeUsbVideoDevice[];
-}
-
 /** CAN sniffer'dan gelen ham frame — teşhis/yapılandırma için */
 export interface CanRawFrame {
   id:   number;  // integer CAN ID
@@ -2463,6 +2441,28 @@ export interface CanRawFrame {
 }
 
 // Plugin is resolved by Capacitor on native; undefined on web (bridge handles fallback)
+/** USB veri yolunda bulunan görüntü sınıfı (UVC) cihaz. */
+export interface NativeUsbVideoDevice {
+  vendorId: number;
+  productId: number;
+  /** Ürün adı; okunamazsa boş. */
+  name: string;
+  manufacturer: string;
+}
+
+/** Android Camera2'nin sunduğu kamera. `external` = USB/harici (UVC HAL). */
+export interface NativeCamera2Info {
+  id: string;
+  facing: 'front' | 'back' | 'external' | 'unknown';
+}
+
+export interface NativeCameraHardware {
+  usbVideo: NativeUsbVideoDevice[];
+  camera2: NativeCamera2Info[];
+  /** `android.hardware.camera.external` — sistem USB kamerayı sunabiliyor mu. */
+  externalCameraSupported: boolean;
+}
+
 export const CarLauncher = registerPlugin<CarLauncherPlugin>('CarLauncher');
 
 /* ══════════════════════════════════════════════════════════════════

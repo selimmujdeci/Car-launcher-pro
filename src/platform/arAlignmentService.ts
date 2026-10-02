@@ -47,6 +47,9 @@ export interface ARAlignment {
   routeBearingDeg:   number | null;
   /** True when at least one motion/orientation sensor is providing data */
   sensorActive:      boolean;
+  /** True yalnız gerçek bir yerçekimi örneği işlendiyse — aksi hâlde
+   *  `pitchDeg` ÖLÇÜM değil varsayılandır (ivmeölçersiz ana üniteler). */
+  poseMeasured:      boolean;
 }
 
 /* Non-standard DOM extensions */
@@ -84,6 +87,7 @@ let _sensorActive      = false;
 let _orientationActive = false;  // true once we get a reliable absolute orientation event
 let _gyroLastMs        = 0;
 let _initialized       = false;
+let _poseMeasured      = false;
 
 // Orientation Sensor Gate release fonksiyonları (ham window aboneliği yerine).
 let _absRelease:    (() => void) | null = null;
@@ -230,6 +234,7 @@ function _onMotion(e: Event): void {
       // Slow EMA — suppress engine vibration / road bumps
       _pitchDeg = _pitchDeg * (1 - POSE_EMA) + pitchRaw * POSE_EMA;
       _rollDeg  = _rollDeg  * (1 - POSE_EMA) + rollRaw  * POSE_EMA;
+      _poseMeasured = true;
     }
   }
 }
@@ -244,6 +249,7 @@ const _useARStore = create<ARAlignment>(() => ({
   rollDeg:          0,
   routeBearingDeg:  null,
   sensorActive:     false,
+  poseMeasured:     false,
 }));
 
 /**
@@ -259,6 +265,7 @@ function _syncStore(): void {
     rollDeg:          _rollDeg,
     routeBearingDeg:  _routeBearingDeg,
     sensorActive:     _sensorActive,
+    poseMeasured:     _poseMeasured,
   });
 }
 
@@ -303,10 +310,11 @@ export function stopARAlignment(): void {
   _orientationActive = false;
   _gyroLastMs        = 0;
   _initialized       = false;
+  _poseMeasured      = false;
 
   _useARStore.setState({
     fusedHeadingDeg: 0, pitchDeg: 15, rollDeg: 0,
-    routeBearingDeg: null, sensorActive: false,
+    routeBearingDeg: null, sensorActive: false, poseMeasured: false,
   });
 }
 
@@ -359,6 +367,7 @@ export function getARAlignment(): ARAlignment {
     rollDeg:          _rollDeg,
     routeBearingDeg:  _routeBearingDeg,
     sensorActive:     _sensorActive,
+    poseMeasured:     _poseMeasured,
   };
 }
 

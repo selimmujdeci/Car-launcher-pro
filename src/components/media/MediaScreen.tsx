@@ -208,7 +208,9 @@ function AlbumArt({ size, src, motionEnabled = true }: {
       }} />
       {!src && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none"
-          style={{ color: 'rgba(255,255,255,0.55)' }}>
+          /* Kapak yok: nota ikonu tema mürekkebiyle — sabit beyaz açık temada
+             beyaz kapak zemininde kayboluyordu (kontrast denetimi 1.0). */
+          style={{ color: 'var(--oem-ink-3)' }}>
           <Music style={{ width: size * 0.32, height: size * 0.32, strokeWidth: 1.2 }} />
         </div>
       )}

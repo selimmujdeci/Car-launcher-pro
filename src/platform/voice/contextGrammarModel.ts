@@ -128,6 +128,8 @@ export const VEHICLE_TYPES: readonly CommandType[] = Object.freeze([
      tanımayı açar; `vehicle_clear_dtc` gibi yıkıcı niyetin onay/yetki kapısı
      M4'tedir ve bu dosya ona DOKUNMAZ. */
   'vehicle_status', 'vehicle_maintenance', 'vehicle_health_check', 'vehicle_clear_dtc',
+  /* Eko puanı sorusu — salt okuma bilgi sorgusu (eylem yok). */
+  'trip_eco_score',
 ]);
 
 /**

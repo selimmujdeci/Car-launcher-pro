@@ -9,7 +9,12 @@ import {
 import { useOBDState } from '../../platform/obdService';
 
 const CARD = { background: 'var(--oem-surface-2)', border: '1px solid var(--oem-line)', borderRadius: 24, padding: 20 };
-const DARK_BG = 'rgba(10,14,26,0.95)';
+/* Panel zemini tema token'ından gelir: sabit koyu zemin açık temada (light-ui)
+   açık kartların arasında koyu şerit bırakıyordu. Yazılar da --oem-ink* —
+   koyu tema için sabitlenmiş beyaz/pastel yazılar açık kartta okunmuyordu
+   (kontrast denetimi 2026-09-30: 1.0–1.1). Renkli düğme ÜSTÜNDEKİ beyaz ve
+   bilinçli koyu mola uyarısı (BreakAlertOverlay) değişmedi. */
+const PANEL_BG = 'var(--oem-bg)';
 
 /* ── Nefes Egzersizi ─── */
 type BreathPhase = 'inhale' | 'hold' | 'exhale' | 'idle';
@@ -60,7 +65,7 @@ const BreathingExercise = memo(function BreathingExercise() {
     <div style={{ ...CARD, border: '1px solid rgba(52,211,153,0.20)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
         <div style={{ width: 4, height: 16, borderRadius: 4, background: '#34d399' }} />
-        <span style={{ color: '#d1fae5', fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.2em' }}>Nefes Egzersizi</span>
+        <span style={{ color: 'var(--oem-ink)', fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.2em' }}>Nefes Egzersizi</span>
         {rounds > 0 && <span style={{ background: 'rgba(52,211,153,0.15)', color: '#34d399', fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 9 }}>{rounds} Tur</span>}
       </div>
 
@@ -74,8 +79,8 @@ const BreathingExercise = memo(function BreathingExercise() {
           transform: phase === 'inhale' ? 'scale(1.15)' : phase === 'exhale' ? 'scale(0.85)' : 'scale(1)',
         }}>
           <div style={{ textAlign: 'center' }}>
-            <div style={{ color: '#fff', fontSize: 36, fontWeight: 900, lineHeight: 1 }}>{count || '0'}</div>
-            <div style={{ color: cfg.color, fontSize: 12, fontWeight: 800, textTransform: 'uppercase' }}>{cfg.label}</div>
+            <div style={{ color: 'var(--oem-ink)', fontSize: 36, fontWeight: 900, lineHeight: 1 }}>{count || '0'}</div>
+            <div style={{ color: phase === 'idle' ? 'var(--oem-ink-3)' : cfg.color, fontSize: 12, fontWeight: 800, textTransform: 'uppercase' }}>{cfg.label}</div>
           </div>
         </div>
 
@@ -102,7 +107,7 @@ const EntApps = memo(function EntApps() {
     <div style={{ ...CARD, border: '1px solid rgba(168,85,247,0.20)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
         <div style={{ width: 4, height: 16, borderRadius: 4, background: '#a78bfa' }} />
-        <span style={{ color: '#ede9fe', fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.2em' }}>Eğlence</span>
+        <span style={{ color: 'var(--oem-ink)', fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.2em' }}>Eğlence</span>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12 }}>
         {entApps.map(({ id }) => {
@@ -115,7 +120,7 @@ const EntApps = memo(function EntApps() {
               style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, padding: '18px 8px', borderRadius: 16, background: 'var(--oem-surface-2)', border: '1px solid var(--oem-line)', cursor: 'pointer' }}
             >
               <span style={{ fontSize: 28 }}>{app.icon}</span>
-              <span style={{ color: '#e2e8f0', fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{app.name}</span>
+              <span style={{ color: 'var(--oem-ink-2)', fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{app.name}</span>
             </button>
           );
         })}
@@ -138,7 +143,7 @@ const BreakReminderManager = memo(function BreakReminderManager() {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <div style={{ width: 4, height: 16, borderRadius: 4, background: '#fbbf24' }} />
-          <span style={{ color: '#fef3c7', fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.2em' }}>Mola Hatırlatıcı</span>
+          <span style={{ color: 'var(--oem-ink)', fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.2em' }}>Mola Hatırlatıcı</span>
         </div>
         <button onClick={handleToggle} style={{ width: 52, height: 28, borderRadius: 14, background: br.enabled ? '#f59e0b' : 'var(--oem-surface-2)', border: 'none', cursor: 'pointer', padding: 3, transition: 'background 0.2s', display: 'flex', alignItems: 'center' }}>
           <span style={{ width: 22, height: 22, borderRadius: '50%', background: '#fff', display: 'block', transform: br.enabled ? 'translateX(24px)' : 'translateX(0)', transition: 'transform 0.2s' }} />
@@ -147,7 +152,7 @@ const BreakReminderManager = memo(function BreakReminderManager() {
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
         {intervals.map(min => (
-          <button key={min} onClick={() => setBreakInterval(min)} style={{ flex: 1, height: 40, borderRadius: 12, background: br.intervalMin === min ? '#f59e0b' : 'var(--oem-surface-2)', color: br.intervalMin === min ? '#fff' : '#94a3b8', border: `1px solid ${br.intervalMin === min ? 'transparent' : 'rgba(255,255,255,0.10)'}`, fontSize: 10, fontWeight: 800, textTransform: 'uppercase', cursor: 'pointer' }}>
+          <button key={min} onClick={() => setBreakInterval(min)} style={{ flex: 1, height: 40, borderRadius: 12, background: br.intervalMin === min ? '#f59e0b' : 'var(--oem-surface-2)', color: br.intervalMin === min ? '#fff' : 'var(--oem-ink-3)', border: `1px solid ${br.intervalMin === min ? 'transparent' : 'var(--oem-line)'}`, fontSize: 10, fontWeight: 800, textTransform: 'uppercase', cursor: 'pointer' }}>
             {min < 60 ? `${min}D` : `${min / 60}S`}
           </button>
         ))}
@@ -156,19 +161,19 @@ const BreakReminderManager = memo(function BreakReminderManager() {
       {br.enabled && br.drivingStartedAt !== null && (
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-            <span style={{ color: '#94a3b8', fontSize: 11, fontWeight: 700, textTransform: 'uppercase' }}>Sürüş Süresi</span>
-            <span style={{ color: pct > 80 ? '#fbbf24' : '#e2e8f0', fontSize: 11, fontWeight: 800 }}>{elapsedMin} / {br.intervalMin} DK</span>
+            <span style={{ color: 'var(--oem-ink-3)', fontSize: 11, fontWeight: 700, textTransform: 'uppercase' }}>Sürüş Süresi</span>
+            <span style={{ color: pct > 80 ? '#fbbf24' : 'var(--oem-ink-2)', fontSize: 11, fontWeight: 800 }}>{elapsedMin} / {br.intervalMin} DK</span>
           </div>
           <div style={{ height: 10, background: 'var(--oem-surface-2)', borderRadius: 5, overflow: 'hidden' }}>
             <div style={{ height: '100%', width: `${pct}%`, background: pct > 90 ? '#ef4444' : pct > 70 ? '#f59e0b' : '#10b981', borderRadius: 5, transition: 'width 0.5s' }} />
           </div>
-          <div style={{ color: '#64748b', fontSize: 10, fontWeight: 600, marginTop: 8 }}>
+          <div style={{ color: 'var(--oem-ink-3)', fontSize: 10, fontWeight: 600, marginTop: 8 }}>
             {remainMin > 0 ? `${remainMin} dakika sonra mola` : 'Mola zamanı!'}
           </div>
         </div>
       )}
       {br.enabled && br.drivingStartedAt === null && (
-        <div style={{ color: '#64748b', fontSize: 11, fontWeight: 600, textAlign: 'center', padding: '8px 0' }}>Araç hareket etmeyi bekliyor…</div>
+        <div style={{ color: 'var(--oem-ink-3)', fontSize: 11, fontWeight: 600, textAlign: 'center', padding: '8px 0' }}>Araç hareket etmeyi bekliyor…</div>
       )}
     </div>
   );
@@ -214,15 +219,15 @@ export const EntertainmentPortal = memo(function EntertainmentPortal() {
 
   return (
     <div data-theme-surface="entertainment" data-editable="entertainment.screen" data-editable-type="panel"
-      style={{ height: '100%', display: 'flex', flexDirection: 'column', background: DARK_BG, overflow: 'hidden' }}>
+      style={{ height: '100%', display: 'flex', flexDirection: 'column', background: PANEL_BG, overflow: 'hidden' }}>
       {/* Başlık */}
       <div data-editable="entertainment.header" data-editable-type="header" style={{ flexShrink: 0, padding: '20px 24px', borderBottom: '1px solid var(--oem-line)', display: 'flex', alignItems: 'center', gap: 16, background: 'var(--oem-surface-2)' }}>
         <div style={{ width: 52, height: 52, borderRadius: 20, background: 'rgba(168,85,247,0.15)', border: '1px solid rgba(168,85,247,0.30)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <Tv size={26} color="#a78bfa" />
         </div>
         <div>
-          <div style={{ color: '#fff', fontWeight: 900, fontSize: 20, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Eğlence Portalı</div>
-          <div style={{ color: '#64748b', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.25em' }}>Park Modu & Sürüş Destek</div>
+          <div style={{ color: 'var(--oem-ink)', fontWeight: 900, fontSize: 20, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Eğlence Portalı</div>
+          <div style={{ color: 'var(--oem-ink-3)', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.25em' }}>Park Modu & Sürüş Destek</div>
         </div>
         {isParked && (
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(16,185,129,0.10)', border: '1px solid rgba(16,185,129,0.25)', borderRadius: 16, padding: '6px 16px' }}>

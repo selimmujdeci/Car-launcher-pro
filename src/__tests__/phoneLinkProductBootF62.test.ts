@@ -643,8 +643,8 @@ describe('F6.2 Performans ve guvenlik', () => {
 
   it('madde 21 — kanonik sunucu API-si YENIDEN YAZILMADI (ikinci transport yok)', () => {
     const src = phoneLinkCode('phoneLinkProductBoot.ts');
-    /* Kanonik cagri kullanilir. */
-    expect(src).toMatch(/startPhoneHubServer\(\)/);
+    /* Kanonik cagri kullanilir (hibrit: acilista izin diyalogu acmaz). */
+    expect(src).toMatch(/startPhoneHubServer\(\{ askPermission: false \}\)/);
     /* Yeni soket/transport/controller kurulmaz. */
     expect(src).not.toMatch(/ServerSocket|BluetoothServerSocket|createRfcomm|new LinkSession/);
   });

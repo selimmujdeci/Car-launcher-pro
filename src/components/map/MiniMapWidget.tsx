@@ -1350,7 +1350,7 @@ export const MiniMapWidget = memo(function MiniMapWidget({
                      gpsState.error?.includes('izni') ? 'Zayıf GPS' :
                      'GPS Aranıyor'}
                   </div>
-                  <div className="text-slate-500 text-[8px] font-semibold tracking-wider mt-0.5">
+                  <div className="text-[color:var(--oem-ink-3)] text-[8px] font-semibold tracking-wider mt-0.5">
                     {gpsState.error ?? 'Sinyal bekleniyor…'}
                   </div>
                 </div>

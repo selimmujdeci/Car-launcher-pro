@@ -7,20 +7,6 @@
  *   SAFE_MODE              → tespit tamamen durdurulur (0 CPU)
  *   POWER_SAVE / BASIC_JS  → her 12. frame'de bir (~5fps)
  *   BALANCED / PERFORMANCE → her 6. frame'de bir (~10fps)
- *
- * KAMERA KİRALAMA (lease) — AR ve ADAS AYNI yol kamerasını paylaşır:
- *   · `startVision(el, { owner })` sahibin kirasını ekler; akış yoksa açar.
- *   · `stopVision(owner)` yalnız O sahibin kirasını bırakır. Donanım ancak SON kira
- *     bırakılınca kapanır. Varsayılan sahip `'ar'` → mevcut çağrılar (VisionOverlay)
- *     birebir aynı davranır: AR görünmezken kirasını bırakır (bkz. realDriveFindings K).
- *   · ADAS görünür bir `<video>` sahibi değildir; işleme için motorun KENDİ gizli
- *     video öğesi kullanılır → AR ekranı kapalıyken de algılama sürer.
- *   · Kamera tercihi (`setVisionCameraPreference`) değişirse akış, kiralar korunarak
- *     yeniden açılır. Seçili kamera yoksa SESSİZCE başka kameraya DÜŞÜLMEZ: kalibrasyon
- *     kameraya özgüdür; yanlış kamerayla metrik uyarı üretmek yanlış alarmdır.
- *
- * EPOCH: her akış oturumu yeni epoch açar; kapanmış oturumun geç gelen worker sonucu
- * yok sayılır (CLAUDE.md §8).
  */
 
 import { logError }       from '../crashLogger';
@@ -39,39 +25,21 @@ import {
 import {
   initVisionSAB, clearVisionSAB, writeVisionSAB,
 } from '../vehicleDataLayer/sabChannel';
-import type { VehicleDetectorConfig } from '../adas/adasVehicleDetector';
 
 // ── Modül state ───────────────────────────────────────────────────────────────
 
 const STATE_SYNC_MS = 100;  // 10fps — React store yenileme hızı
 
-export type VisionLeaseOwner = 'ar' | 'adas';
-
-export interface StartVisionOptions {
-  /** Kirayı alan tüketici. Varsayılan `'ar'` (geriye uyum). */
-  owner?: VisionLeaseOwner;
-}
-
 let _stream:    MediaStream | null                                                  = null;
-/** AR'ın GÖRÜNÜR video öğesi (yalnız gösterim). */
-let _displayVideo: HTMLVideoElement | null                                          = null;
-/** Motorun gizli işleme öğesi — ADAS kirası varken vardır. */
-let _procVideo: HTMLVideoElement | null                                             = null;
+/* İşleme video'su — motorun KENDİ gizli öğesi. Eskiden AR'ın görünen video'su
+   hem gösterim hem işleme içindi; ADAS (arka planda, ekran yokken) aynı
+   kamerayı kullanacağı için işleme görünen öğeden AYRILDI. */
+let _videoEl:   HTMLVideoElement | null                                             = null;
 let _procCanvas: OffscreenCanvas | HTMLCanvasElement | null                        = null;
 let _procCtx:   OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D | null = null;
 let _rafId:     number | null = null;
 let _running    = false;
 let _tick       = 0;
-
-const _leases = new Set<VisionLeaseOwner>();
-let _openPromise: Promise<void> | null = null;
-let _openToken   = 0;
-let _epoch       = 0;
-let _preferredDeviceId: string | null = null;
-let _activeDeviceId:    string | null = null;
-let _activeLabel:       string | null = null;
-let _detectorCfg: VehicleDetectorConfig | null = null;
-let _inflightCaptureMono = 0;
 
 // ── VisionCompute Worker ──────────────────────────────────────────────────────
 // OffscreenCanvas.transferToImageBitmap() → postMessage([bitmap]) → worker hesaplar.
@@ -82,7 +50,6 @@ let _workerBusy   = false; // bir frame zaten işleniyorsa yeni frame atlanır
 let _vsabGen      = 0;     // Vision SAB generation sayacı
 
 function _createVisionWorker(): Worker | null {
-  const epoch = _epoch;
   try {
     // PR-RUNTIME-WORKER-1: worker DOSYASI prod'da IIFE (worker.format:'iife') ama `type`
     // constructor seçeneği Vite tarafından call-site'ta değişmez → sabit 'module' WebView<80'de
@@ -95,11 +62,9 @@ function _createVisionWorker(): Worker | null {
       : new Worker(new URL('./VisionCompute.worker.ts', import.meta.url), { type: 'classic', name: 'VisionCompute' });
     w.onmessage = (e: MessageEvent) => {
       _workerBusy = false;
-      // Kapanmış oturumun geç gelen sonucu yeni oturumu etkileyemez.
-      if (epoch !== _epoch || !_running) return;
       const msg = e.data as { type: string; frame?: VisionFrame; message?: string };
       if (msg.type === 'RESULT' && msg.frame) {
-        _lastFrame = { ...msg.frame, captureMonoMs: _inflightCaptureMono };
+        _lastFrame = msg.frame;
         _frameListeners.forEach(fn => fn(_lastFrame));
         _newFrameReady = true;
 
@@ -136,7 +101,6 @@ function _createVisionWorker(): Worker | null {
       logError('VisionCompute:messageerror', new Error('Deserialize failed'));
       _workerBusy = false;
     };
-    w.postMessage({ type: 'CONFIG', adas: _detectorCfg });
     return w;
   } catch (e) {
     logError('VisionCompute:create', e);
@@ -176,67 +140,14 @@ function _stopStateSync(): void {
   _pendingState  = null;
 }
 
-// ── Video öğeleri ─────────────────────────────────────────────────────────────
-
-/** İşleme kaynağı: gizli öğe varsa o (ADAS), yoksa AR'ın görünür öğesi. */
-function _sourceVideo(): HTMLVideoElement | null {
-  return _procVideo ?? _displayVideo;
-}
-
-function _bindVideo(el: HTMLVideoElement): void {
-  if (!_stream) return;
-  if (el.srcObject !== _stream) el.srcObject = _stream;
-  el.playsInline = true;
-  el.muted       = true;
-  // Eski WebView'larda (Chrome < 50) play() promise DÖNDÜRMEZ.
-  const r = el.play() as Promise<void> | undefined;
-  if (r && typeof r.catch === 'function') r.catch(() => { /* otomatik oynatma — bir sonraki karede tekrar */ });
-}
-
-/**
- * Gizli işleme öğesi. `display:none` DEĞİL: bazı WebView'lar görünmeyen öğenin
- * karelerini çözmez. 2×2 px, saydam, görünüm alanı içinde, etkileşimsiz.
- */
-function _ensureProcVideo(): void {
-  if (_procVideo || typeof document === 'undefined') return;
-  const v = document.createElement('video');
-  v.muted = true;
-  v.playsInline = true;
-  v.setAttribute('playsinline', '');
-  v.setAttribute('aria-hidden', 'true');
-  v.setAttribute('data-vision-proc', '');
-  v.style.cssText = 'position:fixed;left:0;top:0;width:2px;height:2px;opacity:0;pointer-events:none;z-index:-1;';
-  document.body.appendChild(v);
-  _procVideo = v;
-  _bindVideo(v);
-}
-
-function _removeProcVideo(): void {
-  if (!_procVideo) return;
-  _procVideo.srcObject = null;
-  _procVideo.remove();
-  _procVideo = null;
-}
-
-function _attachDisplay(el: HTMLVideoElement): void {
-  if (_displayVideo && _displayVideo !== el) _displayVideo.srcObject = null;
-  _displayVideo = el;
-  _bindVideo(el);
-}
-
-function _detachDisplay(): void {
-  if (_displayVideo) { _displayVideo.srcObject = null; _displayVideo = null; }
-}
-
 // ── RAF döngüsü ───────────────────────────────────────────────────────────────
 
 function _loop(): void {
   if (!_running) return;
 
   try {
-    const src = _sourceVideo();
-    if (src && _procCtx && src.readyState >= 2) {
-      _procCtx.drawImage(src, 0, 0, PROC_W, PROC_H);
+    if (_videoEl && _procCtx && _videoEl.readyState >= 2) {
+      _procCtx.drawImage(_videoEl, 0, 0, PROC_W, PROC_H);
       _tick++;
 
       // ── AdaptiveRuntime throttle ────────────────────────────────────────────
@@ -252,7 +163,6 @@ function _loop(): void {
           try {
             const bitmap = _procCanvas.transferToImageBitmap();
             _workerBusy = true;
-            _inflightCaptureMono = performance.now();
             _visionWorker.postMessage({ type: 'DETECT', bitmap }, [bitmap]);
           } catch (transferErr) {
             logError('VisionCore:transfer', transferErr);
@@ -270,60 +180,84 @@ function _loop(): void {
   _rafId = requestAnimationFrame(_loop);
 }
 
-// ── Akış aç / kapat ──────────────────────────────────────────────────────────
+// ── Public API ─────────────────────────────────────────────────────────────────
 
-/**
- * Yakalama profili — ISI BÜTÇESİ: işleme zaten 320×180'de yapılır. Yalnız ADAS
- * kiralamışken (sürüşte en sık durum) 720p@30 yakalamak boşa ISP/ısı demektir;
- * görünür AR varsa sürücü görüntüyü GÖRÜR → 720p@30.
- */
-function _captureProfile(): { width: { ideal: number }; height: { ideal: number }; frameRate: { ideal: number; max: number } } {
-  return _leases.has('ar')
-    ? { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30, max: 60 } }
-    : { width: { ideal: 640 }, height: { ideal: 360 }, frameRate: { ideal: 15, max: 30 } };
+export async function checkVisionCapabilities(): Promise<boolean> {
+  try {
+    _set({ state: 'checking' });
+    if (!navigator.mediaDevices?.enumerateDevices) { _set({ state: 'disabled', hasCamera: false }); return false; }
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const has = devices.some((d) => d.kind === 'videoinput');
+    _set({ hasCamera: has, state: has ? 'idle' : 'disabled' });
+    return has;
+  } catch {
+    _set({ state: 'disabled', hasCamera: false });
+    return false;
+  }
 }
 
-function _videoConstraints(): MediaTrackConstraints {
-  const base = _captureProfile();
-  return _preferredDeviceId
-    ? { ...base, deviceId: { exact: _preferredDeviceId } }
-    : { ...base, facingMode: 'environment' };
+/* ── Kamera kiralama (lease) ──────────────────────────────────────────────────
+ * Tek kamera akışı, birden çok tüketici: harita AR katmanı ('ar') ve Sürüş
+ * Asistanı ('adas'). Kamera ancak SON sahip bıraktığında kapanır — AR'ın
+ * kapanması ADAS'ın kamerasını, ADAS'ın kapanması AR'ınkini kesmez.
+ * Varsayılan sahip 'ar'dır: mevcut `startVision(video)` / `stopVision()`
+ * çağrıları birebir aynı davranır. */
+export type VisionOwner = 'ar' | 'adas';
+
+const _owners   = new Set<VisionOwner>();
+const _displays = new Map<VisionOwner, HTMLVideoElement>();
+let _startPromise: Promise<void> | null = null;
+/** Açık akışın istendiği kamera (`null` = otomatik/arka kamera). */
+let _openDeviceId: string | null = null;
+
+function _attachDisplay(owner: VisionOwner, el: HTMLVideoElement | null): void {
+  if (!el || !_stream) return;
+  _displays.set(owner, el);
+  if (el === _videoEl) return;
+  el.srcObject   = _stream;
+  el.playsInline = true;
+  el.muted       = true;
+  void el.play().catch(() => { /* gösterim opsiyonel — işleme etkilenmez */ });
 }
 
-/** Kira kümesi değişince profili akışı KAPATMADAN uygula (destek yoksa sessizce atla). */
-function _applyCaptureProfile(): void {
-  const track = _stream?.getVideoTracks()[0];
-  if (!track || typeof track.applyConstraints !== 'function') return;
-  const r = track.applyConstraints(_captureProfile()) as Promise<void> | undefined;
-  if (r && typeof r.catch === 'function') r.catch(() => { /* cihaz desteklemiyor — mevcut profil kalır */ });
+function _detachDisplay(owner: VisionOwner): void {
+  const el = _displays.get(owner);
+  if (el && el !== _videoEl) el.srcObject = null;
+  _displays.delete(owner);
 }
 
-async function _openStream(): Promise<void> {
-  const token = ++_openToken;
+function _createProcessingVideo(): HTMLVideoElement {
+  const v = document.createElement('video');
+  v.setAttribute('playsinline', '');
+  v.setAttribute('aria-hidden', 'true');
+  v.muted = true;
+  v.playsInline = true;
+  v.autoplay = true;
+  /* DOM'da ama görünmez: bazı WebView'lar DOM dışı video karesini güncellemez. */
+  Object.assign(v.style, {
+    position: 'fixed', left: '-4px', top: '-4px', width: '2px', height: '2px',
+    opacity: '0', pointerEvents: 'none', zIndex: '-1',
+  });
+  document.body.appendChild(v);
+  return v;
+}
+
+async function _openStream(deviceId: string | null): Promise<void> {
   _running = true;
-
   try {
     _set({ state: 'requesting' });
-    const stream = await navigator.mediaDevices.getUserMedia({ video: _videoConstraints(), audio: false });
-
-    // Beklerken tüm kiralar bırakıldıysa / yeni açılış başladıysa bu akış artık sahipsiz.
-    if (token !== _openToken || !_running || _leases.size === 0) {
-      stream.getTracks().forEach((t) => t.stop());
-      return;
-    }
-
-    _stream = stream;
-    _epoch += 1;
-    const track = stream.getVideoTracks()[0];
-    const settings = track && typeof track.getSettings === 'function' ? track.getSettings() : {};
-    _activeDeviceId = settings.deviceId ?? _preferredDeviceId;
-    _activeLabel    = track?.label || null;
+    _stream = await navigator.mediaDevices.getUserMedia({
+      video: deviceId
+        ? { deviceId: { exact: deviceId }, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30, max: 60 } }
+        : { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30, max: 60 } },
+      audio: false,
+    });
+    _openDeviceId = deviceId;
     _set({ state: 'initializing', permissionGranted: true });
 
-    /* Görünür öğenin oynatma hatası (AbortError vb.) PAYLAŞILAN akışı öldürmez:
-       ADAS aynı akışı kullanıyor olabilir. Döngü `readyState` bekler. */
-    if (_displayVideo) _bindVideo(_displayVideo);
-    if (_leases.has('adas')) _ensureProcVideo();
+    _videoEl = _createProcessingVideo();
+    _videoEl.srcObject = _stream;
+    await _videoEl.play();
 
     if (typeof OffscreenCanvas !== 'undefined') {
       _procCanvas = new OffscreenCanvas(PROC_W, PROC_H);
@@ -335,12 +269,11 @@ async function _openStream(): Promise<void> {
       _procCtx    = c.getContext('2d');
     }
 
-    track?.addEventListener('ended', () => {
-      if (_stream !== stream) return; // eski akışın gecikmeli olayı
+    /* USB kamera çekilirse ya da sistem akışı keserse: TÜM sahipler için dur,
+       hatayı dürüstçe bildir (ADAS "kamera bağlantısı kesildi" der). */
+    _stream.getVideoTracks()[0]?.addEventListener('ended', () => {
       logError('VisionCore:stream', new Error('Video track ended unexpectedly'));
-      // USB kamera çekildi / sistem kamerayı geri aldı → TÜM kiralar geçersiz.
-      _leases.clear();
-      _teardown();
+      _fullStop();
       _set({ state: 'error', error: 'Kamera akışı kesildi' });
     });
 
@@ -361,36 +294,70 @@ async function _openStream(): Promise<void> {
     _rafId = requestAnimationFrame(_loop);
 
   } catch (err) {
-    if (token !== _openToken) return; // yerini yeni bir açılış aldı
     _running = false;
-    _leases.clear();
-    _teardown();
-    const name   = err instanceof Error ? err.name : '';
+    if (_stream) { _stream.getTracks().forEach((t) => t.stop()); _stream = null; }
+    if (_videoEl) { _videoEl.srcObject = null; _videoEl.remove(); _videoEl = null; }
     const msg    = err instanceof Error ? err.message : String(err);
-    const denied = /NotAllowed|Permission/i.test(`${name} ${msg}`);
-    const missing = !denied && _preferredDeviceId !== null && /NotFound|Overconstrained/i.test(`${name} ${msg}`);
+    const denied = /NotAllowed|Permission/i.test(msg);
     logError('VisionCore:start', err);
-    _set({
-      state: denied ? 'disabled' : 'error',
-      error: denied ? 'Kamera izni verilmedi' : missing ? 'Seçili kamera bulunamadı' : msg,
-      permissionGranted: !denied,
-    });
+    _set({ state: denied ? 'disabled' : 'error', error: denied ? 'Kamera izni verilmedi' : msg, permissionGranted: !denied });
     throw err;
   }
 }
 
-/** Donanımı ve döngüyü kapatır; kiralara ve görünür öğe referansına DOKUNMAZ. */
-function _teardown(): void {
+/**
+ * Kamerayı `owner` adına kiralar. Akış zaten açıksa yalnız gösterim öğesi
+ * bağlanır; farklı bir kamera (`deviceId`) istenirse akış o kamerayla yeniden
+ * açılır (yol kamerası tektir — AR ve ADAS aynı yolu görür).
+ */
+export async function startVision(
+  videoEl: HTMLVideoElement | null,
+  owner: VisionOwner = 'ar',
+  opts?: { deviceId?: string | null },
+): Promise<void> {
+  /* 'disabled' (kamera yok / izin reddedildi) burada ERKEN DÖNÜŞ SEBEBİ DEĞİL.
+     Eskiden AR bu durumda sessizce vazgeçiyordu: bir kez reddedilen izin,
+     kullanıcı ayarlardan açsa bile uygulama yeniden başlayana dek AR'ı
+     kilitliyordu. Her iki sahip de (AR düğmesi, ADAS anahtarı) kullanıcının
+     AÇIK isteğiyle çağırır → izin her istekte YENİDEN denenir; sonuç
+     (red/yok) store'a dürüstçe yazılır. */
+  _owners.add(owner);
+  try {
+    if (_startPromise) await _startPromise.catch(() => { /* aşağıda yeniden denenir */ });
+    const wanted = opts?.deviceId !== undefined ? opts.deviceId : _openDeviceId;
+    if (_stream && wanted !== _openDeviceId) {
+      const displays = new Map(_displays);
+      const owners = new Set(_owners);
+      _fullStop();
+      owners.forEach((o) => _owners.add(o));
+      _startPromise = _openStream(wanted);
+      await _startPromise;
+      displays.forEach((el, o) => _attachDisplay(o, el));
+    } else if (!_stream) {
+      _startPromise = _openStream(wanted ?? null);
+      await _startPromise;
+    }
+    _attachDisplay(owner, videoEl);
+  } catch (err) {
+    _owners.delete(owner);
+    throw err;
+  } finally {
+    _startPromise = null;
+  }
+}
+
+/** Tüm sahipler için kamerayı kapatır (iç kullanım). */
+function _fullStop(): void {
   _running = false;
-  _openToken += 1; // bekleyen açılış varsa sahipsiz kalsın
   _stopStateSync();
   if (_rafId !== null) { cancelAnimationFrame(_rafId); _rafId = null; }
   if (_stream) { _stream.getTracks().forEach((t) => t.stop()); _stream = null; }
-  if (_displayVideo) _displayVideo.srcObject = null;
-  _removeProcVideo();
+  _displays.forEach((el) => { if (el !== _videoEl) el.srcObject = null; });
+  _displays.clear();
+  _owners.clear();
+  if (_videoEl) { _videoEl.srcObject = null; _videoEl.remove(); _videoEl = null; }
   _procCtx = null; _procCanvas = null; _tick = 0;
-  _activeDeviceId = null;
-  _activeLabel = null;
+  _openDeviceId = null;
 
   // Worker'ı durdur ve kaydını sil
   if (_visionWorker) {
@@ -402,108 +369,51 @@ function _teardown(): void {
   clearVisionSAB();
 
   resetConfidenceHistory();
-}
-
-// ── Public API ─────────────────────────────────────────────────────────────────
-
-export async function checkVisionCapabilities(): Promise<boolean> {
-  // Akış zaten açıksa (ör. ADAS kiralamış) kamera VARDIR; durumu 'idle'a çekme.
-  if (_running) return true;
-  try {
-    _set({ state: 'checking' });
-    if (!navigator.mediaDevices?.enumerateDevices) { _set({ state: 'disabled', hasCamera: false }); return false; }
-    const devices = await navigator.mediaDevices.enumerateDevices();
-    const has = devices.some((d) => d.kind === 'videoinput');
-    if (_running) return true; // numaralandırma sürerken başka sahip akışı açtı
-    _set({ hasCamera: has, state: has ? 'idle' : 'disabled' });
-    return has;
-  } catch {
-    if (_running) return true;
-    _set({ state: 'disabled', hasCamera: false });
-    return false;
-  }
-}
-
-/** Tek uçuşta açılış: aynı anda gelen sahipler AYNI promise'i bekler. */
-function _beginOpen(): Promise<void> {
-  if (_openPromise) return _openPromise;
-  const p = _openStream();
-  _openPromise = p;
-  const clear = (): void => { if (_openPromise === p) _openPromise = null; };
-  p.then(clear, clear);
-  return p;
-}
-
-export async function startVision(videoEl: HTMLVideoElement | null, opts: StartVisionOptions = {}): Promise<void> {
-  const owner: VisionLeaseOwner = opts.owner ?? 'ar';
-  if (useVisionStore.getState().state === 'disabled') return;
-
-  const joined = !_leases.has(owner);
-  _leases.add(owner);
-  if (owner === 'ar' && videoEl) _attachDisplay(videoEl);
-  if (owner === 'adas' && _stream) _ensureProcVideo();
-  if (joined && _stream) _applyCaptureProfile();
-
-  /* Beklenen açılış iptal edilmiş olabilir (önceki son sahip bıraktı → teardown).
-     Kira hâlâ bizdeyse ve akış yoksa yeniden açılır; sınırlı deneme. */
-  for (let attempt = 0; attempt < 3; attempt++) {
-    if (_stream) return;
-    await _beginOpen();
-    if (!_leases.has(owner)) return;
-  }
-}
-
-/**
- * Sahibin kirasını bırakır. Başka sahip hâlâ kullanıyorsa donanım AÇIK kalır;
- * son kira bırakılınca kamera, worker ve döngü tamamen kapanır.
- */
-export function stopVision(owner: VisionLeaseOwner = 'ar'): void {
-  const left = _leases.delete(owner);
-  if (owner === 'ar') _detachDisplay();
-  if (owner === 'adas' && _displayVideo) _removeProcVideo(); // AR işlemeye devam eder
-  if (_leases.size > 0) {
-    if (left && _stream) _applyCaptureProfile();
-    return;
-  }
-
-  _teardown();
-  _detachDisplay();
   _set({ state: 'idle', frame: null, error: null, confidence: 0, confidenceLevel: 'off' });
 }
 
-/** Tüm kiraları düşürür ve görüyü devre dışı bırakır (izin/donanım yok). */
-export function disableVision(): void {
-  _leases.clear();
-  _teardown();
-  _detachDisplay();
-  _set({ state: 'disabled', frame: null, confidence: 0, confidenceLevel: 'off' });
+/** `owner`'ın kirasını bırakır; kamera yalnız son sahip çıkınca kapanır. */
+export function stopVision(owner: VisionOwner = 'ar'): void {
+  _detachDisplay(owner);
+  _owners.delete(owner);
+  if (_owners.size > 0) return;
+  _fullStop();
 }
+
+export function disableVision(): void { _fullStop(); _set({ state: 'disabled' }); }
+
+/** Kamerayı şu an kiralayan sahipler (tanı / test). */
+export function getVisionOwners(): readonly VisionOwner[] { return [..._owners]; }
 
 /**
- * Yol kamerası tercihi (null = otomatik `environment`). Akış açıksa ve farklı bir
- * kameradaysa kiralar KORUNARAK yeniden açılır.
+ * Açık akışı SALT GÖSTERİM için bir video öğesine bağlar — kira ALMAZ, kamerayı
+ * açık tutmaz (ör. Sürüş Asistanı ayarlarındaki canlı önizleme). Akış yoksa
+ * no-op. Akış yeniden açılırsa (kamera değişimi) çağıran yeniden bağlamalıdır.
  */
-export async function setVisionCameraPreference(deviceId: string | null): Promise<void> {
-  if (_preferredDeviceId === deviceId) return;
-  _preferredDeviceId = deviceId;
-  if (!_running || _leases.size === 0) return;
-  if (deviceId !== null && deviceId === _activeDeviceId) return;
-  _teardown();
-  await _beginOpen();
+export function attachVisionPreview(el: HTMLVideoElement): () => void {
+  const s = _stream;
+  if (!s) return () => { /* bağlanacak akış yoktu */ };
+  el.srcObject = s;
+  el.muted = true;
+  el.playsInline = true;
+  void el.play().catch(() => { /* gösterim opsiyonel */ });
+  return () => { if (el.srcObject === s) el.srcObject = null; };
 }
 
-/** ADAS dedektör yapılandırması; null → worker ADAS algılaması yapmaz (AR-yalnız maliyet yok). */
-export function setVisionDetectorConfig(cfg: VehicleDetectorConfig | null): void {
-  _detectorCfg = cfg;
-  _visionWorker?.postMessage({ type: 'CONFIG', adas: cfg });
-}
+/** İşleme video öğesi — dedektör kare örneklemesi için (salt okuma). */
+export function getVisionVideoElement(): HTMLVideoElement | null { return _videoEl; }
 
-export function getVisionLeaseOwners(): VisionLeaseOwner[] {
-  return [..._leases];
-}
-
-export function getActiveVisionCamera(): { deviceId: string | null; label: string | null } {
-  return { deviceId: _activeDeviceId, label: _activeLabel };
+/** Açık kamera akışının kimliği ve etiketi; akış yoksa `null`. */
+export function getVisionTrackInfo(): { deviceId: string | null; label: string; width: number; height: number } | null {
+  const track = _stream?.getVideoTracks()[0];
+  if (!track) return null;
+  const st = typeof track.getSettings === 'function' ? track.getSettings() : {};
+  return {
+    deviceId: st.deviceId ?? _openDeviceId,
+    label: track.label ?? '',
+    width: typeof st.width === 'number' ? st.width : (_videoEl?.videoWidth ?? 0),
+    height: typeof st.height === 'number' ? st.height : (_videoEl?.videoHeight ?? 0),
+  };
 }
 
 export function onVisionFrame(fn: (f: VisionFrame) => void): () => void {
@@ -527,5 +437,5 @@ export function restartVisionWorker(): void {
 
 /* ── HMR cleanup ─────────────────────────────────────────────────────────────── */
 if (import.meta.hot) {
-  import.meta.hot.dispose(() => { _stopStateSync(); _leases.clear(); stopVision(); _frameListeners.clear(); });
+  import.meta.hot.dispose(() => { _stopStateSync(); _fullStop(); _frameListeners.clear(); });
 }

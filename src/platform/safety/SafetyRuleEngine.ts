@@ -1,5 +1,5 @@
 /**
- * SafetyRuleEngine — Saf kural motoru (FAZ 1: 10 araç kuralı + 4 ADAS kuralı)
+ * SafetyRuleEngine — Saf kural motoru (FAZ 1, 10 kural)
  *
  * SÖZLEŞME:
  *   - Saf fonksiyon: (state, now) → SafetyAlert[]
@@ -45,8 +45,8 @@ const SAFETY_CONFIG = {
   // Stale süreler (ms)
   STALE_GENERAL: 2000,      // genel sinyal stale süresi
   STALE_COOLANT: 10000,     // coolantTemp için uzatılmış stale süresi (SAFETY_STANDARD §1, #7)
-
-  // ADAS (kamera) — 10 fps akışta 600 ms ≈ 6 kare. Kamera donarsa uyarı hızla düşer.
+  /* ADAS sinyali kamera karesiyle tazelenir (≥ 5 Hz kalp atışı). 600 ms'den eski
+     sinyal donmuş kamera / durmuş runtime demektir → uyarı DÜŞER (fail-closed). */
   STALE_ADAS: 600,
 } as const;
 
@@ -66,21 +66,6 @@ function isStale(
   const ts = updatedAt[key];
   if (ts === undefined) return false;
   return now - ts > maxAgeMs;
-}
-
-/**
- * ADAS sinyali TAZE mi? `isStale`in tersine damga YOKSA taze SAYILMAZ (fail-closed):
- * kamera kaynaklı bir sinyal, ne zaman üretildiği bilinmeden asla uyarı üretemez.
- */
-function isAdasFresh(
-  key: keyof SafetyVehicleState,
-  updatedAt: SafetyUpdatedAt | undefined,
-  now: number,
-): boolean {
-  const ts = updatedAt?.[key];
-  if (ts === undefined || !Number.isFinite(ts)) return false;
-  const age = now - ts;
-  return age >= 0 && age <= SAFETY_CONFIG.STALE_ADAS;
 }
 
 /**
@@ -348,71 +333,28 @@ export function evaluateSafetyRules(
     ));
   }
 
-  // ── Kural 11–14: ADAS (kamera) ───────────────────────────────────────────
-  // Kaynak: adasStore → safetyStateMapper. Eşik/iz/histerezis kararları ADAS
-  // modellerindedir (adasCollisionModel / adasLaneModel); burada yalnız TAZELİK
-  // ve geri vites kapısı uygulanır. Geri viteste ileri yön uyarısı anlamsızdır.
-  const notReversing = state.reverse !== true;
+  // ── Kural 11–14: Sürüş Asistanı (ADAS) ───────────────────────────────────
+  // Karar `adasRuntime`ta (tek otorite; histerezis/onay/bekleme orada). Burada
+  // YALNIZ sunum önceliği verilir. Çarpışma en zamana-duyarlı uyarıdır: 100
+  // (eşitlikte ruleId sırasıyla motor ısısının ÖNÜNDE). ADAS yalnız UYARIR.
+  const adasFresh = (key: 'adasForward' | 'adasLane' | 'adasLeadDeparted'): boolean =>
+    !isStale(key, updatedAt, now, SAFETY_CONFIG.STALE_ADAS);
 
-  if (
-    state.adasForwardCollision === true && notReversing &&
-    isAdasFresh('adasForwardCollision', updatedAt, now)
-  ) {
+  if (state.adasForward === 'collision' && adasFresh('adasForward')) {
+    alerts.push(makeAlert('adas.fcw', 'critical', 'Öndeki araca dikkat!', 'collision', 'banner', 100, now));
+  }
+  if (state.adasForward === 'headway' && adasFresh('adasForward')) {
+    alerts.push(makeAlert('adas.headway', 'warning', 'Takip mesafesi çok kısa.', 'headway', 'banner', 66, now));
+  }
+  if ((state.adasLane === 'left' || state.adasLane === 'right') && adasFresh('adasLane')) {
     alerts.push(makeAlert(
-      'adas.forward_collision',
-      'critical',
-      'Fren! Öndeki araç çok yakın.',
-      'collision',
-      'banner',
-      110,
-      now,
+      'adas.ldw', 'warning',
+      state.adasLane === 'left' ? 'Soldaki şeride kayıyorsunuz.' : 'Sağdaki şeride kayıyorsunuz.',
+      state.adasLane === 'left' ? 'laneLeft' : 'laneRight', 'banner', 64, now,
     ));
   }
-
-  if (
-    (state.adasLaneDeparture === 'left' || state.adasLaneDeparture === 'right') && notReversing &&
-    isAdasFresh('adasLaneDeparture', updatedAt, now)
-  ) {
-    const left = state.adasLaneDeparture === 'left';
-    alerts.push(makeAlert(
-      left ? 'adas.lane_departure.left' : 'adas.lane_departure.right',
-      'warning',
-      left ? 'Sola kayıyorsunuz, şeridinizi koruyun.' : 'Sağa kayıyorsunuz, şeridinizi koruyun.',
-      left ? 'laneLeft' : 'laneRight',
-      'banner',
-      68,
-      now,
-    ));
-  }
-
-  if (
-    state.adasHeadway === true && notReversing &&
-    isAdasFresh('adasHeadway', updatedAt, now)
-  ) {
-    alerts.push(makeAlert(
-      'adas.headway',
-      'warning',
-      'Takip mesafesi kısa, mesafeyi açın.',
-      'headway',
-      'banner',
-      65,
-      now,
-    ));
-  }
-
-  if (
-    state.adasLeadDeparture === true && notReversing &&
-    isAdasFresh('adasLeadDeparture', updatedAt, now)
-  ) {
-    alerts.push(makeAlert(
-      'adas.lead_departure',
-      'warning',
-      'Öndeki araç hareket etti.',
-      'leadDeparture',
-      'banner',
-      40,
-      now,
-    ));
+  if (state.adasLeadDeparted === true && adasFresh('adasLeadDeparted')) {
+    alerts.push(makeAlert('adas.lead_departed', 'warning', 'Öndeki araç hareket etti.', 'leadDeparted', 'banner', 42, now));
   }
 
   // ── Çıktı sıralaması ─────────────────────────────────────────────────────

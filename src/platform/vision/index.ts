@@ -78,4 +78,9 @@ export {
   disableVision,
   onVisionFrame,
   getLastFrame,
+  getVisionOwners,
+  getVisionVideoElement,
+  getVisionTrackInfo,
+  attachVisionPreview,
 } from './visionCore';
+export type { VisionOwner } from './visionCore';

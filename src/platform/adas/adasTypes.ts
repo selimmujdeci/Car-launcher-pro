@@ -1,162 +1,171 @@
 /**
- * adasTypes.ts — ADAS (Sürüş Destek) sözleşme tipleri.
+ * adasTypes.ts — Sürüş Asistanı (ADAS) tip sözlüğü. Runtime değer üretmez.
  *
- * KOORDİNAT SÖZLEŞMESİ: tüm görüntü koordinatları NORMALİZEDİR (0..1).
- *   u = x / genişlik (0 sol, 1 sağ) · v = y / yükseklik (0 üst, 1 alt).
- *   Kare en-boy oranı (`aspect` = genişlikPx / yükseklikPx) ayrıca taşınır;
- *   odak uzaklığı GENİŞLİĞE göre normalize edilir (kare piksel varsayımı).
+ * ── KOORDİNAT SÖZLEŞMESİ ────────────────────────────────────────────────────
+ * ADAS katmanındaki TÜM görüntü koordinatları NORMALİZE'dir: x ∈ [0,1] (soldan
+ * sağa), y ∈ [0,1] (yukarıdan aşağı). Kaynak (şerit worker'ı 320×180, dedektör
+ * 480×270, USB kamera 1280×720…) ne olursa olsun karar mantığı aynı sayılarla
+ * çalışır. Piksel ↔ metre dönüşümü yalnız `adasGeometry`'de, en-boy oranı
+ * (`aspect` = genişlik/yükseklik) açıkça verilerek yapılır.
  *
- * SAAT SÖZLEŞMESİ: ADAS zaman damgaları `performance.now()` (monotonik) eksenindedir —
- * Safety kural motoru ve `_vehicleSpeedTs` ile AYNI eksen. `Date.now()` KULLANILMAZ.
- *
- * Bu modül yalnız tip içerir; çalışma zamanı bağımlılığı YOKTUR (worker da import eder).
+ * ── YETKİ SINIRI ────────────────────────────────────────────────────────────
+ * ADAS YALNIZ UYARIR. Direksiyon, fren, gaz veya herhangi bir araç aktüatörüne
+ * yol YOKTUR (Mavi spesifikasyonu K3 / madde 10). Bu tipler bir komut taşımaz.
  */
 
-// ── Kalibrasyon ──────────────────────────────────────────────────────────────
+/** Normalize nokta. */
+export interface NormPoint { readonly x: number; readonly y: number }
 
-export type AdasCalibrationSource = 'default' | 'auto' | 'manual';
-
-export interface AdasCalibration {
-  /** Şema sürümü — kalıcı veri göçü için. */
-  version: 1;
-  /** Kamera yatay görüş açısı (derece). */
-  hfovDeg: number;
-  /** Kamera merceğinin yol yüzeyinden yüksekliği (m). */
-  cameraHeightM: number;
-  /** Ufuk çizgisinin normalize dikey konumu (0 üst · 1 alt). */
-  horizonV: number;
-  /** Tam ileri yönün normalize sütunu (kamera sapma/yaw açısını taşır; ideal 0.5). */
-  forwardU: number;
-  /** Kaput çizgisi (v): bu satırın ALTI kendi aracımızdır, algılamaya girmez. */
-  hoodV: number;
-  /** Kameranın araç orta çizgisine göre yatay kayması (m, + sağ). */
-  lateralOffsetM: number;
-  /** Kamera ile ön tampon arası boylamsal mesafe (m). */
-  bumperOffsetM: number;
-  /** Kalibrasyonun kaynağı. `default` metrik mesafe için GÜVENİLMEZ sayılır. */
-  source: AdasCalibrationSource;
+/** Normalize doğru parçası (şerit çizgisi). */
+export interface NormLine {
+  readonly x1: number; readonly y1: number;
+  readonly x2: number; readonly y2: number;
+  /** 0–1, tespit güveni. */
+  readonly confidence: number;
 }
 
-// ── Algılama (worker çıktısı) ────────────────────────────────────────────────
-
-/** Ego şeritteki en yakın araç adayı (normalize bbox). */
-export interface AdasVehicleDetection {
-  /** Sol kenar (u). */
-  u0: number;
-  /** Sağ kenar (u). */
-  u1: number;
-  /** Aracın yola temas ettiği satır — gölge bandının alt kenarı (v). */
-  vBottom: number;
-  /** Tahmini üst kenar (v) — yalnız çizim içindir, mesafe hesabına girmez. */
-  vTop: number;
-  /** 0..1 algılama güveni. */
-  confidence: number;
+/** Bir karedeki şerit gözlemi (normalize). */
+export interface LaneObservation {
+  readonly left: NormLine | null;
+  readonly right: NormLine | null;
 }
 
-/** Worker'ın ADAS için ürettiği kare eki. */
-export interface AdasFrameDetections {
-  /** Ego şeritteki en yakın araç; yoksa null. */
-  lead: AdasVehicleDetection | null;
-  /** Yol yüzeyi aydınlığı düşük (gece/tünel) — gölge yöntemi güvenilmez. */
-  lowLight: boolean;
-  /** Yol yüzeyi medyan parlaklığı (0..255). Tanı için. */
-  roadLuma: number;
-  /** İşlenen karenin en-boy oranı (genişlik / yükseklik). */
-  aspect: number;
+/** Normalize kutu (sol-üst + boyut). */
+export interface NormBox { readonly x: number; readonly y: number; readonly w: number; readonly h: number }
+
+export type DetectionClass = 'car' | 'truck' | 'bus' | 'motorcycle';
+
+/** Dedektörün bulduğu nesne (normalize). */
+export interface VehicleDetection {
+  readonly box: NormBox;
+  readonly score: number;
+  readonly cls: DetectionClass;
 }
 
-/** Normalize şerit çizgisi (u, v uçları). `vTop < vBottom`. */
-export interface AdasLaneLine {
-  side: 'left' | 'right';
-  uTop: number;
-  vTop: number;
-  uBottom: number;
-  vBottom: number;
-  confidence: number;
-}
+/** Sinyal lambası durumu — `unknown`: araç bu sinyali vermiyor/profil çözmüyor. */
+export type TurnSignal = 'left' | 'right' | 'none' | 'unknown';
 
-// ── Model çıktıları ──────────────────────────────────────────────────────────
-
+/** Hassasiyet — uyarının ne kadar erken geleceği. */
 export type AdasSensitivity = 'early' | 'normal' | 'late';
 
-export type AdasTurnSignal = 'left' | 'right' | 'none' | 'unknown';
-
-export interface AdasLeadState {
-  /** Tampondan tampona tahmini mesafe (m). Kalibrasyon güvenilmezse null. */
-  distanceM: number | null;
-  /** Çarpışmaya kalan süre (s). Yaklaşma yoksa null. */
-  ttcS: number | null;
-  /** Yaklaşma hızı (m/s, + yaklaşıyor). Bilinmiyorsa null. */
-  closingMps: number | null;
-  /** Takip zaman aralığı (s) = mesafe / ego hız. Bilinmiyorsa null. */
-  timeGapS: number | null;
-  /** İz ≥ N ardışık karede teyit edildi mi. */
-  confirmed: boolean;
-  /** 0..1 izleme güveni. */
-  confidence: number;
+/**
+ * Kamera kalibrasyonu (normalize). `null` alanlar henüz ÖĞRENİLMEDİ demektir;
+ * ADAS öğrenilmemiş değeri varsayımla doldurmaz.
+ */
+export interface AdasCalibration {
+  /** Ufuk çizgisi (kaybolma noktası) y'si. */
+  readonly horizonY: number;
+  /** Kaybolma noktasının x'i — aracın merkez hattı ufukta buraya yakınsar. */
+  readonly vanishX: number;
+  /** Aracın merkez hattının referans satırdaki x'i (montaj kayması dahil). */
+  readonly centerX: number;
+  /** Referans satırda (y = LANE_REF_Y) tipik şerit genişliği (normalize). */
+  readonly laneWidthAtRef: number;
+  /** Öğrenmede kullanılan örnek sayısı. */
+  readonly samples: number;
+  /** Öğrenmenin tamamlandığı an (duvar saati, ms). */
+  readonly learnedAtMs: number;
+  /** Hangi kameraya ait (deviceId ya da 'auto'). Kamera değişirse geçersiz. */
+  readonly cameraKey: string;
+  /** auto: sürüşte şeritlerden öğrenildi · manual: kullanıcı park hâlinde hizaladı. */
+  readonly source: 'auto' | 'manual';
 }
-
-export interface AdasLaneState {
-  /** Şerit merkezine göre araç ofseti (m, + sağa kaymış). Bilinmiyorsa null. */
-  offsetM: number | null;
-  /** Şerit genişliği (m). İki çizgi yoksa null. */
-  laneWidthM: number | null;
-  /** Yanal hız (m/s, + sağa). Bilinmiyorsa null. */
-  lateralVelMps: number | null;
-  /** Sol/sağ çizgi izleniyor mu. */
-  leftTracked: boolean;
-  rightTracked: boolean;
-}
-
-// ── Kanonik ADAS sinyalleri (Safety köprüsünün okuduğu tek yüzey) ─────────────
 
 /**
- * Tek bir ADAS uyarı sinyali. `ts` son DEĞERLENDİRME anıdır (performance.now);
- * değer ancak `ts` tazeyse anlamlıdır — Safety köprüsü bayat sinyali yok sayar.
- * `epoch`, kamera oturumunu ayırır: eski oturumun sinyali yenisini etkileyemez.
+ * Bir kameranın yola göre yönü — YALNIZ hareket kanıtıyla belirlenir: sürüşte
+ * yol dokusu öne bakan kamerada aşağı, geri görüş kamerasında yukarı akar
+ * (bkz. cameraDirection). Kullanıcı beyanı kabul edilmez: yanlış "önü görüyor"
+ * beyanı geri görüş kamerasıyla sahte çarpışma uyarısı demektir.
  */
-export interface AdasSignal<T> {
-  value: T;
-  ts: number;
-  epoch: number;
+export interface CameraDirectionRecord {
+  readonly facing: 'forward' | 'backward';
+  readonly atMs: number;
 }
 
-export interface AdasSignals {
-  forwardCollision: AdasSignal<boolean>;
-  headway: AdasSignal<boolean>;
-  laneDeparture: AdasSignal<'left' | 'right' | null>;
-  leadDeparture: AdasSignal<boolean>;
+/** Kullanıcı ayarları (settings.adas). */
+export interface AdasSettings {
+  /** Ana anahtar — varsayılan KAPALI. */
+  readonly enabled: boolean;
+  /** Sınırlamalar metni kabul edildi mi (ilk açılışta). */
+  readonly consentAtMs: number | null;
+  readonly ldw: boolean;
+  readonly fcw: boolean;
+  readonly headway: boolean;
+  readonly leadDeparture: boolean;
+  readonly sensitivity: AdasSensitivity;
+  /** Yol kamerası; `null` = otomatik (USB kamera varsa o, yoksa arka kamera). */
+  readonly cameraDeviceId: string | null;
+  /** Kameranın yoldan yüksekliği (m) — mesafe tahmini için. */
+  readonly cameraHeightM: number;
+  /** Yatay görüş açısı (°). */
+  readonly hfovDeg: number;
+  /** Öğrenilmiş kalibrasyon; yoksa `null`. */
+  readonly calibration: AdasCalibration | null;
+  /** Kamera anahtarı → doğrulanmış yön. Kayıt yoksa kamera DOĞRULANMAMIŞTIR. */
+  readonly cameraDirections: Readonly<Record<string, CameraDirectionRecord>>;
 }
 
-// ── Çalışma durumu ───────────────────────────────────────────────────────────
+export const DEFAULT_ADAS_SETTINGS: AdasSettings = {
+  enabled: false,
+  consentAtMs: null,
+  ldw: true,
+  fcw: true,
+  headway: true,
+  leadDeparture: true,
+  sensitivity: 'normal',
+  cameraDeviceId: null,
+  cameraHeightM: 1.3,
+  hfovDeg: 70,
+  calibration: null,
+  cameraDirections: {},
+};
 
-export type AdasStatus =
-  | 'off'           // kullanıcı kapalı
-  | 'standby'       // açık ama koşul bekliyor (park, hız bilinmiyor, geri vites…)
-  | 'starting'      // kamera açılıyor
-  | 'calibrating'   // çalışıyor, ufuk kalibrasyonu henüz yakınsamadı
-  | 'active'        // tüm özellikler çalışıyor
-  | 'degraded'      // çalışıyor ama kısıtlı (düşük ışık, kare donması…)
-  | 'unavailable';  // kamera yok / izin yok / seçili kamera takılı değil
+/** Özellik başına durum. */
+export type AdasFeature = 'ldw' | 'fcw' | 'headway' | 'leadDeparture';
+
+/**
+ * READY       — şu an uyarı verebilir.
+ * STANDBY     — çalışıyor ama koşul yok (ör. hız eşiğin altında) — normal.
+ * CALIBRATING — kamera öğreniliyor; uyarı YOK.
+ * UNAVAILABLE — bir engel var (kamera yok, görüş düşük, işlemci yavaş…).
+ * OFF         — kullanıcı kapattı.
+ */
+export type AdasFeatureState = 'READY' | 'STANDBY' | 'CALIBRATING' | 'UNAVAILABLE' | 'OFF';
 
 export type AdasReason =
-  | 'parked'
-  | 'no_speed'
-  | 'reverse'
-  | 'safe_mode'
-  | 'no_camera'
-  | 'permission_denied'
-  | 'camera_missing'
-  | 'camera_lost'
-  | 'camera_error'
-  | 'frozen'
-  | 'low_light'
-  | 'calibration_pending';
+  | 'DISABLED'
+  | 'NO_CONSENT'
+  | 'NO_CAMERA'
+  | 'CAMERA_DENIED'
+  | 'CAMERA_ERROR'
+  | 'CAMERA_STALLED'
+  | 'CALIBRATING'
+  | 'VERIFYING_CAMERA'
+  | 'CAMERA_FACES_BACKWARD'
+  | 'LOW_VISIBILITY'
+  | 'SPEED_UNKNOWN'
+  | 'BELOW_SPEED'
+  | 'SYSTEM_PROTECTION'
+  | 'DETECTOR_LOADING'
+  | 'DETECTOR_UNAVAILABLE'
+  | 'DETECTOR_TOO_SLOW'
+  | 'REVERSE';
 
-export type AdasCameraKind = 'usb' | 'builtin_back' | 'builtin_front' | 'external' | 'unknown';
-
-export interface AdasCameraInfo {
-  deviceId: string;
-  label: string;
-  kind: AdasCameraKind;
+export interface AdasFeatureStatus {
+  readonly feature: AdasFeature;
+  readonly state: AdasFeatureState;
+  readonly reason: AdasReason | null;
 }
+
+/** Güvenlik asistanına giden uyarı sinyali (tek otorite: adasRuntime). */
+export interface AdasWarningSignal {
+  readonly lane: 'left' | 'right' | null;
+  readonly forward: 'collision' | 'headway' | null;
+  readonly leadDeparted: boolean;
+  /** Sinyalin üretildiği an (performance.now) — bayatlık kapısı için. */
+  readonly atPerfMs: number;
+}
+
+export const NO_ADAS_WARNING: AdasWarningSignal = {
+  lane: null, forward: null, leadDeparted: false, atPerfMs: 0,
+};

@@ -40,6 +40,7 @@ import { setMapCenter, setMapHeading } from '../../platform/mapService';
 import { type AppItem } from '../../data/apps';
 import type { SmartSnapshot } from '../../platform/smartEngine';
 import { MagicContextCard } from '../common/MagicContextCard';
+import { useLayout } from '../../context/LayoutContext';
 import { SUPPORTS_CSS_CLAMP, SUPPORTS_ASPECT_RATIO, cssClamp } from '../../utils/cssCompat';
 import { useLayoutIntent, useZoneWidths } from '../../store/useLayoutStore';
 import { solveLayout, normalizeIntent, HORIZON_MANIFEST, type Zone } from '../../platform/theme/layoutSolver';
@@ -314,7 +315,7 @@ const HzRangeCard = memo(function HzRangeCard() {
           Eskiden burada ham kümülatif odometre ("Kilometre") vardı; sıfırlanamadığı
           için pratikte hep 0 okunuyordu. */}
       <TripMeterRow
-        palette={{ ink: p.ink, ink2: p.ink3, ink3: p.ink3, accent: p.accent, tile: p.panelLo, edge: p.panelLo }}
+        palette={{ ink: p.ink, ink2: p.ink2, ink3: p.ink3, accent: p.accent, tile: p.panelLo, edge: p.panelLo }}
         valueSize={20} unitSize={12} labelSize={10} iconSize={16} gap={6}
         showTopBorder
         style={{ marginTop: 9 }}
@@ -359,6 +360,43 @@ function fmtEta(sec: number): string {
   return `${Math.floor(min / 60)}:${String(min % 60).padStart(2, '0')}`;
 }
 
+/**
+ * Dock pusulasının harita kartına göre konumundan içbükey yuva maskesi.
+ * Pusula haritayla kesişmiyorsa (ör. dikey yerleşim) `null` → maske yok.
+ * Yalnız boyut/yerleşim değişince ölçülür (kare başı iş yok).
+ */
+function useCompassNotchMask(mapRef: React.RefObject<HTMLDivElement | null>): string | null {
+  const [mask, setMask] = useState<string | null>(null);
+  useEffect(() => {
+    let raf = 0;
+    const measure = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        const map = mapRef.current?.getBoundingClientRect();
+        const c = document.querySelector('[data-hz-compass]')?.getBoundingClientRect();
+        if (!map || !c || map.width === 0 || c.width === 0) { setMask(null); return; }
+        const cx = c.left + c.width / 2 - map.left;
+        const cy = c.top + c.height / 2 - map.top;
+        const r = c.width / 2 + 7;
+        const touches = cy - r < map.height && cy + r > 0 && cx + r > 0 && cx - r < map.width;
+        setMask(touches
+          ? `radial-gradient(circle at ${cx.toFixed(1)}px ${cy.toFixed(1)}px, transparent 0 ${(r - 1).toFixed(1)}px, #000 ${r.toFixed(1)}px)`
+          : null);
+      });
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
+    if (ro && mapRef.current) ro.observe(mapRef.current);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener('resize', measure);
+      ro?.disconnect();
+    };
+  }, [mapRef]);
+  return mask;
+}
+
 const HzMap = memo(function HzMap({ onOpenMap, fullMapOpen }: { onOpenMap: () => void; fullMapOpen?: boolean }) {
   const p = usePalH();
   const gps = useGPSLocation();
@@ -371,20 +409,20 @@ const HzMap = memo(function HzMap({ onOpenMap, fullMapOpen }: { onOpenMap: () =>
   const nextStep = isNavigating ? (route.steps[route.currentStepIndex + 1] ?? null) : null;
   const turnDist = isNavigating ? fmtTurnDist(route.distanceToNextTurnMeters) : null;
   const chip: React.CSSProperties = { background: p.panel, border: `1px solid ${p.edge}`, boxShadow: p.elev };
+  const mapBoxRef = useRef<HTMLDivElement>(null);
   // sıcak arazi fallback zemini (MiniMapWidget yüklenene kadar / şeffaf bölgelerde)
   const terrain = 'radial-gradient(130% 100% at 62% 40%, #6b6a3e 0%, #4f5530 30%, #36492f 52%, #1f3a3e 72%, #16303c 100%)';
   // Pusula yuvası: harita kartının alt kenarına PUSULA İLE EŞMERKEZLİ içbükey kavis.
-  // Pusula EKRAN-merkezli (dock tam genişlik), harita ofsetli → x'i viewport-merkeze hizala.
-  // Pusula merkezi harita alt kenarının ~25px ALTINDA (root gap 12 + dock içi konum) →
-  // mask dairesini calc(100% + 25px)'e taşı ki kavis pusula yayıyla eşmerkezli otursun.
-  // Yarıçap = pusula yarıçapı (clamp(75,12vh,94)) + küçük boşluk.
-  const notchX = `calc(50vw - 27px - ${cssClamp('184px', '17.8vw', '300px', '228px')})`;
-  const notchR = `calc(${cssClamp('75px', '12vh', '94px', '84px')} + 7px)`;
-  const notchMask = `radial-gradient(circle at ${notchX} calc(100% + 25px), transparent 0 calc(${notchR} - 1px), #000 ${notchR})`;
+  // Konum ÖLÇÜLÜR (dock pusulası ↔ harita kutusu). Eskiden varsayımla hesaplanıyordu
+  // ("harita sol rayın hemen sağında ve dock'un hemen üstünde", sol ray = 17.8vw):
+  // dikey yerleşimde (harita üstte, raylar arada) ve sol ray formülden farklı
+  // olduğunda yuva haritanın ORTASINDA boş bir DELİK açıyordu (gece siyah daire).
+  // Pusula haritaya değmiyorsa maske HİÇ uygulanmaz.
+  const notchMask = useCompassNotchMask(mapBoxRef);
   // minHeight 200: grid çökse bile harita konteyneri asla 0px olamaz (Duster vakası)
   return (
-    <Panel editId="horizon.map" editType="map" style={{ padding: 0, flex: 1, minWidth: 0, minHeight: 200, maskImage: notchMask, WebkitMaskImage: notchMask }} onClick={onOpenMap}>
-      <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, borderRadius: 'var(--radius-card, 17px)', overflow: 'hidden', cursor: 'pointer', background: terrain }}>
+    <Panel editId="horizon.map" editType="map" style={{ padding: 0, flex: 1, minWidth: 0, minHeight: 200, ...(notchMask ? { maskImage: notchMask, WebkitMaskImage: notchMask } : null) }} onClick={onOpenMap}>
+      <div ref={mapBoxRef} style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, borderRadius: 'var(--radius-card, 17px)', overflow: 'hidden', cursor: 'pointer', background: terrain }}>
         {fullMapOpen
           ? <div className="w-full h-full flex items-center justify-center"><Navigation className="w-10 h-10" style={{ color: p.accent }} /></div>
           : <MiniMapWidget onFullScreenClick={onOpenMap} />}
@@ -694,7 +732,7 @@ const HorizonClock = memo(function HorizonClock({ onClick }: { onClick: () => vo
   const bzIn  = p.night ? '#1d2636' : '#b9ad90';
 
   return (
-    <button onClick={onClick} className="hz-btn" aria-label="Saat — Menü" style={{ position: 'absolute', left: '50%', bottom: 5, transform: 'translateX(-50%)', ...HZ_COMPASS_BOX, zIndex: 3, background: 'none', border: 'none', cursor: 'pointer', padding: 0, outline: 'none', WebkitTapHighlightColor: 'transparent' }}>
+    <button onClick={onClick} className="hz-btn" data-hz-compass aria-label="Saat — Menü" style={{ position: 'absolute', left: '50%', bottom: 5, transform: 'translateX(-50%)', ...HZ_COMPASS_BOX, zIndex: 3, background: 'none', border: 'none', cursor: 'pointer', padding: 0, outline: 'none', WebkitTapHighlightColor: 'transparent' }}>
       <svg viewBox="0 0 180 180" width="100%" height="100%">
         <defs>
           <radialGradient id="hzClkBz" cx=".5" cy=".32" r=".74"><stop offset="0" stopColor={bzOut} /><stop offset="1" stopColor={bzIn} /></radialGradient>
@@ -842,6 +880,12 @@ export const HorizonLayout = memo(function HorizonLayout(props: Props) {
   const [voiceOpen, setVoiceOpen] = useState(false);
   const dayNightMode = useDayNightAttr(); // kanonik (data-day-night) → kartlar+saat senkron
   const pal = dayNightMode === 'day' ? DAY_H : NIGHT_H;
+  /* DİKEY panel (ör. 768×1024 Tesla tipi head unit): harita üstte tam genişlik,
+     iki ray altta YAN YANA. Eskiden genel dikey CSS kuralı ızgarayı tek sütuna
+     indiriyordu; rayın otomatik yüksekliğinde `1fr` hız satırı SIFIRA çöküyor,
+     harita sıkışıp düğmeleri üst üste biniyordu. Yatay AYNEN. */
+  const { screen } = useLayout();
+  const isPortrait = screen.height > screen.width;
 
   /* ── YERLEŞİM MOTORU (#660) ────────────────────────────────────────────
    * Horizon bugüne dek SABİT grid ile çiziliyordu ve Stüdyo bu temada
@@ -923,12 +967,16 @@ export const HorizonLayout = memo(function HorizonLayout(props: Props) {
         <HzTopBar />
 
         {/* Kolon oranları referanstan: Sol 17.8% · Orta 51% (harita hero) · Sağ 25.8% */}
-        <div style={{ flex: '1 1 auto', minHeight: 0, display: 'grid', gridTemplateColumns: hzGridCols, gap: 12 }}>
-          <div style={{ display: 'grid', gap: 11, minWidth: 0, minHeight: 0, gridTemplateRows: hzRailRows('left-rail') }}>
+        <div style={isPortrait
+          ? { flex: '1 1 auto', minHeight: 0, display: 'flex', flexWrap: 'wrap', alignContent: 'flex-start', gap: 12 }
+          : { flex: '1 1 auto', minHeight: 0, display: 'grid', gridTemplateColumns: hzGridCols, gap: 12 }}>
+          <div style={{ display: 'grid', gap: 11, minWidth: 0, minHeight: 0, gridTemplateRows: hzRailRows('left-rail'),
+            ...(isPortrait ? { width: 'calc(50% - 6px)', height: 'calc(52% - 6px)' } : null) }}>
             {solved['left-rail'].groups.map((g, i) => renderHzGroup(g, g.map((x) => x.id).join('+') || String(i)))}
           </div>
 
-          <div style={{ position: 'relative', minWidth: 0, minHeight: 0, display: 'flex' }}>
+          <div style={{ position: 'relative', minWidth: 0, minHeight: 0, display: 'flex',
+            ...(isPortrait ? { order: -1, width: '100%', height: 'calc(48% - 6px)' } : null) }}>
             <HzMap onOpenMap={onOpenMap} fullMapOpen={fullMapOpen} />
             {smart && smart.predictions.length > 0 && (
               <div className="absolute" style={{ bottom: 78, left: 15, right: 15, zIndex: 20 }}>
@@ -937,7 +985,8 @@ export const HorizonLayout = memo(function HorizonLayout(props: Props) {
             )}
           </div>
 
-          <div style={{ display: 'grid', gap: 11, minWidth: 0, minHeight: 0, gridTemplateRows: hzRailRows('right-rail') }}>
+          <div style={{ display: 'grid', gap: 11, minWidth: 0, minHeight: 0, gridTemplateRows: hzRailRows('right-rail'),
+            ...(isPortrait ? { width: 'calc(50% - 6px)', height: 'calc(52% - 6px)' } : null) }}>
             {solved['right-rail'].groups.map((g, i) => renderHzGroup(g, g.map((x) => x.id).join('+') || String(i)))}
           </div>
         </div>

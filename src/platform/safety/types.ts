@@ -32,9 +32,6 @@ export interface SafetyAlert {
   /**
    * Öncelik skoru — yüksek = önce.
    * critical: 80–100, warning: 40–70, info: 10–20 aralığı.
-   * İSTİSNA: `adas.forward_collision` = 110 — saniyeler içinde çarpışma riski
-   * (P0 preemption, CAROS_VEHICLE_INTELLIGENCE_ARCHITECTURE §I.5) statik tablonun
-   * TÜM critical kurallarının (motor hararet dahil) önüne geçer.
    */
   priority: number;
   /** Uyarının üretildiği zaman damgası (ms, now parametresinden gelir). */
@@ -73,14 +70,13 @@ export interface SafetyVehicleState {
   oilWarning?: boolean | null;
   /** Gece/karanlık algısı (saat + ortam ışığı füzyonu). */
   isDark?: boolean | null;
-  /** ADAS (kamera): öndeki araçla çarpışma riski — TTC eşik altında. */
-  adasForwardCollision?: boolean | null;
-  /** ADAS: takip zaman aralığı sürekli kısa. */
-  adasHeadway?: boolean | null;
-  /** ADAS: şeritten istemsiz ayrılma yönü. */
-  adasLaneDeparture?: 'left' | 'right' | null;
-  /** ADAS: araç dururken öndeki araç hareket etti. */
-  adasLeadDeparture?: boolean | null;
+  /* ── Sürüş Asistanı (ADAS) — tek yazar `adasRuntime`; yalnız UYARI ── */
+  /** Şerit ayrılma yönü. null/undefined = uyarı yok ya da ADAS kapalı. */
+  adasLane?: 'left' | 'right' | null;
+  /** Öndeki araç: çarpışma riski ya da kısa takip mesafesi. */
+  adasForward?: 'collision' | 'headway' | null;
+  /** Durunca öndeki araç hareket etti. */
+  adasLeadDeparted?: boolean | null;
 }
 
 // ── Stale damga haritası ─────────────────────────────────────────────────────

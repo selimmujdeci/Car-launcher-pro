@@ -38,7 +38,7 @@ import type {
 } from './types';
 import type { UnifiedVehicleState } from '../vehicleDataLayer/UnifiedVehicleStore';
 import { resolveLiveCanonicalSignal, canonicalSignalChanged } from '../vehicleDataLayer/canonicalVehicleSignal';
-import type { AdasSignals } from '../adas/adasTypes';
+import type { AdasWarningSignal } from '../adas/adasTypes';
 
 // ── Seçenekler arayüzü ────────────────────────────────────────────────────────
 
@@ -66,11 +66,11 @@ export interface SafetyMapOptions {
   /** Gece/karanlık algısı (saat + ortam ışığı füzyonu). Bilinmiyorsa undefined. */
   isDark?: boolean;
   /**
-   * ADAS (kamera) sinyalleri — `adasStore.signals` anlık görüntüsü. Verilmezse ADAS
-   * kuralları sönüktür. Damgalar `performance.now()` eksenindedir (kural motoru ile
-   * aynı saat); bayatlık kapısını kural motoru uygular (600 ms, damga yoksa fail-closed).
+   * Sürüş Asistanı uyarı sinyali (tek yazar `adasRuntime`). `atPerfMs`
+   * monotonik saattir — kural motorunun `now`ı ile AYNI eksen. Verilmezse
+   * ADAS kuralları sönüktür.
    */
-  adas?: AdasSignals;
+  adas?: AdasWarningSignal;
   /** Bu araçta hangi CAN sinyallerinin gerçekten mevcut olduğunu bildirir. */
   signalsAvailable?: {
     /** true ise canSeatbelt değeri geçirilir; aksi halde undefined (kural sönük). */
@@ -175,19 +175,16 @@ export function createSafetyStateFromVehicleStore(
     hoodOpen:   undefined,
     trunkOpen:  undefined,
     oilWarning: undefined,
-  };
 
-  // ── ADAS (kamera) — yalnız sağlanmışsa; damgasız sinyal kural motorunda sönüktür ──
-  const adas = opts?.adas;
-  if (adas !== undefined) {
-    state.adasForwardCollision = adas.forwardCollision.value;
-    state.adasHeadway          = adas.headway.value;
-    state.adasLaneDeparture    = adas.laneDeparture.value;
-    state.adasLeadDeparture    = adas.leadDeparture.value;
-    updatedAt.adasForwardCollision = adas.forwardCollision.ts;
-    updatedAt.adasHeadway          = adas.headway.ts;
-    updatedAt.adasLaneDeparture    = adas.laneDeparture.ts;
-    updatedAt.adasLeadDeparture    = adas.leadDeparture.ts;
+    // ADAS — araç sinyali değil; tek yazar adasRuntime (seçenekten gelir)
+    adasLane:         opts?.adas?.lane,
+    adasForward:      opts?.adas?.forward,
+    adasLeadDeparted: opts?.adas?.leadDeparted,
+  };
+  if (opts?.adas) {
+    updatedAt.adasLane = opts.adas.atPerfMs;
+    updatedAt.adasForward = opts.adas.atPerfMs;
+    updatedAt.adasLeadDeparted = opts.adas.atPerfMs;
   }
 
   return { state, updatedAt };

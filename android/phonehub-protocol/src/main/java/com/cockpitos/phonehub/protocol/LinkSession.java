@@ -110,6 +110,7 @@ public final class LinkSession {
     private final FrameDecoder decoder = new FrameDecoder();
     private final BlockingQueue<byte[]> writeQueue;
     private final AtomicBoolean disposed = new AtomicBoolean(false);
+    private final AtomicBoolean establishedFired = new AtomicBoolean(false);
     private final AtomicBoolean started = new AtomicBoolean(false);
 
     private final AtomicLong outboundMessageId = new AtomicLong(0L);
@@ -485,16 +486,19 @@ public final class LinkSession {
         LinkHandshake.Step step = handshake.onConfirm(body);
         if (!step.ok()) { failAndClose(step.error, "confirm dogrulanamadi"); return; }
 
-        /* Sunucu confirm'ü ÖNCE alır, ack'i SONRA yollar. */
-        if (handshake.stage() == LinkHandshake.Stage.AUTH_EXCHANGED) {
-            sendConfirm();
-            return;
-        }
+        /* Okuma iş parçacığı yerel CONFIRM'ü KENDİSİ YOLLAMAZ. Her uç kendi
+         * CONFIRM'ünü anahtarlar hazır olunca (güvenilen eş) ya da kullanıcı
+         * onaylayınca (confirmPairing) bir kez yollar. Eskiden burada
+         * "aşama AUTH_EXCHANGED ise sendConfirm()" dalı vardı: bu aşama yalnız
+         * confirmByUser ile createConfirm ARASINDA (ekran iş parçacığında)
+         * görülebildiğinden dal yalnız yarışta çalışıyor, CONFIRM iki kez gidiyor
+         * ve karşı uç ikinciyi protokol hatası sayıp oturumu kapatıyordu. */
         if (handshake.isEstablished()) markEstablished();
     }
 
     private void markEstablished() {
-        if (state == State.CONNECTED) return;
+        /* İki iş parçacığı (onay + okuma) aynı anda ESTABLISHED görebilir → tek sefer. */
+        if (!establishedFired.compareAndSet(false, true)) return;
         establishedAtMs = clock.nowMs();
         setState(State.CONNECTED);
         record(LinkDiagnosticEvent.Category.NEGOTIATION, "established", null,

@@ -2,20 +2,17 @@
  * visionOverlayIdleLoopGate.test.ts — VisionOverlay AR-kapalı idle loop gate (saha fix 2026-07-12).
  *
  * SAHA KANITI (Xiaomi zircon, WebView DevTools + /proc trace): idle harita ana thread'inin
- * ~yarısını (+compositor) `VisionOverlay.renderAR` 60 fps rAF döngüsü yakıyordu. Döngü, AR/kamera
- * KAPALIYKEN bile (`!frame || !isHybrid || confidenceLevel==='off'`) `requestAnimationFrame(renderAR)`
- * ile KOŞULSUZ yeniden planlanıyor, FullMapView mount olduğu sürece asla durmuyordu.
+ * ~yarısını (+compositor) VisionOverlay'in 60 fps rAF döngüsü yakıyordu — döngü AR/kamera
+ * KAPALIYKEN bile koşulsuz yeniden planlanıyordu.
+ * A/B nedensellik: döngü düşürülünce process 35%→20%, main-thread 11%→6%, gfx 5.2→0.3 fps.
  *
- * A/B nedensellik (cihaz, geri alınabilir DevTools trace): VisionOverlay rAF düşürülünce
- * process 35%→20%, main-thread 11%→6%, gfx 5.2→0.3 fps (idle harita hedefe ulaştı).
- *
- * FIX: AR kapalıyken döngüyü DURDUR (rafRef=null, reschedule YOK). Yeniden başlatma otomatik:
- * renderAR deps (isHybrid/confidenceLevel/vision.frame/currentLat/currentLon) değişince renderAR
- * yeniden yaratılır → `useEffect([renderAR])` döngüyü tekrar başlatır. Aktif AR çizim yolu DEĞİŞMEZ.
+ * 2026-10-01 AR yeniden yazımında koruma DEĞİŞMEDİ, biçimi değişti: çizim döngüsü artık tek bir
+ * effect'tir ve YALNIZ `arVisible` (AR gerçekten ekranda) iken kurulur; görünmezken hiç rAF
+ * planlanmaz, effect temizliği döngüyü iptal eder. Ek olarak kare bütçesi AdaptiveRuntime
+ * moduna bağlıdır ve tuval `willReadFrequently` (CPU'ya düşen tuval) ile AÇILMAZ.
  *
  * NOT: bu repo component-render testinde `renderToStaticMarkup` (SSR) kullanır — useEffect/rAF
- * ÇALIŞMAZ ve jsdom'da `createRoot` import edilemez (bkz. safetyContext.test.tsx). Bu yüzden fix
- * KAYNAK-KİLİDİ ile korunur: off-path'in döngüyü durdurduğu + aktif yolun bozulmadığı doğrulanır.
+ * ÇALIŞMAZ; fix KAYNAK-KİLİDİ ile korunur.
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -26,52 +23,36 @@ const SRC = readFileSync(
   'utf8',
 );
 
-/** renderAR fonksiyon gövdesini kabaca izole et (useCallback → dep dizisi sonu). */
-function renderARBody(): string {
-  const start = SRC.indexOf('const renderAR = useCallback(');
+/** Çizim döngüsü effect'inin gövdesi (başlangıç → `}, [arVisible]);`). */
+function loopEffect(): string {
+  const start = SRC.indexOf('if (!arVisible) return;');
   expect(start).toBeGreaterThan(-1);
-  // renderAR useCallback'in dep dizisine kadar (currentStepIndex]) al
-  const depEnd = SRC.indexOf('currentStepIndex]', start);
-  expect(depEnd).toBeGreaterThan(start);
-  return SRC.slice(start, depEnd);
-}
-
-/** off-branch (AR kapalı skip bloğu) metnini izole et. */
-function offBranch(): string {
-  const body = renderARBody();
-  const cond = body.indexOf("!isHybrid || confidenceLevel === 'off'");
-  expect(cond).toBeGreaterThan(-1);
-  // koşuldan sonraki ilk `}` kapanışına kadarki blok
-  const braceOpen = body.indexOf('{', cond);
-  const braceClose = body.indexOf('}', braceOpen);
-  expect(braceClose).toBeGreaterThan(braceOpen);
-  return body.slice(braceOpen, braceClose + 1);
+  const end = SRC.indexOf('}, [arVisible]);', start);
+  expect(end).toBeGreaterThan(start);
+  return SRC.slice(start, end);
 }
 
 describe('VisionOverlay — AR-kapalı idle loop gate', () => {
-  it('1. off-branch döngüyü DURDURUR: rafRef.current = null', () => {
-    expect(offBranch()).toMatch(/rafRef\.current\s*=\s*null/);
+  it('1. döngü YALNIZ AR görünürken kurulur: kapı ilk rAF\'tan ÖNCE', () => {
+    const body = loopEffect();
+    expect(body.indexOf('if (!arVisible) return;')).toBe(0);
+    expect(body).toMatch(/requestAnimationFrame\(draw\)/);
   });
 
-  it('2. off-branch requestAnimationFrame ÇAĞIRMAZ (60fps boşa dönme regresyonu)', () => {
-    // Bu kilidin ASIL amacı: kimse off-branch'e `requestAnimationFrame(renderAR)` geri koymasın.
-    expect(offBranch()).not.toMatch(/requestAnimationFrame/);
+  it('2. arVisible = gezinme + HYBRID mod (kamera görünmüyorsa döngü yok)', () => {
+    expect(SRC).toContain('const arVisible  = isNavigating && isHybrid;');
   });
 
-  it('3. AKTİF AR yolu korunur: renderAR sonunda hâlâ requestAnimationFrame(renderAR) var', () => {
-    // Döngü aktif çizimde kendini yeniden planlamaya devam etmeli (AR bozulmasın).
-    const body = renderARBody();
-    expect(body).toMatch(/rafRef\.current\s*=\s*requestAnimationFrame\(renderAR\)/);
+  it('3. temizlik döngüyü iptal eder (zero-leak)', () => {
+    expect(loopEffect()).toMatch(/cancelAnimationFrame\(raf\)/);
   });
 
-  it('4. yeniden başlatma mekanizması: useEffect [renderAR] rAF başlatır (dep değişince restart)', () => {
-    // renderAR deps'i off/on koşulunu (isHybrid/confidenceLevel/vision.frame) içermeli,
-    // ve bir useEffect [renderAR] ile döngüyü kurmalı → AR açılınca otomatik restart.
-    expect(SRC).toMatch(/\}, \[isHybrid, confidenceLevel[\s\S]*?currentStepIndex\]\);/);
-    expect(SRC).toMatch(/useEffect\(\(\) => \{\s*rafRef\.current = requestAnimationFrame\(renderAR\);[\s\S]*?\}, \[renderAR\]\);/);
+  it('4. kare bütçesi runtime moduna bağlı; gizli sekmede çizim yok', () => {
+    expect(SRC).toMatch(/function frameIntervalMs\(\)/);
+    expect(loopEffect()).toMatch(/document\.hidden \|\| now - lastDraw < frameIntervalMs\(\)/);
   });
 
-  it('5. cleanup korunur (zero-leak): cancelAnimationFrame unmount\'ta', () => {
-    expect(SRC).toMatch(/cancelAnimationFrame\(rafRef\.current\)/);
+  it('5. tuval CPU modunda açılmaz (willReadFrequently YOK)', () => {
+    expect(SRC).not.toMatch(/willReadFrequently/);
   });
 });

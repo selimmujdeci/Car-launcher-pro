@@ -959,7 +959,7 @@ export function readNavigationCoreSnapshot(): NavigationCoreRawSnapshot {
     mapPitch:   _safe(() => { const m = getMapInstance(); return m ? Math.round(m.getPitch()) : null; }, null),
     mapBearing: _safe(() => { const m = getMapInstance(); return m ? Math.round(m.getBearing()) : null; }, null),
     orientation: _orientation,
-    orientationMode: _safe(() => getNavigationOrientationSnapshot().mode, 'LOCKED_LANDSCAPE'),
+    orientationMode: _safe(() => getNavigationOrientationSnapshot().mode, 'DEVICE'),
     /* GERÇEK sayaç — `cameraShadowRuntime` her legacy kamera çağrısında
        politikayı gölgede değerlendirir ve bastırma kararını sayar. */
     suppressedCameraUpdates: _shadow.policySuppressedCount,

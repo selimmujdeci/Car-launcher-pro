@@ -44,7 +44,19 @@ export function describePhoneConnection(s: PhonesState): PhoneLine {
   switch (s.state) {
     case 'NO_ADAPTER': return { title: 'Bu cihazda Bluetooth yok', detail: null, good: false };
     case 'NO_PERMISSION': return { title: 'Bluetooth izni yok', detail: 'CarOS\'a "Yakındaki cihazlar" izni verilmeli.', good: false };
-    case 'OFF': return { title: 'Bluetooth kapalı', detail: 'Telefonu bağlamak için Bluetooth\'u açın.', good: false };
+    case 'OFF':
+      /* Ayar "açık" ama Android yığını kapalı: radyo ünitenin kendi modülünde (ör. K24).
+         "Bluetooth'u açın" demek yanlış yönlendirme olur — açılacak bir şey yok. */
+      if (s.systemSettingOn === true) {
+        return {
+          title: 'Telefon, ünitenin kendi Bluetooth\'una bağlanır',
+          detail: 'Bu ünitede Bluetooth üreticinin modülündedir; Android\'e açık değildir. Aramalar ve '
+            + 'mesajlar bildirim erişimiyle CarOS\'a gelir. Telefondaki CarOS Pro ile bağlantı için '
+            + 'Ayarlar › Bağlantı › Telefon Bağlantısı (Wi-Fi) kullanılır.',
+          good: false,
+        };
+      }
+      return { title: 'Bluetooth kapalı', detail: 'Telefonu bağlamak için Bluetooth\'u açın.', good: false };
     default: break;
   }
   const phones = s.phones ?? [];

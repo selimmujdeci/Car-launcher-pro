@@ -9,7 +9,8 @@ import {
   Cpu, Shield, ShieldCheck, Gauge, Settings2,
   Mic, Loader,
   Star, Users, Map as MapIcon, ChevronRight, Info, MessageCircle, AlertTriangle, type LucideIcon,
-  Home, Fuel, ScanEye,
+  Home, Fuel,
+  ScanEye,
 } from 'lucide-react';
 import {
   sanitizeAssistantName, sanitizeUserCallsign, sanitizeWakePhrase,
@@ -35,12 +36,13 @@ import { setBrightness, setVolume, isSystemControlSupported } from '../../platfo
 import { MaintenancePanel } from '../obd/MaintenancePanel';
 import { FuelCalibrationPanel } from './FuelCalibrationPanel';
 import { VehicleClassSettings } from './VehicleClassSettings';
-import { AdasSettingsPanel } from './AdasSettingsPanel';
 import { getBuildStamp } from '../../platform/buildInfo';
 import { formatBuildStamp } from '../../utils/buildStamp';
 import { ExpertModePanel } from './ExpertModePanel';
 import { OfflineDataPanel } from './OfflineDataPanel';
 import { HomeWorkAddressPanel } from './HomeWorkAddressPanel';
+import { AdasSettingsPanel } from './AdasSettingsPanel';
+import { PhoneLinkPanel } from './PhoneLinkPanel';
 import i18n from '../../i18n/config';
 import { MobileLinkWidget } from './MobileLinkWidget';
 import { CarOsConnectionPriorityCard } from './CarOsConnectionPriorityCard';
@@ -1535,8 +1537,8 @@ interface Props {
    her ayar kendi konusunun sekmesinde. 'general' (Genel Bakış: parlaklık, ses,
    navigasyon, asistan, bağlantı karışıktı) ve 'performance' ("Sürüş Asistanı" adlı
    ama güç profili/donanım içeren) KALDIRILDI; kayıtlı eski değer yakın sekmeye döner. */
-type Tab = 'appearance' | 'sound' | 'navigation' | 'assistant' | 'maintenance' | 'connect' | 'profiles' | 'about';
-const TAB_IDS: Tab[] = ['appearance', 'sound', 'navigation', 'assistant', 'maintenance', 'connect', 'profiles', 'about'];
+type Tab = 'appearance' | 'sound' | 'navigation' | 'assistant' | 'adas' | 'maintenance' | 'connect' | 'profiles' | 'about';
+const TAB_IDS: Tab[] = ['appearance', 'sound', 'navigation', 'assistant', 'adas', 'maintenance', 'connect', 'profiles', 'about'];
 const LEGACY_TAB: Record<string, Tab> = { general: 'appearance', performance: 'about' };
 const TAB_STORAGE_KEY = 'caros.settings.tab';
 
@@ -1564,7 +1566,7 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
     const SECTION_TO_TAB: Record<string, Tab> = {
       'gemini-qr': 'assistant', 'assistant': 'assistant', 'sound': 'sound', 'appearance': 'appearance',
       'profiles': 'profiles', 'navigation': 'navigation', 'maintenance': 'maintenance',
-      'connect': 'connect', 'about': 'about',
+      'connect': 'connect', 'about': 'about', 'adas': 'adas',
     };
     return registerSettingsFocus((section) => {
       const target = SECTION_TO_TAB[section];
@@ -1631,6 +1633,7 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
     { id: 'sound'       as Tab, label: 'Ses',              Icon: Volume2,       color: '#a78bfa' },
     { id: 'navigation'  as Tab, label: 'Navigasyon',       short: 'Harita', Icon: MapIcon,       color: '#60a5fa' },
     { id: 'assistant'   as Tab, label: 'Asistan',          Icon: MessageCircle, color: '#22d3ee' },
+    { id: 'adas'        as Tab, label: 'Sürüş Asistanı',   short: 'ADAS',   Icon: ScanEye,       color: '#38bdf8' },
     { id: 'maintenance' as Tab, label: 'Araç',             Icon: Gauge,         color: '#34d399' },
     { id: 'connect'     as Tab, label: 'Bağlantı',         Icon: Wifi,          color: '#22d3ee' },
     { id: 'profiles'    as Tab, label: 'Profiller',        Icon: Star,          color: '#fb923c' },
@@ -1905,6 +1908,15 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
             </div>
           )}
 
+          {tab === 'adas' && (
+            <div className="flex flex-col gap-4 mx-auto w-full" style={{ maxWidth: 760 }}>
+              <Panel accent="#38bdf8">
+                <SectionTitle icon={ScanEye} title="Sürüş Asistanı" sub="Şerit, çarpışma ve takip mesafesi uyarıları" color="#38bdf8" />
+                <AdasSettingsPanel Toggle={PremiumToggle} />
+              </Panel>
+            </div>
+          )}
+
           {tab === 'appearance' && (
             <>
               {/* ── Tema Seçici ── */}
@@ -1968,15 +1980,6 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
                     sub="Hız sınırı kartı bu sınıfa göre hesaplanır" color="#60a5fa" />
                 </div>
                 <VehicleClassSettings />
-              </Panel>
-
-              {/* ── Sürüş Destek (ADAS · kamera) ── */}
-              <Panel accent="#34d399">
-                <div className="mb-3">
-                  <SectionTitle icon={ScanEye} title="Sürüş Destek (ADAS)"
-                    sub="Ön çarpışma · şerit · takip mesafesi · USB kamera" color="#34d399" />
-                </div>
-                <AdasSettingsPanel />
               </Panel>
 
               {/* ── Araç Profilleri ── */}
@@ -2105,6 +2108,12 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
             <>
               <ConnectTabContent />
               <div className="flex flex-col gap-4 mx-auto w-full" style={{ maxWidth: 760 }}>
+              {/* ── Telefon Bağlantısı: CarOS Pro ↔ CarOS Pro (hibrit Wi-Fi + Bluetooth) ── */}
+              <Panel accent="#34d399">
+                <SectionTitle icon={Smartphone} title="Telefon Bağlantısı" sub="Telefondaki CarOS Pro ile · Wi-Fi ya da Bluetooth" color="#34d399" />
+                <PhoneLinkPanel />
+              </Panel>
+
               {/* ── CarOS Bağlantı Önceliği (Phone Link F6) ── */}
               <CarOsConnectionPriorityCard />
 

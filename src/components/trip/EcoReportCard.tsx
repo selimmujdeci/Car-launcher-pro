@@ -33,15 +33,15 @@ function WeekCol({ title, w, fuel }: { title: string; w: WeekTotals; fuel: EcoFu
   const l100 = w.measuredKm >= 1 ? ((w.fuelL / w.measuredKm) * 100).toFixed(1) : null;
   return (
     <div className="flex-1 min-w-0">
-      <div className="text-slate-500 text-[10px] uppercase tracking-widest mb-1">{title}</div>
+      <div className="text-[color:var(--oem-ink-3)] text-[10px] uppercase tracking-widest mb-1">{title}</div>
       <div className="text-primary font-black text-lg tabular-nums leading-tight">
-        {w.co2Kg !== null ? <>{w.co2Kg}<span className="text-xs font-bold text-slate-500 ml-1">kg CO₂</span></> : '—'}
+        {w.co2Kg !== null ? <>{w.co2Kg}<span className="text-xs font-bold text-[color:var(--oem-ink-3)] ml-1">kg CO₂</span></> : '—'}
       </div>
-      <div className="text-slate-400 text-[11px] mt-0.5 tabular-nums">
+      <div className="text-[color:var(--oem-ink-2)] text-[11px] mt-0.5 tabular-nums">
         {w.trips} yolculuk · {w.km} km{l100 ? ` · ${l100} L/100` : ''}
       </div>
       {w.co2Kg === null && w.trips > 0 && (
-        <div className="text-slate-500 text-[10px] mt-0.5">
+        <div className="text-[color:var(--oem-ink-3)] text-[10px] mt-0.5">
           {fuel === 'ev' ? 'elektrikli' : fuel === 'unknown' ? 'yakıt tipi seçilmedi' : 'yakıt ölçülemedi'}
         </div>
       )}
@@ -75,7 +75,7 @@ function EcoReportCardInner({ history, nowMs }: { history: readonly TripRecord[]
       {report.insights.length > 0 && (
         <div className="flex flex-col gap-1.5 mt-3 pt-3 border-t border-[var(--oem-line)]">
           {report.insights.map((i) => (
-            <div key={i.kind} className="flex items-start gap-2 text-[12px] leading-snug text-slate-300">
+            <div key={i.kind} className="flex items-start gap-2 text-[12px] leading-snug text-[color:var(--oem-ink-2)]">
               <Info className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-[color:var(--oem-good)]" />
               <span>{i.text}</span>
             </div>
@@ -97,7 +97,7 @@ export const TripEcoLine = memo(function TripEcoLine({ trip, history }: { trip: 
   parts.push(e.co2Kg !== null ? `${e.co2Kg} kg CO₂` : `CO₂ — ${CO2_REASON[e.co2Status]}`);
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2 pt-2 border-t border-[var(--oem-line)] text-[11px]">
-      <span className="text-slate-400 tabular-nums">{parts.join(' · ')}</span>
+      <span className="text-[color:var(--oem-ink-2)] tabular-nums">{parts.join(' · ')}</span>
       {e.styleDeltaPct !== null && e.baseline && (
         <span className={`font-bold tabular-nums ${e.styleDeltaPct > 5 ? 'text-[color:var(--oem-warn)]' : 'text-[color:var(--oem-good)]'}`}
           title={`Benzer hızdaki ${e.baseline.trips} sakin yolculuğunun ortancası: ${e.baseline.l100} L/100`}>
@@ -105,7 +105,7 @@ export const TripEcoLine = memo(function TripEcoLine({ trip, history }: { trip: 
         </span>
       )}
       {e.idleFuelL && (
-        <span className="text-slate-500">rölanti ~{e.idleFuelL.min}–{e.idleFuelL.max} L (tahmini)</span>
+        <span className="text-[color:var(--oem-ink-3)]">rölanti ~{e.idleFuelL.min}–{e.idleFuelL.max} L (tahmini)</span>
       )}
     </div>
   );

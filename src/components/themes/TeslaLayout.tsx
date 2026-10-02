@@ -35,6 +35,7 @@ import { useNavSummary } from '../../hooks/useNavSummary';
 import { type AppItem } from '../../data/apps';
 import type { SmartSnapshot } from '../../platform/smartEngine';
 import { MagicContextCard } from '../common/MagicContextCard';
+import { useLayout } from '../../context/LayoutContext';
 import { useLayoutIntent, useZoneWidths } from '../../store/useLayoutStore';
 import { solveLayout, normalizeIntent, TESLA_MANIFEST, type Zone } from '../../platform/theme/layoutSolver';
 
@@ -695,6 +696,12 @@ export const TeslaLayout = memo(function TeslaLayout(props: Props) {
   const [voiceOpen, setVoiceOpen] = useState(false);
   const dayNightMode = useDayNightAttr(); // kanonik (data-day-night) → kartlar+saat senkron
   const pal = dayNightMode === 'day' ? SAND : LAVA;
+  /* DİKEY panel (ör. 768×1024 Tesla tipi head unit): harita üstte tam genişlik,
+     iki ray altta YAN YANA. Eskiden yatay üç sütun dikeye sıkışıyordu (müzik
+     başlığı tek harfe, menzil satırı kesik, rayların altı boş). Tesla kartları
+     doğal boyda kaldığından harita %60, raylar %40 (600×960'ta da sığar). Yatay AYNEN. */
+  const { screen } = useLayout();
+  const isPortrait = screen.height > screen.width;
 
   /* ── YERLEŞİM MOTORU (#660) ────────────────────────────────────────────
    * Tesla bugüne dek SABİT sütunlarla çiziliyordu ve Stüdyo bu temada yerleşim
@@ -765,11 +772,17 @@ export const TeslaLayout = memo(function TeslaLayout(props: Props) {
             <HeaderClock />
             <StatusCluster />
           </div>
-          <div className="flex-1 min-h-0 flex" style={{ gap: 12, padding: '4px 14px 8px' }}>
-            <div className="flex flex-col min-h-0" style={{ gap: 12, width: tsColWidth('left-rail'), flexShrink: 0 }}>
+          <div className="flex-1 min-h-0 flex" style={isPortrait
+            ? { gap: 12, padding: '4px 14px 8px', flexWrap: 'wrap', alignContent: 'flex-start' }
+            : { gap: 12, padding: '4px 14px 8px' }}>
+            <div className="flex flex-col min-h-0" style={isPortrait
+              ? { gap: 12, minWidth: 0, width: 'calc(50% - 6px)', height: 'calc(40% - 6px)', flexShrink: 0 }
+              : { gap: 12, width: tsColWidth('left-rail'), flexShrink: 0 }}>
               {tsRail('left-rail')}
             </div>
-            <div className="flex flex-col min-h-0 min-w-0 flex-1 relative" style={{ gap: 12 }}>
+            <div className="flex flex-col min-h-0 min-w-0 flex-1 relative" style={isPortrait
+              ? { gap: 12, order: -1, flex: '0 0 100%', height: 'calc(60% - 6px)' }
+              : { gap: 12 }}>
               <MapCard onOpenMap={onOpenMap} fullMapOpen={fullMapOpen} />
               {smart && smart.predictions.length > 0 && (
                 <div className="absolute" style={{ bottom: 64, left: 12, right: 12, zIndex: 20 }}>
@@ -777,7 +790,9 @@ export const TeslaLayout = memo(function TeslaLayout(props: Props) {
                 </div>
               )}
             </div>
-            <div className="flex flex-col min-h-0" style={{ gap: 12, width: tsColWidth('right-rail'), flexShrink: 0 }}>
+            <div className="flex flex-col min-h-0" style={isPortrait
+              ? { gap: 12, minWidth: 0, width: 'calc(50% - 6px)', height: 'calc(40% - 6px)', flexShrink: 0 }
+              : { gap: 12, width: tsColWidth('right-rail'), flexShrink: 0 }}>
               {tsRail('right-rail')}
             </div>
           </div>

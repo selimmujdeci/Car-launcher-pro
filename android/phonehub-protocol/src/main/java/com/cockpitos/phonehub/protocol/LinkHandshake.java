@@ -350,7 +350,7 @@ public final class LinkHandshake {
      * Reddedilirse oturum KURULMAZ ve durum FAILED olur — "yine de bağlan"
      * yolu YOKTUR. Süre dolmuşsa onay geçersizdir.
      */
-    public Step confirmByUser(boolean accepted, long nowMs) {
+    public synchronized Step confirmByUser(boolean accepted, long nowMs) {
         if (stage != Stage.AWAITING_USER_CONFIRM) return fail(LinkErrorCode.UNKNOWN_ERROR);
         if (!accepted) return fail(LinkErrorCode.PAIRING_REJECTED);
         if (pairingCode == null) return fail(LinkErrorCode.PAIRING_REQUIRED);
@@ -362,8 +362,15 @@ public final class LinkHandshake {
     /**
      * 6 · Şifreli CONFIRM yükünü üretir (düz metin — çağıran ŞİFRELEYEREK yollar).
      * İçerik sabittir; amacı anahtarın aynı olduğunu KANITLAMAKTIR.
+     *
+     * EŞZAMANLILIK: onay aşaması iki iş parçacığından sürülür — kullanıcı onayı
+     * (confirmByUser → createConfirm) ekran iş parçacığından, karşı tarafın
+     * CONFIRM'ü (onConfirm) okuma iş parçacığından. Bu üç geçiş ve
+     * isEstablished aynı monitörde ATOMİKtir; aksi hâlde aşama/peerConfirmVerified
+     * kayıp güncellemeyle ya hiç ESTABLISHED olmaz ya da CONFIRM iki kez gider.
+     * Burada dinleyici çağrısı YOKTUR → kilitlenme riski yok.
      */
-    public Step createConfirm() {
+    public synchronized Step createConfirm() {
         if (stage != Stage.AUTH_EXCHANGED) return fail(LinkErrorCode.UNKNOWN_ERROR);
         byte[] body = new LinkKeyValue()
             .put("magic", CONFIRM_MAGIC)
@@ -381,7 +388,7 @@ public final class LinkHandshake {
      * çözülebilmiş olması zaten anahtarın aynı olduğunun kanıtıdır, buradaki
      * kontrol içeriğin de beklenen olduğunu teyit eder.
      */
-    public Step onConfirm(byte[] decryptedPayload) {
+    public synchronized Step onConfirm(byte[] decryptedPayload) {
         /* AWAITING_USER_CONFIRM DA GEÇERLİDİR — bu kapı eskiden onu reddediyordu ve
          * bu GERÇEK bir kusurdu, yalnız test gürültüsü değil:
          *
@@ -424,7 +431,7 @@ public final class LinkHandshake {
 
     public Stage stage() { return stage; }
     public LinkErrorCode lastError() { return lastError; }
-    public boolean isEstablished() { return stage == Stage.ESTABLISHED && peerConfirmVerified; }
+    public synchronized boolean isEstablished() { return stage == Stage.ESTABLISHED && peerConfirmVerified; }
     public SessionCrypto crypto() { return crypto; }
     public PairingCode pairingCode() { return pairingCode; }
     public boolean userConfirmationRequired() { return userConfirmationRequired; }
@@ -440,7 +447,7 @@ public final class LinkHandshake {
     }
 
     /** Anahtar malzemesini siler. Bağlantı kapanırken ÇAĞRILMALIDIR. */
-    public void destroy() {
+    public synchronized void destroy() {
         if (sharedSecret != null) Arrays.fill(sharedSecret, (byte) 0);
         if (crypto != null) crypto.destroy();
         ephemeral = null;

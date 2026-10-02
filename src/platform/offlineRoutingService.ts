@@ -26,7 +26,11 @@
 import { Capacitor }        from '@capacitor/core';
 import { logError }          from './crashLogger';
 import { runtimeManager }    from '../core/runtime/AdaptiveRuntimeManager';
-import { systemBoot }        from './system/SystemBoot';
+/* `SystemBoot` STATİK import EDİLMEZ: routingService → offlineRoutingService →
+   SystemBoot → navigationSessionRuntime → navEgoHorizonBridge → routingService
+   döngüsü dev (ESM) modunda `REROUTE_THRESHOLD_M` TDZ hatasıyla uygulamayı
+   açılışta düşürüyordu. Tek kullanım worker çökme işleyicisidir → orada
+   dinamik yüklenir (bkz. `w.onerror`). */
 import { supportsModuleWorker } from './deviceCapabilities';
 import {
   recordOfflineGraphOutcome, shouldAttemptOfflineRoute,
@@ -449,7 +453,9 @@ function _attachNavWorkerHandlers(w: Worker): void {
       }
       _navWorker = null;
       runtimeManager.registerWorker('NavigationCompute', null, 'OPTIONAL'); // referansı temizle
-      void systemBoot.restartService('NavigationCompute').catch(() => {});
+      void import('./system/SystemBoot')
+        .then(({ systemBoot }) => systemBoot.restartService('NavigationCompute'))
+        .catch(() => {});
     };
 
     w.onmessageerror = () => {

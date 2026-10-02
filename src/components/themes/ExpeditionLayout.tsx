@@ -405,7 +405,7 @@ const MusicPlate = memo(function MusicPlate() {
           <div style={{ fontWeight: 700, fontSize: 26, lineHeight: 1.05, color: p.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{track.title || 'Çalmıyor'}</div>
           <div style={{ color: p.ink2, fontSize: 15, fontWeight: 500, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{track.artist || 'Oynatmak için dokun'}</div>
         </div>
-        <button onClick={() => openMusicDrawer()} style={{ background: 'none', border: 'none', cursor: 'pointer', color: p.ink3, alignSelf: 'flex-start' }}><MoreVertical className="w-5 h-5" /></button>
+        <button onClick={() => openMusicDrawer()} style={{ background: 'none', border: 'none', cursor: 'pointer', color: p.ink2, alignSelf: 'flex-start' }}><MoreVertical className="w-5 h-5" /></button>
       </div>
       <div className="flex items-center justify-center" style={{ flex: 1, gap: 30, minHeight: 0 }}>
         <button onClick={() => previous()} className="ex-btn" style={{ background: 'none', border: 'none', cursor: 'pointer', color: p.ink }}><SkipBack className="w-7 h-7" style={{ fill: 'currentColor' }} /></button>
@@ -441,7 +441,7 @@ const VehiclePlate = memo(function VehiclePlate({ onOpenSettings }: { onOpenSett
         <Label>Araç Durumu</Label>
         <div className="flex items-center" style={{ gap: 4 }}>
           <span style={{ fontWeight: 700, fontSize: 32, lineHeight: 1, color: p.ink }}>Normal</span>
-          <ChevronRight className="w-5 h-5" style={{ color: p.ink3 }} />
+          <ChevronRight className="w-5 h-5" style={{ color: p.ink2 }} />
         </div>
       </div>
       {/* Rover görseli — dekor (canlı metrikler altında) */}

@@ -146,14 +146,14 @@ const AdminManagementCard = memo(function AdminManagementCard() {
         <ShieldAlert size={22} style={{ color: '#dc2626' }} />
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <p style={{ fontSize: 15, fontWeight: 700, color: '#e5e7eb', letterSpacing: '0.02em' }}>
+        <p style={{ fontSize: 15, fontWeight: 700, color: 'var(--oem-ink)', letterSpacing: '0.02em' }}>
           Süper Admin Paneli
         </p>
-        <p style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>
+        <p style={{ fontSize: 11, color: 'var(--oem-ink-3)', marginTop: 2 }}>
           Sistem stabilitesi ve filo yönetimi
         </p>
       </div>
-      <ChevronRight size={18} style={{ color: '#4b5563', flexShrink: 0 }} />
+      <ChevronRight size={18} style={{ color: 'var(--oem-ink-3)', flexShrink: 0 }} />
     </button>
   );
 });
@@ -189,14 +189,14 @@ const CarosLabCard = memo(function CarosLabCard() {
         <FlaskConical size={22} style={{ color: '#22d3ee' }} />
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <p style={{ fontSize: 15, fontWeight: 700, color: '#e5e7eb', letterSpacing: '0.02em' }}>
+        <p style={{ fontSize: 15, fontWeight: 700, color: 'var(--oem-ink)', letterSpacing: '0.02em' }}>
           CAROS LAB
         </p>
-        <p style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>
+        <p style={{ fontSize: 11, color: 'var(--oem-ink-3)', marginTop: 2 }}>
           Geliştirici ve teşhis araçları — Vehicle · Communication · Runtime · AI · Developer
         </p>
       </div>
-      <ChevronRight size={18} style={{ color: '#4b5563', flexShrink: 0 }} />
+      <ChevronRight size={18} style={{ color: 'var(--oem-ink-3)', flexShrink: 0 }} />
     </button>
   );
 });
@@ -225,7 +225,7 @@ export const AppGrid = memo(function AppGrid({ apps, favorites, onToggleFavorite
             <h2 className="text-4xl font-black text-primary uppercase tracking-[0.2em] drop-shadow-sm">Uygulamalar</h2>
             <div className="h-1.5 w-16 bg-blue-500 rounded-full mt-3 shadow-[0_0_15px_rgba(59,130,246,0.6)]" />
           </div>
-          <span className="text-[11px] font-black uppercase tracking-[0.3em] text-secondary opacity-50 glass-card px-5 py-2.5 border-white/10 shadow-sm">
+          <span className="text-[11px] font-black uppercase tracking-[0.3em] text-[color:var(--oem-ink-3)] glass-card px-5 py-2.5 border-white/10 shadow-sm">
             {apps.length} TOPLAM SİSTEM
           </span>
         </div>
