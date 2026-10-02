@@ -988,19 +988,29 @@ describe('Head unit yatay rotasyon kilidi (native sistem rotasyon)', () => {
 });
 
 /* ───────────────────────────────────────────────────────────────
-   8b. DİKEY PANELLİ HEAD UNIT — "Telefonu Yatay Tutun" perdesi kilit olmamalı
-   Regresyon (saha 2026-10-01): fiziksel DİKEY panel (768×1024, Tesla tipi),
-   firmware dikeyi zorluyor; `ro.boot.nwd.orientation` yok → 8. maddedeki
-   rotasyon kilidi devreye girmiyor. App.tsx perdesi tüm arayüzü örtüyordu ve
-   cihaz döndürülemediği için uygulama perdede kalıyordu. Native APK'da
-   `sensorLandscape` döndürülebilen her cihazı zaten yataya alır → native'de
-   dikey = çevrilemeyen panel → perde YALNIZ tarayıcıda gösterilir.
+   8b. EKRAN YÖNÜ OTOMATİK — araç ekranı belirler, kullanıcıya seçenek YOK
+   Regresyon (saha 2026-10-01): fiziksel DİKEY panel (768×1024, Tesla tipi)
+   "Telefonu Yatay Tutun" perdesinde kilitleniyordu. Ürün kararı (2026-10-02):
+   yön OTOMATİK — manifest `unspecified`, arayüz dikey/yatay ne gelirse ona
+   uyar; perde kaldırıldı. K24'ün "fiziksel yatay, dikey raporlayan" paneli
+   8. maddedeki native rotasyon kilidiyle ayrıca çözülür (korunur).
    ─────────────────────────────────────────────────────────────── */
-describe('Dikey panel — yatay tutun perdesi native APK\'da gösterilmez', () => {
-  it('YAPISAL: perde koşulu !isNative içerir (tarayıcıda uyarı kalır)', () => {
-    const src = read('src/App.tsx');
-    expect(src).toMatch(/isPortrait\s*&&\s*!isNative\s*&&/);
-    expect(src).toMatch(/Telefonu Yatay Tutun/);
+describe('Ekran yönü otomatik — araç ekranı belirler', () => {
+  it('YAPISAL: manifest yönü zorlamaz (unspecified)', () => {
+    const src = read('android/app/src/main/AndroidManifest.xml');
+    expect(src).toMatch(/android:screenOrientation="unspecified"/);
+    expect(src).not.toMatch(/sensorLandscape/);
+  });
+
+  it('YAPISAL: tam ekran navigasyon çıkışı cihazın KENDİ yönüne döner (yataya zorlanmaz)', () => {
+    const src = read('android/app/src/main/java/com/cockpitos/pro/CarLauncherPlugin.java');
+    expect(src).toMatch(/: android\.content\.pm\.ActivityInfo\.SCREEN_ORIENTATION_UNSPECIFIED;/);
+    expect(src).not.toMatch(/SCREEN_ORIENTATION_SENSOR_LANDSCAPE/);
+  });
+
+  it('YAPISAL: "Telefonu Yatay Tutun" perdesi ve yön ayarı YOK', () => {
+    expect(read('src/App.tsx')).not.toMatch(/Telefonu Yatay Tutun/);
+    expect(read('src/store/useStore.ts')).not.toMatch(/screenOrientation/);
   });
 });
 

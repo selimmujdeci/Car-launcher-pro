@@ -60,7 +60,7 @@
             android:theme="@style/AppTheme.NoActionBarLaunch"
             android:launchMode="singleTask"
             android:exported="true"
-            android:screenOrientation="sensorLandscape"
+            android:screenOrientation="unspecified"
             android:windowSoftInputMode="stateAlwaysHidden|adjustNothing"
             android:immersive="true"
             android:excludeFromRecents="false"

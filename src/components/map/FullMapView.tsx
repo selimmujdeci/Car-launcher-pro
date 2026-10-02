@@ -270,9 +270,9 @@ export const FullMapView = memo(function FullMapView({ onClose, onOpenDrawer }: 
   const mapStyleReadyRef = useRef(false);
 
   /* ── EKRAN YÖNÜ — YALNIZ TAM EKRAN NAVİGASYON (MOTION_CAMERA_P0) ──────────
-   * Ana CAROS arayüzü YATAY kalır (manifest `sensorLandscape`). Bu görünüm
-   * açıkken kilit dört yöne gevşetilir, kapanınca GERİ ALINIR. Ref-count'ludur:
-   * çift mount'ta kilit erken geri alınmaz. Oturum/rota/ses/ETA etkilenmez —
+   * Ana arayüzün yönü OTOMATİKTİR (araç ekranı belirler). Bu görünüm açıkken
+   * yön sensörle dört yöne serbesttir, kapanınca cihazın KENDİ yönüne dönülür.
+   * Ref-count'ludur: çift mount'ta erken geri alınmaz. Oturum/rota/ses/ETA etkilenmez —
    * hepsi görünümden bağımsız runtime'lardadır. */
   useEffect(() => acquireFullNavigationOrientation(), []);
 

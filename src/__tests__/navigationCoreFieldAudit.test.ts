@@ -261,7 +261,7 @@ function full(over: Partial<NavigationCoreRawSnapshot> = {}): NavigationCoreRawS
     },
     cameraPolicyVersion: 'CAM-2026.08.05',
     mapZoom: 15.8, mapPitch: 42, mapBearing: 148,
-    orientation: 'LANDSCAPE', orientationMode: 'LOCKED_LANDSCAPE',
+    orientation: 'LANDSCAPE', orientationMode: 'DEVICE',
     suppressedCameraUpdates: 244,
     cameraShadow: {
       enabled: true, policyVersion: 'CAM-2026.08.05',

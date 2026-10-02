@@ -297,16 +297,6 @@ public class MainActivity extends BridgeActivity {
         // düz yatay görünüyor — kullanıcı teyit etti. Eski WebView setRotation hack'i kaldırıldı.)
         applyHeadUnitLandscapeRotation();
 
-        // ── Kullanıcının ekran yönü tercihi (Ayarlar › Ekran › Ekran yönü) ──
-        // Varsayılan "landscape" = manifest sensorLandscape → hiçbir şey yapılmaz (eski
-        // davranış). "portrait"/"auto" seçildiyse JS yüklenmeden uygulanır.
-        try {
-            String pref = CarLauncherPlugin.readScreenOrientationPref(this);
-            if (!"landscape".equals(pref)) {
-                setRequestedOrientation(CarLauncherPlugin.screenOrientationFor(pref));
-            }
-        } catch (Exception ignored) { /* fail-soft: manifest yönü geçerli kalır */ }
-
         // ── NWD CAN bilgi yönlendirmesi (canlı CarInfo akışı bize gelsin) ──
         // NWD CanService tam CarInfo'yu (hız vb.) yalnız `can_send_info_package_name`'deki
         // pakete sürekli push eder (default OEM launcher). CarOS Pro launcher olduğundan

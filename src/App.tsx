@@ -29,7 +29,6 @@ import { GeofenceAlarmOverlay } from './components/security/GeofenceAlarmOverlay
 import { systemBoot }         from './platform/system/SystemBoot';
 import { onVehicleEvent }     from './platform/vehicleDataLayer/VehicleEventHub';
 import { useRoleStore }       from './platform/roleSystem/RoleStore';
-import { useNavigationOrientationMode, setScreenOrientationPreference } from './platform/navigation/navigationOrientation';
 import { FirstRunSetup } from './components/setup/FirstRunSetup';
 
 const DebugPanel = lazy(() =>
@@ -61,24 +60,6 @@ function App() {
   const [debugOpen,        setDebugOpen]  = useState(false);
   const [showHotspotPrompt, setShowPrompt] = useState(false);
 
-  // ── Portrait mod tespiti — araç ekranları her zaman yatay ────────────────
-  const [isPortrait, setIsPortrait] = useState(() => window.innerHeight > window.innerWidth);
-  /* Tam ekran navigasyon açıkken dikey KABUL EDİLİR (görev §9) → "Telefonu
-     Yatay Tutun" uyarısı bastırılır. Ana arayüz için uyarı AYNEN kalır. */
-  const navOrientation = useNavigationOrientationMode();
-  /* Ekran yönü tercihi (Ayarlar › Ekran) → tek sahibine (navigationOrientation).
-     Native tercihi saklar ve sonraki açılışta JS'ten önce uygular. */
-  const screenOrientation = useStore((s) => s.settings.screenOrientation ?? 'landscape');
-  useEffect(() => { void setScreenOrientationPreference(screenOrientation); }, [screenOrientation]);
-  useEffect(() => {
-    const check = () => setIsPortrait(window.innerHeight > window.innerWidth);
-    window.addEventListener('resize', check);
-    window.addEventListener('orientationchange', check);
-    return () => {
-      window.removeEventListener('resize', check);
-      window.removeEventListener('orientationchange', check);
-    };
-  }, []);
   const tapCountRef = useRef(0);
   const tapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -230,37 +211,9 @@ function App() {
         {!storeReverse && <SentryOverlay />}
         {!storeReverse && <GeofenceAlarmOverlay />}
 
-        {/* Portrait mod uyarısı — YALNIZ tarayıcıda (web/PWA): orada kullanıcı cihazı
-            çevirebilir. Native APK'da manifest `sensorLandscape` döndürülebilen her cihazı
-            zaten yataya alır; buna rağmen dikeyse panel fiziksel olarak dikeydir (ör. 768×1024
-            Tesla tipi head unit) ya da firmware dikeyi zorluyordur → perde kullanıcıya hiçbir
-            çıkış bırakmayan bir kilit olurdu. Geri vites aktifken de gösterme.
-            Kullanıcı Ekran yönü'nde 'Dikey'/'Otomatik' seçtiyse dikey İSTENMİŞTİR → perde yok. */}
-        {isPortrait && !isNative && screenOrientation === 'landscape' && !storeReverse && navOrientation !== 'FULL_SENSOR' && (
-          <div style={{
-            position: 'fixed', inset: 0, zIndex: 99999,
-            background: 'rgba(5,10,20,0.97)',
-            display: 'flex', flexDirection: 'column',
-            alignItems: 'center', justifyContent: 'center',
-            gap: '1.5rem', color: '#fff', fontFamily: 'system-ui,sans-serif',
-          }}>
-            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="#E0A23C" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="7" y="2" width="10" height="18" rx="2"/>
-              <path d="M12 18v.01"/>
-              <path d="M5 8l-2 2 2 2" opacity="0.5"/>
-              <path d="M19 8l2 2-2 2" opacity="0.5"/>
-              <path d="M3 10h4M17 10h4" opacity="0.5"/>
-            </svg>
-            <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: '0.5rem' }}>
-                Telefonu Yatay Tutun
-              </div>
-              <div style={{ fontSize: '0.8rem', opacity: 0.5, maxWidth: 200 }}>
-                CockpitOS araç ekranı için tasarlanmıştır
-              </div>
-            </div>
-          </div>
-        )}
+        {/* Ekran yönü OTOMATİK (2026-10-02 ürün kararı): araç ekranı dikey ya da yatay
+            ne veriyorsa arayüz ona uyar (temalar dikey düzene sahip) → eski
+            "telefonu yatay tut" uyarı perdesi KALDIRILDI. */}
 
         {showHotspotPrompt && !storeReverse && (
           <HotspotPromptModal

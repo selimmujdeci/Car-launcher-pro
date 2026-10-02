@@ -354,17 +354,17 @@ describe('C. Kamera politikası', () => {
 describe('D. Ekran yönü', () => {
   beforeEach(() => { _resetNavigationOrientationForTest(); });
 
-  it('🔒 ANA ARAYÜZ varsayılan olarak YATAY kilitlidir', () => {
+  it('🔒 yön OTOMATİK — varsayılan cihazın kendi yönü, ana arayüz dikeye açık', () => {
     const s = getNavigationOrientationSnapshot();
-    expect(s.mode).toBe('LOCKED_LANDSCAPE');
-    expect(s.mainUiPortraitAllowed).toBe(false);
+    expect(s.mode).toBe('DEVICE');
+    expect(s.mainUiPortraitAllowed).toBe(true);
   });
 
   it('tam ekran navigasyon dört yönü açar, çıkışta GERİ ALIR', () => {
     const release = acquireFullNavigationOrientation();
     expect(getNavigationOrientationSnapshot().mode).toBe('FULL_SENSOR');
     release();
-    expect(getNavigationOrientationSnapshot().mode).toBe('LOCKED_LANDSCAPE');
+    expect(getNavigationOrientationSnapshot().mode).toBe('DEVICE');
   });
 
   it('REF-COUNT: çift mount\'ta kilit erken geri alınmaz', () => {
@@ -373,7 +373,7 @@ describe('D. Ekran yönü', () => {
     r1();
     expect(getNavigationOrientationSnapshot().mode).toBe('FULL_SENSOR');
     r2();
-    expect(getNavigationOrientationSnapshot().mode).toBe('LOCKED_LANDSCAPE');
+    expect(getNavigationOrientationSnapshot().mode).toBe('DEVICE');
   });
 
   it('aynı bırakma fonksiyonu iki kez çağrılsa sayaç bozulmaz', () => {
@@ -442,11 +442,11 @@ describe('E. 🔒 Yapısal kilitler', () => {
     }
   });
 
-  it('🔒 EKRAN YÖNÜ yalnız tam ekran navigasyonda gevşer', () => {
+  it('🔒 sensör serbestliği yalnız tam ekran navigasyonda; ana arayüzde "yatay tutun" perdesi YOK', () => {
     expect(code(fullSrc)).toContain('acquireFullNavigationOrientation()');
     expect(code(miniSrc)).not.toContain('acquireFullNavigationOrientation');
-    // Ana arayüz uyarısı yalnız tam ekran navigasyonda bastırılır.
-    expect(code(appSrc)).toContain("navOrientation !== 'FULL_SENSOR'");
+    // Yön otomatik (araç ekranı belirler) → ana arayüz dikeyi engellemez.
+    expect(code(appSrc)).not.toContain('Telefonu Yatay Tutun');
   });
 
   it('🔒 yön kilidi FAIL-SOFT — native yoksa navigasyon bozulmaz', () => {
