@@ -109,6 +109,7 @@ import com.cockpitos.pro.can.K24CanBridge;
 import com.cockpitos.pro.can.McuEventSniffer;
 import com.cockpitos.pro.core.VehicleNativeBridge;
 import com.cockpitos.pro.voice.VoiceMicDiagnostics;
+import com.cockpitos.pro.voice.WakeVadGate;
 import com.cockpitos.pro.media.ArtworkStore;
 import com.cockpitos.pro.media.MediaManager;
 import com.cockpitos.pro.media.MediaStoreLibraryScanner;
@@ -5167,23 +5168,20 @@ public class CarLauncherPlugin extends Plugin {
 
                     final float gain = wakeWordGain;
                     short[] buf = new short[frameSamples];
-                    // ── VAD (ses-aktivite kapısı) — idle CPU tasarrufu ───────────────
-                    // PERF 2026-06-17: eskiden acceptWaveForm HER frame çağrılıyordu →
-                    // Vosk akustik modeli sessizlikte bile (idle'ın ~%99'u) sürekli decode
-                    // edip ~%39 CPU yakıyordu (cihaz profili). Artık ucuz RMS kapısı:
-                    // sessizlikte decode ATLANIR. Kelimeyi kaçırmamak için:
-                    //   - pre-roll: konuşmadan ÖNCEKİ son frame de beslenir (kelime başı kırpılmaz)
-                    //   - hangover: eşik altına düşse de ~1.2sn decode sürer (kelime kuyruğu)
-                    // Eşik DÜŞÜK tutuldu (fail-safe: kaçırmaktansa biraz fazla decode).
-                    final double VAD_RMS_ON  = 0.012; // gain sonrası normalize RMS konuşma eşiği
-                    final int    VAD_HANGOVER = 12;   // ~1.2sn (100ms/frame)
-                    /* MAVI-STT-LAB-1: wake yolunun eşiği SABİTTİR; taban çarpanı UYGULANMAZ
-                       (-1 = "bu yolda yok"), aktif dinleme yoluyla karıştırılmasın. */
-                    VoiceMicDiagnostics.INSTANCE.noteVadConfig(VAD_RMS_ON, -1);
-                    final short[] preRoll = new short[frameSamples]; // allocation-free pre-roll
-                    int  preRollLen   = 0;
-                    boolean preRollValid = false;
-                    int  hangover     = 0;
+                    // ── VAD kapısı — WakeVadGate (uyarlanır gürültü tabanı) ───────────
+                    // PERF 2026-06-17: sessizlikte decode atlanır. SAHA 2026-10-02:
+                    // sabit 0,012 eşik + 1,2 sn devamla park hâlinde karelerin %42'si
+                    // çözülüyordu (araç gürültüsü eşiğin hemen altında). Kapı artık
+                    // tabanı öğrenir, 2 ardışık kare ister; kelime başı 3 karelik ön
+                    // tamponla korunur. Kurallar ve testler: WakeVadGate.
+                    final WakeVadGate gate = new WakeVadGate();
+                    VoiceMicDiagnostics.INSTANCE.noteVadConfig(WakeVadGate.MIN_THRESH, WakeVadGate.FLOOR_FACTOR);
+                    final int PRE = WakeVadGate.PRE_ROLL_FRAMES;
+                    final short[][] preRoll = new short[PRE][frameSamples]; // allocation-free halka
+                    final int[] preRollLen = new int[PRE];
+                    int preRollHead = 0;
+                    int preRollCount = 0;
+                    int floorNoteCountdown = 0;
                     /* ÖLÇÜM (şema 2): konuşma penceresinin açıldığı monotonik an.
                        Karar akışında KULLANILMAZ — yalnız gecikme türetilir. */
                     long speechOnsetMs = 0;
@@ -5218,42 +5216,38 @@ public class CarLauncherPlugin extends Plugin {
                         }
                         double rms = Math.sqrt(sumSq / n) / 32768.0;
 
-                        /* MAVI-STT-LAB-1: wake yolunda ÖĞRENİLEN taban YOKTUR — eşik SABİTTİR
-                           (VAD_RMS_ON). noiseFloor bu yolda hiç yazılmaz → LAB "ÖĞRENİLMEDİ"
-                           gösterir; sahte taban UYDURULMAZ. */
-                        VoiceMicDiagnostics.INSTANCE.noteRmsFrame(
-                            rms, VAD_RMS_ON, rms >= VAD_RMS_ON, SystemClock.elapsedRealtime());
-
-                        // VAD kapısı: konuşma varsa hangover'ı yenile.
-                        if (rms >= VAD_RMS_ON) {
-                            /* ÖLÇÜM (şema 3): konuşma penceresi GERÇEK sessizlikten
-                               sonra açılıyorsa onset kurulur. Şema 2'de her eşik
-                               aşımında kuruluyordu; ortam gürültüsü hangover'ı
-                               sürekli tazelediği için gecikme "pencere ne kadardır
-                               açık"a dönüşüyordu (sahada 2929 ms — anlamsız). */
-                            if (hangover <= 0) {
-                                speechOnsetMs = SystemClock.elapsedRealtime();
-                                VoiceMicDiagnostics.INSTANCE.noteWakeSpeechOnset(speechOnsetMs);
-                            }
-                            hangover = VAD_HANGOVER;
+                        boolean decode = gate.onFrame(rms);
+                        double th = gate.threshold();
+                        // MAVI-STT-LAB-1: taban GERÇEKTEN öğrenildiyse (≥0) periyodik kaydedilir.
+                        if (gate.floor() >= 0 && --floorNoteCountdown <= 0) {
+                            VoiceMicDiagnostics.INSTANCE.noteNoiseFloor(gate.floor());
+                            floorNoteCountdown = 50;
                         }
-                        if (hangover <= 0) {
-                            // ÖLÇÜM: eşik altı → decode ATLANDI (kaçan wake kaynağı).
+                        VoiceMicDiagnostics.INSTANCE.noteRmsFrame(
+                            rms, th, rms >= th, SystemClock.elapsedRealtime());
+
+                        if (!decode) {
+                            // ÖLÇÜM: decode ATLANDI. Kare ön tampona yazılır (konuşma
+                            // başlarsa kelime başı olarak beslenir).
                             VoiceMicDiagnostics.INSTANCE.noteWakeFrame(false);
-                            // Sessizlik → Vosk decode ATLANIR (CPU tasarrufu).
-                            // Bu frame'i pre-roll olarak sakla (konuşma başlarsa beslenir).
-                            System.arraycopy(buf, 0, preRoll, 0, n);
-                            preRollLen   = n;
-                            preRollValid = true;
+                            System.arraycopy(buf, 0, preRoll[preRollHead], 0, n);
+                            preRollLen[preRollHead] = n;
+                            preRollHead = (preRollHead + 1) % PRE;
+                            if (preRollCount < PRE) preRollCount++;
                             continue;
                         }
-                        hangover--;
                         // ÖLÇÜM: bu çerçeve GERÇEKTEN decode ediliyor.
                         VoiceMicDiagnostics.INSTANCE.noteWakeFrame(true);
-                        // Konuşma başı: önce pre-roll frame'ini besle (kelime başı kırpılmaz).
-                        if (preRollValid) {
-                            recognizer.acceptWaveForm(preRoll, preRollLen);
-                            preRollValid = false;
+                        if (gate.onsetNow()) {
+                            speechOnsetMs = SystemClock.elapsedRealtime();
+                            VoiceMicDiagnostics.INSTANCE.noteWakeSpeechOnset(speechOnsetMs);
+                            // Konuşma başı: ön tampon eskiden yeniye beslenir (kırpılma yok).
+                            int first = (preRollHead - preRollCount + PRE) % PRE;
+                            for (int i = 0; i < preRollCount; i++) {
+                                int j = (first + i) % PRE;
+                                recognizer.acceptWaveForm(preRoll[j], preRollLen[j]);
+                            }
+                            preRollCount = 0;
                         }
 
                         // REFLEKS: endpoint beklenmez — partial her pencerede kontrol edilir
