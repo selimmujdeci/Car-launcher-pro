@@ -1024,6 +1024,13 @@ describe('Dikey panel — ana ekran temaları harita üstte, raylar yan yana', (
     expect(src).toMatch(/order: -1/);
     expect(src).toMatch(/width: 'calc\(50% - 6px\)'/);
   });
+
+  it('YAPISAL: Horizon harita yuvası pusuladan ÖLÇÜLÜR (varsayım formülü dikeyde delik açıyordu)', () => {
+    const src = read('src/components/themes/HorizonLayout.tsx');
+    expect(src).toMatch(/data-hz-compass/);
+    expect(src).toMatch(/const notchMask = useCompassNotchMask\(mapBoxRef\)/);
+    expect(src).not.toMatch(/calc\(50vw - 27px - /);
+  });
 });
 
 /* ───────────────────────────────────────────────────────────────
