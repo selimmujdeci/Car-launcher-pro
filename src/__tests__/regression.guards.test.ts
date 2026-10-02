@@ -1005,6 +1005,28 @@ describe('Dikey panel — yatay tutun perdesi native APK\'da gösterilmez', () =
 });
 
 /* ───────────────────────────────────────────────────────────────
+   8c. DİKEY PANEL — ana ekran temaları kart KAYBETMEZ
+   Regresyon (2026-10-02, 768×1024 / 600×960 / 720×1280 render denetimi):
+   Glass Pro/Sunlight dikeyde rayları üst üste diziyordu; otomatik yükseklikli
+   rayda `flexBasis: 0` kartlar (gösterge/müzik/araç) SIFIRA çöküyordu. Tesla'da
+   dikey dal yoktu (müzik başlığı tek harf). Horizon'da genel dikey CSS ızgarayı
+   tek sütuna indirip `1fr` hız satırını çökertiyordu. Çözüm: dikeyde harita
+   üstte tam genişlik (order:-1), iki ray altta yan yana (yarım genişlik).
+   ─────────────────────────────────────────────────────────────── */
+describe('Dikey panel — ana ekran temaları harita üstte, raylar yan yana', () => {
+  it.each([
+    ['src/components/themes/ProLayout.tsx'],
+    ['src/components/themes/TeslaLayout.tsx'],
+    ['src/components/themes/HorizonLayout.tsx'],
+  ])('YAPISAL: %s dikey dala sahip (harita order:-1, raylar yarım genişlik)', (file) => {
+    const src = read(file);
+    expect(src).toMatch(/const isPortrait = screen\.height > screen\.width/);
+    expect(src).toMatch(/order: -1/);
+    expect(src).toMatch(/width: 'calc\(50% - 6px\)'/);
+  });
+});
+
+/* ───────────────────────────────────────────────────────────────
    Donanım geri tuşu köprüsü — event adı/hedefi EŞLEŞMELİ
    Regresyon: MainActivity.onBackPressed → triggerWindowJSEvent(
    "carlauncherBackButton") window'da yolluyordu; MainLayout ise

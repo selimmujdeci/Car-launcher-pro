@@ -40,6 +40,7 @@ import { setMapCenter, setMapHeading } from '../../platform/mapService';
 import { type AppItem } from '../../data/apps';
 import type { SmartSnapshot } from '../../platform/smartEngine';
 import { MagicContextCard } from '../common/MagicContextCard';
+import { useLayout } from '../../context/LayoutContext';
 import { SUPPORTS_CSS_CLAMP, SUPPORTS_ASPECT_RATIO, cssClamp } from '../../utils/cssCompat';
 import { useLayoutIntent, useZoneWidths } from '../../store/useLayoutStore';
 import { solveLayout, normalizeIntent, HORIZON_MANIFEST, type Zone } from '../../platform/theme/layoutSolver';
@@ -842,6 +843,12 @@ export const HorizonLayout = memo(function HorizonLayout(props: Props) {
   const [voiceOpen, setVoiceOpen] = useState(false);
   const dayNightMode = useDayNightAttr(); // kanonik (data-day-night) → kartlar+saat senkron
   const pal = dayNightMode === 'day' ? DAY_H : NIGHT_H;
+  /* DİKEY panel (ör. 768×1024 Tesla tipi head unit): harita üstte tam genişlik,
+     iki ray altta YAN YANA. Eskiden genel dikey CSS kuralı ızgarayı tek sütuna
+     indiriyordu; rayın otomatik yüksekliğinde `1fr` hız satırı SIFIRA çöküyor,
+     harita sıkışıp düğmeleri üst üste biniyordu. Yatay AYNEN. */
+  const { screen } = useLayout();
+  const isPortrait = screen.height > screen.width;
 
   /* ── YERLEŞİM MOTORU (#660) ────────────────────────────────────────────
    * Horizon bugüne dek SABİT grid ile çiziliyordu ve Stüdyo bu temada
@@ -923,12 +930,16 @@ export const HorizonLayout = memo(function HorizonLayout(props: Props) {
         <HzTopBar />
 
         {/* Kolon oranları referanstan: Sol 17.8% · Orta 51% (harita hero) · Sağ 25.8% */}
-        <div style={{ flex: '1 1 auto', minHeight: 0, display: 'grid', gridTemplateColumns: hzGridCols, gap: 12 }}>
-          <div style={{ display: 'grid', gap: 11, minWidth: 0, minHeight: 0, gridTemplateRows: hzRailRows('left-rail') }}>
+        <div style={isPortrait
+          ? { flex: '1 1 auto', minHeight: 0, display: 'flex', flexWrap: 'wrap', alignContent: 'flex-start', gap: 12 }
+          : { flex: '1 1 auto', minHeight: 0, display: 'grid', gridTemplateColumns: hzGridCols, gap: 12 }}>
+          <div style={{ display: 'grid', gap: 11, minWidth: 0, minHeight: 0, gridTemplateRows: hzRailRows('left-rail'),
+            ...(isPortrait ? { width: 'calc(50% - 6px)', height: 'calc(52% - 6px)' } : null) }}>
             {solved['left-rail'].groups.map((g, i) => renderHzGroup(g, g.map((x) => x.id).join('+') || String(i)))}
           </div>
 
-          <div style={{ position: 'relative', minWidth: 0, minHeight: 0, display: 'flex' }}>
+          <div style={{ position: 'relative', minWidth: 0, minHeight: 0, display: 'flex',
+            ...(isPortrait ? { order: -1, width: '100%', height: 'calc(48% - 6px)' } : null) }}>
             <HzMap onOpenMap={onOpenMap} fullMapOpen={fullMapOpen} />
             {smart && smart.predictions.length > 0 && (
               <div className="absolute" style={{ bottom: 78, left: 15, right: 15, zIndex: 20 }}>
@@ -937,7 +948,8 @@ export const HorizonLayout = memo(function HorizonLayout(props: Props) {
             )}
           </div>
 
-          <div style={{ display: 'grid', gap: 11, minWidth: 0, minHeight: 0, gridTemplateRows: hzRailRows('right-rail') }}>
+          <div style={{ display: 'grid', gap: 11, minWidth: 0, minHeight: 0, gridTemplateRows: hzRailRows('right-rail'),
+            ...(isPortrait ? { width: 'calc(50% - 6px)', height: 'calc(52% - 6px)' } : null) }}>
             {solved['right-rail'].groups.map((g, i) => renderHzGroup(g, g.map((x) => x.id).join('+') || String(i)))}
           </div>
         </div>

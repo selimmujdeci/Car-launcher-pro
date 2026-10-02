@@ -877,6 +877,17 @@ export const ProLayout = memo(function ProLayout({
   };
 
   const zoneOuterStyle = (zone: Zone): React.CSSProperties => {
+    /* DİKEY panel (ör. 768×1024 Tesla tipi head unit): harita üstte tam genişlik,
+       iki ray altta YAN YANA (raylar dar sütun için tasarlandı; ~yarım genişlik
+       onlara uyar). Eskiden üçü üst üste diziliyordu: rayların otomatik
+       yüksekliğinde `flexBasis: 0` kartlar (gösterge/müzik/araç) SIFIRA çöküyor,
+       harita kalan tüm alanı alıyordu → kartlar ekrandan kayboluyordu. Yüzdeler
+       kabın kesin yüksekliğine göredir; boşluk 12px her iki eksende. */
+    if (isPortrait) {
+      return zone === 'center-stage'
+        ? { gap: 12, minHeight: 0, order: -1, width: '100%', height: 'calc(48% - 6px)' }
+        : { gap: 12, minHeight: 0, minWidth: 0, width: 'calc(50% - 6px)', height: 'calc(52% - 6px)', flexShrink: 0 };
+    }
     if (zone === 'center-stage') return { gap: 12, flex: 1, minHeight: 0 };
     /* Sütun genişliği ÇARPANLA ölçeklenir (PR-5). Çarpan yoksa değerler
        BİREBİR eskisiyle aynıdır → mevcut ekran korunur. Mutlak piksel yerine
@@ -886,7 +897,7 @@ export const ProLayout = memo(function ProLayout({
     const w = zone === 'left-rail'
       ? `clamp(${Math.round(132 * k)}px, ${(13 * k).toFixed(1)}vw, ${Math.round(168 * k)}px)`
       : `clamp(${Math.round(260 * k)}px, ${(27 * k).toFixed(1)}vw, ${Math.round(340 * k)}px)`;
-    return { gap: 12, minHeight: 0, width: isPortrait ? '100%' : w, flexShrink: 0 };
+    return { gap: 12, minHeight: 0, width: w, flexShrink: 0 };
   };
 
   // Sarmalayıcı flex: growCustom (elle boyut) varsa onu kullan; yoksa doğal rol.
@@ -912,7 +923,9 @@ export const ProLayout = memo(function ProLayout({
       <div data-theme-surface="home" className="flex flex-col w-full h-full overflow-hidden" data-layout="pro-main" style={{ background: pal.bg, transition: 'background 0.4s ease' }}>
         {/* İçerik */}
         <div className="flex-1 min-h-0 overflow-hidden" style={{ padding: '12px 14px 6px' }}>
-          <div className="h-full min-h-0 flex" style={{ flexDirection: isPortrait ? 'column' : 'row', gap: 12 }}>
+          <div className="h-full min-h-0 flex" style={isPortrait
+            ? { flexDirection: 'row', flexWrap: 'wrap', alignContent: 'flex-start', gap: 12 }
+            : { flexDirection: 'row', gap: 12 }}>
             {/* Zone'lar Yerleşim Motoru'ndan — sıra/görünürlük/boyut niyete göre; varsayılan = mevcut ekran */}
             {RAIL_ZONES.map((zone) => (
               <div key={zone} className="flex flex-col" style={zoneOuterStyle(zone)}>
