@@ -22,13 +22,13 @@
  *
  * ── SINIR ──────────────────────────────────────────────────────────────────
  *  · Yeni TTS kanalı/otoritesi KURMAZ; hiçbir şey import etmez (yaprak).
- *  · Zincir sırası (klip → Edge → Gemini TTS → native) BURADA DEĞİL,
- *    `ttsService.speakAssistant`tedir ve değişmez.
+ *  · Zincir sırası BURADA DEĞİL, `ttsService`tedir. TEK SES (2026-10-02, ürün
+ *    kararı): tüm sözler klip (Emel) → Edge Emel → cihaz motoru (son çare);
+ *    Gemini TTS yedeği zincirden ÇIKARILDI, wake selamı yerine ton çalar.
+ *    `geminiVoice` yalnız Gemini Live içindir (Live varsayılan KAPALI).
  *  · Edge sesi proxy tarafında (`carospro.com/api/tts`) sabittir; istemci yalnız
  *    metin gönderir. Buradaki `edgeVoice` REFERANS/belgedir, istek parametresi
  *    değildir — "aynı voice id" iddiası üretmez.
- *  · Wake selamı (`wakeWordService` → native `ttsSpeak`) bilinçli olarak dışarıda:
- *    mikrofon yield'ı `nativeTtsSpeaking` bayrağına bağlıdır.
  */
 
 export const MAVI_VOICE_PROFILE = Object.freeze({

@@ -102,6 +102,7 @@ import { executeAppControl } from './voice/appControlExecutor';
 import { weatherQueryNamesCity } from './weatherService';
 import { showToast } from './errorBus';
 import { VOICE_TUNING } from './voiceTuning';
+import { playListenEarcon } from './voiceClips';
 import { reportVoiceDiag } from './voiceDiagService';
 import { pushTrail } from './diagnosticTrailCore';  // çekirdek: ağır obd/store zinciri GİRMESİN
 import { deriveSttLatencyMetrics, recordSttLatencyMetrics, type RawSttTelemetry } from './sttLatencyTelemetry';
@@ -2841,8 +2842,9 @@ export interface StartListeningOpts {
    */
   followUpWindow?: boolean;
   /**
-   * HIZLI warmup: wake selamı sonrası dinleme devrinde ses donanımı zaten aktif →
-   * mikrofon açılış pipeline'ı kısalır (warmupFastMs). "Buradayım der demez dinleme".
+   * HIZLI warmup (warmupFastMs): ses donanımı zaten aktifken mikrofon açılış
+   * pipeline'ı kısalır. "Şimdi konuş" tonu çalıyorsa mikrofon yine ton bitimini
+   * bekler (bkz. earconCaptureGapMs). 2026-10-02'den beri wake yolu kullanmıyor.
    */
   fastWarmup?: boolean;
 }
@@ -2888,10 +2890,23 @@ export function startListening(opts?: StartListeningOpts): void {
 
   if (isNative) {
     // Mikrofon donanım ısınması — süreler voiceTuning.ts tek kaynağından.
-    // Wake selamı devri: TTS az önce çaldı → donanım aktif → hızlı warmup (pipeline kısa).
-    const warmupMs = opts?.fastWarmup
+    const baseWarmupMs = opts?.fastWarmup
       ? VOICE_TUNING.warmupFastMs
       : (isLowEndDevice() ? VOICE_TUNING.warmupLowEndMs : VOICE_TUNING.warmupMs);
+    /* ── "ŞİMDİ KONUŞ" TONU (Apple/Siri modeli, 2026-10-02) ──────────────────
+     * Dinleme penceresinin TEK açılış noktası burasıdır (uyanma · mikrofon
+     * düğmesi · takip dinlemesi) → ton her dinleme başında BİR KEZ çalar ve
+     * kullanıcı tondan SONRA konuşur. Mikrofon ton BİTTİKTEN sonra açılır:
+     * cihazda yankı giderme (AEC) yok — açık mikrofon tonu duyup VAD'ı
+     * "konuşma başladı" sanmaya ve gürültü tabanını şişirmeye iterdi.
+     * Müzik tonla BİRLİKTE kısılır (dinleme duck'ı erkene alındı; tüm çıkış
+     * yolları zaten `_endListenDuck` çağırır). Ton çalınamazsa (0) bekleme
+     * eklenmez — ton dinlemeyi ASLA engellemez. */
+    _beginListenDuck();
+    const toneMs = playListenEarcon();
+    const warmupMs = toneMs > 0
+      ? Math.max(baseWarmupMs, toneMs + VOICE_TUNING.earconCaptureGapMs)
+      : baseWarmupMs;
 
     // Failsafe > warmup + maxListenMs (voiceTuning hiyerarşisi): aktif dinleme
     // ASLA buradan kesilmez; yalnız native'in hiç dönmediği anormal durumu toparlar.
@@ -3218,14 +3233,23 @@ export function startListening(opts?: StartListeningOpts): void {
       if (_current.status === 'listening') push({ status: 'idle' });
     };
 
-    try {
-      _webRecognition.start();
-      console.warn('[Voice/web] start() çağrıldı — lang:', _webRecognition.lang);
-    } catch (e) {
-      console.error('[Voice/web] start() HATA:', e);
-      stopVolumeSimulation();
-      push({ status: 'idle' });
-    }
+    /* "Şimdi konuş" tonu — native ile AYNI sözleşme: tanıma ton bittikten sonra
+       başlar. Ton sırasında durdurma/yenileme geldiyse bu tanıma başlamaz. */
+    const rec = _webRecognition;
+    const begin = (): void => {
+      if (_webRecognition !== rec) return;
+      try {
+        rec.start();
+        console.warn('[Voice/web] start() çağrıldı — lang:', rec.lang);
+      } catch (e) {
+        console.error('[Voice/web] start() HATA:', e);
+        stopVolumeSimulation();
+        push({ status: 'idle' });
+      }
+    };
+    const toneMs = playListenEarcon();
+    if (toneMs > 0) setTimeout(begin, toneMs + VOICE_TUNING.earconCaptureGapMs);
+    else begin();
   }
 }
 

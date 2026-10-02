@@ -51,11 +51,18 @@ export interface VoiceTuning {
   /** Mikrofon donanım ısınması — düşük donanım/T507 (ms). */
   warmupLowEndMs: number;
   /**
-   * HIZLI warmup (ms) — wake selamı → dinleme devrinde: TTS az önce çaldığı için
-   * ses donanımı zaten aktif, tam ısınma gereksiz. "Buradayım der demez dinlemede
-   * olsun" (saha 2026-07-23) için mikrofon açılış pipeline'ını kısaltır.
+   * HIZLI warmup (ms) — ses donanımı zaten aktifken tam ısınma gereksiz. Eskiden
+   * wake selamı → dinleme devrinde kullanılıyordu (selam 2026-10-02'de kaldırıldı;
+   * "şimdi konuş" tonu çalarken mikrofon ton bitimini bekler).
    */
   warmupFastMs: number;
+  /**
+   * "Şimdi konuş" tonu bittikten sonra mikrofon açılmadan önceki boşluk (ms):
+   * WebView ses başlatma gecikmesi + çıkış→giriş yol geçişi payı. Cihazda yankı
+   * giderme (AEC) yok — mikrofon tonu duyarsa VAD "konuşma başladı" sanar.
+   * Ton + boşluk ≤ warmupMs tutulur → normal yolda dinleme GECİKMEZ.
+   */
+  earconCaptureGapMs: number;
   /**
    * JS failsafe: 'listening' bu süreyi aşarsa zorla idle.
    * warmupLowEndMs + maxListenMs'ten BÜYÜK olmalı (aktif dinlemeyi kesmesin).
@@ -79,6 +86,7 @@ export const VOICE_TUNING: VoiceTuning = {
   warmupMs:         300,
   warmupLowEndMs:   500,
   warmupFastMs:     120,
+  earconCaptureGapMs: 130,
   listenFailsafeMs: 14_000,
   uiSafetyCloseMs:  16_000,
 };

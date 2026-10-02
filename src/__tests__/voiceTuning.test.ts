@@ -31,6 +31,9 @@ const M = vi.hoisted(() => ({
   sttOptions: null as Record<string, unknown> | null,
   sttImpl: null as (() => Promise<{ transcript: string }>) | null,
   lowEnd: false,
+  /** "Şimdi konuş" tonu: 0 = platform çalamıyor (varsayılan — eski testler aynen). */
+  toneMs: 0,
+  toneCalls: 0,
 }));
 
 vi.mock('../platform/bridge', () => ({ isNative: true, bridge: {} }));
@@ -57,6 +60,9 @@ vi.mock('../platform/ttsService', () => ({
 }));
 vi.mock('../platform/media/authority/duckRequest', () => ({
   requestDuck: () => ({ reason: 'MAVI', release: (): void => {} }),
+}));
+vi.mock('../platform/voiceClips', () => ({
+  playListenEarcon: () => { M.toneCalls++; return M.toneMs; },
 }));
 vi.mock('../platform/aiVoiceService', () => ({ askAI: async () => null, resolveApiKey: () => '' }));
 vi.mock('../platform/ai/semanticAiService', () => ({
@@ -90,6 +96,8 @@ beforeEach(() => {
   M.sttOptions = null;
   M.sttImpl = null;
   M.lowEnd = false;
+  M.toneMs = 0;
+  M.toneCalls = 0;
 });
 
 afterEach(() => {
@@ -178,6 +186,49 @@ describe('native opsiyon aktarımı', () => {
     expect(M.sttOptions).not.toBeNull();
     expect(M.sttOptions!['maxListenMs']).toBe(VOICE_TUNING.followUpListenMs);
     expect(M.sttOptions!['gain']).toBe(VOICE_TUNING.nativeGainX); // kazanç aynı
+  });
+});
+
+describe('"şimdi konuş" tonu — mikrofon tondan SONRA açılır (Apple/Siri modeli)', () => {
+  const TONE = 170;
+
+  it('ton dinleme başına BİR KEZ çalar; ton + boşluk dolmadan mikrofon AÇILMAZ (en kısa warmup bile)', async () => {
+    vi.useFakeTimers();
+    M.toneMs = TONE;
+    startListening({ fastWarmup: true });              // 120 ms warmup tonu kısaltamaz
+    expect(M.toneCalls).toBe(1);
+    await vi.advanceTimersByTimeAsync(TONE + VOICE_TUNING.earconCaptureGapMs - 10);
+    expect(M.sttOptions).toBeNull();                   // ton/boşluk sürerken mikrofon kapalı (AEC yok)
+    await vi.advanceTimersByTimeAsync(20);
+    expect(M.sttOptions).not.toBeNull();               // ton bitti → mikrofon açıldı
+  });
+
+  it('takip dinlemesine geçişte de ton çalar (her dinleme başı aynı sözleşme)', async () => {
+    vi.useFakeTimers();
+    M.toneMs = TONE;
+    startListening({ followUpWindow: true });
+    expect(M.toneCalls).toBe(1);
+    await vi.advanceTimersByTimeAsync(VOICE_TUNING.warmupMs + 50);
+    expect(M.sttOptions!['maxListenMs']).toBe(VOICE_TUNING.followUpListenMs);
+  });
+
+  it('warmup sürerken ikinci startListening İKİNCİ ton çalmaz (idempotent)', async () => {
+    vi.useFakeTimers();
+    M.toneMs = TONE;
+    startListening();
+    startListening();
+    expect(M.toneCalls).toBe(1);
+    // Warmup'ı tamamla — askıda zamanlayıcı sonraki testlerin dinleme açılışını kilitlemesin.
+    await vi.advanceTimersByTimeAsync(VOICE_TUNING.warmupMs + 50);
+    expect(M.sttOptions).not.toBeNull();
+  });
+
+  it('ton çalınamazsa (0) bekleme EKLENMEZ — warmup aynen', async () => {
+    vi.useFakeTimers();
+    M.toneMs = 0;
+    startListening({ fastWarmup: true });
+    await vi.advanceTimersByTimeAsync(VOICE_TUNING.warmupFastMs + 10);
+    expect(M.sttOptions).not.toBeNull();
   });
 });
 

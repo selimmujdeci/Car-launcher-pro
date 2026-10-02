@@ -19,7 +19,7 @@ import { normalizeForSpeech } from './speechText';
 import { segmentSpeech, type SpeechSegment } from './speechSegment';
 import { isLowEndDevice } from './headUnitCompat';
 import { tryPlayClip, cancelClip } from './voiceClips';
-import { speakOnline, isOnlineTtsAvailable, cancelOnline } from './onlineTtsService';
+import { cancelOnline } from './onlineTtsService';
 import { speakEdge, isEdgeTtsAvailable, cancelEdge } from './edgeTtsService';
 import { beginPcmPlayback, cancelPcmPlayback, type PcmPlaybackHandle } from './livePcmTtsService';
 /* MAVI-F0: ilk duyulabilir ses ölçümü (YALNIZ ÖLÇÜM — hiçbir TTS kararını etkilemez). */
@@ -593,6 +593,12 @@ interface SpeakOptions {
    * Güvenlik/acil uyarılarında false verilir → tek utterance, gecikmesiz.
    */
   segment?: boolean;
+  /**
+   * Emel bulut katmanını ATLA, doğrudan cihaz motoruna git. Yalnız Emel'i
+   * kendisi deneyip konuşturamamış çağıran (speakAssistant yedeği) verir —
+   * aynı metin için ikinci bir bulut gidiş-dönüşü olmasın.
+   */
+  engineOnly?: boolean;
 }
 
 export function ttsSpeak(text: string, opts: SpeakOptions = {}): void {
@@ -621,6 +627,7 @@ export function ttsSpeak(text: string, opts: SpeakOptions = {}): void {
   // follow-up/idle'ı erken tetiklemez.
   if (!opts.queue) {
     cancelClip();
+    cancelEdge();    // TEK SES: önceki söz de Emel'den çalıyor olabilir — iki Emel üst üste binmez
     if (!_isNative && isTTSAvailable()) window.speechSynthesis.cancel();
     _speakSeq++;
   }
@@ -647,6 +654,42 @@ export function ttsSpeak(text: string, opts: SpeakOptions = {}): void {
     : segmentSpeech(spoken, { rate: baseRate, pitch: basePitch, lowEnd: isLowEndDevice() });
   if (segments.length === 0) { _markSpeakingEnd(); return; }
 
+  /* ── TEK SES (ürün kararı 2026-10-02): Mavi'nin TEK sesi Emel'dir ──────────
+   * Navigasyon · tehlike · güvenlik · donanım onayı · durum sözleri eskiden
+   * DOĞRUDAN cihaz motoruna gidiyordu: telefonda Mavi'den FARKLI bir ses,
+   * motorsuz head unit'te HİÇ ses (`TTS_NOT_READY`). Artık klipte olmayan
+   * metin önce Edge Emel'den çalar (Mavi cevaplarıyla aynı ses). Emel
+   * konuşamazsa (çevrimdışı · soğuma · hata) cihaz motoru SON ÇAREDİR —
+   * sürüş sesi sessiz kalmasın diye. Prozodi (rate/pitch) Emel yolunda
+   * uygulanmaz; ses kimliği tek kalır. */
+  if (!opts.engineOnly && isEdgeTtsAvailable()) {
+    const seq = ++_speakSeq;
+    _markTransport('WEBVIEW_AUDIO');   // MAVI-F12: WebView'den çalar → mikrofon açık kalır
+    const fallback = (): void => {
+      if (seq === _speakSeq) _speakWithEngine(spoken, segments, opts, baseRate, basePitch);
+    };
+    void speakEdge(spoken, () => {
+      if (seq === _speakSeq) _notifyTtsEnd();   // yalnız güncel söz takip/idle tetikler
+      opts.onEnd?.();
+    }, _currentDuckReason())
+      .then((ok) => { if (!ok) fallback(); })    // Emel konuşamadı ve yeni söz devralmadı → motor
+      .catch(fallback);
+    return;
+  }
+  _speakWithEngine(spoken, segments, opts, baseRate, basePitch);
+}
+
+/**
+ * Cihaz TTS motoru yolu (native `TextToSpeech` · web `speechSynthesis`) — yalnız
+ * Emel'e ulaşılamadığında SON ÇARE. Motor yoksa iz bırakır (#1256-a), ses üretmez.
+ */
+function _speakWithEngine(
+  spoken: string,
+  segments: SpeechSegment[],
+  opts: SpeakOptions,
+  baseRate: number,
+  basePitch: number,
+): void {
   // ── Native path: Android TextToSpeech (güvenilir, Türkçe destekli) ──
   if (_isNative) {
     const seq = ++_speakSeq;
@@ -866,7 +909,7 @@ export function speakSafetyAlert(message: string): void {
 /* ── Semantic helpers ────────────────────────────────────── */
 
 /** Sesli komut tanındığında geri bildirim sesi.
- *  ÖNEMLİ: premium KADIN hibrit zincirine (klip→Edge→online→son çare tarayıcı)
+ *  ÖNEMLİ: TEK SES (Emel) zincirine (klip→Edge Emel→son çare cihaz motoru)
  *  yönlendirilir — doğrudan tarayıcı `speechSynthesis` KULLANILMAZ; çünkü tarayıcı
  *  Türkçe sesi (Windows'ta "Tolga") ERKEK ve asistan sesiyle (Edge kadın) tutarsız
  *  olur. Online'da hep kadın; yalnız tam offline'da tarayıcı/eSpeak yedeği. */
@@ -880,10 +923,10 @@ export function speakFeedback(feedback: string): void {
 }
 
 /**
- * Akıllı asistan (Gemini/Claude/Grok) cevabını seslendirir — hibrit öncelik zinciri:
- *   1) Sabit ifade klibi (offline premium, anında, maliyetsiz)
- *   2) Online TTS (serbest/akıllı cevap — asistan zaten online; motor/kurulum gerekmez)
- *   3) Native/web TTS yedeği (varsa)
+ * Akıllı asistan (Gemini/Claude/Grok) cevabını seslendirir — TEK SES (Emel) zinciri:
+ *   1) Sabit ifade klibi (Emel, offline, anında, maliyetsiz)
+ *   2) Edge Emel (serbest/akıllı cevap — motor/kurulum gerekmez)
+ *   3) Cihaz TTS motoru — yalnız Emel'e ulaşılamazsa son çare (varsa)
  * Böylece TTS motoru OLMAYAN head unit'lerde bile asistan tam sesli çalışır.
  */
 /**
@@ -969,27 +1012,20 @@ export function speakAssistant(text: string, onEnd?: () => void): void {
     return;
   }
 
-  // Hibrit ses zinciri: 2) Edge (premium TR KADIN, kotasız) → 3) Gemini TTS (kotalı)
-  //   → 4) native/tarayıcı eSpeak yedek. Gemini kotası bitince (saha 2026-07-03) Edge
-  // premium sesi sürdürür; ikisi de düşerse asla sessiz kalmaz.
+  // TEK SES zinciri (2026-10-02): 2) Edge Emel → 3) cihaz motoru (son çare).
+  // Gemini TTS katmanı ÇIKARILDI: farklı bir sesti (Sulafat) — "tek kadın ses"
+  // kuralını bozuyordu; ayrıca kullanıcının kendi Gemini kotasını harcıyordu.
   // gen guard: daha yeni bir cevap başladıysa (supersede) alt tiere DÜŞME — aksi
-  // halde eski çağrı erkek tarayıcı sesine kaçıp yeni cevapla çakışırdı.
+  // halde eski çağrı cihaz sesine kaçıp yeni cevapla çakışırdı.
   void (async () => {
     try {
       if (isEdgeTtsAvailable()) {
         const ok = await speakEdge(t, () => { _notifyTtsEnd(); onEnd?.(); }, reason);
         if (ok) { _markTransport('WEBVIEW_AUDIO'); return; }   // MAVI-F12
       }
-    } catch { /* Edge yolu kırılırsa Gemini'ye düş */ }
+    } catch { /* Edge yolu kırılırsa cihaz motoruna düş */ }
     if (gen !== _assistantGen) return; // yeni cevap devraldı → yedeğe düşme
-    try {
-      if (await isOnlineTtsAvailable()) {
-        const ok = await speakOnline(t, () => { _notifyTtsEnd(); onEnd?.(); }, reason);
-        if (ok) { _markTransport('WEBVIEW_AUDIO'); return; }   // MAVI-F12
-      }
-    } catch { /* online yolu kırılırsa sessizce yedeğe düş */ }
-    if (gen !== _assistantGen) return; // yeni cevap devraldı → tarayıcıya (erkek) düşme
-    ttsSpeak(t, { onEnd });
+    ttsSpeak(t, { onEnd, engineOnly: true });   // Emel zaten denendi → doğrudan cihaz motoru
   })();
 }
 

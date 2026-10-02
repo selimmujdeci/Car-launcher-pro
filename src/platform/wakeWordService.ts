@@ -4,9 +4,9 @@
  * İKİ KAYNAK (useLayoutServices önceliği belirler):
  *  - COMPANION ("Yol Arkadaşım"): wake sözleri asistan ADINDAN türetilir
  *    (resolveWakeWords — "Mavi" / "Hey Mavi" / özel cümle). Tetiklenince
- *    kısa selamlama TTS'i ("Buradayım.") → TTS bitince aktif dinleme.
- *  - LEGACY ("hey car"): eski Voice Assistant toggle'ı — davranış aynen
- *    korunur (selamlama yok, doğrudan dinleme).
+ *    "şimdi konuş" tonu → ton bitince aktif dinleme (selam YOK, 2026-10-02).
+ *  - LEGACY ("hey car"): eski Voice Assistant toggle'ı — aynı akış
+ *    (ton → doğrudan dinleme).
  *
  * Pasif dinleme UX: pasif beklerken voiceService durumuna DOKUNULMAZ —
  * ekranda "Dinliyorum" pill'i yalnız AKTİF dinlemede görünür.
@@ -64,7 +64,7 @@ export interface WakeWordState {
   enabled:     boolean;
   /** Aktif wake sözleri (normalize). Companion modda asistan adından türer. */
   wakeWords:   string[];
-  /** Companion kaynağı mı (selamlama + kelime-sınırlı eşleşme). */
+  /** Companion kaynağı mı (TR kelime-sınırlı eşleşme). */
   companion:   boolean;
   /**
    * ÖZEL/sözlük-dışı wake modu: grammar YOK (sözlük-dışı kelimeyi düşürür),
@@ -105,55 +105,13 @@ function matchesLegacy(transcript: string, words: readonly string[]): boolean {
   return LEGACY_WAKE_PATTERNS.some((p) => norm.includes(p));
 }
 
-/* ── Wake selamlaması (companion) ────────────────────────── */
-
-// Deterministik rotasyon (Math.random yok — testler kararlı, tekrar hissi az)
-const WAKE_GREETINGS = ['Buradayım.', 'Dinliyorum.', 'Seni dinliyorum.'];
-let _greetCounter = 0;
-
-/* ── Wake selamı → aktif dinleme köprüsü (deterministik açılış) ─────────────────
- * SAHA 2026-07-23 ("hey mavi → 'burdayım' der, GEÇ dinlemeye geçer"): eskiden
- * mikrofon YALNIZ greeting TTS'inin onEnd'inde açılıyordu. onEnd, OEM
- * TextToSpeech onDone'una bağlı ve bu callback audio bitiminden çok sonra (bazı
- * motorlar HİÇ) gelir → ttsSpeak'in süre-tahminli ~4s'lik safety'sine düşülüp
- * mikrofon çok geç açılıyordu; kullanıcının selamı duyar duymaz söylediği ilk söz
- * kapalı mikrofona gidiyordu ("tut sesini bekliyorum").
- *
- * DÜZELTME: greeting süre tahminine göre DETERMİNİSTİK zamanlayıcı — onEnd
- * gecikse/hiç gelmese bile mikrofon açılır. Zamanlayıcı warmup kadar ERKEN kurulur
- * → mikrofonun capture-ready anı greeting sesinin doğal sonuyla örtüşür ("burdayım
- * dediği gibi dinlemede olmalı"). startListening'in ilk işi ttsCancel: greeting
- * kuyruğu timer anında susturulur, gerçek yakalama warmup sonrası başlar → aktif
- * komut penceresinde selam sesi ÇALMAZ (self-echo yok). onEnd erken gelirse
- * mikrofonu O açar; startListening idempotent olduğundan çift açılış no-op'tur. */
-let _wakeListenTimer: ReturnType<typeof setTimeout> | null = null;
-
-// Süre tahmini SAHA ÖLÇÜMÜNE kalibre (CDP, 2026-07-23: "Buradayım." rate 1.05 →
-// ölçülen ~1091ms). Zamanlayıcı, mikrofon warmup'ını greeting kuyruğuyla örtüştürmek
-// için LEAD kadar erken kurulur → capture-ready ≈ greeting doğal sonu (küçük kuyruk
-// kırpması pahasına ölü boşluk ~0). Değerler cihazda ince ayarlanabilir.
-// Greeting rate 1.15'e göre (aşağıda) kalibre: "Buradayım." ≈ 1000ms.
-const WAKE_GREET_BASE_MS     = 340;
-const WAKE_GREET_PER_CHAR_MS = 66;
-const WAKE_LISTEN_LEAD_MS    = 180;   // timer'ı greeting sonundan önce → mikrofon açılış pipeline'ı örtüşür
-const WAKE_LISTEN_FLOOR_MS   = 500;   // en kısa selam bile duyulacak kadar çalsın
-
-function _clearWakeListenTimer(): void {
-  if (_wakeListenTimer) { clearTimeout(_wakeListenTimer); _wakeListenTimer = null; }
-}
-
-/** onEnd yolu: deterministik zamanlayıcıyı iptal edip mikrofonu hemen aç (çift açılış yok).
- * fastWarmup: TTS az önce çaldı → ses donanımı aktif → mikrofon açılış pipeline'ı kısa. */
-function _openWakeListen(): void {
-  _clearWakeListenTimer();
-  startListening({ fastWarmup: true });
-}
-
-/** Greeting seslendirme süresi tahmini − warmup örtüşme payı (capture-ready ≈ greeting sonu). */
-function _wakeListenDelayMs(greeting: string): number {
-  const estSpeechMs = Math.min(2000, WAKE_GREET_BASE_MS + greeting.length * WAKE_GREET_PER_CHAR_MS);
-  return Math.max(WAKE_LISTEN_FLOOR_MS, estSpeechMs - WAKE_LISTEN_LEAD_MS);
-}
+/* ── Wake → dinleme (Apple/Siri modeli, 2026-10-02) ─────────────────────────
+ * Uyanınca Mavi KONUŞMAZ ("Buradayım" selamı kaldırıldı): `startListening`
+ * kısa "şimdi konuş" tonunu çalar ve ton bitince mikrofonu açar; kullanıcı
+ * tondan SONRA konuşur. Selam cihazın TTS motoruna gidiyordu — motorsuz head
+ * unit'te HİÇ duyulmuyordu ve kullanıcı uyanmayı "uyanmadı" sanıyordu; ayrıca
+ * selam süresi + OEM onDone gecikmesi dinlemeyi geç açıyordu. Ton motora,
+ * internete ve dile bağlı değildir. */
 
 /* ── Modül durumu ────────────────────────────────────────── */
 
@@ -423,8 +381,8 @@ function onWakeWordDetected(
     }
   }
 
-  // Selamlama/echo debounce: kabul edilen tetikten sonra kısa süre (selam TTS'i
-  // + mikrofon açılma rampası) yeni tetik yutulur — çift selam olmaz.
+  // Echo debounce: kabul edilen tetikten sonra kısa süre (ton + mikrofon açılma
+  // rampası) yeni tetik yutulur — çift ton / çift dinleme açılışı olmaz.
   const now = Date.now();
   if (now - _lastWakeAcceptedAt < WAKE_REACCEPT_DEBOUNCE_MS) {
     recordWake({ reason: 'SUPPRESSED_DEBOUNCE', path: _path, atMs: now, ..._tel });
@@ -451,28 +409,8 @@ function onWakeWordDetected(
     });
   }
 
-  if (_state.companion) {
-    // Kısa selamlama + DETERMİNİSTİK dinleme açılışı. Mikrofon greeting sonunda
-    // her hâlükârda açılır (OEM onDone gecikmesini beklemez) → kullanıcı selamı
-    // duyar duymaz konuşabilir. Lazy import — modül yükünde TTS zinciri yok.
-    const greeting = WAKE_GREETINGS[_greetCounter % WAKE_GREETINGS.length];
-    _greetCounter++;
-    void import('./ttsService')
-      .then(({ ttsSpeak }) => {
-        // rate 1.15: selam daha kısa/snappy → devir hızlanır (saha: "geç dinlemeye geçiyor").
-        ttsSpeak(greeting, { rate: 1.15, onEnd: () => { _openWakeListen(); } });
-      })
-      .catch(() => { _openWakeListen(); }); // TTS yoksa selamlamasız dinle (fail-soft)
-    // onEnd (OEM onDone) gecikirse/gelmezse bile açılış garantisi — capture-ready
-    // greeting sonuyla örtüşecek şekilde erken + hızlı warmup.
-    _clearWakeListenTimer();
-    _wakeListenTimer = setTimeout(() => {
-      _wakeListenTimer = null;
-      startListening({ fastWarmup: true });
-    }, _wakeListenDelayMs(greeting));
-  } else {
-    startListening();
-  }
+  // Selam YOK: ton + dinleme açılışı `startListening`in tek sahipliğinde.
+  startListening();
 
   // Önceki timer varsa iptal et (hızlı art arda tetiklenme koruması)
   if (_detectedTimer) { clearTimeout(_detectedTimer); }
@@ -662,11 +600,6 @@ async function startGrammarMode(gen: number): Promise<boolean> {
     const { CarLauncher } = await import('./nativePlugin');
     if (typeof CarLauncher.startWakeWordListening !== 'function') return false;
 
-    // REFLEKS ISITMASI: ttsService modülü ŞİMDİ yüklenir — tetik anındaki
-    // dynamic import önbellekten (mikro-görev) çözülür; "Buradayım" <200ms
-    // hedefini ilk tetikte de tutar (soğuk import head unit'te yüzlerce ms).
-    void import('./ttsService').catch(() => { /* TTS yoksa selamlamasız akış */ });
-
     const handle = await CarLauncher.addListener('wakeWord', (data: { transcript?: string } & Partial<WakeRecorderStateEvent>) => {
       if (data?.state) {
         _wakeRecorderState = data.state;
@@ -733,7 +666,7 @@ async function stopGrammarMode(): Promise<void> {
 /* ── Public API ──────────────────────────────────────────── */
 
 export interface EnableWakeWordOpts {
-  /** Companion kaynağı: selamlama + TR kelime-sınırlı eşleşme. */
+  /** Companion kaynağı: TR kelime-sınırlı eşleşme. */
   companion?: boolean;
   /** ÖZEL/sözlük-dışı mod: grammar yok, serbest tanıma + fonetik fuzzy eşleşme. */
   custom?: boolean;
@@ -801,7 +734,6 @@ export function disableWakeWord(): void {
   if (_interactionResumeTimer) { clearTimeout(_interactionResumeTimer); _interactionResumeTimer = null; }
   void stopGrammarMode(); // Faz 5: native grammar thread + event listener kapanır
   if (_detectedTimer) { clearTimeout(_detectedTimer); _detectedTimer = null; }
-  _clearWakeListenTimer();   // bekleyen wake-selamı dinleme açılışı iptal
   push({ enabled: false, status: 'disabled' });
   stopWebListening();
 }
@@ -828,7 +760,6 @@ export function pauseWakeWordForInteraction(): void {
   if (!_state.enabled || _interactionPaused) return;
   _interactionPaused = true;
   _nativeLoopActive = false;     // legacy polling döngüsü adımında kendini sonlandırır
-  _clearWakeListenTimer();       // duraklamada bekleyen wake dinleme açılışı iptal
   void stopGrammarMode();        // grammar thread (vosk-wake-gramm) durur → CPU geri gelir
   _stopWatchdog();               // duraklamada watchdog re-arm etmesin
 }
@@ -874,7 +805,6 @@ export function pauseWakeWordForPower(): void {
   if (!_state.enabled || _powerPaused) return;
   _powerPaused = true;
   _nativeLoopActive = false;     // legacy polling döngüsü adımında kendini sonlandırır
-  _clearWakeListenTimer();       // duraklamada bekleyen wake dinleme açılışı iptal
   void stopGrammarMode();        // grammar thread (vosk-wake-gramm) durur → mikrofon kapanır
   _stopWatchdog();               // duraklamada watchdog re-arm etmesin
 }
@@ -1035,7 +965,7 @@ function _applyWakeFromSettings(s: AppSettings): void {
      İngilizce "hey car" sözünü Türkçe grammar'a veriyordu (sözlükte yok →
      pratikte hiç tetiklenmiyordu) ve ayar ekranı "Hey Araba" diyordu. Artık
      "hey araba" asistan adına EK söz olarak (ya da tek başına) companion yolundan
-     dinlenir: TR-normalize eşleşme + selamlama, tek dinleme oturumu. */
+     dinlenir: TR-normalize eşleşme + ton, tek dinleme oturumu. */
   const heyAraba = s.wakeWordEnabled === true;
   if (companionWake) {
     // Wake sözleri asistan ADINDAN türer ("Mavi"/"Hey Mavi"/özel cümle).
@@ -1127,10 +1057,8 @@ export function _resetWakeWordForTest(): void {
   _powerPaused = false;
   if (_interactionResumeTimer) { clearTimeout(_interactionResumeTimer); _interactionResumeTimer = null; }
   if (_detectedTimer) { clearTimeout(_detectedTimer); _detectedTimer = null; }
-  _clearWakeListenTimer();
   _stopWatchdog();
   clearRestartTimer();
-  _greetCounter = 0;
   _state = { ...INITIAL };
 }
 
@@ -1150,7 +1078,6 @@ if (import.meta.hot) {
     if (_wakeServiceUnsub) { _wakeServiceUnsub(); }                 // store aboneliği + disable
     void stopGrammarMode();                                         // native grammar thread + listener
     _stopWatchdog();                                                // watchdog interval sızmasın
-    _clearWakeListenTimer();                                        // bekleyen wake dinleme açılışı iptal
     if (_detectedTimer) { clearTimeout(_detectedTimer); _detectedTimer = null; }
     stopWebListening();                                             // SpeechRecognition.abort() + _restartTimer iptal
     _listeners.clear();                                            // stale React setState callback'leri temizle

@@ -6,8 +6,9 @@
  * (tr-TR-EmelNeural) premium kadın sesi, pratikte kotasız. Tarayıcıdan
  * doğrudan çağrılamaz (CORS + Sec-MS-GEC token) → carospro.com/api/tts proxy'si.
  *
- * Hibrit sırada 1. katman: speakAssistant → Edge → (yoksa) Gemini TTS → eSpeak.
- * Offline / proxy hatası → false döner, çağıran yedeğe düşer.
+ * TEK SES (2026-10-02): Mavi'nin tüm serbest metin sözleri (speakAssistant + ttsSpeak)
+ * buradan çalar; klipler de aynı sesle üretilmiştir.
+ * Offline / proxy hatası → false döner, çağıran cihaz motoru yedeğine düşer.
  */
 
 import { requestDuck, type DuckHandle } from './media/authority/duckRequest';
@@ -160,7 +161,7 @@ async function _synthesize(text: string): Promise<string | null> {
 
 /**
  * Metni Edge TTS ile seslendir. Başarılıysa true (ses çalmaya başladı);
- * offline / hata → false (çağıran Gemini/eSpeak yedeğine düşmeli).
+ * offline / hata → false (çağıran cihaz motoru yedeğine düşmeli).
  * onEnd yalnız ses gerçekten çaldıysa bir kez çağrılır (ducking + takip dinleme).
  */
 export async function speakEdge(

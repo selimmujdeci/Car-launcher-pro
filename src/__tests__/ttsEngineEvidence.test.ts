@@ -24,6 +24,14 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+/* TEK SES (2026-10-02): `ttsSpeak` klipte olmayan metni ÖNCE Edge Emel'e verir;
+   cihaz motoru yalnız Emel konuşamazsa SON ÇAREDİR. Bu dosya CİHAZ MOTORU
+   defterini kilitler → Emel katmanı erişilemez kurulur (aksi hâlde söz motora
+   hiç inmez ve test ortamı gerçek ağa çıkar). Defter beklentileri DEĞİŞMEDİ. */
+vi.mock('../platform/edgeTtsService', () => ({
+  speakEdge: async () => false, isEdgeTtsAvailable: () => false, cancelEdge: vi.fn(),
+}));
+
 const SRC = join(process.cwd(), 'src');
 const read = (...seg: string[]): string => readFileSync(join(SRC, ...seg), 'utf8');
 const stripComments = (s: string): string =>

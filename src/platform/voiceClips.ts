@@ -4,10 +4,14 @@
  * NEDEN: K24 head unit ROM'unda çalışan bir TTS motoru YOK ve cihaz 32-bit Android
  * olduğu için neural TTS (sherpa-onnx/Piper, onnxruntime) `SIGBUS` ile çöküyor —
  * yani cihazda kaliteli dinamik TTS imkânsız. Çözüm hibrit:
- *   1) Kritik + sabit ifadeler PC'de Piper ile üretilmiş **stüdyo kalite** kliplerden
- *      çalınır (public/voice/*.wav). Lisans temiz: yalnız ses ÇIKTISI gömülür
- *      (espeak/program çıktıyı kapsamaz; dfki modeli MIT).
- *   2) Eşleşmeyen serbest metin native TTS yedeğine (eSpeak) düşer.
+ *   1) Kritik + sabit ifadeler önceden üretilmiş kliplerden çalınır (public/voice/*.wav).
+ *      TEK SES (2026-10-02, ürün kararı): klipler Mavi'nin tek sesi **Emel**
+ *      (tr-TR-EmelNeural, `carospro.com/api/tts`) ile üretildi; eski Piper dfki (ERKEK)
+ *      klipleri kaldırıldı. Yalnız ses ÇIKTISI gömülür (motor/GPL espeak-ng YOK).
+ *      ⚠️ SATIŞ KAPISI: Edge okuma servisi resmi ticari API değil → satıştan önce
+ *      aynı ses lisanslı kaynaktan (Azure Speech, tr-TR-EmelNeural) yeniden üretilmeli
+ *      (bkz. website/src/app/api/tts/route.ts "TİCARİ NOT").
+ *   2) Eşleşmeyen serbest metin `ttsService` zincirine düşer: Edge Emel → cihaz motoru (son çare).
  *
  * Klipler basit `HTMLAudioElement` ile çalınır (Chrome 64-78 uyumlu, decodeAudioData
  * gerekmez). MUSIC F6.1: klip çalarken müzik KANONİK yoldan kısılır
@@ -142,5 +146,42 @@ export function cancelClip(): void {
   if (_active) {
     try { _active.pause(); } catch { /* zaten durmuş */ }
     _active = null;
+  }
+}
+
+/* ── "ŞİMDİ KONUŞ" TONU (earcon) ─────────────────────────────────────────────
+ * Ürün kararı (2026-10-02, Apple/Siri modeli): Mavi uyanınca KONUŞMAZ, kısa bir
+ * ton çalar; kullanıcı tondan SONRA konuşur. Mavi dinlemeye her geçtiğinde
+ * (uyanma · mikrofon düğmesi · takip dinlemesi) AYNI ton çalar. Ton TTS
+ * motoruna, internete ve dile bağlı değildir — motorsuz head unit'te de duyulur.
+ *
+ * Ses: iki notadan yükselen çan (G5 → D6), 170 ms, tamamen SENTETİK (kayıt yok,
+ * lisans temiz). Mikrofonu açan sahip `voiceService.startListening`dir; bu
+ * modül yalnız sesi çalar ve nominal süresini bildirir. Klip kanalından
+ * (`_active`) BAĞIMSIZDIR: `cancelClip`/`ttsCancel` tonu kesmez. */
+export const LISTEN_EARCON_MS = 170;
+
+let _earcon: HTMLAudioElement | null = null;
+
+/**
+ * Dinleme tonunu çalar. Çalma başlatıldıysa tonun nominal süresini (ms), platform
+ * WAV çalamıyorsa ya da hata olursa `0` döner — çağıran `0`da BEKLEMEDEN dinlemeye
+ * geçer (ton dinlemeyi asla engellemez).
+ */
+export function playListenEarcon(): number {
+  if (typeof Audio === 'undefined') return 0;
+  try {
+    if (!_earcon) {
+      _earcon = new Audio(`${_clipBase}earcon-listen.wav`);
+      _earcon.preload = 'auto';
+    }
+    // Platform yeteneği: WAV çalamayan ortam ('' = hayır) → ton yok, bekleme yok.
+    if (typeof _earcon.canPlayType === 'function' && _earcon.canPlayType('audio/wav') === '') return 0;
+    _earcon.currentTime = 0;
+    const p = _earcon.play();
+    if (p && typeof p.catch === 'function') p.catch(() => { /* ton çalmazsa dinleme yine açılır */ });
+    return LISTEN_EARCON_MS;
+  } catch {
+    return 0;
   }
 }
