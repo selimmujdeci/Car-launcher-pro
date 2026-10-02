@@ -33,6 +33,9 @@ const REQUIRED: Record<string, string> = {
   // Donanım / OBD (ttsService + commandExecutor canonical string)
   'Bağlantı kurulamadı. Tekrar deneyin.':                   'hw-error',
   'Araç verisi alınamıyor. OBD bağlantısını kontrol edin.': 'obd-nodata',
+  // Uyanma selamı (wakeWordService.WAKE_GREETINGS — birebir)
+  'Buradayım.':                                             'wake-buradayim',
+  'Seni dinliyorum.':                                       'wake-seni-dinliyorum',
 };
 
 describe('voiceClips — premium ses bankası eşleştirme kilidi', () => {

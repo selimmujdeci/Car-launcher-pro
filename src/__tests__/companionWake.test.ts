@@ -13,8 +13,8 @@
  *     büyük/küçük harf, kelime sınırı ("mavi" ⊄ "maviş")
  *  3. suggestWakePhrase — ad değişince otomatik öneri
  *  4. Güvenlik: injection/bozuk ad fallback; özel karakter temizliği
- *  5. wakeWordService — companion tetik: selam YOK → doğrudan aktif dinleme
- *     (ton startListening içinde); PROTECTION/CRITICAL'da tetik yutulur; pasif beklemede
+ *  5. wakeWordService — companion tetik: Emel selam klibi → bitince ton + aktif
+ *     dinleme; PROTECTION/CRITICAL'da tetik yutulur; pasif beklemede
  *     voiceService durumuna dokunulmaz ("Dinliyorum" pill'i çıkmaz);
  *     eşleşmeyen transcript dinleme başlatmaz
  */
@@ -359,28 +359,48 @@ describe('wakeWordService — companion wake akışı', () => {
     await vi.advanceTimersByTimeAsync(10);
   }
 
-  it('KİLİT (2026-10-02, Apple/Siri modeli): wake → Mavi KONUŞMAZ, dinleme HEMEN açılır (ton startListening içinde)', async () => {
-    // Eski akış "Buradayım" selamını cihaz TTS motoruna veriyordu: motorsuz head
-    // unit'te HİÇ ses çıkmıyordu (kullanıcı "uyanmadı" sanıyordu) ve selam süresi +
-    // OEM onDone gecikmesi dinlemeyi geç açıyordu. Artık selam YOK; "şimdi konuş"
-    // tonunu ve mikrofonu dinleme açılışının tek sahibi (`startListening`) yönetir.
+  it('wake algılanınca kısa selamlama konuşulur, TTS bitince aktif dinleme başlar', async () => {
     M.sttQueue = ['hey mavi'];
     enableWakeWord(wakeWordsFor('Mavi', 'both'), { companion: true });
     await runOneLoopTurn();
 
-    expect(M.spoken).toHaveLength(0);                   // selam/TTS YOK
-    expect(M.startListening).toHaveBeenCalledTimes(1);  // aktif dinleme TTS beklemeden açıldı
-    expect(M.startListening).toHaveBeenCalledWith();    // hızlı-warmup kısayolu yok: ton + mikrofon sırası startListening'de
+    expect(M.spoken).toHaveLength(1);
+    expect(['Buradayım.', 'Seni dinliyorum.']).toContain(M.spoken[0].text);
+    expect(M.startListening).not.toHaveBeenCalled();   // greeting başında (10ms) mikrofon yok
+
+    M.spoken[0].onEnd?.();                              // selamlama bitti
+    expect(M.startListening).toHaveBeenCalledTimes(1);  // aktif dinleme başladı
+    expect(M.startListening).toHaveBeenCalledWith();    // hızlı-warmup YOK: selam → ton → mikrofon sırası startListening'de
   });
 
-  it('tek tetik = tek dinleme açılışı: sonradan zamanlayıcıyla İKİNCİ açılış olmaz', async () => {
+  it('SAHA 2026-07-23 KİLİT: OEM onDone GECİKSE/HİÇ GELMESE bile mikrofon deterministik açılır', async () => {
+    // "hey mavi → 'burdayım' der, GEÇ dinlemeye geçer" kökü: eskiden mikrofon YALNIZ
+    // greeting onEnd'inde açılıyordu; onEnd OEM TextToSpeech onDone'una bağlı ve geç/
+    // hiç gelebiliyordu → mikrofon çok geç açılıp ilk söz kaçıyordu. KİLİT: onEnd
+    // ÇAĞRILMASA bile greeting süre tahmini penceresi geçince dinleme başlamalı.
     M.sttQueue = ['hey mavi'];
     enableWakeWord(wakeWordsFor('Mavi', 'both'), { companion: true });
-    await runOneLoopTurn();
-    expect(M.startListening).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(M.spoken).toHaveLength(1);
+    expect(M.startListening).not.toHaveBeenCalled();   // greeting daha bitmedi + onEnd yok
 
-    await vi.advanceTimersByTimeAsync(2_000);           // eski selam zamanlayıcısının penceresi
-    expect(M.startListening).toHaveBeenCalledTimes(1);  // çift açılış YOK
+    // onEnd BİLEREK çağrılmıyor (OEM onDone lag/kayıp simülasyonu).
+    await vi.advanceTimersByTimeAsync(2_300);
+    expect(M.startListening).not.toHaveBeenCalled();   // erken açılış ttsCancel ile selamı keserdi
+    await vi.advanceTimersByTimeAsync(300);             // selam emniyet süresi (2,5 sn) geçti
+    expect(M.startListening).toHaveBeenCalledTimes(1);  // onEnd beklenmeden deterministik açıldı
+  });
+
+  it('onEnd erken gelirse mikrofonu O açar; deterministik timer çift açmaz (idempotent)', async () => {
+    M.sttQueue = ['hey mavi'];
+    enableWakeWord(wakeWordsFor('Mavi', 'both'), { companion: true });
+    await vi.advanceTimersByTimeAsync(10);
+    expect(M.spoken).toHaveLength(1);
+
+    M.spoken[0].onEnd?.();                              // onEnd erken geldi → mikrofon açıldı
+    expect(M.startListening).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(3_000);           // bekleyen emniyet zamanlayıcısı penceresi
+    expect(M.startListening).toHaveBeenCalledTimes(1);  // timer iptal edildi → çift açılış YOK
   });
 
   it('eşleşmeyen transcript dinleme BAŞLATMAZ, selamlama YOK, döngü sürer', async () => {
@@ -441,13 +461,13 @@ describe('wakeWordService — companion wake akışı', () => {
     M.grammarAvailable = true;
     enableWakeWord(wakeWordsFor('Mavi', 'both'), { companion: true });
     await vi.advanceTimersByTimeAsync(10);
-    M.wakeHandler!({ transcript: 'hey mavi' });          // 1. tetik kabul → dinleme
+    M.wakeHandler!({ transcript: 'hey mavi' });          // 1. tetik kabul → selamlama
     await vi.advanceTimersByTimeAsync(5);
-    expect(M.startListening).toHaveBeenCalledTimes(1);
+    expect(M.spoken).toHaveLength(1);
 
     M.wakeHandler!({ transcript: 'hey mavi' });          // hemen 2. tetik (echo) → yut
     await vi.advanceTimersByTimeAsync(5);
-    expect(M.startListening).toHaveBeenCalledTimes(1);  // çift ton / çift dinleme YOK
+    expect(M.spoken).toHaveLength(1);                   // çift selam YOK
   });
 
   it('legacy ("hey car") davranışı korunur: selamlamasız doğrudan dinleme', async () => {
@@ -485,7 +505,7 @@ describe('wakeWordService — companion wake akışı', () => {
 
     await vi.advanceTimersByTimeAsync(300);              // eski 3000ms sağır boşluk kapandı
     expect(M.sttCalls).toBe(2);                          // hemen yeniden dinliyor
-    expect(M.startListening).toHaveBeenCalledTimes(1);   // 2. turda wake yakalandı
+    expect(M.spoken.length).toBe(1);                     // 2. turda wake yakalandı
   });
 
   it('gerçek hata 5 kez üst üste → görünür error durumu + mesaj', async () => {
@@ -544,14 +564,17 @@ describe('FAZ 5 — native grammar wake modu', () => {
     expect(M.sttCalls).toBe(0);                          // eski döngü hiç başlamadı
   });
 
-  it("'wakeWord' event'i → selam YOK, doğrudan aktif dinleme (ton startListening içinde)", async () => {
+  it("'wakeWord' event'i → selamlama TTS → bitince aktif dinleme (refleks zinciri)", async () => {
     await enableGrammar();
     M.wakeHandler!({ transcript: 'hey mavi' });
-    await vi.advanceTimersByTimeAsync(5);
+    await vi.advanceTimersByTimeAsync(5);                // lazy ttsService import'u (ısıtılmış)
 
-    expect(M.spoken).toHaveLength(0);                    // TTS selamı YOK
+    expect(M.spoken).toHaveLength(1);
+    expect(['Buradayım.', 'Seni dinliyorum.']).toContain(M.spoken[0]!.text);
     expect(getWakeWordState().lastHeard[0]).toBe('hey mavi');
-    expect(M.startListening).toHaveBeenCalledTimes(1);   // refleks: tetik → dinleme
+    expect(M.startListening).not.toHaveBeenCalled();     // TTS bitmeden mikrofon yok
+    M.spoken[0]!.onEnd?.();
+    expect(M.startListening).toHaveBeenCalledTimes(1);
   });
 
   it('defense-in-depth: kelime sınırını geçemeyen transcript tetiklemez ("maviş")', async () => {
@@ -590,7 +613,7 @@ describe('FAZ 5 — native grammar wake modu', () => {
 
     expect(M.listenerRemovals).toBe(1);                  // yarım kalan listener sızmadı
     expect(M.sttCalls).toBeGreaterThanOrEqual(1);        // fallback polling devrede
-    expect(M.startListening).toHaveBeenCalledTimes(1);   // wake yine çalışıyor
+    expect(M.spoken).toHaveLength(1);                    // wake yine çalışıyor
   });
 
   it('eski APK (metot yok) → davranış değişmez: doğrudan polling', async () => {
@@ -600,7 +623,7 @@ describe('FAZ 5 — native grammar wake modu', () => {
     await vi.advanceTimersByTimeAsync(10);
     expect(M.grammarStarts).toHaveLength(0);
     expect(M.sttCalls).toBe(1);
-    expect(M.startListening).toHaveBeenCalledTimes(1);
+    expect(M.spoken).toHaveLength(1);
   });
 });
 
@@ -615,14 +638,14 @@ describe('ÖZEL wake (custom): grammar atlanır, fonetik fuzzy tetikler', () => 
 
     expect(M.grammarStarts).toHaveLength(0);       // grammar HİÇ açılmadı
     expect(M.sttCalls).toBeGreaterThanOrEqual(1);  // serbest tanıma döngüsü
-    expect(M.startListening).toHaveBeenCalledTimes(1);  // fuzzy eşleşti → dinleme
+    expect(M.spoken).toHaveLength(1);              // fuzzy eşleşti → selamlama
   });
 
   it('öğretilen örnek eşleşmeyi güçlendirir (yazılan hedef alakasız olsa bile)', async () => {
     M.sttQueue = ['kaptane'];
     enableWakeWord(['xyzq'], { companion: true, custom: true, enrollment: ['kaptan'] });
     await vi.advanceTimersByTimeAsync(10);
-    expect(M.startListening).toHaveBeenCalledTimes(1);  // enrolled fonetik yakınlık tetikledi
+    expect(M.spoken).toHaveLength(1);              // enrolled fonetik yakınlık tetikledi
   });
 
   it('alakasız konuşma custom modda da tetiklemez', async () => {
@@ -639,14 +662,14 @@ describe('ÖZEL wake (custom): grammar atlanır, fonetik fuzzy tetikler', () => 
     M.sttQueue = ['nash üste git##asistan evet##nash esnek'];
     enableWakeWord(['asiste'], { companion: true, custom: true, enrollment: ['asistan'] });
     await vi.advanceTimersByTimeAsync(10);
-    expect(M.startListening).toHaveBeenCalledTimes(1);   // alternatiften eşleşti → dinleme
+    expect(M.spoken).toHaveLength(1);   // alternatiften eşleşti → selamlama
   });
 
   it('n-best taraması yanlış tetiklemez: hiçbir aday eşleşmezse uyanmaz', async () => {
     M.sttQueue = ['nash üste git##paris te##bir şey daha'];
     enableWakeWord(['asiste'], { companion: true, custom: true, enrollment: ['asistan'] });
     await vi.advanceTimersByTimeAsync(10);
-    expect(M.startListening).not.toHaveBeenCalled();   // adayların hiçbiri fuzzy eşleşmedi
+    expect(M.spoken).toHaveLength(0);   // adayların hiçbiri fuzzy eşleşmedi
   });
 });
 

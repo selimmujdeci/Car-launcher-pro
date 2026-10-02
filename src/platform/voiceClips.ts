@@ -51,6 +51,9 @@ const CLIP_MANIFEST: Readonly<Record<string, string>> = {
   // ── Donanım / OBD geri bildirimleri ──
   'Bağlantı kurulamadı. Tekrar deneyin.':                     'hw-error',
   'Araç verisi alınamıyor. OBD bağlantısını kontrol edin.':   'obd-nodata',
+  // Uyanma selamı (wakeWordService) — anında + internetsiz; selam bitince ton çalar
+  'Buradayım.':                                               'wake-buradayim',
+  'Seni dinliyorum.':                                         'wake-seni-dinliyorum',
 };
 
 /** Eşleştirme normalizasyonu: yalnız boşluk daraltma + trim (büyük/küçük harf korunur). */

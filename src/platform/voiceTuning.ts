@@ -76,9 +76,12 @@ export interface VoiceTuning {
 }
 
 export const VOICE_TUNING: VoiceTuning = {
-  // 2.5 → 3.0 (2026-06-11 saha: "dediklerimi anlamıyor, hassaslaştır") —
-  // tavan 4.0'a hâlâ pay var; yanlış tetikleme artarsa 2.5'e dönülür.
-  nativeGainX:      3.0,
+  // 2.5 → 3.0 (2026-06-11 saha: "dediklerimi anlamıyor, hassaslaştır") →
+  // 3.5 (2026-10-02 head unit: "bazen yanlış anlıyor"). Ölçülen konuşma RMS'i
+  // 0,24-0,37 (yüksek) — native kazanç pencere tepesine göre UYARLAMALI
+  // (VOSK_CLIP_HEADROOM) olduğundan yüksek sesli konuşma KIRPILMAZ; artış yalnız
+  // alçak/uzak konuşmayı yükseltir. Tavan 4.0; yanlış algılama artarsa 3.0'a dönülür.
+  nativeGainX:      3.5,
   maxListenMs:      12_000,
   followUpListenMs: 8_000,
   wakeGainX:        3.2,
