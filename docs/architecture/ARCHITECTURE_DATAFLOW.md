@@ -99,6 +99,11 @@ AKTİF gauge bileşenleri (SpeedCard vb.) ← useUnifiedVehicleStore / useOBDSta
 
 - AndroidManifest MainActivity: `MAIN + LAUNCHER + HOME + DEFAULT`
   (AndroidManifest.xml:71-76); singleTask, sensorLandscape, immersive.
+- Ekran yönü: manifest varsayılanı `sensorLandscape`; kullanıcı Ayarlar › Ekran ›
+  Ekran yönü'nden Yatay (varsayılan) / Dikey (dikey panelli head unit) / Otomatik
+  seçer. Tek sahip `navigationOrientation`; native tercihi SharedPreferences'ta
+  saklar ve MainActivity açılışta JS'ten önce uygular. Tam ekran navigasyon yönü
+  geçici olarak dört yöne açar, kapanınca taban tercihe döner.
 - `BootReceiver` (BOOT_COMPLETED + LOCKED_BOOT_COMPLETED + QUICKBOOT_POWERON, priority
   1000) açılışta başlatır (AndroidManifest.xml:98-110). Ek kod gerekmez.
 

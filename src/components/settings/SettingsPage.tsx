@@ -42,6 +42,7 @@ import { ExpertModePanel } from './ExpertModePanel';
 import { OfflineDataPanel } from './OfflineDataPanel';
 import { HomeWorkAddressPanel } from './HomeWorkAddressPanel';
 import { AdasSettingsPanel } from './AdasSettingsPanel';
+import { ScreenOrientationPanel } from './ScreenOrientationPanel';
 import { PhoneLinkPanel } from './PhoneLinkPanel';
 import i18n from '../../i18n/config';
 import { MobileLinkWidget } from './MobileLinkWidget';
@@ -1921,6 +1922,13 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
             <>
               {/* ── Tema Seçici ── */}
               <ThemePanel />
+              {/* ── Ekran Yönü — dikey panelli head unit (Tesla tipi) için ── */}
+              <Panel accent="var(--oem-accent)">
+                <div className="mb-3">
+                  <SectionTitle icon={Smartphone} title="Ekran Yönü" sub="Araç ekranının duruşu" />
+                </div>
+                <ScreenOrientationPanel />
+              </Panel>
               {nativeControls && (
                 <Panel accent="var(--oem-accent)">
                   <SectionTitle icon={Sun} title="Parlaklık" sub="Ekran parlaklığı (sistem)" color="var(--oem-warn)" />

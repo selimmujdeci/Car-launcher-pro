@@ -29,7 +29,7 @@ import { GeofenceAlarmOverlay } from './components/security/GeofenceAlarmOverlay
 import { systemBoot }         from './platform/system/SystemBoot';
 import { onVehicleEvent }     from './platform/vehicleDataLayer/VehicleEventHub';
 import { useRoleStore }       from './platform/roleSystem/RoleStore';
-import { useNavigationOrientationMode } from './platform/navigation/navigationOrientation';
+import { useNavigationOrientationMode, setScreenOrientationPreference } from './platform/navigation/navigationOrientation';
 import { FirstRunSetup } from './components/setup/FirstRunSetup';
 
 const DebugPanel = lazy(() =>
@@ -66,6 +66,10 @@ function App() {
   /* Tam ekran navigasyon açıkken dikey KABUL EDİLİR (görev §9) → "Telefonu
      Yatay Tutun" uyarısı bastırılır. Ana arayüz için uyarı AYNEN kalır. */
   const navOrientation = useNavigationOrientationMode();
+  /* Ekran yönü tercihi (Ayarlar › Ekran) → tek sahibine (navigationOrientation).
+     Native tercihi saklar ve sonraki açılışta JS'ten önce uygular. */
+  const screenOrientation = useStore((s) => s.settings.screenOrientation ?? 'landscape');
+  useEffect(() => { void setScreenOrientationPreference(screenOrientation); }, [screenOrientation]);
   useEffect(() => {
     const check = () => setIsPortrait(window.innerHeight > window.innerWidth);
     window.addEventListener('resize', check);
@@ -230,8 +234,9 @@ function App() {
             çevirebilir. Native APK'da manifest `sensorLandscape` döndürülebilen her cihazı
             zaten yataya alır; buna rağmen dikeyse panel fiziksel olarak dikeydir (ör. 768×1024
             Tesla tipi head unit) ya da firmware dikeyi zorluyordur → perde kullanıcıya hiçbir
-            çıkış bırakmayan bir kilit olurdu. Geri vites aktifken de gösterme. */}
-        {isPortrait && !isNative && !storeReverse && navOrientation !== 'FULL_SENSOR' && (
+            çıkış bırakmayan bir kilit olurdu. Geri vites aktifken de gösterme.
+            Kullanıcı Ekran yönü'nde 'Dikey'/'Otomatik' seçtiyse dikey İSTENMİŞTİR → perde yok. */}
+        {isPortrait && !isNative && screenOrientation === 'landscape' && !storeReverse && navOrientation !== 'FULL_SENSOR' && (
           <div style={{
             position: 'fixed', inset: 0, zIndex: 99999,
             background: 'rgba(5,10,20,0.97)',

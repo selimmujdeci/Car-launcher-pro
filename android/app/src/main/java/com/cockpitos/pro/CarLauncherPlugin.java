@@ -554,37 +554,95 @@ public class CarLauncherPlugin extends Plugin {
         }
     }
 
+    /* ── Ekran yönü ──────────────────────────────────────────────────────────
+     * Manifest `sensorLandscape` ile açılır (eski davranış = varsayılan "landscape").
+     * Kullanıcı Ayarlar › Ekran › Ekran yönü'nden TABAN yönü seçer:
+     *   "landscape" → sensorLandscape (yatay, varsayılan)
+     *   "portrait"  → sensorPortrait  (dikey panelli head unit, ör. Tesla tipi)
+     *   "auto"      → unspecified     (cihazın/firmware'in kendi yönü)
+     * Tercih SharedPreferences'ta saklanır; MainActivity açılışta uygular (JS
+     * yüklenmeden — açılışta yatay görünüp sonra dönme olmaz).
+     * Tam ekran navigasyon açıkken yön geçici olarak dört yöne serbesttir
+     * (setNavigationOrientation "sensor"); kapanınca TABAN yöne dönülür. */
+    static final String ORIENTATION_PREFS = "caros.screen.orientation";
+    static final String ORIENTATION_KEY = "pref";
+    private volatile boolean navOrientationOverride = false;
+
+    static String readScreenOrientationPref(Context ctx) {
+        try {
+            String v = ctx.getSharedPreferences(ORIENTATION_PREFS, Context.MODE_PRIVATE)
+                .getString(ORIENTATION_KEY, "landscape");
+            return isScreenOrientationPref(v) ? v : "landscape";
+        } catch (Exception e) {
+            return "landscape";
+        }
+    }
+
+    static boolean isScreenOrientationPref(String v) {
+        return "landscape".equals(v) || "portrait".equals(v) || "auto".equals(v);
+    }
+
+    static int screenOrientationFor(String pref) {
+        if ("portrait".equals(pref)) return android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT;
+        if ("auto".equals(pref)) return android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED;
+        return android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE;
+    }
+
     /**
-     * Ekran yönü kilidini çalışma zamanında değiştirir.
-     *
-     * NEDEN GEREKLİ: manifest `android:screenOrientation="sensorLandscape"` ile
-     * TÜM uygulamayı yataya kilitler — araç ekranları yataydır ve ana CAROS
-     * arayüzü öyle KALMALIDIR. Ama tam ekran navigasyonun dikey çalışabilmesi
-     * istendi (telefonda kullanım). Manifesti gevşetmek ana arayüzü de dikeye
-     * açardı; bu yüzden kilit YALNIZ tam ekran navigasyon süresince ve YALNIZ
-     * bu çağrıyla gevşetilir, çıkışta geri alınır.
+     * Tam ekran navigasyonun yön kapısı.
      *
      * mode: "sensor" → dört yön serbest (LANDSCAPE/REVERSE + PORTRAIT/REVERSE)
-     *       "landscape" (veya bilinmeyen) → sensorLandscape (varsayılan)
+     *       "landscape" (veya bilinmeyen) → TABAN yöne dön (kullanıcı tercihi;
+     *       varsayılan sensorLandscape — eski davranış aynen)
      */
     @PluginMethod
     public void setNavigationOrientation(PluginCall call) {
         final String mode = call.getString("mode", "landscape");
         final android.app.Activity act = getActivity();
         if (act == null) { call.reject("no_activity"); return; }
+        final boolean sensor = "sensor".equals(mode);
+        navOrientationOverride = sensor;
+        final int target = sensor
+            ? android.content.pm.ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
+            : screenOrientationFor(readScreenOrientationPref(getContext()));
         new Handler(Looper.getMainLooper()).post(() -> {
             try {
-                if ("sensor".equals(mode)) {
-                    act.setRequestedOrientation(
-                        android.content.pm.ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR);
-                } else {
-                    act.setRequestedOrientation(
-                        android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
-                }
+                act.setRequestedOrientation(target);
             } catch (Exception ignored) { /* fail-soft: yön kilidi navigasyonu bozmaz */ }
         });
         JSObject ret = new JSObject();
         ret.put("mode", mode);
+        call.resolve(ret);
+    }
+
+    /**
+     * Kullanıcının taban ekran yönü tercihi: "landscape" | "portrait" | "auto".
+     * Saklanır; tam ekran navigasyon yönü serbest bırakmışsa çıkışta uygulanır.
+     */
+    @PluginMethod
+    public void setScreenOrientation(PluginCall call) {
+        final String mode = call.getString("mode", "");
+        if (!isScreenOrientationPref(mode)) { call.reject("invalid_mode"); return; }
+        try {
+            getContext().getSharedPreferences(ORIENTATION_PREFS, Context.MODE_PRIVATE)
+                .edit().putString(ORIENTATION_KEY, mode).apply();
+        } catch (Exception e) {
+            call.reject("persist_failed");
+            return;
+        }
+        final android.app.Activity act = getActivity();
+        final boolean applyNow = act != null && !navOrientationOverride;
+        if (applyNow) {
+            final int target = screenOrientationFor(mode);
+            new Handler(Looper.getMainLooper()).post(() -> {
+                try {
+                    act.setRequestedOrientation(target);
+                } catch (Exception ignored) { /* fail-soft */ }
+            });
+        }
+        JSObject ret = new JSObject();
+        ret.put("mode", mode);
+        ret.put("applied", applyNow);
         call.resolve(ret);
     }
 

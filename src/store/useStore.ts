@@ -344,6 +344,12 @@ export interface AppSettings {
    * 'auto': head unit tespiti + ekran boyutundan önerilir (phoneLinkDeviceRole).
    */
   phoneLinkRole: 'auto' | 'car' | 'phone';
+  /**
+   * Ekran yönü (Ayarlar › Ekran). 'landscape' = eski davranış (varsayılan);
+   * 'portrait' = dikey panelli head unit; 'auto' = cihazın kendi yönü.
+   * Uygulayan TEK yer `navigationOrientation` (native taban yön).
+   */
+  screenOrientation: 'landscape' | 'portrait' | 'auto';
 }
 
 export interface MusicFavorite {
@@ -503,6 +509,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   runtimeOverride: 'AUTO',
   adas: DEFAULT_ADAS_SETTINGS,
   phoneLinkRole: 'auto',
+  screenOrientation: 'landscape',
 };
 
 /** Sürücü avatar renkleri — sırayla atanır. */
