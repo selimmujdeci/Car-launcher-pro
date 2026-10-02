@@ -77,6 +77,27 @@ public final class NativeToJsBridge {
             p.put("tpms", arr);
         }
 
+        // ── Klima durumu (NWD) — alan yoksa HİÇ yazılmaz (bilinmiyor ≠ kapalı) ──
+        if (data.climatePower         != null) p.put("climatePower",         data.climatePower);
+        if (data.climateAc            != null) p.put("climateAc",            data.climateAc);
+        if (data.climateAuto          != null) p.put("climateAuto",          data.climateAuto);
+        if (data.climateDual          != null) p.put("climateDual",          data.climateDual);
+        if (data.climateRecirc        != null) p.put("climateRecirc",        data.climateRecirc);
+        if (data.climateDefrostFront  != null) p.put("climateDefrostFront",  data.climateDefrostFront);
+        if (data.climateDefrostRear   != null) p.put("climateDefrostRear",   data.climateDefrostRear);
+        if (data.climateFanLevel      != null) p.put("climateFanLevel",      data.climateFanLevel);
+        if (data.climateFanMax        != null) p.put("climateFanMax",        data.climateFanMax);
+        if (data.climateTempDriver    != null) p.put("climateTempDriver",    data.climateTempDriver);
+        if (data.climateTempPassenger != null) p.put("climateTempPassenger", data.climateTempPassenger);
+
+        // ── Tek tek kapılar + direksiyon açısı ──────────────────────────────────
+        if (data.doorFrontLeft  != null) p.put("doorFrontLeft",  data.doorFrontLeft);
+        if (data.doorFrontRight != null) p.put("doorFrontRight", data.doorFrontRight);
+        if (data.doorRearLeft   != null) p.put("doorRearLeft",   data.doorRearLeft);
+        if (data.doorRearRight  != null) p.put("doorRearRight",  data.doorRearRight);
+        if (data.trunkOpen      != null) p.put("trunkOpen",      data.trunkOpen);
+        if (data.steeringAngle  != null) p.put("steeringAngle",  data.steeringAngle);
+
         _emitter.notifyListeners(EVENT_NAME, p);
     }
 }

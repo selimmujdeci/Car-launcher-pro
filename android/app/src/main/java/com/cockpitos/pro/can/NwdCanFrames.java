@@ -197,6 +197,17 @@ final class NwdCanFrames {
         return sb.toString();
     }
 
+    /** Bayt dizisinin tamamı ("2E 83 02 90 01" biçiminde); null → "null". */
+    static String hex(byte[] b) {
+        if (b == null) return "null";
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < b.length; i++) {
+            if (i > 0) sb.append(' ');
+            sb.append(HEX[(b[i] >> 4) & 0xF]).append(HEX[b[i] & 0xF]);
+        }
+        return sb.toString();
+    }
+
     private static final char[] HEX = "0123456789ABCDEF".toCharArray();
 
     private static int bit(int b, int n) { return (b >> n) & 1; }

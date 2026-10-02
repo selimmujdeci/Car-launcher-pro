@@ -1,3 +1,4 @@
+import type { CanClimateState, CanDoorsState } from './raiseRenaultFrames';
 import type { SignalSource } from './valTypes';
 
 /**
@@ -50,6 +51,10 @@ export interface CanAdapterData {
   cruiseControl?: boolean;
   // ── TPMS ──────────────────────────────────────────────────────────────────
   tpms?: number[];
+  // ── NWD/Raise gövde & konfor (saha 2026-10-02) — grup YOKSA bilinmiyor ──────
+  climate?: CanClimateState;
+  doors?: CanDoorsState;
+  steeringAngle?: number;
 }
 
 export interface ObdAdapterData {

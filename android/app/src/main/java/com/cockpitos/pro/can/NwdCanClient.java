@@ -62,6 +62,8 @@ public final class NwdCanClient {
     private static final int TX_ADD_TPMS_CB           = 33;  // addTpmsInfoCallBack  → onDistributeTpmsInfo
     private static final int TX_ADD_CAN_AC_CB         = 35;  // addCanAcCallBack     → onDistributeAcState
     private static final int TX_GET_AC_STATE          = 37;  // getAcState() → AirConditionState (anlık sorgu)
+    /** doCheckSumAndWriteData2Uart4CanBox([B]) — ham Raise çerçevesini kutuya yazar (sağlamayı servis ekler). */
+    private static final int TX_WRITE_CANBOX          = 5;
     // ICanRemoteModelCallback kodları: 1=onDistributeCanData([B]), 2=onDistributeCarInfo, 3=AmpState, 4=Tpms, 5=AcState
     private static final int TX_ON_DISTRIBUTE_CANDATA = 1;   // callback: onDistributeCanData(byte[])
     private static final int TX_ON_DISTRIBUTE_CARINFO = 2;   // callback: onDistributeCarInfo(CarInfo)
@@ -313,6 +315,34 @@ public final class NwdCanClient {
         }
     }
 
+    /**
+     * Ham Raise çerçevesini kutuya yazar — SDK `doCheckSumAndWriteData2Uart4CanBox`
+     * (işlem 5); sağlama toplamını NWD servisi ekler. NWD'nin kendi uygulaması da
+     * aynı yolu kullanır. Çerçeveyi YALNIZ {@link CanComfortCommands} üretir
+     * (beyaz liste). Dönüş: istek servise ULAŞTI mı — aracın uyguladığının kanıtı
+     * DEĞİLDİR; kanıt kutunun durum yankısıdır (ham çerçeve 0x71/0x72).
+     */
+    public boolean writeRaiseFrame(byte[] frameNoChecksum) {
+        IBinder f = _feature;
+        if (f == null || frameNoChecksum == null) return false;
+        Parcel data  = Parcel.obtain();
+        Parcel reply = Parcel.obtain();
+        try {
+            data.writeInterfaceToken(DESC_FEATURE);
+            data.writeByteArray(frameNoChecksum);
+            f.transact(TX_WRITE_CANBOX, data, reply, 0);
+            reply.readException();
+            diag("Kutuya yazıldı: " + NwdCanFrames.hex(frameNoChecksum));
+            return true;
+        } catch (Throwable t) {
+            diag("Kutuya yazma hatası: " + t.getMessage());
+            return false;
+        } finally {
+            reply.recycle();
+            data.recycle();
+        }
+    }
+
     /** getAcState() — bağlanınca klimanın ANLIK durumunu bir kez okur (push beklemeden). */
     private void queryAcState() {
         IBinder f = _feature;
@@ -398,7 +428,98 @@ public final class NwdCanClient {
         _lastAc = cur;
         if (first) diag("Klima ilk durum (" + src + "): " + (d.isEmpty() ? "tüm alanlar 0" : d));
         else if (!d.isEmpty()) diag("Klima değişti: " + d);
+        if (first || !d.isEmpty()) {
+            /* Saha 2026-10-02 (Megane 4 · Raise): alan anlamları kullanıcı adım adım
+               doğruladı. Sıcaklık FLOAT alanı bu araçta −1 kalır; değer METİNDEDİR
+               ("17.0℃", kapalıyken "--"). −1 / "--" = bilinmiyor (sahte 0 yok). */
+            Boolean power = acBool(cur, AC_SWITCH);
+            VehicleCanData.Builder x = VehicleCanData.Builder.from(_lastExtras)
+                .climatePower(power)
+                .climateAc(acBool(cur, AC_MODE))
+                .climateAuto(acBool(cur, AC_AUTO))
+                .climateDual(acBool(cur, AC_DUAL))
+                .climateRecirc(acBool(cur, AC_RECIRC))
+                .climateDefrostFront(acBool(cur, AC_DEFROST_F))
+                .climateDefrostRear(acBool(cur, AC_DEFROST_R))
+                .climateFanLevel(acInt(cur, AC_FAN))
+                .climateFanMax(acInt(cur, AC_FAN_MAX))
+                .climateTempDriver(Boolean.FALSE.equals(power) ? null : leadingNumber(at(cur, AC_STR_L)))
+                .climateTempPassenger(Boolean.FALSE.equals(power) ? null : leadingNumber(at(cur, AC_STR_R)));
+            _lastExtras = x.build();
+            emitMerged();
+        }
     }
+
+    // ── Birleşik anlık görüntü (saha 2026-10-02) ─────────────────────────────
+    // Klima (AC geri çağrısı), kapı (tip 3) ve direksiyon açısı (tip 6) CarInfo'dan
+    // AYRI anlarda gelir; JS her `canData` mesajında alanları üzerine yazar. Her
+    // emisyon son CarInfo temelini + son ek alanları BİRLİKTE taşır → kısmi mesaj
+    // diğer alanları silmez. Yeni otorite değil: aynı tek emisyon yolu.
+    private VehicleCanData _lastBase   = null;
+    private VehicleCanData _lastExtras = null;
+
+    private synchronized void emitMerged() {
+        DecodedListener cb = _listener;
+        if (cb == null || !_started) return;
+        VehicleCanData x = _lastExtras;
+        VehicleCanData.Builder b = VehicleCanData.Builder.from(_lastBase);
+        if (x != null) {
+            b.climatePower(x.climatePower).climateAc(x.climateAc).climateAuto(x.climateAuto)
+             .climateDual(x.climateDual).climateRecirc(x.climateRecirc)
+             .climateDefrostFront(x.climateDefrostFront).climateDefrostRear(x.climateDefrostRear)
+             .climateFanLevel(x.climateFanLevel).climateFanMax(x.climateFanMax)
+             .climateTempDriver(x.climateTempDriver).climateTempPassenger(x.climateTempPassenger)
+             .doorFrontLeft(x.doorFrontLeft).doorFrontRight(x.doorFrontRight)
+             .doorRearLeft(x.doorRearLeft).doorRearRight(x.doorRearRight)
+             .trunkOpen(x.trunkOpen).steeringAngle(x.steeringAngle);
+            if (x.climateAc != null) b.airCondition(x.climateAc);
+            if (x.doorFrontLeft != null) {
+                b.doorOpen(Boolean.TRUE.equals(x.doorFrontLeft) || Boolean.TRUE.equals(x.doorFrontRight)
+                        || Boolean.TRUE.equals(x.doorRearLeft) || Boolean.TRUE.equals(x.doorRearRight)
+                        || Boolean.TRUE.equals(x.trunkOpen));
+            }
+        }
+        cb.onData(b.build());
+    }
+
+    private static final int AC_SWITCH    = acIndex("ACSwitch");
+    private static final int AC_MODE      = acIndex("ACMode");
+    private static final int AC_AUTO      = acIndex("Auto");
+    private static final int AC_DUAL      = acIndex("Dual");
+    private static final int AC_RECIRC    = acIndex("InsideOrOutSideRoot");
+    private static final int AC_DEFROST_F = acIndex("FrontWindowDefog");
+    private static final int AC_DEFROST_R = acIndex("BackWindowDefog");
+    private static final int AC_FAN       = acIndex("AirSpeedLevel");
+    private static final int AC_FAN_MAX   = acIndex("AirSpeedLevelMax");
+    private static final int AC_STR_L     = acIndex("StrLeftSideTemperature");
+    private static final int AC_STR_R     = acIndex("StrRightSideTemperature");
+
+    private static int acIndex(String name) {
+        for (int i = 0; i < NwdCanFrames.AC_FIELDS.length; i++) {
+            if (NwdCanFrames.nameOf(NwdCanFrames.AC_FIELDS[i]).equals(name)) return i;
+        }
+        return -1;
+    }
+    private static String at(String[] v, int i) { return (i < 0 || v == null || i >= v.length) ? null : v[i]; }
+    /** Bayt alanı: −1 = desteklenmiyor → null; 0 → false; diğer → true. */
+    private static Boolean acBool(String[] v, int i) {
+        Integer n = acInt(v, i);
+        return n == null ? null : n != 0;
+    }
+    private static Integer acInt(String[] v, int i) {
+        String s = at(v, i);
+        if (s == null) return null;
+        try { int n = Integer.parseInt(s.trim()); return n < 0 ? null : n; } catch (NumberFormatException e) { return null; }
+    }
+    /** "17.0℃" / "19℃" / "-3℃" → sayı; "--", boş, null → null. */
+    static Float leadingNumber(String s) {
+        if (s == null) return null;
+        java.util.regex.Matcher m = LEADING_NUM.matcher(s.trim());
+        if (!m.find()) return null;
+        try { return Float.parseFloat(m.group(1).replace(',', '.')); } catch (NumberFormatException e) { return null; }
+    }
+    private static final java.util.regex.Pattern LEADING_NUM =
+        java.util.regex.Pattern.compile("^(-?\\d+(?:[.,]\\d+)?)");
 
     private synchronized void onTpms(Parcel p) {
         String[] cur = readFields(p, NwdCanFrames.TPMS_FIELDS);
@@ -418,7 +539,19 @@ public final class NwdCanClient {
         }
         if (type == NwdCanFrames.TYPE_DOOR) {
             String s = NwdCanFrames.decodeDoor(frame);
-            if (s != null && !s.equals(_lastDoor)) { _lastDoor = s; diag("Kapı: " + s); }
+            if (s != null && !s.equals(_lastDoor)) {
+                _lastDoor = s;
+                diag("Kapı: " + s);
+                // Bit eşlemesi sahada tek tek doğrulandı (2026-10-02): 7 ön sol · 6 ön sağ ·
+                // 5 arka sol · 4 arka sağ · 3 bagaj. Kaput (bit 2) sahada denenmedi → taşınmaz.
+                int b = frame[3] & 0xFF;
+                _lastExtras = VehicleCanData.Builder.from(_lastExtras)
+                    .doorFrontLeft((b & 0x80) != 0).doorFrontRight((b & 0x40) != 0)
+                    .doorRearLeft((b & 0x20) != 0).doorRearRight((b & 0x10) != 0)
+                    .trunkOpen((b & 0x08) != 0)
+                    .build();
+                emitMerged();
+            }
         } else if (type == NwdCanFrames.TYPE_RADAR) {
             String s = NwdCanFrames.decodeRadar(frame);
             if (s != null && !s.equals(_lastRadar)) { _lastRadar = s; diag("Radar: " + s); }
@@ -430,6 +563,8 @@ public final class NwdCanClient {
                 _lastAngle = a[0];
                 _lastAngleLogMs = now;
                 diag("Direksiyon açısı: " + a[0] + " (ek " + a[1] + ", " + a[2] + ")");
+                _lastExtras = VehicleCanData.Builder.from(_lastExtras).steeringAngle(a[0]).build();
+                emitMerged();
             }
         } else if (type == NwdCanFrames.TYPE_CAN_SETTING) {
             int st = NwdCanFrames.canSettingType(frame);
@@ -496,8 +631,8 @@ public final class NwdCanClient {
         p.readByte(); p.readInt(); p.readByte(); p.readInt(); p.readByte(); // tireCheck*
         p.readByte(); p.readByte(); p.readInt(); p.readByte(); p.readInt(); p.readByte(); // carCheck*
         p.readByte();                                              // mTempUnit
-        p.readString();                                           // mstrOuttemp
-        p.readString();                                           // mstrWaterTemp
+        String strOutTemp   = p.readString();                     // mstrOuttemp ("19℃")
+        String strWaterTemp = p.readString();                     // mstrWaterTemp
         p.readInt(); p.readInt();                                  // mCarInPm, mCarOutPm
         byte  mRainWipwerLevel= p.readByte();                      // 85
         byte  mAccStatus      = p.readByte();                      // 86
@@ -538,9 +673,15 @@ public final class NwdCanClient {
         if (mOilSurplus    >= 0 && mOilSurplus    <= 100f)        b.fuel(mOilSurplus);
         float coolant = (mCoolantTemp > TEMP_MIN && mCoolantTemp < TEMP_MAX) ? mCoolantTemp
                       : (mWaterTemp  > TEMP_MIN && mWaterTemp  < TEMP_MAX) ? mWaterTemp : Float.NaN;
+        /* SAHA 2026-10-02 (Megane 4 · Raise): kutu soğutma suyunu DOLDURMUYOR —
+           desteklenmeyen diğer alanlar −1 iken bu iki float 0,0 kalıyor ve metni
+           null. Motor rölantideyken "0 °C" sahte değerdir → bilinmiyor (sahte 0 yok). */
+        if (mCoolantTemp == 0f && mWaterTemp == 0f && strWaterTemp == null) coolant = Float.NaN;
+        Float outTemp = leadingNumber(strOutTemp);   // "19℃" → 19; "--"/null → bilinmiyor
         if (!Float.isNaN(coolant)) b.coolantTemp(coolant);
         if (mBatteryVoltage > 0 && mBatteryVoltage < 32) b.batteryVolt(mBatteryVoltage);
         b.gearPos(mGear);
+        if (outTemp != null && outTemp > -60f && outTemp < 70f) b.ambientTemp(outTemp);
         // 0xFF (-1) sentinel → alan desteklenmiyor: göstergeyi HİÇ yazma (default kapalı
         // kalsın + system-settings yolunu ezme). Araç gerçekten taşıyorsa (0/1) yazılır.
         if (mDoorOpen   != SENTINEL) b.doorOpen(mDoorOpen != 0);
@@ -563,11 +704,11 @@ public final class NwdCanClient {
             _lastDiagMs = now;
             diag(String.format("CarInfo: hız=%d devir=%d yakıt=%.0f soğutma=%.0f vites=%d kapı=%d acc=%d elFreni=%d far=%d",
                 mInstantanSpeed, mEngineSpeed, mOilSurplus, coolant, mGear, mDoorOpen, mAccStatus, mHandbrake,
-                (mHighbeam != 0 || mDippedheadlight != 0) ? 1 : 0));
+                (mHighbeam > 0 || mDippedheadlight > 0) ? 1 : 0));
         }
 
-        DecodedListener cb = _listener;
-        if (cb != null && _started) cb.onData(out);
+        synchronized (this) { _lastBase = out; }
+        emitMerged();
     }
 
     // GEÇİCİ TEŞHİS: ham CAN frame sayacı + hex log (her ~800ms, ilk 24 byte)

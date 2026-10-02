@@ -21,6 +21,9 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 import { openRearCamera, closeRearCamera } from '../cameraService';
 import type { VehicleState, GPSLocation } from './types';
 import type { CanonicalObdKey } from '../obd/canonicalObdSignals';
+import type {
+  CanClimateState, CanDoorsState, CanTpmsState, CanTripState, CanMassageState, CanAmbientState,
+} from './raiseRenaultFrames';
 import { safeStorage, safeFlushKey } from '../../utils/safeStorage';
 /* ARCH-06/F4 — YALNIZ SAYAÇ. Değişen-alan dedup mantığı ZATEN buradaydı ve
    DEĞİŞTİRİLMEDİ; eklenen tek şey o dedup'ın GERÇEKTEN kazandırdığının
@@ -39,6 +42,22 @@ export type { GPSLocation };
  * "bilinmiyor" üretmez.
  */
 const SPEED_EXPIRY_MS = 30_000;
+
+/** Grup nesneleri için sığ eşitlik (dizi alanlar — lastik `bar` — eleman eleman). */
+function sameShallow(a: object | null, b: object | null): boolean {
+  if (a === b) return true;
+  if (a == null || b == null) return false;
+  const ka = Object.keys(a);
+  if (ka.length !== Object.keys(b).length) return false;
+  for (const k of ka) {
+    const va = (a as Record<string, unknown>)[k];
+    const vb = (b as Record<string, unknown>)[k];
+    if (Array.isArray(va) && Array.isArray(vb)) {
+      if (va.length !== vb.length || va.some((x, i) => x !== vb[i])) return false;
+    } else if (va !== vb) return false;
+  }
+  return true;
+}
 
 export interface GPSStatePatch {
   location?:    GPSLocation | null;
@@ -81,6 +100,14 @@ export interface CanExtrasPatch {
   wipers?:            boolean;
   airCondition?:      boolean;
   cruiseControl?:     boolean;
+  // ── NWD/Raise gövde & konfor (saha 2026-10-02) — grup nesneleri, bütün değişir ──
+  climate?:           CanClimateState;
+  doors?:             CanDoorsState;
+  steeringAngle?:     number | null;
+  tpmsDetail?:        CanTpmsState;
+  trip?:              CanTripState;
+  massage?:           CanMassageState;
+  ambient?:           CanAmbientState;
 }
 
 /**
@@ -162,6 +189,16 @@ export interface UnifiedVehicleState {
   canWipers:       boolean;
   canAirCondition: boolean;
   canCruiseControl:boolean;
+
+  // ── CAN gövde & konfor (NWD/Raise) — null = bu araç/kaynak vermiyor ya da henüz gelmedi ──
+  canClimate:       CanClimateState | null;
+  canDoors:         CanDoorsState | null;
+  canSteeringAngle: number | null;
+  /** Lastik ayrıntısı: teker başına null = henüz ölçülmedi; `atMs` ölçüm anı. */
+  canTpms:          CanTpmsState | null;
+  canTrip:          CanTripState | null;
+  canMassage:       CanMassageState | null;
+  canAmbient:       CanAmbientState | null;
 
   // ── OBD Data Bridge (P0-OBD-01) ───────────────────────────────────────────
   /**
@@ -283,6 +320,13 @@ export const useUnifiedVehicleStore = create<UnifiedVehicleState>()(
       canWipers:           false,
       canAirCondition:     false,
       canCruiseControl:    false,
+      canClimate:       null,
+      canDoors:         null,
+      canSteeringAngle: null,
+      canTpms:          null,
+      canTrip:          null,
+      canMassage:       null,
+      canAmbient:       null,
       obdSignals:      EMPTY_OBD_SIGNALS,
       obdSessionEpoch: OBD_EPOCH_NONE,
       heading:        null,
@@ -515,6 +559,23 @@ export const useUnifiedVehicleStore = create<UnifiedVehicleState>()(
         if (patch.airCondition  != null) chkBool('canAirCondition',  patch.airCondition);
         if (patch.cruiseControl != null) chkBool('canCruiseControl', patch.cruiseControl);
 
+        // NWD/Raise grup nesneleri — sığ eşitse yazılmaz (gereksiz abone uyanışı yok)
+        function chkGroup<K extends 'canClimate' | 'canDoors' | 'canTpms' | 'canTrip' | 'canMassage' | 'canAmbient'>(
+          key: K, val: UnifiedVehicleState[K] | undefined,
+        ) {
+          if (val == null) return;
+          if (!sameShallow(val as object, cur[key] as object | null)) {
+            (u as Record<string, unknown>)[key] = val; dirty = true;
+          }
+        }
+        chkGroup('canClimate', patch.climate);
+        chkGroup('canDoors',   patch.doors);
+        chkGroup('canTpms',    patch.tpmsDetail);
+        chkGroup('canTrip',    patch.trip);
+        chkGroup('canMassage', patch.massage);
+        chkGroup('canAmbient', patch.ambient);
+        chk('canSteeringAngle', patch.steeringAngle);
+
         if (dirty) {
           /* V-12 — CAN kaynaklı alanların izi. Tek damga, alan başına değil. */
           const _pAt = Date.now();
@@ -658,6 +719,14 @@ export const useUnifiedVehicleStore = create<UnifiedVehicleState>()(
           canWipers:           false,
           canAirCondition:     false,
           canCruiseControl:    false,
+          // Gövde & konfor — bilinmiyor (sahte varsayılan YOK)
+          canClimate:       null,
+          canDoors:         null,
+          canSteeringAngle: null,
+          canTpms:          null,
+          canTrip:          null,
+          canMassage:       null,
+          canAmbient:       null,
         });
       },
     }),

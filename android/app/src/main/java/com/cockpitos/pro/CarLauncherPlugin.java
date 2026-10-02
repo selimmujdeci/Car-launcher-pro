@@ -6502,6 +6502,53 @@ public class CarLauncherPlugin extends Plugin {
         new com.cockpitos.pro.can.NwdSettingsReader();
     private final com.cockpitos.pro.can.NwdCanClient.DecodedListener _nwdDataListener =
         this::emitVehicleData;
+    // NWD ham Raise çerçeveleri (lastik · yol bilgisayarı · masaj/ambiyans) — SDK bunları
+    // dağıtmıyor; servisin canapp_debug günlüğünden okunur (READ_LOGS gerekir).
+    private final com.cockpitos.pro.can.NwdRawFrameTap nwdRawTap =
+        new com.cockpitos.pro.can.NwdRawFrameTap();
+
+    private void startNwdRawTap() {
+        nwdRawTap.start(getContext(), (type, dataHex) -> {
+            JSObject o = new JSObject();
+            o.put("t", type);
+            o.put("d", dataHex);
+            notifyListeners("canRaiseFrame", o);
+        }, (msg) -> {
+            JSObject o = new JSObject();
+            o.put("msg", msg);
+            notifyListeners("canDiag", o);
+        });
+    }
+
+    /**
+     * Konfor ayarı yazar (koltuk masajı · iç ambiyans) — YALNIZ CanComfortCommands
+     * beyaz listesi. `sent` = istek NWD servisine ULAŞTI; aracın uyguladığının kanıtı
+     * DEĞİLDİR — onay JS'te kutunun durum yankısıyla (ham 0x71/0x72) verilir.
+     */
+    @PluginMethod
+    public void setCanComfortSetting(PluginCall call) {
+        Integer id    = call.getInt("id");
+        Integer value = call.getInt("value");
+        if (id == null || value == null) { call.reject("id ve value gerekli", "INVALID_ARGS"); return; }
+        byte[] frame = com.cockpitos.pro.can.CanComfortCommands.centralSetting(id, value);
+        if (frame == null) { call.reject("İzinli olmayan CAN ayarı", "NOT_ALLOWED"); return; }
+        nwdRawTap.forget(com.cockpitos.pro.can.CanComfortCommands.echoType(id));
+        JSObject r = new JSObject();
+        r.put("sent", nwdCanClient.writeRaiseFrame(frame));
+        call.resolve(r);
+    }
+
+    /** Salt-okuma durum isteği (lastik 0x61 · yol bilgisayarı 0x81 · merkezi 0x71–0x73). */
+    @PluginMethod
+    public void requestCanData(PluginCall call) {
+        Integer type = call.getInt("type");
+        byte[] frame = type == null ? null : com.cockpitos.pro.can.CanComfortCommands.dataRequest(type);
+        if (frame == null) { call.reject("İzinli olmayan veri isteği", "NOT_ALLOWED"); return; }
+        nwdRawTap.forget(type);
+        JSObject r = new JSObject();
+        r.put("sent", nwdCanClient.writeRaiseFrame(frame));
+        call.resolve(r);
+    }
     private final com.cockpitos.pro.can.NwdCanClient.DiagListener _nwdDiagListener = (msg) -> {
         JSObject o = new JSObject();
         o.put("msg", msg);
@@ -6874,7 +6921,24 @@ public class CarLauncherPlugin extends Plugin {
             && Objects.equals(a.turnLeft, b.turnLeft)
             && Objects.equals(a.turnRight, b.turnRight)
             && Objects.equals(a.hazard, b.hazard)
-            && Arrays.equals(a.tpms, b.tpms);
+            && Arrays.equals(a.tpms, b.tpms)
+            && Objects.equals(a.climatePower, b.climatePower)
+            && Objects.equals(a.climateAc, b.climateAc)
+            && Objects.equals(a.climateAuto, b.climateAuto)
+            && Objects.equals(a.climateDual, b.climateDual)
+            && Objects.equals(a.climateRecirc, b.climateRecirc)
+            && Objects.equals(a.climateDefrostFront, b.climateDefrostFront)
+            && Objects.equals(a.climateDefrostRear, b.climateDefrostRear)
+            && Objects.equals(a.climateFanLevel, b.climateFanLevel)
+            && Objects.equals(a.climateFanMax, b.climateFanMax)
+            && Objects.equals(a.climateTempDriver, b.climateTempDriver)
+            && Objects.equals(a.climateTempPassenger, b.climateTempPassenger)
+            && Objects.equals(a.doorFrontLeft, b.doorFrontLeft)
+            && Objects.equals(a.doorFrontRight, b.doorFrontRight)
+            && Objects.equals(a.doorRearLeft, b.doorRearLeft)
+            && Objects.equals(a.doorRearRight, b.doorRearRight)
+            && Objects.equals(a.trunkOpen, b.trunkOpen)
+            && Objects.equals(a.steeringAngle, b.steeringAngle);
     }
 
     @PluginMethod
@@ -6889,6 +6953,7 @@ public class CarLauncherPlugin extends Plugin {
         // NWD gövde sinyalleri — OEM 'system' ayar tablosundan (kapı/elfreni/gerivites).
         // CarInfo akışı sporadik olduğundan bu kanal anlık+güvenilir (ContentObserver).
         nwdSettingsReader.start(_nwdDataListener, getContext());
+        startNwdRawTap();
         startMcuSnifferOnce();
         // 3s sonra bağlantı durumunu JS'e bildir (transport connect denemesi için süre)
         new Handler(Looper.getMainLooper()).postDelayed(this::emitCanStatus, 3_000);
@@ -6901,6 +6966,7 @@ public class CarLauncherPlugin extends Plugin {
         k24CanBridge.stop();
         nwdCanClient.stop();
         nwdSettingsReader.stop();
+        nwdRawTap.stop();
         if (mcuEventSniffer != null) {
             mcuEventSniffer.stop();
             // Ölü instance yeniden kullanılmasın → sonraki startMcuSnifferOnce taze

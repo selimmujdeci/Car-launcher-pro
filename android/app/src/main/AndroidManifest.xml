@@ -389,4 +389,11 @@
          paket/surum/imza on-kontrolu gecmeden bu izin kullanilmaz). -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
+    <!-- NWD CAN ham cerceveleri (lastik, yol bilgisayari, masaj, ambiyans) yalniz
+         NWD servisinin "CAN" etiketli gunlugunde: NwdRawFrameTap bu etiketi okur
+         (logcat -s CAN:D). Uygulamaya otomatik VERILMEZ; cihaz basina adb ile:
+         pm grant com.cockpitos.pro android.permission.READ_LOGS -->
+    <uses-permission android:name="android.permission.READ_LOGS"
+        tools:ignore="ProtectedPermissions" />
+
 </manifest>

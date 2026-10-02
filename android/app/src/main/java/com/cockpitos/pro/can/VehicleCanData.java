@@ -47,6 +47,30 @@ public final class VehicleCanData {
     // ── TPMS ─────────────────────────────────────────────────────────────────
     public final float[] tpms; // [fl, fr, rl, rr] kPa — null if unavailable
 
+    // ── Klima durumu (NWD AirConditionState — saha 2026-10-02, Megane 4 · Raise) ──
+    // null = bu kaynak alanı vermiyor / bilinmiyor (sahte 0 YOK).
+    public final Boolean climatePower;         // klima sistemi açık (ACSwitch)
+    public final Boolean climateAc;            // A/C kompresörü (ACMode)
+    public final Boolean climateAuto;
+    public final Boolean climateDual;
+    public final Boolean climateRecirc;        // iç hava / devridaim
+    public final Boolean climateDefrostFront;
+    public final Boolean climateDefrostRear;
+    public final Integer climateFanLevel;      // 0..climateFanMax
+    public final Integer climateFanMax;
+    public final Float   climateTempDriver;    // °C (0,5 adım)
+    public final Float   climateTempPassenger; // °C
+
+    // ── Tek tek kapılar (NWD ham çerçeve tip 3) ──────────────────────────────
+    public final Boolean doorFrontLeft;
+    public final Boolean doorFrontRight;
+    public final Boolean doorRearLeft;
+    public final Boolean doorRearRight;
+    public final Boolean trunkOpen;
+
+    // ── Direksiyon açısı (NWD ham çerçeve tip 6; işaretli ham birim, sol −) ──
+    public final Integer steeringAngle;
+
     private VehicleCanData(Builder b) {
         this.speed          = b.speed;
         this.reverse        = b.reverse;
@@ -73,6 +97,23 @@ public final class VehicleCanData {
         this.turnRight      = b.turnRight;
         this.hazard         = b.hazard;
         this.tpms           = b.tpms;
+        this.climatePower         = b.climatePower;
+        this.climateAc            = b.climateAc;
+        this.climateAuto          = b.climateAuto;
+        this.climateDual          = b.climateDual;
+        this.climateRecirc        = b.climateRecirc;
+        this.climateDefrostFront  = b.climateDefrostFront;
+        this.climateDefrostRear   = b.climateDefrostRear;
+        this.climateFanLevel      = b.climateFanLevel;
+        this.climateFanMax        = b.climateFanMax;
+        this.climateTempDriver    = b.climateTempDriver;
+        this.climateTempPassenger = b.climateTempPassenger;
+        this.doorFrontLeft  = b.doorFrontLeft;
+        this.doorFrontRight = b.doorFrontRight;
+        this.doorRearLeft   = b.doorRearLeft;
+        this.doorRearRight  = b.doorRearRight;
+        this.trunkOpen      = b.trunkOpen;
+        this.steeringAngle  = b.steeringAngle;
     }
 
     public static final class Builder {
@@ -84,6 +125,35 @@ public final class VehicleCanData {
         Boolean wipers; Boolean airCondition; Boolean cruiseControl;
         Boolean doorOpen; Boolean headlightsOn; float[] tpms;
         Boolean highBeam; Boolean turnLeft; Boolean turnRight; Boolean hazard;
+        Boolean climatePower; Boolean climateAc; Boolean climateAuto; Boolean climateDual;
+        Boolean climateRecirc; Boolean climateDefrostFront; Boolean climateDefrostRear;
+        Integer climateFanLevel; Integer climateFanMax;
+        Float   climateTempDriver; Float climateTempPassenger;
+        Boolean doorFrontLeft; Boolean doorFrontRight; Boolean doorRearLeft; Boolean doorRearRight;
+        Boolean trunkOpen; Integer steeringAngle;
+
+        /** Var olan anlık görüntünün TÜM alanlarını kopyalar (kaynak birleştirme için). */
+        public static Builder from(VehicleCanData d) {
+            Builder b = new Builder();
+            if (d == null) return b;
+            b.speed = d.speed; b.reverse = d.reverse; b.fuel = d.fuel;
+            b.rpm = d.rpm; b.coolantTemp = d.coolantTemp; b.oilTemp = d.oilTemp; b.throttle = d.throttle;
+            b.batteryVolt = d.batteryVolt; b.gearPos = d.gearPos; b.ambientTemp = d.ambientTemp;
+            b.abs = d.abs; b.tractionControl = d.tractionControl; b.stabilityControl = d.stabilityControl;
+            b.parkingBrake = d.parkingBrake; b.seatbelt = d.seatbelt;
+            b.wipers = d.wipers; b.airCondition = d.airCondition; b.cruiseControl = d.cruiseControl;
+            b.doorOpen = d.doorOpen; b.headlightsOn = d.headlightsOn; b.tpms = d.tpms;
+            b.highBeam = d.highBeam; b.turnLeft = d.turnLeft; b.turnRight = d.turnRight; b.hazard = d.hazard;
+            b.climatePower = d.climatePower; b.climateAc = d.climateAc; b.climateAuto = d.climateAuto;
+            b.climateDual = d.climateDual; b.climateRecirc = d.climateRecirc;
+            b.climateDefrostFront = d.climateDefrostFront; b.climateDefrostRear = d.climateDefrostRear;
+            b.climateFanLevel = d.climateFanLevel; b.climateFanMax = d.climateFanMax;
+            b.climateTempDriver = d.climateTempDriver; b.climateTempPassenger = d.climateTempPassenger;
+            b.doorFrontLeft = d.doorFrontLeft; b.doorFrontRight = d.doorFrontRight;
+            b.doorRearLeft = d.doorRearLeft; b.doorRearRight = d.doorRearRight;
+            b.trunkOpen = d.trunkOpen; b.steeringAngle = d.steeringAngle;
+            return b;
+        }
 
         public Builder speed(float v)             { speed          = v; return this; }
         public Builder reverse(boolean v)         { reverse        = v; return this; }
@@ -110,6 +180,23 @@ public final class VehicleCanData {
         public Builder turnRight(boolean v)       { turnRight      = v; return this; }
         public Builder hazard(boolean v)          { hazard         = v; return this; }
         public Builder tpms(float[] v)            { tpms           = v; return this; }
+        public Builder climatePower(Boolean v)        { climatePower         = v; return this; }
+        public Builder climateAc(Boolean v)           { climateAc            = v; return this; }
+        public Builder climateAuto(Boolean v)         { climateAuto          = v; return this; }
+        public Builder climateDual(Boolean v)         { climateDual          = v; return this; }
+        public Builder climateRecirc(Boolean v)       { climateRecirc        = v; return this; }
+        public Builder climateDefrostFront(Boolean v) { climateDefrostFront  = v; return this; }
+        public Builder climateDefrostRear(Boolean v)  { climateDefrostRear   = v; return this; }
+        public Builder climateFanLevel(Integer v)     { climateFanLevel      = v; return this; }
+        public Builder climateFanMax(Integer v)       { climateFanMax        = v; return this; }
+        public Builder climateTempDriver(Float v)     { climateTempDriver    = v; return this; }
+        public Builder climateTempPassenger(Float v)  { climateTempPassenger = v; return this; }
+        public Builder doorFrontLeft(Boolean v)       { doorFrontLeft        = v; return this; }
+        public Builder doorFrontRight(Boolean v)      { doorFrontRight       = v; return this; }
+        public Builder doorRearLeft(Boolean v)        { doorRearLeft         = v; return this; }
+        public Builder doorRearRight(Boolean v)       { doorRearRight        = v; return this; }
+        public Builder trunkOpen(Boolean v)           { trunkOpen            = v; return this; }
+        public Builder steeringAngle(Integer v)       { steeringAngle        = v; return this; }
         public VehicleCanData build()             { return new VehicleCanData(this); }
     }
 }

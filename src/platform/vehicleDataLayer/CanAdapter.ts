@@ -5,6 +5,11 @@ import { dbgPushCanRaw, dbgUpdateCanExtras } from '../debug';
 import { useUnifiedVehicleStore } from './UnifiedVehicleStore';
 import { useHALStatusStore } from './halStatusStore';
 import { recordCanNativeProvenance } from './canNativeProvenance';
+import {
+  RAISE_TYPE, hexToBytes, decodeTpms, decodeTrip, decodeAmbient, applyMassageItem,
+  type CanMassageState,
+} from './raiseRenaultFrames';
+import type { CanExtrasPatch } from './UnifiedVehicleStore';
 /* ARCH-06/F1 — T0 sayaç + ilk araç gözlemi taşı. Native 80 ms coalescing
    otoritesi DEĞİŞMEDİ; buraya ikinci bir JS throttle EKLENMEDİ. */
 import { bumpPerf } from '../perf/perfCounters';
@@ -45,6 +50,8 @@ export class CanAdapter implements ICanAdapter {
   // mevcut nesne mutate edilir. GC baskısı 0.
   private readonly _data: CanAdapterData = {};
   private readonly _tpmsBuffer: [number, number, number, number] = [0, 0, 0, 0];
+  /** 0x72 masaj öğeleri tek tek gelir → oturum içinde birleştirilir (stop'ta sıfırlanır). */
+  private _massage: CanMassageState | null = null;
 
   // First-frame timeout state
   private _firstFrameReceived  = false;
@@ -84,6 +91,22 @@ export class CanAdapter implements ICanAdapter {
         handle.remove(); return;
       }
       statusHandle = handle;
+    }).catch(() => {});
+
+    /* NWD ham Raise çerçeveleri (lastik · yol bilgisayarı · masaj · ambiyans). SDK
+       bunları dağıtmıyor; native `NwdRawFrameTap` sağlamayı doğrulayıp iletir.
+       Aynı NESİL KAPISI: eski oturumun geç çerçevesi araç gerçeğine YAZAMAZ. */
+    let raiseHandle: { remove: () => void } | null = null;
+    CarLauncher.addListener('canRaiseFrame', (f) => {
+      if (generation !== this._listenerGeneration) {
+        this._note('STALE_CALLBACK_REJECTED', generation);
+        return;
+      }
+      const patch = this._decodeRaise(f?.t, f?.d, Date.now());
+      if (patch) useUnifiedVehicleStore.getState().updateCanExtras(patch);
+    }).then((handle) => {
+      if (generation !== this._listenerGeneration) { this._note('LATE_HANDLE_DISPOSED', generation); handle.remove(); return; }
+      raiseHandle = handle;
     }).catch(() => {});
 
     CarLauncher.addListener('canData', (raw) => {
@@ -153,6 +176,32 @@ export class CanAdapter implements ICanAdapter {
       this._data.airCondition  = raw.airCondition  ?? undefined;
       this._data.cruiseControl = raw.cruiseControl ?? undefined;
 
+      // ── NWD/Raise klima · kapılar · direksiyon açısı (saha 2026-10-02) ──────
+      // Alan YOKSA grup kurulmaz → depo eski değeri korur (bilinmiyor ≠ kapalı).
+      this._data.climate = (raw.climatePower != null || raw.climateAc != null || raw.climateFanLevel != null)
+        ? Object.freeze({
+            power:          raw.climatePower         ?? null,
+            ac:             raw.climateAc            ?? null,
+            auto:           raw.climateAuto          ?? null,
+            dual:           raw.climateDual          ?? null,
+            recirc:         raw.climateRecirc        ?? null,
+            defrostFront:   raw.climateDefrostFront  ?? null,
+            defrostRear:    raw.climateDefrostRear   ?? null,
+            fanLevel:       raw.climateFanLevel      ?? null,
+            fanMax:         raw.climateFanMax        ?? null,
+            tempDriverC:    raw.climateTempDriver    ?? null,
+            tempPassengerC: raw.climateTempPassenger ?? null,
+          })
+        : undefined;
+      this._data.doors = raw.doorFrontLeft != null
+        ? Object.freeze({
+            frontLeft:  !!raw.doorFrontLeft,  frontRight: !!raw.doorFrontRight,
+            rearLeft:   !!raw.doorRearLeft,   rearRight:  !!raw.doorRearRight,
+            trunk:      !!raw.trunkOpen,
+          })
+        : undefined;
+      this._data.steeringAngle = raw.steeringAngle ?? undefined;
+
       // ── TPMS (pre-allocated buffer) ───────────────────────────────────────
       if (raw.tpms != null && raw.tpms.length === 4) {
         this._tpmsBuffer[0] = raw.tpms[0]!;
@@ -177,7 +226,9 @@ export class CanAdapter implements ICanAdapter {
         handle.remove(); statusHandle?.remove(); return;
       }
       this._starting = false;
-      this._unsub = () => { try { handle.remove(); } finally { statusHandle?.remove(); } };
+      this._unsub = () => {
+        try { handle.remove(); } finally { statusHandle?.remove(); raiseHandle?.remove(); }
+      };
     }).catch(() => { this._starting = false; statusHandle?.remove(); });
 
     CarLauncher.startCanBus?.();
@@ -196,6 +247,7 @@ export class CanAdapter implements ICanAdapter {
     this._retryCount         = 0;
     this._unsub?.();
     this._unsub = null;
+    this._massage = null;
     this._listeners.clear();
     // CAN transport kesilince stale veri UI'da donmasın — anında sıfırla
     useUnifiedVehicleStore.getState().resetCanData();
@@ -205,6 +257,41 @@ export class CanAdapter implements ICanAdapter {
     });
     if (isNative) CarLauncher.stopCanBus?.();
     useHALStatusStore.getState().resetCan();
+  }
+
+  /** Ham Raise çerçevesi → depo yaması (tanınmayan/bozuk → null). SAF çözücüye delege eder. */
+  private _decodeRaise(type: unknown, hex: unknown, atMs: number): CanExtrasPatch | null {
+    if (typeof type !== 'number' || typeof hex !== 'string') return null;
+    const d = hexToBytes(hex);
+    if (!d) return null;
+    switch (type) {
+      case RAISE_TYPE.TPMS: {
+        const t = decodeTpms(d, atMs);
+        if (!t) return null;
+        const [fl, fr, rl, rr] = t.bar;
+        // Mevcut kPa demeti yalnız DÖRT teker de ölçülmüşse yazılır (yarım veri sahte 0 olmaz).
+        const kpa = (fl != null && fr != null && rl != null && rr != null)
+          ? ([Math.round(fl * 100), Math.round(fr * 100), Math.round(rl * 100), Math.round(rr * 100)] as [number, number, number, number])
+          : undefined;
+        return { tpmsDetail: t, tpms: kpa };
+      }
+      case RAISE_TYPE.TRIP: {
+        const t = decodeTrip(d, atMs);
+        return t ? { trip: t } : null;
+      }
+      case RAISE_TYPE.CENTRAL1: {
+        const a = decodeAmbient(d, atMs);
+        return a ? { ambient: a } : null;
+      }
+      case RAISE_TYPE.CENTRAL2: {
+        const m = applyMassageItem(this._massage, d, atMs);
+        if (!m) return null;
+        this._massage = m;
+        return { massage: m };
+      }
+      default:
+        return null;
+    }
   }
 
   onData(cb: Callback): () => void {

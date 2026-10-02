@@ -1858,6 +1858,13 @@ export interface CarLauncherPlugin {
   ): Promise<PluginListenerHandle>;
 
   startCanBus?(): Promise<void>;
+  /**
+   * Konfor ayarı yazar (koltuk masajı · iç ambiyans) — native beyaz liste dışı REDDEDİLİR.
+   * `sent` yalnız isteğin NWD servisine ulaştığını söyler; onay kutunun durum yankısıdır.
+   */
+  setCanComfortSetting?(options: { id: number; value: number }): Promise<{ sent: boolean }>;
+  /** Salt-okuma durum isteği: lastik 0x61 · yol bilgisayarı 0x81 · merkezi 0x71–0x73. */
+  requestCanData?(options: { type: number }): Promise<{ sent: boolean }>;
   stopCanBus?(): Promise<void>;
   /** MCU event sniffer — K250/Hiworld keşif modu */
   startMcuSniff?(): Promise<void>;
@@ -2343,6 +2350,12 @@ export interface CarLauncherPlugin {
     handler: (data: CanRawFrame) => void,
   ): Promise<PluginListenerHandle>;
 
+  /** NWD ham Raise çerçeveleri — SDK'nın dağıtmadığı lastik/yol bilgisayarı/merkezi ayarlar. */
+  addListener(
+    event: 'canRaiseFrame',
+    handler: (data: CanRaiseFrame) => void,
+  ): Promise<PluginListenerHandle>;
+
   /** K24 ContentProvider tanı mesajları — Bakım ekranında gösterilir */
   addListener(
     event: 'canDiag',
@@ -2406,6 +2419,31 @@ export interface CanData {
   cruiseControl?:    boolean;
   // ── TPMS ──────────────────────────────────────────────────────────────────
   tpms?:             number[];  // [fl, fr, rl, rr] kPa
+  // ── Klima durumu (NWD SDK, saha 2026-10-02) — alan YOKSA bilinmiyor ─────────
+  climatePower?:         boolean;  // klima sistemi açık
+  climateAc?:            boolean;  // A/C kompresörü
+  climateAuto?:          boolean;
+  climateDual?:          boolean;
+  climateRecirc?:        boolean;  // iç hava / devridaim
+  climateDefrostFront?:  boolean;
+  climateDefrostRear?:   boolean;
+  climateFanLevel?:      number;
+  climateFanMax?:        number;
+  climateTempDriver?:    number;   // °C
+  climateTempPassenger?: number;   // °C
+  // ── Tek tek kapılar + direksiyon açısı (NWD ham tip 3 / 6) ──────────────────
+  doorFrontLeft?:        boolean;
+  doorFrontRight?:       boolean;
+  doorRearLeft?:         boolean;
+  doorRearRight?:        boolean;
+  trunkOpen?:            boolean;
+  steeringAngle?:        number;   // işaretli ham birim (sol −)
+}
+
+/** NWD ham Raise çerçevesi (lastik 0x61 · yol bilgisayarı 0x81 · merkezi 0x71–0x73). */
+export interface CanRaiseFrame {
+  t: number;   // Raise yanıt tipi
+  d: string;   // veri bölümü, bitişik hex (tip/uzunluk/sağlama hariç)
 }
 
 export interface CanStatus {

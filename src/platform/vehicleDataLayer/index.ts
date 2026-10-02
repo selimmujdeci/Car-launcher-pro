@@ -222,6 +222,7 @@ export function startVehicleDataLayer(opts?: { onWorkerCrash?: () => void }): ()
     abs: undefined, tractionControl: undefined, stabilityControl: undefined,
     parkingBrake: undefined, seatbelt: undefined, wipers: undefined,
     airCondition: undefined, cruiseControl: undefined,
+    climate: undefined, doors: undefined, steeringAngle: null,
   };
 
   const unsubCanExtras = can.onData((raw) => {
@@ -261,6 +262,9 @@ export function startVehicleDataLayer(opts?: { onWorkerCrash?: () => void }): ()
     _canPatch.wipers            = d.wipers;
     _canPatch.airCondition      = d.airCondition;
     _canPatch.cruiseControl     = d.cruiseControl;
+    _canPatch.climate           = d.climate;
+    _canPatch.doors             = d.doors;
+    _canPatch.steeringAngle     = d.steeringAngle ?? null;
     useUnifiedVehicleStore.getState().updateCanExtras(_canPatch);
   });
 
