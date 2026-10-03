@@ -1750,6 +1750,17 @@ export interface CarLauncherPlugin {
   setNavigationActive(options: { active: boolean }): Promise<void>;
 
   /**
+   * Yerel GNSS akışının uygulamanın TEK konum kaynağı olduğunu servise bildirir
+   * (araç ünitesi: Fused açılmaz, konum yalnız backgroundLocation'dan gelir).
+   *
+   * NEDEN: park kısması 5 dk hareketsizlikte GPS'i kapatıp geri dönüşü
+   * NETWORK_PROVIDER'a bağlıyor; GMS'siz/çökük ünitede ağ konumu olmadığından
+   * GPS bir daha açılmıyor, uygulama konumsuz kalıyordu (saha 2026-10-03).
+   * Salt bayrak — izin istemez, ikinci bir konum otoritesi KURMAZ.
+   */
+  setGnssPrimary(options: { primary: boolean }): Promise<void>;
+
+  /**
    * LOCAL PIN (valet/geofence koruması) — Android Keystore destekli
    * EncryptedSharedPreferences + PBKDF2-SHA256. Otorite NATIVE'dedir.
    *

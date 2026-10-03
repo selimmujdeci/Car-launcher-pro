@@ -127,6 +127,25 @@ public class CarLauncherForegroundService extends Service {
         if (svc != null) svc.resumeGpsHighAccuracy();
     }
 
+    /**
+     * Yerel GNSS akışı uygulamanın TEK konum kaynağı mı — park kısmasının İKİNCİ istisnası.
+     *
+     * Araç ünitesinde JS Fused'ı hiç açmaz (NATIVE_GNSS_ONLY); konum yalnız bu servisten
+     * gelir. Kısma ise 5 dk hareketsizlikte GPS'i kapatıp hareketi NETWORK_PROVIDER ile
+     * yakalamayı varsayar — GMS'siz/çökük ünitede ağ konumu yok, hız bildirmeyen GNSS'te
+     * hareket de algılanmaz → GPS bir daha açılmıyor, uygulama konumsuz kalıyordu (ünite
+     * kontakla kapanmayıp uyuduğu için ertesi gün de). Saha 2026-10-03.
+     */
+    private static volatile boolean sGnssPrimary = false;
+
+    /** JS yerel akışı tek kaynak seçtiğinde çağrılır; kısılmışsa 1 Hz akışı DERHAL geri açar. */
+    public static void setGnssPrimary(boolean primary) {
+        sGnssPrimary = primary;
+        if (!primary) return;
+        CarLauncherForegroundService svc = instance;
+        if (svc != null) svc.resumeGpsHighAccuracy();
+    }
+
     public interface LocationCallback {
         void onLocation(double lat, double lng, float speedKmh, float bearing, float accuracy,
                         long observationTimestampMs, long gpsGeneration);
@@ -613,7 +632,9 @@ public class CarLauncherForegroundService extends Service {
         // NAVİGASYON İSTİSNASI: rota sürerken duruş "park" DEĞİLDİR — uzun ışık ya da
         // trafik olabilir. Kısmak, kalkışta ilk ~60 m'yi kör bırakıyordu (bkz.
         // sNavigationActive). Oturum bitince bu dal yeniden normal çalışır.
-        if (gpsHighAccuracyActive && !sNavigationActive
+        // ARAÇ ÜNİTESİ İSTİSNASI: yerel GNSS tek kaynakken kısma uygulamayı kör eder
+        // (bkz. sGnssPrimary).
+        if (gpsHighAccuracyActive && !sNavigationActive && !sGnssPrimary
             && (now - lastGpsMotionMs) > PARKED_TIMEOUT_MS) {
             stopGpsHighAccuracy(loc);
             return;

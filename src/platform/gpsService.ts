@@ -401,6 +401,9 @@ async function startNativeGPSTracking(generation: number): Promise<void> {
     if (vehicleHeadUnit) {
       if (generation !== _gpsGeneration) return; // bu arada durduruldu/yeniden başladı
       watchId = NATIVE_GNSS_ONLY;
+      // Yerel akış TEK kaynak → servisin park kısması onu durdurmamalı (GMS'siz
+      // ünitede geri dönüş yolu yok; saha 2026-10-03 "cihazda var, uygulamada yok").
+      void CarLauncher.setGnssPrimary({ primary: true }).catch(() => undefined);
       return;
     }
 

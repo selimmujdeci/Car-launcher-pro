@@ -11,10 +11,12 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const getInstalledPackages = vi.fn();
+const setGnssPrimary = vi.fn().mockResolvedValue(undefined);
 vi.mock('../platform/nativePlugin', () => ({
   CarLauncher: {
     getInstalledPackages: (...a: unknown[]) => getInstalledPackages(...a),
     setBackgroundGpsGeneration: vi.fn().mockResolvedValue(undefined),
+    setGnssPrimary: (...a: unknown[]) => setGnssPrimary(...a),
   },
 }));
 
@@ -79,7 +81,26 @@ describe('gpsService — araç ünitesinde Fused yok', () => {
     vi.mocked(Geolocation.watchPosition).mockClear();
     vi.mocked(Geolocation.getCurrentPosition).mockClear();
     vi.mocked(Geolocation.clearWatch).mockClear();
+    setGnssPrimary.mockClear();
     setNative(true);
+  });
+
+  /* Saha 2026-10-03 ("cihazda konum var, uygulamada yok"): yerel GNSS akışı TEK
+     kaynakken servisin park kısması (5 dk hareketsizlik → GPS kapalı, geri dönüş
+     NETWORK_PROVIDER'a bağlı) GMS'siz ünitede konumu kalıcı kesiyordu. JS, Fused'ı
+     açmadığını servise bildirir → kısma bu akışı durdurmaz. */
+  it('head-unit: servise "yerel GNSS tek kaynak" bildirilir; telefonda bildirilmez', async () => {
+    getInstalledPackages.mockResolvedValue({ installed: ['com.nwd.statusbarbottom'] });
+    await startGPSTracking();
+    expect(setGnssPrimary).toHaveBeenCalledWith({ primary: true });
+    await stopGPSTracking();
+
+    setGnssPrimary.mockClear();
+    _resetVehicleHeadUnitForTest();
+    getInstalledPackages.mockResolvedValue({ installed: [] });
+    await startGPSTracking();
+    expect(setGnssPrimary).not.toHaveBeenCalled();
+    await stopGPSTracking();
   });
 
   it('head-unit: watchPosition/getCurrentPosition çağrılmaz, stop clearWatch çağırmaz', async () => {

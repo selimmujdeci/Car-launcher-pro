@@ -5780,6 +5780,18 @@ public class CarLauncherPlugin extends Plugin {
         call.resolve();
     }
 
+    /**
+     * Yerel GNSS akışının uygulamanın TEK konum kaynağı olduğunu bildirir (araç ünitesi:
+     * JS Fused'ı açmaz) → park kısması bu akışı durdurmaz, kısılmışsa geri açar.
+     * Salt bayrak — konum İZNİ istemez.
+     */
+    @PluginMethod
+    public void setGnssPrimary(PluginCall call) {
+        boolean primary = Boolean.TRUE.equals(call.getBoolean("primary", false));
+        CarLauncherForegroundService.setGnssPrimary(primary);
+        call.resolve();
+    }
+
     private void closeCameraInternal() {
         pendingFrameCall = null;
         lastFrame        = null;
