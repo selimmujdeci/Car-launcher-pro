@@ -3,14 +3,17 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { ShieldCheck } from 'lucide-react';
 
+/* 2026-10-03 (kullanıcı onayı): CAN konfor yazımı (koltuk masajı · iç ambiyans) eklendi —
+   "araç sistemlerine müdahale etmez" artık DOĞRU DEĞİLDİ. Metin anlam değiştirdiği için
+   onay anahtarı v2: daha önce onaylayan da yeni metni bir kez görür. */
 const DISCLAIMER =
-  'Bu uygulama yalnızca araç verilerini görüntülemek amacıyla tasarlanmıştır. ' +
-  'Araç sistemlerine müdahale etmez ve sürüş kontrolü sağlamaz.';
+  'Araç verilerini gösterir; yalnız konfor ayarlarını (koltuk masajı, iç ambiyans) ' +
+  'senin isteğinle değiştirir. Sürüş ve güvenlik sistemlerine müdahale etmez.';
 
 const useDisclaimerStore = create<{ seen: boolean; accept: () => void }>()(
   persist(
     (set) => ({ seen: false, accept: () => set({ seen: true }) }),
-    { name: 'car-launcher-disclaimer' },
+    { name: 'car-launcher-disclaimer-v2' },
   ),
 );
 
@@ -76,7 +79,7 @@ export const DisclaimerBanner = memo(function DisclaimerBanner() {
                 className="text-xs font-medium tracking-wide"
                 style={{ color: 'var(--oem-ink-3)' }}
               >
-                Salt görüntüleme · Güvenli mod
+                Güvenli mod
               </span>
             </div>
           </div>
