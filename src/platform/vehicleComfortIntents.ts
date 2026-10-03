@@ -32,7 +32,8 @@ export interface ComfortCommand {
   readonly colorName?: string;
 }
 
-export type CanInfoTopic = 'tires' | 'tires_reset' | 'trip' | 'doors' | 'climate' | 'massage' | 'ambient';
+export type CanInfoTopic = 'tires' | 'tires_reset' | 'trip' | 'doors' | 'climate' | 'massage' | 'ambient'
+  | 'drive_mode' | 'drive_mode_set';
 
 /** Türkçe aksan sadeleştirme — vehicleIntents ile aynı kural (bağımsız kopya). */
 function norm(s: string): string {
@@ -277,6 +278,13 @@ const STATE_Q_RE = /\b(acik|kapali|aktif|calisiyor|yaniyor)\s*(mi|mu)\b|\bdurum\
 export function tryParseCanVehicleInfo(text: string): CanInfoTopic | null {
   const t = stripVocative(norm(text));
   if (t.length < 4 || MEMORY_RE.test(t)) return null;
+
+  /* Multi-Sense sürüş modu (saha 2026-10-03). "spor modunu aç" aracın modu demek; CarOS
+     modu DEĞİŞTİRMEZ → dürüst cevap + şu anki mod. ("sürüş moduna geç" uygulama komutudur.) */
+  if (/\b(eko|eco|ekonomi\w*|spor|sport|konfor|comfort|rahat|notr|neutral|perso|kisisel\w*)\s+mod\w*|\bmulti\s*sens\w*/.test(t)) {
+    return /\b(ac|acar|gec\w*|al|yap\w*|degistir\w*|calistir\w*|sec\w*|kapat\w*)\b/.test(t) ? 'drive_mode_set' : 'drive_mode';
+  }
+  if (/\bhangi\s+(surus\s+)?mod(da|ta)\w*|\bsurus\s+mod\w*\s+(ne|hangi\w*)\b|\bhangi\s+surus\s+mod\w*/.test(t)) return 'drive_mode';
 
   if (/\b(lastik|teker)\w*/.test(t)) {
     if (/\bsifirla\w*/.test(t)) return 'tires_reset';

@@ -20,7 +20,7 @@ import {
 import { evidenceFromVehicleState, reconcileObservation } from '../platform/capability/observation/observationContract';
 import { isObservationSource } from '../platform/capability/observation/observationLedger';
 import { findByLegacyIntent } from '../platform/capability/fabric/carosCapabilityCatalog';
-import { decodeTpms } from '../platform/vehicleDataLayer/raiseRenaultFrames';
+import { decodeTpms, decodeDriveMode } from '../platform/vehicleDataLayer/raiseRenaultFrames';
 import type { CanAmbientState, CanMassageState } from '../platform/vehicleDataLayer/raiseRenaultFrames';
 
 const store = () => useUnifiedVehicleStore.getState();
@@ -292,5 +292,33 @@ describe('bayat CAN akışı', () => {
     native.getCanAccess.mockResolvedValue(silent);
     store().updateCanExtras({ doors: { frontLeft: false, frontRight: false, rearLeft: false, rearRight: false, trunk: true } });
     expect(await answerCanVehicleInfo('doors')).toBe('Araçtan bir süredir veri gelmiyor. Son bilinen: bagaj açık.');
+  });
+});
+
+describe('Multi-Sense sürüş modu (saha 2026-10-03, Megane IV)', () => {
+  const profile = (versionKey: string) => ({
+    readLogs: true, canappDebug: 1, rawTap: true, rawFrames: 40,
+    nwdProfile: JSON.stringify({ carBandKey: 'carband_renault', carTypeKey: 'cartype_renault_megane', carVersionKey: versionKey }),
+    nwdMenus: '',
+  });
+
+  it('modu söyler; değiştirme isteğinde dürüst cevap + şu anki mod, araca YAZMAZ', async () => {
+    native.getCanAccess.mockResolvedValue(profile('carversion_renault_megana_2015_15_now_h'));
+    store().updateCanExtras({ driveMode: decodeDriveMode([0x00, 0x02], Date.now()) ?? undefined });
+    expect(await answerCanVehicleInfo('drive_mode')).toBe('Şu an Sport moddasın.');
+    expect(await answerCanVehicleInfo('drive_mode_set'))
+      .toBe('Sürüş modunu ben değiştiremem; aracın Multi-Sense düğmesini kullan. Şu an Sport moddasın.');
+    expect(native.setCanComfortSetting).not.toHaveBeenCalled();
+  });
+
+  it('anlamı kanıtlanmamış araçta (Duster) mod UYDURULMAZ', async () => {
+    native.getCanAccess.mockResolvedValue(profile('carversion_dacia_duster_2018_now'));
+    store().updateCanExtras({ driveMode: decodeDriveMode([0x00, 0x00], Date.now()) ?? undefined });
+    expect(await answerCanVehicleInfo('drive_mode')).toBe('Sürüş modunu araçtan okuyamıyorum.');
+  });
+
+  it('kod çözücü: saha değerleri → ad; bilinmeyen değer → ad yok', () => {
+    expect([5, 4, 2, 1, 0].map((v) => decodeDriveMode([0, v], 1)?.name)).toEqual(['Eco', 'Perso', 'Sport', 'Comfort', 'Neutral']);
+    expect(decodeDriveMode([0, 3], 1)?.name).toBeNull();
   });
 });

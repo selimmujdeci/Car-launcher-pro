@@ -170,6 +170,29 @@ export function decodeAmbient(d: readonly number[], atMs: number): CanAmbientSta
   });
 }
 
+/**
+ * Renault Multi-Sense sürüş modu — 0x73 [1]. KAYNAK: SAHA 2026-10-03 (Megane IV; NWD bu
+ * baytı ADLANDIRMIYOR). Kullanıcı Eco → Perso → Sport → Comfort → Neutral sırasıyla seçti;
+ * değer 05 · 04 · 02 · 01 · 00 geldi. Sport gösterge paneliyle, Comfort masajın kendiliğinden
+ * açılmasıyla ayrıca doğrulandı. Bilinmeyen değer → ad YOK (uydurma mod söylenmez).
+ * Anlam yalnız bu araçta kanıtlı → kullanan taraf `isMultiSenseVehicle` ile sınırlar.
+ */
+export const DRIVE_MODE_NAMES: Readonly<Record<number, string>> = Object.freeze({
+  5: 'Eco', 4: 'Perso', 2: 'Sport', 1: 'Comfort', 0: 'Neutral',
+});
+
+export interface CanDriveModeState {
+  readonly raw:  number;
+  readonly name: string | null;
+  readonly atMs: number;
+}
+
+export function decodeDriveMode(d: readonly number[], atMs: number): CanDriveModeState | null {
+  if (d.length < 2) return null;
+  const raw = d[1]!;
+  return Object.freeze({ raw, name: DRIVE_MODE_NAMES[raw] ?? null, atMs });
+}
+
 const EMPTY_MASSAGE = {
   driverOn: null, mode: null, strength: null, speed: null, passengerOn: null,
 } as const;

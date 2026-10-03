@@ -6,7 +6,7 @@ import { useUnifiedVehicleStore } from './UnifiedVehicleStore';
 import { useHALStatusStore } from './halStatusStore';
 import { recordCanNativeProvenance } from './canNativeProvenance';
 import {
-  RAISE_TYPE, hexToBytes, decodeTpms, decodeTrip, decodeAmbient, applyMassageItem,
+  RAISE_TYPE, hexToBytes, decodeTpms, decodeTrip, decodeAmbient, applyMassageItem, decodeDriveMode,
   type CanMassageState,
 } from './raiseRenaultFrames';
 import type { CanExtrasPatch } from './UnifiedVehicleStore';
@@ -288,6 +288,10 @@ export class CanAdapter implements ICanAdapter {
         if (!m) return null;
         this._massage = m;
         return { massage: m };
+      }
+      case RAISE_TYPE.CENTRAL3: {
+        const m = decodeDriveMode(d, atMs);
+        return m ? { driveMode: m } : null;
       }
       default:
         return null;

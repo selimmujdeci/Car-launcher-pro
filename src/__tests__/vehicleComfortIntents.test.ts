@@ -167,3 +167,21 @@ describe('sözlük tek kaynaktan (kod çözücünün adları)', () => {
     expect(general[general.length - 1]).toBe('[unk]');
   });
 });
+
+describe('Multi-Sense sürüş modu (saha 2026-10-03)', () => {
+  it.each([
+    ['spor modunu aç', 'drive_mode_set'],
+    ['Mavi eko moduna geç', 'drive_mode_set'],
+    ['konfor moduna al', 'drive_mode_set'],
+    ['ekonomik modu aç', 'drive_mode_set'],
+    ['hangi moddayım', 'drive_mode'],
+    ['araç hangi sürüş modunda', 'drive_mode'],
+    ['spor modunda mıyım', 'drive_mode'],
+  ])('"%s" → %s', (t, topic) => { expect(tryParseCanVehicleInfo(t)).toBe(topic); });
+
+  it('uygulama komutları ve masaj modu gasp edilmez', () => {
+    expect(tryParseCanVehicleInfo('sürüş moduna geç')).toBeNull();      // CarOS sürüş arayüzü
+    expect(tryParseCanVehicleInfo('masajı bel moduna al')).toBeNull();
+    expect(tryParseCanVehicleInfo('eko puanım kaç')).toBeNull();
+  });
+});

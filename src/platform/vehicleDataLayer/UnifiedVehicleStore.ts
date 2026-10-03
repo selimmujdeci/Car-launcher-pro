@@ -22,7 +22,7 @@ import { openRearCamera, closeRearCamera } from '../cameraService';
 import type { VehicleState, GPSLocation } from './types';
 import type { CanonicalObdKey } from '../obd/canonicalObdSignals';
 import type {
-  CanClimateState, CanDoorsState, CanTpmsState, CanTripState, CanMassageState, CanAmbientState,
+  CanClimateState, CanDoorsState, CanTpmsState, CanTripState, CanMassageState, CanAmbientState, CanDriveModeState,
 } from './raiseRenaultFrames';
 import { safeStorage, safeFlushKey } from '../../utils/safeStorage';
 /* ARCH-06/F4 — YALNIZ SAYAÇ. Değişen-alan dedup mantığı ZATEN buradaydı ve
@@ -108,6 +108,7 @@ export interface CanExtrasPatch {
   trip?:              CanTripState;
   massage?:           CanMassageState;
   ambient?:           CanAmbientState;
+  driveMode?:         CanDriveModeState;
 }
 
 /**
@@ -199,6 +200,8 @@ export interface UnifiedVehicleState {
   canTrip:          CanTripState | null;
   canMassage:       CanMassageState | null;
   canAmbient:       CanAmbientState | null;
+  /** Multi-Sense sürüş modu (Raise 0x73) — anlamı yalnız Megane IV'te sahada kanıtlı. */
+  canDriveMode:     CanDriveModeState | null;
 
   // ── OBD Data Bridge (P0-OBD-01) ───────────────────────────────────────────
   /**
@@ -327,6 +330,7 @@ export const useUnifiedVehicleStore = create<UnifiedVehicleState>()(
       canTrip:          null,
       canMassage:       null,
       canAmbient:       null,
+      canDriveMode:     null,
       obdSignals:      EMPTY_OBD_SIGNALS,
       obdSessionEpoch: OBD_EPOCH_NONE,
       heading:        null,
@@ -560,7 +564,7 @@ export const useUnifiedVehicleStore = create<UnifiedVehicleState>()(
         if (patch.cruiseControl != null) chkBool('canCruiseControl', patch.cruiseControl);
 
         // NWD/Raise grup nesneleri — sığ eşitse yazılmaz (gereksiz abone uyanışı yok)
-        function chkGroup<K extends 'canClimate' | 'canDoors' | 'canTpms' | 'canTrip' | 'canMassage' | 'canAmbient'>(
+        function chkGroup<K extends 'canClimate' | 'canDoors' | 'canTpms' | 'canTrip' | 'canMassage' | 'canAmbient' | 'canDriveMode'>(
           key: K, val: UnifiedVehicleState[K] | undefined,
         ) {
           if (val == null) return;
@@ -574,6 +578,7 @@ export const useUnifiedVehicleStore = create<UnifiedVehicleState>()(
         chkGroup('canTrip',    patch.trip);
         chkGroup('canMassage', patch.massage);
         chkGroup('canAmbient', patch.ambient);
+        chkGroup('canDriveMode', patch.driveMode);
         chk('canSteeringAngle', patch.steeringAngle);
 
         if (dirty) {
@@ -727,6 +732,7 @@ export const useUnifiedVehicleStore = create<UnifiedVehicleState>()(
           canTrip:          null,
           canMassage:       null,
           canAmbient:       null,
+          canDriveMode:     null,
         });
       },
     }),

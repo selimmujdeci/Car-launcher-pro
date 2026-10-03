@@ -506,6 +506,11 @@ export function ambientSpeech(a: CanAmbientState | null): string {
  * Araç durumu sorusunu cevaplar (salt okuma). Gerekirse önce kutudan taze durum
  * ister; gelmezse son bildirilen değeri ETİKETLEYEREK söyler. ASLA throw etmez.
  */
+/** Multi-Sense mod baytının anlamı sahada YALNIZ Megane IV'te (2016+) doğrulandı. */
+export function isMultiSenseVehicle(access: VehicleAccessState): boolean {
+  return access.profile?.versionKey?.startsWith('carversion_renault_megana_2015') === true;
+}
+
 export async function answerCanVehicleInfo(topic: CanInfoTopic): Promise<string> {
   try {
     const s = (): UnifiedVehicleState => useUnifiedVehicleStore.getState();
@@ -523,6 +528,16 @@ export async function answerCanVehicleInfo(topic: CanInfoTopic): Promise<string>
     switch (topic) {
       case 'tires_reset':
         return 'Lastik basıncı sıfırlamayı ben yapamıyorum; aracın kendi menüsünden yapabilirsin.';
+      case 'drive_mode':
+      case 'drive_mode_set': {
+        // 0x73 anlamı yalnız Megane IV'te sahada kanıtlı — başka araçta mod UYDURULMAZ.
+        const m = access && isMultiSenseVehicle(access) ? s().canDriveMode : null;
+        const now = m?.name ? label(`Şu an ${m.name} moddasın.`) : null;
+        if (topic === 'drive_mode_set') {
+          return `Sürüş modunu ben değiştiremem; aracın Multi-Sense düğmesini kullan.${now ? ` ${now}` : ''}`;
+        }
+        return now ?? 'Sürüş modunu araçtan okuyamıyorum.';
+      }
       case 'tires': {
         const r = await requestFresh(RAISE_TYPE.TPMS, (x) => x.canTpms);
         return tiresSpeech(r.state, r.fresh);
