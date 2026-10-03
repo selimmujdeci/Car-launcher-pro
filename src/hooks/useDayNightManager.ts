@@ -196,7 +196,10 @@ export function useDayNightManager(): void {
       // Far açıksa tünel/bulutlu gün → karartma mantıklı, kapat
       applySunlightMode(!headlightsRef.current);
     } else {
-      applySunlightMode(false);
+      // Gece → HEP kapat; kullanıcı kilidi de engellemez. Kilit OTOMATİK geçişler
+      // içindir; elle GECE seçimi kilidi kurduğu için applySunlightMode reddediyor,
+      // gece paletinde güneş modu açık kalıyordu (2026-10-03).
+      document.documentElement.classList.remove('sunlight-mode');
     }
   }, [settings.dayNightMode]);
 
