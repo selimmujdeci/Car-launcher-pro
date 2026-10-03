@@ -248,7 +248,7 @@ function main() {
       : undefined;
     fail('adb install "Success" demedi — cihazda ESKİ uygulama duruyor', hint);
   }
-  const pkg = parseDumpsysPackage(adb(['shell', 'dumpsys', 'package', APP_ID]).out);
+  const pkg = parseDumpsysPackage(adb(['exec-out', 'dumpsys', 'package', APP_ID]).out);
   console.log(`[apk:dev] cihaz versionName  : ${pkg.versionName ?? '—'}`);
   console.log(`[apk:dev] cihaz lastUpdateTime: ${pkg.lastUpdateTime ?? '—'}`);
   if (!pkg.versionName || !pkg.versionName.endsWith(`-dev+${tag}`)) {
@@ -257,7 +257,7 @@ function main() {
   ok(`CİHAZDA DOĞRULANDI: ${pkg.versionName}`);
 
   if (launch) {
-    adb(['shell', 'monkey', '-p', APP_ID, '-c', 'android.intent.category.LAUNCHER', '1']);
+    adb(['exec-out', 'monkey', '-p', APP_ID, '-c', 'android.intent.category.LAUNCHER', '1']);
     ok('uygulama başlatıldı');
   }
   console.log(`\n[apk:dev] TAMAM — cihazdaki paket = ${branch}@${head}${distStamp.dirty ? ' (+ commit\'lenmemiş değişiklikler)' : ''} · ${tag}`);
