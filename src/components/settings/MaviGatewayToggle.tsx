@@ -62,8 +62,9 @@ export const MaviGatewayToggle = memo(function MaviGatewayToggle({ configured, v
       <button
         onClick={() => { void handleToggle(); }}
         disabled={!canEnable && !enabled}
-        aria-pressed={enabled}
-        className={`relative w-12 h-7 rounded-full transition-all flex-shrink-0 disabled:opacity-40 ${enabled ? 'bg-emerald-500/80' : 'bg-white/15'}`}
+        role="switch"
+        aria-checked={enabled}
+        className={`relative w-12 h-7 rounded-full transition-all flex-shrink-0 disabled:opacity-40 ${enabled ? 'bg-emerald-500/80' : 'bg-[var(--oem-surface-3)]'}`}
       >
         <span className={`absolute top-1 w-5 h-5 rounded-full bg-white transition-all ${enabled ? 'left-6' : 'left-1'}`} />
       </button>

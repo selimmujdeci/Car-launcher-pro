@@ -414,6 +414,8 @@ export const SecuritySuite = memo(function SecuritySuite() {
                 <span className="text-sm font-bold" style={{ color: 'var(--oem-ink-2)' }}>Sanal Çit</span>
                 <button
                   onClick={handleToggleGeofence}
+                  role="switch"
+                  aria-checked={geo.enabled}
                   className="relative w-12 h-6 rounded-full transition-all"
                   style={{ background: geo.enabled ? 'var(--oem-good, #22c55e)' : 'var(--oem-surface-3, rgba(255,255,255,0.10))' }}
                 >
@@ -501,6 +503,8 @@ export const SecuritySuite = memo(function SecuritySuite() {
                 </div>
                 <button
                   onClick={handleToggleVale}
+                  role="switch"
+                  aria-checked={geo.valeModeActive}
                   className="relative w-12 h-6 rounded-full transition-all"
                   style={{ background: geo.valeModeActive ? 'var(--oem-warn, #f59e0b)' : 'var(--oem-surface-3, rgba(255,255,255,0.10))' }}
                 >
@@ -586,6 +590,8 @@ export const SecuritySuite = memo(function SecuritySuite() {
                 </div>
                 <button
                   onClick={handleToggleSentry}
+                  role="switch"
+                  aria-checked={sentry.status !== 'idle'}
                   className="relative w-12 h-6 rounded-full transition-all"
                   style={{ background: sentry.status !== 'idle' ? 'var(--oem-danger, #ef4444)' : 'var(--oem-surface-3, rgba(255,255,255,0.10))' }}
                 >
@@ -716,6 +722,8 @@ export const SecuritySuite = memo(function SecuritySuite() {
                 </div>
                 <button
                   onClick={handleTogglePin}
+                  role="switch"
+                  aria-checked={geo.pinLockEnabled}
                   className="relative w-12 h-6 rounded-full transition-all"
                   style={{ background: geo.pinLockEnabled ? 'var(--oem-good, #22c55e)' : 'var(--oem-surface-3, rgba(255,255,255,0.10))' }}
                 >

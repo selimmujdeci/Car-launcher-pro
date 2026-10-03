@@ -146,7 +146,7 @@ const BreakReminderManager = memo(function BreakReminderManager() {
           <div style={{ width: 4, height: 16, borderRadius: 4, background: '#fbbf24' }} />
           <span style={{ color: 'var(--oem-ink)', fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.2em' }}>Mola Hatırlatıcı</span>
         </div>
-        <button onClick={handleToggle} style={{ width: 52, height: 28, borderRadius: 14, background: br.enabled ? '#f59e0b' : 'var(--oem-surface-2)', border: 'none', cursor: 'pointer', padding: 3, transition: 'background 0.2s', display: 'flex', alignItems: 'center' }}>
+        <button onClick={handleToggle} role="switch" aria-checked={br.enabled} style={{ width: 52, height: 28, borderRadius: 14, background: br.enabled ? '#f59e0b' : 'var(--oem-surface-3)', border: 'none', cursor: 'pointer', padding: 3, transition: 'background 0.2s', display: 'flex', alignItems: 'center' }}>
           <span style={{ width: 22, height: 22, borderRadius: '50%', background: '#fff', display: 'block', transform: br.enabled ? 'translateX(24px)' : 'translateX(0)', transition: 'transform 0.2s' }} />
         </button>
       </div>

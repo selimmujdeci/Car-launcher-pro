@@ -13474,6 +13474,32 @@ describe('🔒 NAV-CHROME · harita chrome guneş modu agirligindan MUAF (saha 2
   });
 });
 
+describe('🔒 ANAHTAR (role="switch") — genel düğme tabanları rayı bozmaz (ekran taraması 2026-10-03)', () => {
+  /* Genel taban (44/52/56 px) ve tema paketinin `button { border-radius }`
+     zorlaması hap biçimli rayı KAREYE çeviriyor, topuzu üst köşeye itiyordu. */
+  it('switch kuralı: ray tasarım boyutunda, hap yarıçaplı; dokunma alanı ::before ile ≥44 px', () => {
+    const css = read('src/styles/theme-layouts.css');
+    const i = css.indexOf('html button[role="switch"] {');
+    expect(i, 'switch kuralı yok').toBeGreaterThan(0);
+    const body = css.slice(i, i + 220);
+    expect(body).toContain('min-height: 0 !important');
+    expect(body).toContain('border-radius: 9999px !important');
+    expect(body, 'taşan dokunma alanı kırpılır').toContain('overflow: visible !important');
+    expect(css, 'dokunma alanı genişletmesi kaldırılmış — hedef 24 px\'e düşer')
+      .toMatch(/html button\[role="switch"\]::before \{[^}]*inset: -10px -8px/);
+  });
+
+  it.each([
+    ['src/components/settings/SettingsPage.tsx', 1],
+    ['src/components/settings/CarOsConnectionPriorityCard.tsx', 1],
+    ['src/components/settings/MaviGatewayToggle.tsx', 1],
+    ['src/components/security/SecuritySuite.tsx', 4],
+    ['src/components/entertainment/EntertainmentPortal.tsx', 1],
+  ] as const)('%s anahtarları role="switch" taşır', (file, n) => {
+    expect((read(file).match(/role="switch"/g) ?? []).length).toBeGreaterThanOrEqual(n);
+  });
+});
+
 describe('🔒 NAV-CHROME/2 · kontroller TEK RAY, kartlar TEMAYA bağlı (saha 2026-09-06)', () => {
   /* KULLANICI: *"sol quick destinations çok büyük · sağ controls çok ağır."*
      ÖNCE: sağ kolonda BEŞ ayrı kutu, her birinde kendi dolgu+kenar+gölgesi;

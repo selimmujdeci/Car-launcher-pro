@@ -288,6 +288,29 @@ button, [role="button"], .dock-card, .up-nav-item, .glass-card > button {
   min-width:  56px !important;
 }
 
+/* ── Anahtar (role="switch") — ray tasarımdaki boyutta çizilir ───────────
+   Genel taban (44/52/56 px) ve tema paketinin `button { border-radius }`
+   zorlaması hap biçimli rayı KAREYE çeviriyor, topuzu üst köşeye itiyordu
+   (açık/kapalı okunmuyordu — ekran taraması 2026-10-03). Dokunma hedefi
+   KÜÇÜLMEZ: görünmez ::before rayın çevresine taşar → 24–32 px ray ≥ 44 px
+   dokunma alanı. `html` öneki her !important tabandan özgüldür. */
+html button[role="switch"] {
+  min-height: 0 !important;
+  min-width:  0 !important;
+  border-radius: 9999px !important;
+  overflow: visible !important;
+}
+html button[role="switch"]::before {
+  content: '';
+  position: absolute;
+  inset: -10px -8px;
+}
+/* Kapalı ray açık zeminde (gündüz kartı) kayboluyordu — yalnız topuz
+   görünüyordu. İç çizgi yerleşimi değiştirmez; açıkken dolgu yeterlidir. */
+html button[role="switch"][aria-checked="false"] {
+  box-shadow: inset 0 0 0 1px var(--oem-line-strong, rgba(0, 0, 0, 0.22)) !important;
+}
+
 
 /* ════════════════════════════════════════════════════════════════
    EDIT MODE / SLEEP / DRIVE STATE
