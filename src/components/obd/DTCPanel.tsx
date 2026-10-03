@@ -23,7 +23,7 @@ import {
 } from '../../platform/obd/multiEcuScan';
 import { buildVehicleVerdict } from '../../platform/obd/verdictEngine';
 import { formatDtcDisplayCode, UDS_DTC_STATE_LABEL } from '../../platform/obd/udsDtc';
-import { explainDtcsWithAi, type DtcExplainItem } from '../../platform/obd/dtcAiExplanation';
+import { explainDtcsWithAi, mergeDtcExplainItems, type DtcExplainItem } from '../../platform/obd/dtcAiExplanation';
 import { MechanicReportCard } from './MechanicReportCard';
 import { logError } from '../../platform/crashLogger';
 import { CarLauncher } from '../../platform/nativePlugin';
@@ -282,6 +282,11 @@ function DTCPanelInner({ active = false }: { active?: boolean }) {
    * AYNEN korunur) + Patch 11 okumaları. Her alt adım fail-soft (dtcService/
    * StandardPidEnums içinde zaten try/catch'li) — biri düşerse diğerleri gelir.
    */
+  /* Tarama bitince bulunan kayıtlar KENDİLİĞİNDEN açıklanır (kullanıcı isteği 2026-10-03:
+     "OBD hata bulunca yapay zekâ açıklamalı"). Tetik taramanın SONUNDA artar → tüm
+     okumalar (Mode 03/07/0A + ECU taraması) state'e yazıldıktan sonra; tarama başına bir istek. */
+  const [scanDoneSeq, setScanDoneSeq] = useState(0);
+
   async function handleFullScan(): Promise<void> {
     setAiExplain(null);   // eski taramanın yorumu yeni sonuca TAŞINMAZ
     await readDTCCodes();
@@ -319,6 +324,7 @@ function DTCPanelInner({ active = false }: { active?: boolean }) {
       }
     } finally {
       setIsDeepScanning(false);
+      setScanDoneSeq((n) => n + 1);
     }
   }
 
@@ -326,17 +332,28 @@ function DTCPanelInner({ active = false }: { active?: boolean }) {
    * Bulunan kayıtları yapay zekâya açıklatır. Girdi, ekrandaki ÖLÇÜLMÜŞ künyelerdir
    * (kod · alt kod · ECU · durum); durum ölçülmediyse UNKNOWN gider, uydurulmaz.
    */
-  async function handleAiExplain(): Promise<void> {
-    if (!multiEcu) return;
-    const items: DtcExplainItem[] = multiEcu.allCodes.map((c) => ({
+  /* Açıklanacak TÜM ölçülmüş kayıtlar: ECU ECU tarama + standart OBD (Mode 03/07/0A).
+     Eskiden yalnız ECU taraması → kodlar standart okumadan geldiğinde düğme HİÇ yoktu. */
+  const explainItems: DtcExplainItem[] = mergeDtcExplainItems(
+    (multiEcu?.allCodes ?? []).map((c) => ({
       code: c.code,
       subCode: c.subCode ?? null,
       ecu: c.ecuLabel,
       state: c.state ?? (c.fromUds || c.fromKwp ? 'UNKNOWN'
         : c.mode === 'pending' ? 'MODE07_PENDING'
           : c.mode === 'permanent' ? 'MODE0A_PERMANENT' : 'MODE03_STORED'),
-      source: c.fromUds ? 'UDS' : c.fromKwp ? 'KWP' : 'OBD',
-    }));
+      source: c.fromUds ? 'UDS' as const : c.fromKwp ? 'KWP' as const : 'OBD' as const,
+    })),
+    [
+      ...dtc.codes.map((c) => ({ code: c.code, status: 'stored' as const })),
+      ...pending.map((c) => ({ code: c.code, status: 'pending' as const, ecuLabel: c.ecuLabel ?? null })),
+      ...permanent.map((c) => ({ code: c.code, status: 'permanent' as const, ecuLabel: c.ecuLabel ?? null })),
+    ],
+  );
+
+  async function handleAiExplain(): Promise<void> {
+    const items = explainItems;
+    if (items.length === 0) return;
     setAiExplain({ loading: true, text: null, error: null });
     try {
       const r = await explainDtcsWithAi(items);
@@ -524,6 +541,15 @@ function DTCPanelInner({ active = false }: { active?: boolean }) {
   const readyMonitors  = diagStatus?.monitors.filter((m) => m.available && m.ready).length ?? 0;
   const totalMonitors  = diagStatus?.monitors.filter((m) => m.available).length ?? 0;
   const isBusy = dtc.isReading || isDeepScanning;
+
+  useEffect(() => {
+    if (scanDoneSeq === 0) return;
+    /* Yalnız "test tamamlanmadı" / etkin olmayan kayıtlar arıza değildir → kendiliğinden
+       istek atılmaz (kullanıcı yine düğmeyle isteyebilir). */
+    const hasRealFault = explainItems.some((i) => i.state !== 'TEST_INCOMPLETE' && i.state !== 'STORED_INACTIVE');
+    if (hasRealFault) void handleAiExplain();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- tarama bitişine bağlı tek atış
+  }, [scanDoneSeq]);
   const provenEcuCount = multiEcu?.results.filter(isEcuReachable).length ?? 0;
 
   return (
@@ -647,6 +673,39 @@ function DTCPanelInner({ active = false }: { active?: boolean }) {
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Yapay zekâ açıklaması — bulunan HER ölçülmüş kod (ECU taraması + standart OBD). */}
+      {explainItems.length > 0 && (
+        <div className="rounded-2xl border border-[var(--oem-border)] bg-[var(--oem-surface-2)] p-3.5">
+          <div className="flex items-center justify-between gap-3">
+                <span className="text-[10px] font-black uppercase tracking-widest text-[color:var(--oem-text-dim)]">
+                  Yapay zekâ açıklaması
+                </span>
+                <button
+                  type="button"
+                  data-testid="dtc-ai-explain"
+                  onClick={() => void handleAiExplain()}
+                  disabled={aiExplain?.loading === true || isBusy}
+                  className="text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-lg border border-[var(--oem-accent)] text-[color:var(--oem-accent)] disabled:opacity-40"
+                >
+                  {aiExplain?.loading ? 'HAZIRLANIYOR…' : aiExplain?.text ? 'YENİDEN AÇIKLA' : 'YAPAY ZEKÂ İLE AÇIKLA'}
+                </button>
+              </div>
+              {aiExplain?.error && (
+                <div className="mt-2 text-[11px] text-[color:var(--oem-warn)]">{aiExplain.error}</div>
+              )}
+              {aiExplain?.text && (
+                <div data-testid="dtc-ai-explain-text" className="mt-2">
+                  <div className="text-[9px] font-black uppercase tracking-widest text-[color:var(--oem-warn)]">
+                    Yapay zekâ yorumu — doğrulanmış kayıt değildir, kesin teşhis için servise danışın
+                  </div>
+                  <div className="mt-1.5 text-xs leading-relaxed whitespace-pre-wrap text-[color:var(--oem-text)]">
+                    {aiExplain.text}
+                  </div>
+                </div>
+              )}
         </div>
       )}
 
@@ -803,38 +862,6 @@ function DTCPanelInner({ active = false }: { active?: boolean }) {
               Mode 03'tür; bu blok ECU BAŞINA fiziksel okumanın künyesidir ve
               ikisi AYRI gerçeklerdir — bu yüzden "çift gösterim" değil,
               provenance'ı ayrı iki kayıttır (rozetler hangisi olduğunu yazar). */}
-          {multiEcu.allCodes.length > 0 && (
-            <div className="mt-3 pt-3 border-t border-[var(--oem-border)]">
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-[10px] font-black uppercase tracking-widest text-[color:var(--oem-text-dim)]">
-                  Yapay zekâ açıklaması
-                </span>
-                <button
-                  type="button"
-                  data-testid="dtc-ai-explain"
-                  onClick={() => void handleAiExplain()}
-                  disabled={aiExplain?.loading === true || isBusy}
-                  className="text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-lg border border-[var(--oem-accent)] text-[color:var(--oem-accent)] disabled:opacity-40"
-                >
-                  {aiExplain?.loading ? 'HAZIRLANIYOR…' : aiExplain?.text ? 'YENİDEN AÇIKLA' : 'YAPAY ZEKÂ İLE AÇIKLA'}
-                </button>
-              </div>
-              {aiExplain?.error && (
-                <div className="mt-2 text-[11px] text-[color:var(--oem-warn)]">{aiExplain.error}</div>
-              )}
-              {aiExplain?.text && (
-                <div data-testid="dtc-ai-explain-text" className="mt-2">
-                  <div className="text-[9px] font-black uppercase tracking-widest text-[color:var(--oem-warn)]">
-                    Yapay zekâ yorumu — doğrulanmış kayıt değildir, kesin teşhis için servise danışın
-                  </div>
-                  <div className="mt-1.5 text-xs leading-relaxed whitespace-pre-wrap text-[color:var(--oem-text)]">
-                    {aiExplain.text}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
           {multiEcu.allCodes.length > 0 && (
             <div className="mt-3 pt-3 border-t border-[var(--oem-border)] space-y-2">
               <div className="text-[10px] font-black uppercase tracking-widest text-[color:var(--oem-text-dim)]">

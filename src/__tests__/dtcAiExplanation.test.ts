@@ -15,7 +15,7 @@ vi.mock('../platform/ai/gateway/concrete/defaultAiGateway', () => ({ getDefaultA
 
 import { getVehicleIdentity } from '../platform/vehicle/vehicleIdentity';
 import {
-  buildDtcExplainMessages, explainDtcsWithAi, toPlainExplanation, type DtcExplainItem,
+  buildDtcExplainMessages, explainDtcsWithAi, toPlainExplanation, mergeDtcExplainItems, type DtcExplainItem,
 } from '../platform/obd/dtcAiExplanation';
 import type { AiGateway, AiGenerateRequest, AiGenerateResult } from '../platform/ai/gateway/types';
 
@@ -97,5 +97,24 @@ describe('explainDtcsWithAi', () => {
 describe('toPlainExplanation', () => {
   it('markdown işaretlerini temizler, içeriği korur', () => {
     expect(toPlainExplanation('# Başlık\n\n\n\n* madde\n**kalın**')).toBe('Başlık\n\n• madde\nkalın');
+  });
+});
+
+describe('açıklanacak kayıtlar — ECU taraması + standart OBD (saha 2026-10-03 Duster)', () => {
+  it('yalnız standart OBD kodu varsa da açıklanır; ECU uydurulmaz', () => {
+    const items = mergeDtcExplainItems([], [
+      { code: 'P0420', status: 'stored' },
+      { code: 'P0171', status: 'pending', ecuLabel: null },
+    ]);
+    expect(items).toEqual([
+      { code: 'P0420', subCode: null, ecu: 'ECU belirtilmedi (standart OBD)', state: 'MODE03_STORED', source: 'OBD' },
+      { code: 'P0171', subCode: null, ecu: 'ECU belirtilmedi (standart OBD)', state: 'MODE07_PENDING', source: 'OBD' },
+    ]);
+  });
+
+  it('aynı kod ECU taramasında varsa standart kopyası eklenmez (zengin kayıt kalır)', () => {
+    const ecu = [{ code: 'P0420', subCode: '00', ecu: 'Motor (ECM)', state: 'ACTIVE', source: 'UDS' } as const];
+    const items = mergeDtcExplainItems(ecu, [{ code: 'p0420', status: 'stored' }, { code: 'C0035', status: 'permanent' }]);
+    expect(items.map((i) => `${i.code}:${i.ecu}`)).toEqual(['P0420:Motor (ECM)', 'C0035:ECU belirtilmedi (standart OBD)']);
   });
 });

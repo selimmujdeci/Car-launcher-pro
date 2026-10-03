@@ -29,6 +29,48 @@ export interface DtcExplainItem {
   readonly source: 'UDS' | 'KWP' | 'OBD';
 }
 
+/** Standart OBD okuması (Mode 03 / 07 / 0A) — fonksiyonel adresten gelir. */
+export interface StandardDtcForExplain {
+  readonly code: string;
+  readonly status: 'stored' | 'pending' | 'permanent';
+  /** Fonksiyonel (7DF) okumada ECU BİLİNMEZ → null; adresten ECU uydurulmaz. */
+  readonly ecuLabel?: string | null;
+}
+
+const STANDARD_STATE: Readonly<Record<StandardDtcForExplain['status'], DtcExplainItem['state']>> = {
+  stored: 'MODE03_STORED', pending: 'MODE07_PENDING', permanent: 'MODE0A_PERMANENT',
+};
+
+/**
+ * Açıklanacak TÜM ölçülmüş kayıtlar — SAF.
+ *
+ * ÖLÇÜLEN KUSUR (saha 2026-10-03, Duster): açıklama yalnız ECU ECU fiziksel taramanın
+ * kodlarını alıyordu ve düğme de yalnız orada kod varsa görünüyordu. Kodlar yalnız
+ * standart OBD okumasından (Mode 03/07/0A) geldiğinde — ya da ECU taraması düştüğünde —
+ * yapay zekâ hiç devreye girmiyordu. Artık iki kaynak birleşir: ECU kaydı (ECU + durum
+ * bilgisi daha zengin) önce; standart kodlardan yalnız henüz olmayanlar eklenir.
+ */
+export function mergeDtcExplainItems(
+  ecuItems: readonly DtcExplainItem[],
+  standard: readonly StandardDtcForExplain[],
+): DtcExplainItem[] {
+  const out: DtcExplainItem[] = [...ecuItems];
+  const seen = new Set(ecuItems.map((d) => d.code.toUpperCase()));
+  for (const s of standard) {
+    const code = s.code.toUpperCase();
+    if (seen.has(code)) continue;
+    seen.add(code);
+    out.push({
+      code: s.code,
+      subCode: null,
+      ecu: s.ecuLabel && s.ecuLabel.trim() ? s.ecuLabel : 'ECU belirtilmedi (standart OBD)',
+      state: STANDARD_STATE[s.status],
+      source: 'OBD',
+    });
+  }
+  return out;
+}
+
 export type DtcAiExplanationResult =
   | { readonly ok: true; readonly text: string; readonly model: string }
   | { readonly ok: false; readonly reason: string };
