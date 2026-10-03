@@ -55,4 +55,12 @@ describe('kokpit sayfası — sahip reddederse "açıldı" denmez', () => {
     expect(r.status).toBe('failed');
     expect(r.detail).toMatch(/şu an açılamıyor/);
   });
+
+  it('saha 2026-10-03: "klimayı aç" klimayı ÇALIŞTIRDI demez — ekranı açar, dürüst not ekler', async () => {
+    const r = await open('climate');
+    expect(r.status).toBe('succeeded');
+    expect(r.detail).toMatch(/^Klima ekranı açıldı/);
+    expect(r.detail).toMatch(/çalıştıramam/);
+    expect(r.detail).not.toMatch(/^Klima açıldı/);
+  });
 });

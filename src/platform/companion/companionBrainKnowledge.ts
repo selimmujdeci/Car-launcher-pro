@@ -109,7 +109,7 @@ const EXAMPLES: readonly BrainExample[] = Object.freeze([
   { u: 'şasi numarası nedir', d: { type: 'action', intent: 'QUERY_SENSOR', sensorQuery: 'şasi numarası', feedback: 'Şasi numarası okunuyor', confidence: 0.85 } },
   // OPEN_SCREEN — uygulamanın iç ekranları/panelleri.
   { u: 'trafiği aç', d: { type: 'action', intent: 'OPEN_SCREEN', screen: 'trafik', screenAction: 'open', feedback: 'Trafik paneli açılıyor', confidence: 0.92 } },
-  { u: 'klimayı aç', d: { type: 'action', intent: 'OPEN_SCREEN', screen: 'klima', screenAction: 'open', feedback: 'Klima açılıyor', confidence: 0.9 } },
+  { u: 'klimayı aç', d: { type: 'action', intent: 'OPEN_SCREEN', screen: 'klima', screenAction: 'open', feedback: 'Klima ekranı açılıyor', confidence: 0.9 } },
   { u: 'arıza kodlarını göster', d: { type: 'action', intent: 'OPEN_SCREEN', screen: 'arıza kodları', screenAction: 'open', feedback: 'Arıza kodları açılıyor', confidence: 0.92 } },
   { u: 'gemini qr\'ı aç', d: { type: 'action', intent: 'OPEN_SCREEN', screen: 'gemini qr', screenAction: 'open', feedback: 'Gemini QR açılıyor', confidence: 0.92 } },
   { u: 'bildirimleri kapat', d: { type: 'action', intent: 'OPEN_SCREEN', screen: 'bildirimler', screenAction: 'close', feedback: 'Bildirimler kapatılıyor', confidence: 0.9 } },

@@ -834,7 +834,7 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<I
         if (screen) {
           const opened = closing ? ((screen.close ?? (() => {}))(), true) : screen.open() !== false;
           _speak(opened
-            ? `${screen.label} ${closing ? 'kapatılıyor' : 'açılıyor'}`
+            ? (closing ? `${screen.label} kapatılıyor` : `${screen.label} açılıyor${screen.openNote ? `. ${screen.openNote}` : ''}`)
             : `${screen.label} şu an açılamıyor`, isDriving, _turn);
         } else {
           _speak(scr ? `${scr} ekranını bulamadım` : 'Hangi ekranı açayım?', isDriving, _turn);

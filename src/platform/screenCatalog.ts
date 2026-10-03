@@ -16,6 +16,8 @@ export interface ScreenCatalogEntry {
   readonly id: string;
   readonly label: string;             // TTS/onay metni ("Trafik paneli")
   readonly aliases: readonly string[];// normalize edilmiş Türkçe tetikleyiciler
+  /** Açılınca onaya eklenen dürüst not (ekran açmak ≠ cihazı çalıştırmak). */
+  readonly openNote?: string;
 }
 
 // Kanonik ekran listesi. 'super-admin' KASITLI dışarıda (admin-korumalı, sesle
@@ -23,7 +25,10 @@ export interface ScreenCatalogEntry {
 export const SCREEN_CATALOG: readonly ScreenCatalogEntry[] = Object.freeze([
   { id: 'traffic',          label: 'Trafik paneli',    aliases: ['trafik', 'trafik paneli', 'trafik durumu', 'yol durumu'] },
   { id: 'weather',          label: 'Hava durumu',      aliases: ['hava', 'hava durumu', 'meteoroloji'] },
-  { id: 'climate',          label: 'Klima',            aliases: ['klima', 'iklim', 'isitma', 'sogutma', 'klima paneli'] },
+  /* Saha 2026-10-03: "klimayı aç" → ekran açılıp "Klima açıldı" deniyordu; sürücü klimanın
+     ÇALIŞTIĞINI sandı. Etiket ekranı söyler; CarOS klimaya komut göndermez → not. */
+  { id: 'climate',          label: 'Klima ekranı',     aliases: ['klima', 'iklim', 'isitma', 'sogutma', 'klima paneli'],
+    openNote: 'Klimayı ben çalıştıramam; aracın kendi klima düğmesini kullan.' },
   { id: 'dashcam',          label: 'Araç kamerası',    aliases: ['dashcam', 'arac kamerasi', 'kayit', 'kara kutu', 'kamera kaydi', 'sürüş kaydi', 'surus kaydi'] },
   { id: 'triplog',          label: 'Yolculuk defteri', aliases: ['yolculuk defteri', 'seyir defteri', 'yolculuk gecmisi', 'gezi kaydi', 'yolculuklar', 'triplog', 'yol defteri'] },
   { id: 'dtc',              label: 'Arıza kodları',    aliases: ['ariza kodlari', 'hata kodlari', 'ariza teshis', 'dtc', 'ariza'] },

@@ -21,6 +21,7 @@ export interface ScreenEntry {
   id:      string;
   label:   string;              // TTS/onay metni ("Trafik paneli")
   aliases: readonly string[];   // normalize edilmiş Türkçe tetikleyiciler
+  openNote?: string;            // açılınca onaya eklenen dürüst not
   /** `false` → sahip reddetti (ör. geri viteste kokpit); çağıran "açtım" DEMEZ. */
   open:    () => void | boolean;
   close?:  () => void;          // yoksa 'kapat' → mevcut drawer'ı kapat
@@ -28,7 +29,7 @@ export interface ScreenEntry {
 
 /** Katalog girişine açma/kapama davranışı bağlar. */
 function bindScreen(c: ScreenCatalogEntry): ScreenEntry {
-  const base = { id: c.id, label: c.label, aliases: c.aliases };
+  const base = { id: c.id, label: c.label, aliases: c.aliases, ...(c.openNote ? { openNote: c.openNote } : {}) };
   // Patch 9A: canlı sensör bölümü DTC drawer'ının içinde — ayrı sesli kimlikle açılır.
   if (c.id === 'sensors') return { ...base, open: () => openDrawer('dtc'), close: () => openDrawer('none') };
   // Ayar-içi derin panel: Gemini QR (KeyBeam) — settingsFocusBus ile.

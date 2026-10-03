@@ -148,7 +148,7 @@ const openScreenTool: ToolDefinition = {
     } catch {
       return { ok: false, error: 'failed', message: 'Ekran açılamadı.' };
     }
-    return { ok: true, data: { screenId: id, opened: true }, summary: `${screen.label} açıldı.` };
+    return { ok: true, data: { screenId: id, opened: true }, summary: `${screen.label} açıldı.${screen.openNote ? ` ${screen.openNote}` : ''}` };
   },
 };
 

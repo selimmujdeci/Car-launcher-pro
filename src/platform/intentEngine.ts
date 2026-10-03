@@ -533,7 +533,7 @@ export async function routeIntent(intent: AppIntent, ctx: RouterContext): Promis
       const opened = closing ? ((screen.close ?? (() => {}))(), true) : screen.open() !== false;
       // Tek dürüst cümle (open_screen sonuç-temelli): sahip reddettiyse "açıldı" denmez.
       return opened
-        ? intentResult(intent.type, 'succeeded', closing ? 'screen_closed' : 'screen_opened', `${screen.label} ${closing ? 'kapatıldı' : 'açıldı'}`)
+        ? intentResult(intent.type, 'succeeded', closing ? 'screen_closed' : 'screen_opened', closing ? `${screen.label} kapatıldı` : `${screen.label} açıldı${screen.openNote ? `. ${screen.openNote}` : ''}`)
         : intentResult(intent.type, 'failed', 'screen_refused', `${screen.label} şu an açılamıyor`);
     }
     case 'NAVIGATE_ADDRESS':
