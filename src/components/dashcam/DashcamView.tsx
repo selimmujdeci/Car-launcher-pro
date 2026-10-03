@@ -6,6 +6,7 @@ import {
   lockCurrentRecording,
   downloadCurrentBuffer, downloadLockedRecording,
   getVideoStream,
+  SHAKE_THRESHOLD_MS2,
 } from '../../platform/dashcamService';
 
 /* ── Helpers ─────────────────────────────────────────────── */
@@ -17,6 +18,9 @@ function fmtDuration(sec: number): string {
 }
 
 /* ── GForce indicator ────────────────────────────────────── */
+
+/** Servis ölçümü/eşiği m/s² (yerçekimi dahil); ekranda g gösterilir. */
+const MS2_PER_G = 9.81;
 
 function gForceColor(g: number): string {
   if (g > 14) return 'text-[color:var(--oem-danger)]';
@@ -100,7 +104,10 @@ function DashcamViewInner({ onClose }: Props) {
             <div className="absolute top-3 left-3 bg-black/60 backdrop-blur-sm rounded-xl px-3 py-2 flex items-center gap-2">
               <AlertTriangle className={`w-4 h-4 ${gForceColor(state.gForce)}`} />
               <span className={`text-sm font-black tabular-nums ${gForceColor(state.gForce)}`}>
-                {state.gForce.toFixed(1)}<span className="text-[10px] ml-0.5 opacity-60">G</span>
+                {/* gForce 0 = henüz sensör örneği yok (yerçekimi dahil gerçek ölçüm ≈9.8) */}
+                {state.gForce > 0
+                  ? <>{(state.gForce / MS2_PER_G).toFixed(1)}<span className="text-[10px] ml-0.5 opacity-60">G</span></>
+                  : '—'}
               </span>
             </div>
           )}
@@ -198,14 +205,12 @@ function DashcamViewInner({ onClose }: Props) {
       {/* Info bar */}
       <div className="px-4 pb-3 flex-shrink-0">
         <p className="text-[color:var(--oem-ink-3)] text-[10px] text-center leading-relaxed">
-          Döngüsel kayıt: son 6 dakika bellekte tutulur • G-Sensörü {SHAKE_THRESHOLD_DISPLAY}G üzerinde otomatik kilitler
+          Döngüsel kayıt: son 6 dakika bellekte tutulur • G-Sensörü {(SHAKE_THRESHOLD_MS2 / MS2_PER_G).toFixed(1)}G üzerinde otomatik kilitler
         </p>
       </div>
     </div>
   );
 }
-
-const SHAKE_THRESHOLD_DISPLAY = 15;
 
 export const DashcamView = memo(DashcamViewInner);
 

@@ -30,7 +30,8 @@ export interface DashcamState {
 
 const SEGMENT_DURATION_MS  = 2 * 60 * 1000; // 2 minutes
 const MAX_SEGMENTS         = 3;              // 6-minute rolling buffer
-const SHAKE_THRESHOLD      = 15;            // m/s² — typical minor impact
+/** m/s², yerçekimi DAHİL toplam ivme (≈1.5 g) — görünüm g'ye çevirip gösterir. */
+export const SHAKE_THRESHOLD_MS2 = 15;      // typical minor impact
 const LOCK_COOLDOWN_MS     = 5_000;
 
 // Sentry pre-buffer: 12s ring-buffer → 10s öncesi + 2s margin
@@ -129,7 +130,7 @@ function _onMotion(event: DeviceMotionEvent): void {
     (acc.x ?? 0) ** 2 + (acc.y ?? 0) ** 2 + (acc.z ?? 0) ** 2,
   );
   _setState({ gForce: Math.round(total * 10) / 10 });
-  if (total > SHAKE_THRESHOLD && _state.active) _lockNow();
+  if (total > SHAKE_THRESHOLD_MS2 && _state.active) _lockNow();
 }
 
 /* ── Public API ──────────────────────────────────────────── */
