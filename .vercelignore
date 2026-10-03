@@ -58,3 +58,12 @@ coverage
 *.apk
 *.aab
 *.keystore
+
+# Yerel saha/test çıktıları (2026-09-29 ölçüm, MB): field-runs 4693 · docs-local 245
+# · build-out 90 · test-artifacts 23 · faz3-screens 15 — build'e girmez; kaynakta
+# bu adlarla dizin yok (denetlendi).
+field-runs
+docs-local
+build-out
+test-artifacts
+faz3-screens
