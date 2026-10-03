@@ -1,6 +1,7 @@
 import { memo, type ReactNode, useState, useCallback, useEffect, useRef, lazy, Suspense } from 'react';
 const SecureAccessModal = lazy(() => import('../admin/SecureAccessModal').then(m => ({ default: m.SecureAccessModal })));
-import { useCarTheme, isDay, baseOf, toDay, toNight, type BaseTheme } from '../../store/useCarTheme';
+import { useCarTheme, baseOf, toDay, toNight, type BaseTheme } from '../../store/useCarTheme';
+import { useDayNightAttr } from '../../hooks/useDayNightAttr';
 import { allowsConnectivity } from '../../platform/connectivity/connectivityGate';
 import expeditionEmblem from '../../assets/expedition/emblem.png';
 import {
@@ -170,7 +171,10 @@ const THEME_OPTIONS: ThemeOpt[] = [
 
 function ThemePanel() {
   const { theme, setTheme } = useCarTheme();
-  const dayMode = isDay(theme);
+  // Ekrandaki KANONİK gündüz/gece (data-day-night; temalar paleti buradan alır).
+  // Tema varyantı otomatik geçişte güncellenmez → isDay(theme) ayrışıp düğmeyi
+  // yanlış gösteriyordu (gündüz ekranda "Gece", ilk dokunuş etkisiz).
+  const dayMode = useDayNightAttr() === 'day';
   const activeBase = baseOf(theme);
   const dayNightMode = useStore(s => s.settings.dayNightMode);
 

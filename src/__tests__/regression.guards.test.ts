@@ -236,6 +236,15 @@ describe('Saat gün/gece kanonik kaynak kilidi', () => {
         .not.toMatch(/dayNightMode\s*=\s*useStore\(s => s\.settings\.dayNightMode\)[\s\S]{0,80}\?\s*(SAND|DAY|DAY_H)/);
     }
   });
+  /* Ekran taraması 2026-10-03: Ayarlar › Kokpit Teması gündüz/gece düğmesi durumu
+     tema VARYANTINDAN (isDay(theme)) okuyordu; otomatik yönetici yalnız kanonik
+     sinyali çevirdiği için ayrışıyordu → gündüz ekranında "🌙 Gece" yazıyor, ilk
+     dokunuş görünürde hiçbir şey yapmıyordu (gündüzü yeniden seçiyordu). */
+  it('YAPISAL: Kokpit Teması gündüz/gece düğmesi ekrandaki kanonik sinyali okur', () => {
+    const src = read('src/components/settings/SettingsPage.tsx');
+    expect(src, 'düğme durumu tema varyantından okunuyor (ayrışma kaynağı)').not.toMatch(/const dayMode = isDay\(theme\)/);
+    expect(src).toMatch(/const dayMode = useDayNightAttr\(\) === 'day'/);
+  });
   it('YAPISAL: saat etrafındaki SİYAH DİKDÖRTGEN — sunlight border muafiyeti var', () => {
     const css = read('src/index.css');
     // .sunlight-mode button[aria-label="Saat — Menü"] { border: none }
