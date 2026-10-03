@@ -100,22 +100,25 @@ function FanViz({ speed, on }: { speed: number; on: boolean }) {
   );
 }
 
-/* ── Durum rozetleri (DOKUNULMAZ — araca komut gitmez) ─────────────── */
+/* ── Durum rozetleri (DOKUNULMAZ — araca komut gitmez) ───────────────
+   Saha 2026-10-03 (Megane): dolgulu kutu biçimi TUŞ sanıldı ("dokunuyorum tepki vermiyor").
+   Artık zeminsiz nokta + etiket: gösterge olduğu görünür. */
 
 function StatusChip({ label, active, editId }: { label: string; active: boolean | null; editId: string }) {
   const col = '#E0A23C';
   return (
     <div
       data-editable={editId} data-editable-type="card"
-      className="w-full py-[9px] rounded-xl text-[11px] font-extrabold tracking-widest uppercase text-center"
-      style={{
-        background: active ? `${col}1e` : 'var(--oem-surface-2)',
-        border: `1px solid ${active ? col + '55' : 'var(--oem-surface-2)'}`,
-        color: active ? col : 'var(--oem-ink-3)',
-        opacity: active === null ? 0.45 : 1,
-      }}
+      className="flex-1 flex items-center justify-center gap-1.5 py-1 text-[11px] font-extrabold tracking-widest uppercase"
+      style={{ color: active ? col : 'var(--oem-ink-3)', opacity: active === null ? 0.45 : 1 }}
     >
+      <span
+        aria-hidden
+        className="inline-block rounded-full"
+        style={{ width: 8, height: 8, background: active ? col : 'transparent', border: `1.5px solid ${active ? col : 'var(--oem-ink-4)'}` }}
+      />
       {label}
+      <span className="sr-only">{active === null ? 'bilinmiyor' : active ? 'açık' : 'kapalı'}</span>
     </div>
   );
 }
@@ -203,14 +206,27 @@ export const ClimateScreen = memo(function ClimateScreen({ onClose }: { onClose?
 
       <div className="shrink-0 mx-6 h-px" style={{ background: 'var(--oem-surface-2)' }} />
 
-      {(c === null || stale) && (
+      {c !== null && stale && (
         <div className="shrink-0 mx-6 mt-3 text-[12px] font-semibold" style={{ color: '#fbbf24' }}>
-          {c === null
-            ? 'Araçtan klima bilgisi gelmiyor.'
-            : 'Araçtan bir süredir veri gelmiyor — gösterilenler son bilinen değer.'}
+          Araçtan bir süredir veri gelmiyor — gösterilenler son bilinen değer.
         </div>
       )}
 
+      {/* Veri yokken boş halka / fan / rozet ÇİZİLMEZ — kontrol sanılıyordu (saha 2026-10-03). */}
+      {c === null ? (
+        <div className="flex-1 min-h-0 flex items-center justify-center px-8">
+          <div
+            className="max-w-[440px] rounded-2xl p-5 text-center"
+            style={{ background: 'var(--oem-surface-2)', border: '1px solid var(--oem-line)' }}
+          >
+            <Wind size={28} className="mx-auto mb-3 text-[color:var(--oem-ink-3)]" />
+            <div className="text-[15px] font-bold text-[color:var(--oem-ink)]">Araçtan klima bilgisi gelmiyor.</div>
+            <div className="mt-2 text-[13px] leading-snug text-[color:var(--oem-ink-2)]">
+              Klimayı aracın kendi düğmeleriyle kullanın. CarOS klimaya komut göndermez; araç bildirdiğinde durumu burada gösterir.
+            </div>
+          </div>
+        </div>
+      ) : (<>
       {/* ── Ana Bölge: Sürücü | Fan/Modlar | Yolcu ── */}
       <div className="flex items-center justify-center gap-3 px-4 py-4 flex-1 min-h-0">
         <Zone title="Sürücü" temp={c?.tempDriverC ?? null} on={on} />
@@ -231,10 +247,10 @@ export const ClimateScreen = memo(function ClimateScreen({ onClose }: { onClose?
           <span className="text-[10px] text-[color:var(--oem-ink-4)] font-bold tracking-widest">
             {!on ? 'KAPALI' : c?.auto ? 'FAN OTOMATİK' : fan === null ? 'FAN —' : `FAN ${fan}`}
           </span>
-          <div className="flex flex-col gap-2 w-full">
-            <StatusChip label="A/C"  active={c ? on && c.ac === true : null}   editId="climate.mode-button" />
-            <StatusChip label="AUTO" active={c ? on && c.auto === true : null} editId="climate.mode-button" />
-            <StatusChip label="DUAL" active={c ? on && c.dual === true : null} editId="climate.mode-button" />
+          <div className="flex w-full">
+            <StatusChip label="A/C"  active={on && c.ac === true}   editId="climate.mode-button" />
+            <StatusChip label="AUTO" active={on && c.auto === true} editId="climate.mode-button" />
+            <StatusChip label="DUAL" active={on && c.dual === true} editId="climate.mode-button" />
           </div>
         </div>
 
@@ -249,21 +265,24 @@ export const ClimateScreen = memo(function ClimateScreen({ onClose }: { onClose?
           style={{ background: 'var(--oem-surface-2)', border: '1px solid var(--oem-surface-2)' }}
         >
           <div className="flex gap-2">
-            <StatusChip label="İç hava"  active={c ? c.recirc === true : null}       editId="climate.air-button" />
-            <StatusChip label="Ön cam"   active={c ? c.defrostFront === true : null} editId="climate.air-button" />
-            <StatusChip label="Arka cam" active={c ? c.defrostRear === true : null}  editId="climate.air-button" />
+            <StatusChip label="İç hava"  active={c.recirc === true}       editId="climate.air-button" />
+            <StatusChip label="Ön cam"   active={c.defrostFront === true} editId="climate.air-button" />
+            <StatusChip label="Arka cam" active={c.defrostRear === true}  editId="climate.air-button" />
           </div>
         </div>
       </div>
+      </>)}
 
       {/* ── Konfor: koltuk masajı · iç ambiyans (araç bildiriyorsa) ── */}
       <div className="shrink-0 px-4 pb-3">
         <ComfortPanel access={access} />
       </div>
 
-      <div className="shrink-0 px-6 pb-5 text-[11px] text-[color:var(--oem-ink-4)]">
-        Klimayı aracın kendi düğmeleriyle yönetin; CarOS aracın bildirdiği durumu gösterir.
-      </div>
+      {c !== null && (
+        <div className="shrink-0 px-6 pb-5 text-[12px] text-[color:var(--oem-ink-2)]">
+          Klimayı aracın kendi düğmeleriyle yönetin; CarOS aracın bildirdiği durumu gösterir.
+        </div>
+      )}
     </div>
   );
 });

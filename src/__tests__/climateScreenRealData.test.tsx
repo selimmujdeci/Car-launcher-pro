@@ -37,11 +37,13 @@ describe('klima ekranı gerçek veri', () => {
     expect(html).toContain('açık');
   });
 
-  it('veri yoksa "—" ve uyarı; sahte varsayılan yok', () => {
+  it('veri yoksa açık uyarı; boş halka / tuş görünümlü rozet ÇİZİLMEZ (saha 2026-10-03: tuş sanıldı)', () => {
     const html = renderToStaticMarkup(<ClimateScreen />);
     expect(html).toContain('veri yok');
     expect(html).toContain('Araçtan klima bilgisi gelmiyor.');
-    expect(html).toContain('—');
+    expect(html).toContain('aracın kendi düğmeleriyle');
+    expect(html).not.toContain('A/C');
+    expect(html).not.toContain('İç hava');
     expect(html).not.toContain('22.0');
     expect(html).not.toContain('21.0');
     expect(html).not.toContain('kabin');
