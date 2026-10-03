@@ -590,14 +590,22 @@ html.rt-no-blur * {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
 }
+/* Güneş modu (2026-10-03, kullanıcı: "profesyonel olmayan görüntüyü düzelt"):
+   eskiden HER düğmeye 2px saf siyah kontur + sınıf-tabanlı yazı büyütme + 3px
+   ikon konturu basılıyordu → gündüz tüm uygulama kalın siyah kutulara dönüyor,
+   anahtarlar kare, küçük düğmeler taşıyor, yazı hiyerarşisi bozuluyordu (yalnız
+   Tailwind sınıflı yazı büyüyordu; satır içi boyutlar büyümüyordu). Harita
+   yüzeyinde 2026-09-06'da yapılan inceltme artık geneldir: okunabilirliği
+   bileşenin kendi açık-tema kontrastı + 600 ağırlık + 2.25px ikon sağlar.
+   DOKUNMA TABANI AYNEN KORUNUR (52px, automotive). */
 .sunlight-mode svg[stroke] {
-  stroke-width: 3 !important;
+  stroke-width: 2.25 !important;
 }
 /* Sürüş göstergesi (Digital Cockpit) muaf: kendi gündüz paleti kontrast
-   testinden geçer (≥7:1 / ≥4.5:1); 3 px zorlama taksimat/halka/ayraçları
+   testinden geçer (≥7:1 / ≥4.5:1); kalın zorlama taksimat/halka/ayraçları
    kaba çiziyordu (cihazda ölçüldü 2026-09-23, gündüz saatinde sunlight-mode). */
 .sunlight-mode svg:not(.caros-cockpit-screen) *[stroke] {
-  stroke-width: 3 !important;
+  stroke-width: 2.25 !important;
 }
 .sunlight-mode svg:not(.caros-cockpit-screen) *[fill] {
   stroke-width: 0 !important;
@@ -605,8 +613,7 @@ html.rt-no-blur * {
 .sunlight-mode button {
   min-height: 52px !important;
   min-width: 52px !important;
-  border: 2px solid #000000 !important;
-  font-weight: 700 !important;
+  font-weight: 600 !important;
 }
 /* Dock saati DEKORATİF yuvarlak buton — sunlight-mode'un "net siyah border"
    kuralı ona uygulanınca yuvarlak saatin etrafında SİYAH DİKDÖRTGEN oluşuyordu
@@ -620,12 +627,6 @@ html.rt-no-blur * {
 [data-theme="sunlight"] button[aria-label="Saat — Menü"] {
   border: none !important;
 }
-.sunlight-mode .text-xs { font-size: 15px !important; }
-.sunlight-mode .text-sm { font-size: 17px !important; }
-.sunlight-mode .text-base { font-size: 19px !important; }
-.sunlight-mode .text-lg { font-size: 21px !important; }
-.sunlight-mode .text-xl { font-size: 24px !important; }
-.sunlight-mode .text-2xl { font-size: 28px !important; }
 
 /* ═══════════════════════════════════════════════════════════════════════════
    DURUM ÇUBUĞU ÖĞELERİ (StatusItem · `caros-status-*`)
@@ -712,6 +713,8 @@ html.rt-no-blur * {
    ═══════════════════════════════════════════════════════════════════════════ */
 .sunlight-mode [data-theme-surface="nav"] button {
   border-width: 1px !important;
+  /* Genel kural artık kontur basmıyor; harita chrome'unun ince çizgisi korunur. */
+  border-style: solid !important;
   /* Kenar rengi TEMAYA bağlı olmalı: sabit siyah, gece kartının (koyu yüzey)
      üzerinde GÖRÜNMÜYORDU — cihazda ölçüldü (2026-09-06, saat 17:00'de
      `sunlight-mode` hâlâ açıkken gece teması: kart `rgb(38,44,60)`, kenar

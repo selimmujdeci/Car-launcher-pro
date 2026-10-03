@@ -13451,10 +13451,18 @@ describe('🔒 NAV-CHROME · harita chrome guneş modu agirligindan MUAF (saha 2
       .not.toMatch(/min-(height|width)/);
   });
 
-  it('güneş okunabilirliği harita DIŞINDA aynen korunur', () => {
-    expect(css, 'genel gunes modu cercevesi kaldirilmis — dashboard okunabilirligi kaybolur')
-      .toMatch(/\.sunlight-mode button \{[^}]*border: 2px solid #000000/);
-    expect(css, 'gunes modu dokunma hedefi kaldirilmis').toMatch(/\.sunlight-mode button \{[^}]*min-height: 52px/);
+  /* 2026-10-03 (kullanıcı: "profesyonel olmayan görüntüyü düzelt"): harita
+     inceltmesi GENELE yayıldı. 2px saf siyah kontur + sınıf-tabanlı yazı
+     büyütme gündüz tüm uygulamayı kalın kutulara çeviriyor, anahtarları kare
+     yapıyor ve yazı hiyerarşisini bozuyordu (yalnız Tailwind sınıflı yazı
+     büyüyordu). Dokunma tabanı (52 px) AYNEN korunur. */
+  it('güneş modu: dokunma tabanı korunur; kalın siyah kontur ve yazı büyütme YOK', () => {
+    const code = css.replace(/\/\*[\s\S]*?\*\//g, '');   // gerekçe yorumları eski kuralı anar
+    expect(code, 'gunes modu dokunma hedefi kaldirilmis').toMatch(/\.sunlight-mode button \{[^}]*min-height: 52px/);
+    expect(code, 'kalin siyah kontur geri gelmis — gunduz uygulama kutulara doner')
+      .not.toMatch(/\.sunlight-mode button \{[^}]*border: 2px solid #000000/);
+    expect(code, 'sinif tabanli yazi buyutme geri gelmis — hiyerarsi bozulur')
+      .not.toMatch(/\.sunlight-mode \.text-(xs|sm|base|lg|xl|2xl) \{/);
   });
 
   it('muafiyet YALNIZ harita yüzeyini hedefler (global sızıntı yok)', () => {
