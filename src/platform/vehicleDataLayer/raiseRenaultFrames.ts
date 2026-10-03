@@ -94,13 +94,16 @@ export const CENTRAL_ID = Object.freeze({
 });
 
 /**
- * Ambiyans renk numarası → ad. KAYNAK: NWD `CanAllInOne.apk` kaynakları
- * (`array_mLamp_AmbientColor_ls` → `array_color_*`, 2026-10-02) — kutunun
- * numarasını NWD ekranı bu adlarla gösterir. Aracın gerçek rengi sahada TEK TEK
- * doğrulanmadı. (NWD Türkçe çevirisi 7'ye de "mavi" der; ayırt etmek için turkuaz.)
+ * Ambiyans renk numarası → ad. KAYNAK: NWD Renault/Raise çözücüsünün KENDİ listesi
+ * (`raise.CanManager` → `CentralState.mLamp_AmbientColor_value`, kaynak kimlikleri
+ * 7f0d01f4·01d8·01e9·01c6·01e6·01e2·01c7·01f5 = White·Green·Red·Blue·Purple·Orange·
+ * Blue green·Yellow; aapt2 2026-10-03). Eski liste NWD'nin GENEL dizisiydi ve yanlıştı
+ * (saha 2026-10-03 Megane: "mavi" kırmızı, "turuncu" mavi yaktı).
+ * Sahada doğrulanan: 2 kırmızı · 3 mavi · 4 mor. 0/1/5 araçta sarımsı göründü (kullanıcı);
+ * 6/7 denenmedi.
  */
 export const AMBIENT_COLOR_NAMES: readonly string[] = Object.freeze([
-  'beyaz', 'kırmızı', 'mavi', 'turuncu', 'mor', 'gri', 'yeşil', 'turkuaz',
+  'beyaz', 'yeşil', 'kırmızı', 'mavi', 'mor', 'turuncu', 'turkuaz', 'sarı',
 ]);
 
 /** Masaj modu numarası → ad (NWD `array_mSeat_SeatMassageMode_ls`: relaxing · lumbar · tonic). */

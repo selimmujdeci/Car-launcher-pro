@@ -114,12 +114,12 @@ describe('masaj', () => {
 });
 
 describe('ambiyans', () => {
-  it('"mavi yap, şiddetini artır" → renk 2 + parlaklık 60, ikisi de yankıyla', async () => {
+  it('"mavi yap, şiddetini artır" → renk 3 + parlaklık 60, ikisi de yankıyla', async () => {
     store().updateCanExtras({ ambient: ambient({ colorIndex: 1, brightness: 50 }) });
     carEchoes();
-    const r = await executeComfortCommand({ target: 'ambient', color: 2, level: '+' });
+    const r = await executeComfortCommand({ target: 'ambient', color: 3, level: '+' });
     expect(native.setCanComfortSetting.mock.calls.map((c) => c[0])).toEqual([
-      { id: 0x18, value: 2 }, { id: 0x19, value: 60 },
+      { id: 0x18, value: 3 }, { id: 0x19, value: 60 },
     ]);
     expect(r).toEqual({ status: 'succeeded', text: 'Ambiyans mavi, parlaklık yüzde 60.' });
   });
@@ -127,9 +127,9 @@ describe('ambiyans', () => {
   it('kapalıyken renk istenirse önce açar', async () => {
     store().updateCanExtras({ ambient: ambient({ on: false, colorIndex: 0 }) });
     carEchoes();
-    const r = await executeComfortCommand({ target: 'ambient', color: 6 });
+    const r = await executeComfortCommand({ target: 'ambient', color: 1 });
     expect(native.setCanComfortSetting.mock.calls.map((c) => c[0])).toEqual([
-      { id: 0x15, value: 1 }, { id: 0x18, value: 6 },
+      { id: 0x15, value: 1 }, { id: 0x18, value: 1 },
     ]);
     expect(r.text).toBe('Ambiyans açıldı: yeşil, parlaklık yüzde 50.');
   });
@@ -142,8 +142,8 @@ describe('ambiyans', () => {
   });
 
   it('araçta olmayan renk → seçenekleri söyler, yazma yok', async () => {
-    const r = await executeComfortCommand({ target: 'ambient', unavailable: 'color', colorName: 'sari' });
-    expect(r.text).toBe('Ambiyansta sarı yok. Beyaz, kırmızı, mavi, turuncu, mor, gri, yeşil ve turkuaz seçebilirim.');
+    const r = await executeComfortCommand({ target: 'ambient', unavailable: 'color', colorName: 'pembe' });
+    expect(r.text).toBe('Ambiyansta pembe yok. Beyaz, yeşil, kırmızı, mavi, mor, turuncu, turkuaz ve sarı seçebilirim.');
     expect(native.setCanComfortSetting).not.toHaveBeenCalled();
   });
 });
@@ -207,9 +207,9 @@ describe('çoklu konfor komutu', () => {
   it('"masajı aç ve ambiyansı mavi yap" → sırayla, her parça kendi cümlesiyle', async () => {
     store().updateCanExtras({ massage: massage({ driverOn: false }), ambient: ambient({ colorIndex: 1 }) });
     carEchoes();
-    const r = await executeComfortCommands([{ target: 'massage', power: 'on' }, { target: 'ambient', color: 2 }]);
+    const r = await executeComfortCommands([{ target: 'massage', power: 'on' }, { target: 'ambient', color: 3 }]);
     expect(native.setCanComfortSetting.mock.calls.map((c) => c[0])).toEqual([
-      { id: 0x90, value: 1 }, { id: 0x18, value: 2 },
+      { id: 0x90, value: 1 }, { id: 0x18, value: 3 },
     ]);
     expect(r).toEqual({ status: 'succeeded', text: 'Koltuk masajı açıldı: tonik mod, şiddet 4. Ambiyans rengi mavi.' });
   });

@@ -70,17 +70,18 @@ const POLITE_REQUEST_RE = /\b\w+(ar|er|ir|ur)\s+mi(sin|siniz)\b/;
 const MASSAGE_LEVEL_NOUN_RE = /\b(siddet\w*|guc\w*|sertlig\w*|yogunlug\w*|seviye\w*|kademe\w*)/;
 const AMBIENT_LEVEL_NOUN_RE = /\b(parlak\w*|siddet\w*|isig\w*|isik\w*|seviye\w*|kademe\w*|yogunlug\w*)/;
 
+/* Numaralar AMBIENT_COLOR_NAMES (NWD Renault/Raise listesi) ile AYNI sıra — test kilitler. */
 const COLOR_WORDS: ReadonlyArray<readonly [RegExp, number]> = [
   [/\bbeyaz\w*/, 0],
-  [/\bkirmizi\w*/, 1],
-  [/\b(turkuaz\w*|camgobeg\w*|acik\s+mavi\w*)/, 7],   // "mavi"den ÖNCE
-  [/\b(mavi\w*|lacivert\w*)/, 2],
-  [/\b(turuncu\w*|amber)\b/, 3],
+  [/\byesil\w*/, 1],
+  [/\bkirmizi\w*/, 2],
+  [/\b(turkuaz\w*|camgobeg\w*|acik\s+mavi\w*)/, 6],   // "mavi"den ÖNCE
+  [/\b(mavi\w*|lacivert\w*)/, 3],
   [/\b(mor(a|u|un|lu)?|eflatun\w*|lila\w*)\b/, 4],
-  [/\bgri(ye|yi|nin)?\b/, 5],
-  [/\byesil\w*/, 6],
+  [/\b(turuncu\w*|amber)\b/, 5],
+  [/\bsari\w*/, 7],
 ];
-const UNAVAILABLE_COLOR_RE = /\b(sari|pembe|kahverengi|siyah|altin|gumus)\w*/;
+const UNAVAILABLE_COLOR_RE = /\b(gri|pembe|kahverengi|siyah|altin|gumus)\w*/;
 
 const MODE_WORDS: ReadonlyArray<readonly [RegExp, number]> = [
   [/\b(dinlendirici|dinlenme|rahatlatici|relaks|relax)\w*/, 0],

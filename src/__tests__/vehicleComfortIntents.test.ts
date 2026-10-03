@@ -15,7 +15,7 @@ describe('konfor komutu', () => {
   it('kullanıcı örnekleri', () => {
     expect(tryParseVehicleComfort('Koltuk masajını aç')).toEqual({ target: 'massage', power: 'on' });
     expect(tryParseVehicleComfort('İç ambiyansları mavi yap, şiddetini arttır'))
-      .toEqual({ target: 'ambient', color: 2, level: '+' });
+      .toEqual({ target: 'ambient', color: 3, level: '+' });
   });
 
   it('masaj: kapat · şiddet · mod · yolcu · hız', () => {
@@ -34,15 +34,16 @@ describe('konfor komutu', () => {
     expect(tryParseVehicleComfort('ambiyansı kapat')).toEqual({ target: 'ambient', power: 'off' });
     expect(tryParseVehicleComfort('ön ambiyansı aç')).toEqual({ target: 'ambient', power: 'on', zone: 'front' });
     expect(tryParseVehicleComfort('arka ambiyansı kapat')).toEqual({ target: 'ambient', power: 'off', zone: 'rear' });
-    expect(tryParseVehicleComfort('ambiyansı kırmızıya çevir')).toEqual({ target: 'ambient', color: 1 });
-    expect(tryParseVehicleComfort('ambiyansı açık mavi yap')).toEqual({ target: 'ambient', color: 7 });
+    expect(tryParseVehicleComfort('ambiyansı kırmızıya çevir')).toEqual({ target: 'ambient', color: 2 });
+    expect(tryParseVehicleComfort('ambiyansı açık mavi yap')).toEqual({ target: 'ambient', color: 6 });
     expect(tryParseVehicleComfort('ambiyans parlaklığını yüzde 70 yap')).toEqual({ target: 'ambient', level: 70 });
     expect(tryParseVehicleComfort('ambiyansı biraz kıs')).toEqual({ target: 'ambient', level: '-' });
-    expect(tryParseVehicleComfort('ambiyansı sarı yap')).toEqual({ target: 'ambient', unavailable: 'color', colorName: 'sari' });
+    expect(tryParseVehicleComfort('ambiyansı sarı yap')).toEqual({ target: 'ambient', color: 7 });   // Renault listesinde VAR
+    expect(tryParseVehicleComfort('ambiyansı pembe yap')).toEqual({ target: 'ambient', unavailable: 'color', colorName: 'pembe' });
   });
 
   it('baştaki "Mavi" hitabı renk sanılmaz', () => {
-    expect(tryParseVehicleComfort('Mavi ambiyansı kırmızı yap')).toEqual({ target: 'ambient', color: 1 });
+    expect(tryParseVehicleComfort('Mavi ambiyansı kırmızı yap')).toEqual({ target: 'ambient', color: 2 });
     expect(tryParseVehicleComfort('Mavi ambiyansı aç')).toEqual({ target: 'ambient', power: 'on' });
   });
 
@@ -56,7 +57,7 @@ describe('konfor komutu', () => {
   });
 
   it('taşıma: kodla → çöz birebir; bozuk girdi reddedilir', () => {
-    const list = [{ target: 'ambient', color: 2, level: '+' }, { target: 'massage', power: 'on' }] as const;
+    const list = [{ target: 'ambient', color: 3, level: '+' }, { target: 'massage', power: 'on' }] as const;
     expect(decodeComfortCommands(encodeComfortCommands(list))).toEqual(list);
     expect(decodeComfortCommands('{"target":"massage","power":"on"}')).toEqual([{ target: 'massage', power: 'on' }]);
     expect(decodeComfortCommands('[{"target":"engine","power":"on"}]')).toBeNull();
@@ -69,7 +70,7 @@ describe('konfor komutu', () => {
 describe('"… ve …" konfor cümleleri (zincire bölünmez)', () => {
   it('iki hedef → iki komut', () => {
     expect(tryParseVehicleComforts('Masajı aç ve ambiyansı mavi yap')).toEqual([
-      { target: 'massage', power: 'on' }, { target: 'ambient', color: 2 },
+      { target: 'massage', power: 'on' }, { target: 'ambient', color: 3 },
     ]);
   });
 
@@ -77,9 +78,9 @@ describe('"… ve …" konfor cümleleri (zincire bölünmez)', () => {
     expect(tryParseVehicleComforts('masajı aç ve şiddetini artır'))
       .toEqual([{ target: 'massage', power: 'on', level: '+' }]);
     expect(tryParseVehicleComforts('iç ambiyansları mavi yap ve parlaklığını artır'))
-      .toEqual([{ target: 'ambient', color: 2, level: '+' }]);
+      .toEqual([{ target: 'ambient', color: 3, level: '+' }]);
     expect(tryParseVehicleComforts('ambiyansı aç ve mavi yap'))
-      .toEqual([{ target: 'ambient', power: 'on', color: 2 }]);
+      .toEqual([{ target: 'ambient', power: 'on', color: 3 }]);
   });
 
   it('konfor DIŞI cümlecik varsa null → zincir yolu (müzik kaybolmaz)', () => {

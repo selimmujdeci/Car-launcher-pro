@@ -17,7 +17,7 @@ import type { ComfortCommand } from '../../platform/vehicleComfortIntents';
 
 /** Kutunun renk numarası → ekranda gösterilen nokta rengi (ad listesiyle aynı sıra). */
 const AMBIENT_DOT: readonly string[] = [
-  '#f1f1f1', '#ef4444', '#3b82f6', '#f97316', '#a855f7', '#9ca3af', '#22c55e', '#06b6d4',
+  '#f1f1f1', '#22c55e', '#ef4444', '#3b82f6', '#a855f7', '#f97316', '#06b6d4', '#facc15',
 ];
 const ACCENT = '#E0A23C';
 const MSG_MS = 4_000;
