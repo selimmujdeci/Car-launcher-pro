@@ -31,6 +31,7 @@ import {
 import { matchVoiceSetting, type VoiceSettingMatch } from './settingsVoice';
 import {
   tryParseVehicleComfort, tryParseVehicleComforts, tryParseCanVehicleInfo, encodeComfortCommands,
+  COMFORT_GRAMMAR_WORDS,
 } from './vehicleComfortIntents';
 import {
   tryParseVehicleQuery,
@@ -1720,6 +1721,8 @@ export function buildCommandGrammar(): string[] {
   }
   for (const w of GRAMMAR_CONTROL_WORDS) add(w);
   for (const w of GRAMMAR_NUMBER_WORDS) add(w);
+  // Konfor/araç durumu: PATTERNS dışı ön-kontrol (vehicleComfortIntents) — sözcükleri oradan.
+  for (const w of COMFORT_GRAMMAR_WORDS) add(w);
   const grammar = Array.from(out);
   grammar.push('[unk]'); // ŞART: liste dışı söz → tek [unk] (yanlış zorlama yok)
   _commandGrammarCache = grammar;
@@ -1739,7 +1742,7 @@ export function buildCommandGrammar(): string[] {
 /** İstenen türlerden kaç tanesinin `PATTERNS` karşılığı VAR (gözlem/dürüstlük). */
 export function countGrammarBackedTypes(types: readonly CommandType[]): number {
   if (!Array.isArray(types)) return 0;
-  const known = new Set(PATTERNS.map((p) => p.type));
+  const known = new Set<CommandType>([...PATTERNS.map((p) => p.type), 'vehicle_comfort', 'vehicle_can_info']);
   let n = 0;
   for (const t of types) if (known.has(t)) n++;
   return n;
@@ -1761,6 +1764,9 @@ export function buildCommandGrammarFor(
     if (!wanted.has(p.type)) continue;
     for (const k of p.keywords) add(k);
     for (const t of p.tokens) add(t);
+  }
+  if (wanted.has('vehicle_comfort') || wanted.has('vehicle_can_info')) {
+    for (const w of COMFORT_GRAMMAR_WORDS) add(w);
   }
   for (const w of GRAMMAR_CONTROL_WORDS) add(w);
   if (opts?.includeNumbers !== false) for (const w of GRAMMAR_NUMBER_WORDS) add(w);

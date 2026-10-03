@@ -130,6 +130,8 @@ export const VEHICLE_TYPES: readonly CommandType[] = Object.freeze([
   'vehicle_status', 'vehicle_maintenance', 'vehicle_health_check', 'vehicle_clear_dtc',
   /* Eko puanı sorusu — salt okuma bilgi sorgusu (eylem yok). */
   'trip_eco_score',
+  /* CAN konfor komutu + araç durumu sorusu (sözcükleri vehicleComfortIntents'ten). */
+  'vehicle_comfort', 'vehicle_can_info',
 ]);
 
 /**

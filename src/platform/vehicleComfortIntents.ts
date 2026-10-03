@@ -10,6 +10,8 @@
  * null döner ve cümle mevcut zincire (sözlük / beyin) aynen devam eder.
  */
 
+import { AMBIENT_COLOR_NAMES, MASSAGE_MODE_NAMES } from './vehicleDataLayer/raiseRenaultFrames';
+
 export type ComfortTarget = 'massage' | 'ambient';
 /** '+' / '-' bir adım · 'max' / 'min' · sayı = kullanıcının söylediği değer (masaj 1–5, ambiyans %). */
 export type ComfortLevel = '+' | '-' | 'max' | 'min' | number;
@@ -298,6 +300,27 @@ export function tryParseCanVehicleInfo(text: string): CanInfoTopic | null {
     && !CONTROL_VERB_RE.test(t)) return 'ambient';
   return null;
 }
+
+/* ── İnternetsiz (Vosk) tanıma sözlüğü ─────────────────────────────────── */
+
+/**
+ * Konfor komutlarının ve araç durumu sorularının sözcükleri — internetsizken Vosk
+ * bu kelimeleri tanısın diye komut sözlüğüne eklenir. Renk ve masaj modu adları
+ * kod çözücünün KENDİ listesinden gelir (ikinci liste yok). Yalnız ayrıştırıcının
+ * gerçekten anladığı sözcükler — yeni komut İCAT ETMEZ.
+ */
+export const COMFORT_GRAMMAR_WORDS: readonly string[] = Object.freeze([
+  'masaj', 'masajı', 'masajını', 'koltuk', 'koltuk masajı', 'yolcu', 'sürücü',
+  'ambiyans', 'ambiyansı', 'ambiyansları', 'iç ambiyans', 'ortam ışığı', 'ön', 'arka',
+  'şiddet', 'şiddetini', 'parlaklık', 'parlaklığını', 'mod', 'modunu', 'renk', 'rengini',
+  'artır', 'arttır', 'azalt', 'kıs', 'yükselt', 'düşür', 'değiştir', 'yap', 'kapat',
+  'en yüksek', 'en düşük', 'yüzde', 'daha',
+  ...AMBIENT_COLOR_NAMES, 'lacivert', 'açık mavi',
+  ...MASSAGE_MODE_NAMES, 'rahatlatıcı',
+  'lastik', 'lastikler', 'lastik basıncı', 'lastik basınçlarını', 'basınç', 'kontrol et',
+  'yol bilgisayarı', 'ortalama', 'tüketim', 'ortalama hız', 'toplam kilometre',
+  'kapılar', 'bagaj', 'açık mı', 'kapalı mı', 'klima', 'kaç derece', 'durumu',
+]);
 
 /* ── ParsedCommand.extra taşıması (Record<string,string>) ───────────────── */
 

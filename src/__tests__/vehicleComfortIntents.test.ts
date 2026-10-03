@@ -7,7 +7,9 @@ import {
   tryParseVehicleComfort, tryParseVehicleComforts, tryParseCanVehicleInfo,
   encodeComfortCommands, decodeComfortCommands,
 } from '../platform/vehicleComfortIntents';
-import { parseCommandFull } from '../platform/commandParser';
+import { parseCommandFull, buildCommandGrammar, buildCommandGrammarFor } from '../platform/commandParser';
+import { AMBIENT_COLOR_NAMES, MASSAGE_MODE_NAMES } from '../platform/vehicleDataLayer/raiseRenaultFrames';
+import { VEHICLE_TYPES } from '../platform/voice/contextGrammarModel';
 
 describe('konfor komutu', () => {
   it('kullanıcı örnekleri', () => {
@@ -138,5 +140,29 @@ describe('commandParser bağlantısı', () => {
 
   it('korunan donanım komutu önceliğini korur', () => {
     expect(parseCommandFull('kapıları kilitle').command?.type).toBe('hw_lock_doors');
+  });
+});
+
+describe('sözlük tek kaynaktan (kod çözücünün adları)', () => {
+  it('kod çözücünün HER renk adı ayrıştırıcıda kendi numarasına çözülür', () => {
+    AMBIENT_COLOR_NAMES.forEach((name, i) => {
+      expect(tryParseVehicleComfort(`ambiyansı ${name} yap`), name).toEqual({ target: 'ambient', color: i });
+    });
+  });
+
+  it('her masaj modu adı kendi numarasına çözülür', () => {
+    MASSAGE_MODE_NAMES.forEach((name, i) => {
+      expect(tryParseVehicleComfort(`masajı ${name} moda al`)?.mode, name).toBe(i);
+    });
+  });
+
+  it('internetsiz sözlükler konfor sözcüklerini taşır (genel + araç bağlamı)', () => {
+    const general = buildCommandGrammar();
+    const vehicle = buildCommandGrammarFor(VEHICLE_TYPES);
+    for (const w of ['masaj', 'ambiyans', 'lastik basıncı', 'mavi', 'tonik']) {
+      expect(general, w).toContain(w);
+      expect(vehicle, w).toContain(w);
+    }
+    expect(general[general.length - 1]).toBe('[unk]');
   });
 });
