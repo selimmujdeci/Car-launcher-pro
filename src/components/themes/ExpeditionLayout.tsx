@@ -19,6 +19,7 @@ import { isLowEndDevice } from '../../platform/headUnitCompat';
 import { useDisplaySpeed, formatDisplaySpeed } from '../../hooks/useDisplaySpeed';
 import { useBatteryVoltage } from '../../hooks/useBatteryVoltage';
 import { useLivingThemeState } from '../../hooks/useLivingThemeState';
+import { VEHICLE_STATUS_LABEL } from '../../platform/livingThemeState';
 import { useAmbientTemp } from '../../hooks/useCanonicalVehicleSignal';
 import { VehicleTellTales } from '../vehicle/VehicleTellTales';
 import { useEngineReadout } from '../../hooks/useEngineReadout';
@@ -450,12 +451,15 @@ const VehiclePlate = memo(function VehiclePlate({ onOpenSettings, compact }: { o
   const rawSpeed = useDisplaySpeed();
   const motor = eng.engineTemp != null ? Math.round(eng.engineTemp) : null;
   const rpm = eng.rpm;
+  /* Başlık TEK kaynaktan (deriveVehicleStatus) — eskiden SABİT "Normal" yazıyordu. */
+  const veh = useLivingThemeState().veh;
+  const vehColor = veh === 'temp-high' ? 'var(--oem-bad, #ef4444)' : veh === 'fuel-low' ? 'var(--oem-warn)' : veh === 'normal' ? p.ink : p.ink2;
   return (
     <Plate editId="expedition.vehicle" style={{ padding: '18px 20px 0', display: 'flex', flexDirection: 'column', justifyContent: compact ? 'center' : undefined, overflow: 'hidden' }} onClick={onOpenSettings}>
       <div className="flex items-baseline justify-between">
         <Label>Araç Durumu</Label>
         <div className="flex items-center" style={{ gap: 4 }}>
-          <span style={{ fontWeight: 700, fontSize: 32, lineHeight: 1, color: p.ink }}>Normal</span>
+          <span style={{ fontWeight: 700, fontSize: veh === 'normal' ? 32 : 20, lineHeight: 1, color: vehColor }}>{VEHICLE_STATUS_LABEL[veh]}</span>
           <ChevronRight className="w-5 h-5" style={{ color: p.ink2 }} />
         </div>
       </div>

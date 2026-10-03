@@ -1,5 +1,6 @@
 import { isObdReadingLive } from '../../platform/vehicleStatusModel';
 import { memo, useEffect, useState, useMemo, useRef, lazy, Suspense, createContext, useContext } from 'react';
+import { VEHICLE_STATUS_LABEL } from '../../platform/livingThemeState';
 const VoiceAssistant = lazy(() => import('../modals/VoiceAssistant').then(m => ({ default: m.VoiceAssistant })));
 import {
   Navigation, Maximize2, SkipBack, SkipForward, Play, Pause,
@@ -500,10 +501,10 @@ const VEH_STATUS: Record<
   string,
   { label: string; color: (p: Pal) => string; accent: string | null; dim: boolean }
 > = {
-  normal:        { label: 'Normal',             color: (p) => p.ink,  accent: null,      dim: false },
-  'fuel-low':    { label: 'Yakıt Düşük',        color: () => '#f59e0b', accent: '#f59e0b', dim: false },
-  'temp-high':   { label: 'Motor Isısı Yüksek', color: () => '#ef4444', accent: '#ef4444', dim: false },
-  'obd-offline': { label: 'OBD Bağlı Değil',    color: (p) => p.ink3, accent: null,      dim: true  },
+  normal:        { label: VEHICLE_STATUS_LABEL.normal,        color: (p) => p.ink,  accent: null,      dim: false },
+  'fuel-low':    { label: VEHICLE_STATUS_LABEL['fuel-low'],    color: () => '#f59e0b', accent: '#f59e0b', dim: false },
+  'temp-high':   { label: VEHICLE_STATUS_LABEL['temp-high'],   color: () => '#ef4444', accent: '#ef4444', dim: false },
+  'obd-offline': { label: VEHICLE_STATUS_LABEL['obd-offline'], color: (p) => p.ink3, accent: null,      dim: true  },
 };
 
 const VehicleCard = memo(function VehicleCard({ onOpenSettings, onLaunch }: { onOpenSettings: () => void; onLaunch: (id: string) => void }) {

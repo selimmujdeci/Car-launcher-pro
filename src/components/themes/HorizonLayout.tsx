@@ -22,6 +22,7 @@ import { useGPSLocation } from '../../platform/gpsService';
 import { useDisplaySpeed, formatDisplaySpeed } from '../../hooks/useDisplaySpeed';
 import { useBatteryVoltage } from '../../hooks/useBatteryVoltage';
 import { useLivingThemeState } from '../../hooks/useLivingThemeState';
+import { VEHICLE_STATUS_LABEL } from '../../platform/livingThemeState';
 import { useAmbientTemp } from '../../hooks/useCanonicalVehicleSignal';
 import { VehicleTellTales } from '../vehicle/VehicleTellTales';
 import { useEngineReadout } from '../../hooks/useEngineReadout';
@@ -594,13 +595,16 @@ const HzVehicleStatus = memo(function HzVehicleStatus({ onOpenSettings }: { onOp
   const motor = eng.engineTemp != null ? Math.round(eng.engineTemp) : null;
   const rpm = eng.rpm;
   const fuel = eng.fuel != null ? Math.round(eng.fuel) : null;
+  /* Başlık TEK kaynaktan (deriveVehicleStatus) — eskiden SABİT "Normal" + yeşil nokta. */
+  const veh = useLivingThemeState().veh;
+  const vehDot = veh === 'normal' ? p.ok : veh === 'temp-high' ? '#ef4444' : veh === 'fuel-low' ? '#f59e0b' : p.ink3;
   return (
     <Panel editId="horizon.vehicle" style={{ padding: '13px 15px', display: 'flex', flexDirection: 'column', minHeight: 0 }} onClick={onOpenSettings}>
       <div className="flex items-center justify-between">
         <HzLabel>Araç Durumu</HzLabel>
         <div className="flex items-center" style={{ gap: 5 }}>
-          <span style={{ width: 7, height: 7, borderRadius: '50%', background: p.ok }} />
-          <span style={{ fontWeight: 700, fontSize: 13, color: p.ink }}>Normal</span>
+          <span style={{ width: 7, height: 7, borderRadius: '50%', background: vehDot }} />
+          <span style={{ fontWeight: 700, fontSize: 13, color: p.ink }}>{VEHICLE_STATUS_LABEL[veh]}</span>
           <ChevronRight className="w-4 h-4" style={{ color: p.ink3 }} />
         </div>
       </div>

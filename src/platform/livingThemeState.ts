@@ -97,6 +97,18 @@ export function deriveTimeOfDay(dayNightMode: 'day' | 'night', hour: number): Ti
  * temp/fuel yalnız OBD bağlı + geçerli değerde değerlendirilir; bağlı değilse
  * (veya stale) obd-offline. Böylece stale veriyle yanlış uyarı verilmez.
  */
+/**
+ * Araç durumu başlığının TEK metni — tüm temalar buradan okur.
+ * (Saha 2026-10-03: Expedition ve Horizon "Normal"i SABİT yazıyordu; veri yokken de
+ * "Normal" + yeşil nokta → sahte sağlıklı iddiası.)
+ */
+export const VEHICLE_STATUS_LABEL: Readonly<Record<VehicleStatus, string>> = Object.freeze({
+  normal:        'Normal',
+  'fuel-low':    'Yakıt Düşük',
+  'temp-high':   'Motor Isısı Yüksek',
+  'obd-offline': 'OBD Bağlı Değil',
+});
+
 export function deriveVehicleStatus(obdConnected: boolean, fuelLevel: number, engineTemp: number): VehicleStatus {
   if (!obdConnected) return 'obd-offline';
   if (Number.isFinite(engineTemp) && engineTemp >= ENGINE_TEMP_HIGH_C) return 'temp-high';
