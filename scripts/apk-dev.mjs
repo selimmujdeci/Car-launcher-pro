@@ -194,8 +194,6 @@ function main() {
 
     // ── 2 ── web derlemesi ────────────────────────────────────────────────────
     step(2, 'web derlemesi');
-    // Hızlı küçültücü (oxc) — terser ~8 dk sürüyordu. Release için `--terser` ya da apk:safe.
-    if (!argv.has('--terser')) process.env.CAROS_FAST_MINIFY = '1';
     run('npm', ['run', 'build']);
     distStamp = readStamp(DIST_STAMP, 'dist');
     if (distStamp.commit !== head) fail(`dist commit ${distStamp.commit} ≠ HEAD ${head}`, 'Derleme başka bir çalışma kopyasından mı geldi?');

@@ -344,10 +344,7 @@ export default defineConfig({
     // Chrome 101'de native çalışır. (Detection script probe'u da fixLegacyModernDetection ile silinir.)
     modulePreload: false,
     cssTarget: 'chrome61', // Chrome 74 support
-    // Cihaz testi APK'sı (apk:dev) CAROS_FAST_MINIFY=1 ile Vite'ın kendi küçültücüsünü (oxc)
-    // kullanır: terser web derlemesini ~8 dk sürdürüyordu (ölçüldü 2026-10-03). Release
-    // (apk:safe / normal build) terser ile kalır.
-    minify: process.env['CAROS_FAST_MINIFY'] === '1' ? 'oxc' : 'terser',
+    minify: 'terser',
     terserOptions: {
       compress: {
         // Release: yalnız debug-seviye console çıkar (log/info/debug/trace) — hot-path
