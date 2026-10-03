@@ -318,22 +318,23 @@ public final class NwdCanClient {
 
     /**
      * Ham Raise çerçevesini kutuya yazar — SDK `doCheckSumAndWriteData2Uart4CanBox`
-     * (işlem 5); sağlama toplamını NWD servisi ekler. NWD'nin kendi uygulaması da
+     * (işlem 5); NWD son baytı sağlama YERİ sayıp yeniden hesaplar → çerçeve sağlama
+     * baytıyla gelmeli (CanComfortCommands). NWD'nin kendi uygulaması da
      * aynı yolu kullanır. Çerçeveyi YALNIZ {@link CanComfortCommands} üretir
      * (beyaz liste). Dönüş: istek servise ULAŞTI mı — aracın uyguladığının kanıtı
      * DEĞİLDİR; kanıt kutunun durum yankısıdır (ham çerçeve 0x71/0x72).
      */
-    public boolean writeRaiseFrame(byte[] frameNoChecksum) {
+    public boolean writeRaiseFrame(byte[] frame) {
         IBinder f = _feature;
-        if (f == null || frameNoChecksum == null) return false;
+        if (f == null || frame == null) return false;
         Parcel data  = Parcel.obtain();
         Parcel reply = Parcel.obtain();
         try {
             data.writeInterfaceToken(DESC_FEATURE);
-            data.writeByteArray(frameNoChecksum);
+            data.writeByteArray(frame);
             f.transact(TX_WRITE_CANBOX, data, reply, 0);
             reply.readException();
-            diag("Kutuya yazıldı: " + NwdCanFrames.hex(frameNoChecksum));
+            diag("Kutuya yazıldı: " + NwdCanFrames.hex(frame));
             return true;
         } catch (Throwable t) {
             diag("Kutuya yazma hatası: " + t.getMessage());

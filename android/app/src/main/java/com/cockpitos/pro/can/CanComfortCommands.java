@@ -5,8 +5,13 @@ package com.cockpitos.pro.can;
  *
  * Kaynak: NWD Raise/Renault çözücüsü (`CanProtocalUtil.requestCentralSetting`,
  * dexdump 2026-10-02) + saha yankısı (ham çerçeve 0x72 aynı ayar numaralarını
- * geri bildirir). Biçim: {@code 2E 83 02 <ayar no> <değer>} — sağlama toplamını
- * NWD servisi ekler. Durum isteği: {@code 2E 90 02 <tip> 00} (salt okuma).
+ * geri bildirir). Biçim: {@code 2E 83 02 <ayar no> <değer> <sağlama>}. Durum isteği:
+ * {@code 2E 90 02 <tip> 00 <sağlama>} (salt okuma).
+ *
+ * SAĞLAMA BAYTI ÇERÇEVEDE OLMALI (saha 2026-10-03, Megane): NWD servisi son baytı
+ * sağlama YERİ sayıp üzerine yazar. Sağlamasız gönderilen {@code 2E 83 02 18 01}
+ * UART'a {@code 2E 83 02 18 62} olarak çıktı → renk değeri silindi, kutu yanıt vermedi.
+ * NWD'nin kendi çerçevesi: {@code 2E 90 02 7D 0A E6}.
  *
  * YALNIZ KONFOR: koltuk masajı ve iç ambiyans. Lastik basıncı sıfırlama, kilitler,
  * sürüş destek ayarları (şerit / kör nokta / acil fren) ve klima burada YOKTUR —
@@ -40,11 +45,19 @@ public final class CanComfortCommands {
         }
     }
 
-    /** İzinli merkezi ayar çerçevesi (sağlamasız); izinli değilse null. */
+    /** Son bayta Raise sağlaması: ~(tip + uzunluk + veri) & 0xFF (NwdRawFrameTap.parse ile aynı). */
+    static byte[] withChecksum(byte[] f) {
+        int sum = 0;
+        for (int i = 1; i < f.length - 1; i++) sum += f[i] & 0xFF;
+        f[f.length - 1] = (byte) (~sum & 0xFF);
+        return f;
+    }
+
+    /** İzinli merkezi ayar çerçevesi (sağlama dahil); izinli değilse null. */
     public static byte[] centralSetting(int id, int value) {
         int[] r = range(id);
         if (r == null || value < r[0] || value > r[1]) return null;
-        return new byte[]{ 0x2E, (byte) 0x83, 0x02, (byte) id, (byte) value };
+        return withChecksum(new byte[]{ 0x2E, (byte) 0x83, 0x02, (byte) id, (byte) value, 0 });
     }
 
     /** Ayarın durum yankısının geldiği ham tip: masaj 0x72 · ambiyans 0x71; değilse -1. */
@@ -58,7 +71,7 @@ public final class CanComfortCommands {
     public static byte[] dataRequest(int type) {
         switch (type) {
             case 0x61: case 0x81: case 0x71: case 0x72: case 0x73:
-                return new byte[]{ 0x2E, (byte) 0x90, 0x02, (byte) type, 0x00 };
+                return withChecksum(new byte[]{ 0x2E, (byte) 0x90, 0x02, (byte) type, 0x00, 0 });
             default:
                 return null;
         }
