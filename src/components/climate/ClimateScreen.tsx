@@ -47,25 +47,33 @@ function Arc({ temp, on }: { temp: number; on: boolean }) {
     const a = (deg - 90) * (Math.PI / 180);
     return [cx + r * Math.cos(a), cy + r * Math.sin(a)];
   };
-  const [sx, sy] = xy(210);
-  const [ex, ey] = xy(330);
+  /* Altı açık 240° gösterge: 8 yönünden (−120°) saat yönünde tepeden 4 yönüne (+120°).
+     (Eski açılar 210°→330° ve ters yönlü dolgu yayı bozuk çiziyordu; çizgi kalınlığı
+     güneş modunda 0'a ezildiği için hiç GÖRÜNMÜYORDU — 2026-10-03 birlikte düzeldi.) */
+  const [sx, sy] = xy(-120);
+  const [ex, ey] = xy(120);
   const frac = Math.max(0, Math.min(1, (temp - 16) / 14));
-  const [fx, fy] = xy(210 - frac * 240);
+  const [fx, fy] = xy(-120 + frac * 240);
   const col = tc(temp, on);
   const f = (n: number) => n.toFixed(1);
   return (
     <svg width="160" height="160" viewBox="0 0 160 160" className="absolute inset-0 pointer-events-none">
+      {/* Çizgi SATIR İÇİ STİL ile (nitelik DEĞİL): güneş modu kuralı
+          `svg *[fill] { stroke-width: 0 !important }` nitelikli yayı siliyordu
+          (tarayıcıda ölçüldü 2026-10-03; EcoScoreCard ile aynı çözüm). */}
       {/* arka iz */}
       <path
         d={`M${f(sx)} ${f(sy)} A${r} ${r} 0 1 1 ${f(ex)} ${f(ey)}`}
-        fill="none" stroke="var(--oem-surface-2)" strokeWidth="4.5" strokeLinecap="round"
+        style={{ fill: 'none', stroke: 'var(--oem-line)', strokeWidth: 4.5, strokeLinecap: 'round' }}
       />
       {/* dolgu */}
       {frac > 0.005 && (
         <path
           d={`M${f(sx)} ${f(sy)} A${r} ${r} 0 ${frac * 240 > 180 ? 1 : 0} 1 ${f(fx)} ${f(fy)}`}
-          fill="none" stroke={col} strokeWidth="4.5" strokeLinecap="round"
-          style={{ filter: `drop-shadow(0 0 7px ${col})`, transition: 'stroke 0.3s' }}
+          style={{
+            fill: 'none', stroke: col, strokeWidth: 4.5, strokeLinecap: 'round',
+            filter: `drop-shadow(0 0 7px ${col})`, transition: 'stroke 0.3s',
+          }}
         />
       )}
     </svg>

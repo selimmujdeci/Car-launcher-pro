@@ -3,6 +3,8 @@
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 const fake = vi.hoisted(() => ({ state: { canDoors: null as unknown, canTpms: null as unknown } }));
 vi.mock('../platform/vehicleDataLayer/UnifiedVehicleStore', () => {
@@ -42,5 +44,16 @@ describe('aynı aks lastik kuralı (Mavi ile ortak)', () => {
     expect(tireAxleLow([2.4, 2.4, 2.0, 1.9])).toEqual([null, null, null, null]);
     expect(tireAxleLow([2.4, 2.4, 2.0, 1.6])).toEqual([null, null, null, 0.4]);
     expect(tireAxleLow([2.0, 2.4, null, 1.6])).toEqual([0.4, null, null, null]);
+  });
+});
+
+describe('🔒 güneş modu: çizgili SVG şekilleri nitelikle değil stille', () => {
+  /* index.css: `.sunlight-mode svg *[fill] { stroke-width: 0 !important }` nitelikli
+     şeklin çizgisini siler (klima yayları gündüz HİÇ görünmüyordu — 2026-10-03). */
+  it('klima yayı ve araç silüeti strokeWidth NİTELİĞİ taşımaz', () => {
+    for (const f of ['src/components/climate/ClimateScreen.tsx', 'src/components/vehicle/VehicleStatusCard.tsx']) {
+      const src = readFileSync(join(process.cwd(), f), 'utf8');
+      expect(src, f).not.toMatch(/strokeWidth="/);
+    }
   });
 });

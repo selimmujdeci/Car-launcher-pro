@@ -146,8 +146,8 @@ export const VehicleReminderModal = memo(function VehicleReminderModal({
               <Wrench className="w-5 h-5 text-[color:var(--oem-accent)]" />
             </div>
             <div>
-              <div className="text-[color:var(--oem-ink)] font-bold text-sm">Araç Hatırlatıcıları</div>
-              <div className="text-[color:var(--oem-ink-3)] text-[10px]">Bakım ve belgeler</div>
+              <div className="text-[color:var(--oem-ink)] font-bold text-sm">Araç</div>
+              <div className="text-[color:var(--oem-ink-3)] text-[10px]">Durum, bakım ve belgeler</div>
             </div>
           </div>
           <button

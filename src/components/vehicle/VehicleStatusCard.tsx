@@ -45,20 +45,21 @@ export const VehicleStatusCard = memo(function VehicleStatusCard() {
   return (
     <div ref={rootRef} className="flex flex-col items-center gap-2" data-testid="vehicle-status-card">
       <svg width="260" height="230" viewBox="0 0 260 230" aria-label="Araç durumu">
-        {/* gövde (üstten, ön yukarıda) */}
-        <rect x="85" y="20" width="90" height="190" rx="30" fill={BODY} stroke={LINE} strokeWidth="2" />
-        <rect x="97" y="62" width="66" height="96" rx="12" fill="none" stroke={LINE} strokeWidth="1.5" />
+        {/* gövde (üstten, ön yukarıda). Renk/kalınlık SATIR İÇİ STİL: güneş modu kuralı
+            nitelikli (`fill`/`stroke`) şekillerin çizgisini 0'a/3'e zorluyor. */}
+        <rect x="85" y="20" width="90" height="190" rx="30" style={{ fill: BODY, stroke: LINE, strokeWidth: 2 }} />
+        <rect x="97" y="62" width="66" height="96" rx="12" style={{ fill: 'none', stroke: LINE, strokeWidth: 1.5 }} />
         {/* tekerlekler */}
         {[[72, 48], [175, 48], [72, 150], [175, 150]].map(([x, y]) => (
-          <rect key={`${x}-${y}`} x={x} y={y} width="13" height="32" rx="4" fill={LINE} />
+          <rect key={`${x}-${y}`} x={x} y={y} width="13" height="32" rx="4" style={{ fill: LINE }} />
         ))}
         {/* kapılar: sol ön/arka · sağ ön/arka (açıksa kırmızı ve dışa açık) */}
-        <line x1="85" y1="66" x2={doors?.frontLeft ? 62 : 85} y2={doors?.frontLeft ? 96 : 108} stroke={doorCol(doors?.frontLeft)} strokeWidth="5" strokeLinecap="round" />
-        <line x1="85" y1="112" x2={doors?.rearLeft ? 62 : 85} y2={doors?.rearLeft ? 142 : 154} stroke={doorCol(doors?.rearLeft)} strokeWidth="5" strokeLinecap="round" />
-        <line x1="175" y1="66" x2={doors?.frontRight ? 198 : 175} y2={doors?.frontRight ? 96 : 108} stroke={doorCol(doors?.frontRight)} strokeWidth="5" strokeLinecap="round" />
-        <line x1="175" y1="112" x2={doors?.rearRight ? 198 : 175} y2={doors?.rearRight ? 142 : 154} stroke={doorCol(doors?.rearRight)} strokeWidth="5" strokeLinecap="round" />
+        <line x1="85" y1="66" x2={doors?.frontLeft ? 62 : 85} y2={doors?.frontLeft ? 96 : 108} style={{ stroke: doorCol(doors?.frontLeft), strokeWidth: 5, strokeLinecap: 'round' }} />
+        <line x1="85" y1="112" x2={doors?.rearLeft ? 62 : 85} y2={doors?.rearLeft ? 142 : 154} style={{ stroke: doorCol(doors?.rearLeft), strokeWidth: 5, strokeLinecap: 'round' }} />
+        <line x1="175" y1="66" x2={doors?.frontRight ? 198 : 175} y2={doors?.frontRight ? 96 : 108} style={{ stroke: doorCol(doors?.frontRight), strokeWidth: 5, strokeLinecap: 'round' }} />
+        <line x1="175" y1="112" x2={doors?.rearRight ? 198 : 175} y2={doors?.rearRight ? 142 : 154} style={{ stroke: doorCol(doors?.rearRight), strokeWidth: 5, strokeLinecap: 'round' }} />
         {/* bagaj (arka) */}
-        <line x1="104" y1={doors?.trunk ? 222 : 210} x2="156" y2={doors?.trunk ? 222 : 210} stroke={doorCol(doors?.trunk)} strokeWidth="5" strokeLinecap="round" />
+        <line x1="104" y1={doors?.trunk ? 222 : 210} x2="156" y2={doors?.trunk ? 222 : 210} style={{ stroke: doorCol(doors?.trunk), strokeWidth: 5, strokeLinecap: 'round' }} />
         {/* lastik basınçları (bar) */}
         {tireLabel(0, 64, 68, 'end')}
         {tireLabel(1, 196, 68, 'start')}
