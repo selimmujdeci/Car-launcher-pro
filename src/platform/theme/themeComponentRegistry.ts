@@ -275,15 +275,12 @@ const SHARED_COMPONENTS: ThemeComponentInfo[] = [
      HEPSİNE uygulanır. Sahte "her biri ayrı" iddiası KURULMAZ. */
   { id: 'climate.screen', surface: 'climate', type: 'panel', label: 'İklim Ekranı (tüm sayfa)', themes: null },
   { id: 'climate.header', surface: 'climate', type: 'header', label: 'Üst Bar', themes: null },
-  { id: 'climate.cabin-badge', surface: 'climate', type: 'card', label: 'Kabin Sıcaklığı Rozeti', themes: null },
+  { id: 'climate.cabin-badge', surface: 'climate', type: 'card', label: 'Dış Sıcaklık Rozeti', themes: null },
   { id: 'climate.zone', surface: 'climate', type: 'card', label: 'Sürücü / Yolcu Bölgesi (ikisi)', themes: null },
-  { id: 'climate.temp-button', surface: 'climate', type: 'card', label: 'Sıcaklık +/− Butonları (tümü)', themes: null },
   { id: 'climate.fan', surface: 'climate', type: 'gauge', label: 'Fan Bloğu', themes: null },
-  { id: 'climate.mode-button', surface: 'climate', type: 'card', label: 'Mod Butonları A/C·AUTO·SYNC (tümü)', themes: null },
-  { id: 'climate.air-panel', surface: 'climate', type: 'panel', label: 'Hava Yönü Kabı', themes: null },
-  { id: 'climate.air-button', surface: 'climate', type: 'card', label: 'Hava Yönü Butonları (tümü)', themes: null },
-  { id: 'climate.comfort-panel', surface: 'climate', type: 'panel', label: 'Koltuk/Direksiyon Kabı', themes: null },
-  { id: 'climate.heat-row', surface: 'climate', type: 'card', label: 'Isıtma Satırları (tümü)', themes: null },
+  { id: 'climate.mode-button', surface: 'climate', type: 'card', label: 'Durum Rozetleri A/C·AUTO·DUAL (tümü)', themes: null },
+  { id: 'climate.air-panel', surface: 'climate', type: 'panel', label: 'Hava Durumu Kabı (iç hava · buğu)', themes: null },
+  { id: 'climate.air-button', surface: 'climate', type: 'card', label: 'Hava Durumu Rozetleri (tümü)', themes: null },
 
   /* ── Telefon / Rehber (PR-2a) ──────────────────────────────────────── */
   { id: 'phone.screen', surface: 'phone', type: 'panel', label: 'Telefon Ekranı (tüm sayfa)', themes: null },

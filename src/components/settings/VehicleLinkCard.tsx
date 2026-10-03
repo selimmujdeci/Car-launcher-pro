@@ -6,13 +6,12 @@
  * uygulama yetki almaz, yalnız durumun ne olduğunu ve neyin eksik olduğunu söyler.
  * Bilinmeyen değer "bekleniyor" yazar; sahte "var" yok.
  */
-import { memo, useEffect, useState } from 'react';
+import { memo } from 'react';
 import {
-  readVehicleAccess, describeVehicleProfile,
+  describeVehicleProfile,
   type VehicleAccessState, type VehicleFeature, type FeatureAvailability,
 } from '../../platform/vehicleDataLayer/vehicleAccess';
-
-const POLL_MS = 5_000;
+import { useVehicleAccess } from '../../hooks/useVehicleAccess';
 
 const FEATURE_LABEL: Readonly<Record<VehicleFeature, string>> = {
   climate: 'Klima', doors: 'Kapılar', steering: 'Direksiyon açısı',
@@ -34,17 +33,7 @@ const TIER_TEXT: Readonly<Record<VehicleAccessState['tier'], [string, string]>> 
 };
 
 export const VehicleLinkCard = memo(function VehicleLinkCard() {
-  const [state, setState] = useState<VehicleAccessState | null>(null);
-
-  useEffect(() => {
-    let alive = true;
-    const tick = (): void => {
-      void readVehicleAccess().then((s) => { if (alive) setState(s); }).catch(() => { /* fail-soft */ });
-    };
-    tick();
-    const id = setInterval(tick, POLL_MS);
-    return () => { alive = false; clearInterval(id); };
-  }, []);
+  const state = useVehicleAccess();
 
   const ink2 = 'var(--oem-ink-3, rgba(255,255,255,0.45))';
   if (!state) {
