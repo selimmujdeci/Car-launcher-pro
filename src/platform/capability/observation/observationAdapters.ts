@@ -8,7 +8,9 @@
  *   navigation → `destinationOwnershipModel` hedef sahiplik defteri
  *   media      → `mediaAuthorityEvidence` (→ `playbackTruth` komut kaydı)
  *   settings   → `applySetting` port kanıtı (depodan GERİ OKUMA)
- *   vehicle/diagnostics/phone/surface → bağımsız kaynak YOK → `NONE`
+ *   vehicle    → konfor: aracın CAN durum yankısı (`VEHICLE_STATE`, yürütücü taşır);
+ *                diğerleri bağımsız kaynak YOK → `NONE`
+ *   diagnostics/phone/surface → bağımsız kaynak YOK → `NONE`
  *
  * ── NEDEN PARALEL DURUM KURULMADI ───────────────────────────────────────────
  * Medya için `playbackTruth` TEK gerçektir; buraya "Mavi medya durumu" diye

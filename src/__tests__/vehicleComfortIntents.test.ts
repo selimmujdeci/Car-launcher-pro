@@ -4,7 +4,8 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  tryParseVehicleComfort, tryParseCanVehicleInfo, encodeComfortCommand, decodeComfortCommand,
+  tryParseVehicleComfort, tryParseVehicleComforts, tryParseCanVehicleInfo,
+  encodeComfortCommands, decodeComfortCommands,
 } from '../platform/vehicleComfortIntents';
 import { parseCommandFull } from '../platform/commandParser';
 
@@ -53,11 +54,48 @@ describe('konfor komutu', () => {
   });
 
   it('taşıma: kodla → çöz birebir; bozuk girdi reddedilir', () => {
-    const c = { target: 'ambient', color: 2, level: '+' } as const;
-    expect(decodeComfortCommand(encodeComfortCommand(c))).toEqual(c);
-    expect(decodeComfortCommand('{"target":"engine","power":"on"}')).toBeNull();
-    expect(decodeComfortCommand('{"target":"ambient","color":9}')).toEqual({ target: 'ambient' });
-    expect(decodeComfortCommand('bozuk')).toBeNull();
+    const list = [{ target: 'ambient', color: 2, level: '+' }, { target: 'massage', power: 'on' }] as const;
+    expect(decodeComfortCommands(encodeComfortCommands(list))).toEqual(list);
+    expect(decodeComfortCommands('{"target":"massage","power":"on"}')).toEqual([{ target: 'massage', power: 'on' }]);
+    expect(decodeComfortCommands('[{"target":"engine","power":"on"}]')).toBeNull();
+    expect(decodeComfortCommands('[{"target":"ambient","color":9}]')).toEqual([{ target: 'ambient' }]);
+    expect(decodeComfortCommands('[]')).toBeNull();
+    expect(decodeComfortCommands('bozuk')).toBeNull();
+  });
+});
+
+describe('"… ve …" konfor cümleleri (zincire bölünmez)', () => {
+  it('iki hedef → iki komut', () => {
+    expect(tryParseVehicleComforts('Masajı aç ve ambiyansı mavi yap')).toEqual([
+      { target: 'massage', power: 'on' }, { target: 'ambient', color: 2 },
+    ]);
+  });
+
+  it('hedefsiz devam cümleciği önceki hedefi devralır ve birleşir', () => {
+    expect(tryParseVehicleComforts('masajı aç ve şiddetini artır'))
+      .toEqual([{ target: 'massage', power: 'on', level: '+' }]);
+    expect(tryParseVehicleComforts('iç ambiyansları mavi yap ve parlaklığını artır'))
+      .toEqual([{ target: 'ambient', color: 2, level: '+' }]);
+    expect(tryParseVehicleComforts('ambiyansı aç ve mavi yap'))
+      .toEqual([{ target: 'ambient', power: 'on', color: 2 }]);
+  });
+
+  it('konfor DIŞI cümlecik varsa null → zincir yolu (müzik kaybolmaz)', () => {
+    expect(tryParseVehicleComforts('masajı aç ve müziği aç')).toBeNull();
+    expect(tryParseVehicleComforts('ambiyansı mavi yap ve ekran parlaklığını artır')).toBeNull();
+    expect(tryParseVehicleComforts('müziği aç ve masajı aç')).toBeNull();
+  });
+
+  it('ön ve arka birlikte → bölge yok (tümü)', () => {
+    expect(tryParseVehicleComfort('ön ve arka ambiyansı aç')).toEqual({ target: 'ambient', power: 'on' });
+  });
+
+  it('commandParser: devam cümleciği ses/ekran komutuna DÜŞMEZ', () => {
+    const a = parseCommandFull('masajı aç ve şiddetini artır').command!;
+    expect(a.type).toBe('vehicle_comfort');
+    expect(decodeComfortCommands(a.extra?.comfort)).toEqual([{ target: 'massage', power: 'on', level: '+' }]);
+    const b = parseCommandFull('masajı aç ve ambiyansı mavi yap').command!;
+    expect(decodeComfortCommands(b.extra?.comfort)).toHaveLength(2);
   });
 });
 
@@ -87,7 +125,7 @@ describe('commandParser bağlantısı', () => {
     const a = parseCommandFull('koltuk masajını aç').command!;
     expect(a.type).toBe('vehicle_comfort');
     expect(a.confidence).toBe(1);
-    expect(decodeComfortCommand(a.extra?.comfort)).toEqual({ target: 'massage', power: 'on' });
+    expect(decodeComfortCommands(a.extra?.comfort)).toEqual([{ target: 'massage', power: 'on' }]);
     const b = parseCommandFull('lastik basınçlarını kontrol et').command!;
     expect(b.type).toBe('vehicle_can_info');
     expect(b.extra?.topic).toBe('tires');

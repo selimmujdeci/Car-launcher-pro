@@ -447,6 +447,25 @@ describe('MAVI-F6 · E · birleşik sonuç metni', () => {
     expect(text).not.toContain('annem');
   });
 
+  it('29a. konfor adımı doğru fiille söylenir; aynı ad tekrarlanmaz', async () => {
+    const comfort = (): PlanItemProposal => ({
+      capabilityId: 'vehicle.comfort', operation: 'set', parameters: { slot: 0 },
+      legacyIntent: 'VEHICLE_COMFORT', requiresConfirmation: false,
+    });
+    const ok = await runCapabilityPlan(build([music(), comfort()]), makeRunner({
+      PLAY_MUSIC_SEARCH: { observation: 'OBSERVED' }, VEHICLE_COMFORT: { observation: 'OBSERVED' },
+    }).ports);
+    expect(renderPlanOutcome(ok)).toBe('Müziği açtım, konfor ayarını yaptım.');
+    const sent = await runCapabilityPlan(build([music(), comfort()]), makeRunner({
+      PLAY_MUSIC_SEARCH: { observation: 'OBSERVED' }, VEHICLE_COMFORT: { observation: 'ACCEPTED' },
+    }).ports);
+    expect(renderPlanOutcome(sent)).toBe('Müziği açtım, konfor ayarını araca ilettim.');
+    const failed = await runCapabilityPlan(build([music(), comfort()]), makeRunner({
+      PLAY_MUSIC_SEARCH: { observation: 'OBSERVED' }, VEHICLE_COMFORT: { observation: 'FAILED' },
+    }).ports);
+    expect(renderPlanOutcome(failed)).toBe('Müziği açtım; konfor ayarını yapamadım.');
+  });
+
   it('29. söylenecek bir şey yoksa cümle UYDURULMAZ', () => {
     const empty = buildCapabilityPlan([], { planId: 'p0' });
     expect(renderPlanOutcome(empty)).toBe('');

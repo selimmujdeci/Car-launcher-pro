@@ -24,7 +24,7 @@ import { classifyObservation, recordCapabilityObservation } from './capability/f
    otoritelerini (navigasyon hedef defteri · `playbackTruth` · ayar portu)
    OKUR ve "yaptım" iddiasını yalnız KANITA kadar açık tutar. */
 import {
-  evidenceFromSettingApply, reconcileObservation,
+  evidenceFromSettingApply, evidenceFromVehicleState, reconcileObservation,
   type DomainEvidence, type SettingApplyEvidence,
 } from './capability/observation/observationContract';
 import {
@@ -77,7 +77,7 @@ import type { NavOptionKey, MusicOptionKey } from '../data/apps';
 import { readDTCCodes, clearDTCCodes, getClearableDtcSnapshot, onDTCState, type DTCState } from './dtcService';
 import { evaluateVehicleDtcVerdict } from './obd/dtcAuthority';
 import { querySensor } from './obd/sensorQueryService';
-import { executeComfortCommand } from './vehicleDataLayer/canComfortControl';
+import { executeComfortCommands } from './vehicleDataLayer/canComfortControl';
 import { getMaintenanceSummaryText } from './vehicleMaintenanceService';
 import { openInApp } from './inAppBrowser';
 import { applyLiveStyle } from './liveStyleEngine';
@@ -443,6 +443,9 @@ function _mediaStateReply(
 
 /**
  * MAVI-F7 · TEK ATIŞLIK AYAR KANIDI YUVASI.
+ *
+ * (Konfor yürütücüsü `VEHICLE_COMFORT` de aracın durum kanıtını AYNI yuvaya
+ * bırakır — tek atışlık port kanıtı sözleşmesi aynıdır.)
  *
  * `SET_SETTING` yürütücüsü kanıtı `dispatchIntent` İÇİNDE üretir; gözlem kaydı
  * ise `executeIntent`/`executeAIResult`ta yapılır. Sözleşmeyi genişletmek
@@ -1041,17 +1044,30 @@ async function dispatchIntent(intent: AppIntent, ctx: CommandContext): Promise<I
          onaylamadı"), gönderilemediyse `failed`. Cümle yürütücüden gelir. */
       case 'VEHICLE_COMFORT': {
         const spec = intent.payload.comfort;
-        if (!spec) {
+        if (!spec || spec.length === 0) {
           return intentResult(intent.type, 'failed', 'no_comfort_spec', 'Hangi konfor ayarını istediğini anlayamadım.');
         }
-        const out = await executeComfortCommand(spec);
+        const out = await executeComfortCommands(spec);
+        /* F7: aracın durum kanıtı gözlem kaydına (zincir cümlesinin fiili buradan). */
         switch (out.status) {
-          case 'succeeded':   return intentResult(intent.type, 'succeeded', 'echo_confirmed', out.text);
-          case 'already':     return intentResult(intent.type, 'succeeded', 'already_in_state', out.text);
-          case 'unconfirmed': return intentResult(intent.type, 'started', 'sent_no_echo', out.text);
-          case 'unavailable': return intentResult(intent.type, 'failed', 'not_sent', out.text);
-          case 'unsupported': return intentResult(intent.type, 'failed', 'not_supported', out.text);
-          default:            return intentResult(intent.type, 'failed', 'state_unknown', out.text);
+          case 'succeeded':
+            _pendingSettingEvidence = evidenceFromVehicleState('ECHO_CONFIRMED');
+            return intentResult(intent.type, 'succeeded', 'echo_confirmed', out.text);
+          case 'already':
+            _pendingSettingEvidence = evidenceFromVehicleState('ALREADY_IN_STATE');
+            return intentResult(intent.type, 'succeeded', 'already_in_state', out.text);
+          case 'unconfirmed':
+            _pendingSettingEvidence = evidenceFromVehicleState('SENT_NO_ECHO');
+            return intentResult(intent.type, 'started', 'sent_no_echo', out.text);
+          case 'unavailable':
+            _pendingSettingEvidence = evidenceFromVehicleState('NOT_SENT');
+            return intentResult(intent.type, 'failed', 'not_sent', out.text);
+          case 'unsupported':
+            _pendingSettingEvidence = evidenceFromVehicleState('NOT_POSSIBLE');
+            return intentResult(intent.type, 'failed', 'not_supported', out.text);
+          default:
+            _pendingSettingEvidence = evidenceFromVehicleState('STATE_UNKNOWN');
+            return intentResult(intent.type, 'failed', 'state_unknown', out.text);
         }
       }
       case 'OPEN_APPOINTMENT_LINK': {

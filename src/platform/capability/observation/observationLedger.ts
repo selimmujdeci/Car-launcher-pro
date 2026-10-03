@@ -199,7 +199,7 @@ export function isObservableDomain(d: string): d is FabricDomain {
 /** Kaynak adının bounded olduğunu doğrular. */
 export function isObservationSource(s: string): s is ObservationSource {
   return s === 'EXECUTOR_RESULT' || s === 'NAV_DESTINATION' || s === 'PLAYBACK_TRUTH'
-    || s === 'SETTINGS_STORE' || s === 'NONE';
+    || s === 'SETTINGS_STORE' || s === 'VEHICLE_STATE' || s === 'NONE';
 }
 
 /** @internal — testler arası izolasyon. */

@@ -346,6 +346,28 @@ export const CAROS_CAPABILITY_CATALOG: readonly CapabilityOperationDef[] = Objec
     legacyIntent: 'CHECK_MAINTENANCE', exposedToBrain: true,
   }),
 
+  /* ── ARAÇ KONFORU (ARACA YAZAR · düşük risk) ───────────────────────────
+   * Koltuk masajı ve iç ambiyans (NWD beyaz listesi). Tavan `OBSERVED`: başarı
+   * YALNIZ aracın kendi durum yankısıyla (`VEHICLE_STATE`) doğrulanır; yankı
+   * yoksa `ACCEPTED` kalır. Beyne KAPALI: komut yalnız yerel ayrıştırıcıdan
+   * gelir — beynin bu porta aracı yok (uydurma "açtım" riski). Onay istemez
+   * (kanonik defter `VEHICLE_COMFORT` ile aynı karar). */
+  Object.freeze({
+    capabilityId: 'vehicle.comfort', operation: 'set', version: 1,
+    domain: 'vehicle',
+    description: 'Koltuk masajını ve iç ambiyansı açar, kapatır, ayarlar.',
+    parameters: Object.freeze({
+      comfort: Object.freeze({
+        type: 'string', description: 'Yerel ayrıştırıcının doğrulanmış konfor komutu.',
+        required: true, maxLength: 1000,
+      }),
+    }),
+    safetyClass: 'vehicle_write', requiresConfirmation: false, cancellable: false,
+    observationCeiling: 'OBSERVED',
+    requiredCapabilities: Object.freeze(['vehicle.can']),
+    legacyIntent: 'VEHICLE_COMFORT', exposedToBrain: false,
+  }),
+
   /* ── TANILAMA (ARACA YAZAR) ────────────────────────────────────────────
    * **AVAILABILITY ≠ PERMISSION ≠ AUTHORITY'nin CANLI ÖRNEĞİ.**
    * Bu işlem katalogda GÖRÜNÜR ve availability'si AVAILABLE olabilir; buna

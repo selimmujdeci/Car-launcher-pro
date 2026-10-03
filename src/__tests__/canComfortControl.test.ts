@@ -13,9 +13,12 @@ vi.mock('../platform/nativePlugin', () => ({ CarLauncher: native }));
 
 import { useUnifiedVehicleStore } from '../platform/vehicleDataLayer/UnifiedVehicleStore';
 import {
-  executeComfortCommand, answerCanVehicleInfo, tiresSpeech, tripSpeech, doorsSpeech, climateSpeech,
-  massageStrengthTarget, ambientBrightnessTarget, ECHO_TIMEOUT_MS,
+  executeComfortCommand, executeComfortCommands, answerCanVehicleInfo, tiresSpeech, tripSpeech, doorsSpeech,
+  climateSpeech, massageStrengthTarget, ambientBrightnessTarget, ECHO_TIMEOUT_MS,
 } from '../platform/vehicleDataLayer/canComfortControl';
+import { evidenceFromVehicleState, reconcileObservation } from '../platform/capability/observation/observationContract';
+import { isObservationSource } from '../platform/capability/observation/observationLedger';
+import { findByLegacyIntent } from '../platform/capability/fabric/carosCapabilityCatalog';
 import { decodeTpms } from '../platform/vehicleDataLayer/raiseRenaultFrames';
 import type { CanAmbientState, CanMassageState } from '../platform/vehicleDataLayer/raiseRenaultFrames';
 
@@ -189,5 +192,46 @@ describe('durum cevapları', () => {
     const text = await answerCanVehicleInfo('tires');
     expect(native.requestCanData).toHaveBeenCalledWith({ type: 0x61 });
     expect(text).toBe('Ön sol 2,4, ön sağ 2,4, arka sol 2, arka sağ 2 bar.');
+  });
+});
+
+describe('çoklu konfor komutu', () => {
+  it('"masajı aç ve ambiyansı mavi yap" → sırayla, her parça kendi cümlesiyle', async () => {
+    store().updateCanExtras({ massage: massage({ driverOn: false }), ambient: ambient({ colorIndex: 1 }) });
+    carEchoes();
+    const r = await executeComfortCommands([{ target: 'massage', power: 'on' }, { target: 'ambient', color: 2 }]);
+    expect(native.setCanComfortSetting.mock.calls.map((c) => c[0])).toEqual([
+      { id: 0x90, value: 1 }, { id: 0x18, value: 2 },
+    ]);
+    expect(r).toEqual({ status: 'succeeded', text: 'Koltuk masajı açıldı: tonik mod, şiddet 4. Ambiyans rengi mavi.' });
+  });
+
+  it('bir parça onaylanmazsa bütün "yapıldı" SAYILMAZ (en zayıf durum)', async () => {
+    vi.useFakeTimers();
+    store().updateCanExtras({ massage: massage({ driverOn: false }), ambient: ambient({ on: true }) });
+    native.setCanComfortSetting.mockImplementation(async ({ id }: { id: number }) => {
+      const a = store().canAmbient;
+      if (id === 0x15 && a) store().updateCanExtras({ ambient: { ...a, on: false, atMs: Date.now() } });
+      return { sent: true };                       // masaj yankısı YOK
+    });
+    const p = executeComfortCommands([{ target: 'massage', power: 'on' }, { target: 'ambient', power: 'off' }]);
+    await vi.advanceTimersByTimeAsync(ECHO_TIMEOUT_MS + 200);
+    const r = await p;
+    expect(r.status).toBe('unconfirmed');
+    expect(r.text).toBe('Masaj komutunu gönderdim ama araç onaylamadı. Ambiyans kapatıldı.');
+  });
+});
+
+describe('gözlem: aracın yankısı bağımsız kanıttır', () => {
+  it('yankı → OBSERVED (VEHICLE_STATE); yankısız gönderim → ACCEPTED; gönderilemedi → FAILED', () => {
+    const def = findByLegacyIntent('VEHICLE_COMFORT')!;
+    expect(def.capabilityId).toBe('vehicle.comfort');
+    expect(def.exposedToBrain).toBe(false);                 // beyin öneremez
+    const rec = (base: 'EXECUTED' | 'ACCEPTED' | 'FAILED', e: Parameters<typeof evidenceFromVehicleState>[0]) =>
+      reconcileObservation({ base, evidence: evidenceFromVehicleState(e), ceiling: def.observationCeiling });
+    expect(rec('EXECUTED', 'ECHO_CONFIRMED')).toMatchObject({ level: 'OBSERVED', source: 'VEHICLE_STATE' });
+    expect(rec('ACCEPTED', 'SENT_NO_ECHO').level).toBe('ACCEPTED');
+    expect(rec('FAILED', 'NOT_SENT').level).toBe('FAILED');
+    expect(isObservationSource('VEHICLE_STATE')).toBe(true);
   });
 });

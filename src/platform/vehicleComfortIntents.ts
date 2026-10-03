@@ -163,8 +163,10 @@ export function tryParseVehicleComfort(text: string): ComfortCommand | null {
   }
 
   // ── Ambiyans ──
-  const zone = /\b(on\s+(ambi|taraf|kisim)\w*|ondeki)\b/.test(t) ? 'front' as const
-    : /\barka(daki)?\b/.test(t) ? 'rear' as const : undefined;
+  const saysFront = /\b(on\s+(ambi|taraf|kisim)\w*|ondeki|on\s+ve\s+arka)\b/.test(t);
+  const saysRear  = /\barka(daki)?\b/.test(t);
+  // "ön ve arka ambiyansı aç" → iki bölge birden = bölge yok (tümü).
+  const zone = saysFront && !saysRear ? 'front' as const : saysRear && !saysFront ? 'rear' as const : undefined;
   if (power === 'off') return { target: 'ambient', power, ...(zone ? { zone } : {}) };
   let color: ComfortCommand['color'];
   for (const [re, idx] of COLOR_WORDS) if (re.test(t)) { color = idx; break; }
@@ -182,6 +184,87 @@ export function tryParseVehicleComfort(text: string): ComfortCommand | null {
     ...(color !== undefined ? { color } : {}),
     ...(level !== undefined ? { level } : {}),
   };
+}
+
+/* ── Çok cümlecikli konfor komutu ("… ve …") ───────────────────────────── */
+
+const CLAUSE_SPLIT_RE = /\s+(?:ve|sonra|ardindan|bir de|hem de|ayrica)\s+/;
+
+/**
+ * Hedefsiz devam cümleciğinde ("… ve şiddetini artır") izin verilen sözcükler.
+ * Listede olmayan TEK sözcük ("müziği", "ekran") cümleciği konfor dışı yapar ve
+ * cümle zincir yoluna aynen bırakılır. Ölçüldü (2026-10-03): zincir yolunda
+ * hedefsiz "şiddetini artır" ses artırmaya (volume_up 1.0), "parlaklığını artır"
+ * ekran parlaklığına (set_setting 0.93) düşüyordu.
+ */
+const CONTINUATION_TOKEN_RE = new RegExp('^(?:' + [
+  'bir', 'de', 'da', 'biraz', 'daha', 'en', 'cok', 'az', 'lutfen', 'simdi', 'hemen', 'onu', 'bunu', 'sunu',
+  'yuzde', 'kadar', 'tam', 'on', 'ondeki', 'arka\\w*', 'koltu\\w*', 'surucu\\w*', 'yolcu\\w*',
+  'ac\\w*', 'kapat\\w*', 'kapa', 'yap\\w*', 'ayarla\\w*', 'artir\\w*', 'arttir\\w*', 'azalt\\w*', 'dusur\\w*',
+  'yukselt\\w*', 'cogalt\\w*', 'guclendir\\w*', 'sertlestir\\w*', 'siddetlendir\\w*', 'yumusat\\w*', 'hafiflet\\w*',
+  'parlat\\w*', 'karart\\w*', 'kis(ar|abilir|sana|in|alim)?', 'degistir\\w*', 'getir\\w*', 'cevir\\w*', 'al', 'olsun',
+  'yak\\w*', 'sondur\\w*', 'baslat\\w*', 'durdur\\w*', 'calistir\\w*',
+  'siddet\\w*', 'parlak\\w*', 'guc\\w*', 'seviye\\w*', 'kademe\\w*', 'mod\\w*', 'ren[gk]\\w*', 'isi[gk]\\w*',
+  'sertlig\\w*', 'yogunlug\\w*', 'hiz\\w*',
+  'beyaz\\w*', 'kirmizi\\w*', 'mavi\\w*', 'lacivert\\w*', 'turkuaz\\w*', 'camgobeg\\w*', 'turuncu\\w*', 'mor\\w*',
+  'gri\\w*', 'yesil\\w*', 'eflatun\\w*', 'lila\\w*', 'sari\\w*', 'pembe\\w*', 'kahverengi\\w*', 'siyah\\w*',
+  'dinlendirici\\w*', 'rahatlatici\\w*', 'relaks\\w*', 'bel', 'tonik\\w*', 'canlandirici\\w*',
+  'yuksek\\w*', 'dusuk\\w*', 'maksimum', 'maks', 'minimum', 'sonuna', 'full', '\\d{1,3}',
+  '(iki|uc|dort|dord|bes|alti|yedi|sekiz|dokuz|yirmi|otuz|kirk|elli|altmis|yetmis|seksen|doksan|yuz)(e|a|ye|ya)?',
+].join('|') + ')$');
+
+const TARGET_WORD: Readonly<Record<ComfortTarget, string>> = { massage: 'masaj', ambient: 'ambiyans' };
+
+function targetOf(t: string): ComfortTarget | null {
+  const m = MASSAGE_RE.test(t);
+  const a = AMBIENT_RE.test(t);
+  return m === a ? null : m ? 'massage' : 'ambient';
+}
+
+/** Aynı hedefe ardışık komutları birleştirir ("ambiyansı aç" + "mavi yap" → tek komut). */
+function mergeSameTarget(list: readonly ComfortCommand[]): ComfortCommand[] {
+  const out: ComfortCommand[] = [];
+  for (const c of list) {
+    const prev = out[out.length - 1];
+    if (prev && prev.target === c.target && !prev.unavailable && !c.unavailable
+      && prev.power !== 'off' && c.power !== 'off' && prev.zone === c.zone) {
+      out[out.length - 1] = { ...prev, ...c };
+    } else {
+      out.push(c);
+    }
+  }
+  return out;
+}
+
+/**
+ * Konfor KOMUT(LAR)I — tek cümlecik ya da "… ve …" ile bağlı cümlecikler.
+ * Her cümlecik kendi hedefini taşır ya da (yalnız konfor sözcükleriyle) bir
+ * öncekinin hedefini devralır. Tek bir cümlecik bile konfor dışıysa null →
+ * cümle zincir yoluna aynen bırakılır ("masajı aç ve müziği aç").
+ */
+export function tryParseVehicleComforts(text: string): readonly ComfortCommand[] | null {
+  const raw = stripVocative(norm(text));
+  if (raw.length < 4 || MEMORY_RE.test(raw) || NEGATION_RE.test(raw)) return null;
+  const clauses = raw.split(CLAUSE_SPLIT_RE).filter((c) => c.length > 0);
+  if (clauses.length <= 1) {
+    const one = tryParseVehicleComfort(text);
+    return one ? [one] : null;
+  }
+  if (clauses.length > 4) return null;
+  const out: ComfortCommand[] = [];
+  let prev: ComfortTarget | null = null;
+  for (const clause of clauses) {
+    let cmd: ComfortCommand | null = null;
+    if (targetOf(clause)) {
+      cmd = tryParseVehicleComfort(clause);
+    } else if (prev && clause.split(' ').every((w) => CONTINUATION_TOKEN_RE.test(w))) {
+      cmd = tryParseVehicleComfort(`${TARGET_WORD[prev]} ${clause}`);
+    }
+    if (!cmd) return null;
+    out.push(cmd);
+    prev = cmd.target;
+  }
+  return mergeSameTarget(out);
 }
 
 const CONTROL_VERB_RE = /\b(ac|acar|kapat\w*|yap\w*|ayarla\w*|artir\w*|arttir\w*|azalt\w*|dusur\w*|yukselt\w*|degistir\w*|kilitle\w*|goster\w*)\b/;
@@ -218,15 +301,11 @@ export function tryParseCanVehicleInfo(text: string): CanInfoTopic | null {
 
 /* ── ParsedCommand.extra taşıması (Record<string,string>) ───────────────── */
 
-export function encodeComfortCommand(c: ComfortCommand): string {
-  return JSON.stringify(c);
+export function encodeComfortCommands(list: readonly ComfortCommand[]): string {
+  return JSON.stringify(list);
 }
 
-/** Taşınan metni DOĞRULAYARAK çözer; bozuk/eksikse null (yürütücü dürüstçe reddeder). */
-export function decodeComfortCommand(s: string | undefined): ComfortCommand | null {
-  if (!s) return null;
-  let o: unknown;
-  try { o = JSON.parse(s); } catch { return null; }
+function validateComfort(o: unknown): ComfortCommand | null {
   if (!o || typeof o !== 'object') return null;
   const r = o as Record<string, unknown>;
   if (r.target !== 'massage' && r.target !== 'ambient') return null;
@@ -243,4 +322,20 @@ export function decodeComfortCommand(s: string | undefined): ComfortCommand | nu
   if (r.unavailable === 'massage_speed' || r.unavailable === 'color') out.unavailable = r.unavailable;
   if (typeof r.colorName === 'string') out.colorName = r.colorName.slice(0, 20);
   return out as unknown as ComfortCommand;
+}
+
+/** Taşınan metni DOĞRULAYARAK çözer (1–4 komut); bozuksa null (yürütücü dürüstçe reddeder). */
+export function decodeComfortCommands(s: string | undefined): readonly ComfortCommand[] | null {
+  if (!s) return null;
+  let o: unknown;
+  try { o = JSON.parse(s); } catch { return null; }
+  const arr: unknown[] = Array.isArray(o) ? o : [o];
+  if (arr.length === 0 || arr.length > 4) return null;
+  const out: ComfortCommand[] = [];
+  for (const x of arr) {
+    const c = validateComfort(x);
+    if (!c) return null;
+    out.push(c);
+  }
+  return out;
 }

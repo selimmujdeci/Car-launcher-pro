@@ -29,7 +29,9 @@ import {
   type ProtectedWholeInputMatch,
 } from './protectedCommandGate';
 import { matchVoiceSetting, type VoiceSettingMatch } from './settingsVoice';
-import { tryParseVehicleComfort, tryParseCanVehicleInfo, encodeComfortCommand } from './vehicleComfortIntents';
+import {
+  tryParseVehicleComfort, tryParseVehicleComforts, tryParseCanVehicleInfo, encodeComfortCommands,
+} from './vehicleComfortIntents';
 import {
   tryParseVehicleQuery,
   VEHICLE_MAINTENANCE_PATTERN,
@@ -1401,12 +1403,15 @@ export function parseCommandFull(input: string): ParseResult {
    * "ambiyansın parlaklığını artır" ekran parlaklığı ayarına, "masajı aç" genel
    * "aç" kalıplarına düşmesin. Hedef sözcüğü (masaj · ambiyans · lastik …) yoksa
    * iki fonksiyon da null döner → akış aynen devam eder. */
-  const comfort = tryParseVehicleComfort(trimmed);
+  /* Önce "… ve …" cümlecikleri (katı: her cümlecik konfor olmalı); olmazsa tek
+   * cümle. Zincir yolu katı sürümü kullanır (voiceService.tryHandleChain). */
+  const single = tryParseVehicleComfort(trimmed);
+  const comfort = tryParseVehicleComforts(trimmed) ?? (single ? [single] : null);
   if (comfort) {
     return {
       command: {
         type: 'vehicle_comfort', raw: trimmed, confidence: EXACT_SCORE,
-        feedback: '', priority: 'normal', extra: { comfort: encodeComfortCommand(comfort) },
+        feedback: '', priority: 'normal', extra: { comfort: encodeComfortCommands(comfort) },
       },
       suggestions: [], needsSemantic: false,
     };

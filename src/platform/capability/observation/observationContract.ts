@@ -51,6 +51,9 @@ export type ObservationSource =
   | 'PLAYBACK_TRUTH'
   /** Ayar deposundan GERİ OKUMA (yazılan değer gerçekten okundu mu). */
   | 'SETTINGS_STORE'
+  /** Aracın KENDİ durum bildirimi (CAN yankısı: masaj · ambiyans) — yazılan
+   *  değer araçtan geri okundu. */
+  | 'VEHICLE_STATE'
   /** Bu alanda bağımsız gözlem kaynağı YOK — dürüstçe bildirilir. */
   | 'NONE';
 
@@ -253,6 +256,44 @@ export function evidenceFromSettingApply(
     case 'SURFACE_OPENED': return evidenceOf('NONE', 'ACCEPTED', 'FRESH');
     case 'REJECTED':       return evidenceOf('SETTINGS_STORE', 'FAILED', 'FRESH', 'EXECUTION_FAILED');
     default:               return NO_EVIDENCE;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * ARAÇ DURUMU KANITI — CAN konfor yazımı (masaj · ambiyans)
+ * ════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * Konfor yürütücüsünün (`canComfortControl`) döndürdüğü kanıt sınıfı.
+ * Başarı YALNIZ aracın kendi durum çerçevesinden gelir; `sent` başarı DEĞİLDİR.
+ * GİZLİLİK: değer (renk · seviye) taşınmaz — yalnız bounded sınıf.
+ */
+export type VehicleStateEvidence =
+  /** Araç, istenen değeri kendi durum çerçevesinde bildirdi. */
+  | 'ECHO_CONFIRMED'
+  /** Aracın bildirdiği durum zaten istenendi → yazılmadı, durum gözlendi. */
+  | 'ALREADY_IN_STATE'
+  /** Komut gönderildi, araç bildirmedi → teslim edildi, DOĞRULANMADI. */
+  | 'SENT_NO_ECHO'
+  /** Komut araca hiç gönderilemedi. */
+  | 'NOT_SENT'
+  /** Bu araçta / sesle yapılamaz (ör. masaj hızı, araçta olmayan renk). */
+  | 'NOT_POSSIBLE'
+  /** Göreli komut için şu anki seviye okunamadı → yazılmadı. */
+  | 'STATE_UNKNOWN';
+
+/** Araç durumu kanıtını gözlem seviyesine çevirir — SAF. */
+export function evidenceFromVehicleState(
+  e: VehicleStateEvidence | null | undefined,
+): DomainEvidence {
+  switch (e) {
+    case 'ECHO_CONFIRMED':
+    case 'ALREADY_IN_STATE': return evidenceOf('VEHICLE_STATE', 'OBSERVED', 'FRESH');
+    case 'SENT_NO_ECHO':     return evidenceOf('NONE', 'ACCEPTED', 'FRESH');
+    case 'NOT_SENT':         return evidenceOf('NONE', 'FAILED', 'FRESH', 'EXECUTION_FAILED');
+    case 'NOT_POSSIBLE':     return evidenceOf('NONE', 'FAILED', 'FRESH', 'UNAVAILABLE');
+    case 'STATE_UNKNOWN':    return evidenceOf('NONE', 'FAILED', 'FRESH', 'OBSERVATION_UNKNOWN');
+    default:                 return NO_EVIDENCE;
   }
 }
 

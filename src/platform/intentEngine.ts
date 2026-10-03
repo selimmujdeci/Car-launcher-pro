@@ -27,7 +27,7 @@ import type { NearbyPoiCategory } from './nearbyPoiNavigation';
 import { intentResult, type IntentExecutionResult } from './intentExecutionResult';
 import { cancelNavigationByVoice } from './navigationService';
 import { describeSettingResult } from './settingsVoice';
-import { decodeComfortCommand, type ComfortCommand } from './vehicleComfortIntents';
+import { decodeComfortCommands, type ComfortCommand } from './vehicleComfortIntents';
 import { openDrawer } from './drawerBus';
 import { setFullMapView } from './mapViewBus';
 import { requestCockpitPage } from './cockpitPageBus';
@@ -132,7 +132,7 @@ export interface IntentPayload {
   musicSearchUri?: string;  // ready-to-use search URI
   musicAction?:    string;  // 'play' | 'shuffle' | 'add_favorite'
   styleVars?:      Record<string, string>; // CSS custom properties for SET_STYLE
-  comfort?:        ComfortCommand;         // VEHICLE_COMFORT: doğrulanmış konfor komutu
+  comfort?:        readonly ComfortCommand[]; // VEHICLE_COMFORT: doğrulanmış konfor komut(lar)ı
   // SEARCH_POI fields (from semanticAiService)
   poiCategory?:   string;  // 'RESTAURANT' | 'GAS_STATION' | … (PoiCategory)
   poiQuery?:      string;  // normalize edilmiş arama terimi ("kebap", "benzin" …)
@@ -428,7 +428,7 @@ export function toIntent(cmd: ParsedCommand, ctx: IntentContext): AppIntent {
       payload.sensorQuery = cmd.extra?.['sensorQuery'] ?? cmd.raw;
       break;
     case 'vehicle_comfort': {
-      const c = decodeComfortCommand(cmd.extra?.['comfort']);
+      const c = decodeComfortCommands(cmd.extra?.['comfort']);
       if (c) payload.comfort = c;
       break;
     }

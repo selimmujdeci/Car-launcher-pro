@@ -330,6 +330,26 @@ export async function executeComfortCommand(c: ComfortCommand): Promise<ComfortO
   }
 }
 
+/** En zayıf sonuç toplamı belirler: biri gönderilemediyse bütün "başarılı" sayılamaz. */
+const STATUS_RANK: Readonly<Record<ComfortStatus, number>> = {
+  unavailable: 0, unsupported: 1, unknown_state: 1, unconfirmed: 2, succeeded: 3, already: 4,
+};
+
+/**
+ * "Masajı aç ve ambiyansı mavi yap" — komutları SIRAYLA yürütür (aynı kutuya
+ * eşzamanlı yazma yok). Cümle her parçanın KENDİ dürüst sonucudur; durum en
+ * zayıf parçanınkidir (biri onaylanmadıysa bütün "yapıldı" sayılmaz).
+ */
+export async function executeComfortCommands(list: readonly ComfortCommand[]): Promise<ComfortOutcome> {
+  if (list.length === 1) return executeComfortCommand(list[0]!);
+  const outs: ComfortOutcome[] = [];
+  for (const c of list) outs.push(await executeComfortCommand(c));
+  let worst = outs[0]!.status;
+  for (const o of outs) if (STATUS_RANK[o.status] < STATUS_RANK[worst]) worst = o.status;
+  const texts = outs.map((o) => o.text).filter((t, i, a) => a.indexOf(t) === i);
+  return { status: worst, text: texts.join(' ') };
+}
+
 /* ── Araç durumu cevapları (SAF — test edilebilir) ──────────────────────── */
 
 /** 1 ondalık, Türkçe virgül; tam sayıda ",0" söylenmez. */

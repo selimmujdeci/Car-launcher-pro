@@ -17,6 +17,7 @@ import {
   parseCommandFull, matchDeterministicWholeInput,
   type ParsedCommand, type ParseSuggestion,
 } from './commandParser';
+import { tryParseVehicleComforts } from './vehicleComfortIntents';
 /* MAVI-STT-CONTEXT-GRAMMAR: offline aktif dinleme sözlüğünün TEK çözüm noktası.
    Gramer yalnız TANIMA adaylarını daraltır — intent/eylem/onay kararı ÜRETMEZ;
    onay otoritesi bu dosyadaki M4 bloğu ve `pendingActionConfirmation`tır. */
@@ -1341,6 +1342,11 @@ async function tryHandleChain(
   turn?: MaviTurnToken | null,
 ): Promise<boolean> {
   if (!CHAIN_SPLIT.test(trimmed)) return false;
+  /* "Masajı aç ve ambiyansı mavi yap" / "… ve şiddetini artır" TEK konfor komutudur
+   * (çözümü `vehicleComfortIntents`te, katı: her cümlecik konfor olmalı). Zincire
+   * bölünseydi hedefsiz "şiddetini artır" ses artırmaya, "parlaklığını artır"
+   * ekran parlaklığına düşüyordu (ölçüldü 2026-10-03). */
+  if (tryParseVehicleComforts(trimmed)) return false;
   const parts = trimmed.split(CHAIN_SPLIT).map((s) => s.trim()).filter((s) => s.length >= 2);
   if (parts.length < 2) return false;
   const cmds: ParsedCommand[] = [];

@@ -60,6 +60,7 @@ const ITEM_LABEL: Readonly<Record<string, string>> = Object.freeze({
   'vehicle.sensor#query': 'sensör okumasını',
   'vehicle.health#check': 'araç sağlığını',
   'vehicle.maintenance#check': 'bakım kontrolünü',
+  'vehicle.comfort#set': 'konfor ayarını',
   'diagnostics.dtc#clear': 'arıza kaydı silmeyi',
   'phone.call#start': 'aramayı',
   'surface.app#open': 'uygulamayı',
@@ -71,8 +72,26 @@ export function labelOf(item: Pick<PlanItem, 'capabilityId' | 'operation'>): str
   return ITEM_LABEL[`${item.capabilityId}#${item.operation}`] ?? 'işlemi';
 }
 
-/** Gözlem seviyesine göre DÜRÜST fiil. */
-function verbFor(o: CapabilityObservation): string | null {
+/**
+ * İşleme özgü fiiller — genel "açtım/başlattım" bu işlemde YANLIŞ olurdu
+ * ("masajı kapat" için "konfor ayarını açtım" denemez). Seviye anlamı aynıdır:
+ * `ACCEPTED` yine doğrulanmamış teslimdir ("araca ilettim").
+ */
+const ITEM_VERBS: Readonly<Record<string, Partial<Record<CapabilityObservation, string>>>> = Object.freeze({
+  'vehicle.comfort#set': Object.freeze({
+    OBSERVED: 'yaptım', EXECUTED: 'yaptım', ACCEPTED: 'araca ilettim', FAILED: 'yapamadım',
+  }),
+});
+
+/** Bu seviye "oldu / teslim edildi" mi (cümlenin olumlu başı)? */
+function isPositive(o: CapabilityObservation): boolean {
+  return o === 'OBSERVED' || o === 'EXECUTED' || o === 'ACCEPTED';
+}
+
+/** Gözlem seviyesine (ve işleme) göre DÜRÜST fiil. */
+function verbFor(o: CapabilityObservation, key?: string): string | null {
+  const special = key ? ITEM_VERBS[key]?.[o] : undefined;
+  if (special) return special;
   switch (o) {
     case 'OBSERVED':
     case 'EXECUTED':  return 'açtım';
@@ -84,17 +103,19 @@ function verbFor(o: CapabilityObservation): string | null {
   }
 }
 
-/** Aynı fiili paylaşan adımları tek öbekte toplar (sıra korunur). */
-function groupByVerb(items: readonly PlanItem[]): (readonly [string, string[]])[] {
+/** Aynı fiili paylaşan adımları tek öbekte toplar (sıra korunur; aynı ad bir kez). */
+function groupByVerb(items: readonly PlanItem[]): (readonly [string, string[], boolean])[] {
   const order: string[] = [];
   const acc = new Map<string, string[]>();
+  const positive = new Map<string, boolean>();
   for (const i of items) {
-    const v = verbFor(i.observationState);
+    const v = verbFor(i.observationState, `${i.capabilityId}#${i.operation}`);
     if (v === null) continue;
-    if (!acc.has(v)) { acc.set(v, []); order.push(v); }
-    acc.get(v)!.push(labelOf(i));
+    if (!acc.has(v)) { acc.set(v, []); order.push(v); positive.set(v, isPositive(i.observationState)); }
+    const label = labelOf(i);
+    if (!acc.get(v)!.includes(label)) acc.get(v)!.push(label);
   }
-  return order.map((v) => [v, acc.get(v)!] as const);
+  return order.map((v) => [v, acc.get(v)!, positive.get(v)!] as const);
 }
 
 function joinTr(parts: readonly string[]): string {
@@ -123,10 +144,10 @@ export function renderPlanOutcome(plan: CapabilityPlan): string {
 
   /* Olumlu öbekler önce, olumsuzlar noktalı virgülden sonra — kullanıcı önce
      ne OLDUĞUNU, sonra ne OLMADIĞINI duyar. */
-  const positive = groups.filter(([v]) => v === 'açtım' || v === 'başlattım');
-  const negative = groups.filter(([v]) => v !== 'açtım' && v !== 'başlattım');
+  const positive = groups.filter(([, , ok]) => ok);
+  const negative = groups.filter(([, , ok]) => !ok);
 
-  const say = (g: readonly (readonly [string, string[]])[]): string =>
+  const say = (g: readonly (readonly [string, string[], boolean])[]): string =>
     g.map(([verb, labels]) => `${joinTr(labels)} ${verb}`).join(', ');
 
   const head = say(positive);
