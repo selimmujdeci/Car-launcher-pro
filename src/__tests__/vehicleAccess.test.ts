@@ -4,7 +4,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  parseNwdProfile, decideVehicleAccess, describeVehicleProfile, type SeenFeatures,
+  parseNwdProfile, decideVehicleAccess, describeVehicleProfile, streamFreshness, type SeenFeatures,
 } from '../platform/vehicleDataLayer/vehicleAccess';
 import type { CanAccessNative } from '../platform/nativePlugin';
 
@@ -65,5 +65,23 @@ describe('erişim seviyesi (root GEREKMEZ — yalnız okunur)', () => {
     expect(decideVehicleAccess(native({ nwdProfile: '' }), NONE_SEEN, false).tier).toBe('NONE');
     expect(decideVehicleAccess(native({ nwdProfile: '' }), NONE_SEEN, false).features.climate).toBe('NO_SOURCE');
     expect(decideVehicleAccess(null, NONE_SEEN, false).tier).toBe('UNKNOWN');
+  });
+});
+
+describe('CAN akışı tazeliği (süzgeçten ÖNCE ölçülen yaş)', () => {
+  it('15 sn içinde veri → canlı; aşarsa bayat; native alanı yoksa bilinmiyor', () => {
+    expect(streamFreshness(native({ sdkAgeMs: 3_000, rawAgeMs: -1 }))).toEqual({ stream: 'LIVE', ageMs: 3_000 });
+    expect(streamFreshness(native({ sdkAgeMs: 40_000, rawAgeMs: 20_000 }))).toEqual({ stream: 'STALE', ageMs: 20_000 });
+    expect(streamFreshness(native({ sdkAgeMs: -1, rawAgeMs: -1 }))).toEqual({ stream: 'STALE', ageMs: null });
+    expect(streamFreshness(native())).toEqual({ stream: 'UNKNOWN', ageMs: null });
+    expect(streamFreshness(null).stream).toBe('UNKNOWN');
+  });
+
+  it('ham çerçeve sustuysa "akıyor" sayılmaz (yokluk çıkarımı yapılmaz)', () => {
+    const full = { readLogs: true, canappDebug: 1, rawTap: true, rawFrames: 50 };
+    expect(decideVehicleAccess(native({ ...full, rawAgeMs: 2_000, sdkAgeMs: 2_000 }), NONE_SEEN, true).rawFlowing).toBe(true);
+    expect(decideVehicleAccess(native({ ...full, rawAgeMs: 60_000, sdkAgeMs: 60_000 }), NONE_SEEN, true)).toMatchObject({
+      rawFlowing: false, stream: 'STALE',
+    });
   });
 });

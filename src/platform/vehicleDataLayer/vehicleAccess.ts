@@ -16,6 +16,14 @@ import { useUnifiedVehicleStore } from './UnifiedVehicleStore';
 
 export type VehicleAccessTier = 'FULL' | 'BASIC' | 'NONE' | 'UNKNOWN';
 
+/**
+ * CAN akışı canlı mı. Native yaşı TEKRAR SÜZGECİNDEN ÖNCE ölçer: kutu ~3 sn'de bir
+ * nabız çerçevesi gönderir (sahada 0x71/0x73/0x7D) → değer değişmese de yaş tazelenir.
+ * Sessizlik bu pencereyi aşarsa store'daki CAN değerleri "şu an" DEĞİL, "son bilinen"dir.
+ */
+export const CAN_STREAM_LIVE_MS = 15_000;
+export type CanStreamFreshness = 'LIVE' | 'STALE' | 'UNKNOWN';
+
 /** Tam erişim için eksik kurulum adımları. */
 export type AccessSetupStep = 'READ_LOGS' | 'CANAPP_DEBUG';
 
@@ -48,8 +56,25 @@ export interface VehicleAccessState {
   readonly missingSetup: readonly AccessSetupStep[];
   readonly profile: VehicleProfile | null;
   readonly features: Readonly<Record<VehicleFeature, FeatureAvailability>>;
-  /** Ham çerçeveler GERÇEKTEN geliyor (ayarlar açık + dinleyici çerçeve gördü). */
+  /** Ham çerçeveler GERÇEKTEN geliyor (ayarlar açık + dinleyici YAKIN zamanda çerçeve gördü). */
   readonly rawFlowing: boolean;
+  /** CAN akışı (SDK ya da ham) canlı mı; store değerleri buna göre "şu an" / "son bilinen". */
+  readonly stream: CanStreamFreshness;
+  /** En taze kaynağın yaşı (ms); bilinmiyor/hiç veri yok → null. */
+  readonly streamAgeMs: number | null;
+}
+
+/** Yaş → tazelik. -1/undefined = hiç gelmedi. Native alan yoksa (eski sürüm) UNKNOWN. */
+export function streamFreshness(
+  native: CanAccessNative | null,
+): { stream: CanStreamFreshness; ageMs: number | null } {
+  if (!native || (native.sdkAgeMs === undefined && native.rawAgeMs === undefined)) {
+    return { stream: 'UNKNOWN', ageMs: null };
+  }
+  const ages = [native.sdkAgeMs, native.rawAgeMs].filter((a): a is number => typeof a === 'number' && a >= 0);
+  if (ages.length === 0) return { stream: 'STALE', ageMs: null };
+  const age = Math.min(...ages);
+  return { stream: age <= CAN_STREAM_LIVE_MS ? 'LIVE' : 'STALE', ageMs: age };
 }
 
 /** Bu oturumda araçtan gelmiş veri grupları. */
@@ -114,9 +139,13 @@ export function decideVehicleAccess(
     else if (RAW_FEATURES.has(f) && tier === 'BASIC') features[f] = 'LOCKED';
     else features[f] = 'NOT_SEEN';
   }
-  const rawFlowing = tier === 'FULL' && !!native && native.rawTap && native.rawFrames > 0;
+  const rawAge = native?.rawAgeMs;
+  const rawFlowing = tier === 'FULL' && !!native && native.rawTap && native.rawFrames > 0
+    && (rawAge === undefined || (rawAge >= 0 && rawAge <= CAN_STREAM_LIVE_MS));
+  const { stream, ageMs } = tier === 'NONE' ? { stream: 'UNKNOWN' as const, ageMs: null } : streamFreshness(native);
   return Object.freeze({
     tier, missingSetup: Object.freeze(missing), profile, features: Object.freeze(features), rawFlowing,
+    stream, streamAgeMs: ageMs,
   });
 }
 

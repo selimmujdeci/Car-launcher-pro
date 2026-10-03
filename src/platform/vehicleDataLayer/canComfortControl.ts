@@ -25,6 +25,24 @@ import { readVehicleAccess, type VehicleAccessState } from './vehicleAccess';
 
 /** Temel modda (ham çerçeve kurulumu yok) söylenen dürüst ek. */
 const SETUP_HINT = 'Sonucu görebilmem için bir kerelik araç bağlantısı kurulumu gerekiyor.';
+/** CAN akışı sustuğunda söylenen dürüst ek. */
+const SILENT_HINT = 'Araçtan şu an veri gelmiyor; sonucu göremiyorum.';
+
+/**
+ * Bu komutta aracın yankısı OKUNABİLİR mi. Temel modda (kurulum yok) ya da CAN akışı
+ * sustuğunda (bayat) okunamaz → boşuna beklenmez, eldeki durum "şu an" sayılmaz.
+ */
+function blindness(access: VehicleAccessState): string | null {
+  if (access.tier === 'BASIC') return SETUP_HINT;
+  if (access.stream === 'STALE') return SILENT_HINT;
+  return null;
+}
+
+/** Son bilinen (bayat) cevabı etiketler — "şu an böyle" denmez. */
+function staleLabel(text: string, access: VehicleAccessState): string {
+  if (access.stream !== 'STALE') return text;
+  return `Araçtan bir süredir veri gelmiyor. Son bilinen: ${text[0]!.toLocaleLowerCase('tr-TR')}${text.slice(1)}`;
+}
 
 /** Aracın yankısı için bekleme (saha: yankı < 1 sn). */
 export const ECHO_TIMEOUT_MS = 2_500;
@@ -151,26 +169,30 @@ async function runMassage(c: ComfortCommand, access: VehicleAccessState): Promis
   if (c.unavailable === 'massage_speed') {
     return { status: 'unsupported', text: 'Masaj hızını sesle ayarlayamıyorum; açıp kapatabilir, şiddetini ve modunu değiştirebilirim.' };
   }
-  let st = pickMassage(useUnifiedVehicleStore.getState());
+  const hint = blindness(access);
+  // Akış sustuysa store'daki durum "şu an" değildir → "zaten açık" kararı ona dayanamaz.
+  let st = access.stream === 'STALE' ? null : pickMassage(useUnifiedVehicleStore.getState());
   const needStrength = c.level === '+' || c.level === '-';
   const needMode = c.mode === 'next';
   if (st === null || needStrength || needMode) {
-    st = (await requestFresh(RAISE_TYPE.CENTRAL2, pickMassage, (x) =>
-      x.driverOn !== null && (!needStrength || x.strength !== null) && (!needMode || x.mode !== null))).state ?? st;
+    const r = await requestFresh(RAISE_TYPE.CENTRAL2, pickMassage, (x) =>
+      x.driverOn !== null && (!needStrength || x.strength !== null) && (!needMode || x.mode !== null));
+    // Akış bayatken yalnız TAZE cevap kullanılır; store'daki eski durum geri sızmaz.
+    st = r.fresh || access.stream !== 'STALE' ? (r.state ?? st) : null;
   }
   /* Yokluk ÇIKARIMI yalnız ham çerçeveler gerçekten akarken: kutuya soruldu ve
    * masaj bilgisi hiç gelmedi → bu araç masaj bildirmiyor (yazma YAPILMAZ). */
   if (st === null && access.rawFlowing) {
     return { status: 'unsupported', text: 'Bu araçta koltuk masajı görünmüyor; araç masaj bilgisi bildirmiyor.' };
   }
-  const basic = access.tier === 'BASIC';
+  const basic = hint !== null;
   const UNAVAILABLE = 'Koltuk masajına şu an ulaşamıyorum.';
   const UNCONFIRMED = basic
-    ? `Masaj komutunu araca ilettim. ${SETUP_HINT}`
+    ? `Masaj komutunu araca ilettim. ${hint}`
     : 'Masaj komutunu gönderdim ama araç onaylamadı.';
   const run = (ops: readonly WriteOp<CanMassageState>[]) => runOps(ops, pickMassage, UNAVAILABLE, UNCONFIRMED, !basic);
   const stateUnknown = (what: string): ComfortOutcome => ({
-    status: 'unknown_state', text: basic ? `Masajın şu anki ${what} okuyamıyorum. ${SETUP_HINT}` : `Masajın şu anki ${what} okuyamadım.`,
+    status: 'unknown_state', text: basic ? `Masajın şu anki ${what} okuyamıyorum. ${hint}` : `Masajın şu anki ${what} okuyamadım.`,
   });
 
   if (c.zone === 'passenger') {
@@ -257,14 +279,16 @@ async function runAmbient(c: ComfortCommand, access: VehicleAccessState): Promis
     const asked = UNAVAILABLE_COLOR_TR[c.colorName ?? ''] ?? 'bu renk';
     return { status: 'unsupported', text: `Ambiyansta ${asked} yok. ${joinTr(AMBIENT_COLOR_NAMES.map((n, i) => (i === 0 ? n[0]!.toUpperCase() + n.slice(1) : n)))} seçebilirim.` };
   }
-  let st = pickAmbient(useUnifiedVehicleStore.getState());
+  const hint = blindness(access);
+  let st = access.stream === 'STALE' ? null : pickAmbient(useUnifiedVehicleStore.getState());
   if (st === null || c.level === '+' || c.level === '-' || c.color === 'next') {
-    st = (await requestFresh(RAISE_TYPE.CENTRAL1, pickAmbient)).state ?? st;
+    const r = await requestFresh(RAISE_TYPE.CENTRAL1, pickAmbient);
+    st = r.fresh || access.stream !== 'STALE' ? (r.state ?? st) : null;
   }
-  const basic = access.tier === 'BASIC';
+  const basic = hint !== null;
   const UNAVAILABLE = 'Ambiyansa şu an ulaşamıyorum.';
   const UNCONFIRMED = basic
-    ? `Ambiyans komutunu araca ilettim. ${SETUP_HINT}`
+    ? `Ambiyans komutunu araca ilettim. ${hint}`
     : 'Ambiyans komutunu gönderdim ama araç onaylamadı.';
 
   if (c.zone && c.power) {
@@ -300,14 +324,14 @@ async function runAmbient(c: ComfortCommand, access: VehicleAccessState): Promis
   if (c.color !== undefined) {
     const cur = st?.colorIndex ?? null;
     const target = c.color === 'next' ? (cur === null ? null : (cur + 1) % AMBIENT_COLOR_NAMES.length) : c.color;
-    if (target === null) return { status: 'unknown_state', text: basic ? 'Ambiyansın şu anki rengini okuyamıyorum. ' + SETUP_HINT : 'Ambiyansın şu anki rengini okuyamadım.' };
+    if (target === null) return { status: 'unknown_state', text: basic ? 'Ambiyansın şu anki rengini okuyamıyorum. ' + hint : 'Ambiyansın şu anki rengini okuyamadım.' };
     if (target !== cur) ops.push({ id: CENTRAL_ID.AMBIENT_COLOR, value: target, confirm: (s) => s.colorIndex === target });
     else alreadyText = `Ambiyans zaten ${colorName(target)}.`;
   }
   if (c.level !== undefined) {
     const cur = st?.brightness ?? null;
     const target = ambientBrightnessTarget(c.level, cur);
-    if (target === null) return { status: 'unknown_state', text: basic ? 'Ambiyansın şu anki parlaklığını okuyamıyorum. ' + SETUP_HINT : 'Ambiyansın şu anki parlaklığını okuyamadım.' };
+    if (target === null) return { status: 'unknown_state', text: basic ? 'Ambiyansın şu anki parlaklığını okuyamıyorum. ' + hint : 'Ambiyansın şu anki parlaklığını okuyamadım.' };
     if (target !== cur) ops.push({ id: CENTRAL_ID.AMBIENT_BRIGHTNESS, value: target, confirm: (s) => s.brightness === target });
     else alreadyText = target === AMBIENT_BRIGHTNESS_MAX && (c.level === '+' || c.level === 'max')
       ? 'Ambiyans zaten en parlak seviyede.'
@@ -476,8 +500,9 @@ export async function answerCanVehicleInfo(topic: CanInfoTopic): Promise<string>
     const LOCKED_TEXT: Partial<Record<CanInfoTopic, string>> = {
       tires: 'Lastik basıncını', trip: 'Yol bilgisayarını', massage: 'Masaj durumunu', ambient: 'Ambiyans durumunu',
     };
-    if (LOCKED_TEXT[topic]) {
-      const access = await readVehicleAccess();
+    const access = topic === 'tires_reset' ? null : await readVehicleAccess();
+    const label = (t: string): string => (access ? staleLabel(t, access) : t);
+    if (LOCKED_TEXT[topic] && access) {
       const feature = topic === 'tires' ? 'tpms' : topic as 'trip' | 'massage' | 'ambient';
       if (access.features[feature] === 'LOCKED') {
         return `${LOCKED_TEXT[topic]} okuyabilmem için bir kerelik araç bağlantısı kurulumu gerekiyor.`;
@@ -494,10 +519,16 @@ export async function answerCanVehicleInfo(topic: CanInfoTopic): Promise<string>
         const r = await requestFresh(RAISE_TYPE.TRIP, (x) => x.canTrip);
         return tripSpeech(r.state);
       }
-      case 'doors':   return doorsSpeech(s().canDoors);
-      case 'climate': return climateSpeech(s().canClimate);
-      case 'massage': return massageSpeech((await requestFresh(RAISE_TYPE.CENTRAL2, pickMassage, (x) => x.driverOn !== null)).state);
-      case 'ambient': return ambientSpeech((await requestFresh(RAISE_TYPE.CENTRAL1, pickAmbient)).state);
+      case 'doors':   return s().canDoors ? label(doorsSpeech(s().canDoors)) : doorsSpeech(null);
+      case 'climate': return s().canClimate ? label(climateSpeech(s().canClimate)) : climateSpeech(null);
+      case 'massage': {
+        const r = await requestFresh(RAISE_TYPE.CENTRAL2, pickMassage, (x) => x.driverOn !== null);
+        return r.state && !r.fresh ? label(massageSpeech(r.state)) : massageSpeech(r.state);
+      }
+      case 'ambient': {
+        const r = await requestFresh(RAISE_TYPE.CENTRAL1, pickAmbient);
+        return r.state && !r.fresh ? label(ambientSpeech(r.state)) : ambientSpeech(r.state);
+      }
       default:        return 'Bunu araçtan okuyamıyorum.';
     }
   } catch {

@@ -60,6 +60,16 @@ export const VehicleLinkCard = memo(function VehicleLinkCard() {
         <span className="text-[11px] font-bold" style={{ color: tierColor }}>{tierText}</span>
       </div>
 
+      {state.stream !== 'UNKNOWN' && (
+        <div className="text-[11px]" style={{ color: state.stream === 'LIVE' ? '#34d399' : '#fbbf24' }}>
+          {state.stream === 'LIVE'
+            ? 'Araç verisi canlı'
+            : state.streamAgeMs === null
+              ? 'Araçtan henüz veri gelmedi'
+              : `Araçtan ${Math.round(state.streamAgeMs / 1000)} sn'dir veri gelmiyor — gösterilenler son bilinen değer`}
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-x-3 gap-y-1">
         {(Object.keys(FEATURE_LABEL) as VehicleFeature[]).map((f) => {
           const [t, c] = AVAIL_TEXT[state.features[f]];

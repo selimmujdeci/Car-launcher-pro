@@ -6556,6 +6556,9 @@ public class CarLauncherPlugin extends Plugin {
         r.put("canappDebug", dbg);
         r.put("rawTap", nwdRawTap.isRunning());
         r.put("rawFrames", nwdRawTap.framesSeen());
+        // Canlılık (tekrar süzgecinden ÖNCE ölçülür): -1 = hiç veri gelmedi.
+        r.put("sdkAgeMs", nwdCanClient.lastCallbackAgeMs());
+        r.put("rawAgeMs", nwdRawTap.lastFrameAgeMs());
         String profile = null, menus = null;
         try {
             profile = android.provider.Settings.System.getString(ctx.getContentResolver(), "can_config_app_cartype_json");

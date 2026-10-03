@@ -42,6 +42,8 @@ public final class NwdRawFrameTap {
     private volatile boolean _running = false;
     /** Doğrulanmış (iletilen ya da süzülen) en az bir ham çerçeve görüldü mü. */
     private volatile long    _framesSeen = 0;
+    /** Son doğrulanmış çerçeve (elapsedRealtime, 0 = hiç) — tekrar süzgecinden ÖNCE. */
+    private volatile long    _lastFrameAt = 0;
     private volatile Process _proc    = null;
     private Thread           _thread  = null;
     private final Map<Integer, String> _last = new HashMap<>();
@@ -68,6 +70,12 @@ public final class NwdRawFrameTap {
     public boolean isRunning() { return _running; }
 
     public long framesSeen() { return _framesSeen; }
+
+    /** Son doğrulanmış çerçevenin yaşı (ms); hiç gelmediyse -1. */
+    public long lastFrameAgeMs() {
+        long t = _lastFrameAt;
+        return t == 0 ? -1 : android.os.SystemClock.elapsedRealtime() - t;
+    }
 
     public synchronized void stop() {
         _running = false;
@@ -106,6 +114,7 @@ public final class NwdRawFrameTap {
                         byte[] f = parse(m.group(1));
                         if (f == null) continue;
                         _framesSeen++;
+                        _lastFrameAt = android.os.SystemClock.elapsedRealtime();
                         int type = f[1] & 0xFF;
                         if (!forwarded(type)) continue;
                         String dataHex = dataHex(f);

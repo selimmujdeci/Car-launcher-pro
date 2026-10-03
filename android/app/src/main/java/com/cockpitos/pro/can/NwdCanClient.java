@@ -103,6 +103,7 @@ public final class NwdCanClient {
             // GEÇİCİ: servis callback'i hangi kodla çağırıyor (akış teşhisi)
             if (code != INTERFACE_TRANSACTION) {
                 long now = android.os.SystemClock.elapsedRealtime();
+                _lastCallbackAt = now;   // canlılık: tekrar süzgecinden ÖNCE
                 if (now - _lastCbLogMs > 1500L) { _lastCbLogMs = now; diag("callback onTransact code=" + code); }
             }
             if (code == INTERFACE_TRANSACTION) {
@@ -731,6 +732,14 @@ public final class NwdCanClient {
 
     private long _lastDiagMs = 0;
     private long _lastCbLogMs = 0;
+    /** Son SDK geri çağrısı (elapsedRealtime, 0 = hiç) — değer değişmese de güncellenir. */
+    private volatile long _lastCallbackAt = 0;
+
+    /** Son SDK geri çağrısının yaşı (ms); hiç gelmediyse -1. */
+    public long lastCallbackAgeMs() {
+        long t = _lastCallbackAt;
+        return t == 0 ? -1 : android.os.SystemClock.elapsedRealtime() - t;
+    }
 
     private void diag(String msg) {
         Log.d(TAG, msg);

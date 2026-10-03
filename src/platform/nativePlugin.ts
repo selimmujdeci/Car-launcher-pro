@@ -2455,6 +2455,9 @@ export interface CanAccessNative {
   canappDebug: number;
   rawTap: boolean;
   rawFrames: number;
+  /** Son SDK geri çağrısının / son ham çerçevenin yaşı (ms, süzgeçten ÖNCE); -1 = hiç. */
+  sdkAgeMs?: number;
+  rawAgeMs?: number;
   /** NWD araç profili JSON'u (Settings.System); NWD dışı ünitede boş. */
   nwdProfile: string;
   nwdMenus: string;

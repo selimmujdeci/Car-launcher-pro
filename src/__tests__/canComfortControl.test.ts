@@ -272,3 +272,25 @@ describe('erişim seviyesi', () => {
     expect(native.requestCanData).not.toHaveBeenCalled();
   });
 });
+
+describe('bayat CAN akışı', () => {
+  const silent = { ...access(true), sdkAgeMs: 90_000, rawAgeMs: 90_000 };
+
+  it('akış sustuysa "zaten açık" denmez: eski durum yok sayılır, komut iletilir, dürüst ek', async () => {
+    vi.useFakeTimers();
+    native.getCanAccess.mockResolvedValue(silent);
+    store().updateCanExtras({ massage: massage({ driverOn: true, atMs: Date.now() - 60_000 }) });   // eski değer
+    native.setCanComfortSetting.mockResolvedValue({ sent: true });
+    const p = executeComfortCommand({ target: 'massage', power: 'on' });
+    await vi.advanceTimersByTimeAsync(2_000);
+    const r = await p;
+    expect(native.setCanComfortSetting).toHaveBeenCalledWith({ id: 0x90, value: 1 });
+    expect(r).toEqual({ status: 'unconfirmed', text: 'Masaj komutunu araca ilettim. Araçtan şu an veri gelmiyor; sonucu göremiyorum.' });
+  });
+
+  it('kapı sorusu bayat akışta "son bilinen" diye etiketlenir', async () => {
+    native.getCanAccess.mockResolvedValue(silent);
+    store().updateCanExtras({ doors: { frontLeft: false, frontRight: false, rearLeft: false, rearRight: false, trunk: true } });
+    expect(await answerCanVehicleInfo('doors')).toBe('Araçtan bir süredir veri gelmiyor. Son bilinen: bagaj açık.');
+  });
+});
