@@ -281,6 +281,7 @@ const SHARED_COMPONENTS: ThemeComponentInfo[] = [
   { id: 'climate.mode-button', surface: 'climate', type: 'card', label: 'Durum Rozetleri A/C·AUTO·DUAL (tümü)', themes: null },
   { id: 'climate.air-panel', surface: 'climate', type: 'panel', label: 'Hava Durumu Kabı (iç hava · buğu)', themes: null },
   { id: 'climate.air-button', surface: 'climate', type: 'card', label: 'Hava Durumu Rozetleri (tümü)', themes: null },
+  { id: 'climate.comfort-controls', surface: 'climate', type: 'panel', label: 'Konfor (masaj · ambiyans)', themes: null },
 
   /* ── Telefon / Rehber (PR-2a) ──────────────────────────────────────── */
   { id: 'phone.screen', surface: 'phone', type: 'panel', label: 'Telefon Ekranı (tüm sayfa)', themes: null },

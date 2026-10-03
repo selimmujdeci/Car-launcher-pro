@@ -74,6 +74,8 @@ const WIRED_SOURCES = [
   'src/components/trip/TripLogView.tsx',
   // PR-2a — kapsam genişletmesi (bu ekranlarda önce SIFIR düzenlenebilir nokta vardı)
   'src/components/climate/ClimateScreen.tsx',
+  // Konfor paneli (masaj · ambiyans) klima ekranının alt bileşeni — `climate.comfort-controls`.
+  'src/components/climate/ComfortPanel.tsx',
   'src/components/phone/PhoneScreen.tsx',
   // Telefon Merkezi Faz 1 — rehber gövdesi PhoneScreen'den ayrı dosyaya taşındı;
   // `phone.search` / `phone.contact-row` / `phone.number-picker` artık burada.

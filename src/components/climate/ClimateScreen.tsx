@@ -21,6 +21,7 @@ import { memo } from 'react';
 import { Thermometer, Wind, X } from 'lucide-react';
 import { useUnifiedVehicleStore } from '../../platform/vehicleDataLayer/UnifiedVehicleStore';
 import { useVehicleAccess } from '../../hooks/useVehicleAccess';
+import { ComfortPanel } from './ComfortPanel';
 
 /* ── Renk hesaplamaları ──────────────────────────── */
 
@@ -243,6 +244,11 @@ export const ClimateScreen = memo(function ClimateScreen({ onClose }: { onClose?
             <StatusChip label="Arka cam" active={c ? c.defrostRear === true : null}  editId="climate.air-button" />
           </div>
         </div>
+      </div>
+
+      {/* ── Konfor: koltuk masajı · iç ambiyans (araç bildiriyorsa) ── */}
+      <div className="shrink-0 px-4 pb-3">
+        <ComfortPanel access={access} />
       </div>
 
       <div className="shrink-0 px-6 pb-5 text-[11px] text-[color:var(--oem-ink-4)]">
