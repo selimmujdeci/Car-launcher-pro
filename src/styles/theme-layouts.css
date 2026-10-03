@@ -513,10 +513,13 @@ button, [role="button"], .dock-card, .up-nav-item, .glass-card > button {
     min-width: 0 !important;
   }
 
-  /* 3 sütunlu grid → tek sütun */
+  /* 3 sütunlu grid → tek sütun — YALNIZ ana ekran tema düzeninde. Eskiden
+     seçiciler kapsamsızdı: 768×1024 dikey head unit'te telefon tuş takımı,
+     uygulama ızgarası, eğlence/spor kartları da tek sütuna çöküyordu
+     (ekran taraması 2026-10-03). Çekmeceler kendi ızgarasını korur. */
   [data-layout="pro-main"],
-  [data-layout] .grid-cols-3,
-  [style*="grid-template-columns"] {
+  [data-theme-surface="home"] .grid-cols-3,
+  [data-theme-surface="home"] [style*="grid-template-columns"] {
     grid-template-columns: 1fr !important;
   }
 

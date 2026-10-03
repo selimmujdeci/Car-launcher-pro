@@ -1005,6 +1005,30 @@ describe('Dikey panel — yatay tutun perdesi native APK\'da gösterilmez', () =
 });
 
 /* ───────────────────────────────────────────────────────────────
+   8c. DİKEY PANELLİ HEAD UNIT — tek-sütun zorlaması YALNIZ ana ekranda
+   Regresyon (ekran taraması 2026-10-03, 768×1024): theme-layouts.css'teki
+   telefon dönemi dikey kuralı `[data-layout] .grid-cols-3` ve
+   `[style*="grid-template-columns"]` ile uygulamanın TAMAMINDA her ızgarayı
+   `1fr`'e zorluyordu → telefon tuş takımı 12 tam genişlik çubuk, uygulama
+   ızgarası satır başına tek kutu, eğlence/spor kartları alt alta. Zorlama
+   yalnız ana ekran tema düzeni (`data-theme-surface="home"`) içindir;
+   çekmeceler/paneller kendi ızgarasını korur.
+   ─────────────────────────────────────────────────────────────── */
+describe('Dikey panel — tek-sütun zorlaması yalnız ana ekran yüzeyinde', () => {
+  it('YAPISAL: `1fr !important` zorlamasının her seçicisi ana ekrana kapsanır', () => {
+    const css = read('src/styles/theme-layouts.css');
+    const rules = [...css.matchAll(/([^{}]+)\{\s*grid-template-columns:\s*1fr\s*!important;?\s*\}/g)];
+    const selectors = rules.flatMap(([, list]) =>
+      list.replace(/\/\*[\s\S]*?\*\//g, '').split(',').map((s) => s.trim()).filter(Boolean));
+    /* Kör guard koruması: ana ekranın dikey davranışı korunmuş olmalı (kural silinmedi). */
+    expect(selectors.some((s) => s.startsWith('[data-theme-surface="home"]'))).toBe(true);
+    for (const sel of selectors) {
+      expect(sel === '[data-layout="pro-main"]' || sel.startsWith('[data-theme-surface="home"]'), sel).toBe(true);
+    }
+  });
+});
+
+/* ───────────────────────────────────────────────────────────────
    Donanım geri tuşu köprüsü — event adı/hedefi EŞLEŞMELİ
    Regresyon: MainActivity.onBackPressed → triggerWindowJSEvent(
    "carlauncherBackButton") window'da yolluyordu; MainLayout ise
