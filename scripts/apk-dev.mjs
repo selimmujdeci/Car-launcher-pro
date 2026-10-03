@@ -118,6 +118,12 @@ function adb(args) {
   return { status: r.status ?? 1, out: `${r.stdout ?? ''}${r.stderr ?? ''}` };
 }
 
+/** Uygulamanın çalışan süreci (yoksa null). */
+function appPid() {
+  const out = adb(['exec-out', 'pidof', APP_ID]).out.trim();
+  return /^\d+$/.test(out) ? out : null;
+}
+
 function main() {
   const argv = new Set(process.argv.slice(2));
   const install = argv.has('--install');
@@ -188,6 +194,8 @@ function main() {
 
     // ── 2 ── web derlemesi ────────────────────────────────────────────────────
     step(2, 'web derlemesi');
+    // Hızlı küçültücü (oxc) — terser ~8 dk sürüyordu. Release için `--terser` ya da apk:safe.
+    if (!argv.has('--terser')) process.env.CAROS_FAST_MINIFY = '1';
     run('npm', ['run', 'build']);
     distStamp = readStamp(DIST_STAMP, 'dist');
     if (distStamp.commit !== head) fail(`dist commit ${distStamp.commit} ≠ HEAD ${head}`, 'Derleme başka bir çalışma kopyasından mı geldi?');
@@ -235,6 +243,7 @@ function main() {
   const tmpDir = mkdtempSync(join(tmpdir(), 'caros-apk-'));
   const verifiedApk = join(tmpDir, 'app-debug.apk');
   let inst;
+  const pidBefore = appPid();
   try {
     writeFileSync(verifiedApk, apkBytes, { flag: 'wx' });
     inst = adb(['install', '-r', verifiedApk]);
@@ -255,6 +264,19 @@ function main() {
     fail(`cihazdaki sürüm (${pkg.versionName}) bu derleme değil (beklenen …-dev+${tag})`);
   }
   ok(`CİHAZDA DOĞRULANDI: ${pkg.versionName}`);
+
+  /* Saha 2026-10-03 (NWD head-unit): `install -r` ve `am force-stop` CarOS sürecini
+     ÖLDÜRMEDİ — paket yeniydi ama bellekte ESKİ kod koşuyordu (versionName doğrusu
+     bunu göstermez). Kurulumdan önceki süreç hâlâ yaşıyorsa sonlandırılır; olmazsa DUR. */
+  if (pidBefore && appPid() === pidBefore) {
+    adb(['exec-out', 'am', 'force-stop', APP_ID]);
+    if (appPid() === pidBefore) adb(['exec-out', 'kill', pidBefore]);   // root adbd'de çalışır
+    if (appPid() === pidBefore) {
+      fail(`kurulumdan ÖNCEKİ süreç (pid ${pidBefore}) hâlâ çalışıyor — bellekte ESKİ kod koşuyor`,
+        'Cihazı yeniden başlat ya da uygulamayı sistem ayarlarından durdur.');
+    }
+    ok(`eski süreç (pid ${pidBefore}) sonlandırıldı`);
+  }
 
   if (launch) {
     adb(['exec-out', 'monkey', '-p', APP_ID, '-c', 'android.intent.category.LAUNCHER', '1']);
