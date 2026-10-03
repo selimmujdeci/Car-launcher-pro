@@ -1875,7 +1875,7 @@ export interface CarLauncherPlugin {
    */
   setCanComfortSetting?(options: { id: number; value: number }): Promise<{ sent: boolean }>;
   /** Salt-okuma durum isteği: lastik 0x61 · yol bilgisayarı 0x81 · merkezi 0x71–0x73. */
-  requestCanData?(options: { type: number }): Promise<{ sent: boolean }>;
+  requestCanData?(options: { type: number; param?: number }): Promise<{ sent: boolean }>;
   /** CAN erişim durumu — salt okuma (bkz. `vehicleAccess`). */
   getCanAccess?(): Promise<CanAccessNative>;
   stopCanBus?(): Promise<void>;

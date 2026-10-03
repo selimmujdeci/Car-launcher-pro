@@ -6585,7 +6585,8 @@ public class CarLauncherPlugin extends Plugin {
     @PluginMethod
     public void requestCanData(PluginCall call) {
         Integer type = call.getInt("type");
-        byte[] frame = type == null ? null : com.cockpitos.pro.can.CanComfortCommands.dataRequest(type);
+        int param = call.getInt("param", 0);
+        byte[] frame = type == null ? null : com.cockpitos.pro.can.CanComfortCommands.dataRequest(type, param);
         if (frame == null) { call.reject("İzinli olmayan veri isteği", "NOT_ALLOWED"); return; }
         nwdRawTap.forget(type);
         JSObject r = new JSObject();

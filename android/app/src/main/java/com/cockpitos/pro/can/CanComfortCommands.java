@@ -69,11 +69,24 @@ public final class CanComfortCommands {
 
     /** Salt-okuma durum isteği: lastik 0x61 · yol bilgisayarı 0x81 · merkezi 0x71–0x73. */
     public static byte[] dataRequest(int type) {
+        return dataRequest(type, 0);
+    }
+
+    /**
+     * Salt-okuma durum isteği, alt kodlu. Ek olarak (saha 2026-10-03, Megane kutusu
+     * kendiliğinden göndermiyor; NWD kendisi 7D/0A'yı 3 sn'de bir böyle ister):
+     * 0x80/00 araç bilgisi (yakıt seviyesi) · 0x7D/03 hız · 0x7D/04 menzil + kilometre.
+     */
+    public static byte[] dataRequest(int type, int param) {
+        boolean ok;
         switch (type) {
-            case 0x61: case 0x81: case 0x71: case 0x72: case 0x73:
-                return withChecksum(new byte[]{ 0x2E, (byte) 0x90, 0x02, (byte) type, 0x00, 0 });
+            case 0x61: case 0x81: case 0x71: case 0x72: case 0x73: case 0x80:
+                ok = param == 0; break;
+            case 0x7D:
+                ok = param == 0x03 || param == 0x04; break;
             default:
-                return null;
+                ok = false;
         }
+        return ok ? withChecksum(new byte[]{ 0x2E, (byte) 0x90, 0x02, (byte) type, (byte) param, 0 }) : null;
     }
 }

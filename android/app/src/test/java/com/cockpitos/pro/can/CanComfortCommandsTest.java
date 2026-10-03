@@ -40,6 +40,15 @@ public class CanComfortCommandsTest {
     }
 
     @Test
+    public void fuelAndRangeRequestsAreReadOnlyAndBounded() {
+        assertArrayEquals(b(0x2E, 0x90, 0x02, 0x80, 0x00, 0xED), CanComfortCommands.dataRequest(0x80, 0));
+        assertArrayEquals(b(0x2E, 0x90, 0x02, 0x7D, 0x04, 0xEC), CanComfortCommands.dataRequest(0x7D, 4));
+        assertNull(CanComfortCommands.dataRequest(0x7D, 0x0A));   // NWD zaten istiyor
+        assertNull(CanComfortCommands.dataRequest(0x80, 1));
+        assertNull(CanComfortCommands.dataRequest(0x83, 0));      // yazma tipi ASLA istek değildir
+    }
+
+    @Test
     public void whitelistStillRejects() {
         assertNull(CanComfortCommands.centralSetting(0x18, 8));
         assertNull(CanComfortCommands.centralSetting(0x40, 1));
