@@ -30,7 +30,7 @@ import {
   setMediaPreferredPackage, pollMediaNow, play,
   playMedia, ensureLocalLoaded,
   resumeLastMedia, previewLastMedia, getLastMedia,
-  ensureYouTubeReady, setYouTubeRegion, isYouTubeVideoAvailable, subscribeYouTubeVideoAvailability,
+  ensureYouTubeReady, setYouTubeRegion, videoRegion, isYouTubeVideoAvailable, subscribeYouTubeVideoAvailability,
   /* MUSIC F7.3 · sonraki/önceki KUYRUK-FARKINDA tek girişten geçer: sıra
      backend'in (native timeline) veya üst katmanın (arama sonucu listesi)
      olabilir. Kapıya doğrudan gitmek, YouTube gibi kuyruksuz backend'lerde
@@ -765,6 +765,7 @@ function PlayerView({
     subscribeYouTubeVideoAvailability, isYouTubeVideoAvailable, isYouTubeVideoAvailable,
   );
 
+
   // YouTube video konumlandırma:
   //  • videoMode KAPALI → host gizli (kapak/ses gösterilir).
   //  • videoMode AÇIK   → host TAM EKRAN (tüm viewport). Küçük kapak alanı yerine
@@ -785,8 +786,12 @@ function PlayerView({
       return;
     }
     // Tam ekran — viewport'u kapla. Resize'da (nadiren) güncelle.
-    const applyFullscreen = () =>
-      setYouTubeRegion({ left: 0, top: 0, width: window.innerWidth, height: window.innerHeight }, true);
+    // Dikey ekranda (head-unit 768×1024) KENDİLİĞİNDEN yakınlaştırılır — düğme yok (kullanıcı isteği
+    // 2026-10-03). Dikey video (Shorts) büyük oynatıcıda da tam yüksekliğe sığar, kırpılmaz.
+    const applyFullscreen = () => {
+      const w = window.innerWidth, h = window.innerHeight;
+      setYouTubeRegion(videoRegion(w, h, h > w), true);
+    };
     applyFullscreen();
     // Tam ekran video harita üstünü tamamen kaplar → harita arkada boşuna WebGL
     // render etmesin: raster'a kilitle (video decode + vektör harita Mali-400'de

@@ -931,5 +931,5 @@ export {
 } from '../mediaService';
 export type { MediaSource } from '../mediaService';
 export { isSpotifyConnected, beginSpotifyLogin } from '../spotify/spotifyAuth';
-export { ensureYouTubeReady, setYouTubeRegion, YOUTUBE_PKG, isYouTubeVideoAvailable, subscribeYouTubeVideoAvailability } from '../youtubeService';
+export { ensureYouTubeReady, setYouTubeRegion, videoRegion, YOUTUBE_PKG, isYouTubeVideoAvailable, subscribeYouTubeVideoAvailability } from '../youtubeService';
 export type { UnifiedTrack, ProviderId } from './providers';

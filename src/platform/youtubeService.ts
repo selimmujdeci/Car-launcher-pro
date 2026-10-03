@@ -719,6 +719,18 @@ export function isYouTubeActive(): boolean {
   return getMediaState().activePackage === YOUTUBE_PKG;
 }
 
+/* Dikey head-unit (768×1024) ekranında 16:9 video genişliğe sığınca 768×432 kalıyor
+   (saha 2026-10-03, Megane: "videolar küçük"). Dikey ekranda OTOMATİK: oynatıcının KENDİSİ büyütülür
+   (CSS ölçek DEĞİL) → YouTube büyük oynatıcıya yüksek çözünürlük seçer, kalite düşmez;
+   yanlar ekran dışında kalır. Tam doldurma (~%58 kırpma) bilinçli olarak yok. */
+export const VIDEO_ZOOM_FACTOR = 1.5;
+
+/** Tam ekran video oynatıcı alanı: yakınlaştırmada genişlik büyür, ortalanır (yanlar dışarıda). */
+export function videoRegion(w: number, h: number, zoom: boolean): { left: number; top: number; width: number; height: number } {
+  const z = zoom ? VIDEO_ZOOM_FACTOR : 1;
+  return { left: zoom ? -((z - 1) * w) / 2 : 0, top: 0, width: w * z, height: h };
+}
+
 /**
  * Video host'unu konumlandırır/gösterir.
  * @param rect    Albüm-kapağı alanı (player ekranındayken). null → ekran dışı.
