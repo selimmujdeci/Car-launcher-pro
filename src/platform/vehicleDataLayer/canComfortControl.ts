@@ -18,7 +18,7 @@ import {
   RAISE_TYPE, CENTRAL_ID, AMBIENT_COLOR_NAMES, MASSAGE_MODE_NAMES,
   MASSAGE_STRENGTH_MAX, AMBIENT_BRIGHTNESS_MAX, AMBIENT_BRIGHTNESS_STEP,
   type CanAmbientState, type CanClimateState, type CanDoorsState,
-  type CanMassageState, type CanTpmsState, type CanTripState,
+  type CanMassageState, type CanTpmsState, type CanTripState, type TirePressures,
 } from './raiseRenaultFrames';
 import type { CanInfoTopic, ComfortCommand, ComfortLevel } from '../vehicleComfortIntents';
 import { readVehicleAccess, type VehicleAccessState } from './vehicleAccess';
@@ -424,18 +424,30 @@ export function tiresSpeech(t: CanTpmsState | null, fresh: boolean): string {
   if (known.length === 0) return 'Lastik sensörleri henüz ölçüm göndermedi.';
   let s = `${fresh ? '' : 'Son bildirilen değerler: '}${fresh ? cap(known.join(', ')) : known.join(', ')} bar.`;
   if (missing.length) s += ` ${cap(joinTr(missing))} henüz ölçülmedi.`;
-  /* Uyarı YALNIZ aynı akstaki iki teker arasında: ön/arka farkı araç
-     spesifikasyonu olabilir (sahada ön 2,4 · arka 2,0) — eşik uydurulmaz. */
+  const low = tireAxleLow(t.bar);
+  low.forEach((diff, i) => {
+    if (diff !== null) s += ` ${cap(TIRE_NAMES[i]!)} lastik, aynı akstaki diğerinden ${fmt1(diff)} bar düşük; kontrol etmeni öneririm.`;
+  });
+  return s;
+}
+
+/** Aynı aks farkı uyarı eşiği (bar). */
+export const TIRE_AXLE_DIFF_BAR = 0.3;
+
+/**
+ * Teker başına "aynı akstaki diğerinden düşük" farkı (bar), yoksa null. SAF.
+ * Uyarı YALNIZ aynı akstaki iki teker arasında: ön/arka farkı araç spesifikasyonu
+ * olabilir (sahada ön 2,4 · arka 2,0) — mutlak eşik uydurulmaz.
+ */
+export function tireAxleLow(bar: TirePressures): readonly (number | null)[] {
+  const out: (number | null)[] = [null, null, null, null];
   for (const [a, b] of [[0, 1], [2, 3]] as const) {
-    const va = t.bar[a], vb = t.bar[b];
+    const va = bar[a], vb = bar[b];
     if (va === null || vb === null) continue;
     const diff = Math.round(Math.abs(va - vb) * 10) / 10;
-    if (diff >= 0.3) {
-      const low = va < vb ? TIRE_NAMES[a] : TIRE_NAMES[b];
-      s += ` ${cap(low)} lastik, aynı akstaki diğerinden ${fmt1(diff)} bar düşük; kontrol etmeni öneririm.`;
-    }
+    if (diff >= TIRE_AXLE_DIFF_BAR) out[va < vb ? a : b] = diff;
   }
-  return s;
+  return out;
 }
 
 export function tripSpeech(t: CanTripState | null): string {

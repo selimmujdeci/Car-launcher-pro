@@ -1,5 +1,6 @@
 import { memo, useState, useCallback } from 'react';
 import { X, Wrench, Shield, Droplets, Save, Car } from 'lucide-react';
+import { VehicleStatusCard } from '../vehicle/VehicleStatusCard';
 import { useStore } from '../../store/useStore';
 import { useUnifiedVehicleStore as useVehicleStore } from '../../platform/vehicleDataLayer/UnifiedVehicleStore';
 import { computeReminders, canClaimAllHealthy, type ReminderUrgency } from '../../platform/vehicleReminderService';
@@ -155,6 +156,11 @@ export const VehicleReminderModal = memo(function VehicleReminderModal({
           >
             <X className="w-4 h-4" />
           </button>
+        </div>
+
+        {/* Araç durumu — kapılar · bagaj · lastikler (araçtan, CAN) */}
+        <div className="px-5 py-3 border-b border-[var(--oem-line)] flex-shrink-0">
+          <VehicleStatusCard />
         </div>
 
         {/* Durum özeti */}

@@ -6,7 +6,7 @@
  * uygulama yetki almaz, yalnız durumun ne olduğunu ve neyin eksik olduğunu söyler.
  * Bilinmeyen değer "bekleniyor" yazar; sahte "var" yok.
  */
-import { memo } from 'react';
+import { memo, useRef } from 'react';
 import {
   describeVehicleProfile,
   type VehicleAccessState, type VehicleFeature, type FeatureAvailability,
@@ -33,17 +33,26 @@ const TIER_TEXT: Readonly<Record<VehicleAccessState['tier'], [string, string]>> 
 };
 
 export const VehicleLinkCard = memo(function VehicleLinkCard() {
-  const state = useVehicleAccess();
+  const rootRef = useRef<HTMLDivElement>(null);
+  const state = useVehicleAccess(rootRef);   // ayarlar kapalıyken sorgu durur
 
   const ink2 = 'var(--oem-ink-3, rgba(255,255,255,0.45))';
-  if (!state) {
-    return <div className="text-[11px]" style={{ color: ink2 }}>Araç bağlantısı okunuyor…</div>;
-  }
+  /* TEK kök öğe: görünürlük gözlemcisi buna bağlı (kök değişirse sorgu yanlışlıkla durur). */
+  return (
+    <div ref={rootRef} className="flex flex-col gap-2.5" data-testid="vehicle-link-card">
+      {state ? <VehicleLinkBody state={state} ink2={ink2} /> : (
+        <div className="text-[11px]" style={{ color: ink2 }}>Araç bağlantısı okunuyor…</div>
+      )}
+    </div>
+  );
+});
+
+const VehicleLinkBody = memo(function VehicleLinkBody({ state, ink2 }: { state: VehicleAccessState; ink2: string }) {
   const [tierText, tierColor] = TIER_TEXT[state.tier];
   const vehicle = describeVehicleProfile(state.profile);
 
   return (
-    <div className="flex flex-col gap-2.5" data-testid="vehicle-link-card">
+    <>
       <div className="flex items-baseline justify-between gap-2">
         <span className="text-[13px] font-bold">{vehicle ?? 'Araç profili okunamadı'}</span>
         <span className="text-[11px] font-bold" style={{ color: tierColor }}>{tierText}</span>
@@ -87,6 +96,6 @@ export const VehicleLinkCard = memo(function VehicleLinkCard() {
           Kurulum tamam ama araçtan henüz ham veri gelmiyor. Ünite yeniden başlatıldıktan sonra gelmesi beklenir.
         </div>
       )}
-    </div>
+    </>
   );
 });

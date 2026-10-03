@@ -17,7 +17,7 @@
  * değil durum rozeti; araçta olmayan koltuk/direksiyon ısıtma kaldırıldı. Bilinmeyen
  * değer "—"; CAN akışı sustuysa "son bilinen" uyarısı.
  */
-import { memo } from 'react';
+import { memo, useRef } from 'react';
 import { Thermometer, Wind, X } from 'lucide-react';
 import { useUnifiedVehicleStore } from '../../platform/vehicleDataLayer/UnifiedVehicleStore';
 import { useVehicleAccess } from '../../hooks/useVehicleAccess';
@@ -142,7 +142,8 @@ function Zone({ title, temp, on }: { title: string; temp: number | null; on: boo
 export const ClimateScreen = memo(function ClimateScreen({ onClose }: { onClose?: () => void }) {
   const c = useUnifiedVehicleStore((st) => st.canClimate);
   const outside = useUnifiedVehicleStore((st) => st.canAmbientTemp);
-  const access = useVehicleAccess();
+  const rootRef = useRef<HTMLDivElement>(null);
+  const access = useVehicleAccess(rootRef);   // çekmece kapalıyken sorgu durur
 
   const on = c?.power === true;
   const fanMax = c?.fanMax && c.fanMax > 0 ? c.fanMax : 7;
@@ -151,6 +152,7 @@ export const ClimateScreen = memo(function ClimateScreen({ onClose }: { onClose?
 
   return (
     <div
+      ref={rootRef}
       data-theme-surface="climate" data-editable="climate.screen" data-editable-type="panel"
       className="flex flex-col h-full text-[color:var(--oem-ink)] select-none overflow-hidden"
       style={{ background: 'linear-gradient(155deg, #060c1a 0%, #030810 100%)' }}
