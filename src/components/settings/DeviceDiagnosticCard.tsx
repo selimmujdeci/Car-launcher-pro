@@ -40,11 +40,9 @@ const PUSH_TEXT: Record<string, string> = {
   unpaired:     'eşli değil',
 };
 
-const TIER_COLOR: Record<string, string> = {
-  low:  '#fbbf24',
-  mid:  '#60a5fa',
-  high: '#34d399',
-};
+/* Tema jetonu (gündüz/gece okunur); ham İngilizce sınıf adı kullanıcıya gösterilmez. */
+const TIER_TONE: Record<string, 'warn' | 'info' | 'good'> = { low: 'warn', mid: 'info', high: 'good' };
+const TIER_LABEL: Record<string, string> = { low: 'DÜŞÜK', mid: 'ORTA', high: 'YÜKSEK' };
 
 function yn(v: boolean): string {
   return v ? 'evet' : 'yok';
@@ -179,19 +177,19 @@ export function DeviceDiagnosticCard() {
         <div className="flex items-center gap-2 flex-shrink-0">
           <span className="px-2 py-1 rounded-lg text-[11px] font-black"
             style={{
-              background: `${TIER_COLOR[tier]}1f`,
-              border: `1px solid ${TIER_COLOR[tier]}40`,
-              color: TIER_COLOR[tier],
+              background: `var(--oem-${TIER_TONE[tier] ?? 'info'}-soft)`,
+              border: '1px solid var(--oem-line-strong)',
+              color: `var(--oem-${TIER_TONE[tier] ?? 'info'})`,
             }}>
-            {tier.toUpperCase()}
+            {TIER_LABEL[tier] ?? tier.toUpperCase()}
           </span>
           <button
             onClick={() => { void handleCopy(); }}
             className="px-3 py-1.5 rounded-xl text-[11px] font-black"
             style={{
-              background: 'rgba(96,165,250,0.12)',
-              border: '1px solid rgba(96,165,250,0.25)',
-              color: '#93c5fd',
+              background: 'var(--oem-info-soft, rgba(96,165,250,0.12))',
+              border: '1px solid var(--oem-line-strong, rgba(96,165,250,0.25))',
+              color: 'var(--oem-info, #93c5fd)',
             }}>
             {copied ? 'Kopyalandı' : 'Kopyala'}
           </button>

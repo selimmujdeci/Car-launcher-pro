@@ -57,7 +57,7 @@ export function OtaUpdateCard() {
             : ''}
         </div>
         {disabled && (
-          <div className="text-[10px] font-bold mt-0.5" style={{ color: '#fbbf24' }}>
+          <div className="text-[10px] font-bold mt-0.5" style={{ color: 'var(--oem-warn, #fbbf24)' }}>
             Güvenlik: güncelleme için aracı durdurun
           </div>
         )}
@@ -68,9 +68,9 @@ export function OtaUpdateCard() {
           disabled={disabled}
           className="px-3 py-1.5 rounded-xl text-[11px] font-black flex-shrink-0 disabled:opacity-40"
           style={{
-            background: 'rgba(96,165,250,0.12)',
-            border: '1px solid rgba(96,165,250,0.25)',
-            color: '#93c5fd',
+            background: 'var(--oem-info-soft, rgba(96,165,250,0.12))',
+            border: '1px solid var(--oem-line-strong, rgba(96,165,250,0.25))',
+            color: 'var(--oem-info, #93c5fd)',
           }}>
           {actionLabel}
         </button>

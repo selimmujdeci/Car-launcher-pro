@@ -127,10 +127,10 @@ export const CRMInspector = memo(function CRMInspector() {
 /* ── Alt bileşenler ─────────────────────────────────────────────────────── */
 
 const ACCENT_COLORS = {
-  green:   { border: 'rgba(52,211,153,0.15)', text: '#34d399' },
-  yellow:  { border: 'rgba(251,191,36,0.15)',  text: '#fbbf24' },
-  blue:    { border: 'rgba(96,165,250,0.15)',   text: '#60a5fa' },
-  neutral: { border: 'rgba(255,255,255,0.06)',  text: 'rgba(255,255,255,0.45)' },
+  green:   { border: 'rgba(52,211,153,0.15)', text: 'var(--oem-good, #34d399)' },
+  yellow:  { border: 'rgba(251,191,36,0.15)',  text: 'var(--oem-warn, #fbbf24)' },
+  blue:    { border: 'rgba(96,165,250,0.15)',   text: 'var(--oem-info, #60a5fa)' },
+  neutral: { border: 'var(--oem-line, rgba(255,255,255,0.06))',  text: 'var(--oem-ink-3, rgba(255,255,255,0.45))' },
 } as const;
 
 function _Cell({ label, value, accent }: {
@@ -140,7 +140,7 @@ function _Cell({ label, value, accent }: {
   return (
     <div
       className="flex flex-col gap-1 rounded-xl border p-2.5"
-      style={{ borderColor: c.border, background: 'rgba(255,255,255,0.02)' }}
+      style={{ borderColor: c.border, background: 'transparent' }}
     >
       <p className="text-[8px] font-black uppercase tracking-[0.25em] text-white/30">{label}</p>
       <p className="font-mono text-[11px] font-bold" style={{ color: c.text }}>{value}</p>

@@ -319,6 +319,30 @@ html.light-ui .settings-page .text-slate-500 {
   color: rgba(20,23,28,0.74) !important;
 }
 
+/* PASTEL YAZI TONLARI — koyu zemin için seçilmiş 200–400 tonları açık zeminde
+   okunmuyordu (beyaz üstünde kontrast ~1.7–2.8:1: Asistan sağlayıcı adları,
+   "Telefonla Getir", Sistem "Kontrol Et/Kopyala", Araç kurtarma kutusu… —
+   ekran taraması 2026-10-03). Açık temada aynı rengin 700 tonu (≥5:1).
+   Her temada KOYU kalan yüzeyler (dijital kokpit, harita, kamera, sinema)
+   hariç — orada pastel doğru tondur. Düz hex/rgba: eski WebView (Chrome 101)
+   oklch/color-mix bilmez. */
+html.light-ui :is(.text-red-200,.text-red-300,.text-red-400,.text-rose-300):not(:is(.caros-cockpit-screen,[data-theme-surface="nav"],[data-theme-surface="camera"],[data-theme-surface="theater"]) *) { color: #B91C1C; }
+html.light-ui :is(.text-amber-200,.text-amber-300,.text-amber-400,.text-yellow-200,.text-yellow-400,.text-orange-400):not(:is(.caros-cockpit-screen,[data-theme-surface="nav"],[data-theme-surface="camera"],[data-theme-surface="theater"]) *) { color: #A15C07; }
+html.light-ui :is(.text-emerald-300,.text-emerald-400,.text-green-400):not(:is(.caros-cockpit-screen,[data-theme-surface="nav"],[data-theme-surface="camera"],[data-theme-surface="theater"]) *) { color: #047857; }
+html.light-ui :is(.text-blue-300,.text-blue-400,.text-sky-300,.text-sky-400):not(:is(.caros-cockpit-screen,[data-theme-surface="nav"],[data-theme-surface="camera"],[data-theme-surface="theater"]) *) { color: #1D4ED8; }
+html.light-ui :is(.text-cyan-300,.text-cyan-400):not(:is(.caros-cockpit-screen,[data-theme-surface="nav"],[data-theme-surface="camera"],[data-theme-surface="theater"]) *) { color: #0E7490; }
+html.light-ui :is(.text-purple-200,.text-purple-300,.text-purple-400,.text-violet-300,.text-violet-400):not(:is(.caros-cockpit-screen,[data-theme-surface="nav"],[data-theme-surface="camera"],[data-theme-surface="theater"]) *) { color: #7E22CE; }
+html.light-ui :is(.text-red-400\/50,.text-red-400\/70):not(:is(.caros-cockpit-screen,[data-theme-surface="nav"],[data-theme-surface="camera"],[data-theme-surface="theater"]) *) { color: rgba(185,28,28,0.75); }
+html.light-ui :is(.text-amber-200\/80,.text-amber-400\/90):not(:is(.caros-cockpit-screen,[data-theme-surface="nav"],[data-theme-surface="camera"],[data-theme-surface="theater"]) *) { color: rgba(161,92,7,0.9); }
+html.light-ui :is(.text-emerald-300\/80):not(:is(.caros-cockpit-screen,[data-theme-surface="nav"],[data-theme-surface="camera"],[data-theme-surface="theater"]) *) { color: rgba(4,120,87,0.85); }
+html.light-ui :is(.text-sky-300\/80):not(:is(.caros-cockpit-screen,[data-theme-surface="nav"],[data-theme-surface="camera"],[data-theme-surface="theater"]) *) { color: rgba(29,78,216,0.85); }
+html.light-ui :is(.text-cyan-400\/75,.text-cyan-400\/90):not(:is(.caros-cockpit-screen,[data-theme-surface="nav"],[data-theme-surface="camera"],[data-theme-surface="theater"]) *) { color: rgba(14,116,144,0.9); }
+html.light-ui :is(.text-purple-400\/70):not(:is(.caros-cockpit-screen,[data-theme-surface="nav"],[data-theme-surface="camera"],[data-theme-surface="theater"]) *) { color: rgba(126,34,206,0.8); }
+/* Koyu zemin için %5–10 beyaz dolgu/kenar açık zeminde görünmüyordu
+   ("Yapılandırılmadı" rozeti, ayraçlar). Açık temada nötr koyu karşılığı. */
+html.light-ui :is(.bg-white\/5,.bg-white\/10):not(:is(.caros-cockpit-screen,[data-theme-surface="nav"],[data-theme-surface="camera"],[data-theme-surface="theater"]) *) { background-color: rgba(0,0,0,0.05); }
+html.light-ui :is(.border-white\/5,.border-white\/10):not(:is(.caros-cockpit-screen,[data-theme-surface="nav"],[data-theme-surface="camera"],[data-theme-surface="theater"]) *) { border-color: rgba(0,0,0,0.10); }
+
 /* ════════════════════════════════════════════════════════════════════════
    ☀️ GÜNEŞ ALTI MAKSİMUM OKUNABİLİRLİK (head-unit, doğrudan güneş)
    ────────────────────────────────────────────────────────────────────────

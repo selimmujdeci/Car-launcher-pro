@@ -108,7 +108,7 @@ export const ExpertTrustGauge = memo(function ExpertTrustGauge({
             </defs>
             <path
               d="M 14 72 A 46 46 0 0 1 106 72"
-              stroke="rgba(255,255,255,0.07)"
+              style={{ stroke: 'var(--oem-line-strong, rgba(255,255,255,0.07))' }}
               strokeWidth="7"
               strokeLinecap="round"
               pathLength={arcDash}

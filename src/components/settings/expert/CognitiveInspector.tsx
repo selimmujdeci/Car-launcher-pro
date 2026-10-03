@@ -163,7 +163,7 @@ export const CognitiveInspector = memo(function CognitiveInspector() {
             </p>
           </div>
           {/* DAB bar — saf CSS, animasyon yok */}
-          <div style={{ height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.06)', overflow: 'hidden' }}>
+          <div style={{ height: 4, borderRadius: 2, background: 'var(--oem-line, rgba(255,255,255,0.06))', overflow: 'hidden' }}>
             <div style={{
               height:     '100%',
               width:      `${dab * 100}%`,
@@ -171,13 +171,13 @@ export const CognitiveInspector = memo(function CognitiveInspector() {
             }} />
           </div>
           <div className="flex justify-between">
-            <span style={{ fontSize: 8, color: 'rgba(255,255,255,0.25)', fontWeight: 700, letterSpacing: '0.1em' }}>
+            <span style={{ fontSize: 8, color: 'var(--oem-ink-3, rgba(255,255,255,0.25))', fontWeight: 700, letterSpacing: '0.1em' }}>
               LİMP &lt;0.15
             </span>
-            <span style={{ fontSize: 8, color: 'rgba(255,255,255,0.25)', fontWeight: 700, letterSpacing: '0.1em' }}>
+            <span style={{ fontSize: 8, color: 'var(--oem-ink-3, rgba(255,255,255,0.25))', fontWeight: 700, letterSpacing: '0.1em' }}>
               KRİTİK &lt;0.30
             </span>
-            <span style={{ fontSize: 8, color: 'rgba(255,255,255,0.25)', fontWeight: 700, letterSpacing: '0.1em' }}>
+            <span style={{ fontSize: 8, color: 'var(--oem-ink-3, rgba(255,255,255,0.25))', fontWeight: 700, letterSpacing: '0.1em' }}>
               NORMAL 1.0
             </span>
           </div>
@@ -187,15 +187,15 @@ export const CognitiveInspector = memo(function CognitiveInspector() {
         <_Cell
           label="Son Karar"
           value={_relTime(lastDecision)}
-          accent="rgba(255,255,255,0.45)"
+          accent="var(--oem-ink-3, rgba(255,255,255,0.45))"
         />
 
         {/* Recovery Geri Sayım */}
         <div
           className="flex flex-col gap-1 rounded-xl border p-2.5"
           style={{
-            borderColor: pendingMode ? 'rgba(96,165,250,0.20)' : 'rgba(255,255,255,0.06)',
-            background:  pendingMode ? 'rgba(96,165,250,0.05)' : 'rgba(255,255,255,0.02)',
+            borderColor: pendingMode ? 'rgba(96,165,250,0.20)' : 'var(--oem-line, rgba(255,255,255,0.06))',
+            background:  pendingMode ? 'rgba(96,165,250,0.05)' : 'transparent',
           }}
         >
           <p className="text-[8px] font-black uppercase tracking-[0.25em] text-white/30">Recovery</p>
@@ -229,7 +229,7 @@ export const CognitiveInspector = memo(function CognitiveInspector() {
                   borderRadius:  6,
                   background:    'rgba(239,68,68,0.10)',
                   border:        '1px solid rgba(239,68,68,0.20)',
-                  color:         '#fca5a5',
+                  color:         'var(--oem-danger, #fca5a5)',
                   letterSpacing: '0.08em',
                   textTransform: 'uppercase',
                 }}

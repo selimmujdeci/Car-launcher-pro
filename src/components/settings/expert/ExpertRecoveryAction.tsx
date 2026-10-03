@@ -29,18 +29,18 @@ export const ExpertRecoveryAction = memo(function ExpertRecoveryAction({
         className="rounded-2xl border border-amber-500/35 bg-amber-500/[0.08] p-4"
         style={HEAVY_INERTIA_STYLE}
       >
-        <h3 className="text-[10px] font-black uppercase tracking-[0.28em] text-amber-200/95">Sistem Kurtarma</h3>
-        <p className="mt-2 text-[11px] font-medium leading-snug text-amber-50/80">
+        <h3 className="text-[10px] font-black uppercase tracking-[0.28em] text-[color:var(--oem-warn)]">Sistem Kurtarma</h3>
+        <p className="mt-2 text-[11px] font-medium leading-snug text-[color:var(--oem-ink-2)]">
           Bu araç anahtarı için SafetyBrain sayaçları ve özellik kapıları temizlenir. Expert mühür verisi korunur.
         </p>
         <div
-          className="mt-3 rounded-xl border border-amber-400/55 bg-amber-950/40 px-3 py-2.5"
+          className="mt-3 rounded-xl border border-amber-400/55 bg-[var(--oem-warn-soft)] px-3 py-2.5"
           role="status"
         >
-          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-200">
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[color:var(--oem-warn)]">
             Geri alınamaz işlem
           </p>
-          <p className="mt-1 text-[11px] font-semibold leading-snug text-amber-100/95">
+          <p className="mt-1 text-[11px] font-semibold leading-snug text-[color:var(--oem-ink)]">
             Bu temizleme geri alınamaz. Güvenlik durumunu fabrika taban çizgisinden yeniden kurmanız gerekir.
           </p>
         </div>
@@ -51,8 +51,8 @@ export const ExpertRecoveryAction = memo(function ExpertRecoveryAction({
           className="mt-4 flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-amber-500/45 bg-amber-600/20 hover:bg-amber-600/30 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
           style={HEAVY_INERTIA_STYLE}
         >
-          <Trash2 className="h-4 w-4 text-amber-200" />
-          <span className="text-[11px] font-black uppercase tracking-widest text-amber-100">
+          <Trash2 className="h-4 w-4 text-[color:var(--oem-warn)]" />
+          <span className="text-[11px] font-black uppercase tracking-widest text-[color:var(--oem-ink)]">
             Araç Profilini Temizle
           </span>
         </button>
@@ -89,7 +89,7 @@ export const ExpertRecoveryAction = memo(function ExpertRecoveryAction({
               className="rounded-xl border border-amber-500/50 bg-amber-950/35 px-3 py-2.5"
               role="alert"
             >
-              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-amber-200">
+              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-[color:var(--oem-warn)]">
                 Bu işlem geri alınamaz
               </p>
               <p className="mt-1 text-[11px] font-semibold leading-snug text-amber-50/95">

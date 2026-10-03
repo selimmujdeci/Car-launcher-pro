@@ -90,7 +90,7 @@ function PremiumSlider({ icon: Icon, label, value, onChange, colorA, colorB }: {
       data-editable="settings.slider"
       data-editable-type="card"
       style={{
-        background: 'rgba(255,255,255,0.03)',
+        background: 'var(--oem-surface-2)',
         border: '1px solid var(--oem-line, rgba(255,255,255,0.06))',
         boxShadow: 'var(--oem-shadow-card, none)',
       }}>
@@ -112,7 +112,7 @@ function PremiumSlider({ icon: Icon, label, value, onChange, colorA, colorB }: {
       </div>
       <div className="relative h-2 rounded-full"
         style={{
-          background: 'rgba(255,255,255,0.06)',
+          background: 'var(--oem-surface-2)',
           boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.35), 0 0 0 1px var(--oem-amber-soft, transparent)',
         }}>
         <div className="absolute inset-y-0 left-0 rounded-full" style={{ width: `${value}%`, background: `linear-gradient(90deg,${colorA},${colorB})` }} />
@@ -251,8 +251,8 @@ function ThemePanel() {
                 onClick={() => (t.dn ? selectExpedition(t.dn) : selectBase(t.id))}
                 className="flex flex-col items-center gap-2 p-3 rounded-2xl transition-all duration-300 active:scale-95"
                 style={{
-                  background: active ? `${t.accent}18` : 'rgba(255,255,255,0.03)',
-                  border: `1px solid ${active ? `${t.accent}55` : 'rgba(255,255,255,0.07)'}`,
+                  background: active ? `${t.accent}18` : 'var(--oem-surface-2)',
+                  border: `1px solid ${active ? `${t.accent}55` : 'var(--oem-line)'}`,
                   boxShadow: active ? `0 0 20px ${t.accent}25` : 'none',
                 }}
               >
@@ -498,7 +498,7 @@ const CompanionPanel = memo(function CompanionPanel() {
                     className="flex flex-col gap-0.5 px-4 py-3 rounded-xl border text-left transition-all active:scale-[0.98]"
                     style={active
                       ? { backgroundColor: 'rgba(34,211,238,0.10)', borderColor: 'rgba(34,211,238,0.45)' }
-                      : { backgroundColor: 'rgba(255,255,255,0.03)', borderColor: 'rgba(255,255,255,0.08)' }}
+                      : { backgroundColor: 'var(--oem-surface-2)', borderColor: 'var(--oem-line)' }}
                   >
                     <span className="text-sm font-bold" style={{ color: active ? '#22d3ee' : 'var(--oem-ink-2, rgba(255,255,255,0.7))' }}>{label}</span>
                     <span className="text-[10px]" style={{ color: 'var(--oem-ink-3, rgba(255,255,255,0.4))' }}>{sub}</span>
@@ -521,7 +521,7 @@ const CompanionPanel = memo(function CompanionPanel() {
                     className="flex flex-col gap-0.5 px-3 py-3 rounded-xl border text-left transition-all active:scale-[0.98]"
                     style={active
                       ? { backgroundColor: 'rgba(34,211,238,0.10)', borderColor: 'rgba(34,211,238,0.45)' }
-                      : { backgroundColor: 'rgba(255,255,255,0.03)', borderColor: 'rgba(255,255,255,0.08)' }}
+                      : { backgroundColor: 'var(--oem-surface-2)', borderColor: 'var(--oem-line)' }}
                   >
                     <span className="text-sm font-bold" style={{ color: active ? '#22d3ee' : 'var(--oem-ink-2, rgba(255,255,255,0.7))' }}>{label}</span>
                     <span className="text-[10px]" style={{ color: 'var(--oem-ink-3, rgba(255,255,255,0.4))' }}>{sub}</span>
@@ -566,7 +566,7 @@ const CompanionPanel = memo(function CompanionPanel() {
                         className="flex flex-col gap-0.5 px-4 py-3 rounded-xl border text-left transition-all active:scale-[0.98]"
                         style={active
                           ? { backgroundColor: 'rgba(167,139,250,0.10)', borderColor: 'rgba(167,139,250,0.45)' }
-                          : { backgroundColor: 'rgba(255,255,255,0.03)', borderColor: 'rgba(255,255,255,0.08)' }}
+                          : { backgroundColor: 'var(--oem-surface-2)', borderColor: 'var(--oem-line)' }}
                       >
                         <span className="text-sm font-bold" style={{ color: active ? '#a78bfa' : 'var(--oem-ink-2, rgba(255,255,255,0.7))' }}>{label}</span>
                         <span className="text-[10px]" style={{ color: 'var(--oem-ink-3, rgba(255,255,255,0.4))' }}>{sub}</span>
@@ -685,11 +685,11 @@ const MapDataPanel = memo(function MapDataPanel() {
           <button key={label} onClick={() => updateSettings({ mapOfflineOnly: val })}
             className="flex items-center gap-3 px-4 py-3 rounded-xl transition-all active:scale-[0.98] text-left"
             style={{
-              background: active ? `${color}12` : 'rgba(255,255,255,0.03)',
-              border: `1.5px solid ${active ? `${color}40` : 'rgba(255,255,255,0.07)'}`,
+              background: active ? `${color}12` : 'var(--oem-surface-2)',
+              border: `1.5px solid ${active ? `${color}40` : 'var(--oem-line)'}`,
             }}>
             <div className="w-4 h-4 rounded-full flex-shrink-0 flex items-center justify-center"
-              style={{ border: `2px solid ${active ? color : 'rgba(255,255,255,0.2)'}`, background: active ? color : 'transparent' }}>
+              style={{ border: `2px solid ${active ? color : 'var(--oem-line)'}`, background: active ? color : 'transparent' }}>
               {active && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
             </div>
             <div className="flex-1 min-w-0">
@@ -742,7 +742,7 @@ const PERF_MODES = {
 
 function PerfMiniBar({ pct, color }: { pct: number; color: string }) {
   return (
-    <div className="h-1 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.08)', width: '100%' }}>
+    <div className="h-1 rounded-full overflow-hidden" style={{ background: 'var(--oem-surface-3)', width: '100%' }}>
       <div className="h-full rounded-full transition-all duration-700"
         style={{ width: `${pct}%`, background: `linear-gradient(90deg, ${color}aa, ${color})` }} />
     </div>
@@ -759,7 +759,7 @@ function PerfCard({ mode, active, isAuto, onClick }: { mode: keyof typeof PERF_M
         background: active
           ? `linear-gradient(145deg, ${m.color}18 0%, ${m.color}08 100%)`
           : 'rgba(255,255,255,0.03)',
-        border: `1px solid ${active ? m.color + '45' : 'rgba(255,255,255,0.07)'}`,
+        border: `1px solid ${active ? m.color + '45' : 'var(--oem-line)'}`,
         boxShadow: active
           ? `0 0 0 1px ${m.color}22, 0 12px 40px -8px ${m.color}30`
           : 'none',
@@ -768,7 +768,7 @@ function PerfCard({ mode, active, isAuto, onClick }: { mode: keyof typeof PERF_M
     >
       {/* Top accent stripe */}
       <div className="h-[3px] w-full"
-        style={{ background: active ? `linear-gradient(90deg, transparent, ${m.color}, transparent)` : 'rgba(255,255,255,0.04)' }} />
+        style={{ background: active ? `linear-gradient(90deg, transparent, ${m.color}, transparent)` : 'var(--oem-surface-2)' }} />
 
       {/* Badges */}
       <div className="absolute top-4 right-4 flex flex-col items-end gap-1">
@@ -791,7 +791,7 @@ function PerfCard({ mode, active, isAuto, onClick }: { mode: keyof typeof PERF_M
         <div className="flex items-center gap-3">
           <div className="w-11 h-11 rounded-[14px] flex items-center justify-center text-2xl flex-shrink-0 transition-all duration-400"
             style={{
-              background: active ? `${m.color}20` : 'rgba(255,255,255,0.06)',
+              background: active ? `${m.color}20` : 'var(--oem-surface-2)',
               boxShadow: active ? `0 0 20px ${m.color}30` : 'none',
               color: m.color,
             }}>
@@ -824,10 +824,10 @@ function PerfCard({ mode, active, isAuto, onClick }: { mode: keyof typeof PERF_M
         </div>
 
         {/* Feature list */}
-        <div className="flex flex-col gap-1.5 pt-1 border-t" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
+        <div className="flex flex-col gap-1.5 pt-1 border-t" style={{ borderColor: 'var(--oem-line)' }}>
           {m.features.map(f => (
             <div key={f} className="flex items-center gap-2">
-              <div className="w-1 h-1 rounded-full flex-shrink-0" style={{ background: active ? m.color : 'rgba(255,255,255,0.40)' }} />
+              <div className="w-1 h-1 rounded-full flex-shrink-0" style={{ background: active ? m.color : 'var(--oem-surface-3)' }} />
               <span className="text-[10px] font-semibold" style={{ color: active ? 'var(--oem-ink-2, rgba(255,255,255,0.75))' : 'var(--oem-ink-2, rgba(255,255,255,0.65))' }}>{f}</span>
             </div>
           ))}
@@ -837,11 +837,11 @@ function PerfCard({ mode, active, isAuto, onClick }: { mode: keyof typeof PERF_M
         <div className="flex items-center justify-center pt-1">
           <div className="flex items-center gap-1.5 px-3 py-1 rounded-full transition-all duration-400"
             style={{
-              background: active ? `${m.color}20` : 'rgba(255,255,255,0.04)',
-              border: `1px solid ${active ? m.color + '50' : 'rgba(255,255,255,0.07)'}`,
+              background: active ? `${m.color}20` : 'var(--oem-surface-2)',
+              border: `1px solid ${active ? m.color + '50' : 'var(--oem-line)'}`,
             }}>
             <div className="w-1.5 h-1.5 rounded-full transition-all duration-400"
-              style={{ background: active ? m.color : 'rgba(255,255,255,0.40)', boxShadow: active ? `0 0 6px ${m.color}` : 'none' }} />
+              style={{ background: active ? m.color : 'var(--oem-surface-2)', boxShadow: active ? `0 0 6px ${m.color}` : 'none' }} />
             <span className="text-[8px] font-black uppercase tracking-[0.2em]"
               style={{ color: active ? m.color : 'var(--oem-ink-3, rgba(255,255,255,0.60))' }}>
               {active ? 'Aktif' : 'Seç'}
@@ -1136,7 +1136,7 @@ function AboutTabContent() {
         <div className="flex flex-col gap-2">
           {OSS_LICENSES.map((c) => (
             <div key={c.name} className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl"
-              style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+              style={{ background: 'var(--oem-surface-2)', border: '1px solid rgba(255,255,255,0.07)' }}>
               <span className="text-[12px] font-bold truncate" style={{ color: 'var(--oem-ink)' }}>{c.name}</span>
               <span className="text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded-lg flex-shrink-0"
                 style={{ background: 'rgba(96,165,250,0.12)', border: '1px solid rgba(96,165,250,0.25)', color: '#93c5fd' }}>
@@ -1201,7 +1201,7 @@ function SoundTabContent({ drivingMode, volumeSlot }: { drivingMode: DrivingMode
                   className="rounded-lg px-2.5 text-[11px] font-black active:scale-95 transition-all"
                   style={{
                     minHeight: 40,
-                    background: speedVolumeLevel === lvl ? 'var(--oem-amber, #e0a23c)' : 'rgba(255,255,255,0.05)',
+                    background: speedVolumeLevel === lvl ? 'var(--oem-amber, #e0a23c)' : 'var(--oem-surface-2)',
                     color: speedVolumeLevel === lvl ? '#111' : 'var(--oem-ink-2)',
                   }}
                 >
@@ -1224,7 +1224,7 @@ function SoundTabContent({ drivingMode, volumeSlot }: { drivingMode: DrivingMode
                   className="rounded-lg px-2.5 text-[11px] font-black active:scale-95 transition-all"
                   style={{
                     minHeight: 40,
-                    background: alertToneStyle === st ? 'var(--oem-amber, #e0a23c)' : 'rgba(255,255,255,0.05)',
+                    background: alertToneStyle === st ? 'var(--oem-amber, #e0a23c)' : 'var(--oem-surface-2)',
                     color: alertToneStyle === st ? '#111' : 'var(--oem-ink-2)',
                   }}
                 >
@@ -1380,7 +1380,7 @@ function ProfilesTabContent() {
             <div className="flex flex-wrap gap-1.5 mt-4">
               {driverSummary(active).map((t) => (
                 <span key={t} className="text-[11px] font-bold px-2.5 py-1 rounded-lg"
-                  style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid var(--oem-line, rgba(255,240,210,0.10))', color: 'var(--oem-ink-2)' }}>
+                  style={{ background: 'var(--oem-surface-2)', border: '1px solid var(--oem-line, rgba(255,240,210,0.10))', color: 'var(--oem-ink-2)' }}>
                   {t}
                 </span>
               ))}
@@ -1390,7 +1390,7 @@ function ProfilesTabContent() {
             <div className="flex gap-2 mt-4">
               <button type="button" onClick={() => clearActiveDriver()}
                 className="rounded-xl px-4 text-[12px] font-bold active:scale-95 transition-all"
-                style={{ minHeight: 42, background: 'rgba(255,255,255,0.05)', border: '1px solid var(--oem-line)', color: 'var(--oem-ink-2)' }}>
+                style={{ minHeight: 42, background: 'var(--oem-surface-2)', border: '1px solid var(--oem-line)', color: 'var(--oem-ink-2)' }}>
                 Misafir moda geç
               </button>
               <button type="button" onClick={() => del(active)}
@@ -1698,7 +1698,7 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
         style={{
           background: settings.dayNightMode === 'day' ? 'rgba(248,249,251,0.94)' : 'rgba(8,12,24,0.92)',
           backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)',
-          borderBottom: '1px solid ' + (settings.dayNightMode === 'day' ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.07)'),
+          borderBottom: '1px solid ' + (settings.dayNightMode === 'day' ? 'rgba(0,0,0,0.08)' : 'var(--oem-line)'),
         }}>
 
         {/* Satır 1: Navigasyon + Live Stats */}
@@ -2052,7 +2052,7 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
                                   className="text-[10px] font-bold px-2.5 py-1 rounded-lg border transition-all active:scale-95"
                                   style={profile.vehicleType === value
                                     ? { backgroundColor: `${color}20`, borderColor: `${color}60`, color }
-                                    : { backgroundColor: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.1)', color: 'var(--oem-ink-2, rgba(255,255,255,0.70))' }}>
+                                    : { backgroundColor: 'var(--oem-surface-2)', borderColor: 'var(--oem-line)', color: 'var(--oem-ink-2, rgba(255,255,255,0.70))' }}>
                                   {label}
                                 </button>
                               ))}
@@ -2150,8 +2150,8 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
                         onClick={() => updateSettings({ hotspotMode: val })}
                         className="flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 active:scale-[0.98] text-left"
                         style={{
-                          background: active ? `${color}12` : 'rgba(255,255,255,0.03)',
-                          border: `1.5px solid ${active ? `${color}40` : 'rgba(255,255,255,0.07)'}`,
+                          background: active ? `${color}12` : 'var(--oem-surface-2)',
+                          border: `1.5px solid ${active ? `${color}40` : 'var(--oem-line)'}`,
                           boxShadow: active ? `0 0 16px ${color}14` : 'none',
                         }}
                       >
@@ -2159,7 +2159,7 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
                         <div
                           className="w-4 h-4 rounded-full flex-shrink-0 flex items-center justify-center"
                           style={{
-                            border: `2px solid ${active ? color : 'rgba(255,255,255,0.2)'}`,
+                            border: `2px solid ${active ? color : 'var(--oem-line)'}`,
                             background: active ? color : 'transparent',
                           }}
                         >
@@ -2238,8 +2238,8 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
                     onClick={autoMode ? undefined : applyAutoPerf}
                     className="flex items-center gap-2 px-4 py-2 rounded-xl transition-all duration-300 active:scale-95 flex-shrink-0"
                     style={{
-                      background: autoMode ? 'rgba(251,191,36,0.15)' : 'rgba(255,255,255,0.05)',
-                      border: `1px solid ${autoMode ? 'rgba(251,191,36,0.45)' : 'rgba(255,255,255,0.10)'}`,
+                      background: autoMode ? 'rgba(251,191,36,0.15)' : 'var(--oem-surface-2)',
+                      border: `1px solid ${autoMode ? 'rgba(251,191,36,0.45)' : 'var(--oem-line)'}`,
                       boxShadow: autoMode ? '0 0 16px rgba(251,191,36,0.15)' : 'none',
                       cursor: autoMode ? 'default' : 'pointer',
                     }}
@@ -2304,7 +2304,7 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
                       </div>
 
                       {s.pct !== null && (
-                        <div className="h-0.5 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.07)' }}>
+                        <div className="h-0.5 rounded-full overflow-hidden" style={{ background: 'var(--oem-surface-3)' }}>
                           <div className="h-full rounded-full" style={{ width: `${s.pct}%`, background: s.color }} />
                         </div>
                       )}
