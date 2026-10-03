@@ -18,6 +18,7 @@ import {
   type QMState,
 } from '../../platform/performanceService';
 import { useOBDState } from '../../platform/obdService';
+import { isObdReadingLive } from '../../platform/vehicleStatusModel';
 import { RunLabCard } from './RunLabCard';
 
 /* ── Yardımcı ────────────────────────────────────────────── */
@@ -37,12 +38,17 @@ function clampG(g: number, max: number): number {
 const G_MAX = 2.5;   // görsel ölçek sınırı
 
 const GMeter = memo(function GMeter({
-  longG,
-  latG,
+  longG: rawLongG,
+  latG: rawLatG,
+  live,
 }: {
   longG: number;
   latG: number;
+  /** Kanonik canlılık (isObdReadingLive). Değilse G BİLİNMEZ → top merkezde, değer "—". */
+  live: boolean;
 }) {
+  const longG = live ? rawLongG : 0;
+  const latG  = live ? rawLatG  : 0;
   const SIZE   = 220;
   const CX     = SIZE / 2;
   const CY     = SIZE / 2;
@@ -122,7 +128,7 @@ const GMeter = memo(function GMeter({
       <div className="flex gap-6 text-center">
         <div>
           <div className="text-[color:var(--oem-ink)] text-lg font-black tabular-nums">
-            {Math.abs(longG).toFixed(2)}<span className="text-[color:var(--oem-ink-3)] text-xs">g</span>
+            {live ? <>{Math.abs(longG).toFixed(2)}<span className="text-[color:var(--oem-ink-3)] text-xs">g</span></> : '—'}
           </div>
           <div className="text-[color:var(--oem-ink-3)] text-[10px] uppercase tracking-wider">
             {longG >= 0 ? 'İvme' : 'Fren'}
@@ -130,7 +136,7 @@ const GMeter = memo(function GMeter({
         </div>
         <div>
           <div className="text-[color:var(--oem-ink)] text-lg font-black tabular-nums">
-            {Math.abs(latG).toFixed(2)}<span className="text-[color:var(--oem-ink-3)] text-xs">g</span>
+            {live ? <>{Math.abs(latG).toFixed(2)}<span className="text-[color:var(--oem-ink-3)] text-xs">g</span></> : '—'}
           </div>
           <div className="text-[color:var(--oem-ink-3)] text-[10px] uppercase tracking-wider">
             {latG >= 0 ? 'Sağ' : 'Sol'}
@@ -271,14 +277,15 @@ const PeakCard = memo(function PeakCard({
         <div className="text-center">
           {/* En yüksek ivme → warn token (performans eşiği uyarısı) */}
         <div className="text-[color:var(--oem-warn)] text-2xl font-black tabular-nums">
-            {peakAccelG.toFixed(2)}<span className="text-[color:var(--oem-ink-3)] text-sm">g</span>
+            {/* Rekor yalnız canlı örneklerden büyür; 0 = bu oturumda ölçüm yok → "—" */}
+            {peakAccelG > 0 ? <>{peakAccelG.toFixed(2)}<span className="text-[color:var(--oem-ink-3)] text-sm">g</span></> : '—'}
           </div>
           <div className="text-[color:var(--oem-ink-3)] text-[10px] mt-0.5">En Yüksek İvme</div>
         </div>
         <div className="text-center">
           {/* En sert fren → danger token (güvenlik eşiği) */}
           <div className="text-[color:var(--oem-danger)] text-2xl font-black tabular-nums">
-            {peakBrakeG.toFixed(2)}<span className="text-[color:var(--oem-ink-3)] text-sm">g</span>
+            {peakBrakeG > 0 ? <>{peakBrakeG.toFixed(2)}<span className="text-[color:var(--oem-ink-3)] text-sm">g</span></> : '—'}
           </div>
           <div className="text-[color:var(--oem-ink-3)] text-[10px] mt-0.5">En Sert Fren</div>
         </div>
@@ -341,7 +348,7 @@ export const SportModePanel = memo(function SportModePanel() {
         {/* G-Metre */}
         {/* G-metre kart yüzeyi → oem-line kenarlık */}
         <div className="glass-card border border-[var(--oem-line)] p-4 flex justify-center !shadow-none">
-          <GMeter longG={perf.longitudinalG} latG={perf.lateralG} />
+          <GMeter longG={perf.longitudinalG} latG={perf.lateralG} live={isObdReadingLive(obd)} />
         </div>
 
         {/* Peak rekoru */}

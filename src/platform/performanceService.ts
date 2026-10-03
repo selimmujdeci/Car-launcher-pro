@@ -15,6 +15,7 @@
 import { useState, useEffect } from 'react';
 import { useOBDState }  from './obdService';
 import { useGPSLocation } from './gpsService';
+import { isObdReadingLive } from './vehicleStatusModel';
 
 /* ── Sabitler ────────────────────────────────────────────── */
 
@@ -309,8 +310,13 @@ export function usePerformanceState(): PerformanceState {
 export function usePerformanceBridge(): void {
   const obd = useOBDState();
   const gps = useGPSLocation();
+  // Yalnız CANLI hız G/test hesabına girer. Bağlantı yokken hız 0'a çivili
+  // (sahte "0.00g"), bayat snapshot geri yüklemesinde ise eski hız ilk canlı
+  // örnekle birleşip sahte fren/ivme rekoru doğuruyordu (2026-10-03).
+  const live = isObdReadingLive(obd);
 
   useEffect(() => {
+    if (!live) return;
     updatePerformance({
       speedKmh: obd.speed,
       rpm:      obd.rpm,
@@ -318,5 +324,5 @@ export function usePerformanceBridge(): void {
       lng:      gps?.longitude,
       heading:  gps?.heading ?? undefined,
     });
-  }, [obd.speed, obd.rpm, gps?.latitude, gps?.longitude, gps?.heading]);
+  }, [live, obd.speed, obd.rpm, gps?.latitude, gps?.longitude, gps?.heading]);
 }
