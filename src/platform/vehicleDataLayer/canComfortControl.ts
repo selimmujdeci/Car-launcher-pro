@@ -21,6 +21,10 @@ import {
   type CanMassageState, type CanTpmsState, type CanTripState,
 } from './raiseRenaultFrames';
 import type { CanInfoTopic, ComfortCommand, ComfortLevel } from '../vehicleComfortIntents';
+import { readVehicleAccess, type VehicleAccessState } from './vehicleAccess';
+
+/** Temel modda (ham çerçeve kurulumu yok) söylenen dürüst ek. */
+const SETUP_HINT = 'Sonucu görebilmem için bir kerelik araç bağlantısı kurulumu gerekiyor.';
 
 /** Aracın yankısı için bekleme (saha: yankı < 1 sn). */
 export const ECHO_TIMEOUT_MS = 2_500;
@@ -87,7 +91,7 @@ interface WriteOp<T> {
 
 /** Tek ayar yazar ve aracın yankısını bekler. */
 async function writeAndConfirm<T extends { readonly atMs: number }>(
-  op: WriteOp<T>, pick: Pick<T>,
+  op: WriteOp<T>, pick: Pick<T>, confirmable: boolean,
 ): Promise<'confirmed' | 'unconfirmed' | 'not_sent'> {
   const t0 = Date.now();
   let sent = false;
@@ -95,15 +99,17 @@ async function writeAndConfirm<T extends { readonly atMs: number }>(
     sent = (await CarLauncher.setCanComfortSetting?.({ id: op.id, value: op.value }))?.sent === true;
   } catch { sent = false; }
   if (!sent) return 'not_sent';
+  if (!confirmable) return 'unconfirmed';   // temel mod: yankı okunamaz → boşuna bekleme
   const v = await waitForState(pick, (x) => x.atMs >= t0 && op.confirm(x), ECHO_TIMEOUT_MS);
   return v ? 'confirmed' : 'unconfirmed';
 }
 
 async function runOps<T extends { readonly atMs: number }>(
   ops: readonly WriteOp<T>[], pick: Pick<T>, unavailableText: string, unconfirmedText: string,
+  confirmable = true,
 ): Promise<ComfortOutcome | null> {
   for (const op of ops) {
-    const r = await writeAndConfirm(op, pick);
+    const r = await writeAndConfirm(op, pick, confirmable);
     if (r === 'not_sent')    return { status: 'unavailable', text: unavailableText };
     if (r === 'unconfirmed') return { status: 'unconfirmed', text: unconfirmedText };
   }
@@ -141,7 +147,7 @@ function modeName(i: number | null): string | null {
   return i === null ? null : (MASSAGE_MODE_NAMES[i] ?? `${i} numaralı`);
 }
 
-async function runMassage(c: ComfortCommand): Promise<ComfortOutcome> {
+async function runMassage(c: ComfortCommand, access: VehicleAccessState): Promise<ComfortOutcome> {
   if (c.unavailable === 'massage_speed') {
     return { status: 'unsupported', text: 'Masaj hızını sesle ayarlayamıyorum; açıp kapatabilir, şiddetini ve modunu değiştirebilirim.' };
   }
@@ -152,8 +158,20 @@ async function runMassage(c: ComfortCommand): Promise<ComfortOutcome> {
     st = (await requestFresh(RAISE_TYPE.CENTRAL2, pickMassage, (x) =>
       x.driverOn !== null && (!needStrength || x.strength !== null) && (!needMode || x.mode !== null))).state ?? st;
   }
+  /* Yokluk ÇIKARIMI yalnız ham çerçeveler gerçekten akarken: kutuya soruldu ve
+   * masaj bilgisi hiç gelmedi → bu araç masaj bildirmiyor (yazma YAPILMAZ). */
+  if (st === null && access.rawFlowing) {
+    return { status: 'unsupported', text: 'Bu araçta koltuk masajı görünmüyor; araç masaj bilgisi bildirmiyor.' };
+  }
+  const basic = access.tier === 'BASIC';
   const UNAVAILABLE = 'Koltuk masajına şu an ulaşamıyorum.';
-  const UNCONFIRMED = 'Masaj komutunu gönderdim ama araç onaylamadı.';
+  const UNCONFIRMED = basic
+    ? `Masaj komutunu araca ilettim. ${SETUP_HINT}`
+    : 'Masaj komutunu gönderdim ama araç onaylamadı.';
+  const run = (ops: readonly WriteOp<CanMassageState>[]) => runOps(ops, pickMassage, UNAVAILABLE, UNCONFIRMED, !basic);
+  const stateUnknown = (what: string): ComfortOutcome => ({
+    status: 'unknown_state', text: basic ? `Masajın şu anki ${what} okuyamıyorum. ${SETUP_HINT}` : `Masajın şu anki ${what} okuyamadım.`,
+  });
 
   if (c.zone === 'passenger') {
     if (c.power === undefined) {
@@ -162,14 +180,14 @@ async function runMassage(c: ComfortCommand): Promise<ComfortOutcome> {
     const on = c.power === 'on';
     if (st?.passengerOn === on) return { status: 'already', text: `Yolcu masajı zaten ${on ? 'açık' : 'kapalı'}.` };
     const fail = await runOps([{ id: CENTRAL_ID.MASSAGE_PASSENGER_ON, value: on ? 1 : 0, confirm: (s) => s.passengerOn === on }],
-      pickMassage, UNAVAILABLE, UNCONFIRMED);
+      pickMassage, UNAVAILABLE, UNCONFIRMED, !basic);
     return fail ?? { status: 'succeeded', text: `Yolcu masajı ${on ? 'açıldı' : 'kapatıldı'}.` };
   }
 
   if (c.power === 'off') {
     if (st?.driverOn === false) return { status: 'already', text: 'Koltuk masajı zaten kapalı.' };
     const fail = await runOps([{ id: CENTRAL_ID.MASSAGE_DRIVER_ON, value: 0, confirm: (s) => s.driverOn === false }],
-      pickMassage, UNAVAILABLE, UNCONFIRMED);
+      pickMassage, UNAVAILABLE, UNCONFIRMED, !basic);
     return fail ?? { status: 'succeeded', text: 'Koltuk masajı kapatıldı.' };
   }
 
@@ -181,14 +199,14 @@ async function runMassage(c: ComfortCommand): Promise<ComfortOutcome> {
   if (c.mode !== undefined) {
     const cur = st?.mode ?? null;
     const target = c.mode === 'next' ? (cur === null ? null : (cur + 1) % MASSAGE_MODE_NAMES.length) : c.mode;
-    if (target === null) return { status: 'unknown_state', text: 'Masajın şu anki modunu okuyamadım.' };
+    if (target === null) return stateUnknown('modunu');
     if (target !== cur) ops.push({ id: CENTRAL_ID.MASSAGE_MODE, value: target, confirm: (s) => s.mode === target });
     else alreadyText = `Masaj zaten ${modeName(target)} modda.`;
   }
   if (c.level !== undefined) {
     const cur = st?.strength ?? null;
     const target = massageStrengthTarget(c.level, cur);
-    if (target === null) return { status: 'unknown_state', text: 'Masajın şu anki şiddetini okuyamadım.' };
+    if (target === null) return stateUnknown('şiddetini');
     if (target !== cur) ops.push({ id: CENTRAL_ID.MASSAGE_STRENGTH, value: target, confirm: (s) => s.strength === target });
     else alreadyText = target === MASSAGE_STRENGTH_MAX && (c.level === '+' || c.level === 'max')
       ? 'Masaj zaten en yüksek şiddette.'
@@ -198,7 +216,7 @@ async function runMassage(c: ComfortCommand): Promise<ComfortOutcome> {
   }
   if (ops.length === 0) return { status: 'already', text: alreadyText };
 
-  const fail = await runOps(ops, pickMassage, UNAVAILABLE, UNCONFIRMED);
+  const fail = await run(ops);
   if (fail) return fail;
   const fin = pickMassage(useUnifiedVehicleStore.getState());
   const mode = modeName(fin?.mode ?? null);
@@ -234,7 +252,7 @@ function joinTr(items: readonly string[]): string {
   return `${items.slice(0, -1).join(', ')} ve ${items[items.length - 1]}`;
 }
 
-async function runAmbient(c: ComfortCommand): Promise<ComfortOutcome> {
+async function runAmbient(c: ComfortCommand, access: VehicleAccessState): Promise<ComfortOutcome> {
   if (c.unavailable === 'color') {
     const asked = UNAVAILABLE_COLOR_TR[c.colorName ?? ''] ?? 'bu renk';
     return { status: 'unsupported', text: `Ambiyansta ${asked} yok. ${joinTr(AMBIENT_COLOR_NAMES.map((n, i) => (i === 0 ? n[0]!.toUpperCase() + n.slice(1) : n)))} seçebilirim.` };
@@ -243,8 +261,11 @@ async function runAmbient(c: ComfortCommand): Promise<ComfortOutcome> {
   if (st === null || c.level === '+' || c.level === '-' || c.color === 'next') {
     st = (await requestFresh(RAISE_TYPE.CENTRAL1, pickAmbient)).state ?? st;
   }
+  const basic = access.tier === 'BASIC';
   const UNAVAILABLE = 'Ambiyansa şu an ulaşamıyorum.';
-  const UNCONFIRMED = 'Ambiyans komutunu gönderdim ama araç onaylamadı.';
+  const UNCONFIRMED = basic
+    ? `Ambiyans komutunu araca ilettim. ${SETUP_HINT}`
+    : 'Ambiyans komutunu gönderdim ama araç onaylamadı.';
 
   if (c.zone && c.power) {
     const on = c.power === 'on';
@@ -260,14 +281,14 @@ async function runAmbient(c: ComfortCommand): Promise<ComfortOutcome> {
       });
     }
     if (ops.length === 0) return { status: 'already', text: `${label} zaten ${on ? 'açık' : 'kapalı'}.` };
-    const fail = await runOps(ops, pickAmbient, UNAVAILABLE, UNCONFIRMED);
+    const fail = await runOps(ops, pickAmbient, UNAVAILABLE, UNCONFIRMED, !basic);
     return fail ?? { status: 'succeeded', text: `${label} ${on ? 'açıldı' : 'kapatıldı'}.` };
   }
 
   if (c.power === 'off') {
     if (st?.on === false) return { status: 'already', text: 'Ambiyans zaten kapalı.' };
     const fail = await runOps([{ id: CENTRAL_ID.AMBIENT_ON, value: 0, confirm: (s) => !s.on }],
-      pickAmbient, UNAVAILABLE, UNCONFIRMED);
+      pickAmbient, UNAVAILABLE, UNCONFIRMED, !basic);
     return fail ?? { status: 'succeeded', text: 'Ambiyans kapatıldı.' };
   }
 
@@ -279,14 +300,14 @@ async function runAmbient(c: ComfortCommand): Promise<ComfortOutcome> {
   if (c.color !== undefined) {
     const cur = st?.colorIndex ?? null;
     const target = c.color === 'next' ? (cur === null ? null : (cur + 1) % AMBIENT_COLOR_NAMES.length) : c.color;
-    if (target === null) return { status: 'unknown_state', text: 'Ambiyansın şu anki rengini okuyamadım.' };
+    if (target === null) return { status: 'unknown_state', text: basic ? 'Ambiyansın şu anki rengini okuyamıyorum. ' + SETUP_HINT : 'Ambiyansın şu anki rengini okuyamadım.' };
     if (target !== cur) ops.push({ id: CENTRAL_ID.AMBIENT_COLOR, value: target, confirm: (s) => s.colorIndex === target });
     else alreadyText = `Ambiyans zaten ${colorName(target)}.`;
   }
   if (c.level !== undefined) {
     const cur = st?.brightness ?? null;
     const target = ambientBrightnessTarget(c.level, cur);
-    if (target === null) return { status: 'unknown_state', text: 'Ambiyansın şu anki parlaklığını okuyamadım.' };
+    if (target === null) return { status: 'unknown_state', text: basic ? 'Ambiyansın şu anki parlaklığını okuyamıyorum. ' + SETUP_HINT : 'Ambiyansın şu anki parlaklığını okuyamadım.' };
     if (target !== cur) ops.push({ id: CENTRAL_ID.AMBIENT_BRIGHTNESS, value: target, confirm: (s) => s.brightness === target });
     else alreadyText = target === AMBIENT_BRIGHTNESS_MAX && (c.level === '+' || c.level === 'max')
       ? 'Ambiyans zaten en parlak seviyede.'
@@ -296,7 +317,7 @@ async function runAmbient(c: ComfortCommand): Promise<ComfortOutcome> {
   }
   if (ops.length === 0) return { status: 'already', text: alreadyText };
 
-  const fail = await runOps(ops, pickAmbient, UNAVAILABLE, UNCONFIRMED);
+  const fail = await runOps(ops, pickAmbient, UNAVAILABLE, UNCONFIRMED, !basic);
   if (fail) return fail;
   const fin = pickAmbient(useUnifiedVehicleStore.getState());
   const color = colorName(fin?.colorIndex);
@@ -324,7 +345,11 @@ export async function executeComfortCommand(c: ComfortCommand): Promise<ComfortO
     return { status: 'unavailable', text: 'Konfor ayarlarını yalnız araç ekranından yönetebilirim.' };
   }
   try {
-    return c.target === 'massage' ? await runMassage(c) : await runAmbient(c);
+    const access = await readVehicleAccess();
+    if (access.tier === 'NONE') {
+      return { status: 'unavailable', text: 'Bu cihazda araç bağlantısı yok; konfor ayarlarına ulaşamıyorum.' };
+    }
+    return c.target === 'massage' ? await runMassage(c, access) : await runAmbient(c, access);
   } catch {
     return { status: 'unconfirmed', text: 'Komutun sonucunu doğrulayamadım.' };
   }
@@ -448,6 +473,16 @@ export function ambientSpeech(a: CanAmbientState | null): string {
 export async function answerCanVehicleInfo(topic: CanInfoTopic): Promise<string> {
   try {
     const s = (): UnifiedVehicleState => useUnifiedVehicleStore.getState();
+    const LOCKED_TEXT: Partial<Record<CanInfoTopic, string>> = {
+      tires: 'Lastik basıncını', trip: 'Yol bilgisayarını', massage: 'Masaj durumunu', ambient: 'Ambiyans durumunu',
+    };
+    if (LOCKED_TEXT[topic]) {
+      const access = await readVehicleAccess();
+      const feature = topic === 'tires' ? 'tpms' : topic as 'trip' | 'massage' | 'ambient';
+      if (access.features[feature] === 'LOCKED') {
+        return `${LOCKED_TEXT[topic]} okuyabilmem için bir kerelik araç bağlantısı kurulumu gerekiyor.`;
+      }
+    }
     switch (topic) {
       case 'tires_reset':
         return 'Lastik basıncı sıfırlamayı ben yapamıyorum; aracın kendi menüsünden yapabilirsin.';

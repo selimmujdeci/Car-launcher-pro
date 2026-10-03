@@ -40,6 +40,8 @@ public final class NwdRawFrameTap {
     private static final Pattern FRAME = Pattern.compile("distribution--1------(2E[0-9A-Fa-f]{6,250})");
 
     private volatile boolean _running = false;
+    /** Doğrulanmış (iletilen ya da süzülen) en az bir ham çerçeve görüldü mü. */
+    private volatile long    _framesSeen = 0;
     private volatile Process _proc    = null;
     private Thread           _thread  = null;
     private final Map<Integer, String> _last = new HashMap<>();
@@ -62,6 +64,10 @@ public final class NwdRawFrameTap {
         _thread.start();
         return true;
     }
+
+    public boolean isRunning() { return _running; }
+
+    public long framesSeen() { return _framesSeen; }
 
     public synchronized void stop() {
         _running = false;
@@ -99,6 +105,7 @@ public final class NwdRawFrameTap {
                         if (!m.find()) continue;
                         byte[] f = parse(m.group(1));
                         if (f == null) continue;
+                        _framesSeen++;
                         int type = f[1] & 0xFF;
                         if (!forwarded(type)) continue;
                         String dataHex = dataHex(f);

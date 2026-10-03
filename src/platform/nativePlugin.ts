@@ -1865,6 +1865,8 @@ export interface CarLauncherPlugin {
   setCanComfortSetting?(options: { id: number; value: number }): Promise<{ sent: boolean }>;
   /** Salt-okuma durum isteği: lastik 0x61 · yol bilgisayarı 0x81 · merkezi 0x71–0x73. */
   requestCanData?(options: { type: number }): Promise<{ sent: boolean }>;
+  /** CAN erişim durumu — salt okuma (bkz. `vehicleAccess`). */
+  getCanAccess?(): Promise<CanAccessNative>;
   stopCanBus?(): Promise<void>;
   /** MCU event sniffer — K250/Hiworld keşif modu */
   startMcuSniff?(): Promise<void>;
@@ -2444,6 +2446,18 @@ export interface CanData {
 export interface CanRaiseFrame {
   t: number;   // Raise yanıt tipi
   d: string;   // veri bölümü, bitişik hex (tip/uzunluk/sağlama hariç)
+}
+
+/** `getCanAccess` — native CAN erişim durumu (salt okuma). */
+export interface CanAccessNative {
+  readLogs: boolean;
+  /** NWD ham günlük ayarı; -1 = okunamadı. */
+  canappDebug: number;
+  rawTap: boolean;
+  rawFrames: number;
+  /** NWD araç profili JSON'u (Settings.System); NWD dışı ünitede boş. */
+  nwdProfile: string;
+  nwdMenus: string;
 }
 
 export interface CanStatus {

@@ -7,6 +7,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 const native = vi.hoisted(() => ({
   setCanComfortSetting: vi.fn(),
   requestCanData: vi.fn(),
+  getCanAccess: vi.fn(),
 }));
 vi.mock('../platform/bridge', () => ({ isNative: true, bridge: {} }));
 vi.mock('../platform/nativePlugin', () => ({ CarLauncher: native }));
@@ -48,6 +49,13 @@ beforeEach(() => {
   native.setCanComfortSetting.mockReset();
   native.requestCanData.mockReset();
   native.requestCanData.mockResolvedValue({ sent: true });
+  native.getCanAccess.mockReset();
+  native.getCanAccess.mockResolvedValue(undefined);       // erişim bilinmiyor → eski davranış
+});
+
+const access = (full: boolean) => ({
+  readLogs: full, canappDebug: full ? 1 : 0, rawTap: full, rawFrames: full ? 40 : 0,
+  nwdProfile: '{"carBandKey":"carband_renault","carTypeKey":"cartype_renault_megane"}', nwdMenus: '',
 });
 afterEach(() => { vi.useRealTimers(); });
 
@@ -233,5 +241,34 @@ describe('gözlem: aracın yankısı bağımsız kanıttır', () => {
     expect(rec('ACCEPTED', 'SENT_NO_ECHO').level).toBe('ACCEPTED');
     expect(rec('FAILED', 'NOT_SENT').level).toBe('FAILED');
     expect(isObservationSource('VEHICLE_STATE')).toBe(true);
+  });
+});
+
+describe('erişim seviyesi', () => {
+  it('TEMEL mod: komut iletilir, yankı BEKLENMEZ, kurulum dürüstçe söylenir', async () => {
+    native.getCanAccess.mockResolvedValue(access(false));
+    native.setCanComfortSetting.mockResolvedValue({ sent: true });
+    const r = await executeComfortCommand({ target: 'massage', power: 'on' });   // sahte zamanlayıcı YOK → beklemiyor
+    expect(native.setCanComfortSetting).toHaveBeenCalledWith({ id: 0x90, value: 1 });
+    expect(r.status).toBe('unconfirmed');
+    expect(r.text).toBe('Masaj komutunu araca ilettim. Sonucu görebilmem için bir kerelik araç bağlantısı kurulumu gerekiyor.');
+  });
+
+  it('TAM mod + çerçeve akıyor + masaj bilgisi hiç gelmiyor → "görünmüyor", YAZMA YOK', async () => {
+    vi.useFakeTimers();
+    native.getCanAccess.mockResolvedValue(access(true));
+    const p = executeComfortCommand({ target: 'massage', power: 'on' });
+    await vi.advanceTimersByTimeAsync(2_000);
+    const r = await p;
+    expect(r.status).toBe('unsupported');
+    expect(r.text).toMatch(/koltuk masajı görünmüyor/);
+    expect(native.setCanComfortSetting).not.toHaveBeenCalled();
+  });
+
+  it('TEMEL modda lastik sorusu → kurulum gerekiyor (sahte "veri yok" değil)', async () => {
+    native.getCanAccess.mockResolvedValue(access(false));
+    expect(await answerCanVehicleInfo('tires'))
+      .toBe('Lastik basıncını okuyabilmem için bir kerelik araç bağlantısı kurulumu gerekiyor.');
+    expect(native.requestCanData).not.toHaveBeenCalled();
   });
 });

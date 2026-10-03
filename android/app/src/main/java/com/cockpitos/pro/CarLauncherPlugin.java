@@ -6538,6 +6538,34 @@ public class CarLauncherPlugin extends Plugin {
         call.resolve(r);
     }
 
+    /**
+     * CAN erişim durumu — SALT OKUMA (hiçbir ayarı/izni değiştirmez).
+     * readLogs: ham çerçeve için izin verilmiş mi · canappDebug: NWD ham günlük ayarı
+     * (-1 = okunamadı) · rawTap: dinleyici çalışıyor mu · rawFrames: doğrulanmış çerçeve sayısı
+     * · nwdProfile / nwdMenus: NWD'nin kendi araç profili (Settings.System, yoksa boş).
+     */
+    @PluginMethod
+    public void getCanAccess(PluginCall call) {
+        JSObject r = new JSObject();
+        android.content.Context ctx = getContext();
+        r.put("readLogs", ctx.checkSelfPermission("android.permission.READ_LOGS")
+            == android.content.pm.PackageManager.PERMISSION_GRANTED);
+        int dbg = -1;
+        try { dbg = android.provider.Settings.System.getInt(ctx.getContentResolver(), "canapp_debug", 0); }
+        catch (Throwable ignored) { /* okunamadı → -1 */ }
+        r.put("canappDebug", dbg);
+        r.put("rawTap", nwdRawTap.isRunning());
+        r.put("rawFrames", nwdRawTap.framesSeen());
+        String profile = null, menus = null;
+        try {
+            profile = android.provider.Settings.System.getString(ctx.getContentResolver(), "can_config_app_cartype_json");
+            menus   = android.provider.Settings.System.getString(ctx.getContentResolver(), "can_head_menu_name_key");
+        } catch (Throwable ignored) { /* NWD dışı ünite → boş */ }
+        r.put("nwdProfile", profile != null ? profile : "");
+        r.put("nwdMenus", menus != null ? menus : "");
+        call.resolve(r);
+    }
+
     /** Salt-okuma durum isteği (lastik 0x61 · yol bilgisayarı 0x81 · merkezi 0x71–0x73). */
     @PluginMethod
     public void requestCanData(PluginCall call) {

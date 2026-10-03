@@ -9,7 +9,7 @@ import {
   Cpu, Shield, ShieldCheck, Gauge, Settings2,
   Mic, Loader,
   Star, Users, Map as MapIcon, ChevronRight, Info, MessageCircle, AlertTriangle, type LucideIcon,
-  Home, Fuel, ScanEye,
+  Home, Fuel, ScanEye, Car,
 } from 'lucide-react';
 import {
   sanitizeAssistantName, sanitizeUserCallsign, sanitizeWakePhrase,
@@ -35,6 +35,7 @@ import { setBrightness, setVolume, isSystemControlSupported } from '../../platfo
 import { MaintenancePanel } from '../obd/MaintenancePanel';
 import { FuelCalibrationPanel } from './FuelCalibrationPanel';
 import { VehicleClassSettings } from './VehicleClassSettings';
+import { VehicleLinkCard } from './VehicleLinkCard';
 import { AdasSettingsPanel } from './AdasSettingsPanel';
 import { getBuildStamp } from '../../platform/buildInfo';
 import { formatBuildStamp } from '../../utils/buildStamp';
@@ -1961,6 +1962,15 @@ function SettingsPageInner({ onClose, drivingMode = 'idle' }: Props) {
 
           {tab === 'maintenance' && (
             <div className="flex flex-col gap-4">
+
+              {/* ── Araç bağlantısı (hangi araç · erişim seviyesi · gelen özellikler) ── */}
+              <Panel accent="#34d399">
+                <div className="mb-3">
+                  <SectionTitle icon={Car} title="Araç Bağlantısı"
+                    sub="Araçtan gelen veriler ve kurulum durumu" color="#34d399" />
+                </div>
+                <VehicleLinkCard />
+              </Panel>
 
               {/* ── Ruhsat Sınıfı (uygulanabilir hız sınırını belirler) ── */}
               <Panel accent="#60a5fa">
