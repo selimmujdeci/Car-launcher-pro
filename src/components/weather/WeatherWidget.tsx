@@ -191,8 +191,15 @@ function WeatherWidgetInner() {
             ))}
           </div>
         ) : (
+          /* Boş liste üç ayrı gerçek: arama yapılmadı (konum yok) · veri alınamadı
+             (fuelPending: API+önbellek başarısız) · aranıp bulunamadı. Yalnız
+             sonuncusu "bulunamadı" der (§8: bilinmeyen ≠ yok). */
           <div className="text-[color:var(--oem-ink-3)] text-sm text-center py-8">
-            Yakın istasyon bulunamadı
+            {ws.locationSource === 'none'
+              ? 'Konum bekleniyor — konum alınınca yakın istasyonlar aranacak'
+              : ws.fuelPending
+                ? 'İstasyon verisi bekleniyor — bağlantı gelince yeniden denenecek'
+                : 'Yakın istasyon bulunamadı'}
           </div>
         )}
 
