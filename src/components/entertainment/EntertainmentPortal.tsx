@@ -7,6 +7,7 @@ import {
   setBreakInterval, dismissBreakAlert, updateBreakReminder,
 } from '../../platform/breakReminderService';
 import { useOBDState } from '../../platform/obdService';
+import { useDisplaySpeed, formatDisplaySpeed, SPEED_UNKNOWN_TEXT } from '../../hooks/useDisplaySpeed';
 
 const CARD = { background: 'var(--oem-surface-2)', border: '1px solid var(--oem-line)', borderRadius: 24, padding: 20 };
 /* Panel zemini tema token'ından gelir: sabit koyu zemin açık temada (light-ui)
@@ -215,7 +216,11 @@ export const BreakAlertOverlay = memo(function BreakAlertOverlay() {
 export const EntertainmentPortal = memo(function EntertainmentPortal() {
   const obd = useOBDState();
   useEffect(() => { updateBreakReminder(obd.speed); }, [obd.speed]);
-  const isParked = obd.speed === 0;
+  // Gösterilen hız TEK otoriteden (kütük #417); bilinmiyorsa ("—") ne "AKTİF"
+  // (park) ne "HAREKET EDİYOR". Eskiden ham obd.speed: OBD yokken 0 → kanıtsız park.
+  const shownSpeed = formatDisplaySpeed(useDisplaySpeed());
+  const isParked = shownSpeed === '0';
+  const isMoving = shownSpeed !== SPEED_UNKNOWN_TEXT && !isParked;
 
   return (
     <div data-theme-surface="entertainment" data-editable="entertainment.screen" data-editable-type="panel"
@@ -239,11 +244,11 @@ export const EntertainmentPortal = memo(function EntertainmentPortal() {
 
       {/* İçerik */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '20px 20px 88px', display: 'flex', flexDirection: 'column', gap: 16 }}>
-        {!isParked && (
+        {isMoving && (
           <div style={{ borderRadius: 16, background: 'rgba(251,191,36,0.10)', border: '1px solid rgba(251,191,36,0.30)', padding: '12px 20px', display: 'flex', alignItems: 'center', gap: 12 }}>
             <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#fbbf24', flexShrink: 0 }} />
             <span style={{ color: '#fbbf24', fontSize: 13, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
-              ARAÇ HAREKET EDİYOR — {Math.round(obd.speed)} KM/H
+              ARAÇ HAREKET EDİYOR — {shownSpeed} KM/H
             </span>
           </div>
         )}

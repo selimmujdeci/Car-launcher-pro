@@ -5214,6 +5214,7 @@ describe('Hız gösterimi tek otoriteden gelir (#417)', () => {
     'src/components/map/NavigationHUD.tsx',
     'src/components/split/SplitScreen.tsx',
     'src/components/layout/NewHomeLayout.tsx',
+    'src/components/entertainment/EntertainmentPortal.tsx',
   ];
 
   it('🔒 hız gösteren her bileşen useDisplaySpeed kullanır', () => {
