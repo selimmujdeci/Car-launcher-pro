@@ -1484,6 +1484,24 @@ describe('Horizon harita kartı sahte veri yasağı kilidi', () => {
 });
 
 /* ───────────────────────────────────────────────────────────────
+   ANA EKRAN MÜZİK KARTI — süre bilinmezken sahte ilerleme YASAK
+   Regresyon (ekran taraması 2026-10-03): Expedition müzik kartı, parça
+   süresi bilinmezken (hiçbir şey çalmıyor / canlı yayın) ilerleme çubuğunu
+   mockup'tan kalan SABİT %36'da gösteriyordu ("Çalmıyor" + "0:00 ●── --:--").
+   Kural: süre yoksa dolum 0 — Horizon ve Pro zaten böyle.
+   ─────────────────────────────────────────────────────────────── */
+describe('Ana ekran müzik kartı sahte ilerleme yasağı kilidi', () => {
+  it.each([
+    'src/components/themes/ExpeditionLayout.tsx',
+    'src/components/themes/HorizonLayout.tsx',
+    'src/components/themes/ProLayout.tsx',
+  ])('YAPISAL: %s — süre yokken ilerleme yüzdesi 0', (file) => {
+    expect(read(file), 'süre bilinmezken sahte ilerleme yüzdesi geri gelmiş')
+      .toMatch(/const pct = total > 0 \? Math\.min\(\(elapsed \/ total\) \* 100, 100\) : 0;/);
+  });
+});
+
+/* ───────────────────────────────────────────────────────────────
    SÜRÜŞ KAMERASI STİL-KAPISI YASAĞI — "harita sabit + dönmüyor" KÖK NEDENİ
    Regresyon (SAHA 2026-07-04, tarayıcıda Doppler-0 simülasyonuyla kanıtlı):
    setDrivingView'ın tepesindeki `!map.isStyleLoaded()` guard'ı kamerayı
