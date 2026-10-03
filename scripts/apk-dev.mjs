@@ -5,6 +5,9 @@
  *   npm run apk:dev                          derle + zinciri doğrula
  *   npm run apk:dev -- --install             + cihaza kur + CİHAZDA doğrula
  *   npm run apk:dev -- --install --launch    + uygulamayı başlat
+ *   npm run apk:dev -- --install --reuse     HAZIR APK'yı kur (derleme ATLANIR) — yalnız APK
+ *                                            damgasındaki commit ile HEAD arasında ve çalışma
+ *                                            ağacında derleme girdisi değişmemişse
  *   ANDROID_SERIAL=<seri> npm run apk:dev -- --install   (birden çok cihaz)
  *
  * NEDEN: cihaz testinde eski kod koşuyordu ve bu hiçbir yerde görünmüyordu. Ölçülen/olası
@@ -119,6 +122,7 @@ function main() {
   const argv = new Set(process.argv.slice(2));
   const install = argv.has('--install');
   const launch = argv.has('--launch');
+  const reuse = argv.has('--reuse');
   const startedAt = Date.now();
 
   // ── 0 ── git kimliği ──────────────────────────────────────────────────────
@@ -137,52 +141,87 @@ function main() {
     ok('çalışma ağacı temiz');
   }
 
-  // ── 1 ── eski çıktıları sil ───────────────────────────────────────────────
-  step(1, 'eski web paketi siliniyor (dist + assets/public)');
-  for (const dir of [join(ROOT, 'dist'), ASSETS_PUBLIC]) {
-    try {
-      rmSync(dir, { recursive: true, force: true });
-    } catch (e) {
-      fail(`silinemedi: ${dir} (${e.message})`, 'Dosya kilitli olabilir (Android Studio / Gradle daemon / açık gezgin). Kapatıp yeniden çalıştır.');
+  let apkBytes;
+  let distStamp;
+  if (reuse) {
+    /* ── 1-4 ATLANDI: hazır APK yeniden kullanılır — ama yalnız kanıtla ──────────
+       Kural "eski kodla test" tuzağına karşıdır; burada da aynı kanıt aranır: APK'nın
+       İÇİNDEKİ damga HEAD'e eşit ve derleme girdileri (kaynak/android/public/paket) temiz. */
+    step('1-4', 'hazır APK yeniden kullanılıyor (derleme ATLANDI)');
+    if (!existsSync(APK)) fail(`hazır APK yok: ${APK}`, 'Önce derle: npm run apk:dev');
+    apkBytes = readFileSync(APK);
+    const inApkReuse = readZipEntry(apkBytes, APK_STAMP_ENTRY);
+    if (!inApkReuse) fail(`APK içinde ${APK_STAMP_ENTRY} yok`);
+    distStamp = JSON.parse(inApkReuse.toString('utf8'));
+    /* Derleme girdisi: APK içeriğini belirleyen yollar. apk-dev.mjs yalnız kurucudur. */
+    const isInput = (f) => f !== 'scripts/apk-dev.mjs'
+      && /^(src\/|android\/|public\/|scripts\/|website\/|index\.html$|package(-lock)?\.json$|vite\.config|tsconfig|capacitor\.config)/.test(f);
+    if (distStamp.commit !== head) {
+      /* HEAD ilerlemiş olabilir (ör. yalnız belge/betik commit'i). Aradaki farkta derleme
+         girdisi YOKSA APK'daki kod HEAD'deki kodla aynıdır; varsa yeniden derlenmeli. */
+      const diff = git(['diff', '--name-only', distStamp.commit, 'HEAD']);
+      if (diff === null) fail(`APK commit'i ${distStamp.commit} bu repoda bulunamadı`, 'Yeniden derle: npm run apk:dev -- --install');
+      const changed = diff.split(/\r?\n/).filter((f) => f && isInput(f));
+      if (changed.length > 0) {
+        fail(`hazır APK ${distStamp.commit}, HEAD ${head} — arada ${changed.length} derleme girdisi değişti (ör. ${changed[0]})`,
+          'Yeniden derle: npm run apk:dev -- --install');
+      }
+      console.log(`[apk:dev]   HEAD ${head} ≠ APK ${distStamp.commit} ama arada derleme girdisi değişmedi → kod aynı`);
     }
+    const dirtyInputs = status.split(/\r?\n/).filter((l) => l.length > 3 && isInput(l.slice(3).replace(/^"|"$/g, '')));
+    if (dirtyInputs.length > 0) {
+      fail(`derleme girdilerinde commit'lenmemiş değişiklik var (${dirtyInputs.length}) — hazır APK bunları TAŞIMAZ`,
+        'Commit\'le ve yeniden derle: npm run apk:dev -- --install');
+    }
+    ok(`hazır APK kabul edildi · etiket ${versionTag(distStamp)}`);
+  } else {
+    // ── 1 ── eski çıktıları sil ───────────────────────────────────────────────
+    step(1, 'eski web paketi siliniyor (dist + assets/public)');
+    for (const dir of [join(ROOT, 'dist'), ASSETS_PUBLIC]) {
+      try {
+        rmSync(dir, { recursive: true, force: true });
+      } catch (e) {
+        fail(`silinemedi: ${dir} (${e.message})`, 'Dosya kilitli olabilir (Android Studio / Gradle daemon / açık gezgin). Kapatıp yeniden çalıştır.');
+      }
+    }
+    ok('silindi');
+
+    // ── 2 ── web derlemesi ────────────────────────────────────────────────────
+    step(2, 'web derlemesi');
+    run('npm', ['run', 'build']);
+    distStamp = readStamp(DIST_STAMP, 'dist');
+    if (distStamp.commit !== head) fail(`dist commit ${distStamp.commit} ≠ HEAD ${head}`, 'Derleme başka bir çalışma kopyasından mı geldi?');
+    if (Date.parse(distStamp.time) < startedAt - 5000) fail(`dist damgası bu çalıştırmadan ESKİ (${distStamp.time})`);
+    if (distStamp.dirty !== (status.length > 0)) {
+      fail(
+        `dist dirty=${distStamp.dirty} ama derleme başında git durumu ${status.length > 0 ? 'değişiklikli' : 'temiz'}`,
+        'Derleme sırasında izlenen bir dosya değişti (ör. build:sw public/serviceWorker.js\'i yeniden üretti) ya da '
+          + 'derleme sürerken dosya düzenlendi. `git status` ile bak; değişikliği commit\'le ve yeniden çalıştır.',
+      );
+    }
+    ok(`dist damgası: ${versionTag(distStamp)}`);
+
+    // ── 3 ── Capacitor senkronu ───────────────────────────────────────────────
+    step(3, 'Capacitor senkronu');
+    run('npx', ['cap', 'sync', 'android']);
+    const assetsStamp = readStamp(ASSETS_STAMP, 'assets/public');
+    if (!sameStamp(assetsStamp, distStamp)) fail('assets/public damgası dist ile AYNI DEĞİL', 'cap sync eski bir web dizinini kopyalamış.');
+    ok('assets/public = dist');
+
+    // ── 4 ── Gradle ───────────────────────────────────────────────────────────
+    step(4, 'Gradle assembleDebug');
+    const g = spawnSync(process.execPath, [join(ROOT, 'scripts', 'gradle-build.mjs'), 'assembleDebug'], { stdio: 'inherit', cwd: ROOT });
+    if (g.status !== 0) fail(`gradle başarısız (exit ${g.status})`);
+    apkBytes = readFreshApk(APK, startedAt);
+    const inApk = readZipEntry(apkBytes, APK_STAMP_ENTRY);
+    if (!inApk) fail(`APK içinde ${APK_STAMP_ENTRY} yok`);
+    if (!sameStamp(JSON.parse(inApk.toString('utf8')), distStamp)) fail('APK içindeki damga dist ile AYNI DEĞİL', 'APK eski web paketini taşıyor.');
+    ok(`APK doğrulandı: ${APK}`);
   }
-  ok('silindi');
-
-  // ── 2 ── web derlemesi ────────────────────────────────────────────────────
-  step(2, 'web derlemesi');
-  run('npm', ['run', 'build']);
-  const distStamp = readStamp(DIST_STAMP, 'dist');
-  if (distStamp.commit !== head) fail(`dist commit ${distStamp.commit} ≠ HEAD ${head}`, 'Derleme başka bir çalışma kopyasından mı geldi?');
-  if (Date.parse(distStamp.time) < startedAt - 5000) fail(`dist damgası bu çalıştırmadan ESKİ (${distStamp.time})`);
-  if (distStamp.dirty !== (status.length > 0)) {
-    fail(
-      `dist dirty=${distStamp.dirty} ama derleme başında git durumu ${status.length > 0 ? 'değişiklikli' : 'temiz'}`,
-      'Derleme sırasında izlenen bir dosya değişti (ör. build:sw public/serviceWorker.js\'i yeniden üretti) ya da '
-        + 'derleme sürerken dosya düzenlendi. `git status` ile bak; değişikliği commit\'le ve yeniden çalıştır.',
-    );
-  }
-  ok(`dist damgası: ${versionTag(distStamp)}`);
-
-  // ── 3 ── Capacitor senkronu ───────────────────────────────────────────────
-  step(3, 'Capacitor senkronu');
-  run('npx', ['cap', 'sync', 'android']);
-  const assetsStamp = readStamp(ASSETS_STAMP, 'assets/public');
-  if (!sameStamp(assetsStamp, distStamp)) fail('assets/public damgası dist ile AYNI DEĞİL', 'cap sync eski bir web dizinini kopyalamış.');
-  ok('assets/public = dist');
-
-  // ── 4 ── Gradle ───────────────────────────────────────────────────────────
-  step(4, 'Gradle assembleDebug');
-  const g = spawnSync(process.execPath, [join(ROOT, 'scripts', 'gradle-build.mjs'), 'assembleDebug'], { stdio: 'inherit', cwd: ROOT });
-  if (g.status !== 0) fail(`gradle başarısız (exit ${g.status})`);
-  const apkBytes = readFreshApk(APK, startedAt);
-  const inApk = readZipEntry(apkBytes, APK_STAMP_ENTRY);
-  if (!inApk) fail(`APK içinde ${APK_STAMP_ENTRY} yok`);
-  if (!sameStamp(JSON.parse(inApk.toString('utf8')), distStamp)) fail('APK içindeki damga dist ile AYNI DEĞİL', 'APK eski web paketini taşıyor.');
   const tag = versionTag(distStamp);
-  ok(`APK doğrulandı: ${APK}`);
 
   if (!install) {
-    console.log(`\n[apk:dev] HAZIR — etiket ${tag}. Cihaza kurmak için: npm run apk:dev -- --install`);
+    console.log(`\n[apk:dev] HAZIR — etiket ${tag}. Cihaza kurmak için: npm run apk:dev -- --install${reuse ? ' --reuse' : ''}`);
     return;
   }
 
